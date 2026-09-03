@@ -207,7 +207,9 @@ describe("ResumeThemePicker", () => {
     expect(container?.textContent).toContain("Choose a template");
     expect(container?.textContent).toContain("Engineering Spec · Skills First");
     expect(container?.textContent).toContain("Recommended");
-    expect(container?.textContent).toContain("Sample renderer preview");
+    expect(container?.textContent).toContain(
+      "The preview below uses sample content, not your resume.",
+    );
     const pickerGroup = container?.querySelector('[role="group"]');
     const pickerLabelId = pickerGroup?.getAttribute("aria-labelledby");
     expect(pickerLabelId).toBeTruthy();

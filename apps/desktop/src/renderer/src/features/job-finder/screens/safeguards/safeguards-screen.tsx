@@ -1,4 +1,6 @@
+import { PageHeader } from "../../components/page-header";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import type {
   JobFinderWorkspaceSnapshot,
   SafeguardMutationInput,
@@ -13,6 +15,7 @@ import {
   isDailyPreparationCapacityExhausted,
 } from "@renderer/features/job-finder/lib/job-finder-daily-capacity";
 import { cn } from "@renderer/lib/utils";
+import { SafeguardsApplicationBoundary } from "./safeguards-application-boundary";
 import {
   buildSafeguardsPresentationModel,
   filterSafeguardRows,
@@ -115,6 +118,14 @@ function SafeguardRowCard(props: {
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
+        {/* The recovery sentence above names a place to look. This is that
+            place, so the guidance is never an instruction the page refuses to
+            carry out. */}
+        {row.recoveryLink ? (
+          <Button asChild size="sm" type="button" variant="outline">
+            <Link to={row.recoveryLink.href}>{row.recoveryLink.label}</Link>
+          </Button>
+        ) : null}
         <span className="ml-auto flex flex-wrap justify-end gap-2">
           {row.controls.map((control) => (
             <Button
@@ -153,6 +164,9 @@ export function SafeguardsScreen(props: {
   const { actionMessage, isPending, onMutateSafeguards, workspace } = props;
   const [tab, setTab] = useState<SafeguardTabId>("all");
   const [query, setQuery] = useState("");
+  const [eventsOpenOverride, setEventsOpenOverride] = useState<boolean | null>(
+    null,
+  );
 
   const model = useMemo(
     () =>
@@ -175,10 +189,20 @@ export function SafeguardsScreen(props: {
     );
   }
 
-  const visibleRows = filterSafeguardRows(model.rows, tab, query);
   const blockedCount = model.counts.blockers;
   const isEmpty = model.rows.length === 0;
+  // Zero-count filters were seven of eight chips on a healthy workspace and
+  // wrapped the row onto a second line for nothing. Only categories that have
+  // something in them are offered.
+  const visibleTabs = TAB_ORDER.filter(
+    (entry) => entry.id === "all" || countForTab(model.counts, entry.id) > 0,
+  );
+  const activeTab = visibleTabs.some((entry) => entry.id === tab) ? tab : "all";
+  const visibleRows = filterSafeguardRows(model.rows, activeTab, query);
   const isNoMatch = !isEmpty && visibleRows.length === 0;
+  // The event engine is secondary to the boundary above it, so it stays
+  // folded away unless something is actually blocking work.
+  const eventsOpen = eventsOpenOverride ?? blockedCount > 0;
   // The fixed local-day preparation limit is a limit, not a blocker: with no
   // slots left the page must not claim that "preparation is clear".
   const dailyCapacity =
@@ -188,20 +212,18 @@ export function SafeguardsScreen(props: {
 
   return (
     <section aria-label="High-volume safeguards" className="grid gap-4">
-      <header className="grid gap-2">
-        <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-foreground-muted">
-          Quality and reputation
-        </p>
-        <h1 className="font-display text-2xl font-semibold tracking-[-0.03em] text-(--text-headline)">
-          Safeguards
-        </h1>
-        <p className="max-w-3xl text-(length:--text-small) leading-6 text-foreground-soft">
-          Automatic pauses and quality gates that keep high-volume discovery and
-          application preparation safe. These are local tracking facts: they can
-          pause discovery or preparation, but never grant credentials, CAPTCHA,
-          MFA, consent, account creation, or final-submit authority.
-        </p>
-      </header>
+      {/* This screen used to paint its own <h1> at a bespoke size, so its
+          page title could drift away from every other route's. It goes
+          through the shared PageHeader like the rest of the app. The card
+          below states the boundary in full, so the description no longer
+          paraphrases it in smaller type first. */}
+      <PageHeader
+        description="What Job Finder is allowed to do on an application site, and the automatic limits that keep a high-volume search safe."
+        meta="Quality and reputation"
+        title="Safeguards"
+      />
+
+      <SafeguardsApplicationBoundary />
 
       {blockedCount > 0 ? (
         <div
@@ -248,98 +270,134 @@ export function SafeguardsScreen(props: {
         </p>
       ) : null}
 
-      {!isEmpty ? (
-        <div
-          className="grid min-w-0 gap-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(0,3fr)] lg:items-start"
-          data-safeguard-toolbar
-        >
-          <div className="relative min-w-0">
-            <Search
-              aria-hidden="true"
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              aria-label="Search safeguards"
-              className="pl-9"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search safeguards"
-              type="search"
-              value={query}
-            />
-          </div>
-          <div
-            aria-label="Safeguard categories"
-            className="flex min-w-0 w-full flex-wrap items-center gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-1"
-            data-safeguard-categories
-            role="group"
-          >
-            {TAB_ORDER.map((entry) => {
-              const count =
-                entry.id === "all"
-                  ? model.counts.blockers
-                  : entry.id === "caps"
-                    ? model.counts.caps
-                    : entry.id === "conflicts"
-                      ? model.counts.conflicts
-                      : entry.id === "signals"
-                        ? model.counts.signals
-                        : entry.id === "pauses"
-                          ? model.counts.pauses
-                          : entry.id === "reviews"
-                            ? model.counts.reviews
-                            : entry.id === "contradictions"
-                              ? model.counts.contradictions
-                              : model.counts.dismissals;
-              return (
-                <button
-                  aria-pressed={tab === entry.id}
-                  className={cn(
-                    "inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-full px-3 text-(length:--text-small) font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                    tab === entry.id
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  key={entry.id}
-                  onClick={() => setTab(entry.id)}
-                  type="button"
-                >
-                  {entry.label}
-                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-(--input) px-1 text-[0.65rem] tabular-nums text-foreground">
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
+      <details
+        className="surface-panel-shell grid min-w-0 gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-4"
+        data-safeguard-events
+        onToggle={(event) =>
+          setEventsOpenOverride(event.currentTarget.open ? true : false)
+        }
+        open={eventsOpen}
+      >
+        <summary className="flex cursor-pointer flex-wrap items-center gap-2 text-(length:--text-body) font-semibold text-(--text-headline)">
+          Safety events and automatic pauses
+          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-(--input) px-1 text-(length:--text-tiny) tabular-nums font-normal text-foreground">
+            {model.counts.total}
+          </span>
+        </summary>
 
-      {isEmpty ? (
-        <div data-safeguard-empty>
-          <EmptyState
-            className="min-h-40 px-5 py-6"
-            description="No caps, conflicts, listing signals, failure pauses, sample reviews, or contradictory answers have been recorded yet. They appear here automatically when the pipeline detects them."
-            title="No safeguards yet"
-          />
-        </div>
-      ) : isNoMatch ? (
-        <EmptyState
-          className="min-h-40 px-5 py-6"
-          description="Nothing in this category matches your search. Try a different term or clear the search box."
-          title="No matching safeguards"
-        />
-      ) : (
-        <div className="grid gap-3">
-          {visibleRows.map((row) => (
-            <SafeguardRowCard
-              isPending={isPending}
-              key={row.key}
-              onMutate={onMutateSafeguards}
-              row={row}
+        <div className="grid min-w-0 gap-3 pt-3">
+          {!isEmpty ? (
+            <div
+              className="grid min-w-0 gap-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(0,3fr)] lg:items-start"
+              data-safeguard-toolbar
+            >
+              <div className="relative min-w-0">
+                <Search
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                />
+                <Input
+                  aria-label="Search safeguards"
+                  className="pl-9"
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search safeguards"
+                  type="search"
+                  value={query}
+                />
+              </div>
+              <div
+                aria-label="Safeguard categories"
+                className="flex min-w-0 w-full flex-wrap items-center gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-1"
+                data-safeguard-categories
+                role="group"
+              >
+                {visibleTabs.map((entry) => {
+                  const count = countForTab(model.counts, entry.id);
+                  return (
+                    <button
+                      aria-pressed={activeTab === entry.id}
+                      className={cn(
+                        "inline-flex h-8 min-w-8 items-center justify-center gap-1.5 rounded-full px-3 text-(length:--text-small) font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                        activeTab === entry.id
+                          ? "bg-secondary text-foreground"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                      key={entry.id}
+                      onClick={() => setTab(entry.id)}
+                      type="button"
+                    >
+                      {entry.label}
+                      <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-(--input) px-1 text-(length:--text-tiny) tabular-nums text-foreground">
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {isEmpty ? (
+            <div data-safeguard-empty>
+              <EmptyState
+                className="min-h-40 px-5 py-6"
+                description="Job Finder records an event here only when one of its limits is actually reached — a per-company application limit, a listing that looks closed or suspicious, an unusual run of failures, or a batch waiting for your spot check. Nothing has been recorded yet."
+                title="No safety events yet"
+              />
+            </div>
+          ) : isNoMatch ? (
+            <EmptyState
+              className="min-h-40 px-5 py-6"
+              description="Nothing in this category matches your search. Try a different term or clear the search box."
+              title="No matching safeguards"
             />
-          ))}
+          ) : (
+            <div className="grid gap-3">
+              {visibleRows.map((row) => (
+                <SafeguardRowCard
+                  isPending={isPending}
+                  key={row.key}
+                  onMutate={onMutateSafeguards}
+                  row={row}
+                />
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </details>
     </section>
   );
+}
+
+function countForTab(
+  counts: {
+    caps: number;
+    conflicts: number;
+    signals: number;
+    pauses: number;
+    reviews: number;
+    contradictions: number;
+    dismissals: number;
+    total: number;
+  },
+  tab: SafeguardTabId,
+): number {
+  switch (tab) {
+    case "all":
+      return counts.total;
+    case "caps":
+      return counts.caps;
+    case "conflicts":
+      return counts.conflicts;
+    case "signals":
+      return counts.signals;
+    case "pauses":
+      return counts.pauses;
+    case "reviews":
+      return counts.reviews;
+    case "contradictions":
+      return counts.contradictions;
+    case "dismissals":
+      return counts.dismissals;
+  }
 }

@@ -59,6 +59,18 @@ import type {
   JobFinderStartupDatabaseRecoveryFact,
   JobFinderStartupDatabaseRecoveryRestoredFact,
 } from "../../../shared/job-finder-startup-db-recovery";
+
+// The authority manager must use the same repository handle as the workspace
+// service. A weak association keeps this accessor scoped to the live service
+// instance without retaining a shut-down workspace in process memory.
+const repositoryByWorkspaceService = new WeakMap<object, JobFinderRepository>();
+
+export function getJobFinderRepositoryForWorkspaceService(
+  workspaceService: object,
+): JobFinderRepository | null {
+  return repositoryByWorkspaceService.get(workspaceService) ?? null;
+}
+
 const deterministicTestTimestamp = "2026-03-20T10:00:00.000Z";
 
 /**
@@ -344,6 +356,7 @@ export function createDesktopJobFinderAiClient(
   if (desktopTestApiEnabled && !forceLiveAiDuringTestApi) {
     return createDeterministicJobFinderAiClient(
       "Desktop test API forces deterministic AI runtime so scripted UI flows stay stable even when local model credentials exist.",
+      { generationReason: "forced_deterministic" },
     );
   }
 
@@ -421,17 +434,39 @@ export function createDesktopBrowserRuntime(
     ) {
       return {
         ...runtime,
-        executeApplicationFlow: (source, executionInput, executionOptions) =>
-          runtime.executeApplicationFlow(
+        executeApplicationFlow: (source, executionInput, executionOptions) => {
+          let syntheticOrigin: string | null = null;
+          try {
+            const candidate = new URL(
+              executionInput.job.applicationUrl ??
+                executionInput.job.canonicalUrl,
+            );
+            if (
+              candidate.hostname === "localhost" ||
+              candidate.hostname === "127.0.0.1" ||
+              candidate.hostname === "[::1]"
+            ) {
+              syntheticOrigin = candidate.origin;
+            }
+          } catch {
+            syntheticOrigin = null;
+          }
+          return runtime.executeApplicationFlow(
             source,
-            {
-              ...executionInput,
-              intermediateMutationsAuthorized: true,
-              accountCreationAuthorized: false,
-              submitAuthorized: false,
-            },
+            syntheticOrigin === null
+              ? executionInput
+              : {
+                  ...executionInput,
+                  intermediateMutationsAuthorized: true,
+                  intermediateMutationAllowedOrigins: [syntheticOrigin],
+                  recheckIntermediateMutationAuthority: (observedOrigin) =>
+                    Promise.resolve(observedOrigin === syntheticOrigin),
+                  accountCreationAuthorized: false,
+                  submitAuthorized: false,
+                },
             executionOptions,
-          ),
+          );
+        },
       };
     }
 
@@ -484,6 +519,13 @@ export async function createJobFinderWorkspaceServiceAsync(
     }
     throw error;
   }
+  // Reconcile any crash-interrupted authority attempt before constructing or
+  // exposing the workspace service. The repository transition is durable and
+  // idempotent: armed attempts become permanently uncertain, active grants are
+  // revoked, and no browser action or submission capability is opened here.
+  await jobFinderRepository.recoverArmedSubmissionAttempts({
+    now: new Date().toISOString(),
+  });
   clearBlockedStartupDatabaseRecoveryIncident();
   await recoverPendingJobFinderWorkspaceReset(jobFinderRepository);
   await migrateLegacyResumeSource({
@@ -518,6 +560,7 @@ export async function createJobFinderWorkspaceServiceAsync(
     candidateAssetResolver: getCandidateAssetLibrary(),
     ...(researchAdapter ? { researchAdapter } : {}),
   });
+  repositoryByWorkspaceService.set(workspaceService, jobFinderRepository);
 
   // One-time lossless adoption for legacy pristine targetless workspaces.
   // Runs through the canonical save path; a failure must never block startup,

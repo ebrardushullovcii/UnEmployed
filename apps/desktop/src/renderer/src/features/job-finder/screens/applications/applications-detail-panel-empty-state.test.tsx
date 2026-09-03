@@ -20,7 +20,7 @@ describe("ApplicationsDetailPanelEmptyState", () => {
     );
 
     const shortlistedLink = screen.getByRole("link", {
-      name: "Go to Shortlisted",
+      name: "Open Shortlisted",
     });
     expect(shortlistedLink.getAttribute("href")).toBe(
       "/job-finder/review-queue",
@@ -29,6 +29,11 @@ describe("ApplicationsDetailPanelEmptyState", () => {
     expect(
       screen.queryByText("Start an application from the list on the left."),
     ).toBeNull();
+    expect(
+      screen.getByText(
+        /choose Prepare application.*final submission stays disabled/i,
+      ),
+    ).toBeTruthy();
   });
 
   it("keeps filter-specific guidance when records exist outside the active view", () => {

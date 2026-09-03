@@ -29,6 +29,7 @@ import type {
   RapidReviewMutationInput,
   RecommendResumeStrategyInput,
   RecordOutcomeInput,
+  ResolveSubmissionOutcomeInput,
   SafeguardMutationInput,
   ReviewCompanyMergeInput,
   SaveResumeStrategyInput,
@@ -47,6 +48,7 @@ import type {
   ProjectGroupedManualAnswerCommand,
   ResumeImportProgressEvent,
   ResumeApplicationMode,
+  ResumePdfExportIntent,
   ResumeTimelineRepairAction,
   ResumeDraft,
   ResumeDraftPatch,
@@ -132,6 +134,16 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
   const performanceRunRef = useRef(0);
   const workspaceRef = useRef<JobFinderWorkspaceSnapshot | null>(null);
   const workspaceRevisionRef = useRef<WorkspaceRevision>(0);
+  // Progress belongs to the import invocation that registered its callback.
+  // A native file picker may settle after a route change or a renderer reload;
+  // request identity keeps a late event from repainting a newer import.
+  const resumeImportRequestSequenceRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      resumeImportRequestSequenceRef.current += 1;
+    };
+  }, []);
   // A workspace action may finish after a newer action has already committed.
   // Keep the latest invocation authoritative so a slow IPC response cannot
   // restore an older snapshot or revision.
@@ -222,6 +234,21 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         return workspaceRef.current ?? workspace;
       }
 
+      // A bare snapshot response carries no revision, so the delta baseline
+      // must be surrendered here. `0` means "this workspace corresponds to no
+      // revision main knows about", which forces the next sync to ask for a
+      // full snapshot and re-baseline both sides together.
+      //
+      // Do NOT "optimise" this into keeping the previous revision: main's
+      // tracker baseline would still be the pre-mutation snapshot while the
+      // committed workspace is the post-mutation one, so the next delta would
+      // be computed against a state the renderer no longer holds. An entity
+      // created by this mutation and removed before the next sync would then
+      // survive forever in the UI, because it is absent from both the baseline
+      // and the current snapshot and therefore never appears in `removedIds`.
+      // The revision can only be carried forward once the mutation response
+      // itself carries it (see `runWorkspaceEntityMutation`, which does exactly
+      // that through the typed sync envelope).
       workspaceRevisionRef.current = 0;
       commitWorkspace(workspace);
       return workspace;
@@ -426,9 +453,12 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
             revisionId,
           ),
         ),
-      exportResumePdf: (jobId: string) =>
+      exportResumePdf: (
+        jobId: string,
+        intent: ResumePdfExportIntent = "download",
+      ) =>
         runWorkspaceAction(() =>
-          window.unemployed.jobFinder.exportResumePdf(jobId),
+          window.unemployed.jobFinder.exportResumePdf(jobId, intent),
         ),
       approveResume: (jobId: string, exportId: string) =>
         runWorkspaceAction(() =>
@@ -526,13 +556,18 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
       exportApplicationCrm: (input: ApplicationCrmExportInput) =>
         window.unemployed.jobFinder.exportApplicationCrm(input),
       importResume: () => {
+        const requestSequence = ++resumeImportRequestSequenceRef.current;
         setWorkspaceState((currentState) =>
           currentState.status === "ready"
             ? { ...currentState, resumeImportProgress: null }
             : currentState,
         );
-        return runWorkspaceAction(() =>
+        const importPromise = runWorkspaceAction(() =>
           window.unemployed.jobFinder.importResume((progress) => {
+            if (resumeImportRequestSequenceRef.current !== requestSequence) {
+              return;
+            }
+
             setWorkspaceState((currentState) =>
               currentState.status === "ready"
                 ? { ...currentState, resumeImportProgress: progress }
@@ -540,6 +575,22 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
             );
           }),
         );
+
+        return importPromise.finally(() => {
+          if (resumeImportRequestSequenceRef.current !== requestSequence) {
+            return;
+          }
+
+          // Invalidate the callback before clearing its visible progress so a
+          // late event from a closed picker cannot resurrect Guided setup's
+          // busy state.
+          resumeImportRequestSequenceRef.current += 1;
+          setWorkspaceState((currentState) =>
+            currentState.status === "ready"
+              ? { ...currentState, resumeImportProgress: null }
+              : currentState,
+          );
+        });
       },
       queueJobForReview: (jobId: string) =>
         runWorkspaceEntityMutation({
@@ -596,6 +647,8 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         ),
       exportApplicationPacket: (input: JobFinderApplyRunDetailsQuery) =>
         window.unemployed.jobFinder.exportApplicationPacket(input),
+      resolveSubmissionOutcome: (input: ResolveSubmissionOutcomeInput) =>
+        window.unemployed.jobFinder.resolveSubmissionOutcome(input),
       saveSourceInstructionArtifact: (
         targetId: string,
         artifact: EditableSourceInstructionArtifact,

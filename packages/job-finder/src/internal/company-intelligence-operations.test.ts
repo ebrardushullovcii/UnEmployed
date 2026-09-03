@@ -513,6 +513,66 @@ describe("reconcileCompanies", () => {
   );
 
   test.each([
+    "Employer not stated",
+    "Location not stated",
+    "Unknown",
+    "Politikë e Privatësisë",
+    "Politikë e Privatësisë dhe Mbrojtjes së të Dhënave Personale",
+    "Privacy Policy",
+  ])("purges legacy unlistable company shell %s", (name) => {
+    const result = reconcileCompanies({
+      companies: [
+        makeCompany({
+          id: "placeholder",
+          canonicalName: name,
+          jobIds: ["job_placeholder"],
+          applicationRecordIds: [],
+          mergeReviewCandidates: [
+            {
+              candidateCompanyId: "real",
+              reason: "Near-name conflict.",
+              decision: "pending",
+              decidedAt: null,
+              requiresUserDecision: true,
+            },
+          ],
+        }),
+        makeCompany({
+          id: "real",
+          canonicalName: "Acme Inc",
+          jobIds: ["job_real"],
+          mergeReviewCandidates: [
+            {
+              candidateCompanyId: "placeholder",
+              reason: "Near-name conflict.",
+              decision: "pending",
+              decidedAt: null,
+              requiresUserDecision: true,
+            },
+          ],
+        }),
+      ],
+      jobs: [
+        makeJob({
+          id: "job_placeholder",
+          company: name,
+        }),
+        makeJob({ id: "job_real", company: "Acme Inc" }),
+      ],
+      applicationRecords: [],
+      now,
+      createCompanyId: defaultCreateCompanyId,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.companies.map((company) => company.id)).toEqual(["real"]);
+    expect(result.companies[0]?.jobIds).toEqual(["job_real"]);
+    expect(result.companies[0]?.mergeReviewCandidates).toEqual([]);
+    expect(result.summary.createdCompanyIds).toEqual([]);
+  });
+
+  test.each([
     "Named Staffing Agency",
     "Recruiting Agency Partners",
     "Staffing Agency, Inc.",

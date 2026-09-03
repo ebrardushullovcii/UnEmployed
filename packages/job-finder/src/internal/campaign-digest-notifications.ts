@@ -3,12 +3,14 @@ import {
   CampaignNotificationSchema,
   DiscoveryRunRecordSchema,
   IsoDateTimeSchema,
+  type SavedJob,
   type CampaignDigest,
   type CampaignDigestFailedSource,
   type CampaignNotification,
   type CampaignRunFacts,
   type DiscoveryRunRecord,
 } from "@unemployed/contracts";
+import { isProvisionalMatchAssessment } from "../discovery-ordering";
 
 /**
  * Pure, deterministic campaign digest + notification helpers.
@@ -179,6 +181,13 @@ export interface StrongMatchEvidence {
   company?: string | null;
   /** Fit score on the 0-100 match scale; only scores at/above the strong threshold notify. */
   fitScore: number;
+  /**
+   * The saved-job assessment projection that proves whether `fitScore` is
+   * bound to the current candidate context and posting. Missing evidence is
+   * intentionally treated as provisional so notification copy never promotes
+   * an unbound score to candidate-facing authority.
+   */
+  assessment?: Pick<SavedJob, "discoveryMethod" | "matchAssessment">;
 }
 
 /** Evidence for one blocked or failed piece of campaign work (e.g. an apply job). */
@@ -292,6 +301,10 @@ export function deriveCampaignNotifications(
     seenIds.add(id);
 
     const company = match.company?.trim();
+    const fitCopy =
+      match.assessment && !isProvisionalMatchAssessment(match.assessment)
+        ? `scores ${match.fitScore} of 100`
+        : "has fit not assessed";
     notifications.push(
       CampaignNotificationSchema.parse({
         id,
@@ -300,8 +313,8 @@ export function deriveCampaignNotifications(
         title: truncate(`Strong match: ${title}`, 200),
         body:
           company && company.length > 0
-            ? `New match at ${company} scores ${match.fitScore} of 100.`
-            : `New match scores ${match.fitScore} of 100.`,
+            ? `New match at ${company} ${fitCopy}.`
+            : `New match ${fitCopy}.`,
         createdAt: input.now,
         unread: true,
         readAt: null,

@@ -175,26 +175,90 @@ describe("ProfileScreen ready-state density and save-bar footprint", () => {
     renderProfileScreen();
 
     // Ready state keeps the banner path intact.
-    expect(screen.getByText("Profile ready")).toBeTruthy();
+    expect(screen.getByText("Core setup is ready.")).toBeTruthy();
 
     // Tab panel content padding is tightened at wide breakpoints.
     const panel = document.getElementById("profile-section-panel");
     expect(panel?.className).toContain("sm:py-3");
     expect(panel?.className).not.toContain("sm:p-4");
 
-    // Section tabs sit closer to the panel.
-    const tabsGrid = screen.getByRole("tablist", { name: "Profile sections" })
-      .parentElement?.parentElement;
+    // Section tabs sit closer to the panel and stay above the completeness strip.
+    const tabsGrid = screen
+      .getByRole("tablist", { name: "Profile sections" })
+      .closest("[class*='xl:grid-rows']");
     expect(tabsGrid?.className).toContain("gap-2");
     expect(tabsGrid?.className).not.toContain("--gap-content");
 
-    // The sticky save bar reserves a smaller height through the
-    // screen-owned wrapper while keeping the shared footer contract.
+    // The save bar is pinned chrome, not the tail of the scrolling page.
     const saveBar = document.querySelector("[data-profile-workspace-actions]");
     expect(saveBar).toBeTruthy();
-    expect(saveBar?.parentElement?.className).toContain(
-      "[&>[data-profile-workspace-actions]]:py-3",
+    expect(
+      saveBar?.closest("[data-locked-screen-bottom-content]"),
+    ).toBeTruthy();
+  });
+
+  // F01 regression. Profile rendered `ProfileSaveFooter` at the end of a
+  // ~5,400px page: measured at y 5387 in an 852px viewport (1440x920), y 5533
+  // (1200x640) and y 5681 (1024x720), enabled, with "Unsaved changes on this
+  // page." beside it - all four thousand pixels below the fold. jsdom has no
+  // layout engine, so the assertion here is structural and is the thing that
+  // actually decides the geometry: the save control must live in the pinned
+  // bottom slot, which is a `shrink-0` flex sibling of the `min-h-0 flex-1`
+  // scroller inside an `h-full` section, and must not be inside the scroller.
+  it.each([
+    ["1440x920", 1440, 920],
+    ["1200x640", 1200, 640],
+    ["1024x720", 1024, 720],
+  ])(
+    "keeps Save outside the scroll area and inside the pinned footer at %s",
+    (_label, width, height) => {
+      vi.stubGlobal("innerWidth", width);
+      vi.stubGlobal("innerHeight", height);
+      renderProfileScreen();
+
+      const save = screen.getByRole("button", { name: "Save changes" });
+      const scrollArea = document.querySelector(
+        "[data-locked-screen-scroll-area]",
+      );
+      const pinnedFooter = document.querySelector(
+        "[data-locked-screen-bottom-content]",
+      );
+
+      expect(pinnedFooter).toBeTruthy();
+      expect(pinnedFooter?.contains(save)).toBe(true);
+      expect(scrollArea?.contains(save)).toBe(false);
+      expect(pinnedFooter?.className).toContain("shrink-0");
+    },
+  );
+
+  it("reports the dirty state next to the pinned Save control", () => {
+    renderProfileScreen();
+
+    const pinnedFooter = document.querySelector(
+      "[data-locked-screen-bottom-content]",
     );
+
+    // Clean profile: the footer still says so, so "no indicator" can never be
+    // confused with "the indicator is somewhere below the fold".
+    expect(pinnedFooter?.textContent).toContain("No unsaved changes.");
+
+    const firstName = document.querySelector<HTMLInputElement>(
+      'input[name="identity.firstName"]',
+    );
+    expect(firstName).toBeTruthy();
+    if (!firstName) {
+      return;
+    }
+    fireEvent.change(firstName, { target: { value: "ReadyX" } });
+
+    expect(pinnedFooter?.textContent).toContain(
+      "Unsaved changes on this page.",
+    );
+    expect(
+      screen
+        .getByRole("button", { name: "Save changes" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
   });
 
   it("marks the section panel scroller as the single locked pane scroll region", () => {
@@ -226,6 +290,56 @@ describe("ProfileScreen ready-state density and save-bar footprint", () => {
     expect(screen.getByRole("textbox", { name: "Target roles" })).toBeTruthy();
   });
 
+  it("keeps non-Basics tabs above a compact resume summary instead of the full review surface", () => {
+    renderProfileScreen({
+      initialEntry: "/job-finder/profile?section=experience",
+    });
+
+    const summary = document.querySelector("[data-profile-resume-summary]");
+    expect(summary).toBeTruthy();
+    expect(
+      screen
+        .getByRole("tab", { name: /Work history/ })
+        .getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(screen.getAllByText("Work history").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Imported details")).toBeNull();
+    expect(screen.queryByText("Optional review")).toBeNull();
+  });
+
+  it("puts the editable Basics content before the detailed resume review surface", () => {
+    renderProfileScreen({
+      initialEntry: "/job-finder/profile?section=basics",
+    });
+
+    expect(
+      document.querySelector("[data-profile-resume-summary]"),
+    ).toBeTruthy();
+    expect(document.querySelector("[data-profile-resume-review]")).toBeTruthy();
+    expect(screen.getByText("Imported details")).toBeTruthy();
+
+    const summary = document.querySelector("[data-profile-resume-summary]");
+    const basicsEditor = document.querySelector(
+      '[aria-labelledby="basics-tab"][role="tabpanel"]',
+    );
+    const detailedReview = document.querySelector(
+      "[data-profile-resume-review]",
+    );
+
+    expect(summary).toBeTruthy();
+    expect(basicsEditor).toBeTruthy();
+    expect(detailedReview).toBeTruthy();
+    if (!basicsEditor || !detailedReview) {
+      throw new Error(
+        "Expected the Basics editor and detailed resume review surface to render.",
+      );
+    }
+    expect(
+      basicsEditor.compareDocumentPosition(detailedReview) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("keeps the save path wired from the shared save bar to both payloads", () => {
     const onSaveAll =
       vi.fn<
@@ -253,6 +367,38 @@ describe("ProfileScreen ready-state density and save-bar footprint", () => {
     const [savedProfile, savedPreferences] = onSaveAll.mock.calls[0]!;
     expect(savedProfile.fullName).toBe("Ready Candidate");
     expect(savedPreferences.workModes).toContain("remote");
+  });
+
+  it("keeps malformed email edits local and replaces stale success feedback with validation", () => {
+    const onSaveAll = vi.fn();
+    const props = buildProfileScreenProps({ onSaveAll });
+    props.actionState = { message: "Profile and saved answers saved." };
+
+    render(
+      <MemoryRouter initialEntries={["/job-finder/profile"]}>
+        <ProfileScreen {...props} />
+      </MemoryRouter>,
+    );
+
+    const emailInput = screen.getByRole("textbox", { name: "Email" });
+    fireEvent.change(emailInput, { target: { value: "not-an-email" } });
+    expect(emailInput.getAttribute("aria-invalid")).toBe("true");
+
+    fireEvent.click(
+      screen.getByRole<HTMLButtonElement>("button", {
+        name: "Save changes",
+      }),
+    );
+
+    expect(onSaveAll).not.toHaveBeenCalled();
+    expect(
+      screen
+        .getAllByRole("alert")
+        .some((alert) =>
+          alert.textContent?.includes("Email must be a valid email address."),
+        ),
+    ).toBe(true);
+    expect(screen.queryByText("Profile and saved answers saved.")).toBeNull();
   });
 
   it("announces a kept-draft background merge and saves merged canonical data", () => {

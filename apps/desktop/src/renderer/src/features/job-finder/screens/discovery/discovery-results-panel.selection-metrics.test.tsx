@@ -1,0 +1,145 @@
+// @vitest-environment jsdom
+
+import { SavedJobSchema, type SavedJob } from "@unemployed/contracts";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { DiscoveryResultsPanel } from "./discovery-results-panel";
+
+const browserSession = {
+  source: "target_site" as const,
+  status: "ready" as const,
+  driver: "chrome_profile_agent" as const,
+  label: "Browser ready",
+  detail: "Browser session is ready.",
+  lastCheckedAt: "2026-07-30T10:00:00.000Z",
+};
+
+function createJob(index: number): SavedJob {
+  const ordinal = index.toString().padStart(2, "0");
+  return SavedJobSchema.parse({
+    id: `selection_metrics_job_${ordinal}`,
+    source: "target_site",
+    sourceJobId: `selection_metrics_source_${ordinal}`,
+    canonicalUrl: `https://jobs.example.test/roles/${ordinal}`,
+    applicationUrl: `https://jobs.example.test/roles/${ordinal}/apply`,
+    title: `Senior Product Designer ${ordinal}`,
+    company: `Selection Company ${index}`,
+    location: "Remote",
+    workMode: ["remote"],
+    applyPath: "external_redirect",
+    easyApplyEligible: false,
+    discoveredAt: "2026-07-30T10:00:00.000Z",
+    salaryText: null,
+    description: `Own product systems for role ${ordinal}.`,
+    status: "discovered",
+    discoveryMethod: "browser_agent",
+    matchAssessment: {
+      score: 80 - index,
+      reasons: ["Relevant product design experience"],
+      gaps: [],
+      contextFingerprint: "match_context_v4_candidate",
+      postingFingerprint: `match_posting_v4_listing_${ordinal}`,
+    },
+  });
+}
+
+function renderResults(jobs: readonly SavedJob[], selected: SavedJob | null) {
+  return render(
+    <DiscoveryResultsPanel
+      browserSession={browserSession}
+      hasCompletedSearch
+      jobs={jobs}
+      onSelectJob={vi.fn()}
+      selectedJob={selected}
+    />,
+  );
+}
+
+function boxClasses(row: HTMLElement): string {
+  return (row.getAttribute("class") ?? "")
+    .split(/\s+/)
+    .filter((token) =>
+      /^-?(?:p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|gap|gap-x|gap-y|border|border-[xytrbl])(?:-|$)/.test(
+        token,
+      ),
+    )
+    .sort()
+    .join(" ");
+}
+
+afterEach(() => {
+  cleanup();
+});
+
+describe("Find jobs result rows adopt the shared selectable-row contract", () => {
+  it("keeps identical box metrics whether or not a row is selected", () => {
+    const jobs = [createJob(0), createJob(1)];
+    const { container, rerender } = renderResults(jobs, jobs[0] ?? null);
+
+    const selectedFirst = container.querySelector<HTMLElement>(
+      `[data-job-result-id="${jobs[0]!.id}"]`,
+    );
+    const unselectedSecond = container.querySelector<HTMLElement>(
+      `[data-job-result-id="${jobs[1]!.id}"]`,
+    );
+    if (!selectedFirst || !unselectedSecond) {
+      throw new Error("Expected both result rows to be rendered.");
+    }
+
+    // Selection is a tint plus an inset accent bar; it may never add or remove
+    // padding, margin or border width, because that reflows every row below.
+    expect(boxClasses(selectedFirst)).toBe(boxClasses(unselectedSecond));
+    expect(selectedFirst.getAttribute("aria-current")).toBe("true");
+    expect(selectedFirst.getAttribute("data-selected")).toBe("true");
+    expect(unselectedSecond.getAttribute("aria-current")).toBeNull();
+    expect(unselectedSecond.getAttribute("data-selected")).toBe("false");
+
+    rerender(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        hasCompletedSearch
+        jobs={jobs}
+        onSelectJob={vi.fn()}
+        selectedJob={jobs[1] ?? null}
+      />,
+    );
+
+    const movedFirst = container.querySelector<HTMLElement>(
+      `[data-job-result-id="${jobs[0]!.id}"]`,
+    );
+    const movedSecond = container.querySelector<HTMLElement>(
+      `[data-job-result-id="${jobs[1]!.id}"]`,
+    );
+    if (!movedFirst || !movedSecond) {
+      throw new Error("Expected both result rows to survive the rerender.");
+    }
+
+    expect(boxClasses(movedFirst)).toBe(boxClasses(selectedFirst));
+    expect(boxClasses(movedSecond)).toBe(boxClasses(unselectedSecond));
+    expect(movedSecond.getAttribute("aria-current")).toBe("true");
+    expect(movedFirst.getAttribute("aria-current")).toBeNull();
+  });
+
+  it("renders no content line conditionally on selection", () => {
+    const jobs = [createJob(0), createJob(1)];
+    const { container } = renderResults(jobs, jobs[0] ?? null);
+
+    const lineCount = (jobId: string) =>
+      container.querySelector<HTMLElement>(`[data-job-result-id="${jobId}"]`)
+        ?.childElementCount ?? -1;
+
+    expect(lineCount(jobs[0]!.id)).toBe(lineCount(jobs[1]!.id));
+  });
+
+  it("states the reconciling kept total beside the banded count", () => {
+    const jobs = [createJob(0), createJob(1)];
+    renderResults(jobs, null);
+
+    // Home and Search history describe the same run as "n new jobs saved"; the
+    // banded headline must add up to that same number.
+    expect(screen.getByTestId("discovery-result-count").textContent).toContain(
+      "2 jobs",
+    );
+  });
+});

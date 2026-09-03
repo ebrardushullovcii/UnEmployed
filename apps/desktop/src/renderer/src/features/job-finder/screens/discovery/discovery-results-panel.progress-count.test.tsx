@@ -135,14 +135,26 @@ describe("DiscoveryResultsPanel streaming progress count", () => {
 
 describe("getDiscoveryProgressCountLabel", () => {
   it("keeps identical totals phrased as the full result set", () => {
-    expect(getDiscoveryProgressCountLabel(0, 0)).toBe("0 matches ready to review.");
-    expect(getDiscoveryProgressCountLabel(1, 1)).toBe("1 match ready to review.");
-    expect(getDiscoveryProgressCountLabel(7, 7)).toBe("7 matches ready to review.");
+    expect(getDiscoveryProgressCountLabel(0, 0)).toBe(
+      "0 matches ready to review.",
+    );
+    expect(getDiscoveryProgressCountLabel(1, 1)).toBe(
+      "1 match ready to review.",
+    );
+    expect(getDiscoveryProgressCountLabel(7, 7)).toBe(
+      "7 matches ready to review.",
+    );
   });
 
   it("phrases filtered subsets as visible-of-total", () => {
-    expect(getDiscoveryProgressCountLabel(0, 2)).toBe("0 of 2 matches ready to review.");
-    expect(getDiscoveryProgressCountLabel(1, 2)).toBe("1 of 2 matches ready to review.");
-    expect(getDiscoveryProgressCountLabel(3, 4)).toBe("3 of 4 matches ready to review.");
+    expect(getDiscoveryProgressCountLabel(0, 2)).toBe(
+      "0 of 2 matches ready to review.",
+    );
+    expect(getDiscoveryProgressCountLabel(1, 2)).toBe(
+      "1 of 2 matches ready to review.",
+    );
+    expect(getDiscoveryProgressCountLabel(3, 4)).toBe(
+      "3 of 4 matches ready to review.",
+    );
   });
 });

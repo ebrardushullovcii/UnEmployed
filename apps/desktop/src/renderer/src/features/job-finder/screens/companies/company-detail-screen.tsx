@@ -960,7 +960,7 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
           All companies
         </Button>
         <div className="grid min-w-0 flex-1 gap-0.5">
-          <h1 className="min-w-0 break-words text-lg font-semibold tracking-[-0.03em] text-(--text-headline)">
+          <h1 className="min-w-0 break-words font-semibold tracking-[-0.03em] text-(--text-headline)">
             {company.canonicalName}
           </h1>
           {company.domains.length > 0 ? (

@@ -12,6 +12,11 @@ import {
   ResumeCoverageComparisonSchema,
   ResumeValidationResultSchema,
   TailoredAssetSchema,
+  isBlockingResumeClaimAssessment,
+  isBlockingResumeValidationIssue,
+  ResumeProposalApprovalBlockerSchema,
+  type ResumeProposalApprovalBlocker,
+  isGeneratedResumeClaimOrigin as isGeneratedResumeClaimOriginContract,
   type CandidateProfile,
   type ResumeAssistantMessage,
   type ResumeClaimAssessment,
@@ -48,13 +53,20 @@ import {
   buildPreviewSectionsFromResumeDraft as buildStructuredPreviewSectionsFromResumeDraft,
   buildResumeDraftFromTailoredDraft as buildStructuredResumeDraftFromTailoredDraft,
   buildTailoredResumeTextFromResumeDraft as buildStructuredTailoredResumeTextFromResumeDraft,
+  isGeneratedClassResumeOrigin,
   seedResumeDraft as seedStructuredResumeDraft,
 } from "./resume-workspace-structure";
 import {
   buildResumeEntryDateQualityIssues,
   normalizeResumeDraftEntryOrdering,
 } from "./resume-entry-ordering";
+import { applyPatchToResumeDraft as applyResumeDraftPatch } from "./resume-workspace-patches";
 import { projectWorkHistoryReviewSuggestionIdentities } from "./resume-work-history-review-identity";
+import {
+  findResumeDraftIdentityConflicts,
+  resolveResumeIdentity,
+  resumeIdentityMismatchMessage,
+} from "./resume-identity";
 
 export interface ResumeWorkspaceEvidence {
   summary: readonly string[];
@@ -693,8 +705,7 @@ function omitResumeVersionTimestamps(value: unknown): unknown {
     return Object.fromEntries(
       Object.entries(value)
         .filter(
-          ([key]) =>
-            key !== "updatedAt" && key !== "lastGeneratedContentHash",
+          ([key]) => key !== "updatedAt" && key !== "lastGeneratedContentHash",
         )
         .map(([key, entry]) => [key, omitResumeVersionTimestamps(entry)]),
     );
@@ -893,8 +904,22 @@ function buildResumeClaimEvidenceBank(
     }
   }
   for (const project of profile.projects) {
-    add("profile", `project:${project.id}:summary`, project.summary, 2, "project", project.id);
-    add("profile", `project:${project.id}:outcome`, project.outcome, 2, "project", project.id);
+    add(
+      "profile",
+      `project:${project.id}:summary`,
+      project.summary,
+      2,
+      "project",
+      project.id,
+    );
+    add(
+      "profile",
+      `project:${project.id}:outcome`,
+      project.outcome,
+      2,
+      "project",
+      project.id,
+    );
     for (const [index, skill] of project.skills.entries()) {
       add(
         "profile",
@@ -961,11 +986,7 @@ const resumeClaimIntegrityGapTypes: ReadonlySet<string> = new Set([
 function isGeneratedResumeClaimOrigin(
   origin: ResumeDraft["sections"][number]["origin"],
 ): boolean {
-  return (
-    origin === "ai_generated" ||
-    origin === "assistant_edited" ||
-    origin === "deterministic_fallback"
-  );
+  return isGeneratedResumeClaimOriginContract(origin);
 }
 
 /**
@@ -1378,6 +1399,85 @@ export function sanitizeResumeDraft(input: {
   };
 }
 
+const candidateResumeEvidenceSourceKinds = new Set([
+  "resume",
+  "profile",
+  "proof",
+  "user",
+]);
+
+function hasCandidateResumeEvidenceRef(
+  refs: ReadonlyArray<{ sourceKind: string }>,
+): boolean {
+  return refs.some((ref) =>
+    candidateResumeEvidenceSourceKinds.has(ref.sourceKind),
+  );
+}
+
+function hasVisibleGeneratedResumeContent(
+  section: ResumeDraft["sections"][number],
+): boolean {
+  return (
+    section.included &&
+    isGeneratedClassResumeOrigin(section.origin) &&
+    (Boolean(section.text?.trim()) ||
+      section.bullets.some((bullet) => bullet.included) ||
+      section.entries.some(
+        (entry) =>
+          entry.included &&
+          (Boolean(entry.title) ||
+            Boolean(entry.summary) ||
+            entry.bullets.some((bullet) => bullet.included)),
+      ))
+  );
+}
+
+/**
+ * Legacy tailored assets only contain flat preview lines. Those lines cannot
+ * be treated as candidate evidence unless they retain a profile record or an
+ * explicit candidate-source reference. Keep the preview available for review
+ * but fail closed for approval when neither boundary is present.
+ */
+function hasUntraceableGeneratedResumeContent(draft: ResumeDraft): boolean {
+  const generatedSections = draft.sections.filter(
+    hasVisibleGeneratedResumeContent,
+  );
+
+  if (generatedSections.length === 0) {
+    return false;
+  }
+
+  return generatedSections.some(
+    (section) =>
+      !(
+        Boolean(section.profileRecordId) ||
+        hasCandidateResumeEvidenceRef(section.sourceRefs) ||
+        section.entries.some(
+          (entry) =>
+            Boolean(entry.profileRecordId) ||
+            hasCandidateResumeEvidenceRef(entry.sourceRefs) ||
+            entry.bullets.some((bullet) =>
+              hasCandidateResumeEvidenceRef(bullet.sourceRefs),
+            ),
+        ) ||
+        section.bullets.some((bullet) =>
+          hasCandidateResumeEvidenceRef(bullet.sourceRefs),
+        )
+      ),
+  );
+}
+
+function hasGeneratedProfileRecordBoundary(draft: ResumeDraft): boolean {
+  return draft.sections.some(
+    (section) =>
+      section.included &&
+      isGeneratedClassResumeOrigin(section.origin) &&
+      section.entries.some(
+        (entry) => entry.included && Boolean(entry.profileRecordId),
+      ),
+  );
+}
+
 export function validateResumeDraft(input: {
   draft: ResumeDraft;
   job: SavedJob;
@@ -1413,6 +1513,32 @@ export function validateResumeDraft(input: {
               entry.bullets.some((bullet) => bullet.included)),
         )),
   );
+
+  const identityResolution = input.profile
+    ? resolveResumeIdentity(input.profile)
+    : null;
+  const identityMismatchReasons = identityResolution
+    ? [
+        ...identityResolution.mismatchReasons,
+        ...(input.profile
+          ? findResumeDraftIdentityConflicts(
+              input.profile,
+              input.draft.identity,
+            )
+          : []),
+      ]
+    : [];
+  if (identityMismatchReasons.length > 0) {
+    issues.push({
+      id: `issue_identity_mismatch_${input.draft.id}`,
+      severity: "error",
+      category: "identity_mismatch",
+      sectionId: null,
+      entryId: null,
+      bulletId: null,
+      message: resumeIdentityMismatchMessage(identityMismatchReasons),
+    });
+  }
 
   function pushBulletIssues(args: {
     bullet: ResumeDraftBullet;
@@ -1794,7 +1920,45 @@ export function validateResumeDraft(input: {
       entryId: null,
       bulletId: null,
       message:
-        "The current resume is still too thin to read like a complete submission-ready document.",
+        "The current resume is still too thin for submission and needs grounded factual review.",
+    });
+  }
+
+  const isThinOutput =
+    includedLineCount < 5 ||
+    !hasExperienceContent ||
+    includedSections.length < 2;
+  const hasGeneratedResumeContent = input.draft.sections.some(
+    hasVisibleGeneratedResumeContent,
+  );
+
+  if (hasUntraceableGeneratedResumeContent(input.draft)) {
+    issues.push({
+      id: `issue_traceability_${input.draft.id}`,
+      severity: "error",
+      category: "low_confidence_fact",
+      sectionId: null,
+      entryId: null,
+      bulletId: null,
+      message:
+        "This preview-derived resume contains untraceable candidate content and needs factual review before approval.",
+    });
+  }
+
+  if (
+    isThinOutput &&
+    hasGeneratedResumeContent &&
+    !hasGeneratedProfileRecordBoundary(input.draft)
+  ) {
+    issues.push({
+      id: `issue_thin_fallback_${input.draft.id}`,
+      severity: "error",
+      category: "low_confidence_fact",
+      sectionId: null,
+      entryId: null,
+      bulletId: null,
+      message:
+        "This fallback resume is too thin and needs factual review before approval. Add grounded candidate evidence before export.",
     });
   }
 
@@ -1840,9 +2004,7 @@ export function validateResumeDraft(input: {
     profileSupportBank,
   });
   for (const assessment of claimAssessments) {
-    const generatedClaim = isGeneratedResumeClaimOrigin(
-      assessment.claimOrigin,
-    );
+    const generatedClaim = isGeneratedResumeClaimOrigin(assessment.claimOrigin);
     if (assessment.status === "confirm_needed") {
       issues.push({
         id: `issue_claim_confirmation_${assessment.id}`,
@@ -1884,6 +2046,7 @@ export function validateResumeDraft(input: {
           bulletId: assessment.bulletId,
           message:
             "This AI-generated claim exceeds the selected resume strategy's evidence boundary and must be rewritten or removed before export.",
+          flaggedText: assessment.claimText,
         });
       }
     }
@@ -1902,6 +2065,9 @@ export function validateResumeDraft(input: {
       message: generatedClaim
         ? "This generated claim lacks strong candidate-only evidence and must be rewritten or explicitly user-edited before export."
         : "This claim conflicts with candidate evidence and must be corrected before export.",
+      // Name the exact flagged sentence so the blocker surface can quote it and
+      // offer a one-click restore of the text it replaced.
+      flaggedText: assessment.claimText,
     });
   }
 
@@ -1947,35 +2113,236 @@ export function hasBlockingResumeClaimAssessment(input: {
   validation: Pick<ResumeValidationResult, "claimAssessments">;
   draft: Pick<ResumeDraft, "id" | "claimConfirmations">;
 }): boolean {
-  return input.validation.claimAssessments.some((assessment) => {
-    if (assessment.verifier !== "deterministic_candidate_evidence_v2") {
-      return (
-        isGeneratedResumeClaimOrigin(assessment.claimOrigin) ||
-        assessment.status === "unsupported"
-      );
+  return input.validation.claimAssessments.some((assessment) =>
+    isBlockingResumeClaimAssessment({ assessment, draft: input.draft }),
+  );
+}
+
+/**
+ * One export blocker, named by locator and by the exact flagged sentence.
+ */
+export type ResumeExportBlocker = {
+  sectionId: string | null;
+  entryId: string | null;
+  bulletId: string | null;
+  flaggedText: string | null;
+  message: string;
+};
+
+function buildResumeExportBlockerKey(blocker: ResumeExportBlocker): string {
+  return [
+    blocker.sectionId ?? "",
+    blocker.entryId ?? "",
+    blocker.bulletId ?? "",
+    blocker.flaggedText === null ? "" : normalizeText(blocker.flaggedText),
+    blocker.message,
+  ].join("|");
+}
+
+/**
+ * Everything that would stop this exact draft from being exported or approved,
+ * derived from the same validation result and the same claim rule the export
+ * and approval gates use. Blocking validation issues and blocking claim
+ * assessments are folded into one deduplicated list so no surface has to
+ * re-derive "is this grounded" with its own local rule.
+ */
+export function collectResumeExportBlockers(input: {
+  draft: Pick<ResumeDraft, "id" | "claimConfirmations">;
+  validation: Pick<ResumeValidationResult, "claimAssessments" | "issues">;
+}): ResumeExportBlocker[] {
+  const blockers: ResumeExportBlocker[] = [];
+  const seen = new Set<string>();
+
+  const push = (blocker: ResumeExportBlocker): void => {
+    const key = buildResumeExportBlockerKey(blocker);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    blockers.push(blocker);
+  };
+
+  for (const issue of input.validation.issues) {
+    if (!isBlockingResumeValidationIssue(issue)) {
+      continue;
     }
 
-    if (assessment.status === "unsupported") {
-      return true;
+    push({
+      sectionId: issue.sectionId,
+      entryId: issue.entryId,
+      bulletId: issue.bulletId,
+      flaggedText: issue.flaggedText ?? null,
+      message: issue.message,
+    });
+  }
+
+  for (const assessment of input.validation.claimAssessments) {
+    if (!isBlockingResumeClaimAssessment({ assessment, draft: input.draft })) {
+      continue;
     }
 
-    if (assessment.status === "confirm_needed") {
-      return !input.draft.claimConfirmations.some(
-        (confirmation) =>
-          confirmation.draftId === input.draft.id &&
-          confirmation.field === assessment.field &&
-          confirmation.sectionId === assessment.sectionId &&
-          confirmation.entryId === assessment.entryId &&
-          confirmation.bulletId === assessment.bulletId &&
-          confirmation.confirmedClaimContentHash === assessment.contentHash,
-      );
-    }
+    push({
+      sectionId: assessment.sectionId,
+      entryId: assessment.entryId,
+      bulletId: assessment.bulletId,
+      flaggedText: assessment.claimText,
+      message: isGeneratedResumeClaimOrigin(assessment.claimOrigin)
+        ? "This generated claim lacks strong candidate-only evidence and must be rewritten or explicitly user-edited before export."
+        : "This claim conflicts with candidate evidence and must be corrected before export.",
+    });
+  }
 
-    return (
-      assessment.status === "review" &&
-      isGeneratedResumeClaimOrigin(assessment.claimOrigin)
-    );
+  return blockers;
+}
+
+/**
+ * The shared grounded-ness rule for a proposed resume edit. A proposal is only
+ * "grounded" when the exact draft that would result from accepting it clears
+ * the same export gate: it runs `validateResumeDraft` plus
+ * `collectResumeExportBlockers` over the candidate draft and reports every
+ * blocker the proposal itself would introduce (baseline blockers the user
+ * already had are not attributed to the proposal).
+ */
+export function evaluateResumeProposalExportGate(input: {
+  baselineDraft: ResumeDraft;
+  candidateDraft: ResumeDraft;
+  job: SavedJob;
+  profile?: CandidateProfile;
+  evaluatedAt?: string;
+  strategy?: Pick<ResumeGenerationStrategyPolicy, "evidenceBoundaries"> | null;
+}): { accepted: boolean; blockers: ResumeExportBlocker[] } {
+  const evaluatedAt = input.evaluatedAt ?? new Date().toISOString();
+  const validationInput = {
+    job: input.job,
+    validatedAt: evaluatedAt,
+    ...(input.profile ? { profile: input.profile } : {}),
+    ...(input.strategy ? { strategy: input.strategy } : {}),
+  };
+  const baselineBlockers = collectResumeExportBlockers({
+    draft: input.baselineDraft,
+    validation: validateResumeDraft({
+      ...validationInput,
+      draft: input.baselineDraft,
+    }),
   });
+  const candidateBlockers = collectResumeExportBlockers({
+    draft: input.candidateDraft,
+    validation: validateResumeDraft({
+      ...validationInput,
+      draft: input.candidateDraft,
+    }),
+  });
+  const baselineKeys = new Set(
+    baselineBlockers.map(buildResumeExportBlockerKey),
+  );
+  const blockers = candidateBlockers.filter(
+    (blocker) => !baselineKeys.has(buildResumeExportBlockerKey(blocker)),
+  );
+
+  return { accepted: blockers.length === 0, blockers };
+}
+
+/**
+ * Applies a pending proposal to a throwaway copy of the current draft and runs
+ * the export gate over the result. This is the one call every proposal
+ * producer uses to decide whether it may describe its own edits as grounded:
+ * "grounded" means the export/approval classifier accepts the resulting text.
+ * A patch that cannot be applied at all rethrows to the caller.
+ */
+export function evaluateResumeProposalGrounding(input: {
+  baselineDraft: ResumeDraft;
+  patches: readonly ResumeDraftPatch[];
+  job: SavedJob;
+  profile?: CandidateProfile;
+  evaluatedAt: string;
+  strategy?: Pick<ResumeGenerationStrategyPolicy, "evidenceBoundaries"> | null;
+}): {
+  accepted: boolean;
+  approvalBlockers: ResumeProposalApprovalBlocker[];
+} {
+  if (input.patches.length === 0) {
+    return { accepted: true, approvalBlockers: [] };
+  }
+
+  let candidateDraft = input.baselineDraft;
+  for (const patch of input.patches) {
+    candidateDraft = applyResumeDraftPatch({
+      draft: candidateDraft,
+      patch,
+      updatedAt: input.evaluatedAt,
+    });
+  }
+
+  candidateDraft = sanitizeResumeDraft({
+    draft: candidateDraft,
+    job: input.job,
+    ...(input.profile ? { profile: input.profile } : {}),
+  });
+
+  const gate = evaluateResumeProposalExportGate({
+    baselineDraft: input.baselineDraft,
+    candidateDraft,
+    job: input.job,
+    evaluatedAt: input.evaluatedAt,
+    ...(input.profile ? { profile: input.profile } : {}),
+    ...(input.strategy ? { strategy: input.strategy } : {}),
+  });
+
+  const approvalBlockers = gate.blockers.map((blocker) =>
+    ResumeProposalApprovalBlockerSchema.parse({
+      patchId:
+        input.patches.find(
+          (patch) =>
+            patch.targetSectionId === blocker.sectionId &&
+            (patch.targetEntryId ?? null) === blocker.entryId &&
+            (patch.targetBulletId ?? null) === blocker.bulletId,
+        )?.id ??
+        input.patches.find(
+          (patch) => patch.targetSectionId === blocker.sectionId,
+        )?.id ??
+        null,
+      sectionId: blocker.sectionId,
+      entryId: blocker.entryId,
+      bulletId: blocker.bulletId,
+      flaggedText: blocker.flaggedText,
+      message: blocker.message,
+    }),
+  );
+
+  return { accepted: approvalBlockers.length === 0, approvalBlockers };
+}
+
+/**
+ * One assistant reply line for a proposal, so both proposal producers describe
+ * the same gate verdict identically: only a gate-accepted proposal may be
+ * called grounded, and a gate-rejected proposal says up front that accepting
+ * it would block approval.
+ */
+export function buildResumeProposalReplyContent(input: {
+  approvalBlockers: readonly ResumeProposalApprovalBlocker[];
+  changeCount: number;
+  scopeLabel?: string | null;
+}): string {
+  const scope = input.scopeLabel
+    ? ` for the '${input.scopeLabel}' section`
+    : "";
+  const plural = input.changeCount === 1 ? "" : "s";
+
+  if (input.approvalBlockers.length > 0) {
+    return `I prepared ${input.changeCount} resume edit${plural}${scope}, but ${input.approvalBlockers.length === 1 ? "1 of them would block approval" : `${input.approvalBlockers.length} of them would block approval`}: the new wording is not supported by your saved evidence. Nothing changed yet; rewrite the flagged text or reject this proposal.`;
+  }
+
+  return `I prepared ${input.changeCount} grounded resume edit${plural}${scope} for your review. Nothing changed yet; select the changes you want and accept them explicitly.`;
+}
+
+export function hasBlockingResumeIdentityMismatch(
+  validation: Pick<ResumeValidationResult, "issues">,
+): boolean {
+  return validation.issues.some(
+    (issue) =>
+      issue.category === "identity_mismatch" &&
+      isBlockingResumeValidationIssue(issue),
+  );
 }
 
 function compareResumeTextSets(
@@ -2383,6 +2750,19 @@ export function buildTailoredAssetBridge(input: {
     previewSections: buildPreviewSectionsFromResumeDraft(input.draft),
     generationMethod:
       input.draft.generationMethod === "ai" ? "ai_assisted" : "deterministic",
+    // The structured reason and detail describe how the *first* draft was
+    // written. Every save, patch, and export rebuilds the asset through this
+    // bridge, and dropping them here made the studio's disclosure degrade
+    // from the specific, debuggable verifier sentence to the generic
+    // note-derived fallback line the moment the user touched the draft.
+    // They are carried forward while the draft is still deterministic and
+    // cleared once the draft itself becomes AI-written.
+    ...(input.draft.generationMethod === "ai"
+      ? { generationReason: null, generationDetail: null }
+      : {
+          generationReason: input.existingAsset?.generationReason ?? null,
+          generationDetail: input.existingAsset?.generationDetail ?? null,
+        }),
     notes: uniqueStrings([
       ...(input.existingAsset?.notes ?? []),
       ...(input.notes ?? []),
@@ -2417,6 +2797,7 @@ export function buildAssistantReplyMessage(input: {
   jobId: string;
   content: string;
   patches: readonly ResumeDraftPatch[];
+  approvalBlockers?: readonly ResumeProposalApprovalBlocker[];
   baseDraftUpdatedAt?: string | null;
   proposalError?: string | null;
   executionAttribution?: ResumeAssistantMessage["executionAttribution"];
@@ -2428,6 +2809,7 @@ export function buildAssistantReplyMessage(input: {
     role: "assistant",
     content: input.content,
     patches: [...input.patches],
+    approvalBlockers: [...(input.approvalBlockers ?? [])],
     proposalStatus: input.patches.length > 0 ? "pending" : "none",
     baseDraftUpdatedAt: input.baseDraftUpdatedAt ?? null,
     proposalError: input.proposalError ?? null,

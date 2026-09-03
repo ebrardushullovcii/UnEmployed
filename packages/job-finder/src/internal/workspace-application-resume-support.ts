@@ -14,6 +14,7 @@ import { fnv1a32 } from "@unemployed/core";
 import {
   buildResumeRenderDocument,
   buildTailoredAssetBridge,
+  hasBlockingResumeIdentityMismatch,
   listUnresolvedWorkHistoryOmissionSuggestions,
   sanitizeResumeDraft,
   seedResumeDraft,
@@ -365,6 +366,8 @@ export interface LoadedResumeWorkspaceState {
   profile: Awaited<
     ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>
   >;
+  /** Profile singleton epoch captured with the profile snapshot above. */
+  profileRevision: number;
   settings: Awaited<
     ReturnType<WorkspaceServiceContext["repository"]["getSettings"]>
   >;
@@ -378,14 +381,39 @@ export interface EnsuredResumeDraftState extends LoadedResumeWorkspaceState {
   draft: ResumeDraft;
 }
 
+/**
+ * Resume generation/rendering inputs are assembled asynchronously. Recheck
+ * the shared profile epoch before any result is committed so a concurrent
+ * profile, preference, or setup edit cannot be paired with stale identity
+ * evidence.
+ */
+export async function assertResumeProfileRevisionCurrent(
+  ctx: WorkspaceServiceContext,
+  expectedRevision: number,
+  operation: string,
+): Promise<
+  Awaited<
+    ReturnType<WorkspaceServiceContext["repository"]["getProfileWithRevision"]>
+  >
+> {
+  const current = await ctx.repository.getProfileWithRevision();
+  if (current.revision !== expectedRevision) {
+    throw new Error(
+      `The candidate profile changed while ${operation} was in progress. Review the latest profile and retry so resume identity stays current.`,
+    );
+  }
+
+  return current;
+}
+
 export async function loadResumeWorkspaceState(
   ctx: WorkspaceServiceContext,
   jobId: string,
 ): Promise<LoadedResumeWorkspaceState> {
   const templates = ctx.documentManager.listResumeTemplates();
-  const [profile, rawSettings, savedJobs, tailoredAssets, draft] =
+  const [profileState, rawSettings, savedJobs, tailoredAssets, draft] =
     await Promise.all([
-      ctx.repository.getProfile(),
+      ctx.repository.getProfileWithRevision(),
       ctx.repository.getSettings(),
       ctx.repository.listSavedJobs(),
       ctx.repository.listTailoredAssets(),
@@ -399,7 +427,8 @@ export async function loadResumeWorkspaceState(
   }
 
   return {
-    profile,
+    profile: profileState.profile,
+    profileRevision: profileState.revision,
     settings,
     templates,
     job,
@@ -458,6 +487,12 @@ export async function ensureResumeDraft(
     templates: state.templates,
   });
 
+  await assertResumeProfileRevisionCurrent(
+    ctx,
+    state.profileRevision,
+    "creating the initial resume draft",
+  );
+
   await ctx.repository.saveResumeDraftWithValidation({
     draft: sanitizedDraft,
     validation,
@@ -511,6 +546,11 @@ export async function previewResumeDraft(
   throwIfResumePreviewAborted(signal);
   const state = await loadResumeWorkspaceState(ctx, draft.jobId);
   throwIfResumePreviewAborted(signal);
+  await assertResumeProfileRevisionCurrent(
+    ctx,
+    state.profileRevision,
+    "preparing this resume preview",
+  );
   const persistedDraft = state.draft
     ? normalizeResumeDraftTemplate(state.draft, state.templates)
     : null;
@@ -557,6 +597,13 @@ export async function previewResumeDraft(
     profile: state.profile,
     validatedAt: renderedAt,
   });
+  if (hasBlockingResumeIdentityMismatch(validation)) {
+    throw new Error(
+      validation.issues.find((issue) => issue.category === "identity_mismatch")
+        ?.message ??
+        "Resume identity mismatch: review the visible profile and imported resume before previewing.",
+    );
+  }
   throwIfResumePreviewAborted(signal);
   const preview = await ctx.documentManager.renderResumePreview(
     {
@@ -571,6 +618,11 @@ export async function previewResumeDraft(
     signal,
   );
   throwIfResumePreviewAborted(signal);
+  await assertResumeProfileRevisionCurrent(
+    ctx,
+    state.profileRevision,
+    "completing this resume preview",
+  );
 
   return {
     draftId: sanitizedDraft.id,
@@ -595,6 +647,7 @@ export async function previewResumeDraft(
 export async function fetchAndPersistResearch(
   ctx: WorkspaceServiceContext,
   job: SavedJob,
+  expectedProfileRevision?: number,
 ) {
   const persistedArtifacts = await ctx.repository.listResumeResearchArtifacts(
     job.id,
@@ -609,11 +662,29 @@ export async function fetchAndPersistResearch(
     return persistedArtifacts;
   }
 
-  const profile = await ctx.repository.getProfile();
+  const profileState = await ctx.repository.getProfileWithRevision();
+  if (
+    expectedProfileRevision !== undefined &&
+    profileState.revision !== expectedProfileRevision
+  ) {
+    await assertResumeProfileRevisionCurrent(
+      ctx,
+      expectedProfileRevision,
+      "preparing resume research",
+    );
+  }
   const fetchedArtifacts = await ctx.researchAdapter.fetchResearchPages({
     job,
-    profile,
+    profile: profileState.profile,
   });
+
+  if (expectedProfileRevision !== undefined) {
+    await assertResumeProfileRevisionCurrent(
+      ctx,
+      expectedProfileRevision,
+      "saving resume research",
+    );
+  }
 
   await Promise.all(
     fetchedArtifacts.map((artifact) =>

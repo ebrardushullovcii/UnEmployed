@@ -291,14 +291,12 @@ export async function runAgentDiscovery(
     Math.max(0, state.collectedJobs.length - resumedCollectedJobCount);
 
   const getAlignedCollectedJobCount = (): number =>
-    state.collectedJobs
-      .slice(resumedCollectedJobCount)
-      .filter((job) =>
-        isJobPreferenceAligned({
-          job,
-          searchPreferences: config.searchPreferences,
-        }),
-      ).length;
+    state.collectedJobs.slice(resumedCollectedJobCount).filter((job) =>
+      isJobPreferenceAligned({
+        job,
+        searchPreferences: config.searchPreferences,
+      }),
+    ).length;
 
   const tools = getToolDefinitions();
   const emitProgress = createProgressEmitter(state, config, onProgress);
@@ -439,8 +437,7 @@ export async function runAgentDiscovery(
       !requiresExplicitFinish && partial.incomplete === true
         ? {
             ...partial,
-            incomplete:
-              getThisRunCollectedJobCount() < config.targetJobCount,
+            incomplete: getThisRunCollectedJobCount() < config.targetJobCount,
           }
         : partial;
 
@@ -509,8 +506,7 @@ export async function runAgentDiscovery(
       );
 
       return buildDiscoveryResult({
-        incomplete:
-          getThisRunCollectedJobCount() < config.targetJobCount,
+        incomplete: getThisRunCollectedJobCount() < config.targetJobCount,
         phaseCompletionMode: null,
         phaseCompletionReason: null,
         phaseEvidence: null,
@@ -1264,6 +1260,19 @@ export async function runAgentDiscovery(
             ? effectiveLlmError.message
             : "Unknown";
         console.error("[Agent] LLM call failed:", errorMessage);
+
+        if (!requiresExplicitFinish && getThisRunCollectedJobCount() > 0) {
+          return buildDiscoveryResult({
+            incomplete: true,
+            warning:
+              "Deterministic page discovery kept partial results, but model-assisted expansion was unavailable.",
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: pendingDebugFindings,
+          });
+        }
+
         return buildAgentResult(state, {
           error: `LLM call failed after 3 attempts: ${errorMessage}`,
           phaseCompletionMode: requiresExplicitFinish ? "runtime_failed" : null,

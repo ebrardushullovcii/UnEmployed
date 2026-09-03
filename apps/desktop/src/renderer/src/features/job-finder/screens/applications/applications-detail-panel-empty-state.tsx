@@ -19,11 +19,14 @@ export function ApplicationsDetailPanelEmptyState(props: {
       {!hasAnyApplications ? (
         <div className="grid max-w-96 gap-3 justify-items-center text-center">
           <p className="text-(length:--text-description) leading-6 text-foreground-soft break-words [overflow-wrap:anywhere]">
-            Preparation details will appear here once you start an application
-            from Shortlisted.
+            Details appear here after you select a job in Shortlisted and choose
+            Prepare application. Review, export, and approve the exact resume
+            first; final submission stays disabled.
           </p>
           <Button asChild size="sm" type="button" variant="primary">
-            <Link to={JOB_FINDER_ROUTE_PATHS.reviewQueue}>Go to Shortlisted</Link>
+            <Link to={JOB_FINDER_ROUTE_PATHS.reviewQueue}>
+              Open Shortlisted
+            </Link>
           </Button>
         </div>
       ) : (

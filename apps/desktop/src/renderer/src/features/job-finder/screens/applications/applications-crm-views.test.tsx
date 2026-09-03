@@ -87,6 +87,25 @@ describe("ApplicationsCrmViews", () => {
     expect(onSelectRecord).not.toHaveBeenCalled();
   });
 
+  test("does not offer three ways to view a single row", () => {
+    render(
+      <ApplicationsCrmViews
+        onSelectRecord={vi.fn()}
+        onViewChange={vi.fn()}
+        records={[record("application_1", "Frontend Engineer", "Acme")]}
+        selectedRecordId={null}
+        view="table"
+      />,
+    );
+
+    expect(screen.queryByTestId("applications-crm-view-switcher")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Table" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Kanban" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Calendar" })).toBeNull();
+    // The record itself is still fully present and editable.
+    expect(screen.getByText("Frontend Engineer")).toBeTruthy();
+  });
+
   test("offers table, Kanban, calendar, columns, saved views, and a sticky bulk action", async () => {
     const onBulkStageChange = vi.fn(() => Promise.resolve());
     render(
@@ -94,7 +113,10 @@ describe("ApplicationsCrmViews", () => {
         onBulkStageChange={onBulkStageChange}
         onSelectRecord={vi.fn()}
         onViewChange={vi.fn()}
-        records={[record("application_1", "Frontend Engineer", "Acme")]}
+        records={[
+          record("application_1", "Frontend Engineer", "Acme"),
+          record("application_2", "Backend Engineer", "Globex"),
+        ]}
         selectedRecordId={null}
         view="table"
       />,
@@ -106,7 +128,7 @@ describe("ApplicationsCrmViews", () => {
     expect(screen.getByText("Columns")).toBeTruthy();
     expect(screen.getByText("Saved views")).toBeTruthy();
     expect(
-      screen.getByText(/local user-recorded facts or historical workflow/i),
+      screen.getByText(/one you recorded or one Job Finder worked out/i),
     ).toBeTruthy();
 
     fireEvent.click(
@@ -147,9 +169,8 @@ describe("ApplicationsCrmViews", () => {
       />,
     );
 
-    expect(
-      screen.getByText("Applied (local historical inference)"),
-    ).toBeTruthy();
+    expect(screen.getByText("Applied")).toBeTruthy();
+    expect(screen.queryByText(/historical inference/i)).toBeNull();
     expect(screen.getByText("Applied (user recorded)")).toBeTruthy();
     expect(
       screen.queryByText(/receipt|submission proof|externally verified/i),

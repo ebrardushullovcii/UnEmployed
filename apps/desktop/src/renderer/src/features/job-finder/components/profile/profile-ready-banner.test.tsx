@@ -20,6 +20,18 @@ afterEach(() => {
 });
 
 describe("ProfileReadyBanner", () => {
+  it("scopes completion copy to core setup instead of implying full-profile readiness", () => {
+    renderReadyBanner("candidate_1:completion_1");
+
+    expect(screen.getByText("Optional details can stay empty.")).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Your profile setup is ready for job search. Continue to Find jobs to review matches from your configured sources.",
+      ),
+    ).toBeNull();
+    expect(screen.getByText("Core setup is ready.")).toBeTruthy();
+  });
+
   it("keeps the Find jobs continuation as a router-owned link", () => {
     renderReadyBanner("candidate_1:completion_1");
 
@@ -34,19 +46,23 @@ describe("ProfileReadyBanner", () => {
     const view = renderReadyBanner("candidate_1:completion_1");
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Dismiss profile ready message" }),
+      screen.getByRole("button", {
+        name: "Dismiss core setup ready message",
+      }),
     );
-    expect(screen.queryByText("Profile ready")).toBeNull();
+    expect(screen.queryByText("Core setup is ready.")).toBeNull();
 
     view.unmount();
     renderReadyBanner("candidate_1:completion_1");
-    expect(screen.queryByText("Profile ready")).toBeNull();
+    expect(screen.queryByText("Core setup is ready.")).toBeNull();
   });
 
   it("shows the continuation again for a different profile completion", () => {
     const view = renderReadyBanner("candidate_1:completion_1");
     fireEvent.click(
-      screen.getByRole("button", { name: "Dismiss profile ready message" }),
+      screen.getByRole("button", {
+        name: "Dismiss core setup ready message",
+      }),
     );
 
     view.rerender(
@@ -55,6 +71,6 @@ describe("ProfileReadyBanner", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Profile ready")).toBeTruthy();
+    expect(screen.getByText("Core setup is ready.")).toBeTruthy();
   });
 });

@@ -8,6 +8,7 @@ import {
   buildMissionPanelState,
   getApplicationReadinessFacts,
   getApplySupportState,
+  partitionApplicationReadinessFacts,
 } from "./review-queue-mission-panel-helpers";
 
 const BANNED_OPERATION_COPY = /apply copilot|restage|submit approval/i;
@@ -254,6 +255,93 @@ describe("getApplicationReadinessFacts", () => {
     });
   });
 
+  it("makes Review and approve the primary action when a tailored PDF is not approved", () => {
+    const state = buildMissionPanelState({
+      browserSession: readyBrowser,
+      isApplyPending: false,
+      isJobPending: () => false,
+      queue: [],
+      queueSelection: [],
+      selectedAsset: {
+        id: "asset_tailored",
+        jobId: "job_circle",
+        kind: "resume",
+        status: "ready",
+        label: "Tailored resume",
+        version: "1",
+        templateName: "default",
+        compatibilityScore: 80,
+        progressPercent: 100,
+        updatedAt: "2026-07-30T10:00:00.000Z",
+        storagePath: "/tmp/tailored.pdf",
+        contentText: null,
+        previewSections: [],
+        generationMethod: "deterministic",
+        notes: [],
+        failureMessage: null,
+        failedAt: null,
+      },
+      selectedItem: {
+        ...originalResumeItem,
+        resumeApplicationMode: "tailored_per_job",
+        assetStatus: "ready",
+        resumeAssetId: "asset_tailored",
+        resumeReview: { status: "needs_review" },
+      },
+      selectedJob: baseJob,
+    });
+
+    expect(state.primaryApplicationAction).toMatchObject({
+      kind: "approve_resume",
+      label: "Review and approve resume",
+      enabled: true,
+      recovery: null,
+    });
+    // One status sentence, one noun: the ordinary "not approved yet" state is
+    // stated once by Current state, not repeated as a blocker box that calls
+    // the same artifact a draft, a PDF, and a resume.
+    expect(state.primaryApplicationAction.blocker).toBeNull();
+    expect(state.readinessDescription).toBe(
+      "This resume is ready for your review. Approving it unlocks Prepare application.",
+    );
+    const approvedPdfItem = state.checklist.find(
+      (item) => item.label === "Approved tailored PDF ready",
+    );
+    expect(approvedPdfItem?.state).toBe("blocked");
+    expect(approvedPdfItem?.description).toBe(
+      "Approve this resume to unlock Prepare application.",
+    );
+  });
+
+  it("explains a long-running tailored resume request without treating it as failed", () => {
+    const state = buildMissionPanelState({
+      browserSession: readyBrowser,
+      isApplyPending: false,
+      isJobPending: () => true,
+      isSelectedJobPendingTooLong: true,
+      queue: [],
+      queueSelection: [],
+      selectedAsset: null,
+      selectedItem: {
+        ...originalResumeItem,
+        assetStatus: "not_started",
+        resumeApplicationMode: "tailored_per_job",
+        resumeAssetId: null,
+        resumeReview: { status: "not_started" },
+      },
+      selectedJob: baseJob,
+    });
+
+    expect(state.primaryApplicationAction).toMatchObject({
+      enabled: false,
+      kind: "waiting",
+      label: "Creating tailored resume…",
+    });
+    expect(state.readinessDescription).toMatch(/taking longer than expected/i);
+    expect(state.readinessDescription).toMatch(/Reload workspace/i);
+    expect(state.readinessDescription).not.toMatch(/failed|finished/i);
+  });
+
   it("keeps the primary action label stable across every blocker and ready state", () => {
     const states = [
       { browserSession: readyBrowser, selectedItem: originalResumeItem },
@@ -323,6 +411,63 @@ describe("getApplicationReadinessFacts", () => {
     );
   });
 
+  it("marks approved-ready jobs as ready-to-prepare for compact mission UI", () => {
+    const ready = buildMissionPanelState({
+      browserSession: readyBrowser,
+      isApplyPending: false,
+      isJobPending: () => false,
+      queue: [originalResumeItem],
+      queueSelection: [],
+      selectedAsset: null,
+      selectedItem: originalResumeItem,
+      selectedJob: baseJob,
+    });
+    expect(ready.isReadyToPrepare).toBe(true);
+    expect(ready.canApproveApply).toBe(true);
+    expect(ready.nextBlockedChecklistItem).toBeNull();
+    expect(ready.primaryApplicationAction).toMatchObject({
+      kind: "start_apply",
+      label: "Prepare application",
+      enabled: true,
+    });
+
+    const needsApprove = buildMissionPanelState({
+      browserSession: readyBrowser,
+      isApplyPending: false,
+      isJobPending: () => false,
+      queue: [],
+      queueSelection: [],
+      selectedAsset: {
+        id: "asset_tailored",
+        jobId: "job_circle",
+        kind: "resume",
+        status: "ready",
+        label: "Tailored resume",
+        version: "1",
+        templateName: "default",
+        compatibilityScore: 80,
+        progressPercent: 100,
+        updatedAt: "2026-07-30T10:00:00.000Z",
+        storagePath: "/tmp/tailored.pdf",
+        contentText: null,
+        previewSections: [],
+        generationMethod: "deterministic",
+        notes: [],
+        failureMessage: null,
+        failedAt: null,
+      },
+      selectedItem: {
+        ...originalResumeItem,
+        resumeApplicationMode: "tailored_per_job",
+        assetStatus: "ready",
+        resumeAssetId: "asset_tailored",
+        resumeReview: { status: "needs_review" },
+      },
+      selectedJob: baseJob,
+    });
+    expect(needsApprove.isReadyToPrepare).toBe(false);
+  });
+
   it.each(["ready", "unknown", "blocked", "login_required"] as const)(
     "keeps %s browser guidance free of legacy operation names",
     (status) => {
@@ -368,5 +513,26 @@ describe("getApplicationReadinessFacts", () => {
 
     expect(factsText).toMatch(/never performs a final-submit action/i);
     expect(factsText).not.toMatch(/will submit|submits your application/i);
+  });
+
+  it("partitions ready-strip primary facts away from secondary boundaries", () => {
+    const facts = getApplicationReadinessFacts({
+      browserSession: readyBrowser,
+      selectedAsset: null,
+      selectedItem: originalResumeItem,
+      selectedJob: baseJob,
+    });
+    const { primary, secondary } = partitionApplicationReadinessFacts(facts);
+
+    expect(primary.map((fact) => fact.label)).toEqual([
+      "Resume file",
+      "Destination",
+      "Final submit",
+    ]);
+    expect(secondary.map((fact) => fact.label)).toEqual([
+      "Sign-in or account",
+      "Required answers",
+      "Site writes",
+    ]);
   });
 });

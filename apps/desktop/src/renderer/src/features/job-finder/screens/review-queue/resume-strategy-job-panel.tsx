@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import type {
   ResumeStrategy,
   ResumeStrategyRecommendation,
@@ -163,12 +162,11 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
   return (
     <div className="surface-card-tint grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
       <div className="grid gap-1">
-        <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground">
+        <span className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-foreground-soft">
           Resume approach
         </span>
         <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-          Choosing or reusing an approach never approves this resume. You
-          review and approve each resume for this job before it is applied.
+          Optional: reuse a saved tailoring approach for this job.
         </p>
       </div>
 
@@ -195,8 +193,8 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
             {recommendError}
           </p>
           <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-            Nothing was changed. You can retry the recommendation or manage
-            your approaches directly.
+            Nothing was changed. You can retry the recommendation or manage your
+            approaches directly.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button
@@ -227,7 +225,7 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
                 {recommendation.reason}
               </p>
             </div>
-          ) : (
+          ) : enabledStrategies.length === 0 ? null : (
             <div className="grid gap-1 rounded-(--radius-small) border border-border-subtle px-3 py-2.5">
               <p className="text-(length:--text-small) font-semibold text-(--text-headline)">
                 No resume approach recommended
@@ -236,14 +234,12 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
                 {recommendation?.reason ??
                   "No enabled approach matches this job's role family and no search plan default is set."}
               </p>
-              {enabledStrategies.length > 0 ? (
-                <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-                  None of your enabled approaches matched this job. Creating a
-                  new approach never applies it automatically — you can use it
-                  for this job only below, or choose it first and then make it
-                  this search plan&apos;s default.
-                </p>
-              ) : null}
+              <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                None of your enabled approaches matched this job. Creating a new
+                approach never applies it automatically — you can use it for
+                this job only below, or choose it first and then make it this
+                search plan&apos;s default.
+              </p>
             </div>
           )}
 
@@ -295,24 +291,12 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
                   </option>
                 ))}
               </select>
-              <span className="text-(length:--text-tiny) leading-5 text-foreground-muted">
+              <span className="text-(length:--text-tiny) leading-5 text-foreground-soft">
                 Affects the tailored resumes for this job alone. Other jobs and
                 this search plan&apos;s default stay unchanged.
               </span>
             </div>
-          ) : (
-            <div className="grid gap-2">
-              <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-                No enabled resume approach is available yet. Create one for
-                this role family, then return here to tailor this job with it.
-              </p>
-              <Button asChild size="sm" type="button" variant="outline">
-                <Link to={buildResumeStrategiesRoute(props.jobId)}>
-                  Create a resume approach
-                </Link>
-              </Button>
-            </div>
-          )}
+          ) : null}
 
           {fallbackCandidate ? (
             isFallbackAlreadyDefault ? (

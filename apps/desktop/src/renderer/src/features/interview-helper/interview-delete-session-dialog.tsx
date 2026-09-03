@@ -150,7 +150,7 @@ export function InterviewDeleteSessionDialog(
             Permanent deletion
           </p>
           <h2
-            className="font-display text-xl font-semibold text-(--text-headline)"
+            className="font-display font-semibold text-(--text-headline)"
             id={titleId}
           >
             Delete this interview session?

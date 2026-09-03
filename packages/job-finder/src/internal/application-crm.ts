@@ -253,6 +253,40 @@ export function inferApplicationCrmStage(
   }
 }
 
+/**
+ * Preparation states that prove the approval decision already happened and the
+ * application moved on to (or past) its browser run. A record parked in one of
+ * these states is not waiting for an approval any more, so counting it as
+ * "ready for your approval" leaves a stale notification standing after the
+ * resume was approved and the application was prepared.
+ */
+const PREPARATION_STARTED_ATTEMPT_STATES: ReadonlySet<string> = new Set([
+  "in_progress",
+  "paused",
+  "submitted",
+  "failed",
+  "unsupported",
+]);
+
+/**
+ * True only while the record's own approval decision is still outstanding: the
+ * CRM stage says approval is the next step AND no preparation attempt has begun
+ * for it yet. Every surface that tells the user an application "is ready for
+ * your approval" derives from this one predicate so an approved-and-prepared
+ * application cannot keep asking to be approved.
+ */
+export function isApplicationAwaitingUserApproval(
+  record: ApplicationRecord,
+): boolean {
+  if (getApplicationCrmData(record).stage !== "ready_for_approval") {
+    return false;
+  }
+
+  return !PREPARATION_STARTED_ATTEMPT_STATES.has(
+    record.lastAttemptState ?? "not_started",
+  );
+}
+
 export function getApplicationCrmData(
   record: ApplicationRecord,
 ): ApplicationCrmData {
@@ -1080,9 +1114,7 @@ export function recommendApplicationCrmAction(input: {
     };
   }
 
-  const ready = input.records.find(
-    (record) => getApplicationCrmData(record).stage === "ready_for_approval",
-  );
+  const ready = input.records.find(isApplicationAwaitingUserApproval);
   if (ready) {
     return {
       applicationRecordId: ready.id,

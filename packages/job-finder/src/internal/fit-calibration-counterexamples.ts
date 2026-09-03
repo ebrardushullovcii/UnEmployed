@@ -607,6 +607,44 @@ function talentPoolNotActionable(
   );
 }
 
+/**
+ * An opening reserved for entrants cannot tie the same listing written for
+ * experienced hires. The two postings here differ only in the career-stage
+ * wording, so any score parity between them is the exact defect this
+ * counterexample exists to catch.
+ */
+function earlyCareersProgrammeExcludesSeniorProfile(
+  corpus: FitCalibrationCorpus,
+): FitCalibrationCounterexampleResult {
+  const cohort = requireCohort(corpus, "senior_engineer_eu");
+  const calibrationCase = requireCase(cohort, "eng_exact_supported_emea");
+  const experienced = assess(cohort, calibrationCase);
+  const earlyCareers = createMatchAssessment(
+    cohort.profile,
+    cohort.searchPreferences,
+    {
+      ...calibrationCase.posting,
+      title: `${calibrationCase.posting.title} | Early Careers, 2027 Start`,
+    },
+  );
+
+  return result(
+    "early_careers_programme_excludes_senior_profile",
+    "An early-careers programme never ties the same role written for experienced hires.",
+    [
+      earlyCareers.recommendation !== "skip" && "not_skipped",
+      earlyCareers.score >= experienced.score && "score_not_lower",
+      earlyCareers.dimensions.roleSuitability.state !== "conflict" &&
+        "role_suitability_not_conflict",
+      !earlyCareers.requirements.some(
+        (requirement) =>
+          requirement.category === "seniority" &&
+          requirement.status === "conflict",
+      ) && "career_stage_conflict_missing",
+    ],
+  );
+}
+
 export function runFitCalibrationCounterexamples(
   corpus: FitCalibrationCorpus,
 ): FitCalibrationCounterexampleResult[] {
@@ -629,5 +667,6 @@ export function runFitCalibrationCounterexamples(
     sessionSemanticEquivalence(corpus),
     reversedInputStability(corpus),
     talentPoolNotActionable(corpus),
+    earlyCareersProgrammeExcludesSeniorProfile(corpus),
   ];
 }

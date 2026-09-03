@@ -34,9 +34,24 @@ const screenshotDir = path.resolve(outputDir, "screenshots");
 const viewportNormal = { width: 1440, height: 920, zoomFactor: 1 };
 const viewportNative125 = { width: 1440, height: 920, zoomFactor: 1.25 };
 const viewportMinimum = { width: 1024, height: 768, zoomFactor: 1 };
+// At >=1440 CSS px the sidebar owns every destination inline: the journey, both
+// "Everything else" groups, and the trailing keyboard-shortcuts entry. There is
+// no sidebar More trigger to open, so the wide layout is proven by the rows
+// themselves rather than by a popover.
 const WIDE_SIDEBAR_DESTINATIONS = Object.freeze([
+  "Home",
+  "Profile",
+  "Find jobs",
+  "Shortlisted",
+  "Applications",
+  "Documents",
+  "Companies",
+  "Outcomes",
   "Search plans",
   "Resume approaches",
+  "Safeguards",
+  "Settings",
+  "Keyboard shortcuts",
 ]);
 const PLANNING_SETTINGS_MENU_DESTINATIONS = Object.freeze([
   "Search plans",
@@ -46,8 +61,9 @@ const PLANNING_SETTINGS_MENU_DESTINATIONS = Object.freeze([
 // Local selector/limit tokens for the compact-navigation runtime evidence.
 // The static validator parses these markers from this file's source text; it
 // must not import this module because importing would execute the capture
-// harness. collapsedShortcutsMaxHeightPx mirrors
-// MORE_MENU_COMPACT_SHORTCUTS_MAX_HEIGHT_PX in job-finder-shell.tsx.
+// harness. The shortcut table no longer lives inside the More menu: the menu
+// carries one footer entry that opens the shortcuts dialog, so there is no
+// collapsed/expanded height mode left to assert.
 const COMPACT_NAVIGATION_EVIDENCE_TOKENS = Object.freeze({
   selectors: Object.freeze({
     navigation: 'nav[aria-label="Job Finder sections"]',
@@ -56,16 +72,17 @@ const COMPACT_NAVIGATION_EVIDENCE_TOKENS = Object.freeze({
     content: "[data-job-finder-compact-navigation-content]",
     fadeStart: "[data-job-finder-compact-navigation-fade-start]",
     fadeEnd: "[data-job-finder-compact-navigation-fade-end]",
-    planningButton: 'button[aria-label^="Planning and settings"]',
+    planningButton: 'button[aria-label^="More"]',
     interviewHelperLink: 'a[aria-label="Open Interview Helper"]',
     notificationsGroup:
       '[role="group"][aria-label="Notifications and actions"]',
     windowControlsGroup: '[role="group"][aria-label="Window controls"]',
-    planningMenu: '[role="navigation"][aria-label="Planning and settings"]',
-    shortcutsDisclosure: "[data-job-finder-planning-shortcuts-disclosure]",
-    shortcutsExpandedGroup: '[role="group"][aria-label="Keyboard shortcuts"]',
+    planningMenu: '[role="navigation"][aria-label="More"]',
+    planningMenuScrollRegion: "[data-job-finder-more-menu-scroll-region]",
+    shortcutsMenuEntry: "[data-job-finder-more-menu-shortcuts-entry]",
+    shortcutsDialog: "[data-job-finder-shortcuts-dialog]",
+    shortcutsDialogRow: "[data-job-finder-shortcut-row]",
   }),
-  collapsedShortcutsMaxHeightPx: 480,
   viewportEpsilonPx: 2,
   containmentEpsilonPx: 2,
   edgeFadeEpsilonPx: 1,
@@ -136,7 +153,7 @@ const routeCycles = 3;
 const MAX_PAGINATION_FAST_FORWARD_CLICKS = 200;
 const REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT = 10;
 const REVIEW_QUEUE_READY_RESUME_REASON =
-  "Batch preparation needs a ready resume file: an approved tailored PDF or unchanged original CV.";
+  "Batch preparation needs a ready resume file: an approved tailored PDF or unchanged original resume.";
 
 const report = {
   startedAt: new Date().toISOString(),
@@ -225,8 +242,10 @@ const processOutputStates = [];
 const capturedScreenshotDigests = [];
 
 // Pure collision detector: byte-identical screenshots cannot simultaneously
-// evidence distinct semantic states. Every repeated digest is reported together
-// with both scenario IDs and files so a mislabeled capture can never pass.
+// evidence distinct visual states. A capture scenario may be a shared-shell
+// assertion (for example, the wide-sidebar check on the profile surface), so
+// screenshotStateId lets that assertion retain its own completion ID without
+// pretending that it produced a different set of pixels.
 function findScreenshotStateCollisions(entries) {
   const byDigest = new Map();
   for (const entry of entries) {
@@ -234,6 +253,7 @@ function findScreenshotStateCollisions(entries) {
     const occurrences = byDigest.get(entry.digest) ?? [];
     occurrences.push({
       scenarioId: entry.scenarioId,
+      screenshotStateId: entry.screenshotStateId ?? entry.scenarioId,
       fileName: entry.fileName,
     });
     byDigest.set(entry.digest, occurrences);
@@ -241,12 +261,17 @@ function findScreenshotStateCollisions(entries) {
   const collisions = [];
   for (const [digest, occurrences] of byDigest.entries()) {
     if (occurrences.length < 2) continue;
+    const distinctScreenshotStateIds = [
+      ...new Set(occurrences.map((entry) => entry.screenshotStateId)),
+    ];
+    if (distinctScreenshotStateIds.length < 2) continue;
     collisions.push({
       digest,
       occurrences,
       distinctScenarioIds: [
         ...new Set(occurrences.map((entry) => entry.scenarioId)),
       ],
+      distinctScreenshotStateIds,
     });
   }
   return collisions;
@@ -773,7 +798,7 @@ async function readSurface(page, route, paginationLabel = null) {
         findJobs:
           '[aria-labelledby="discovery-job-results-heading"] [data-collection-item-id]',
         shortlisted: "[data-collection-item-id]",
-        applications: 'ul[aria-label="Applications"] > li',
+        applications: '[aria-label="Applications"] [data-collection-item-id]',
         rapidReview: 'ul[aria-label="Jobs to review"] > li',
       }[surface];
       const rows = rowSelector
@@ -825,22 +850,143 @@ async function readSurface(page, route, paginationLabel = null) {
   );
 }
 
-async function waitForHeading(page, heading) {
+async function waitForHeading(
+  page,
+  heading,
+  timingMark = null,
+  expectedRoute = null,
+) {
   try {
-    await page
-      .getByRole("heading", { level: 1, name: heading, exact: true })
-      .waitFor({ state: "visible", timeout: 15_000 });
+    return await page.evaluate(
+      ({ expectedHeading, timingMark: startMark, expectedRoute, timeoutMs }) =>
+        new Promise((resolve, reject) => {
+          if (startMark) performance.mark(startMark);
+          const startTime = performance.now();
+          let frameId = null;
+          let timeoutId = null;
+          let settled = false;
+          let observer = null;
+
+          const findVisibleHeading = () =>
+            Array.from(document.querySelectorAll("h1")).find((candidate) => {
+              if (!(candidate instanceof HTMLElement)) return false;
+              const style = getComputedStyle(candidate);
+              const bounds = candidate.getBoundingClientRect();
+              return (
+                (expectedRoute === null ||
+                  window.location.hash === `#${expectedRoute}`) &&
+                candidate.textContent?.trim() === expectedHeading &&
+                candidate.getClientRects().length > 0 &&
+                bounds.width > 0 &&
+                bounds.height > 0 &&
+                style.display !== "none" &&
+                style.visibility !== "hidden"
+              );
+            }) ?? null;
+
+          const cleanup = () => {
+            observer?.disconnect();
+            if (frameId !== null) cancelAnimationFrame(frameId);
+            if (timeoutId !== null) clearTimeout(timeoutId);
+            frameId = null;
+            timeoutId = null;
+          };
+
+          const finish = (headingElement) => {
+            if (settled) return;
+            settled = true;
+            const observedAt = performance.now();
+            const endMark = startMark ? `${startMark}-heading-visible` : null;
+            if (endMark) performance.mark(endMark);
+            const feedbackEntry = startMark
+              ? performance
+                  .getEntriesByName(
+                    `job-finder:route:${expectedRoute}:feedback-committed`,
+                    "mark",
+                  )
+                  .filter((entry) => entry.startTime >= startTime)
+                  .at(0)
+              : null;
+            cleanup();
+            resolve({
+              startTime,
+              endTime: observedAt,
+              elapsedMs: observedAt - startTime,
+              headingText: headingElement.textContent?.trim() ?? null,
+              headingTagName: headingElement.tagName,
+              observedRoute: window.location.hash,
+              expectedRoute,
+              exactVisibleH1:
+                headingElement.tagName === "H1" &&
+                headingElement.textContent?.trim() === expectedHeading,
+              measurementSource: "renderer-heading-readiness",
+              observerMechanism: "MutationObserver+requestAnimationFrame",
+              feedbackDurationMs: feedbackEntry
+                ? feedbackEntry.startTime - startTime
+                : null,
+            });
+          };
+
+          const fail = () => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(
+              new Error(
+                `Renderer heading readiness timed out after ${timeoutMs} ms for exact h1 ${JSON.stringify(expectedHeading)}.`,
+              ),
+            );
+          };
+
+          const check = () => {
+            if (settled) return;
+            const headingElement = findVisibleHeading();
+            if (headingElement) {
+              finish(headingElement);
+              return;
+            }
+            frameId = requestAnimationFrame(() => {
+              frameId = null;
+              check();
+            });
+          };
+
+          observer = new MutationObserver(check);
+          observer.observe(document.documentElement, {
+            subtree: true,
+            childList: true,
+            characterData: true,
+            attributes: true,
+            attributeFilter: ["class", "style", "hidden", "aria-hidden"],
+          });
+          timeoutId = setTimeout(fail, timeoutMs);
+          check();
+        }),
+      {
+        expectedHeading: heading,
+        timingMark,
+        expectedRoute,
+        timeoutMs: 15_000,
+      },
+    );
   } catch (error) {
-    report.routeDebug = await page.evaluate(() => ({
-      href: window.location.href,
-      readyState: document.readyState,
-      bodyText: document.body.innerText.slice(0, 4000),
-      headings: Array.from(document.querySelectorAll("h1,h2"))
-        .map((e) => ({ tag: e.tagName, text: e.textContent?.trim() ?? "" }))
-        .slice(0, 20),
-      mainText:
-        document.querySelector("main")?.textContent?.slice(0, 3000) ?? null,
-    }));
+    try {
+      report.routeDebug = await page.evaluate(() => ({
+        href: window.location.href,
+        readyState: document.readyState,
+        bodyText: document.body.innerText.slice(0, 4000),
+        headings: Array.from(document.querySelectorAll("h1,h2"))
+          .map((e) => ({ tag: e.tagName, text: e.textContent?.trim() ?? "" }))
+          .slice(0, 20),
+        mainText:
+          document.querySelector("main")?.textContent?.slice(0, 3000) ?? null,
+      }));
+    } catch (debugError) {
+      report.routeDebug = {
+        unavailable:
+          debugError instanceof Error ? debugError.message : String(debugError),
+      };
+    }
     throw error;
   }
 }
@@ -860,7 +1006,7 @@ async function navigateHash(page, route, heading) {
   await page.evaluate((nextRoute) => {
     window.location.hash = `#${nextRoute}`;
   }, route);
-  await waitForHeading(page, heading);
+  await waitForHeading(page, heading, null, route);
   await page.waitForTimeout(60);
 }
 
@@ -876,47 +1022,39 @@ async function switchRoute(page, definition, memoryPid) {
     .getByRole("button", { name: new RegExp(`^${definition.label}(?:\\s|$)`) });
   await button.waitFor({ state: "visible", timeout: 10_000 });
   const timingMark = `acceptance-route-start-${report.routeSwitches.length + 1}`;
-  await page.evaluate((mark) => performance.mark(mark), timingMark);
-  const startedAt = performance.now();
-  const headingReady = waitForHeading(page, definition.heading).then(
-    () => performance.now() - startedAt,
+  const headingReady = waitForHeading(
+    page,
+    definition.heading,
+    timingMark,
+    definition.route,
   );
-  const [, headingObservedLatencyMs] = await Promise.all([
+  const [, headingReadiness] = await Promise.all([
     button.click({ timeout: 10_000 }),
     headingReady,
   ]);
-  const rendererTiming = await page.evaluate(
-    ({ mark, route }) => {
-      const end = `${mark}-end`;
-      performance.mark(end);
-      const startEntry = performance.getEntriesByName(mark, "mark").at(-1);
-      const endEntry = performance.getEntriesByName(end, "mark").at(-1);
-      const feedbackEntry = startEntry
-        ? performance
-            .getEntriesByName(
-              `job-finder:route:${route}:feedback-committed`,
-              "mark",
-            )
-            .filter((entry) => entry.startTime >= startEntry.startTime)
-            .at(0)
-        : null;
-      return {
-        start: startEntry?.startTime ?? null,
-        end: endEntry?.startTime ?? null,
-        durationMs:
-          startEntry && endEntry
-            ? endEntry.startTime - startEntry.startTime
-            : null,
-        feedbackDurationMs:
-          startEntry && feedbackEntry
-            ? feedbackEntry.startTime - startEntry.startTime
-            : null,
-      };
-    },
-    { mark: timingMark, route: definition.route },
+  const headingObservedLatencyMs = headingReadiness.elapsedMs;
+  const rendererTiming = {
+    start: headingReadiness.startTime,
+    end: headingReadiness.endTime,
+    durationMs: headingReadiness.elapsedMs,
+    feedbackDurationMs: headingReadiness.feedbackDurationMs,
+    headingText: headingReadiness.headingText,
+    headingTagName: headingReadiness.headingTagName,
+    observedRoute: headingReadiness.observedRoute,
+    expectedRoute: headingReadiness.expectedRoute,
+    measurementSource: headingReadiness.measurementSource,
+    observerMechanism: headingReadiness.observerMechanism,
+    exactVisibleH1: headingReadiness.exactVisibleH1,
+  };
+  const latencyMs = rendererTiming.durationMs;
+  assert(
+    headingReadiness.exactVisibleH1 === true &&
+      headingReadiness.headingText === definition.heading &&
+      headingReadiness.headingTagName === "H1" &&
+      headingReadiness.expectedRoute === definition.route &&
+      headingReadiness.observedRoute === `#${definition.route}`,
+    `${definition.label}: renderer readiness did not observe the exact visible destination h1 and route ${JSON.stringify(headingReadiness)}.`,
   );
-  const latencyMs =
-    rendererTiming.feedbackDurationMs ?? rendererTiming.durationMs;
   assert(
     Number.isFinite(headingObservedLatencyMs) &&
       Number.isFinite(rendererTiming.durationMs) &&
@@ -937,9 +1075,9 @@ async function switchRoute(page, definition, memoryPid) {
     `${definition.label}: warm route switch exceeded ${CANONICAL_LATENCY_BUDGETS.warmRouteSwitchMs} ms (${latencyMs.toFixed(2)} ms).`,
   );
   // Renderer feedback marks commit before the destination surface renders,
-  // so they are optimistic. The release gate is the externally observed time
-  // until the destination's own level-1 heading is visible; both metrics stay
-  // recorded as diagnostics.
+  // so they are optimistic and remain diagnostics only. The release gate is
+  // the renderer-native external observation until the destination's exact
+  // level-1 heading is visible.
   assert(
     headingObservedLatencyMs <= CANONICAL_LATENCY_BUDGETS.warmRouteSwitchMs,
     `${definition.label}: externally observed heading readiness exceeded ${CANONICAL_LATENCY_BUDGETS.warmRouteSwitchMs} ms (${headingObservedLatencyMs.toFixed(2)} ms; renderer feedback mark ${latencyMs.toFixed(2)} ms).`,
@@ -1025,22 +1163,22 @@ async function captureScreenshot(page, name, meta = {}) {
     );
   if (meta.expectWideSidebar && !navigation.wideSidebar.pass)
     failures.push(
-      `1440 sidebar missing Search plans or Resume approaches ${JSON.stringify(navigation.wideSidebar)}`,
+      `1440 sidebar does not list every destination inline with its own scroll owner ${JSON.stringify(navigation.wideSidebar)}`,
     );
   if (meta.expectCompactPlanningButton && !navigation.compactPlanning.pass)
     failures.push(
-      `compact Planning and settings navigation missing ${JSON.stringify(navigation.compactPlanning)}`,
+      `compact More navigation missing ${JSON.stringify(navigation.compactPlanning)}`,
     );
   if (meta.expectPlanningSettingsMenu && !navigation.planningSettingsMenu.pass)
     failures.push(
-      `Planning and settings menu is not inside the viewport with required destinations ${JSON.stringify(navigation.planningSettingsMenu)}`,
+      `More menu is not inside the viewport with required destinations ${JSON.stringify(navigation.planningSettingsMenu)}`,
     );
   if (
     meta.expectPlanningSettingsKeyboard &&
     meta.planningSettingsKeyboard?.pass !== true
   )
     failures.push(
-      `Planning and settings menu is not keyboard reachable ${JSON.stringify(meta.planningSettingsKeyboard)}`,
+      `More menu is not keyboard reachable ${JSON.stringify(meta.planningSettingsKeyboard)}`,
     );
   if (meta.expectRoute && screenshot.route !== meta.expectRoute)
     failures.push(
@@ -1053,6 +1191,7 @@ async function captureScreenshot(page, name, meta = {}) {
   const digestEntry = {
     digest: screenshot.screenshot?.sha256 ?? null,
     scenarioId: meta.scenarioId ?? name,
+    screenshotStateId: meta.screenshotStateId ?? meta.scenarioId ?? name,
     fileName,
   };
   capturedScreenshotDigests.push(digestEntry);
@@ -1312,8 +1451,42 @@ async function inspectNavigation(page) {
         labels: sidebarLabels,
         requiredLabels: wideSidebarDestinations,
         requiredDestinationsVisible: wideSidebarDestinations.every((label) =>
-          sidebarLabels.includes(label),
+          sidebarLabels.some((sidebarLabel) => sidebarLabel.startsWith(label)),
         ),
+        // A dropdown inside a persistent navigation column only added a click:
+        // the sidebar must expose no More trigger at all at this width.
+        moreTriggerCount: sidebarNavigation
+          ? sidebarNavigation.querySelectorAll(
+              '[data-job-finder-sidebar-more], button[aria-label^="More"]',
+            ).length
+          : null,
+        shortcutsEntryCount: sidebarNavigation
+          ? sidebarNavigation.querySelectorAll(
+              "[data-job-finder-sidebar-shortcuts-entry]",
+            ).length
+          : null,
+        // The rail owns its own vertical scrolling, so a short window scrolls
+        // the destination list instead of clipping it.
+        scrollOwner: (() => {
+          const region = sidebar?.querySelector(
+            "[data-job-finder-sidebar-scroll-region]",
+          );
+          if (!(region instanceof HTMLElement)) return null;
+          const style = getComputedStyle(region);
+          const asideStyle =
+            sidebar instanceof HTMLElement ? getComputedStyle(sidebar) : null;
+          return {
+            asideOverflowY: asideStyle?.overflowY ?? null,
+            regionOverflowY: style.overflowY,
+            regionScrollable: region.scrollHeight > region.clientHeight + 2,
+            clientHeight: region.clientHeight,
+            scrollHeight: region.scrollHeight,
+            togglePinned: Boolean(
+              sidebar?.querySelector("[data-job-finder-sidebar-toggle]") &&
+              !region.querySelector("[data-job-finder-sidebar-toggle]"),
+            ),
+          };
+        })(),
         rect: sidebarRect
           ? {
               left: Math.round(sidebarRect.left),
@@ -1323,17 +1496,24 @@ async function inspectNavigation(page) {
             }
           : null,
       };
-      wideSidebar.pass =
+      wideSidebar.pass = Boolean(
         wideSidebar.visible &&
         wideSidebar.insideViewport &&
         wideSidebar.horizontalOverflowSuppressed &&
-        wideSidebar.requiredDestinationsVisible;
+        wideSidebar.requiredDestinationsVisible &&
+        wideSidebar.moreTriggerCount === 0 &&
+        wideSidebar.shortcutsEntryCount === 1 &&
+        wideSidebar.scrollOwner &&
+        /(auto|scroll)/.test(wideSidebar.scrollOwner.regionOverflowY) &&
+        ["hidden", "clip"].includes(wideSidebar.scrollOwner.asideOverflowY) &&
+        wideSidebar.scrollOwner.togglePinned,
+      );
 
       const compactNavigation = document.querySelector(
         'nav[aria-label="Job Finder sections"]',
       );
       const planningButton = document.querySelector(
-        'button[aria-label^="Planning and settings"]',
+        'button[aria-label^="More"]',
       );
       const compactPlanning = {
         navigationVisible: rendered(compactNavigation),
@@ -1346,7 +1526,7 @@ async function inspectNavigation(page) {
         compactPlanning.sidebarHidden;
 
       const menu = document.querySelector(
-        '[role="navigation"][aria-label="Planning and settings"]',
+        '[role="navigation"][aria-label="More"]',
       );
       const menuRect = menu?.getBoundingClientRect() ?? null;
       const menuStyle = menu ? getComputedStyle(menu) : null;
@@ -2110,29 +2290,32 @@ async function verifyCompactActiveRoute(page, config) {
   return report.verifications.navigation.compactActiveRoute[label];
 }
 
-// Proves the Planning menu shortcuts section matches its height mode. Short
-// menus (< collapsedShortcutsMaxHeightPx) must collapse Shortcuts into a
-// native disclosure whose summary stays visible, focusable as the terminal
-// roving participant, and activatable with Enter and Space; tall menus must
-// render the expanded group with its rows attached to the header.
+// Proves the More menu's keyboard-shortcuts affordance. The ~270px shortcut
+// table used to live inside this menu and crowded out its own destinations; it
+// now sits in a dedicated dialog reached from a single footer entry (and from
+// `?`). The evidence therefore covers: exactly one entry, no shortcut table
+// left in the menu, the entry as the terminal roving participant reachable
+// with End, an unobstructed activation point inside the menu, Enter opening
+// the dialog with its rows fully inside the viewport, and Escape restoring the
+// menu-free state.
 async function verifyPlanningShortcutsEvidence(page, config) {
-  const { label, expectedMode, expectedCssViewport } = config;
+  const { label, expectedCssViewport } = config;
   const tokens = COMPACT_NAVIGATION_EVIDENCE_TOKENS;
   const selectors = tokens.selectors;
   const planningButton = page.getByRole("button", {
-    name: /^Planning and settings/,
+    name: /^More/,
     exact: false,
   });
   await planningButton.waitFor({ state: "visible", timeout: 10_000 });
   await planningButton.click();
-  const menu = page.getByRole("navigation", { name: "Planning and settings" });
+  const menu = page.getByRole("navigation", { name: "More" });
   await menu.waitFor({ state: "visible", timeout: 10_000 });
   await page.waitForFunction(
     () =>
       document.activeElement instanceof HTMLButtonElement &&
-      document.activeElement
-        .closest('[role="navigation"][aria-label="Planning and settings"]') !==
-        null,
+      document.activeElement.closest(
+        '[role="navigation"][aria-label="More"]',
+      ) !== null,
     undefined,
     { timeout: 10_000 },
   );
@@ -2155,32 +2338,19 @@ async function verifyPlanningShortcutsEvidence(page, config) {
     },
     { menuSelector: selectors.planningMenu },
   );
-  assert(menuGeometry !== null, `${label}: Planning menu geometry unavailable`);
+  assert(menuGeometry !== null, `${label}: More menu geometry unavailable`);
   const maxHeightPx = Number.parseFloat(menuGeometry.maxHeightToken);
   assert(
     Number.isFinite(maxHeightPx) && maxHeightPx > 0,
-    `${label}: Planning menu inline max-height token missing: ${JSON.stringify(menuGeometry)}`,
+    `${label}: More menu inline max-height token missing: ${JSON.stringify(menuGeometry)}`,
   );
-  const observedMode =
-    maxHeightPx < tokens.collapsedShortcutsMaxHeightPx
-      ? "collapsed"
-      : "expanded";
-  assert(
-    observedMode === expectedMode,
-    `${label}: Planning menu height mode is ${observedMode} (max-height ${maxHeightPx}px), expected ${expectedMode}`,
-  );
-  const evidence =
-    observedMode === "collapsed"
-      ? await collectCollapsedShortcutsEvidence(page, label)
-      : await collectExpandedShortcutsEvidence(page, label);
+  const evidence = await collectShortcutsEntryEvidence(page, label);
 
   await page.keyboard.press("Escape");
   await menu.waitFor({ state: "detached", timeout: 5_000 });
 
   report.verifications.navigation.planningShortcutsMenu[label] = {
     pass: true,
-    expectedMode,
-    observedMode,
     menuMaxHeightPx: maxHeightPx,
     cssViewport: expectedCssViewport,
     ...evidence,
@@ -2188,49 +2358,51 @@ async function verifyPlanningShortcutsEvidence(page, config) {
   return report.verifications.navigation.planningShortcutsMenu[label];
 }
 
-async function collectCollapsedShortcutsEvidence(page, label) {
+async function collectShortcutsEntryEvidence(page, label) {
   const tokens = COMPACT_NAVIGATION_EVIDENCE_TOKENS;
   const selectors = tokens.selectors;
-  const disclosure = page.locator(selectors.shortcutsDisclosure);
+  const entry = page.locator(selectors.shortcutsMenuEntry);
   assert(
-    (await disclosure.count()) === 1,
-    `${label}: short Planning menu did not collapse Shortcuts into exactly one disclosure`,
+    (await entry.count()) === 1,
+    `${label}: More menu did not render exactly one keyboard-shortcuts entry`,
+  );
+  // The removed table is a regression, not a style question: reference
+  // material inside this menu is what pushed the real destinations below the
+  // fold.
+  const residualTable = await page.evaluate(
+    ({ menuSelector }) => {
+      const menu = document.querySelector(menuSelector);
+      if (!(menu instanceof HTMLElement))
+        return { menuFound: false, kbdCount: 0 };
+      return {
+        menuFound: true,
+        kbdCount: menu.querySelectorAll("kbd").length,
+      };
+    },
+    { menuSelector: selectors.planningMenu },
   );
   assert(
-    (await page.locator(selectors.shortcutsExpandedGroup).count()) === 0,
-    `${label}: expanded Keyboard shortcuts group rendered in a short menu`,
+    residualTable.menuFound && residualTable.kbdCount === 0,
+    `${label}: shortcut keycaps are still rendered inside the More menu: ${JSON.stringify(residualTable)}`,
   );
-  const initialState = await disclosure.evaluate((element) => {
-    const summary = element.querySelector(":scope > summary");
-    const rect =
-      summary instanceof HTMLElement ? summary.getBoundingClientRect() : null;
+  const initialState = await entry.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
     return {
-      open: element.open,
-      summaryFound: summary instanceof HTMLElement,
-      summaryRole: summary?.getAttribute("role") ?? null,
-      summaryText: summary?.textContent?.replace(/\s+/g, " ").trim() ?? null,
-      summaryAriaExpanded: summary?.getAttribute("aria-expanded") ?? null,
-      summaryTabIndex: summary instanceof HTMLElement ? summary.tabIndex : null,
-      summarySize:
-        rect !== null ? { width: rect.width, height: rect.height } : null,
+      tag: element.tagName.toLowerCase(),
+      text: element.textContent?.replace(/\s+/g, " ").trim() ?? null,
+      tabIndex: element instanceof HTMLElement ? element.tabIndex : null,
+      size: { width: rect.width, height: rect.height },
     };
   });
   assert(
-    initialState.open === false &&
-      initialState.summaryAriaExpanded === "false" &&
-      initialState.summaryTabIndex === -1,
-    `${label}: Shortcuts disclosure did not start collapsed and unfocused: ${JSON.stringify(initialState)}`,
+    initialState.tag === "button" &&
+      initialState.text !== null &&
+      initialState.text.includes("Keyboard shortcuts"),
+    `${label}: shortcuts entry is not a "Keyboard shortcuts" button: ${JSON.stringify(initialState)}`,
   );
   assert(
-    initialState.summaryRole === null &&
-      initialState.summaryText === "Shortcuts",
-    `${label}: Shortcuts summary is not a native "Shortcuts" disclosure: ${JSON.stringify(initialState)}`,
-  );
-  assert(
-    initialState.summarySize !== null &&
-      initialState.summarySize.width > 0 &&
-      initialState.summarySize.height > 0,
-    `${label}: collapsed Shortcuts summary is not visible: ${JSON.stringify(initialState)}`,
+    initialState.size.width > 0 && initialState.size.height > 0,
+    `${label}: shortcuts entry is not visible: ${JSON.stringify(initialState)}`,
   );
   const rovingOrder = await page.evaluate(
     ({ menuSelector }) => {
@@ -2248,301 +2420,147 @@ async function collectCollapsedShortcutsEvidence(page, label) {
   );
   assert(
     rovingOrder.itemCount > 1 &&
-      rovingOrder.terminalTag === "summary" &&
-      rovingOrder.terminalText === "Shortcuts",
-    `${label}: Shortcuts summary is not the terminal roving participant: ${JSON.stringify(rovingOrder)}`,
+      rovingOrder.terminalTag === "button" &&
+      (rovingOrder.terminalText ?? "").includes("Keyboard shortcuts"),
+    `${label}: shortcuts entry is not the terminal roving participant: ${JSON.stringify(rovingOrder)}`,
   );
   await page.keyboard.press("End");
   await page.waitForFunction(
-    ({ disclosureSelector }) =>
-      document.activeElement ===
-      document.querySelector(`${disclosureSelector} > summary`),
-    { disclosureSelector: selectors.shortcutsDisclosure },
+    ({ entrySelector }) =>
+      document.activeElement === document.querySelector(entrySelector),
+    { entrySelector: selectors.shortcutsMenuEntry },
     { timeout: 5_000 },
   );
   const rovingFocus = await page.evaluate(
-    ({ disclosureSelector, menuSelector }) => {
-      const summary = document.querySelector(`${disclosureSelector} > summary`);
+    ({ entrySelector, menuSelector }) => {
+      const entry = document.querySelector(entrySelector);
       const menu = document.querySelector(menuSelector);
       const items = Array.from(
         document.querySelectorAll(`${menuSelector} [tabindex]`),
       );
-      const summaryRect =
-        summary instanceof HTMLElement ? summary.getBoundingClientRect() : null;
+      const entryRect =
+        entry instanceof HTMLElement ? entry.getBoundingClientRect() : null;
       const menuRect = menu?.getBoundingClientRect() ?? null;
       return {
-        activeIsSummary: document.activeElement === summary,
-        summaryTabIndex:
-          summary instanceof HTMLElement ? summary.tabIndex : null,
+        activeIsEntry: document.activeElement === entry,
+        entryTabIndex: entry instanceof HTMLElement ? entry.tabIndex : null,
         screenItemTabIndexes: items
-          .filter((item) => item !== summary)
+          .filter((item) => item !== entry)
           .map((item) => item.tabIndex),
-        focusedSummaryWithinMenu:
-          summaryRect !== null &&
+        focusedEntryWithinMenu:
+          entryRect !== null &&
           menuRect !== null &&
-          summaryRect.top >= menuRect.top - 1 &&
-          summaryRect.bottom <= menuRect.bottom + 1,
-        summaryRect:
-          summaryRect !== null
+          entryRect.top >= menuRect.top - 1 &&
+          entryRect.bottom <= menuRect.bottom + 1,
+        entryRect:
+          entryRect !== null
             ? {
-                top: summaryRect.top,
-                bottom: summaryRect.bottom,
-                left: summaryRect.left,
-                right: summaryRect.right,
+                top: entryRect.top,
+                bottom: entryRect.bottom,
+                left: entryRect.left,
+                right: entryRect.right,
               }
             : null,
       };
     },
     {
-      disclosureSelector: selectors.shortcutsDisclosure,
+      entrySelector: selectors.shortcutsMenuEntry,
       menuSelector: selectors.planningMenu,
     },
   );
   assert(
-    rovingFocus.activeIsSummary === true &&
-      rovingFocus.summaryTabIndex === 0 &&
+    rovingFocus.activeIsEntry === true &&
+      rovingFocus.entryTabIndex === 0 &&
       rovingFocus.screenItemTabIndexes.every((tabIndex) => tabIndex === -1),
-    `${label}: End key did not move roving focus to the Shortcuts summary: ${JSON.stringify(rovingFocus)}`,
+    `${label}: End key did not move roving focus to the shortcuts entry: ${JSON.stringify(rovingFocus)}`,
   );
   assert(
-    rovingFocus.focusedSummaryWithinMenu,
-    `${label}: focused Shortcuts summary is clipped outside the Planning menu: ${JSON.stringify(rovingFocus.summaryRect)}`,
+    rovingFocus.focusedEntryWithinMenu,
+    `${label}: focused shortcuts entry is clipped outside the More menu: ${JSON.stringify(rovingFocus.entryRect)}`,
   );
   const hitTest = await page.evaluate(
-    ({ disclosureSelector }) => {
-      const summary = document.querySelector(`${disclosureSelector} > summary`);
-      if (!(summary instanceof HTMLElement))
-        return { blocked: true, hitDescriptor: "missing-summary" };
-      const rect = summary.getBoundingClientRect();
+    ({ entrySelector }) => {
+      const entry = document.querySelector(entrySelector);
+      if (!(entry instanceof HTMLElement))
+        return { blocked: true, hitDescriptor: "missing-entry" };
+      const rect = entry.getBoundingClientRect();
       const point = document.elementFromPoint(
         rect.left + rect.width / 2,
         rect.top + rect.height / 2,
       );
       return {
-        blocked: !(point === summary || summary.contains(point)),
+        blocked: !(point === entry || entry.contains(point)),
         hitDescriptor:
           point === null
             ? "no-element-at-point"
             : `${point.tagName.toLowerCase()}${point.getAttribute("role") ? `[role="${point.getAttribute("role")}"]` : ""}`,
       };
     },
-    { disclosureSelector: selectors.shortcutsDisclosure },
+    { entrySelector: selectors.shortcutsMenuEntry },
   );
   assert(
     hitTest.blocked === false,
-    `${label}: Shortcuts summary activation is blocked by an overlay: ${JSON.stringify(hitTest)}`,
+    `${label}: shortcuts entry activation is blocked by an overlay: ${JSON.stringify(hitTest)}`,
   );
   await page.keyboard.press("Enter");
-  await page.waitForFunction(
-    ({ disclosureSelector }) =>
-      document.querySelector(disclosureSelector)?.open === true,
-    { disclosureSelector: selectors.shortcutsDisclosure },
-    { timeout: 5_000 },
-  );
-  const opened = await disclosure.evaluate((element) => {
-    const summary = element.querySelector(":scope > summary");
-    const rows = Array.from(element.querySelectorAll(":scope > div > div"));
-    return {
-      open: element.open,
-      summaryAriaExpanded: summary?.getAttribute("aria-expanded") ?? null,
-      rowLabels: rows.map(
-        (row) => row.textContent?.replace(/\s+/g, " ").trim() ?? "",
-      ),
-      kbdCount: element.querySelectorAll("kbd").length,
-    };
-  });
-  assert(
-    opened.open === true && opened.summaryAriaExpanded === "true",
-    `${label}: Enter did not open the Shortcuts disclosure: ${JSON.stringify(opened)}`,
-  );
-  assert(
-    opened.rowLabels.length >= 2 && opened.kbdCount >= opened.rowLabels.length,
-    `${label}: opening Shortcuts did not reveal shortcut rows: ${JSON.stringify(opened)}`,
-  );
-  await page.evaluate(
-    ({ disclosureSelector }) => {
-      const rows = document.querySelectorAll(
-        `${disclosureSelector} > div > div`,
-      );
-      rows[rows.length - 1]?.scrollIntoView({ block: "nearest" });
-    },
-    { disclosureSelector: selectors.shortcutsDisclosure },
-  );
-  const reachability = await page.evaluate(
-    ({ disclosureSelector, menuSelector }) => {
-      const menu = document.querySelector(menuSelector);
-      const menuRect = menu?.getBoundingClientRect() ?? null;
-      const rows = Array.from(
-        document.querySelectorAll(`${disclosureSelector} > div > div`),
-      );
+  const dialog = page.locator(selectors.shortcutsDialog);
+  await dialog.waitFor({ state: "visible", timeout: 5_000 });
+  const dialogEvidence = await page.evaluate(
+    ({ dialogSelector, rowSelector }) => {
+      const dialog = document.querySelector(dialogSelector);
+      if (!(dialog instanceof HTMLElement)) return null;
+      const rows = Array.from(dialog.querySelectorAll(rowSelector));
+      const dialogRect = dialog.getBoundingClientRect();
       return {
-        rowsWithinMenu:
-          menuRect !== null &&
-          rows.every((row) => {
-            const rect = row.getBoundingClientRect();
-            return (
-              rect.height > 0 &&
-              rect.top >= menuRect.top - 1 &&
-              rect.bottom <= menuRect.bottom + 1
-            );
-          }),
+        role: dialog.getAttribute("role"),
+        ariaModal: dialog.getAttribute("aria-modal"),
         rowCount: rows.length,
+        kbdCount: dialog.querySelectorAll("kbd").length,
+        rowLabels: rows.map(
+          (row) => row.textContent?.replace(/\s+/g, " ").trim() ?? "",
+        ),
+        withinViewport:
+          dialogRect.top >= -1 &&
+          dialogRect.left >= -1 &&
+          dialogRect.right <= window.innerWidth + 1 &&
+          dialogRect.bottom <= window.innerHeight + 1,
+        dialogRect: {
+          top: dialogRect.top,
+          bottom: dialogRect.bottom,
+          left: dialogRect.left,
+          right: dialogRect.right,
+        },
       };
     },
     {
-      disclosureSelector: selectors.shortcutsDisclosure,
-      menuSelector: selectors.planningMenu,
+      dialogSelector: selectors.shortcutsDialog,
+      rowSelector: selectors.shortcutsDialogRow,
     },
   );
   assert(
-    reachability.rowsWithinMenu,
-    `${label}: revealed shortcut rows are not reachable inside the Planning menu scroll area: ${JSON.stringify(reachability)}`,
+    dialogEvidence !== null,
+    `${label}: shortcuts dialog became unavailable immediately after opening`,
   );
-  await page.keyboard.press("Space");
-  await page.waitForFunction(
-    ({ disclosureSelector }) =>
-      document.querySelector(disclosureSelector)?.open === false,
-    { disclosureSelector: selectors.shortcutsDisclosure },
-    { timeout: 5_000 },
-  );
-  const closed = await disclosure.evaluate((element) => {
-    const summary = element.querySelector(":scope > summary");
-    return {
-      open: element.open,
-      summaryAriaExpanded: summary?.getAttribute("aria-expanded") ?? null,
-    };
-  });
   assert(
-    closed.open === false && closed.summaryAriaExpanded === "false",
-    `${label}: Space did not toggle the Shortcuts disclosure closed: ${JSON.stringify(closed)}`,
+    dialogEvidence.role === "dialog" && dialogEvidence.ariaModal === "true",
+    `${label}: shortcuts dialog is not an aria-modal dialog: ${JSON.stringify(dialogEvidence)}`,
   );
+  assert(
+    dialogEvidence.rowCount >= 2 &&
+      dialogEvidence.kbdCount >= dialogEvidence.rowCount,
+    `${label}: shortcuts dialog did not render keycapped shortcut rows: ${JSON.stringify(dialogEvidence)}`,
+  );
+  assert(
+    dialogEvidence.withinViewport,
+    `${label}: shortcuts dialog is clipped outside the viewport: ${JSON.stringify(dialogEvidence.dialogRect)}`,
+  );
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "detached", timeout: 5_000 });
   return {
-    summaryHitTest: hitTest,
+    entryHitTest: hitTest,
     rovingOrder,
-    enterOpenedRows: opened.rowLabels,
-    spaceClosedDisclosure: true,
-  };
-}
-
-async function collectExpandedShortcutsEvidence(page, label) {
-  const tokens = COMPACT_NAVIGATION_EVIDENCE_TOKENS;
-  const selectors = tokens.selectors;
-  assert(
-    (await page.locator(selectors.shortcutsDisclosure).count()) === 0,
-    `${label}: collapsed Shortcuts disclosure rendered in a normal-height menu`,
-  );
-  const group = page.locator(selectors.shortcutsExpandedGroup);
-  assert(
-    (await group.count()) === 1,
-    `${label}: normal-height Planning menu did not render one expanded Keyboard shortcuts group`,
-  );
-  const groupEvidence = await group.evaluate((element) => {
-    const children = Array.from(element.children);
-    const headers = children.filter(
-      (child) => child instanceof HTMLSpanElement,
-    );
-    const rows = children.filter((child) => child.tagName === "DIV");
-    const rectOf = (node) => {
-      const rect = node.getBoundingClientRect();
-      return {
-        top: rect.top,
-        bottom: rect.bottom,
-        left: rect.left,
-        right: rect.right,
-        width: rect.width,
-        height: rect.height,
-      };
-    };
-    return {
-      ariaLabel: element.getAttribute("aria-label"),
-      headerCount: headers.length,
-      headerText: headers[0]?.textContent?.replace(/\s+/g, " ").trim() ?? null,
-      headerRect: headers[0] ? rectOf(headers[0]) : null,
-      rowCount: rows.length,
-      rowHeights: rows.map((row) => rectOf(row).height),
-      rowLabels: rows.map(
-        (row) => row.textContent?.replace(/\s+/g, " ").trim() ?? "",
-      ),
-    };
-  });
-  assert(
-    groupEvidence.ariaLabel === "Keyboard shortcuts" &&
-      groupEvidence.headerCount === 1 &&
-      groupEvidence.headerText === "Shortcuts",
-    `${label}: expanded shortcuts group header is not truthful: ${JSON.stringify(groupEvidence)}`,
-  );
-  assert(
-    groupEvidence.rowCount >= 2 &&
-      groupEvidence.rowHeights.every((height) => height > 0),
-    `${label}: expanded shortcuts group lacks visible shortcut rows: ${JSON.stringify(groupEvidence)}`,
-  );
-  await page.evaluate(
-    ({ menuSelector }) => {
-      const menu = document.querySelector(menuSelector);
-      if (menu instanceof HTMLElement) menu.scrollTop = menu.scrollHeight;
-    },
-    { menuSelector: selectors.planningMenu },
-  );
-  await page.waitForTimeout(80);
-  const orphanAudit = await page.evaluate(
-    ({ groupSelector, menuSelector }) => {
-      const menu = document.querySelector(menuSelector);
-      const group = document.querySelector(groupSelector);
-      const menuRect = menu?.getBoundingClientRect() ?? null;
-      const children = group ? Array.from(group.children) : [];
-      const header = children.find((child) => child.tagName === "SPAN");
-      const rows = children.filter((child) => child.tagName === "DIV");
-      const withinMenu = (rect) =>
-        menuRect !== null &&
-        rect.top >= menuRect.top - 1 &&
-        rect.bottom <= menuRect.bottom + 1;
-      const headerRect = header?.getBoundingClientRect() ?? null;
-      const firstRowRect = rows[0]?.getBoundingClientRect() ?? null;
-      return {
-        menuScrollable:
-          menu instanceof HTMLElement
-            ? menu.scrollHeight > menu.clientHeight + 2
-            : null,
-        headerWithinMenu: headerRect !== null && withinMenu(headerRect),
-        allRowsWithinMenu:
-          rows.length > 0 &&
-          rows.every((row) => withinMenu(row.getBoundingClientRect())),
-        headerFirstRowGapPx:
-          headerRect && firstRowRect
-            ? firstRowRect.top - headerRect.bottom
-            : null,
-        orphanHeaderCount: Array.from(
-          document.querySelectorAll(`${menuSelector} span`),
-        ).filter(
-          (span) =>
-            span.textContent?.trim() === "Shortcuts" && !group?.contains(span),
-        ).length,
-      };
-    },
-    {
-      groupSelector: selectors.shortcutsExpandedGroup,
-      menuSelector: selectors.planningMenu,
-    },
-  );
-  assert(
-    orphanAudit.headerWithinMenu && orphanAudit.allRowsWithinMenu,
-    `${label}: expanded Shortcuts header is severed from its rows at the menu scroll cut (orphan header): ${JSON.stringify(orphanAudit)}`,
-  );
-  assert(
-    orphanAudit.orphanHeaderCount === 0,
-    `${label}: orphan Shortcuts header found outside the shortcuts group: ${JSON.stringify(orphanAudit)}`,
-  );
-  assert(
-    orphanAudit.headerFirstRowGapPx === null ||
-      (orphanAudit.headerFirstRowGapPx >= -1 &&
-        orphanAudit.headerFirstRowGapPx <= 16),
-    `${label}: Shortcuts header is not adjacent above its shortcut rows: ${JSON.stringify(orphanAudit)}`,
-  );
-  return {
-    headerText: groupEvidence.headerText,
-    rowLabels: groupEvidence.rowLabels,
-    menuScrollable: orphanAudit.menuScrollable,
-    orphanAudit,
+    dialogRowLabels: dialogEvidence.rowLabels,
+    escapeClosedDialog: true,
   };
 }
 
@@ -2558,17 +2576,231 @@ function paginationVisitPlan(config) {
   return [...new Set(plan)].sort((left, right) => left - right);
 }
 
+async function clickPaginationNextInPage(page, config) {
+  const isFindJobs =
+    config.id === "findJobs" || config.id === "findJobs-native125";
+  const result = await page.evaluate(
+    ({ paginationLabel, heading, isFindJobs }) => {
+      const navigations = Array.from(document.querySelectorAll("nav")).filter(
+        (candidate) =>
+          candidate instanceof HTMLElement &&
+          candidate.getAttribute("aria-label") === paginationLabel,
+      );
+      if (navigations.length !== 1) {
+        return {
+          ok: false,
+          reason: `expected exactly one pagination navigation, found ${navigations.length}`,
+        };
+      }
+      const navigation = navigations[0];
+      const nextButtons = Array.from(
+        navigation.querySelectorAll("button"),
+      ).filter(
+        (candidate) =>
+          candidate instanceof HTMLButtonElement &&
+          (candidate.getAttribute("aria-label") === "Next page" ||
+            candidate.textContent?.replace(/\s+/g, " ").trim() === "Next"),
+      );
+      if (nextButtons.length !== 1) {
+        return {
+          ok: false,
+          reason: `expected exactly one Next button, found ${nextButtons.length}`,
+        };
+      }
+      const nextButton = nextButtons[0];
+      if (nextButton.disabled) {
+        return { ok: false, reason: "Next button is disabled" };
+      }
+
+      let geometry = null;
+      if (isFindJobs) {
+        const scrollAreas = Array.from(
+          document.querySelectorAll("[data-locked-screen-scroll-area]"),
+        ).filter((candidate) => candidate instanceof HTMLElement);
+        if (scrollAreas.length !== 1) {
+          return {
+            ok: false,
+            reason: `expected exactly one locked screen scroll area, found ${scrollAreas.length}`,
+          };
+        }
+        const headings = Array.from(document.querySelectorAll("h1")).filter(
+          (candidate) =>
+            candidate instanceof HTMLElement &&
+            candidate.textContent?.trim() === heading &&
+            candidate.getClientRects().length > 0,
+        );
+        if (headings.length !== 1) {
+          return {
+            ok: false,
+            reason: `expected exactly one visible ${JSON.stringify(heading)} h1, found ${headings.length}`,
+          };
+        }
+        const headingRect = headings[0].getBoundingClientRect();
+        geometry = {
+          outerScrollTop: scrollAreas[0].scrollTop,
+          findJobsH1: {
+            left: headingRect.left,
+            top: headingRect.top,
+            right: headingRect.right,
+            bottom: headingRect.bottom,
+            width: headingRect.width,
+            height: headingRect.height,
+          },
+        };
+      }
+      nextButton.click();
+      return geometry
+        ? { ok: true, reason: null, before: geometry }
+        : { ok: true, reason: null };
+    },
+    {
+      paginationLabel: config.paginationLabel,
+      heading: config.heading,
+      isFindJobs,
+    },
+  );
+  assert(
+    result.ok,
+    `${config.id}: in-page pagination Next click failed: ${result.reason}.`,
+  );
+  if (isFindJobs) {
+    assert(
+      result.before && Number.isFinite(result.before.outerScrollTop),
+      `${config.id}: in-page pagination click did not return pre-click scroll geometry evidence.`,
+    );
+    assert(
+      result.before.findJobsH1,
+      `${config.id}: in-page pagination click did not return pre-click Find Jobs H1 geometry evidence.`,
+    );
+  }
+  return result;
+}
+
+async function waitForPaginationPage(page, config, pageNumber) {
+  const expectedRows = config.expectedRows(pageNumber);
+  const expectedText = config.expectedText(pageNumber);
+  await page.waitForFunction(
+    ({ surface, paginationLabel, expectedRows, expectedText }) => {
+      const rowSelector = {
+        profile:
+          '[data-job-sources-library] [aria-label="Configured job sources"] > li',
+        findJobs:
+          '[aria-labelledby="discovery-job-results-heading"] [data-collection-item-id]',
+        shortlisted: "[data-collection-item-id]",
+        applications: 'ul[aria-label="Applications"] > li',
+        rapidReview: 'ul[aria-label="Jobs to review"] > li',
+      }[surface];
+      const pagination = Array.from(document.querySelectorAll("nav")).find(
+        (el) => el.getAttribute("aria-label") === paginationLabel,
+      );
+      return (
+        document.querySelectorAll(rowSelector).length === expectedRows &&
+        pagination?.textContent?.replace(/\s+/g, " ").includes(expectedText)
+      );
+    },
+    {
+      surface: config.surface,
+      paginationLabel: config.paginationLabel,
+      expectedRows,
+      expectedText,
+    },
+    { timeout: 15_000 },
+  );
+}
+
+async function readFindJobsPaginationGeometry(page) {
+  return page.evaluate(() => {
+    const outerScrollArea = document.querySelector(
+      "[data-locked-screen-scroll-area]",
+    );
+    const findJobsH1 = Array.from(document.querySelectorAll("h1")).find(
+      (candidate) =>
+        candidate instanceof HTMLElement &&
+        candidate.textContent?.trim() === "Find jobs" &&
+        candidate.getClientRects().length > 0,
+    );
+    const headingRect = findJobsH1?.getBoundingClientRect() ?? null;
+    return {
+      outerScrollTop:
+        outerScrollArea instanceof HTMLElement
+          ? outerScrollArea.scrollTop
+          : null,
+      findJobsH1: headingRect
+        ? {
+            left: headingRect.left,
+            top: headingRect.top,
+            right: headingRect.right,
+            bottom: headingRect.bottom,
+            width: headingRect.width,
+            height: headingRect.height,
+          }
+        : null,
+    };
+  });
+}
+
+function paginationGeometryDifferences(before, after) {
+  const failures = [];
+  if (
+    !before ||
+    !after ||
+    !Number.isFinite(before.outerScrollTop) ||
+    !Number.isFinite(after.outerScrollTop)
+  ) {
+    failures.push(
+      "real outer [data-locked-screen-scroll-area] scrollTop is unavailable",
+    );
+  } else if (before.outerScrollTop !== after.outerScrollTop) {
+    failures.push(
+      `outer scrollTop changed from ${before.outerScrollTop} to ${after.outerScrollTop}`,
+    );
+  }
+  if (!before?.findJobsH1 || !after?.findJobsH1) {
+    failures.push("Find Jobs H1 geometry is unavailable");
+  } else {
+    for (const property of [
+      "left",
+      "top",
+      "right",
+      "bottom",
+      "width",
+      "height",
+    ]) {
+      if (before.findJobsH1[property] !== after.findJobsH1[property]) {
+        failures.push(
+          `Find Jobs H1 ${property} changed from ${before.findJobsH1[property]} to ${after.findJobsH1[property]}`,
+        );
+      }
+    }
+  }
+  return failures;
+}
+
+function assertFindJobsPaginationGeometryStable(before, after, label) {
+  const failures = paginationGeometryDifferences(before, after);
+  assert(
+    failures.length === 0,
+    `${label}: pagination changed the outer scroll position or Find Jobs H1 geometry: ${JSON.stringify({ before, after, failures })}`,
+  );
+  return { before, after, failures, pass: true };
+}
+
 async function advancePagination(page, config, fromPage, toPage) {
   const clicks = toPage - fromPage;
   assert(
     clicks > 0 && clicks <= MAX_PAGINATION_FAST_FORWARD_CLICKS,
     `${config.id}: pagination advance from page ${fromPage} to ${toPage} exceeds the bounded fast-forward budget of ${MAX_PAGINATION_FAST_FORWARD_CLICKS} clicks.`,
   );
-  const nextButton = page
-    .getByRole("navigation", { name: config.paginationLabel })
-    .getByRole("button", { name: /^Next(?: page)?$/ });
-  for (let remaining = clicks; remaining > 0; remaining -= 1)
-    await nextButton.click({ timeout: 10_000 });
+  let lastClickEvidence = null;
+  for (let remaining = clicks; remaining > 0; remaining -= 1) {
+    lastClickEvidence = await clickPaginationNextInPage(page, config);
+    await waitForPaginationPage(
+      page,
+      config,
+      fromPage + (clicks - remaining + 1),
+    );
+  }
+  return lastClickEvidence;
 }
 
 async function assertPagination(page, config) {
@@ -2576,48 +2808,42 @@ async function assertPagination(page, config) {
   if (config.waitFor) await config.waitFor(page);
   const visitPlan = paginationVisitPlan(config);
   const pages = [];
+  let findJobsPage1Geometry = null;
+  let findJobsPage2Geometry = null;
+  let paginationClickEvidence = null;
   let previousPageNumber = null;
   for (const pageNumber of visitPlan) {
     if (previousPageNumber !== null) {
-      await advancePagination(page, config, previousPageNumber, pageNumber);
+      paginationClickEvidence = await advancePagination(
+        page,
+        config,
+        previousPageNumber,
+        pageNumber,
+      );
     }
     previousPageNumber = pageNumber;
-    const expectedRows = config.expectedRows(pageNumber);
-    const expectedText = config.expectedText(pageNumber);
     if (config.screenshotOnPages?.includes(pageNumber)) {
       await checkHorizontalOverflow(
         page,
         `${config.id} page ${pageNumber} pre-check`,
       );
     }
-    await page.waitForFunction(
-      ({ surface, paginationLabel, expectedRows, expectedText }) => {
-        const rowSelector = {
-          profile:
-            '[data-job-sources-library] [aria-label="Configured job sources"] > li',
-          findJobs:
-            '[aria-labelledby="discovery-job-results-heading"] [data-collection-item-id]',
-          shortlisted: "[data-collection-item-id]",
-          applications: 'ul[aria-label="Applications"] > li',
-          rapidReview: 'ul[aria-label="Jobs to review"] > li',
-        }[surface];
-        const pagination = Array.from(document.querySelectorAll("nav")).find(
-          (el) => el.getAttribute("aria-label") === paginationLabel,
-        );
-        return (
-          document.querySelectorAll(rowSelector).length === expectedRows &&
-          pagination?.textContent?.replace(/\s+/g, " ").includes(expectedText)
-        );
-      },
-      {
-        surface: config.surface,
-        paginationLabel: config.paginationLabel,
-        expectedRows,
-        expectedText,
-      },
-      { timeout: 15_000 },
-    );
+    await waitForPaginationPage(page, config, pageNumber);
     if (config.assertPage) await config.assertPage(page, pageNumber);
+    const paginationGeometry =
+      config.id === "findJobs"
+        ? await readFindJobsPaginationGeometry(page)
+        : null;
+    if (config.id === "findJobs" && pageNumber === 1)
+      findJobsPage1Geometry = paginationGeometry;
+    if (config.id === "findJobs" && pageNumber === 2) {
+      findJobsPage2Geometry = paginationGeometry;
+      assertFindJobsPaginationGeometryStable(
+        paginationClickEvidence?.before ?? findJobsPage1Geometry,
+        findJobsPage2Geometry,
+        `${config.id} page 1 -> page 2`,
+      );
+    }
     const state = await readSurface(
       page,
       config.surface,
@@ -2650,6 +2876,7 @@ async function assertPagination(page, config) {
       text: state.paginationText,
       nextDisabled: next.disabled,
       previousDisabled: previous.disabled,
+      ...(paginationGeometry ? { paginationGeometry } : {}),
     });
     if (config.screenshotOnPages?.includes(pageNumber)) {
       await checkPaginationFlexWrap(page, `${config.id}-p${pageNumber}`);
@@ -2680,6 +2907,19 @@ async function assertPagination(page, config) {
     strategy: config.sampling ? "bounded-head-tail" : "exhaustive-walk",
     visitedPages: visitPlan,
     pages,
+    ...(config.id === "findJobs"
+      ? {
+          page1ToPage2Geometry: {
+            page1: findJobsPage1Geometry,
+            page2: findJobsPage2Geometry,
+            pass:
+              paginationGeometryDifferences(
+                findJobsPage1Geometry,
+                findJobsPage2Geometry,
+              ).length === 0,
+          },
+        }
+      : {}),
   };
   if (config.scenarioId) completeScenario(config.scenarioId);
   return {
@@ -2691,10 +2931,11 @@ async function assertPagination(page, config) {
 
 async function verifyWideSidebar(page) {
   // Arriving from ?section=sources keeps the sources library mounted because
-  // the app reads the section query on mount, which previously produced a
-  // byte-identical duplicate of the sources capture labeled as the sidebar.
-  // Force a real remount through another route and prove the sources library
-  // detached before recording sidebar evidence.
+  // the app reads the section query on mount. Force a real remount through
+  // another route and prove the sources library detached before recording
+  // sidebar evidence. The sidebar assertion shares the profile screenshot
+  // state; its separate completion ID is retained in metadata without claiming
+  // a distinct visual state.
   await navigateHash(page, "/job-finder/discovery", "Find jobs");
   await navigateHash(page, "/job-finder/profile", "Your profile");
   await page.waitForFunction(
@@ -2710,12 +2951,13 @@ async function verifyWideSidebar(page) {
   report.verifications.navigation.wideSidebar = navigation.wideSidebar;
   assert(
     navigation.wideSidebar.pass,
-    `1440 sidebar did not expose Search plans and Resume approaches: ${JSON.stringify(navigation.wideSidebar)}`,
+    `1440 sidebar did not list every destination inline without a More trigger: ${JSON.stringify(navigation.wideSidebar)}`,
   );
   await captureScreenshot(page, "sidebar-1440", {
     viewport: "1440-normal",
     scenario: "wide-sidebar",
     scenarioId: "scale-sidebar-1440",
+    screenshotStateId: "1440-profile-baseline",
     expectWideSidebar: true,
     expectRoute: "#/job-finder/profile",
   });
@@ -2725,20 +2967,20 @@ async function verifyWideSidebar(page) {
 async function verifyPlanningSettingsMenu(page, viewportLabel) {
   await navigateHash(page, "/job-finder/profile", "Your profile");
   const planningButton = page.getByRole("button", {
-    name: /^Planning and settings/,
+    name: /^More/,
     exact: false,
   });
   await planningButton.waitFor({ state: "visible", timeout: 10_000 });
   await planningButton.click();
-  const menu = page.getByRole("navigation", { name: "Planning and settings" });
+  const menu = page.getByRole("navigation", { name: "More" });
   await menu.waitFor({ state: "visible", timeout: 10_000 });
   const items = menu.getByRole("button");
   await page.waitForFunction(
     () =>
       document.activeElement instanceof HTMLButtonElement &&
-      document.activeElement
-        .closest('[role="navigation"][aria-label="Planning and settings"]') !==
-        null,
+      document.activeElement.closest(
+        '[role="navigation"][aria-label="More"]',
+      ) !== null,
     undefined,
     { timeout: 10_000 },
   );
@@ -2753,7 +2995,7 @@ async function verifyPlanningSettingsMenu(page, viewportLabel) {
   for (const requiredLabel of PLANNING_SETTINGS_MENU_DESTINATIONS)
     assert(
       labels.includes(requiredLabel),
-      `Planning and settings menu did not expose ${requiredLabel} at ${viewportLabel}: ${JSON.stringify(labels)}`,
+      `More menu did not expose ${requiredLabel} at ${viewportLabel}: ${JSON.stringify(labels)}`,
     );
   const verticalClipEvidence = await menu.evaluate((element) => {
     const menu = element;
@@ -2789,23 +3031,23 @@ async function verifyPlanningSettingsMenu(page, viewportLabel) {
       verticalClipEvidence.itemCount >=
         PLANNING_SETTINGS_MENU_DESTINATIONS.length &&
       verticalClipEvidence.lastItemAfterWithinMenu,
-    `Planning and settings menu vertical clipping evidence failed at ${viewportLabel}: ${JSON.stringify(verticalClipEvidence)}`,
+    `More menu vertical clipping evidence failed at ${viewportLabel}: ${JSON.stringify(verticalClipEvidence)}`,
   );
   await page.keyboard.press("Home");
   const firstFocused = await page.evaluate(
     () =>
       document.activeElement instanceof HTMLButtonElement &&
-      document.activeElement
-        .closest('[role="navigation"][aria-label="Planning and settings"]') !==
-        null,
+      document.activeElement.closest(
+        '[role="navigation"][aria-label="More"]',
+      ) !== null,
   );
   await page.keyboard.press("End");
   const lastFocused = await page.evaluate(
     () =>
       document.activeElement instanceof HTMLButtonElement &&
-      document.activeElement
-        .closest('[role="navigation"][aria-label="Planning and settings"]') !==
-        null,
+      document.activeElement.closest(
+        '[role="navigation"][aria-label="More"]',
+      ) !== null,
   );
   const planningSettingsKeyboard = {
     pass: firstFocused && lastFocused,
@@ -2815,14 +3057,14 @@ async function verifyPlanningSettingsMenu(page, viewportLabel) {
   };
   assert(
     planningSettingsKeyboard.pass,
-    `Planning and settings menu keyboard traversal failed at ${viewportLabel}: ${JSON.stringify(planningSettingsKeyboard)}`,
+    `More menu keyboard traversal failed at ${viewportLabel}: ${JSON.stringify(planningSettingsKeyboard)}`,
   );
   const navigation = await inspectNavigation(page);
   report.verifications.navigation.compactPlanning[viewportLabel] =
     navigation.compactPlanning;
   assert(
     navigation.compactPlanning.pass,
-    `Compact Planning and settings navigation is missing at ${viewportLabel}: ${JSON.stringify(navigation.compactPlanning)}`,
+    `Compact More navigation is missing at ${viewportLabel}: ${JSON.stringify(navigation.compactPlanning)}`,
   );
   report.verifications.navigation.planningSettingsMenu[viewportLabel] = {
     ...navigation.planningSettingsMenu,
@@ -2831,7 +3073,7 @@ async function verifyPlanningSettingsMenu(page, viewportLabel) {
   };
   assert(
     navigation.planningSettingsMenu.pass,
-    `Planning and settings menu is clipped or missing required destinations at ${viewportLabel}: ${JSON.stringify(navigation.planningSettingsMenu)}`,
+    `More menu is clipped or missing required destinations at ${viewportLabel}: ${JSON.stringify(navigation.planningSettingsMenu)}`,
   );
   await captureScreenshot(page, `planning-settings-menu-${viewportLabel}`, {
     viewport: viewportLabel,
@@ -2854,7 +3096,7 @@ async function verifyPlanningSettingsMenu(page, viewportLabel) {
 // evidence, and a non-default lifecycle view is applied so the capture carries
 // real filtered state instead of duplicating the default view.
 async function captureApplicationsLifecycleView(page) {
-  // The lifecycle select is rendered only inside the Tracker (CRM) workspace
+  // The lifecycle select is rendered only inside the Stages (CRM) workspace
   // view; the default Preparation view never mounts it. Switch explicitly
   // through the workspace view toggle, then restore Preparation after evidence
   // collection so later captures stay comparable.
@@ -2863,7 +3105,7 @@ async function captureApplicationsLifecycleView(page) {
   });
   await workspaceViewGroup.waitFor({ state: "visible", timeout: 10_000 });
   await workspaceViewGroup
-    .getByRole("button", { name: "Tracker", exact: true })
+    .getByRole("button", { name: "Stages", exact: true })
     .click();
   const trigger = page.getByLabel("Lifecycle view");
   await trigger.waitFor({ state: "visible", timeout: 10_000 });
@@ -2988,7 +3230,7 @@ async function captureApplicationsLifecycleView(page) {
     { totalCount: counts.applications },
     { timeout: 10_000 },
   );
-  // Restore the default Preparation workspace view; the Tracker-only
+  // Restore the default Preparation workspace view; the Stages-only
   // lifecycle control must be gone before any later capture runs.
   await workspaceViewGroup
     .getByRole("button", { name: "Preparation", exact: true })
@@ -3036,11 +3278,11 @@ async function assertRapidReviewPagination(page) {
 }
 
 async function assertReviewQueueBatchActions(page) {
-  const expectedCountsText = `${counts.shortlisted} eligible · 0 ready to queue`;
+  const expectedCountsText = `${counts.shortlisted} eligible · 0 ready to prepare`;
   const draftRemainder =
     counts.shortlisted - REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT;
   const expectedCapNoteText = `Only the next ${REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT} eligible jobs run now, in list order; ${draftRemainder} more remain.`;
-  const expectedGenerateLabel = `Generate up to ${REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT} drafts (review required)`;
+  const expectedPrepareLabel = `Prepare up to ${REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT} drafts (review required)`;
   await navigateHash(page, "/job-finder/review-queue", "Shortlisted jobs");
   const summary = page
     .locator('details[data-testid="batch-actions"] > summary')
@@ -3073,9 +3315,9 @@ async function assertReviewQueueBatchActions(page) {
           normalize(paragraph.textContent),
         )
       : [];
-    const generateButton = panel
+    const prepareButton = panel
       ? Array.from(panel.querySelectorAll("button")).find((button) =>
-          normalize(button.textContent)?.startsWith("Generate up to "),
+          normalize(button.textContent)?.startsWith("Prepare up to "),
         )
       : null;
     const selectionLabels = Array.from(
@@ -3113,10 +3355,10 @@ async function assertReviewQueueBatchActions(page) {
       capNoteText:
         panelParagraphs.find((text) => text?.startsWith("Only the next ")) ??
         null,
-      generateButtonLabel: generateButton
-        ? normalize(generateButton.textContent)
+      prepareButtonLabel: prepareButton
+        ? normalize(prepareButton.textContent)
         : null,
-      generateButtonDisabled: generateButton?.disabled ?? null,
+      prepareButtonDisabled: prepareButton?.disabled ?? null,
       rowSelectionCount: rowSelections.length,
       rowSelections,
       selectAllReadyJobsPresent,
@@ -3137,9 +3379,9 @@ async function assertReviewQueueBatchActions(page) {
     `scale-review-queue-batch-actions: cap note was "${batchActionsEvidence.capNoteText}", expected "${expectedCapNoteText}".`,
   );
   assert(
-    batchActionsEvidence.generateButtonLabel === expectedGenerateLabel &&
-      batchActionsEvidence.generateButtonDisabled === false,
-    `scale-review-queue-batch-actions: Generate action was "${batchActionsEvidence.generateButtonLabel}" disabled=${batchActionsEvidence.generateButtonDisabled}, expected enabled "${expectedGenerateLabel}".`,
+    batchActionsEvidence.prepareButtonLabel === expectedPrepareLabel &&
+      batchActionsEvidence.prepareButtonDisabled === false,
+    `scale-review-queue-batch-actions: Prepare action was "${batchActionsEvidence.prepareButtonLabel}" disabled=${batchActionsEvidence.prepareButtonDisabled}, expected enabled "${expectedPrepareLabel}".`,
   );
   assert(
     batchActionsEvidence.rowSelectionCount > 0 &&
@@ -3165,7 +3407,7 @@ async function assertReviewQueueBatchActions(page) {
       draftPreparationLimit: REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT,
       expectedCountsText,
       expectedCapNoteText,
-      expectedGenerateLabel,
+      expectedPrepareLabel,
       readyResumeReason: REVIEW_QUEUE_READY_RESUME_REASON,
     },
   });
@@ -3722,12 +3964,28 @@ async function run() {
     await page.waitForTimeout(400);
     // Capture screenshots at native 125%
     await navigateHash(page, "/job-finder/discovery", "Find jobs");
+    const native125FindJobsPagination = {
+      id: "findJobs-native125",
+      heading: "Find jobs",
+      surface: "findJobs",
+      paginationLabel: "Job result pages",
+      expectedRows: (pageNumber) =>
+        Math.min(50, counts.jobs - (pageNumber - 1) * 50),
+      expectedText: (pageNumber) => {
+        const first = (pageNumber - 1) * 50 + 1;
+        const last = Math.min(pageNumber * 50, counts.jobs);
+        return `${first}–${last} of ${counts.jobs}`;
+      },
+    };
+    await waitForPaginationPage(page, native125FindJobsPagination, 1);
+    const native125Page1Geometry = await readFindJobsPaginationGeometry(page);
     await checkHorizontalOverflow(page, "findJobs-native125");
     await checkPaginationFlexWrap(page, "findJobs-native125");
     await checkDropdownsNotClipped(page, "findJobs-native125");
     await captureScreenshot(page, "findJobs-p1-native125", {
       viewport: "native125",
       zoom: 1.25,
+      screenshotStateId: "findJobs-p1-native125",
     });
     completeScenario("scale-find-jobs-native125");
     await verifyCompactActiveRoute(page, {
@@ -3736,14 +3994,21 @@ async function run() {
     });
 
     // Go to page 2 at native 125% and capture
-    await page
-      .getByRole("navigation", { name: "Job result pages" })
-      .getByRole("button", { name: /^Next/ })
-      .click();
-    await page.waitForTimeout(150);
+    const native125PaginationClickEvidence = await clickPaginationNextInPage(
+      page,
+      native125FindJobsPagination,
+    );
+    await waitForPaginationPage(page, native125FindJobsPagination, 2);
+    const native125Page2Geometry = await readFindJobsPaginationGeometry(page);
+    const native125PaginationGeometry = assertFindJobsPaginationGeometryStable(
+      native125PaginationClickEvidence.before ?? native125Page1Geometry,
+      native125Page2Geometry,
+      "native125 Find Jobs page 1 -> page 2",
+    );
     await checkHorizontalOverflow(page, "findJobs-p2-native125");
     await captureScreenshot(page, "findJobs-p2-native125", {
       viewport: "native125",
+      paginationGeometry: native125PaginationGeometry,
     });
 
     await navigateHash(page, "/job-finder/review-queue", "Shortlisted jobs");
@@ -3783,10 +4048,10 @@ async function run() {
       expectedLabel: "Profile",
     });
 
-    // Verify compact Planning and settings navigation at native 125%. The CSS
-    // viewport is 1440/1.25 x 920/1.25 = 1152x736; the Planning menu height
-    // budget stays above the 480px collapse threshold, so shortcuts render in
-    // expanded mode exactly like the minimum-width desktop surface.
+    // Verify compact More navigation at native 125%. The CSS
+    // viewport is 1440/1.25 x 920/1.25 = 1152x736; the More menu carries only
+    // its destinations plus the single shortcuts entry, exactly like the
+    // minimum-width desktop surface.
     await verifyPlanningSettingsMenu(page, "native125");
     await verifyCompactNavigationRail(page, "native125", {
       width: 1152,
@@ -3794,7 +4059,6 @@ async function run() {
     });
     await verifyPlanningShortcutsEvidence(page, {
       label: "native125",
-      expectedMode: "expanded",
       expectedCssViewport: { width: 1152, height: 736 },
     });
 
@@ -3804,6 +4068,7 @@ async function run() {
     await checkHorizontalOverflow(page, "final-native125");
     await captureScreenshot(page, "final-native125-overview", {
       viewport: "native125",
+      screenshotStateId: "findJobs-p1-native125",
     });
 
     // Exercise the actual Electron minimum window width after the populated and zoomed matrix.
@@ -3816,7 +4081,6 @@ async function run() {
     });
     await verifyPlanningShortcutsEvidence(page, {
       label: "minimum-width",
-      expectedMode: "expanded",
       expectedCssViewport: { width: 1024, height: 768 },
     });
     await navigateHash(page, "/job-finder/discovery", "Find jobs");

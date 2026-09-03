@@ -21,9 +21,13 @@ import type { JobFinderRepository } from "@unemployed/db";
 import type { SourceAccessPrompt } from "@unemployed/contracts";
 import {
   getApplicationCrmData,
+  isApplicationAwaitingUserApproval,
   projectApplicationCrmDashboard,
 } from "./application-crm";
-import { deriveEnabledSourceHealthCounts } from "../source-health";
+import {
+  deriveEnabledSourceHealthCounts,
+  deriveSourceHealthSignals,
+} from "../source-health";
 
 const FINAL_ACTION_STATES = new Set([
   "resolved",
@@ -418,24 +422,22 @@ export function deriveDashboardSummary(input: {
   const enabledTargets = input.searchPreferences.discovery.targets.filter(
     (target) => target.enabled,
   );
-  const runningTargetIds = new Set(
-    input.discovery.activeRun?.targetExecutions
-      .filter((execution) => execution.state === "running")
-      .map((execution) => execution.targetId) ?? [],
+  // One shared signal derivation for every surface that reports source
+  // health, so Home and Profile can never classify the same source
+  // differently (see `deriveSourceHealthSignals`).
+  const sourceHealth = deriveEnabledSourceHealthCounts(
+    enabledTargets,
+    deriveSourceHealthSignals({
+      activeRun: input.discovery.activeRun,
+      recentRuns: input.discovery.recentRuns,
+      sourceAccessPrompts: input.sourceAccessPrompts ?? [],
+    }),
   );
-  const sourceHealth = deriveEnabledSourceHealthCounts(enabledTargets, {
-    runningTargetIds,
-    loginRequiredTargetIds: new Set(
-      (input.sourceAccessPrompts ?? [])
-        .filter((prompt) => prompt.state === "prompt_login_required")
-        .map((prompt) => prompt.targetId),
-    ),
-  });
   const jobsFoundToday = input.savedJobs.filter((job) =>
     job.provenance.some((entry) => isAtOrAfter(entry.discoveredAt, today)),
   ).length;
   const readyForApproval = input.applicationRecords.filter(
-    (record) => getApplicationCrmData(record).stage === "ready_for_approval",
+    isApplicationAwaitingUserApproval,
   ).length;
   const backgroundOperationCount =
     (input.discovery.runState === "running" ? 1 : 0) +
@@ -463,7 +465,8 @@ export function deriveDashboardSummary(input: {
             }
           : {
               label: "Find jobs",
-              detail: "Run the active search plan to collect relevant openings.",
+              detail:
+                "Run the active search plan to collect relevant openings.",
               route: "/job-finder/discovery",
             };
 

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   canNestedPaneConsumeWheel,
+  getLockedHeaderSettleScrollTop,
   getLockedHeaderWheelTarget,
   getNestedPaneWheelTarget,
   getLockedScreenLayoutHeight,
@@ -94,8 +95,8 @@ describe("getNestedPaneWheelTarget", () => {
 });
 
 describe("getLockedScreenLayoutHeight", () => {
-  test("adds one viewport below a measured header only when a body pane exists", () => {
-    expect(getLockedScreenLayoutHeight(704, true)).toBe("calc(100% + 704px)");
+  test("does not manufacture a blank scroll range from the measured header", () => {
+    expect(getLockedScreenLayoutHeight(704, true)).toBeUndefined();
     expect(getLockedScreenLayoutHeight(704, false)).toBeUndefined();
     expect(getLockedScreenLayoutHeight(0, true)).toBeUndefined();
   });
@@ -157,5 +158,78 @@ describe("getLockedHeaderWheelTarget", () => {
         viewportWidth: 1440,
       }),
     ).toBeNull();
+  });
+
+  test("does not consume header scroll when the outer route has no range", () => {
+    expect(
+      getLockedHeaderWheelTarget({
+        deltaY: 120,
+        maxScrollTop: 0,
+        scrollTop: 0,
+        topHeight: 240,
+        viewportWidth: 1440,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("getLockedHeaderSettleScrollTop", () => {
+  test("never leaves the page header half-scrolled under the fixed shell", () => {
+    expect(
+      getLockedHeaderSettleScrollTop({
+        direction: "down",
+        scrollTop: 12,
+        topHeight: 177,
+      }),
+    ).toBe(177);
+    expect(
+      getLockedHeaderSettleScrollTop({
+        direction: "up",
+        scrollTop: 160,
+        topHeight: 177,
+      }),
+    ).toBe(0);
+  });
+
+  test("snaps an unknown-direction rest to the nearer header edge", () => {
+    expect(
+      getLockedHeaderSettleScrollTop({ scrollTop: 40, topHeight: 177 }),
+    ).toBe(0);
+    expect(
+      getLockedHeaderSettleScrollTop({ scrollTop: 150, topHeight: 177 }),
+    ).toBe(177);
+  });
+
+  test("leaves fully-in, fully-out, and range-less positions alone", () => {
+    expect(
+      getLockedHeaderSettleScrollTop({ scrollTop: 0, topHeight: 177 }),
+    ).toBeNull();
+    expect(
+      getLockedHeaderSettleScrollTop({ scrollTop: 177, topHeight: 177 }),
+    ).toBeNull();
+    expect(
+      getLockedHeaderSettleScrollTop({ scrollTop: 900, topHeight: 177 }),
+    ).toBeNull();
+    expect(
+      getLockedHeaderSettleScrollTop({
+        maxScrollTop: 0,
+        scrollTop: 20,
+        topHeight: 177,
+      }),
+    ).toBeNull();
+    expect(
+      getLockedHeaderSettleScrollTop({ scrollTop: 20, topHeight: 0 }),
+    ).toBeNull();
+  });
+
+  test("snaps to the reachable boundary when the route cannot scroll a full header", () => {
+    expect(
+      getLockedHeaderSettleScrollTop({
+        direction: "down",
+        maxScrollTop: 90,
+        scrollTop: 30,
+        topHeight: 177,
+      }),
+    ).toBe(90);
   });
 });

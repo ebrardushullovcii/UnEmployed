@@ -30,7 +30,10 @@ describe("getDiscoveryListingRecencyKey", () => {
     });
     // A structured posting date also outranks a fresher absolute label.
     expect(
-      recency({ postedAt: "2026-07-01T10:00:00.000Z", postedAtText: "Aug 20, 2026" }),
+      recency({
+        postedAt: "2026-07-01T10:00:00.000Z",
+        postedAtText: "Aug 20, 2026",
+      }),
     ).toEqual({
       basis: "postedAt",
       timestamp: Date.parse("2026-07-01T10:00:00.000Z"),
@@ -89,7 +92,10 @@ describe("getDiscoveryListingRecencyKey", () => {
     }
     // Year-less labels also block the provider fallback.
     expect(
-      recency({ postedAtText: "Aug 20", providerUpdatedAt: "2026-08-05T10:00:00.000Z" }),
+      recency({
+        postedAtText: "Aug 20",
+        providerUpdatedAt: "2026-08-05T10:00:00.000Z",
+      }),
     ).toEqual({ basis: null, timestamp: Number.NEGATIVE_INFINITY });
   });
 
@@ -118,9 +124,7 @@ describe("getDiscoveryListingRecencyKey", () => {
       basis: "postedAt",
       timestamp: Date.parse("2026-08-01T10:00:00.000Z"),
     });
-    expect(
-      recency({ providerUpdatedAt: "2026-08-05T10:00:00.000Z" }),
-    ).toEqual({
+    expect(recency({ providerUpdatedAt: "2026-08-05T10:00:00.000Z" })).toEqual({
       basis: "providerUpdatedAt",
       timestamp: Date.parse("2026-08-05T10:00:00.000Z"),
     });

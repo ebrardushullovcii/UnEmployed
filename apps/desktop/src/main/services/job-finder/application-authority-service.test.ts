@@ -1,0 +1,475 @@
+import { describe, expect, it, vi } from "vitest";
+
+import { createInMemoryJobFinderRepository } from "@unemployed/db";
+import {
+  ApplyJobResultSchema,
+  SubmissionIdempotencyRecordSchema,
+  SubmissionOutcomeRecordSchema,
+  type ApplicationAuthorityEnvelopeMutationResult,
+  type ApprovedApplicationAnswerSnapshot,
+  type CreateApplicationAuthorityEnvelopeInput,
+} from "@unemployed/contracts";
+
+import { createEmptyJobFinderRepositoryState } from "../../adapters/job-finder-initial-state";
+import { createJobFinderApplicationAuthorityService } from "./application-authority-service";
+
+const NOW = "2026-08-27T10:00:00.000Z";
+const LATER = "2026-08-28T10:00:00.000Z";
+const SHA = "a".repeat(64);
+
+function createPolicy(
+  overrides: Partial<CreateApplicationAuthorityEnvelopeInput> = {},
+): CreateApplicationAuthorityEnvelopeInput {
+  return {
+    mode: "prepare_only",
+    scope: { campaignId: null, jobIds: [] },
+    maxApplicationsPerRun: 1,
+    maxApplicationsPerLocalDay: 1,
+    intermediateMutationsAuthorized: false,
+    allowedResumeSha256: [SHA],
+    allowedOrigins: ["https://boards.example.com"],
+    expiresAt: null,
+    ...overrides,
+  };
+}
+
+function expectApplied(result: ApplicationAuthorityEnvelopeMutationResult) {
+  expect(result.status).toBe("applied");
+  if (result.status !== "applied") {
+    throw new Error("Expected an applied authority mutation.");
+  }
+  return result.envelope;
+}
+
+describe("Job Finder application authority service", () => {
+  it("creates, reads, revision-updates, and revokes one prepare-only envelope", async () => {
+    const repository = createInMemoryJobFinderRepository(
+      createEmptyJobFinderRepositoryState(),
+    );
+    const service = createJobFinderApplicationAuthorityService({
+      repository,
+      now: () => NOW,
+      idFactory: () => "test",
+    });
+
+    const created = expectApplied(await service.create(createPolicy()));
+    expect(created).toMatchObject({
+      id: "authority_test",
+      mode: "prepare_only",
+      status: "active",
+      revision: 1,
+      accountCreationAuthorized: false,
+      createdAt: NOW,
+      revokedAt: null,
+    });
+
+    await expect(service.get({ id: created.id })).resolves.toMatchObject({
+      id: created.id,
+      revision: 1,
+    });
+    await expect(service.list({ status: "active" })).resolves.toHaveLength(1);
+
+    const updated = expectApplied(
+      await service.update({
+        ...createPolicy({
+          maxApplicationsPerRun: 2,
+          expiresAt: LATER,
+        }),
+        id: created.id,
+        expectedRevision: 1,
+      }),
+    );
+    expect(updated.revision).toBe(2);
+    expect(updated.maxApplicationsPerRun).toBe(2);
+    expect(updated.createdAt).toBe(NOW);
+
+    await expect(
+      service.update({
+        ...createPolicy(),
+        id: created.id,
+        expectedRevision: 1,
+      }),
+    ).resolves.toMatchObject({ status: "stale", current: { revision: 2 } });
+
+    const revoked = expectApplied(
+      await service.revoke({ id: created.id, expectedRevision: 2 }),
+    );
+    expect(revoked.status).toBe("revoked");
+    expect(revoked.revokedAt).toBe(NOW);
+    await expect(service.list({ status: "active" })).resolves.toHaveLength(0);
+    await expect(service.list({ status: "revoked" })).resolves.toHaveLength(1);
+  });
+
+  it("fails closed for elevated modes, duplicate active authority, and legacy fields", async () => {
+    const repository = createInMemoryJobFinderRepository(
+      createEmptyJobFinderRepositoryState(),
+    );
+    const service = createJobFinderApplicationAuthorityService({
+      repository,
+      now: () => NOW,
+      idFactory: () => "test",
+    });
+
+    await expect(
+      service.create(
+        createPolicy({
+          mode: "autonomous_submit",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      code: "unsupported_mode",
+    });
+    await service.create(createPolicy());
+    await expect(
+      service.create(createPolicy({ expiresAt: LATER })),
+    ).rejects.toMatchObject({
+      code: "active_authority_exists",
+    });
+
+    await expect(
+      service.create({
+        ...createPolicy(),
+        allowAutoSubmitOverride: true,
+      } as unknown as CreateApplicationAuthorityEnvelopeInput),
+    ).rejects.toThrow();
+  });
+
+  it("stamps bounded autosave policy from fresh approved answers and rejects answer drift", async () => {
+    const repository = createInMemoryJobFinderRepository(
+      createEmptyJobFinderRepositoryState(),
+    );
+    const service = createJobFinderApplicationAuthorityService({
+      repository,
+      now: () => NOW,
+      idFactory: () => "autosave",
+    });
+    const autosavePolicy = createPolicy({
+      expiresAt: LATER,
+      intermediateMutationsAuthorized: true,
+      scope: { campaignId: null, jobIds: ["job_1"] },
+    });
+
+    await expect(service.create(autosavePolicy)).rejects.toMatchObject({
+      code: "approved_answers_required",
+    });
+
+    const profile = await repository.getProfile();
+    await repository.saveProfile({
+      ...profile,
+      answerBank: {
+        ...profile.answerBank,
+        visaSponsorship: "No sponsorship required",
+        workAuthorization: "Authorized to work in the EU",
+      },
+    });
+    const readiness = await service.getReadiness();
+    const approval = await service.approveCurrentAnswers({
+      confirmedCurrentAnswers: true,
+      expectedProfileRevision: readiness.currentAnswers.sourceProfileRevision,
+    });
+    expect(approval.status).toBe("created");
+
+    const created = expectApplied(await service.create(autosavePolicy));
+    expect(created).toMatchObject({
+      intermediateMutationsAuthorized: true,
+      decisionPolicy: {
+        version: 1,
+        revision: 1,
+        answerPolicy: {
+          approvedAnswerSnapshot: {
+            revision: approval.snapshot?.revision,
+            digest: approval.snapshot?.digest,
+          },
+          unknownRequiredQuestion: "pause_for_user",
+          unknownEligibility: "pause_for_user",
+          unknownLegalRequirement: "pause_for_user",
+        },
+        stopConditions: {
+          captcha: "pause_for_user",
+          accountCreation: "pause_for_user",
+          outcomeUncertain: "stop_no_retry",
+        },
+      },
+    });
+    expect(created.decisionPolicy?.digest).toMatch(/^[a-f0-9]{64}$/u);
+
+    const updated = expectApplied(
+      await service.update({
+        ...autosavePolicy,
+        expectedRevision: created.revision,
+        id: created.id,
+        maxApplicationsPerRun: 2,
+      }),
+    );
+    expect(updated.decisionPolicy?.revision).toBe(2);
+
+    const changedProfile = await repository.getProfile();
+    await repository.saveProfile({
+      ...changedProfile,
+      answerBank: {
+        ...changedProfile.answerBank,
+        workAuthorization: "Authorization changed after approval",
+      },
+    });
+    await expect(
+      service.update({
+        ...autosavePolicy,
+        expectedRevision: updated.revision,
+        id: updated.id,
+      }),
+    ).rejects.toMatchObject({ code: "approved_answers_required" });
+  });
+
+  it("keeps repository CAS results typed at the service boundary", async () => {
+    const repository = createInMemoryJobFinderRepository(
+      createEmptyJobFinderRepositoryState(),
+    );
+    const service = createJobFinderApplicationAuthorityService({
+      repository,
+      now: () => NOW,
+      idFactory: () => "test",
+    });
+    const created = expectApplied(await service.create(createPolicy()));
+    const stale = await service.revoke({
+      id: created.id,
+      expectedRevision: 99,
+    });
+    expect(stale).toEqual({ status: "stale", current: created });
+  });
+
+  it("derives a redacted readiness summary and approves only the main-derived snapshot", async () => {
+    const repository = createInMemoryJobFinderRepository(
+      createEmptyJobFinderRepositoryState(),
+    );
+    let approvedSnapshot: ApprovedApplicationAnswerSnapshot | null = null;
+    Object.assign(repository, {
+      getLatestApplicationAnswerSnapshot: () =>
+        Promise.resolve(approvedSnapshot),
+      commitApplicationAnswerSnapshot: ({
+        snapshot,
+      }: {
+        expectedLatestRevision: number | null;
+        snapshot: ApprovedApplicationAnswerSnapshot;
+      }) => {
+        approvedSnapshot = snapshot;
+        return Promise.resolve({ status: "created" as const, snapshot });
+      },
+    });
+    const profile = await repository.getProfile();
+    await repository.saveProfile({
+      ...profile,
+      answerBank: {
+        ...profile.answerBank,
+        workAuthorization: "Authorized to work in the EU",
+      },
+    });
+    const service = createJobFinderApplicationAuthorityService({
+      repository,
+      now: () => NOW,
+      idFactory: () => "answer",
+    });
+
+    const before = await service.getReadiness();
+    expect(before.answerApprovalStatus).toBe("not_approved");
+    expect(before.currentAnswers.entryCount).toBe(1);
+    expect(before.currentAnswers.kinds).toEqual(["work_authorization"]);
+    expect(before.blockers).toContainEqual({
+      code: "no_approved_answer_snapshot",
+      remediation: "settings",
+    });
+
+    const approved = await service.approveCurrentAnswers({
+      expectedProfileRevision: before.currentAnswers.sourceProfileRevision,
+      confirmedCurrentAnswers: true,
+    });
+    expect(approved.status).toBe("created");
+    expect(approved.readiness.answerApprovalStatus).toBe("current");
+    expect(JSON.stringify(approved.readiness)).not.toContain(
+      "Authorized to work",
+    );
+    const changedProfile = await repository.getProfile();
+    await repository.saveProfile({
+      ...changedProfile,
+      summary: "Unrelated profile presentation change",
+    });
+    await expect(service.getReadiness()).resolves.toMatchObject({
+      answerApprovalStatus: "current",
+    });
+  });
+
+  it("reports an empty answer bank without hashing or throwing, while optional kinds stay optional", async () => {
+    const repository = createInMemoryJobFinderRepository(
+      createEmptyJobFinderRepositoryState(),
+    );
+    Object.assign(repository, {
+      getLatestApplicationAnswerSnapshot: () => Promise.resolve(null),
+    });
+    const service = createJobFinderApplicationAuthorityService({
+      repository,
+      now: () => NOW,
+    });
+    const empty = await service.getReadiness();
+    expect(empty.answerApprovalStatus).toBe("missing_answers");
+    expect(empty.currentAnswers.digest).toBeNull();
+    expect(empty.currentAnswers.entryCount).toBe(0);
+    expect(empty.blockers).toContainEqual({
+      code: "no_reusable_answers",
+      remediation: "profile",
+    });
+
+    const profile = await repository.getProfile();
+    await repository.saveProfile({
+      ...profile,
+      answerBank: {
+        ...profile.answerBank,
+        workAuthorization: "Authorized to work in the EU",
+        visaSponsorship: "No sponsorship required",
+      },
+    });
+    const optional = await service.getReadiness();
+    expect(optional.currentAnswers.kinds).toEqual([
+      "work_authorization",
+      "visa_sponsorship",
+    ]);
+    expect(optional.currentAnswers.missingRequiredKinds).toEqual([]);
+    expect(optional.blockers).toEqual([
+      { code: "no_approved_answer_snapshot", remediation: "settings" },
+      { code: "elevated_execution_unavailable", remediation: "unavailable" },
+    ]);
+  });
+
+  it("main derives external evidence and CAS revision for operator verification", async () => {
+    const repository = createInMemoryJobFinderRepository(
+      createEmptyJobFinderRepositoryState(),
+    );
+    const uncertainOutcome = SubmissionOutcomeRecordSchema.parse({
+      id: "outcome_uncertain",
+      preflightId: "preflight_1",
+      idempotencyKey: "submit_once_1",
+      authorityEnvelopeId: "authority_1",
+      authorityRevision: 1,
+      runId: "run_1",
+      jobId: "job_1",
+      resultId: "result_1",
+      applicationRecordId: "application_1",
+      outcome: "outcome_uncertain",
+      attemptedAt: NOW,
+      verifiedAt: null,
+      evidence: [],
+      retry: { eligible: false, blockReason: "outcome_uncertain" },
+    });
+    const idempotency = SubmissionIdempotencyRecordSchema.parse({
+      id: "idempotency_1",
+      idempotencyKey: uncertainOutcome.idempotencyKey,
+      preflightId: uncertainOutcome.preflightId,
+      authorityEnvelopeId: uncertainOutcome.authorityEnvelopeId,
+      authorityRevision: uncertainOutcome.authorityRevision,
+      runId: uncertainOutcome.runId,
+      jobId: uncertainOutcome.jobId,
+      resultId: uncertainOutcome.resultId,
+      applicationRecordId: uncertainOutcome.applicationRecordId,
+      status: "outcome_uncertain",
+      revision: 4,
+      createdAt: NOW,
+      updatedAt: NOW,
+      armedAt: NOW,
+      outcomeId: uncertainOutcome.id,
+      outcome: "outcome_uncertain",
+      revokedAt: null,
+    });
+    const result = ApplyJobResultSchema.parse({
+      id: uncertainOutcome.resultId,
+      runId: uncertainOutcome.runId,
+      jobId: uncertainOutcome.jobId,
+      applicationRecordId: uncertainOutcome.applicationRecordId,
+      state: "blocked",
+      summary: "Outcome uncertain",
+      detail: "Verify on the employer site.",
+      startedAt: NOW,
+      updatedAt: NOW,
+      blockerReason: "submission_outcome_uncertain",
+      privacyReceipt: {
+        generatedAt: NOW,
+        lineage: {
+          runId: uncertainOutcome.runId,
+          jobId: uncertainOutcome.jobId,
+          resultId: uncertainOutcome.resultId,
+          applicationRecordId: uncertainOutcome.applicationRecordId,
+        },
+        destination: {
+          origin: "https://jobs.example.com",
+          safePath: "/apply",
+        },
+        resume: {
+          source: "original_upload",
+          sourceDocumentId: "resume_1",
+          exportArtifactId: null,
+          fileName: "Resume.pdf",
+          sha256: SHA,
+        },
+        finalSubmitAuthorized: true,
+        finalSubmitOccurred: false,
+        submissionOutcome: uncertainOutcome,
+      },
+    });
+    vi.spyOn(repository, "getSubmissionOutcomeRecord").mockResolvedValue(
+      uncertainOutcome,
+    );
+    vi.spyOn(repository, "listApplyJobResults").mockResolvedValue([result]);
+    vi.spyOn(repository, "getSubmissionIdempotencyRecord").mockResolvedValue(
+      idempotency,
+    );
+    const resolve = vi
+      .spyOn(repository, "resolveSubmissionOutcome")
+      .mockImplementation((input) =>
+        Promise.resolve({
+          status: "recorded",
+          previousOutcome: uncertainOutcome,
+          outcome: input.outcome,
+          idempotency: {
+            ...idempotency,
+            status: "resolved",
+            revision: idempotency.revision + 1,
+            outcomeId: input.outcome.id,
+            outcome: input.outcome.outcome,
+            updatedAt: LATER,
+          },
+        }),
+      );
+    const ids = ["resolution", "evidence"];
+    const service = createJobFinderApplicationAuthorityService({
+      repository,
+      now: () => LATER,
+      idFactory: () => ids.shift() ?? "unexpected",
+    });
+
+    const resolution = await service.resolveSubmissionOutcome({
+      uncertainOutcomeId: uncertainOutcome.id,
+      resolution: "submitted",
+      confirmedOnEmployerSite: true,
+    });
+
+    expect(resolution.status).toBe("recorded");
+    expect(resolve).toHaveBeenCalledTimes(1);
+    const [resolvedInput] = resolve.mock.calls[0]!;
+    expect(resolvedInput.expectedOutcomeId).toBe(uncertainOutcome.id);
+    expect(resolvedInput.expectedIdempotencyRevision).toBe(4);
+    expect(resolvedInput.outcome).toMatchObject({
+      id: "outcome_resolution",
+      outcome: "submitted",
+      verifiedAt: LATER,
+      evidence: [
+        {
+          id: "evidence_evidence",
+          kind: "operator_confirmation",
+          destination: result.privacyReceipt?.destination,
+          artifactRefId: null,
+          observedAt: LATER,
+          summary:
+            "User verified on the employer site that this application was submitted.",
+        },
+      ],
+      retry: { eligible: false, blockReason: "submission_confirmed" },
+    });
+  });
+});

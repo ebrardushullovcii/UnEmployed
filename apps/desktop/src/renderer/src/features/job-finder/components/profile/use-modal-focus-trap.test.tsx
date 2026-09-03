@@ -61,9 +61,8 @@ function stubElementLayout() {
 }
 
 function restoreElementLayout() {
-  delete (
-    HTMLElement.prototype as unknown as { offsetParent?: unknown }
-  ).offsetParent;
+  delete (HTMLElement.prototype as unknown as { offsetParent?: unknown })
+    .offsetParent;
 }
 
 function TwoStackedTraps(props: {
@@ -125,9 +124,7 @@ describe("useModalFocusTrap overlay ownership", () => {
   it("closes stacked modals one per Escape, newest first", () => {
     const onCloseBottom = vi.fn();
     const onCloseTop = vi.fn();
-    render(
-      <TwoStackedTraps onCloseA={onCloseBottom} onCloseB={onCloseTop} />,
-    );
+    render(<TwoStackedTraps onCloseA={onCloseBottom} onCloseB={onCloseTop} />);
 
     // The later-mounted modal owns the first Escape.
     fireEvent.keyDown(document, { key: "Escape" });
@@ -181,9 +178,12 @@ describe("useModalFocusTrap overlay ownership", () => {
     document.body.append(appRoot);
     opener.focus();
 
-    const { rerender, unmount } = render(<TrapDialog label="Stable modal" onClose={onCloseFirst} />, {
-      container: appRoot,
-    });
+    const { rerender, unmount } = render(
+      <TrapDialog label="Stable modal" onClose={onCloseFirst} />,
+      {
+        container: appRoot,
+      },
+    );
 
     const dialog = appRoot.querySelector<HTMLElement>('[role="dialog"]');
     expect(dialog).toBeTruthy();
@@ -191,8 +191,12 @@ describe("useModalFocusTrap overlay ownership", () => {
     expect(hasOpenJobFinderOverlays()).toBe(true);
     expect(appRoot.getAttribute("inert")).toBe("");
     expect(document.activeElement).toBe(dialog);
-    const sentinelStartBefore = dialog.querySelector('[data-focus-sentinel="start"]');
-    const sentinelEndBefore = dialog.querySelector('[data-focus-sentinel="end"]');
+    const sentinelStartBefore = dialog.querySelector(
+      '[data-focus-sentinel="start"]',
+    );
+    const sentinelEndBefore = dialog.querySelector(
+      '[data-focus-sentinel="end"]',
+    );
     expect(sentinelStartBefore).toBeTruthy();
     expect(sentinelEndBefore).toBeTruthy();
     expect(dialog.querySelectorAll("[data-focus-sentinel]").length).toBe(2);
@@ -203,8 +207,12 @@ describe("useModalFocusTrap overlay ownership", () => {
     expect(dialogAfter).toBe(dialog);
     expect(appRoot.getAttribute("inert")).toBe("");
     expect(document.activeElement).toBe(dialog);
-    expect(dialog.querySelector('[data-focus-sentinel="start"]')).toBe(sentinelStartBefore);
-    expect(dialog.querySelector('[data-focus-sentinel="end"]')).toBe(sentinelEndBefore);
+    expect(dialog.querySelector('[data-focus-sentinel="start"]')).toBe(
+      sentinelStartBefore,
+    );
+    expect(dialog.querySelector('[data-focus-sentinel="end"]')).toBe(
+      sentinelEndBefore,
+    );
     expect(dialog.querySelectorAll("[data-focus-sentinel]").length).toBe(2);
     expect(hasOpenJobFinderOverlays()).toBe(true);
 

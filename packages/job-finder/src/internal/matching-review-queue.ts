@@ -1,14 +1,17 @@
-import type {
-  ApplicationRecord,
-  ApplicationStatus,
-  AssetStatus,
-  CandidateProfile,
-  JobFinderSettings,
-  ResumeDraft,
-  ResumeExportArtifact,
-  ReviewQueueItem,
-  SavedJob,
-  TailoredAsset,
+import {
+  formatEmployerLabelFromSlug,
+  isLikelyUtilitySiteChromeName,
+  sanitizeEmployerLabel,
+  type ApplicationRecord,
+  type ApplicationStatus,
+  type AssetStatus,
+  type CandidateProfile,
+  type JobFinderSettings,
+  type ResumeDraft,
+  type ResumeExportArtifact,
+  type ReviewQueueItem,
+  type SavedJob,
+  type TailoredAsset,
 } from "@unemployed/contracts";
 
 import { compareDiscoveryJobs } from "../discovery-ordering";
@@ -21,6 +24,258 @@ const reviewableStatuses = new Set<ApplicationStatus>([
   "ready_for_review",
   "approved",
 ]);
+
+const utilityShortlistPathSegments = new Set([
+  "about",
+  "about-us",
+  "blog",
+  "blogs",
+  "browse",
+  "candidates",
+  "contact",
+  "contact-us",
+  "create-cv",
+  "create-resume",
+  "faq",
+  "help",
+  "hire",
+  "hiring-data",
+  "kontakt",
+  "krijo-cv",
+  "legal",
+  "llogaritja-e-pages",
+  "location",
+  "login",
+  "log-in",
+  "news",
+  "press",
+  "privacy",
+  "privacy-policy",
+  "cookie-policy",
+  "politika-e-privatesise",
+  "politike-e-privatesise",
+  "politike-privatesise",
+  "politika-privatesise",
+  "mbrojtja-e-te-dhenave",
+  "mbrojtja-e-te-dhenave-personale",
+  "publiko",
+  "register",
+  "role",
+  "signin",
+  "sign-in",
+  "signup",
+  "sign-up",
+  "support",
+  "terms",
+  "terms-of-service",
+]);
+
+const EMPLOYER_ABSENCE_LABEL_PATTERN = /^employer not stated$/i;
+const LOCATION_ABSENCE_LABEL_PATTERN = /^location not stated$/i;
+
+/**
+ * Boards that nest multiple jobs under one company card often expose `/company/{slug}`
+ * hub pages without a concrete job id path. Those rows are marketing chrome, not listings.
+ */
+export function isLikelyCompanyHubUrl(canonicalUrl: string): boolean {
+  const raw = canonicalUrl.trim();
+  if (!raw) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === "fb.com" ||
+      host === "www.fb.com" ||
+      host === "facebook.com" ||
+      host === "www.facebook.com" ||
+      host.endsWith(".facebook.com")
+    ) {
+      return true;
+    }
+
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => decodeURIComponent(segment).trim().toLowerCase())
+      .filter(Boolean);
+    const companyIndex = segments.indexOf("company");
+    if (companyIndex < 0) {
+      return false;
+    }
+
+    const slug = segments[companyIndex + 1];
+    if (!slug) {
+      return false;
+    }
+
+    const rest = segments.slice(companyIndex + 2);
+    if (rest.length === 0) {
+      return true;
+    }
+
+    // `/company/{slug}/jobs` is a company jobs index, not a posting.
+    return rest.length === 1 && rest[0] === "jobs";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Infers an employer label from `/company/{slug}/…` listing URLs so stored
+ * absence placeholders can improve when the URL still carries the slug.
+ */
+export function inferEmployerFromCanonicalUrl(
+  canonicalUrl: string,
+): string | null {
+  const raw = canonicalUrl.trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => decodeURIComponent(segment).trim())
+      .filter(Boolean);
+    const companyIndex = segments.findIndex(
+      (segment) => segment.toLowerCase() === "company",
+    );
+    if (companyIndex < 0) {
+      return null;
+    }
+
+    const slug = segments[companyIndex + 1];
+    if (!slug || !/[a-z\p{L}]/iu.test(slug)) {
+      return null;
+    }
+
+    const rest = segments.slice(companyIndex + 2);
+    // Company hubs themselves are not employers-of-record for a posting row.
+    if (
+      rest.length === 0 ||
+      (rest.length === 1 && rest[0]?.toLowerCase() === "jobs")
+    ) {
+      return null;
+    }
+
+    return formatEmployerLabelFromSlug(slug);
+  } catch {
+    return null;
+  }
+}
+
+export function isEmployerAbsenceLabel(
+  value: string | null | undefined,
+): boolean {
+  return EMPLOYER_ABSENCE_LABEL_PATTERN.test((value ?? "").trim());
+}
+
+export function isLocationAbsenceLabel(
+  value: string | null | undefined,
+): boolean {
+  return LOCATION_ABSENCE_LABEL_PATTERN.test((value ?? "").trim());
+}
+
+export function resolveSavedJobCompany(
+  job: Pick<SavedJob, "company" | "canonicalUrl">,
+): string {
+  const sanitized = sanitizeEmployerLabel(job.company);
+  if (sanitized) {
+    return sanitized;
+  }
+
+  return inferEmployerFromCanonicalUrl(job.canonicalUrl) ?? job.company.trim();
+}
+
+export function resolveSavedJobLocation(
+  job: Pick<SavedJob, "location">,
+): string | null {
+  const location = job.location.trim();
+  if (!location || isLocationAbsenceLabel(location)) {
+    return null;
+  }
+
+  return location;
+}
+
+function isLikelyJobListingHubUrl(canonicalUrl: string): boolean {
+  const raw = canonicalUrl.trim();
+  if (!raw) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => decodeURIComponent(segment).trim().toLowerCase())
+      .filter(Boolean);
+    return segments.length === 1 && segments[0] === "jobs";
+  } catch {
+    return false;
+  }
+}
+
+function hasUtilityPathOrHost(canonicalUrl: string): boolean {
+  const raw = canonicalUrl.trim();
+  if (!raw) {
+    return false;
+  }
+
+  if (isLikelyJobListingHubUrl(raw)) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === "fb.com" ||
+      host === "www.fb.com" ||
+      host === "facebook.com" ||
+      host === "www.facebook.com" ||
+      host.endsWith(".facebook.com") ||
+      host.startsWith("help.")
+    ) {
+      return true;
+    }
+
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => decodeURIComponent(segment).trim().toLowerCase())
+      .filter(Boolean);
+    return segments.some((segment) =>
+      utilityShortlistPathSegments.has(segment),
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isLikelyUtilityShortlistJob(
+  job: Pick<SavedJob, "title"> & Partial<Pick<SavedJob, "canonicalUrl">>,
+): boolean {
+  const title = job.title.trim();
+  if (title.length === 0) {
+    return false;
+  }
+
+  if (isLikelyUtilitySiteChromeName(title)) {
+    return true;
+  }
+
+  const canonicalUrl = job.canonicalUrl?.trim() ?? "";
+  if (!canonicalUrl) {
+    return false;
+  }
+
+  return (
+    isLikelyCompanyHubUrl(canonicalUrl) || hasUtilityPathOrHost(canonicalUrl)
+  );
+}
 
 const discoveryVisibleStatuses = new Set<ApplicationStatus>([
   "discovered",
@@ -50,6 +305,81 @@ function getLatestApprovedExport(
     new Date(current.exportedAt).getTime()
     ? candidate
     : current;
+}
+
+export function resolveLatestApprovedExportForJob(
+  jobId: string,
+  exports: readonly ResumeExportArtifact[],
+): ResumeExportArtifact | null {
+  let latest: ResumeExportArtifact | null = null;
+
+  for (const artifact of exports) {
+    if (artifact.jobId !== jobId || !artifact.isApproved) {
+      continue;
+    }
+
+    latest = getLatestApprovedExport(latest, artifact);
+  }
+
+  return latest;
+}
+
+/** Align apply gates with Shortlisted readiness: prefer draft.approvedExportId when still valid, else latest isApproved export. */
+export function resolveApprovedResumeExportForApply(input: {
+  draft: ResumeDraft | null;
+  exports: readonly ResumeExportArtifact[];
+  asset?: TailoredAsset | null;
+}): ResumeExportArtifact | null {
+  if (
+    !input.draft ||
+    input.draft.status !== "approved" ||
+    !input.draft.approvedAt
+  ) {
+    return null;
+  }
+
+  const latestApproved = resolveLatestApprovedExportForJob(
+    input.draft.jobId,
+    input.exports,
+  );
+
+  if (input.draft.approvedExportId) {
+    const linkedExport = input.exports.find(
+      (entry) => entry.id === input.draft!.approvedExportId,
+    );
+    if (linkedExport) {
+      if (
+        linkedExport.isApproved ||
+        (input.asset?.storagePath &&
+          input.asset.storagePath === linkedExport.filePath)
+      ) {
+        return linkedExport;
+      }
+    }
+  }
+
+  return latestApproved;
+}
+
+export function isApprovedTailoredResumeReadyForApply(input: {
+  draft: ResumeDraft | null;
+  exports: readonly ResumeExportArtifact[];
+  asset: TailoredAsset | null;
+}): { ready: boolean; approvedExport: ResumeExportArtifact | null } {
+  const approvedExport = resolveApprovedResumeExportForApply({
+    draft: input.draft,
+    exports: input.exports,
+    asset: input.asset,
+  });
+  const ready = Boolean(
+    approvedExport &&
+    input.asset &&
+    input.asset.status === "ready" &&
+    input.asset.storagePath &&
+    input.asset.storagePath === approvedExport.filePath,
+  );
+
+  return { ready, approvedExport };
 }
 
 function buildResumeReviewState(
@@ -122,7 +452,9 @@ export function buildReviewQueue(
 
   return savedJobs
     .filter((job) => reviewableStatuses.has(job.status))
+    .filter((job) => !isLikelyUtilityShortlistJob(job))
     .map<ReviewQueueItem>((job) => {
+      const displayCompany = resolveSavedJobCompany(job);
       const resumeApplicationMode = resolveJobResumeApplicationMode(
         job,
         settings ?? {},
@@ -136,7 +468,7 @@ export function buildReviewQueue(
         return {
           jobId: job.id,
           title: job.title,
-          company: job.company,
+          company: displayCompany,
           location: job.location,
           matchScore: job.matchAssessment.score,
           applicationStatus: job.status,
@@ -174,7 +506,7 @@ export function buildReviewQueue(
       return {
         jobId: job.id,
         title: job.title,
-        company: job.company,
+        company: displayCompany,
         location: job.location,
         matchScore: job.matchAssessment.score,
         applicationStatus: job.status,
@@ -202,6 +534,27 @@ export function buildReviewQueue(
 export function buildDiscoveryJobs(savedJobs: readonly SavedJob[]): SavedJob[] {
   return [...savedJobs]
     .filter((job) => discoveryVisibleStatuses.has(job.status))
+    .filter((job) => !isLikelyUtilityShortlistJob(job))
+    .map((job) => {
+      const company = resolveSavedJobCompany(job);
+      const location = resolveSavedJobLocation(job);
+      if (
+        company === job.company &&
+        (location === null
+          ? isLocationAbsenceLabel(job.location)
+          : location === job.location)
+      ) {
+        // When location is an absence label, keep the stored string for schema
+        // compatibility but discovery UI formatters hide it.
+        return job;
+      }
+
+      return {
+        ...job,
+        company,
+        ...(location ? { location } : {}),
+      };
+    })
     .sort(compareDiscoveryJobs);
 }
 

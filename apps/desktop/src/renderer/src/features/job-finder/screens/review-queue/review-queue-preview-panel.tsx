@@ -20,7 +20,10 @@ import {
 interface ReviewQueuePreviewPanelProps {
   displayedProgress: number;
   embedded?: boolean;
+  /** Stacked into one page column: the column owns the scrolling. */
+  stacked?: boolean;
   isGenerating?: boolean;
+  isPendingTooLong?: boolean;
   onEditResumeWorkspace: (jobId: string) => void;
   onGenerateResume: (jobId: string) => Promise<boolean>;
   originalResume?: ResumeSourceDocument;
@@ -36,7 +39,9 @@ type PreviewState = "missing" | null;
 export function ReviewQueuePreviewPanel({
   displayedProgress,
   embedded = false,
+  stacked = false,
   isGenerating: isSelectedJobPending = false,
+  isPendingTooLong = false,
   onEditResumeWorkspace,
   onGenerateResume,
   originalResume,
@@ -67,20 +72,36 @@ export function ReviewQueuePreviewPanel({
   return (
     <section
       className={cn(
-        "relative flex min-w-0 flex-col gap-4 overflow-hidden xl:h-full xl:min-h-0",
-        embedded
-          ? "h-full min-h-0"
-          : "surface-panel-shell min-h-124 rounded-(--radius-field) border border-(--surface-panel-border)",
+        "relative flex min-w-0 flex-col gap-4",
+        stacked ? null : "overflow-hidden xl:h-full xl:min-h-0",
+        stacked
+          ? null
+          : embedded
+            ? "h-full min-h-0"
+            : "surface-panel-shell min-h-124 rounded-(--radius-field) border border-(--surface-panel-border)",
       )}
     >
       <header className="flex flex-wrap items-start justify-between gap-3 px-5 pt-5">
-        <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">
+        {/* An eyebrow is a label, not a heading: as an `h2` it polluted the
+            document outline and rendered a 19px level at 11px. */}
+        <p className="font-display text-(length:--text-eyebrow) font-semibold uppercase tracking-(--tracking-caps) text-foreground">
           Resume
-        </h2>
-        <StatusBadge tone={previewTone}>{previewLabel}</StatusBadge>
+        </p>
+        {/* The workspace header above this panel already shows the workflow
+            state; repeating it here (and again on the document card) printed
+            the same chip three times within 200px. Only a state this panel
+            alone knows about earns a badge. */}
+        {previewState === "missing" ? (
+          <StatusBadge tone={previewTone}>{previewLabel}</StatusBadge>
+        ) : null}
       </header>
       {queue.length === 0 ? (
-        <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
+        <div
+          className={cn(
+            "mx-5 mb-5 flex items-center justify-center",
+            stacked ? null : "min-h-0 flex-1 overflow-y-auto",
+          )}
+        >
           <div className="grid w-full max-w-xl gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-8 text-center">
             <EmptyState
               title="No shortlisted jobs yet"
@@ -88,14 +109,21 @@ export function ReviewQueuePreviewPanel({
             />
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Button asChild type="button" variant="primary">
-                <Link to={JOB_FINDER_ROUTE_PATHS.discovery}>Go to Find jobs</Link>
+                <Link to={JOB_FINDER_ROUTE_PATHS.discovery}>
+                  Go to Find jobs
+                </Link>
               </Button>
             </div>
           </div>
         </div>
       ) : null}
       {queue.length > 0 && selectedItem && showGenerationState ? (
-        <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
+        <div
+          className={cn(
+            "mx-5 mb-5 flex items-center justify-center",
+            stacked ? null : "min-h-0 flex-1 overflow-y-auto",
+          )}
+        >
           <div className="grid w-full min-h-full place-items-center content-center gap-4 rounded-(--radius-field) bg-(--surface-panel-tint) p-8 text-center">
             {isGenerating ? (
               <div
@@ -122,12 +150,13 @@ export function ReviewQueuePreviewPanel({
                   />
                 </div>
                 <p className="text-(length:--text-small) leading-5 text-foreground-muted">
-                  You can leave this screen. Progress keeps its place while the
-                  same resume is being prepared.
+                  {isPendingTooLong
+                    ? "This request is taking longer than expected. Open the resume workspace and use Reload workspace to check for a saved result."
+                    : "You can leave this screen. Progress keeps its place while the same resume is being prepared."}
                 </p>
               </div>
             ) : null}
-            <h2 className="text-[1.4rem] font-semibold tracking-[-0.03em] text-(--text-headline)">
+            <h2 className="tracking-[-0.03em] text-(--text-headline)">
               {hasGenerationFailure
                 ? "Resume issue"
                 : isGenerating
@@ -140,11 +169,22 @@ export function ReviewQueuePreviewPanel({
               {hasGenerationFailure
                 ? `The last tailored resume attempt for ${selectedItem.title} did not finish. Try again to create a fresh draft.`
                 : isGenerating
-                  ? `Job Finder is preparing the resume for ${selectedItem.title}. This progress indicator is an estimate while the draft and PDF are being built.`
+                  ? isPendingTooLong
+                    ? `The resume request for ${selectedItem.title} is still running. Open the resume workspace and reload it to check whether a saved result is ready; do not start another request yet.`
+                    : `Job Finder is preparing the resume for ${selectedItem.title}. This progress indicator is an estimate while the draft and PDF are being built.`
                   : needsGeneration
                     ? `Create a tailored resume for ${selectedItem.title} to continue.`
                     : `Job Finder is still preparing the resume for ${selectedItem.title}. You can continue once it is ready.`}
             </p>
+            {isGenerating && isPendingTooLong ? (
+              <Button
+                onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
+                type="button"
+                variant="secondary"
+              >
+                Open workspace to reload
+              </Button>
+            ) : null}
             {!isGenerating ? (
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <Button
@@ -175,7 +215,12 @@ export function ReviewQueuePreviewPanel({
         </div>
       ) : null}
       {queue.length > 0 && !selectedItem ? (
-        <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
+        <div
+          className={cn(
+            "mx-5 mb-5 flex items-center justify-center",
+            stacked ? null : "min-h-0 flex-1 overflow-y-auto",
+          )}
+        >
           <EmptyState
             title="Choose a job"
             description="Select a shortlisted job to see what the resume needs next."
@@ -185,8 +230,11 @@ export function ReviewQueuePreviewPanel({
       {queue.length > 0 &&
       selectedItem?.resumeReview.status === "original_resume" ? (
         <div
-          className="min-h-0 flex-1 overflow-y-auto px-5 pb-5"
-          data-locked-pane-scroll-region
+          className={cn(
+            "px-5 pb-5",
+            stacked ? null : "min-h-0 flex-1 overflow-y-auto",
+          )}
+          {...(stacked ? {} : { "data-locked-pane-scroll-region": true })}
         >
           <div className="surface-card-tint relative grid gap-5 rounded-(--radius-field) border border-primary/25 p-6 text-(length:--text-body) leading-[1.48] text-foreground">
             <div className="grid gap-3 border-b border-(--surface-panel-border) pb-4 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -256,7 +304,12 @@ export function ReviewQueuePreviewPanel({
       {queue.length > 0 &&
       selectedItem?.resumeApplicationMode === "original_resume" &&
       selectedItem.resumeReview.status !== "original_resume" ? (
-        <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
+        <div
+          className={cn(
+            "mx-5 mb-5 flex items-center justify-center",
+            stacked ? null : "min-h-0 flex-1 overflow-y-auto",
+          )}
+        >
           <div className="grid w-full max-w-xl gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-8 text-center">
             <EmptyState
               title="Original resume unavailable"
@@ -269,7 +322,12 @@ export function ReviewQueuePreviewPanel({
         </div>
       ) : null}
       {queue.length > 0 && previewState === "missing" ? (
-        <div className="mx-5 mb-5 flex min-h-0 flex-1 items-center justify-center overflow-y-auto">
+        <div
+          className={cn(
+            "mx-5 mb-5 flex items-center justify-center",
+            stacked ? null : "min-h-0 flex-1 overflow-y-auto",
+          )}
+        >
           <div className="grid w-full max-w-xl gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-8 text-center">
             <EmptyState
               title="Resume unavailable"
@@ -293,8 +351,11 @@ export function ReviewQueuePreviewPanel({
       !showGenerationState &&
       selectedAsset ? (
         <div
-          className="min-h-0 flex-1 overflow-y-auto px-5 pb-5"
-          data-locked-pane-scroll-region
+          className={cn(
+            "px-5 pb-5",
+            stacked ? null : "min-h-0 flex-1 overflow-y-auto",
+          )}
+          {...(stacked ? {} : { "data-locked-pane-scroll-region": true })}
         >
           <div className="surface-card-tint relative grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-6 text-(length:--text-body) leading-[1.48] text-foreground">
             <div className="grid items-end gap-3 border-b border-(--surface-panel-border) pb-4 sm:grid-cols-[1fr_auto]">
@@ -305,9 +366,6 @@ export function ReviewQueuePreviewPanel({
                 <span className="text-[0.9rem] text-foreground-soft">
                   {selectedAsset.label}
                 </span>
-                <StatusBadge tone={workflowStatus.tone}>
-                  {workflowStatus.label}
-                </StatusBadge>
               </div>
             </div>
             {selectedItem.resumeReview.status === "approved" ? (
@@ -321,14 +379,14 @@ export function ReviewQueuePreviewPanel({
             ) : null}
             {selectedItem.resumeReview.status === "needs_review" ? (
               <p className="text-(length:--text-small) text-foreground-soft">
-                This is a draft preview. Export and approve a PDF before you
-                prepare the application.
+                This is a draft preview. Review and approve the resume before
+                you prepare the application.
               </p>
             ) : null}
             {selectedItem.resumeReview.status === "stale" ? (
               <p className="text-(length:--text-small) text-(--warning-text)">
-                This approved PDF is out of date. Export a new PDF and approve
-                it again before preparing the application.
+                This approved resume is out of date. Review the current version
+                and approve it again before preparing the application.
               </p>
             ) : null}
             {selectedItem.resumeReview.status !== "approved" ? (
@@ -336,8 +394,9 @@ export function ReviewQueuePreviewPanel({
                 <div className="grid gap-1">
                   <p className="label-mono-xs text-primary">Next step</p>
                   <p className="text-sm leading-6 text-foreground-soft">
-                    Open the workspace to review the live document, then export
-                    and approve the PDF you want Job Finder to attach.
+                    Open the workspace to review the live document, then approve
+                    it. Job Finder creates the application PDF in the
+                    background.
                   </p>
                 </div>
                 <Button

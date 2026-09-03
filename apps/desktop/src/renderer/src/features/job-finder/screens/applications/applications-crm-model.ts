@@ -4,6 +4,7 @@ import type {
   ApplicationCrmStage,
   ApplicationRecord,
 } from "@unemployed/contracts";
+import { formatApplicationEmployerLine } from "../../lib/job-employer-location-display";
 
 export const APPLICATION_CRM_STAGE_ORDER: readonly ApplicationCrmStage[] = [
   "discovered",
@@ -62,6 +63,12 @@ export function inferApplicationCrmStageForView(
   record: ApplicationRecord,
 ): ApplicationCrmStage {
   if (record.crm) return record.crm.stage;
+  // A paused or blocked attempt is still being prepared and is waiting on the
+  // user. Reading only `status` showed "Ready for approval" on the Stages tab
+  // while the Preparation tab said Needs you about the same application.
+  if (record.latestBlocker || record.lastAttemptState === "paused") {
+    return "preparing";
+  }
   switch (record.status) {
     case "shortlisted":
       return "shortlisted";
@@ -91,15 +98,27 @@ export function applicationCrmStageLabelForView(
   record: ApplicationRecord,
 ): string {
   const stage = inferApplicationCrmStageForView(record);
+  // "(local historical inference)" is implementation vocabulary inside a
+  // table cell. The provenance stays visible as its own badge and tooltip;
+  // the cell just names the stage.
   return record.crm
     ? APPLICATION_CRM_STAGE_LABELS[stage]
-    : `${APPLICATION_CRM_STAGE_NAMES[stage]} (local historical inference)`;
+    : APPLICATION_CRM_STAGE_NAMES[stage];
 }
 
 export function applicationCrmStageProvenanceForView(
   record: ApplicationRecord,
 ): string {
-  return record.crm ? "User recorded" : "Local historical inference";
+  return record.crm ? "You recorded this" : "From your activity";
+}
+
+/** Hover explanation for how a stage was decided. */
+export function applicationCrmStageProvenanceDetailForView(
+  record: ApplicationRecord,
+): string {
+  return record.crm
+    ? "You set this stage yourself."
+    : "Job Finder worked this out from your activity. Set it yourself to override.";
 }
 
 export function applicationCrmDataForView(
@@ -151,10 +170,18 @@ export function groupApplicationRecordsByStage(
 
 export function buildApplicationCrmCalendarForView(
   records: readonly ApplicationRecord[],
+  relatedJobsById?: ReadonlyMap<string, { canonicalUrl?: string | null }>,
 ): ApplicationCrmCalendarEntry[] {
   return records
     .flatMap((record) => {
       const crm = applicationCrmDataForView(record);
+      const employerLine = formatApplicationEmployerLine({
+        company: record.company,
+        ...(relatedJobsById?.get(record.jobId)?.canonicalUrl
+          ? { canonicalUrl: relatedJobsById.get(record.jobId)?.canonicalUrl }
+          : {}),
+      });
+      const employerSuffix = employerLine ? ` · ${employerLine}` : "";
       const entries: ApplicationCrmCalendarEntry[] = [
         ...crm.reminders
           .filter((reminder) => reminder.status === "pending")
@@ -162,7 +189,7 @@ export function buildApplicationCrmCalendarForView(
             id: `reminder_${reminder.id}`,
             applicationRecordId: record.id,
             kind: "reminder" as const,
-            title: `${reminder.title} · ${record.company}`,
+            title: `${reminder.title}${employerSuffix}`,
             startsAt: reminder.dueAt,
             endsAt: null,
             status: reminder.status,
@@ -173,7 +200,7 @@ export function buildApplicationCrmCalendarForView(
             id: `interview_${interview.id}`,
             applicationRecordId: record.id,
             kind: "interview" as const,
-            title: `${interview.title} · ${record.company}`,
+            title: `${interview.title}${employerSuffix}`,
             startsAt: interview.startsAt,
             endsAt: interview.endsAt,
             status: interview.status,
@@ -184,7 +211,7 @@ export function buildApplicationCrmCalendarForView(
           id: `offer_${record.id}`,
           applicationRecordId: record.id,
           kind: "offer_deadline",
-          title: `Offer deadline · ${record.company}`,
+          title: `Offer deadline${employerSuffix}`,
           startsAt: crm.compensation.offerDeadlineAt,
           endsAt: null,
           status: crm.compensation.offerStatus,

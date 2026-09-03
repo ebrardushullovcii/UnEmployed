@@ -5,8 +5,11 @@ import type {
   ApplicationRecord,
   ApplyRunDetails,
 } from "@unemployed/contracts";
+import { cn } from "@renderer/lib/cn";
+import { APPLICATION_DETAIL_FACT_LABEL_CLASS } from "./applications-detail-fact-strip";
 import { Button } from "@renderer/components/ui";
 import { formatStatusLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
+import { formatApplicationEmployerLine } from "../../lib/job-employer-location-display";
 import { StatusBadge } from "../../components/status-badge";
 
 export const CANDIDATE_ASSETS_CHANGED_EVENT =
@@ -15,8 +18,14 @@ export const CANDIDATE_ASSETS_CHANGED_EVENT =
 export function ApplicationsApplicationDocuments(props: {
   applicationRecord: ApplicationRecord;
   applyRunDetails: ApplyRunDetails | null;
+  /** When recovery is the primary action, collapse this optional section. */
+  demoteAsSecondary?: boolean;
 }) {
-  const { applicationRecord, applyRunDetails } = props;
+  const {
+    applicationRecord,
+    applyRunDetails,
+    demoteAsSecondary = false,
+  } = props;
   const [documents, setDocuments] = useState<
     readonly ApplicationDocumentRevision[]
   >([]);
@@ -211,26 +220,47 @@ export function ApplicationsApplicationDocuments(props: {
   }
 
   const isWorking = status === "loading" || status === "working";
-  return (
-    <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+  const header = demoteAsSecondary ? (
+    <summary className="cursor-pointer list-none outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-2 focus-visible:ring-ring">
+      {/* "Optional:" in the heading already demotes this disclosure; a
+          "Secondary" badge beside it only repeats that in badge form. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="label-mono-xs text-primary">Application documents</h3>
+          <h3 className={APPLICATION_DETAIL_FACT_LABEL_CLASS}>
+            Optional: cover letter
+          </h3>
           <p className="mt-1 text-(length:--text-small) leading-6 text-foreground-soft">
-            Create a cover letter or short response from approved profile
-            evidence, review it, then approve or export that exact revision.
-            This never submits.
+            {/* Nothing on this page is called a "recovery step", and the
+                no-submit contract is already stated in the page banner. */}
+            Finish this application first. You can draft a cover letter later.
           </p>
         </div>
-        <StatusBadge
-          tone={
-            status === "error" ? "critical" : isWorking ? "active" : "neutral"
-          }
-        >
-          {status === "working" ? "Working" : formatStatusLabel(status)}
-        </StatusBadge>
       </div>
+    </summary>
+  ) : (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h3 className={cn(APPLICATION_DETAIL_FACT_LABEL_CLASS, "text-primary")}>
+          Application documents
+        </h3>
+        <p className="mt-1 text-(length:--text-small) leading-6 text-foreground-soft">
+          Create a cover letter or short response from your saved profile,
+          review it, then approve or export that exact revision. This never
+          submits.
+        </p>
+      </div>
+      <StatusBadge
+        tone={
+          status === "error" ? "critical" : isWorking ? "active" : "neutral"
+        }
+      >
+        {status === "working" ? "Working" : formatStatusLabel(status)}
+      </StatusBadge>
+    </div>
+  );
 
+  const body = (
+    <>
       <div className="grid gap-3 md:grid-cols-2">
         <label className="grid gap-1 text-(length:--text-small)">
           Document type
@@ -268,17 +298,18 @@ export function ApplicationsApplicationDocuments(props: {
           disabled={isWorking}
           onClick={() => void propose(false)}
           size="compact"
+          variant={demoteAsSecondary ? "ghost" : "primary"}
         >
-          Generate grounded proposal
+          Draft a cover letter
         </Button>
         {selectedDocument ? (
           <Button
             disabled={isWorking}
             onClick={() => void propose(true)}
             size="compact"
-            variant="secondary"
+            variant="ghost"
           >
-            Regenerate as new revision
+            Draft a new revision
           </Button>
         ) : null}
       </div>
@@ -317,8 +348,14 @@ export function ApplicationsApplicationDocuments(props: {
             </StatusBadge>
           </div>
           <p className="text-(length:--text-small) text-foreground-soft">
-            Exact job: {selectedDocument.job.title} at{" "}
-            {selectedDocument.job.company}
+            Exact job: {selectedDocument.job.title}
+            {(() => {
+              const employerLine = formatApplicationEmployerLine({
+                company: selectedDocument.job.company,
+                canonicalUrl: selectedDocument.job.canonicalUrl,
+              });
+              return employerLine ? ` at ${employerLine}` : null;
+            })()}
           </p>
           {selectedDocument.question ? (
             <p className="text-(length:--text-small) text-foreground-soft">
@@ -417,6 +454,22 @@ export function ApplicationsApplicationDocuments(props: {
           {message}
         </p>
       ) : null}
+    </>
+  );
+
+  return (
+    <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
+      {demoteAsSecondary ? (
+        <details className="grid gap-4">
+          {header}
+          {body}
+        </details>
+      ) : (
+        <>
+          {header}
+          {body}
+        </>
+      )}
     </section>
   );
 }

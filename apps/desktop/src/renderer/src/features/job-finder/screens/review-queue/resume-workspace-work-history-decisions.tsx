@@ -178,7 +178,7 @@ export function ResumeWorkHistoryDecisions(
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3
-          className="font-display text-sm font-semibold text-(--text-headline)"
+          className="font-display text-(--text-headline)"
           id="resume-work-history-decisions-heading"
         >
           Work-history decisions

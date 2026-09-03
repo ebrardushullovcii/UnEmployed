@@ -14,11 +14,15 @@ export interface ResumeWorkspaceScreenProps {
   actionMessage: string | null;
   jobId: string;
   isWorkspacePending: boolean;
+  /** Native PDF export is pending without invalidating a ready workspace. */
+  isExportPending?: boolean;
   workspace: JobFinderResumeWorkspace | null;
   availableResumeTemplates: readonly ResumeTemplateDefinition[];
   assistantMessages: readonly ResumeAssistantMessage[];
   assistantPending: boolean;
   onBack: () => void;
+  /** Starts the existing prepare-only application flow for this job. */
+  onPrepareApplication?: () => void;
   onRefresh: () => void;
   onDirtyChange: (dirty: boolean) => void;
   /**
@@ -38,6 +42,8 @@ export interface ResumeWorkspaceScreenProps {
     successMessage?: string | null,
   ) => void;
   onExportPdf: (jobId: string) => void;
+  /** Creates a private application PDF and approves its exact verified bytes. */
+  onApproveCurrentResume: (jobId: string) => void;
   onApproveResume: (jobId: string, exportId: string) => void;
   onClearResumeApproval: (jobId: string) => void;
   onSetWorkHistoryReviewAcknowledgment: (
@@ -52,7 +58,6 @@ export interface ResumeWorkspaceScreenProps {
     input: JobFinderSetResumeClaimConfirmationInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   onRegenerateDraft: (jobId: string) => void;
-  onRegenerateSection: (jobId: string, sectionId: string) => void;
   onRestoreRevision: (jobId: string, revisionId: string) => void;
   onApplyPatch: (
     patch: ResumeDraftPatch,

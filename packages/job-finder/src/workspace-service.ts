@@ -668,9 +668,10 @@ export function createJobFinderWorkspaceService(
     executor: () => Promise<JobFinderWorkspaceSnapshot>,
   ) {
     await requireDiscoverySafeguardClearance();
-    let [campaignState, savedJobs] = await Promise.all([
+    let [campaignState, savedJobs, discoveryState] = await Promise.all([
       repository.getCampaignState(),
       repository.listSavedJobs(),
+      repository.getDiscoveryState(),
     ]);
     if (!campaignState) {
       // The stale missing-read only nominates this path: state is re-read
@@ -685,7 +686,10 @@ export function createJobFinderWorkspaceService(
           searchPreferences: await repository.getSearchPreferences(),
         });
       });
-      savedJobs = await repository.listSavedJobs();
+      [savedJobs, discoveryState] = await Promise.all([
+        repository.listSavedJobs(),
+        repository.getDiscoveryState(),
+      ]);
     }
     const campaignId = campaignState.activeCampaignId;
     const campaign = campaignState.campaigns.find(
@@ -700,7 +704,10 @@ export function createJobFinderWorkspaceService(
       ctx: context,
       campaignId,
       beforeJobProvenanceFingerprints: new Map(
-        savedJobs.map((job) => [job.id, JSON.stringify(job.provenance)]),
+        [...savedJobs, ...discoveryState.pendingDiscoveryJobs].map((job) => [
+          job.id,
+          JSON.stringify(job.provenance),
+        ]),
       ),
     });
     return intelligenceMethods.refreshCompanyIntelligence();
@@ -1068,8 +1075,7 @@ export function createJobFinderWorkspaceService(
         ]);
         const completedAt = new Date().toISOString();
         const activeRunningRuns = applyRuns.filter(
-          (run) =>
-            activeApplyRunIdSet.has(run.id) && run.state === "running",
+          (run) => activeApplyRunIdSet.has(run.id) && run.state === "running",
         );
         const activeResults = applyResults.filter((result) =>
           activeApplyRunIdSet.has(result.runId),

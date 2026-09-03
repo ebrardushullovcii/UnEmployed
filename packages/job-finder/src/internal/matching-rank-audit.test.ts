@@ -36,6 +36,10 @@ function createSavedJob(
     ...base,
     id,
     sourceJobId: id,
+    // These rows carry synthetic bound assessment fingerprints and represent
+    // a completed listing-route discovery, not an offline catalog seed.
+    discoveryMethod: "browser_agent",
+    collectionMethod: "listing_route",
     canonicalUrl: `https://careers.example.test/jobs/${id}`,
     applicationUrl: `https://careers.example.test/jobs/${id}/apply`,
     title: `Software Engineer ${id}`,

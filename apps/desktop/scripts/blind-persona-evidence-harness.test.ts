@@ -23,6 +23,7 @@ import {
   EVIDENCE_RECORD_FILENAME,
   EVIDENCE_RECORD_KEYS,
   EvidenceValidationError,
+  type EvidenceSeverityLevel,
   SYNTHESIS_OUTPUT_FILENAME,
   aggregateBlindPersonaEvidence,
   assertCanonicalBlindPersonaCoverage,
@@ -211,6 +212,38 @@ function filledRecord(
     inaccessibleControls: [],
     trustConcerns: [],
     expectedNextAction: "Review the prepared application.",
+    visualReview: {
+      firstStableViewport: {
+        status: "clear",
+        note: "The first stable viewport explained the current task and next action.",
+        screenshotPaths: [`shots/${personaId}-blocker-1.png`],
+        severity: null,
+      },
+      hierarchyDensityAndStateChange: {
+        status: "clear",
+        note: "The hierarchy was clear and each click produced an obvious state change.",
+        screenshotPaths: [`shots/${personaId}-blocker-1.png`],
+        severity: null,
+      },
+      loadingState: {
+        status: "clear",
+        note: "Loading and settled states aligned with the visible action.",
+        screenshotPaths: [`shots/${personaId}-blocker-1.png`],
+        severity: null,
+      },
+      brandAndNavigation: {
+        status: "clear",
+        note: "The brand and current destination stayed visible while navigating.",
+        screenshotPaths: [`shots/${personaId}-blocker-1.png`],
+        severity: null,
+      },
+      clippingAndOverlap: {
+        status: "clear",
+        note: "No clipped headings, covered buttons, or overlapping notices observed.",
+        screenshotPaths: [`shots/${personaId}-blocker-1.png`],
+        severity: null,
+      },
+    },
     // Relative to the persona record directory; nested subdirectories allowed.
     screenshotPaths: [
       `shots/${personaId}-blocker-1.png`,
@@ -274,6 +307,7 @@ function expectProjectionOf(
     severities: record.severities,
     trustConcerns: record.trustConcerns,
     verdict: record.verdict,
+    visualReview: record.visualReview,
   };
 }
 
@@ -310,6 +344,38 @@ describe("blind-persona-evidence-harness init", () => {
       expect(parsed.verdict).toBe("");
       expect(parsed.blockers).toEqual([]);
       expect(parsed.horizontalOverflowFindings).toEqual([]);
+      expect(parsed.visualReview).toEqual({
+        firstStableViewport: {
+          status: "not_observed",
+          note: "REPLACE: describe the first stable viewport or why it was not observed.",
+          screenshotPaths: [],
+          severity: null,
+        },
+        hierarchyDensityAndStateChange: {
+          status: "not_observed",
+          note: "REPLACE: describe hierarchy, density, and whether tabs/actions changed the visible state clearly.",
+          screenshotPaths: [],
+          severity: null,
+        },
+        loadingState: {
+          status: "not_observed",
+          note: "REPLACE: describe the loading state or why it was not observed.",
+          screenshotPaths: [],
+          severity: null,
+        },
+        brandAndNavigation: {
+          status: "not_observed",
+          note: "REPLACE: describe brand and navigation persistence or why it was not observed.",
+          screenshotPaths: [],
+          severity: null,
+        },
+        clippingAndOverlap: {
+          status: "not_observed",
+          note: "REPLACE: describe clipping or overlap, or state that none was observed.",
+          screenshotPaths: [],
+          severity: null,
+        },
+      });
       expect(parsed.firstPersonVerdict).toBe("");
       expect((await lstat(recordPath)).mode & 0o777).toBe(0o644);
     }
@@ -680,14 +746,171 @@ describe("blind-persona-evidence-harness record", () => {
     ).rejects.toThrow(/journeyStages\[0\]: seconds must be a finite number/u);
 
     const badSchema = filledRecord("P05", paths.custodyIndexPath);
-    badSchema.schemaVersion = 2;
+    badSchema.schemaVersion = 1;
     await expect(
       validateEvidenceRecordValue(badSchema, recordDirectory),
-    ).rejects.toThrow(/schemaVersion must be 1/u);
+    ).rejects.toThrow(/schemaVersion must be 2/u);
 
     await expect(
       validateEvidenceRecordValue([1, 2, 3], recordDirectory),
     ).rejects.toThrow(/must be a JSON object/u);
+  });
+
+  it("requires explicit visual review statuses and notes", async () => {
+    const paths = await prepareFixtures("evidence-record-visual-review");
+    const recordDirectory = await makeRecordContext(paths, "P05");
+
+    const missing = filledRecord("P05", paths.custodyIndexPath);
+    delete missing.visualReview;
+    await expect(
+      validateEvidenceRecordValue(missing, recordDirectory),
+    ).rejects.toThrow(/Missing required field: visualReview/u);
+
+    const badStatus = filledRecord("P05", paths.custodyIndexPath);
+    (
+      badStatus.visualReview as {
+        loadingState: { status: string };
+      }
+    ).loadingState.status = "pass";
+    await expect(
+      validateEvidenceRecordValue(badStatus, recordDirectory),
+    ).rejects.toThrow(
+      /visualReview\.loadingState: status must be one of clear\|issue\|not_observed/u,
+    );
+
+    const emptyNote = filledRecord("P05", paths.custodyIndexPath);
+    (
+      emptyNote.visualReview as {
+        brandAndNavigation: { note: string };
+      }
+    ).brandAndNavigation.note = "";
+    await expect(
+      validateEvidenceRecordValue(emptyNote, recordDirectory),
+    ).rejects.toThrow(
+      /visualReview\.brandAndNavigation: note must be a non-empty string/u,
+    );
+
+    const issueWithoutShot = filledRecord("P05", paths.custodyIndexPath);
+    (
+      issueWithoutShot.visualReview as {
+        clippingAndOverlap: {
+          screenshotPaths: string[];
+          severity: string | null;
+          status: string;
+        };
+      }
+    ).clippingAndOverlap = {
+      screenshotPaths: [],
+      severity: "P2",
+      status: "issue",
+    };
+    await expect(
+      validateEvidenceRecordValue(issueWithoutShot, recordDirectory),
+    ).rejects.toThrow(
+      /visualReview\.clippingAndOverlap: issue must reference at least one screenshot/u,
+    );
+
+    const issueWithoutSeverity = filledRecord("P05", paths.custodyIndexPath);
+    (
+      issueWithoutSeverity.visualReview as {
+        clippingAndOverlap: {
+          screenshotPaths: string[];
+          severity: EvidenceSeverityLevel | null;
+          status: string;
+        };
+      }
+    ).clippingAndOverlap = {
+      screenshotPaths: ["shots/P05-blocker-1.png"],
+      severity: null,
+      status: "issue",
+    };
+    await expect(
+      validateEvidenceRecordValue(issueWithoutSeverity, recordDirectory),
+    ).rejects.toThrow(
+      /visualReview\.clippingAndOverlap: issue must include a P0, P1, or P2 severity/u,
+    );
+
+    const issueOutsideTopLevel = filledRecord("P05", paths.custodyIndexPath);
+    (
+      issueOutsideTopLevel.visualReview as {
+        clippingAndOverlap: {
+          screenshotPaths: string[];
+          severity: EvidenceSeverityLevel | null;
+          status: string;
+        };
+      }
+    ).clippingAndOverlap = {
+      note: "The clipping issue was captured in an extra screenshot.",
+      screenshotPaths: ["shots/extra/P05-extra.png"],
+      severity: "P1",
+      status: "issue",
+    };
+    issueOutsideTopLevel.screenshotPaths = ["shots/P05-blocker-1.png"];
+    await expect(
+      validateEvidenceRecordValue(issueOutsideTopLevel, recordDirectory),
+    ).rejects.toThrow(
+      /visualReview\.clippingAndOverlap\.screenshotPaths\[0\] must reference a path listed in the top-level screenshotPaths/u,
+    );
+
+    const clearWithoutEvidence = filledRecord("P05", paths.custodyIndexPath);
+    (
+      clearWithoutEvidence.visualReview as {
+        firstStableViewport: {
+          screenshotPaths: string[];
+          status: string;
+        };
+      }
+    ).firstStableViewport = {
+      screenshotPaths: [],
+      status: "clear",
+    };
+    await expect(
+      validateEvidenceRecordValue(clearWithoutEvidence, recordDirectory),
+    ).rejects.toThrow(
+      /visualReview\.firstStableViewport: clear must reference at least one screenshot path or an inspectable observationSource/u,
+    );
+
+    const observationPath = "observations/first-stable.txt";
+    await mkdir(path.join(recordDirectory, "observations"));
+    await writeFile(
+      path.join(recordDirectory, observationPath),
+      "viewport geometry probe: no clipping\n",
+      "utf8",
+    );
+    const clearWithObservation = filledRecord("P05", paths.custodyIndexPath);
+    (
+      clearWithObservation.visualReview as {
+        firstStableViewport: {
+          note: string;
+          observationSource: { kind: string; path: string };
+          screenshotPaths: string[];
+          severity: null;
+          status: string;
+        };
+      }
+    ).firstStableViewport = {
+      note: "The first stable viewport had no visible layout defect.",
+      observationSource: { kind: "dom_probe", path: observationPath },
+      screenshotPaths: [],
+      severity: null,
+      status: "clear",
+    };
+    await expect(
+      validateEvidenceRecordValue(clearWithObservation, recordDirectory),
+    ).resolves.toMatchObject({
+      visualReview: {
+        firstStableViewport: {
+          observationSource: { kind: "dom_probe", path: observationPath },
+        },
+      },
+    });
+
+    const guidance = scaffoldEvidenceRecord("P05", paths.custodyIndexPath);
+    await expect(
+      validateEvidenceRecordValue(guidance, recordDirectory),
+    ).rejects.toThrow(
+      /visualReview\.firstStableViewport: note must replace the scaffold guidance/u,
+    );
   });
 
   it("reports every collected problem together in one validation error", async () => {
@@ -783,6 +1006,11 @@ describe("blind-persona-evidence-harness screenshot path safety", () => {
     );
     const record = filledRecord("P10", paths.custodyIndexPath);
     record.screenshotPaths = ["shots/link-in.png"];
+    for (const item of Object.values(
+      record.visualReview as Record<string, { screenshotPaths: string[] }>,
+    )) {
+      item.screenshotPaths = ["shots/link-in.png"];
+    }
     const validated = await validateEvidenceRecordValue(
       record,
       recordDirectory,
@@ -951,6 +1179,9 @@ describe("blind-persona-evidence-harness aggregate", () => {
       p2Count: 14,
       personasWithP0: [],
       rendererErrorCount: 0,
+      visualReviewIncompletePersonaIds: [],
+      visualReviewIssueCount: 0,
+      visualReviewNotObservedCount: 0,
       verdictBlocked: 0,
       verdictComplete: 14,
       verdictPartial: 0,
@@ -1180,6 +1411,11 @@ describe("blind-persona-evidence-harness aggregate", () => {
     const misplaced = filledRecord("P09", paths.custodyIndexPath);
     misplaced.screenshotPaths = filledRecord("P04", paths.custodyIndexPath)
       .screenshotPaths as string[];
+    for (const item of Object.values(
+      misplaced.visualReview as Record<string, { screenshotPaths: string[] }>,
+    )) {
+      item.screenshotPaths = misplaced.screenshotPaths;
+    }
     await writeFile(
       path.join(paths.evidenceRoot, "P04", EVIDENCE_RECORD_FILENAME),
       JSON.stringify(misplaced),
@@ -1248,6 +1484,59 @@ describe("blind-persona-evidence-harness aggregate", () => {
       summary: { p0Count: number };
     };
     expect(written.summary.p0Count).toBe(1);
+  });
+
+  it("keeps visual issue/not-observed evidence incomplete without upgrading it to P0", async () => {
+    const paths = await prepareFixtures("evidence-aggregate-visual-review");
+    await materializeEvidence({
+      custodyIndexPath: paths.custodyIndexPath,
+      evidenceRoot: paths.evidenceRoot,
+      mutate: (personaId, record) => {
+        const visualReview = record.visualReview as Record<
+          string,
+          Record<string, unknown>
+        >;
+        if (personaId === "P05") {
+          visualReview.clippingAndOverlap = {
+            note: "A toast covered the action until it disappeared.",
+            screenshotPaths: ["shots/P05-blocker-1.png"],
+            severity: "P1",
+            status: "issue",
+          };
+        }
+        if (personaId === "P06") {
+          visualReview.loadingState = {
+            note: "The loading state settled before it could be observed.",
+            screenshotPaths: [],
+            severity: null,
+            status: "not_observed",
+          };
+        }
+      },
+    });
+    const outcome = await aggregateBlindPersonaEvidence({
+      custodyIndexPath: paths.custodyIndexPath,
+      evidenceRoot: paths.evidenceRoot,
+      out: null,
+    });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.synthesis).not.toBeNull();
+    expect(outcome.exitReasons.join(" ")).toMatch(
+      /1 visual review issue\(s\) require triage; the aggregate is incomplete/u,
+    );
+    expect(outcome.exitReasons.join(" ")).toMatch(
+      /1 visual review lens\(es\) were not observed; the aggregate is incomplete/u,
+    );
+    expect(outcome.exitReasons.join(" ")).not.toMatch(/P0/u);
+    expect(outcome.synthesis?.summary).toMatchObject({
+      p0Count: 0,
+      p1Count: 1,
+      p2Count: 14,
+      personasWithP0: [],
+      visualReviewIncompletePersonaIds: ["P05", "P06"],
+      visualReviewIssueCount: 1,
+      visualReviewNotObservedCount: 1,
+    });
   });
 
   it("preserves multiple horizontal-overflow occurrences and derives the flag", async () => {
@@ -1447,10 +1736,16 @@ describe("blind-persona-evidence-harness help text", () => {
       /structured horizontalOverflowFindings with surface\/summary\/screenshotPath/u,
     );
     expect(BLIND_PERSONA_EVIDENCE_HELP).toMatch(
+      /A visual issue requires at least one screenshot[\s\S]*triaged severity/u,
+    );
+    expect(BLIND_PERSONA_EVIDENCE_HELP).toMatch(
+      /not_observed lens remains incomplete/u,
+    );
+    expect(BLIND_PERSONA_EVIDENCE_HELP).toMatch(
       /free-form supplementary evidenceRefs/u,
     );
     expect(BLIND_PERSONA_EVIDENCE_HELP).toMatch(
-      /INPUT to independent\s+synthesis; it is not final acceptance/u,
+      /INPUT to independent\s+synthesis; it is not\s+final acceptance/u,
     );
     expect(BLIND_PERSONA_EVIDENCE_HELP).toMatch(
       /flags-first arguments such as --foo -- exits nonzero/u,

@@ -106,9 +106,15 @@ describe("SettingsApplicationDefaultsSection", () => {
       "resumeApplicationMode",
       "resumeTemplateId",
     ]);
-    expect(
-      screen.getByText("Resume preference saved for newly shortlisted jobs."),
-    ).toBeTruthy();
+    // A committed save says so in the section that committed it. "No unsaved
+    // changes." is what an untouched section says, so it cannot also be the
+    // confirmation that a change landed.
+    await waitFor(() =>
+      expect(
+        screen.getByText("Resume preference saved for newly shortlisted jobs."),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText("No unsaved changes.")).toBeNull();
   });
 
   it("resets staged drafts when the persisted settings prop refreshes", () => {

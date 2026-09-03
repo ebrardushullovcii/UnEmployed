@@ -1,9 +1,16 @@
-import { TailoredResumeDraftSchema, type TailoredResumeDraft } from "./shared";
+import {
+  TailoredResumeDraftSchema,
+  type TailoredResumeDraft,
+  type TailoredResumeGenerationProvenance,
+} from "./shared";
 import {
   buildDeterministicStructuredResumeDraft,
   composeDeterministicFullText,
   filterGroundedVisibleSkills,
+  orderSkillsByJobRelevance,
   uniqueStrings,
+  VISIBLE_ADDITIONAL_SKILL_LIMIT,
+  VISIBLE_CORE_SKILL_LIMIT,
 } from "./deterministic";
 import {
   buildResumeGenerationEvidenceCatalog,
@@ -262,9 +269,13 @@ function findCanonicalProse(
   }
 
   return (
-    canonicalCandidates.find(
-      (candidate) => normalizeComparableText(candidate) === normalizedGenerated,
-    ) ?? null
+    canonicalCandidates.find((candidate) => {
+      const normalizedCandidate = normalizeComparableText(candidate);
+      return (
+        normalizedCandidate === normalizedGenerated ||
+        normalizedCandidate.startsWith(`${normalizedGenerated} `)
+      );
+    }) ?? null
   );
 }
 
@@ -846,7 +857,11 @@ export function completeTailoredResumeDraft(
           (allowedSkill) => allowedSkill.toLowerCase() === skill.toLowerCase(),
         ),
       )
-    : filterGroundedVisibleSkills(fallbackInput.profile, coreSkills, 8);
+    : filterGroundedVisibleSkills(
+        fallbackInput.profile,
+        orderSkillsByJobRelevance(coreSkills, fallbackInput.job),
+        VISIBLE_CORE_SKILL_LIMIT,
+      );
   const targetedKeywords = fallbackInput.strategy
     ? selectCanonicalStringList(
         sanitizedTargetedKeywords.filter((keyword) =>
@@ -871,15 +886,20 @@ export function completeTailoredResumeDraft(
           ),
         )
       : sanitizedAdditionalSkills.length > 0
-        ? sanitizedAdditionalSkills
+        ? orderSkillsByJobRelevance(
+            sanitizedAdditionalSkills,
+            fallbackInput.job,
+          )
         : fallback.additionalSkills,
-    8,
-  ).filter(
-    (skill) =>
-      !groundedCoreSkills.some(
-        (coreSkill) => coreSkill.toLowerCase() === skill.toLowerCase(),
-      ),
-  );
+    VISIBLE_ADDITIONAL_SKILL_LIMIT + VISIBLE_CORE_SKILL_LIMIT,
+  )
+    .filter(
+      (skill) =>
+        !groundedCoreSkills.some(
+          (coreSkill) => coreSkill.toLowerCase() === skill.toLowerCase(),
+        ),
+    )
+    .slice(0, VISIBLE_ADDITIONAL_SKILL_LIMIT);
   const notes = [...fallback.notes];
   const canonicalExperienceEvidenceByRecordId = new Map(
     fallbackInput.profile.experiences.map((experience) => [
@@ -912,6 +932,7 @@ export function completeTailoredResumeDraft(
       `${quality.acceptedInferredRewriteCount} AI-inferred ${quality.acceptedInferredRewriteCount === 1 ? "line" : "lines"} came from aggressive tailoring. Review and confirm each inferred line before approving the resume.`,
     );
   }
+  const generationProvenance = describeModelDraftProvenance(quality, notes);
   const fullText = composeDeterministicFullText({
     label,
     summary,
@@ -951,6 +972,49 @@ export function completeTailoredResumeDraft(
         quality.acceptedRewriteCount > 0 ? "evidence_linked" : "deterministic",
       ...quality,
     },
+    generationProvenance,
     notes,
   });
+}
+
+const DETERMINISTIC_TAILORER_NOTE =
+  "Used the built-in deterministic resume tailorer.";
+
+/**
+ * The model answered, so the draft is no longer a plain deterministic draft
+ * even when every proposal was rejected. Record what actually happened: an
+ * `ai` draft when at least one rewrite survived evidence verification, or a
+ * deterministic draft with the `provider_output_unverified` reason when the
+ * model's proposals could not be grounded. The note list is rewritten in
+ * place so the human-readable trail matches the structured provenance.
+ */
+function describeModelDraftProvenance(
+  quality: ResumeGenerationQualityAccumulator,
+  notes: string[],
+): TailoredResumeGenerationProvenance {
+  const proposed = quality.proposedRewriteCount;
+  const accepted = quality.acceptedRewriteCount;
+  if (accepted > 0) {
+    const deterministicNoteIndex = notes.indexOf(DETERMINISTIC_TAILORER_NOTE);
+    if (deterministicNoteIndex >= 0) {
+      notes.splice(deterministicNoteIndex, 1);
+    }
+    const detail = `Created with the configured AI model: ${accepted} of ${proposed} proposed ${proposed === 1 ? "rewrite" : "rewrites"} verified against saved evidence; the rest keeps grounded resume wording.`;
+    notes.unshift(detail);
+    return { method: "ai", reason: null, detail };
+  }
+
+  const detail =
+    proposed > 0
+      ? `The configured AI model proposed ${proposed} ${proposed === 1 ? "rewrite" : "rewrites"}, but none could be verified against saved evidence.`
+      : "The configured AI model returned no usable rewrite proposals.";
+  if (!notes.includes(DETERMINISTIC_TAILORER_NOTE)) {
+    notes.unshift(DETERMINISTIC_TAILORER_NOTE);
+  }
+  notes.push(detail);
+  return {
+    method: "deterministic",
+    reason: "provider_output_unverified",
+    detail,
+  };
 }

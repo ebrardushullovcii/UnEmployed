@@ -132,7 +132,126 @@ describe("profile editor legacy full name preservation", () => {
   });
 });
 
+describe("profile editor stored location preservation", () => {
+  function createImportedLocationProfile() {
+    return CandidateProfileSchema.parse({
+      ...createProfile(),
+      // An imported line can carry detail the split parts do not - here a
+      // postal code. Recomposing "city, region, country" on load turned this
+      // into "Cedar Park, TX, United States", so an untouched profile never
+      // matched its own saved record.
+      currentLocation: "Cedar Park, TX 78613",
+      currentCity: "Cedar Park",
+      currentRegion: "TX",
+      currentCountry: "United States",
+    });
+  }
+
+  test("an untouched profile is not dirty when the stored location differs from its parts", () => {
+    const profile = createImportedLocationProfile();
+    const result = buildProfilePayload(
+      profile,
+      createProfileEditorValues(profile),
+    );
+
+    expect(result.validationMessage).toBeUndefined();
+    expect(result.payload?.currentLocation).toBe("Cedar Park, TX 78613");
+    expect(hasProfileDraftChanges(profile, result.payload)).toBe(false);
+  });
+
+  test("an unrelated edit still leaves the stored location intact", () => {
+    const profile = createImportedLocationProfile();
+    const values = createProfileEditorValues(profile);
+    const result = buildProfilePayload(profile, {
+      ...values,
+      identity: { ...values.identity, headline: "Staff systems designer" },
+    });
+
+    expect(result.payload?.currentLocation).toBe("Cedar Park, TX 78613");
+    expect(hasProfileDraftChanges(profile, result.payload)).toBe(true);
+  });
+
+  test("editing a location part rebuilds the location line", () => {
+    const profile = createImportedLocationProfile();
+    const values = createProfileEditorValues(profile);
+    const result = buildProfilePayload(profile, {
+      ...values,
+      identity: { ...values.identity, currentCity: "Austin" },
+    });
+
+    expect(result.payload?.currentLocation).toBe("Austin, TX, United States");
+    expect(result.payload?.currentCity).toBe("Austin");
+    expect(hasProfileDraftChanges(profile, result.payload)).toBe(true);
+  });
+
+  test("clearing every location part clears the location line", () => {
+    const profile = createImportedLocationProfile();
+    const values = createProfileEditorValues(profile);
+    const result = buildProfilePayload(profile, {
+      ...values,
+      identity: {
+        ...values.identity,
+        currentCity: "",
+        currentCountry: "",
+        currentLocation: "",
+        currentRegion: "",
+      },
+    });
+
+    expect(result.payload?.currentLocation).toBeNull();
+  });
+});
+
 describe("profile editor application identity defaults", () => {
+  test("rejects a malformed primary email before a save payload is created", () => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+    values.identity.email = "not-an-email";
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.payload).toBeUndefined();
+    expect(result.validationMessage).toBe(
+      "Email must be a valid email address.",
+    );
+  });
+
+  test("trims a conventional email and keeps blank optional contact fields valid", () => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+    values.identity.email = " alex+jobs@example.co.uk ";
+    values.identity.secondaryEmail = "";
+    values.applicationIdentity.preferredEmail = "";
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.validationMessage).toBeUndefined();
+    expect(result.payload?.email).toBe("alex+jobs@example.co.uk");
+    expect(result.payload?.secondaryEmail).toBeNull();
+    expect(result.payload?.applicationIdentity.preferredEmail).toBeNull();
+  });
+
+  test.each([
+    ["secondaryEmail", "Secondary email"],
+    ["preferredEmail", "Preferred application email"],
+  ] as const)("rejects malformed %s values", (field, label) => {
+    const profile = createProfile();
+    const values = createProfileEditorValues(profile);
+
+    if (field === "secondaryEmail") {
+      values.identity.secondaryEmail = "not-an-email";
+    } else {
+      values.applicationIdentity.preferredEmail = "not-an-email";
+    }
+
+    const result = buildProfilePayload(profile, values);
+
+    expect(result.payload).toBeUndefined();
+    expect(result.validationMessage).toBe(
+      `${label} must be a valid email address.`,
+    );
+  });
+
   test("does not mark a saved profile dirty when professionalSummary.fullSummary is missing", () => {
     const profile = createProfile();
     const values = createProfileEditorValues(profile);

@@ -15,19 +15,21 @@ import {
   PROFILE_SETUP_SOURCE_PAGE_SIZE,
 } from "./profile-setup-screen-helpers";
 import {
-  PROFILE_SETUP_PLACEHOLDER_HEADLINE,
-  PROFILE_SETUP_PLACEHOLDER_LOCATION,
-  PROFILE_SETUP_PLACEHOLDER_SUMMARY,
   type CandidateProfile,
   type JobSearchPreferences,
   type ProfileSetupStep,
+  type ResumeApplicationMode,
   type ResumeImportFieldCandidateSummary,
   type ResumeImportProgressEvent,
+  type ResumeImportRun,
 } from "@unemployed/contracts";
+import { getResumeImportStageFallbackNotes } from "../profile-resume-panel";
+import { getResumeImportStageFallbackSummary } from "../resume-import-quality-note";
 import type { UseFormReturn } from "react-hook-form";
 import { Controller, useController } from "react-hook-form";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
+import { Checkbox } from "@renderer/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -35,7 +37,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@renderer/components/ui/card";
-import { Field, FieldLabel } from "@renderer/components/ui/field";
+import { FieldLabel } from "@renderer/components/ui/field";
 import { CheckboxField } from "../../checkbox-field";
 import { FormSelect } from "../../form-select";
 import {
@@ -53,7 +55,9 @@ import {
   ProfileTextarea,
   profileSelectTriggerClassName,
 } from "../profile-form-primitives";
+import { ProfileBasicsFields } from "../profile-basics-fields";
 import { ProfileListEditor } from "../profile-list-editor";
+import { PROFILE_WORK_CONSTRAINT_COPY } from "../profile-work-constraints-copy";
 import { ResumeImportProgress } from "../resume-import-progress";
 
 const booleanSelectOptions = [
@@ -63,6 +67,12 @@ const booleanSelectOptions = [
 ] as const;
 
 const tailoringModeOptions = [
+  {
+    description:
+      "Use the exact file you imported. Job Finder will not rewrite it or create a tailored copy; you still review each job before any prepare-only application work.",
+    label: "Use original resume unchanged",
+    value: "original_resume",
+  },
   {
     description:
       "Keep your wording and structure mostly intact, with small role-specific improvements.",
@@ -102,6 +112,7 @@ function getImportConflictSummary(
 
 function SetupBooleanField(props: {
   control: UseFormReturn<ProfileEditorValues>["control"];
+  description?: string;
   id?: string;
   label: string;
   name:
@@ -112,6 +123,7 @@ function SetupBooleanField(props: {
 }) {
   const generatedId = useId();
   const fieldId = props.id ?? generatedId;
+  const descriptionId = `${fieldId}-help`;
 
   return (
     <Controller
@@ -126,10 +138,21 @@ function SetupBooleanField(props: {
             }
             options={booleanSelectOptions.map((option) => ({ ...option }))}
             placeholder="Not set"
+            {...(props.description
+              ? { triggerAriaDescribedBy: descriptionId }
+              : {})}
             triggerClassName={profileSelectTriggerClassName}
             triggerId={fieldId}
             value={field.value}
           />
+          {props.description ? (
+            <p
+              className="text-xs leading-5 text-foreground-muted"
+              id={descriptionId}
+            >
+              {props.description}
+            </p>
+          ) : null}
         </div>
       )}
     />
@@ -150,6 +173,7 @@ export function ProfileSetupImportStep(props: {
   isImportResumePending: boolean;
   isProfileSetupPending: boolean;
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[];
+  latestResumeImportRun: ResumeImportRun | null;
   resumeImportProgress: ResumeImportProgressEvent | null;
   onContinueToProfile: () => void;
   onImportResume: () => void;
@@ -175,6 +199,16 @@ export function ProfileSetupImportStep(props: {
         ),
       ).slice(0, 2)
     : [];
+  // The quality note used to live only near the bottom of the full Profile
+  // screen in 11px uppercase mono, while this step said nothing but
+  // "Ready" — so a degraded import read as a clean one. The note belongs
+  // with the status it qualifies, in ordinary sentences.
+  const importQualityNotes = getResumeImportStageFallbackNotes(
+    props.profile.baseResume.analysisWarnings,
+  );
+  const importQualitySummary = getResumeImportStageFallbackSummary(
+    props.latestResumeImportRun,
+  );
   return (
     <Card className="rounded-(--radius-panel) border-border/40">
       <CardHeader className="gap-2 border-b border-border/30 pb-5">
@@ -202,8 +236,27 @@ export function ProfileSetupImportStep(props: {
             <p className="mt-2 text-sm font-medium text-foreground">
               {formatStatusLabel(props.profile.baseResume.extractionStatus)}
             </p>
+            {importQualitySummary ? (
+              <p
+                className="mt-1 text-sm leading-6 text-foreground-soft"
+                data-profile-setup-import-quality-hint
+              >
+                {importQualitySummary.hint}.
+              </p>
+            ) : null}
           </div>
         </div>
+
+        {importQualityNotes.length > 0 ? (
+          <div
+            className="grid gap-2 rounded-(--radius-field) border border-border/30 bg-background/60 p-4 text-sm leading-6 text-foreground-soft"
+            data-profile-setup-import-quality-note
+          >
+            {importQualityNotes.map((note) => (
+              <p key={note}>{note}</p>
+            ))}
+          </div>
+        ) : null}
 
         {needsReadableText ? (
           <div
@@ -293,6 +346,7 @@ export function ProfileSetupImportStep(props: {
               : "Import resume"}
           </Button>
           <Button
+            className="border-(--border-strong)"
             onClick={props.onContinueToProfile}
             type="button"
             variant="ghost"
@@ -314,7 +368,7 @@ export function ProfileSetupImportStep(props: {
         />
 
         {props.renderFooter({
-          nextLabel: "Save and go to essentials",
+          nextLabel: "Save and go to Basics",
           onPrimary: () => props.onSaveAndGoToStep("essentials"),
         })}
       </CardContent>
@@ -328,129 +382,26 @@ export function ProfileSetupEssentialsStep(props: {
   profileForm: UseFormReturn<ProfileEditorValues>;
   renderFooter: RenderFooter;
 }) {
-  const displayNameId = useId();
-  const firstNameId = "profile-setup-field-identity-first-name";
-  const lastNameId = "profile-setup-field-identity-last-name";
-  const headlineId = "profile-setup-field-identity-headline";
-  const yearsExperienceId = "profile-setup-field-identity-years-experience";
-  const currentLocationId = "profile-setup-field-identity-current-location";
-  const emailId = "profile-setup-field-identity-email";
-  const phoneId = "profile-setup-field-identity-phone";
-  const linkedinUrlId = "profile-setup-field-identity-linkedin-url";
-  const portfolioUrlId = "profile-setup-field-identity-portfolio-url";
-  const summaryId = "profile-setup-field-identity-summary";
-
   return (
     <Card className="rounded-(--radius-panel) border-border/40">
       <CardHeader className="gap-2 border-b border-border/30 pb-5">
-        <CardTitle>Lock in the essentials</CardTitle>
+        <CardTitle>Basics</CardTitle>
         <CardDescription>
-          Confirm the identity and contact details that discovery, resume
-          exports, and applications all reuse.
+          Name, contact details, location, links, and summary. These go on every
+          resume and application, and they are the same fields you will find
+          later under Profile › Basics.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 pt-6">
-        <div className="grid gap-(--gap-content) md:grid-cols-2">
-          <Field>
-            <FieldLabel htmlFor={displayNameId}>
-              Preferred display name
-            </FieldLabel>
-            <ProfileInput
-              id={displayNameId}
-              {...props.profileForm.register("identity.preferredDisplayName")}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={headlineId}>Headline</FieldLabel>
-            <ProfileInput
-              id={headlineId}
-              placeholder={PROFILE_SETUP_PLACEHOLDER_HEADLINE}
-              {...props.profileForm.register("identity.headline")}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={firstNameId}>First name</FieldLabel>
-            <ProfileInput
-              id={firstNameId}
-              placeholder="Your first name"
-              {...props.profileForm.register("identity.firstName")}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={lastNameId}>Last name</FieldLabel>
-            <ProfileInput
-              id={lastNameId}
-              placeholder="Your last name"
-              {...props.profileForm.register("identity.lastName")}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={yearsExperienceId}>
-              Years of experience
-            </FieldLabel>
-            <ProfileInput
-              id={yearsExperienceId}
-              min="0"
-              step="1"
-              type="number"
-              {...props.profileForm.register("identity.yearsExperience")}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={currentLocationId}>
-              Current / home location
-            </FieldLabel>
-            <ProfileInput
-              id={currentLocationId}
-              placeholder={PROFILE_SETUP_PLACEHOLDER_LOCATION}
-              {...props.profileForm.register("identity.currentLocation")}
-            />
-            <p className="text-xs leading-5 text-foreground-muted">
-              Shown on your profile and resume. Job Finder does not use this as
-              a preferred search location unless you add it in Targeting.
-            </p>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={emailId}>Email</FieldLabel>
-            <ProfileInput
-              id={emailId}
-              {...props.profileForm.register("identity.email")}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={phoneId}>Phone</FieldLabel>
-            <ProfileInput
-              id={phoneId}
-              {...props.profileForm.register("identity.phone")}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={linkedinUrlId}>LinkedIn URL</FieldLabel>
-            <ProfileInput
-              id={linkedinUrlId}
-              {...props.profileForm.register("identity.linkedinUrl")}
-            />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor={portfolioUrlId}>Portfolio URL</FieldLabel>
-            <ProfileInput
-              id={portfolioUrlId}
-              {...props.profileForm.register("identity.portfolioUrl")}
-            />
-          </Field>
-          <Field className="md:col-span-2">
-            <FieldLabel htmlFor={summaryId}>Short summary</FieldLabel>
-            <ProfileTextarea
-              id={summaryId}
-              placeholder={PROFILE_SETUP_PLACEHOLDER_SUMMARY}
-              rows={4}
-              {...props.profileForm.register("identity.summary")}
-            />
-          </Field>
-        </div>
+        {/* One shared field list with Profile › Basics: same fields, same
+            order, same labels. */}
+        <ProfileBasicsFields
+          idPrefix="profile-setup-field-identity"
+          profileForm={props.profileForm}
+        />
 
         {props.renderFooter({
-          nextLabel: "Save and continue to background",
+          nextLabel: "Save and continue to Work history",
           onPrimary: () =>
             props.onSaveAndGoToStep(props.nextStep ?? "background"),
         })}
@@ -462,8 +413,10 @@ export function ProfileSetupEssentialsStep(props: {
 export function ProfileSetupTargetingStep(props: {
   nextStep: ProfileSetupStep | null;
   onSaveAndGoToStep: (step: ProfileSetupStep) => void;
+  onResumeApplicationModeChange?: (mode: ResumeApplicationMode) => void;
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>;
   profileForm: UseFormReturn<ProfileEditorValues>;
+  resumeApplicationMode?: ResumeApplicationMode;
   renderFooter: RenderFooter;
 }) {
   const authorizedWorkCountriesId =
@@ -472,6 +425,7 @@ export function ProfileSetupTargetingStep(props: {
   const targetRolesId = "profile-setup-field-search-preferences-target-roles";
   const locationsId = "profile-setup-field-search-preferences-locations";
   const workModesGroupId = "profile-setup-field-search-preferences-work-modes";
+  const workModesDescriptionId = `${workModesGroupId}-description`;
   const workModesGuidanceId = `${workModesGroupId}-guidance`;
   const tailoringModeGroupId =
     "profile-setup-field-search-preferences-tailoring-mode";
@@ -510,7 +464,8 @@ export function ProfileSetupTargetingStep(props: {
   const updateDiscoveryTargets = (
     nextTargets: SearchPreferencesEditorValues["discoveryTargets"],
   ) => {
-    discoveryTargetsField.field.onChange(nextTargets);
+    // Single write path: dual onChange + setValue re-entered watchers twice per
+    // Enable click and could leave sibling fields undefined mid-render.
     props.preferencesForm.setValue(
       "discoveryTargets",
       nextTargets,
@@ -628,24 +583,92 @@ export function ProfileSetupTargetingStep(props: {
       <CardHeader className="gap-2 border-b border-border/30 pb-5">
         <CardTitle>Tell Job Finder what to optimize for</CardTitle>
         <CardDescription>
-          Capture the roles, locations, work modes, and real constraints that
-          make search and tailoring specific.
+          Capture the roles, locations, work modes, and work details that are
+          true for you. Job Finder never guesses these.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 pt-6">
-        <div className="rounded-(--radius-field) border border-dashed border-border/40 bg-background/50 p-4 text-sm leading-6 text-foreground-soft">
-          <p>
-            Use{" "}
-            <span className="font-medium text-foreground">
-              Preferred work modes
-            </span>{" "}
-            to tell Job Finder you want remote roles. Use{" "}
-            <span className="font-medium text-foreground">
-              Preferred locations
-            </span>{" "}
-            only when you want to narrow remote, hybrid, or onsite search to
-            specific places.
-          </p>
+        {discoveryTargets.length > 0 && enabledSourceCount === 0 ? (
+          <div
+            className="flex flex-wrap items-center justify-between gap-3 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3 text-sm leading-6 text-(--warning-text)"
+            role="status"
+          >
+            <p className="min-w-0 flex-1">
+              Saved job sources are still off. Enable at least one before Search
+              can run — jump to the source list below.
+            </p>
+            <Button
+              aria-label="Show job sources to enable"
+              data-profile-setup-jump-to-sources
+              onClick={() => {
+                const heading = document.getElementById(
+                  "profile-setup-job-sources-heading",
+                );
+                // Instant scroll: smooth animation can still be in flight when
+                // Enable is clicked, which raced sticky-footer layout updates.
+                heading?.scrollIntoView({ behavior: "auto", block: "start" });
+                heading?.focus({ preventScroll: true });
+              }}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Show job sources
+            </Button>
+          </div>
+        ) : null}
+        <ProfileListEditor
+          inputId={targetRolesId}
+          label="Target roles"
+          onChange={(values) =>
+            props.preferencesForm.setValue(
+              "targetRoles",
+              joinListInput(values),
+              listFieldOptions,
+            )
+          }
+          placeholder="Add a target role"
+          values={parseListInput(props.preferencesForm.watch("targetRoles"))}
+        />
+        <div className="grid gap-(--gap-content) md:grid-cols-2">
+          <div className="grid gap-2">
+            <ProfileListEditor
+              label="Job families"
+              onChange={(values) =>
+                props.preferencesForm.setValue(
+                  "jobFamilies",
+                  joinListInput(values),
+                  listFieldOptions,
+                )
+              }
+              placeholder="Add a related role area"
+              values={parseListInput(
+                props.preferencesForm.watch("jobFamilies"),
+              )}
+            />
+            <p className="px-1 text-xs leading-5 text-foreground-muted">
+              Related titles you&apos;d also consider, e.g. Backend Engineer.
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <ProfileListEditor
+              inputId={locationsId}
+              label="Preferred job locations"
+              onChange={(values) =>
+                props.preferencesForm.setValue(
+                  "locations",
+                  joinListInput(values),
+                  listFieldOptions,
+                )
+              }
+              placeholder="Example: Austin, TX"
+              values={parseListInput(props.preferencesForm.watch("locations"))}
+            />
+            <p className="px-1 text-xs leading-5 text-foreground-muted">
+              Only add places where you want to work. A city and country entered
+              together stay one location.
+            </p>
+          </div>
         </div>
         <Controller
           control={props.preferencesForm.control}
@@ -667,14 +690,18 @@ export function ProfileSetupTargetingStep(props: {
                 drafts. You can change it later for a strategy or an individual
                 job.
               </p>
-              <div className="grid gap-2 md:grid-cols-3">
+              <div className="grid items-stretch gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 {tailoringModeOptions.map((option) => {
                   const optionId = `${tailoringModeGroupId}-${option.value}`;
-                  const selected = field.value === option.value;
+                  const selected =
+                    option.value === "original_resume"
+                      ? props.resumeApplicationMode === "original_resume"
+                      : props.resumeApplicationMode !== "original_resume" &&
+                        field.value === option.value;
 
                   return (
                     <label
-                      className="grid min-w-0 cursor-pointer gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 p-4 text-left transition-colors hover:border-primary/35 has-[:checked]:border-primary/70 has-[:checked]:bg-primary/8"
+                      className="grid h-full min-w-0 cursor-pointer content-start gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 p-4 text-left transition-colors hover:border-primary/35 has-[:checked]:border-primary/70 has-[:checked]:bg-primary/8"
                       htmlFor={optionId}
                       key={option.value}
                     >
@@ -684,11 +711,25 @@ export function ProfileSetupTargetingStep(props: {
                         id={optionId}
                         name={field.name}
                         onBlur={field.onBlur}
-                        onChange={() => field.onChange(option.value)}
+                        onChange={() => {
+                          if (option.value === "original_resume") {
+                            props.onResumeApplicationModeChange?.(
+                              "original_resume",
+                            );
+                            return;
+                          }
+
+                          props.onResumeApplicationModeChange?.(
+                            "tailored_per_job",
+                          );
+                          field.onChange(option.value);
+                        }}
                         ref={
-                          option.value === "conservative"
-                            ? field.ref
-                            : undefined
+                          option.value === "original_resume"
+                            ? undefined
+                            : option.value === "conservative"
+                              ? field.ref
+                              : undefined
                         }
                         type="radio"
                         value={option.value}
@@ -718,135 +759,143 @@ export function ProfileSetupTargetingStep(props: {
             </fieldset>
           )}
         />
-        <ProfileListEditor
-          inputId={targetRolesId}
-          label="Target roles"
-          onChange={(values) =>
-            props.preferencesForm.setValue(
-              "targetRoles",
-              joinListInput(values),
-              listFieldOptions,
-            )
-          }
-          placeholder="Add a target role"
-          values={parseListInput(props.preferencesForm.watch("targetRoles"))}
-        />
         <div className="grid gap-(--gap-content) md:grid-cols-2">
-          <ProfileListEditor
-            label="Job families"
-            onChange={(values) =>
-              props.preferencesForm.setValue(
-                "jobFamilies",
-                joinListInput(values),
-                listFieldOptions,
-              )
-            }
-            placeholder="Add a related role area"
-            values={parseListInput(props.preferencesForm.watch("jobFamilies"))}
-          />
-          <div className="grid gap-2">
-            <ProfileListEditor
-              inputId={locationsId}
-              label="Preferred job locations"
-              onChange={(values) =>
-                props.preferencesForm.setValue(
-                  "locations",
-                  joinListInput(values),
-                  listFieldOptions,
-                )
-              }
-              placeholder="Example: Prishtina, Kosovo"
-              values={parseListInput(props.preferencesForm.watch("locations"))}
-            />
-            <p className="px-1 text-xs leading-5 text-foreground-muted">
-              Only add places where you want to work. A city and country entered
-              together stay one location.
-            </p>
-          </div>
-        </div>
-        <div className="grid gap-(--gap-content) md:grid-cols-2">
+          <p
+            className="text-sm leading-6 text-foreground-soft md:col-span-2"
+            data-profile-setup-work-details-intro
+          >
+            These are facts, not preferences — leave Not set if you don&apos;t
+            know.
+          </p>
           <div className="grid min-w-0 content-start gap-(--gap-field)">
             <FieldLabel htmlFor={authorizedWorkCountriesId}>
-              Authorized work countries
+              {PROFILE_WORK_CONSTRAINT_COPY.authorizedWorkCountries.label}
             </FieldLabel>
             <ProfileTextarea
+              aria-describedby={`${authorizedWorkCountriesId}-help`}
               id={authorizedWorkCountriesId}
+              placeholder={
+                PROFILE_WORK_CONSTRAINT_COPY.authorizedWorkCountries.placeholder
+              }
               rows={4}
               {...props.profileForm.register(
                 "eligibility.authorizedWorkCountries",
               )}
             />
+            <p
+              className="text-xs leading-5 text-foreground-muted"
+              id={`${authorizedWorkCountriesId}-help`}
+            >
+              {PROFILE_WORK_CONSTRAINT_COPY.authorizedWorkCountries.description}
+            </p>
           </div>
           <div className="grid min-w-0 content-start gap-(--gap-field)">
             <FieldLabel htmlFor={locationPreferencesId}>
-              Relocation regions
+              {PROFILE_WORK_CONSTRAINT_COPY.preferredRelocationRegions.label}
             </FieldLabel>
             <ProfileTextarea
+              aria-describedby={`${locationPreferencesId}-help`}
               id={locationPreferencesId}
+              placeholder={
+                PROFILE_WORK_CONSTRAINT_COPY.preferredRelocationRegions
+                  .placeholder
+              }
               rows={4}
               {...props.profileForm.register(
                 "eligibility.preferredRelocationRegions",
               )}
             />
+            <p
+              className="text-xs leading-5 text-foreground-muted"
+              id={`${locationPreferencesId}-help`}
+            >
+              {
+                PROFILE_WORK_CONSTRAINT_COPY.preferredRelocationRegions
+                  .description
+              }
+            </p>
           </div>
           <SetupBooleanField
             control={props.profileForm.control}
+            description={
+              PROFILE_WORK_CONSTRAINT_COPY.requiresVisaSponsorship.description
+            }
             id={requiresVisaSponsorshipId}
-            label="Requires visa sponsorship"
+            label={PROFILE_WORK_CONSTRAINT_COPY.requiresVisaSponsorship.label}
             name="eligibility.requiresVisaSponsorship"
           />
           <SetupBooleanField
             control={props.profileForm.control}
+            description={
+              PROFILE_WORK_CONSTRAINT_COPY.remoteEligible.description
+            }
             id={remoteEligibleId}
-            label="Remote eligible"
+            label={PROFILE_WORK_CONSTRAINT_COPY.remoteEligible.label}
             name="eligibility.remoteEligible"
           />
           <SetupBooleanField
             control={props.profileForm.control}
+            description={
+              PROFILE_WORK_CONSTRAINT_COPY.willingToRelocate.description
+            }
             id={willingToRelocateId}
-            label="Willing to relocate"
+            label={PROFILE_WORK_CONSTRAINT_COPY.willingToRelocate.label}
             name="eligibility.willingToRelocate"
           />
           <SetupBooleanField
             control={props.profileForm.control}
+            description={
+              PROFILE_WORK_CONSTRAINT_COPY.willingToTravel.description
+            }
             id={willingToTravelId}
-            label="Willing to travel"
+            label={PROFILE_WORK_CONSTRAINT_COPY.willingToTravel.label}
             name="eligibility.willingToTravel"
           />
         </div>
         <fieldset
-          aria-describedby={workModesGuidanceId}
+          aria-describedby={`${workModesDescriptionId} ${workModesGuidanceId}`}
           className="grid gap-(--gap-field)"
           id={workModesGroupId}
         >
           <legend className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
-            Preferred work modes
+            {PROFILE_WORK_CONSTRAINT_COPY.workModes.label}
           </legend>
+          <p
+            className="text-sm leading-6 text-foreground-soft"
+            id={workModesDescriptionId}
+          >
+            {PROFILE_WORK_CONSTRAINT_COPY.workModes.description}
+          </p>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {["remote", "hybrid", "onsite"].map((workMode) => (
               <Controller
                 control={props.preferencesForm.control}
                 key={workMode}
                 name="workModes"
-                render={({ field }) => (
-                  <CheckboxField
-                    checked={field.value.includes(
-                      workMode as JobSearchPreferences["workModes"][number],
-                    )}
-                    label={formatStatusLabel(workMode)}
-                    onCheckedChange={(checked) =>
-                      field.onChange(
-                        checked
-                          ? [...field.value, workMode]
-                          : field.value.filter((value) => value !== workMode),
-                      )
-                    }
-                  />
-                )}
+                render={({ field }) => {
+                  const selectedWorkModes = field.value ?? [];
+                  return (
+                    <CheckboxField
+                      checked={selectedWorkModes.includes(
+                        workMode as JobSearchPreferences["workModes"][number],
+                      )}
+                      label={formatStatusLabel(workMode)}
+                      onCheckedChange={(checked) =>
+                        field.onChange(
+                          checked
+                            ? [...selectedWorkModes, workMode]
+                            : selectedWorkModes.filter(
+                                (value) => value !== workMode,
+                              ),
+                        )
+                      }
+                    />
+                  );
+                }}
               />
             ))}
           </div>
-          {props.preferencesForm.watch("workModes").length === 0 ? (
+          {(props.preferencesForm.watch("workModes") ?? []).length === 0 ? (
             <p
               className="text-sm leading-6 text-(--warning-text)"
               id={workModesGuidanceId}
@@ -854,23 +903,24 @@ export function ProfileSetupTargetingStep(props: {
             >
               Choose at least one work mode before relying on discovery results.
             </p>
-          ) : props.preferencesForm.watch("workModes").includes("remote") &&
+          ) : (props.preferencesForm.watch("workModes") ?? []).includes(
+              "remote",
+            ) &&
             props.profileForm.watch("eligibility.remoteEligible") === "" ? (
             <p
-              className="text-sm leading-6 text-(--warning-text)"
+              className="text-sm leading-6 text-foreground-muted"
               id={workModesGuidanceId}
-              role="status"
             >
-              Remote is preferred, but Remote eligible is unanswered. Confirm
-              whether you can legally work remotely from your location.
+              Remote is your preference; whether you can work remotely is a
+              separate answer you can leave Not set for now.
             </p>
           ) : (
             <p
               className="text-sm leading-6 text-foreground-muted"
               id={workModesGuidanceId}
             >
-              Work-mode preference describes what you want; eligibility
-              describes what you can accept legally.
+              Your preferred setup describes what you want; work details
+              describe what you can accept.
             </p>
           )}
         </fieldset>
@@ -881,8 +931,9 @@ export function ProfileSetupTargetingStep(props: {
         >
           <div className="grid gap-1">
             <h3
-              className="text-sm font-semibold text-foreground"
+              className="scroll-mt-4 text-sm font-semibold text-foreground outline-none sm:scroll-mt-[8.25rem] min-[1440px]:scroll-mt-[4.5rem]"
               id="profile-setup-job-sources-heading"
+              tabIndex={-1}
             >
               Job sources
             </h3>
@@ -1008,28 +1059,26 @@ export function ProfileSetupTargetingStep(props: {
                             data-profile-setup-source-card={target.id}
                           >
                             <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p
-                                  className="min-w-0 max-w-full truncate text-sm font-semibold text-foreground"
-                                  title={sourceLabel}
-                                >
-                                  {sourceLabel}
-                                </p>
-                                {target.enabled ? (
-                                  <Badge variant="default">Enabled</Badge>
-                                ) : (
-                                  <Badge variant="outline">Disabled</Badge>
-                                )}
-                              </div>
+                              {/* No Enabled/Disabled badge: the "Include in
+                                  search" checkbox beside this row already
+                                  states the source's state. */}
+                              <p
+                                className="min-w-0 max-w-full truncate text-sm font-semibold text-foreground"
+                                title={sourceLabel}
+                              >
+                                {sourceLabel}
+                              </p>
                               <p
                                 className="mt-1 truncate text-sm text-foreground-muted"
                                 title={target.startingUrl}
                               >
                                 {getProfileSetupSourceHost(target.startingUrl)}
                               </p>
-                              <p className="mt-1 text-xs leading-5 text-foreground-muted">
-                                {guidance.label}
-                              </p>
+                              {guidance.label ? (
+                                <p className="mt-1 text-xs leading-5 text-foreground-muted">
+                                  {guidance.label}
+                                </p>
+                              ) : null}
                               {guidance.detail ? (
                                 <p className="text-xs leading-5 text-foreground-muted">
                                   {guidance.detail}
@@ -1042,32 +1091,24 @@ export function ProfileSetupTargetingStep(props: {
                               ) : null}
                             </div>
                             <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                              {target.enabled ? (
-                                <Button
-                                  aria-label={`Disable ${sourceLabel} in searches`}
-                                  onClick={() =>
-                                    setTargetEnabled(target.id, false)
+                              {/* Same control as Profile › Job sources: one
+                                  checkbox for the identical action, instead of
+                                  an Enable button here and a checkbox there. */}
+                              <label className="flex min-h-9 items-center gap-2 rounded-(--radius-button) border border-(--surface-panel-border) px-3 text-sm text-foreground-soft">
+                                <Checkbox
+                                  aria-label={`Include ${sourceLabel} in searches`}
+                                  checked={target.enabled}
+                                  data-profile-setup-source-enable={target.id}
+                                  disabled={!validUrl && !target.enabled}
+                                  onCheckedChange={(checked) =>
+                                    setTargetEnabled(
+                                      target.id,
+                                      checked === true,
+                                    )
                                   }
-                                  size="sm"
-                                  type="button"
-                                  variant="ghost"
-                                >
-                                  Disable
-                                </Button>
-                              ) : (
-                                <Button
-                                  aria-label={`Enable ${sourceLabel} in searches`}
-                                  disabled={!validUrl}
-                                  onClick={() =>
-                                    setTargetEnabled(target.id, true)
-                                  }
-                                  size="sm"
-                                  type="button"
-                                  variant="secondary"
-                                >
-                                  Enable
-                                </Button>
-                              )}
+                                />
+                                Include in search
+                              </label>
                               <Button
                                 aria-expanded={isEditing}
                                 aria-label={
@@ -1084,7 +1125,7 @@ export function ProfileSetupTargetingStep(props: {
                                 type="button"
                                 variant="outline"
                               >
-                                Edit
+                                Edit source
                               </Button>
                             </div>
                           </article>
@@ -1338,9 +1379,8 @@ export function ProfileSetupTargetingStep(props: {
         </section>
 
         {props.renderFooter({
-          nextLabel: "Save and continue to narrative",
-          onPrimary: () =>
-            props.onSaveAndGoToStep(props.nextStep ?? "narrative"),
+          nextLabel: "Save and continue to Extras",
+          onPrimary: () => props.onSaveAndGoToStep(props.nextStep ?? "extras"),
         })}
       </CardContent>
     </Card>

@@ -1,16 +1,15 @@
 import {
-  evaluateProfileSetupReadiness,
-  getProfileSetupReadinessBlockers,
+  normalizeProfileSetupStep,
   type CandidateProfile,
   type JobSearchPreferences,
-  type ProfileSetupReadinessBlocker,
   type ProfileSetupStep,
+  type ResumeApplicationMode,
   type ResumeImportFieldCandidateSummary,
+  type ResumeImportRun,
   type ResumeImportProgressEvent,
 } from "@unemployed/contracts";
 import type { UseFieldArrayReturn, UseFormReturn } from "react-hook-form";
 import { Button } from "@renderer/components/ui/button";
-import { Card, CardContent } from "@renderer/components/ui/card";
 import {
   type ProfileEditorValues,
   type SearchPreferencesEditorValues,
@@ -21,48 +20,18 @@ import type {
 } from "../profile-field-array-types";
 import { ProfileBackgroundTab } from "../profile-background-tab";
 import { ProfileExperienceTab } from "../profile-experience-tab";
-import {
-  getNextProfileSetupStep,
-  getPreviousProfileSetupStep,
-} from "./profile-setup-steps";
+import { getNextProfileSetupStep } from "./profile-setup-steps";
 import {
   ProfileSetupEssentialsStep,
   ProfileSetupImportStep,
   ProfileSetupTargetingStep,
 } from "./profile-setup-step-sections";
-import {
-  ProfileSetupAnswersStep,
-  ProfileSetupNarrativeStep,
-  ProfileSetupReadyCheckStep,
-} from "./profile-setup-step-sections-extra";
+import { ProfileSetupExtrasStep } from "./profile-setup-step-sections-extra";
 import {
   isBlockingPendingReviewItem,
-  isOptionalPendingReviewItem,
-  buildProfileSetupIdentityBlockerReason,
   PROFILE_SETUP_VALIDATION_ALERT_ID,
   type ProfileSetupReviewItemDisplay,
 } from "./profile-setup-screen-helpers";
-
-function getReadinessTone(
-  status: "ready" | "needs_review" | "missing",
-): "default" | "outline" | "destructive" {
-  if (status === "ready") {
-    return "default";
-  }
-
-  return status === "needs_review" ? "outline" : "destructive";
-}
-
-function getReadinessStatus(input: {
-  hasSignal: boolean;
-  hasReviewItems: boolean;
-}): "ready" | "needs_review" | "missing" {
-  if (input.hasSignal && !input.hasReviewItems) {
-    return "ready";
-  }
-
-  return input.hasSignal || input.hasReviewItems ? "needs_review" : "missing";
-}
 
 export function ProfileSetupStepEditor(props: {
   backgroundArrays: ProfileBackgroundArrays;
@@ -78,30 +47,27 @@ export function ProfileSetupStepEditor(props: {
   focusedReviewRequestKey?: number;
   hasUnsavedChanges: boolean;
   importDisabledReason?: string | null;
+  /** When false, Save/Continue lives in the locked sticky footer instead. */
+  inlineFooter?: boolean;
   isImportResumePending: boolean;
   isProfileSetupPending: boolean;
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[];
+  latestResumeImportRun: ResumeImportRun | null;
   resumeImportProgress: ResumeImportProgressEvent | null;
   onContinueToProfile: () => void;
   onImportResume: () => void;
   onSaveCurrentStep: () => void;
-  onSaveAndFinish: () => void;
   onSaveAndGoToStep: (step: ProfileSetupStep) => void;
+  onResumeApplicationModeChange?: (mode: ResumeApplicationMode) => void;
   profile: CandidateProfile;
   profileForm: UseFormReturn<ProfileEditorValues>;
   profileSetupReviewItems: readonly ProfileSetupReviewItemDisplay[];
   currentStep: ProfileSetupStep;
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>;
+  resumeApplicationMode?: ResumeApplicationMode;
   searchPreferences: JobSearchPreferences;
   validationMessage: string | null;
 }) {
-  const readiness = evaluateProfileSetupReadiness(
-    props.draftProfile,
-    props.draftSearchPreferences,
-  );
-  const blockingPendingItems = props.profileSetupReviewItems.filter(
-    isBlockingPendingReviewItem,
-  );
   const focusedReviewItem = props.profileSetupReviewItems.find(
     (item) => item.id === props.focusedReviewItemId,
   );
@@ -113,98 +79,13 @@ export function ProfileSetupStepEditor(props: {
     focusExperienceRecordId && props.focusedReviewRequestKey
       ? `${focusExperienceRecordId}:${props.focusedReviewRequestKey}`
       : null;
-  const currentStep = props.currentStep;
+  // Legacy workspaces can still carry a retired step id; the visible step is
+  // always one of the five guided-setup steps.
+  const currentStep = normalizeProfileSetupStep(props.currentStep);
   const nextStep = getNextProfileSetupStep(currentStep);
-  const previousStep = getPreviousProfileSetupStep(currentStep);
-  // One canonical blocker list decides both the Finish gate and the visible
-  // blockers so the ready check can never disagree with other surfaces.
-  const canFinishSetup =
-    readiness.materiallyComplete && blockingPendingItems.length === 0;
-  const readinessBlockerCopy: Record<
-    ProfileSetupReadinessBlocker["id"],
-    { label: string; reason: string }
-  > = {
-    background: {
-      label: "Add work history",
-      reason:
-        "Add at least one meaningful role or project so job fit can use real evidence.",
-    },
-    discovery_source: {
-      label: "Add a job source",
-      reason:
-        "Include at least one valid public careers or job-board URL so Find jobs has somewhere to search.",
-    },
-    eligibility_preferences: {
-      label: "Confirm work constraints",
-      reason:
-        "Set the locations, work modes, or eligibility rules that discovery should respect.",
-    },
-    identity_contact: {
-      label: "Complete your essentials",
-      // Enumerates exactly what identity still needs (full name, location,
-      // contact, and fresh-start years when applicable) from the shared
-      // helper so the visible blocker never hides a requirement.
-      reason: buildProfileSetupIdentityBlockerReason(props.draftProfile),
-    },
-    work_mode_preference: {
-      label: "Choose your work mode",
-      reason:
-        "Select at least one work mode (remote, hybrid, onsite, or flexible) so search results match how you want to work.",
-    },
-  };
-  const readinessBlockers = getProfileSetupReadinessBlockers(readiness).map(
-    (blocker) => ({
-      ...readinessBlockerCopy[blocker.id],
-      step: blocker.step,
-    }),
+  const blockingCurrentStepReviewItems = props.currentStepReviewItems.filter(
+    (item) => item.status === "pending" && isBlockingPendingReviewItem(item),
   );
-  const currentStepReviewItems = props.currentStepReviewItems.filter(
-    (item) => item.status === "pending",
-  );
-  const blockingCurrentStepReviewItems = currentStepReviewItems.filter(
-    isBlockingPendingReviewItem,
-  );
-  const optionalCurrentStepReviewItems = currentStepReviewItems.filter(
-    isOptionalPendingReviewItem,
-  );
-  const narrativeStatus = getReadinessStatus({
-    hasSignal: readiness.hasNarrative,
-    hasReviewItems: props.profileSetupReviewItems.some(
-      (item) =>
-        (item.step === "background" || item.step === "narrative") &&
-        isBlockingPendingReviewItem(item),
-    ),
-  });
-  // Badge readiness reuses the canonical blocker list; no local rule may
-  // declare a surface ready while the shared evaluation still reports one of
-  // its blockers.
-  const readinessBlockerIds = new Set(
-    getProfileSetupReadinessBlockers(readiness).map((blocker) => blocker.id),
-  );
-  const discoveryStatus = getReadinessStatus({
-    hasSignal:
-      readiness.hasTargeting &&
-      !readinessBlockerIds.has("eligibility_preferences") &&
-      !readinessBlockerIds.has("work_mode_preference") &&
-      !readinessBlockerIds.has("discovery_source"),
-    hasReviewItems: props.profileSetupReviewItems.some(
-      (item) =>
-        (item.step === "essentials" || item.step === "targeting") &&
-        isBlockingPendingReviewItem(item),
-    ),
-  });
-  const applyStatus = getReadinessStatus({
-    hasSignal:
-      readiness.hasContactPath &&
-      !readinessBlockerIds.has("eligibility_preferences") &&
-      !readinessBlockerIds.has("work_mode_preference") &&
-      readiness.hasAnswerBank,
-    hasReviewItems: props.profileSetupReviewItems.some(
-      (item) =>
-        (item.step === "essentials" || item.step === "answers") &&
-        isBlockingPendingReviewItem(item),
-    ),
-  });
 
   function renderFooter(options?: {
     nextLabel?: string;
@@ -212,6 +93,9 @@ export function ProfileSetupStepEditor(props: {
     primaryDisabled?: boolean;
     primaryLabel?: string;
   }) {
+    if (props.inlineFooter === false) {
+      return null;
+    }
     return (
       <div
         className="flex flex-col gap-3 border-t border-border/30 pt-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
@@ -220,28 +104,9 @@ export function ProfileSetupStepEditor(props: {
         <div className="grid gap-2">
           <p className="text-sm leading-6 text-foreground-soft">
             {props.hasUnsavedChanges
-              ? "Save this step before moving on so the Profile editor and setup route stay in sync."
-              : "This step already matches the saved workspace state."}
+              ? "You have unsaved changes on this step."
+              : "No unsaved changes."}
           </p>
-          {blockingCurrentStepReviewItems.length > 0 ? (
-            <p className="text-sm leading-6 text-foreground-soft">
-              {blockingCurrentStepReviewItems.length} review item
-              {blockingCurrentStepReviewItems.length === 1
-                ? ""
-                : "s"} still{" "}
-              {blockingCurrentStepReviewItems.length === 1 ? "needs" : "need"}{" "}
-              attention in this step.
-            </p>
-          ) : null}
-          {optionalCurrentStepReviewItems.length > 0 ? (
-            <p className="text-sm leading-6 text-foreground-soft">
-              {optionalCurrentStepReviewItems.length} optional suggestion
-              {optionalCurrentStepReviewItems.length === 1
-                ? " is"
-                : "s are"}{" "}
-              available here. Optional suggestions do not block setup.
-            </p>
-          ) : null}
           {props.validationMessage ? (
             <p
               className="text-sm leading-6 text-destructive"
@@ -263,17 +128,6 @@ export function ProfileSetupStepEditor(props: {
           >
             Save changes
           </Button>
-          {previousStep ? (
-            <Button
-              disabled={props.isProfileSetupPending}
-              pending={props.isProfileSetupPending}
-              onClick={() => props.onSaveAndGoToStep(previousStep)}
-              type="button"
-              variant="ghost"
-            >
-              Save and go back
-            </Button>
-          ) : null}
           {options?.onPrimary || options?.primaryLabel ? (
             <Button
               disabled={
@@ -303,6 +157,7 @@ export function ProfileSetupStepEditor(props: {
           latestResumeImportReviewCandidates={
             props.latestResumeImportReviewCandidates
           }
+          latestResumeImportRun={props.latestResumeImportRun}
           resumeImportProgress={props.resumeImportProgress}
           onContinueToProfile={props.onContinueToProfile}
           onImportResume={props.onImportResume}
@@ -324,20 +179,6 @@ export function ProfileSetupStepEditor(props: {
     case "background":
       return (
         <div className="grid gap-6">
-          <Card className="rounded-(--radius-panel) border-border/40">
-            <CardContent className="grid gap-3 pt-6">
-              <p className="text-sm font-semibold text-foreground">
-                How to review location and remote details here
-              </p>
-              <p className="text-sm leading-6 text-foreground-soft">
-                Update each imported role inside Work history. Use{" "}
-                <span className="font-medium text-foreground">Location</span>{" "}
-                for the city or region shown on that role, and use{" "}
-                <span className="font-medium text-foreground">Work mode</span>{" "}
-                to mark the role as Remote, Hybrid, or Onsite.
-              </p>
-            </CardContent>
-          </Card>
           <ProfileExperienceTab
             isProfileSetupPending={props.isProfileSetupPending}
             experienceArray={props.experienceArray}
@@ -356,7 +197,7 @@ export function ProfileSetupStepEditor(props: {
             profileForm={props.profileForm}
           />
           {renderFooter({
-            nextLabel: "Save and continue to targeting",
+            nextLabel: "Save and continue to Job targets",
             onPrimary: () => props.onSaveAndGoToStep(nextStep ?? "targeting"),
           })}
         </div>
@@ -366,45 +207,26 @@ export function ProfileSetupStepEditor(props: {
         <ProfileSetupTargetingStep
           nextStep={nextStep}
           onSaveAndGoToStep={props.onSaveAndGoToStep}
+          {...(props.onResumeApplicationModeChange
+            ? {
+                onResumeApplicationModeChange:
+                  props.onResumeApplicationModeChange,
+              }
+            : {})}
           preferencesForm={props.preferencesForm}
           profileForm={props.profileForm}
+          {...(props.resumeApplicationMode
+            ? { resumeApplicationMode: props.resumeApplicationMode }
+            : {})}
           renderFooter={renderFooter}
         />
       );
-    case "narrative":
+    case "extras":
       return (
-        <ProfileSetupNarrativeStep
+        <ProfileSetupExtrasStep
           backgroundArrays={props.backgroundArrays}
           isProfileSetupPending={props.isProfileSetupPending}
-          nextStep={nextStep}
-          onSaveAndGoToStep={props.onSaveAndGoToStep}
           profileForm={props.profileForm}
-          renderFooter={renderFooter}
-        />
-      );
-    case "answers":
-      return (
-        <ProfileSetupAnswersStep
-          backgroundArrays={props.backgroundArrays}
-          isProfileSetupPending={props.isProfileSetupPending}
-          nextStep={nextStep}
-          onSaveAndGoToStep={props.onSaveAndGoToStep}
-          profileForm={props.profileForm}
-          renderFooter={renderFooter}
-        />
-      );
-    case "ready_check":
-      return (
-        <ProfileSetupReadyCheckStep
-          applyStatus={applyStatus}
-          blockingPendingItems={blockingPendingItems}
-          canFinishSetup={canFinishSetup}
-          discoveryStatus={discoveryStatus}
-          getReadinessTone={getReadinessTone}
-          narrativeStatus={narrativeStatus}
-          onGoToStep={props.onSaveAndGoToStep}
-          onSaveAndFinish={props.onSaveAndFinish}
-          readinessBlockers={readinessBlockers}
           renderFooter={renderFooter}
         />
       );

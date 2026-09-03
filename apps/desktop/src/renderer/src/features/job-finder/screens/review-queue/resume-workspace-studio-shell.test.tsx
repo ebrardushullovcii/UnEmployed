@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LockedScreenLayout } from "../../components/locked-screen-layout";
 import { ResumeWorkspaceStudioShell } from "./resume-workspace-studio-shell";
@@ -30,8 +36,7 @@ describe("ResumeWorkspaceStudioShell", () => {
       <ResumeWorkspaceStudioShell
         approvalBlockedReason={null}
         approvalStateLabel={null}
-        assistantRail={<div>Assistant</div>}
-        canApproveCurrentPdf={false}
+        canApproveResume={false}
         canClearApproval={false}
         editorPanel={<div>Editor</div>}
         exportBlockedReason={null}
@@ -44,7 +49,6 @@ describe("ResumeWorkspaceStudioShell", () => {
         onContinueToShortlisted={vi.fn()}
         onExportPdf={onExportPdf}
         onReviewBlockingIssues={vi.fn()}
-        onRegenerateDraft={vi.fn()}
         onSaveDraft={vi.fn()}
         onSetMobileStudioTab={onSetMobileStudioTab}
         previewPane={<div>Preview</div>}
@@ -58,10 +62,13 @@ describe("ResumeWorkspaceStudioShell", () => {
       document.querySelector("[data-resume-workspace-top-actions]"),
     ).toBeTruthy();
 
-    const exportButtons = screen.getAllByRole("button", {
-      name: "Export PDF",
+    // One toolbar per rendered layout. The compact copy now lives inside the
+    // Tools tab (as it always has on desktop), and only the active tab mounts,
+    // so with Preview selected the desktop tools column owns the only copy.
+    const exportButtons = screen.queryAllByRole("button", {
+      name: "Download PDF",
     });
-    expect(exportButtons).toHaveLength(2);
+    expect(exportButtons).toHaveLength(1);
     expect(
       exportButtons.every((button) => button.hasAttribute("disabled")),
     ).toBe(true);
@@ -101,8 +108,7 @@ describe("ResumeWorkspaceStudioShell", () => {
       <ResumeWorkspaceStudioShell
         approvalBlockedReason={null}
         approvalStateLabel={null}
-        assistantRail={<div>Assistant</div>}
-        canApproveCurrentPdf={false}
+        canApproveResume={false}
         canClearApproval={false}
         editorPanel={<div>Editor</div>}
         exportBlockedReason={null}
@@ -115,7 +121,6 @@ describe("ResumeWorkspaceStudioShell", () => {
         onContinueToShortlisted={vi.fn()}
         onExportPdf={vi.fn()}
         onReviewBlockingIssues={vi.fn()}
-        onRegenerateDraft={vi.fn()}
         onSaveDraft={vi.fn()}
         onSetMobileStudioTab={vi.fn()}
         previewPane={<div>Preview</div>}
@@ -145,8 +150,7 @@ describe("ResumeWorkspaceStudioShell", () => {
       <ResumeWorkspaceStudioShell
         approvalBlockedReason={null}
         approvalStateLabel={null}
-        assistantRail={<div>Assistant</div>}
-        canApproveCurrentPdf={false}
+        canApproveResume={false}
         canClearApproval={false}
         editorPanel={<div>Editor</div>}
         exportBlockedReason="2 generated or unsupported claims must be grounded before export."
@@ -158,7 +162,6 @@ describe("ResumeWorkspaceStudioShell", () => {
         onClearApproval={vi.fn()}
         onContinueToShortlisted={vi.fn()}
         onExportPdf={onExportPdf}
-        onRegenerateDraft={vi.fn()}
         onReviewBlockingIssues={onReviewBlockingIssues}
         onSaveDraft={vi.fn()}
         onSetMobileStudioTab={vi.fn()}
@@ -172,10 +175,17 @@ describe("ResumeWorkspaceStudioShell", () => {
     expect(screen.getByRole("alert").textContent).toContain(
       "2 generated or unsupported claims",
     );
-    const exportButtons = screen.getAllByRole("button", { name: "Export PDF" });
-    expect(exportButtons.length).toBeGreaterThanOrEqual(2);
+    const topActions = document.querySelector(
+      "[data-resume-workspace-top-actions]",
+    );
+    if (!topActions) {
+      throw new Error("Expected resume workspace top actions");
+    }
+
     expect(
-      exportButtons.every((button) => button.hasAttribute("disabled")),
+      screen
+        .getAllByRole("button", { name: "Download PDF" })
+        .every((button) => button.hasAttribute("disabled")),
     ).toBe(true);
     fireEvent.click(
       screen.getByRole("button", { name: "Review blocked claims" }),
@@ -189,8 +199,7 @@ describe("ResumeWorkspaceStudioShell", () => {
       <ResumeWorkspaceStudioShell
         approvalBlockedReason={null}
         approvalStateLabel={null}
-        assistantRail={<div>Assistant</div>}
-        canApproveCurrentPdf
+        canApproveResume
         canClearApproval={false}
         editorPanel={<div>Editor</div>}
         exportBlockedReason={null}
@@ -202,7 +211,6 @@ describe("ResumeWorkspaceStudioShell", () => {
         onClearApproval={vi.fn()}
         onContinueToShortlisted={vi.fn()}
         onExportPdf={vi.fn()}
-        onRegenerateDraft={vi.fn()}
         onReviewBlockingIssues={vi.fn()}
         onSaveDraft={vi.fn()}
         onSetMobileStudioTab={vi.fn()}
@@ -213,20 +221,24 @@ describe("ResumeWorkspaceStudioShell", () => {
       />,
     );
 
+    // Preview is the active tab, so the desktop tools column owns the only
+    // rendered toolbar; the compact copy mounts with the Tools tab.
     expect(screen.getAllByRole("button", { name: "Save draft" })).toHaveLength(
-      2,
+      1,
     );
+    // "Refresh draft" was the same whole-draft AI rewrite as "Retry with AI"
+    // under a second name; the studio now has exactly one AI control.
     expect(
-      screen.getAllByRole("button", { name: "Refresh draft" }),
-    ).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "Export PDF" })).toHaveLength(
-      2,
-    );
+      screen.queryAllByRole("button", { name: "Refresh draft" }),
+    ).toHaveLength(0);
+    expect(
+      screen.queryAllByRole("button", { name: "Download PDF" }),
+    ).toHaveLength(1);
 
-    const enabledExportButtons = screen
-      .getAllByRole("button", { name: "Export PDF" })
+    const enabledApproveButtons = screen
+      .getAllByRole("button", { name: "Approve resume" })
       .filter((button) => !button.hasAttribute("disabled"));
-    expect(enabledExportButtons).toHaveLength(2);
+    expect(enabledApproveButtons).toHaveLength(1);
 
     expect(
       screen
@@ -241,13 +253,17 @@ describe("ResumeWorkspaceStudioShell", () => {
       document.querySelectorAll<HTMLButtonElement>('[data-variant="primary"]'),
     ).filter((button) => !button.hasAttribute("disabled"));
     expect(primaryButtons).toHaveLength(1);
-    expect(primaryButtons[0]!.textContent).toContain("Approve this PDF");
+    expect(primaryButtons[0]!.textContent).toContain("Approve resume");
 
     expect(screen.queryByText("Preview-led review")).toBeNull();
     expect(screen.queryByText("Approval eligible")).toBeNull();
     expect(screen.queryByText("Approval blocked")).toBeNull();
     expect(screen.queryByText("Saved draft")).toBeNull();
-    expect(screen.getByText(/Review → export → approve/)).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Job Finder creates and verifies the application PDF in the background. Downloading a copy is optional. Final submission stays disabled.",
+      ),
+    ).toBeTruthy();
   });
 
   it("moves clear approval behind its explanation and keeps approval out of the toolbars", () => {
@@ -256,8 +272,7 @@ describe("ResumeWorkspaceStudioShell", () => {
       <ResumeWorkspaceStudioShell
         approvalBlockedReason={null}
         approvalStateLabel="Approved"
-        assistantRail={<div>Assistant</div>}
-        canApproveCurrentPdf={false}
+        canApproveResume={false}
         canClearApproval
         editorPanel={<div>Editor</div>}
         exportBlockedReason={null}
@@ -269,7 +284,6 @@ describe("ResumeWorkspaceStudioShell", () => {
         onClearApproval={onClearApproval}
         onContinueToShortlisted={vi.fn()}
         onExportPdf={vi.fn()}
-        onRegenerateDraft={vi.fn()}
         onReviewBlockingIssues={vi.fn()}
         onSaveDraft={vi.fn()}
         onSetMobileStudioTab={vi.fn()}
@@ -280,24 +294,236 @@ describe("ResumeWorkspaceStudioShell", () => {
       />,
     );
 
+    // Exactly one `Clear approval` renders, in the layout that is displayed.
+    // On desktop that is the tools column's status row, beside the sentence
+    // that explains what clearing approval costs.
     const clearButtons = screen.getAllByRole("button", {
       name: "Clear approval",
     });
-    expect(clearButtons).toHaveLength(2);
+    expect(clearButtons).toHaveLength(1);
     for (const button of clearButtons) {
       expect(button.getAttribute("data-variant")).toBe("ghost");
-      const statusRow = button.closest('[role="status"]');
+      const statusRow = button.closest("[data-resume-studio-status]");
       expect(statusRow?.textContent).toContain(
         "A PDF from this saved draft is already approved.",
       );
     }
 
+    // After approval the compact band is gone, so the desktop status row is
+    // the only one left — and it is the one that announces.
+    const liveStatusRows = Array.from(
+      document.querySelectorAll('[data-resume-studio-status][role="status"]'),
+    );
+    expect(liveStatusRows).toHaveLength(1);
+    expect(liveStatusRows[0]?.getAttribute("aria-live")).toBe("polite");
+    expect(
+      document.querySelectorAll("[data-resume-studio-status]"),
+    ).toHaveLength(1);
+
     fireEvent.click(clearButtons[0]!);
     expect(onClearApproval).toHaveBeenCalledOnce();
   });
 
+  it("announces studio status from the compact row only below the desktop breakpoint", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        addEventListener: vi.fn(),
+        matches: false,
+        removeEventListener: vi.fn(),
+      })),
+    });
+
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume={false}
+        canClearApproval={false}
+        editorPanel={<div>Editor</div>}
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        previewPane={<div>Preview</div>}
+        selectedTemplateApprovalEligible={false}
+        studioStatusMessage="Choose a template"
+        templatePanel={<div>Templates</div>}
+      />,
+    );
+
+    const statusRows = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-resume-studio-status]"),
+    );
+    expect(statusRows).toHaveLength(2);
+    const [compactRow, desktopRow] = statusRows;
+    expect(compactRow?.getAttribute("role")).toBe("status");
+    expect(compactRow?.closest(".xl\\:hidden")).toBeTruthy();
+    expect(desktopRow?.getAttribute("role")).toBeNull();
+    expect(desktopRow?.getAttribute("aria-live")).toBeNull();
+  });
+
+  it("never switches tabs when the desktop layout ends, because the Assistant is not a tab", () => {
+    // The Assistant used to be a docked desktop column and a compact tab, so
+    // narrowing 1440 -> 1200 with it open had to move the tab selection. It is
+    // one floating panel now: crossing the breakpoint changes nothing.
+    const listeners: Array<() => void> = [];
+    let matches = true;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        addEventListener: (_event: string, listener: () => void) => {
+          listeners.push(listener);
+        },
+        get matches() {
+          return matches;
+        },
+        removeEventListener: vi.fn(),
+      })),
+    });
+
+    const onSetMobileStudioTab = vi.fn();
+    const props = {
+      approvalBlockedReason: null,
+      approvalStateLabel: null,
+      canApproveResume: false,
+      canClearApproval: false,
+      editorPanel: <div>Editor</div>,
+      exportBlockedReason: null,
+      hasUnsavedChanges: false,
+      historyPanel: <div>History</div>,
+      isWorkspacePending: false,
+      mobileStudioTab: "preview" as const,
+      onApproveCurrentPdf: vi.fn(),
+      onClearApproval: vi.fn(),
+      onContinueToShortlisted: vi.fn(),
+      onExportPdf: vi.fn(),
+      onReviewBlockingIssues: vi.fn(),
+      onSaveDraft: vi.fn(),
+      onSetMobileStudioTab,
+      previewPane: <div>Preview</div>,
+      selectedTemplateApprovalEligible: false,
+      studioStatusMessage: "Choose a template",
+      templatePanel: <div>Templates</div>,
+    };
+
+    const { rerender } = render(<ResumeWorkspaceStudioShell {...props} />);
+    expect(onSetMobileStudioTab).not.toHaveBeenCalled();
+
+    act(() => {
+      matches = false;
+      for (const listener of listeners) {
+        listener();
+      }
+    });
+    rerender(<ResumeWorkspaceStudioShell {...props} />);
+
+    expect(onSetMobileStudioTab).not.toHaveBeenCalled();
+    expect(screen.queryByRole("tab", { name: "Assistant" })).toBeNull();
+  });
+
+  it("leaves the tab alone across the breakpoint when the Assistant is closed", () => {
+    const listeners: Array<() => void> = [];
+    let matches = true;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        addEventListener: (_event: string, listener: () => void) => {
+          listeners.push(listener);
+        },
+        get matches() {
+          return matches;
+        },
+        removeEventListener: vi.fn(),
+      })),
+    });
+
+    const onSetMobileStudioTab = vi.fn();
+    const props = {
+      approvalBlockedReason: null,
+      approvalStateLabel: null,
+      canApproveResume: false,
+      canClearApproval: false,
+      editorPanel: <div>Editor</div>,
+      exportBlockedReason: null,
+      hasUnsavedChanges: false,
+      historyPanel: <div>History</div>,
+      isWorkspacePending: false,
+      mobileStudioTab: "preview" as const,
+      onApproveCurrentPdf: vi.fn(),
+      onClearApproval: vi.fn(),
+      onContinueToShortlisted: vi.fn(),
+      onExportPdf: vi.fn(),
+      onReviewBlockingIssues: vi.fn(),
+      onSaveDraft: vi.fn(),
+      onSetMobileStudioTab,
+      previewPane: <div>Preview</div>,
+      selectedTemplateApprovalEligible: false,
+      studioStatusMessage: "Choose a template",
+      templatePanel: <div>Templates</div>,
+    };
+
+    const { rerender } = render(<ResumeWorkspaceStudioShell {...props} />);
+    act(() => {
+      matches = false;
+      for (const listener of listeners) {
+        listener();
+      }
+    });
+    rerender(<ResumeWorkspaceStudioShell {...props} />);
+
+    expect(onSetMobileStudioTab).not.toHaveBeenCalled();
+  });
+
+  it("exposes prepare application after the exact PDF is approved", () => {
+    const onPrepareApplication = vi.fn();
+
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel="Approved"
+        canApproveResume={false}
+        canClearApproval
+        editorPanel={<div>Editor</div>}
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onPrepareApplication={onPrepareApplication}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        previewPane={<div>Preview</div>}
+        selectedTemplateApprovalEligible
+        studioStatusMessage="A PDF from this saved draft is already approved."
+        templatePanel={<div>Templates</div>}
+      />,
+    );
+
+    const prepareButtons = screen.getAllByRole("button", {
+      name: "Prepare application",
+    });
+    expect(prepareButtons).toHaveLength(1);
+    fireEvent.click(prepareButtons[0]!);
+    expect(onPrepareApplication).toHaveBeenCalledOnce();
+  });
+
   it("lists named validation issues before export and deep-links into the matching field", () => {
     const onSetMobileStudioTab = vi.fn();
+    const onSelectValidationIssue = vi.fn();
     const scrollIntoView = vi.fn();
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       callback(0);
@@ -312,14 +538,12 @@ describe("ResumeWorkspaceStudioShell", () => {
       <ResumeWorkspaceStudioShell
         approvalBlockedReason={null}
         approvalStateLabel={null}
-        assistantRail={<div>Assistant</div>}
-        canApproveCurrentPdf={false}
+        canApproveResume={false}
         canClearApproval={false}
         editorPanel={
           <textarea
             data-resume-editor-target="entry:section_experience:entry_1:summary"
             aria-label="Entry summary target"
-            readOnly
           />
         }
         exportBlockedReason={null}
@@ -331,9 +555,9 @@ describe("ResumeWorkspaceStudioShell", () => {
         onClearApproval={vi.fn()}
         onContinueToShortlisted={vi.fn()}
         onExportPdf={vi.fn()}
-        onRegenerateDraft={vi.fn()}
         onReviewBlockingIssues={vi.fn()}
         onSaveDraft={vi.fn()}
+        onSelectValidationIssue={onSelectValidationIssue}
         onSetMobileStudioTab={onSetMobileStudioTab}
         previewPane={<div>Preview</div>}
         selectedTemplateApprovalEligible
@@ -365,7 +589,7 @@ describe("ResumeWorkspaceStudioShell", () => {
     const issueRegion = document.querySelector(
       "[data-resume-validation-issues]",
     );
-    expect(issueRegion?.textContent).toContain("Validation issues");
+    expect(issueRegion?.textContent).toContain("Fix before approval");
     expect(issueRegion?.textContent).toContain("1 approval blocker");
     expect(issueRegion?.textContent).toContain(
       "Bullet cites a metric that is not in your evidence.",
@@ -378,17 +602,451 @@ describe("ResumeWorkspaceStudioShell", () => {
     );
 
     fireEvent.click(
-      screen.getAllByRole("button", { name: "Fix in editor" })[0]!,
+      screen.getByRole("button", {
+        name: "Edit entry summary: Bullet cites a metric that is not in your evidence.",
+      }),
     );
 
     expect(onSetMobileStudioTab).toHaveBeenCalledWith("editor");
+    expect(onSelectValidationIssue).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "issue_error_1" }),
+      "entry:section_experience:entry_1:summary",
+    );
     expect(scrollIntoView).toHaveBeenCalledWith({
       behavior: "smooth",
-      block: "start",
+      block: "center",
     });
     expect(
       document.activeElement?.getAttribute("data-resume-editor-target"),
     ).toBe("entry:section_experience:entry_1:summary");
+  });
+
+  it("waits for the editor tab to mount before focusing an exact field", () => {
+    const onSetMobileStudioTab = vi.fn();
+    const scrollIntoView = vi.fn();
+    const frames: Array<(time: number) => void> = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(
+      () => undefined,
+    );
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    const shellProps = {
+      approvalBlockedReason: null,
+      approvalStateLabel: null,
+      canApproveResume: false,
+      canClearApproval: false,
+      editorPanel: (
+        <textarea
+          aria-label="Entry summary target"
+          data-resume-editor-target="entry:section_experience:entry_1:summary"
+        />
+      ),
+      exportBlockedReason: null,
+      hasUnsavedChanges: false,
+      historyPanel: <div>History</div>,
+      isWorkspacePending: false,
+      onApproveCurrentPdf: vi.fn(),
+      onClearApproval: vi.fn(),
+      onContinueToShortlisted: vi.fn(),
+      onExportPdf: vi.fn(),
+      onRegenerateDraft: vi.fn(),
+      onReviewBlockingIssues: vi.fn(),
+      onSaveDraft: vi.fn(),
+      onSetMobileStudioTab,
+      previewPane: <div>Preview</div>,
+      selectedTemplateApprovalEligible: true,
+      studioStatusMessage: "Ready.",
+      templatePanel: <div>Templates</div>,
+      validationIssues: [
+        {
+          id: "issue_mount_exact",
+          severity: "error" as const,
+          category: "invented_metric" as const,
+          sectionId: "section_experience",
+          entryId: "entry_1",
+          bulletId: null,
+          message: "A metric needs review.",
+        },
+      ],
+    };
+
+    const { rerender } = render(
+      <ResumeWorkspaceStudioShell {...shellProps} mobileStudioTab="preview" />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit entry summary: A metric needs review.",
+      }),
+    );
+    expect(onSetMobileStudioTab).toHaveBeenCalledWith("editor");
+    expect(frames).not.toHaveLength(0);
+
+    rerender(
+      <ResumeWorkspaceStudioShell {...shellProps} mobileStudioTab="editor" />,
+    );
+    act(() => {
+      frames.at(-1)?.(0);
+    });
+
+    expect(
+      document.activeElement?.getAttribute("data-resume-editor-target"),
+    ).toBe("entry:section_experience:entry_1:summary");
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "center",
+    });
+    expect(
+      screen.getByText("Opened the matching editor field for this issue."),
+    ).toBeTruthy();
+  });
+
+  it("opens a section card for a section-only issue without claiming an exact field", () => {
+    const scrollIntoView = vi.fn();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume
+        canClearApproval={false}
+        editorPanel={
+          <article data-resume-editor-section="section_skills" tabIndex={-1}>
+            <textarea data-resume-editor-target="section:section_skills:text" />
+          </article>
+        }
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        previewPane={<div>Preview</div>}
+        selectedTemplateApprovalEligible
+        studioStatusMessage="Ready."
+        templatePanel={<div>Templates</div>}
+        validationIssues={[
+          {
+            id: "issue_section_only",
+            severity: "error",
+            category: "empty_section",
+            sectionId: "section_skills",
+            entryId: null,
+            bulletId: null,
+            message: "Review the skills section.",
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit section: Review the skills section.",
+      }),
+    );
+
+    expect(
+      document.activeElement?.getAttribute("data-resume-editor-section"),
+    ).toBe("section_skills");
+    expect(
+      screen.getByText("Opened the matching section in the editor."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Opened the matching editor field for this issue."),
+    ).toBeNull();
+  });
+
+  it("falls back from a disabled exact field to the nearest editable entry", () => {
+    const onSelectValidationIssue = vi.fn();
+    const scrollIntoView = vi.fn();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    const issue = {
+      id: "issue_disabled_exact",
+      severity: "error" as const,
+      category: "invented_metric" as const,
+      sectionId: "section_experience",
+      entryId: "entry_1",
+      bulletId: null,
+      message: "The metric needs review.",
+    };
+
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume={false}
+        canClearApproval={false}
+        editorPanel={
+          <article
+            data-resume-editor-section="section_experience"
+            tabIndex={-1}
+          >
+            <article data-resume-editor-entry="entry_1" tabIndex={-1}>
+              <input
+                data-resume-editor-target="entry:section_experience:entry_1:summary"
+                disabled
+                value="Locked summary"
+                readOnly
+                onChange={() => undefined}
+              />
+              <input
+                data-resume-editor-target="entry:section_experience:entry_1:title"
+                value="Editable title"
+                onChange={() => undefined}
+              />
+            </article>
+          </article>
+        }
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSelectValidationIssue={onSelectValidationIssue}
+        onSetMobileStudioTab={vi.fn()}
+        previewPane={<div>Preview</div>}
+        selectedTemplateApprovalEligible
+        studioStatusMessage="Ready."
+        templatePanel={<div>Templates</div>}
+        validationIssues={[issue]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Edit entry summary: The metric needs review.",
+      }),
+    );
+
+    expect(onSelectValidationIssue).toHaveBeenCalledWith(
+      issue,
+      "entry:section_experience:entry_1:summary",
+    );
+    expect(onSelectValidationIssue).toHaveBeenLastCalledWith(issue, null);
+    expect(
+      document.activeElement?.getAttribute("data-resume-editor-entry"),
+    ).toBe("entry_1");
+    expect(
+      screen.getByText(
+        "Opened the nearest editable entry in the editor; the exact field was not available.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("routes work-history review to the decisions panel and clears field selection", () => {
+    const onSelectValidationIssue = vi.fn();
+    const onSetMobileStudioTab = vi.fn();
+    const scrollIntoView = vi.fn();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    const issue = {
+      id: "issue_work_history_route",
+      severity: "error" as const,
+      category: "work_history_review" as const,
+      sectionId: null,
+      entryId: null,
+      bulletId: null,
+      message: "A canonical work-history role is hidden from the resume.",
+    };
+
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume
+        canClearApproval={false}
+        editorPanel={
+          <section data-resume-work-history-decisions tabIndex={-1}>
+            Work-history decisions
+          </section>
+        }
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSelectValidationIssue={onSelectValidationIssue}
+        onSetMobileStudioTab={onSetMobileStudioTab}
+        previewPane={<div>Preview</div>}
+        selectedTemplateApprovalEligible
+        studioStatusMessage="Ready."
+        templatePanel={<div>Templates</div>}
+        validationIssues={[issue]}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Review work history: A canonical work-history role is hidden from the resume.",
+      }),
+    );
+
+    expect(onSetMobileStudioTab).toHaveBeenCalledWith("editor");
+    expect(onSelectValidationIssue).toHaveBeenCalledWith(issue, null);
+    expect(
+      document.activeElement?.hasAttribute(
+        "data-resume-work-history-decisions",
+      ),
+    ).toBe(true);
+    expect(
+      screen.getByText(
+        "Opened the work-history decisions panel in the editor.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("keeps the ready preview and tools panes without a global optional-notes task", () => {
+    const reviewIssues = Array.from({ length: 8 }, (_, index) => ({
+      id: `issue_note_${index + 1}`,
+      severity: "warning" as const,
+      category: "thin_output" as const,
+      sectionId: null,
+      entryId: null,
+      bulletId: null,
+      message: `Review note ${index + 1}.`,
+    }));
+
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume
+        canClearApproval={false}
+        editorPanel={<div>Editor tools</div>}
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        previewPane={<div>Ready preview</div>}
+        selectedTemplateApprovalEligible
+        studioStatusMessage="Ready."
+        templatePanel={<div>Templates</div>}
+        validationIssues={reviewIssues}
+      />,
+    );
+
+    expect(screen.getAllByText("Ready preview")).not.toHaveLength(0);
+    expect(screen.getAllByText("Editor tools")).not.toHaveLength(0);
+    const issueRegion = document.querySelector(
+      "[data-resume-validation-issues]",
+    );
+    expect(issueRegion).toBeNull();
+    expect(
+      document.querySelector("[data-resume-workspace-scroll-region]"),
+    ).toBeTruthy();
+  });
+
+  it("does not offer a misleading editor action for a note without a target", () => {
+    const onSetMobileStudioTab = vi.fn();
+    const scrollIntoView = vi.fn();
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume
+        canClearApproval={false}
+        editorPanel={<div>Editor</div>}
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={onSetMobileStudioTab}
+        previewPane={<div>Ready preview</div>}
+        selectedTemplateApprovalEligible
+        studioStatusMessage="Ready."
+        templatePanel={<div>Templates</div>}
+        validationIssues={[
+          {
+            id: "issue_page_overflow",
+            severity: "warning",
+            category: "page_overflow",
+            sectionId: null,
+            entryId: null,
+            bulletId: null,
+            message: "The rendered resume may exceed one page.",
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.queryByText("The rendered resume may exceed one page."),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Review issue" })).toBeNull();
+    expect(onSetMobileStudioTab).not.toHaveBeenCalled();
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
   it("replaces approval/export with recovery that focuses the first blocker", () => {
@@ -407,8 +1065,7 @@ describe("ResumeWorkspaceStudioShell", () => {
       <ResumeWorkspaceStudioShell
         approvalBlockedReason={null}
         approvalStateLabel={null}
-        assistantRail={<div>Assistant</div>}
-        canApproveCurrentPdf
+        canApproveResume
         canClearApproval={false}
         editorPanel={<div>Editor</div>}
         exportBlockedReason={null}
@@ -420,7 +1077,6 @@ describe("ResumeWorkspaceStudioShell", () => {
         onClearApproval={vi.fn()}
         onContinueToShortlisted={vi.fn()}
         onExportPdf={onExportPdf}
-        onRegenerateDraft={vi.fn()}
         onReviewBlockingIssues={vi.fn()}
         onSaveDraft={vi.fn()}
         onSetMobileStudioTab={vi.fn()}
@@ -445,9 +1101,7 @@ describe("ResumeWorkspaceStudioShell", () => {
     expect(
       screen.getByText("Fix the first validation error before approval."),
     ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Approve this PDF" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve resume" })).toBeNull();
     const recovery = screen.getByRole("button", {
       name: "Fix approval blocker",
     });
@@ -466,8 +1120,7 @@ describe("ResumeWorkspaceStudioShell", () => {
       <ResumeWorkspaceStudioShell
         approvalBlockedReason={null}
         approvalStateLabel={null}
-        assistantRail={<div>Assistant</div>}
-        canApproveCurrentPdf
+        canApproveResume
         canClearApproval={false}
         editorPanel={<div>Editor</div>}
         exportBlockedReason={null}
@@ -479,7 +1132,6 @@ describe("ResumeWorkspaceStudioShell", () => {
         onClearApproval={vi.fn()}
         onContinueToShortlisted={vi.fn()}
         onExportPdf={vi.fn()}
-        onRegenerateDraft={vi.fn()}
         onReviewBlockingIssues={vi.fn()}
         onSaveDraft={vi.fn()}
         onSetMobileStudioTab={vi.fn()}
@@ -501,9 +1153,14 @@ describe("ResumeWorkspaceStudioShell", () => {
       />,
     );
 
+    expect(screen.getByRole("button", { name: "Approve resume" })).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Approve this PDF" }),
+      document.querySelector("[data-resume-validation-issues]"),
+    ).toBeNull();
+    expect(
+      screen.getByText("Approve the resume shown in the preview."),
     ).toBeTruthy();
+    expect(screen.queryByText("No approval blockers")).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Fix approval blocker" }),
     ).toBeNull();
@@ -527,8 +1184,7 @@ describe("ResumeWorkspaceStudioShell", () => {
       <ResumeWorkspaceStudioShell
         approvalBlockedReason="1 hidden work-history role is waiting on an explicit kept-omitted decision. Approval stays disabled until every entry below has one."
         approvalStateLabel="Approval needs decisions"
-        assistantRail={<div>Assistant</div>}
-        canApproveCurrentPdf={false}
+        canApproveResume={false}
         canClearApproval={false}
         editorPanel={
           <section data-resume-work-history-decisions tabIndex={-1}>
@@ -544,7 +1200,6 @@ describe("ResumeWorkspaceStudioShell", () => {
         onClearApproval={vi.fn()}
         onContinueToShortlisted={vi.fn()}
         onExportPdf={onExportPdf}
-        onRegenerateDraft={vi.fn()}
         onReviewBlockingIssues={vi.fn()}
         onSaveDraft={vi.fn()}
         onSetMobileStudioTab={vi.fn()}
@@ -561,9 +1216,7 @@ describe("ResumeWorkspaceStudioShell", () => {
         .getAllByRole("alert")[0]!
         .textContent.includes("kept-omitted decision"),
     ).toBe(true);
-    expect(
-      screen.queryByRole("button", { name: "Approve this PDF" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve resume" })).toBeNull();
     expect(
       screen
         .getAllByRole("button", { name: "Review work-history decisions" })
@@ -585,6 +1238,40 @@ describe("ResumeWorkspaceStudioShell", () => {
     expect(onApproveCurrentPdf).not.toHaveBeenCalled();
     expect(onExportPdf).not.toHaveBeenCalled();
   });
+
+  it("keeps the ready studio visible while a native PDF export is pending", () => {
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume={false}
+        canClearApproval={false}
+        editorPanel={<div>Editor</div>}
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isExportPending
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        previewPane={<div>Ready preview</div>}
+        selectedTemplateApprovalEligible
+        studioStatusMessage="Ready."
+        templatePanel={<div>Templates</div>}
+      />,
+    );
+
+    const exportButton = screen.getByRole("button", { name: /Exporting PDF/ });
+    expect(exportButton.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getAllByText("Ready preview")).not.toHaveLength(0);
+    expect(screen.queryByText("Updating your resume")).toBeNull();
+  });
 });
 
 describe("ResumeWorkspaceStudioShell locked-pane ownership", () => {
@@ -598,8 +1285,7 @@ describe("ResumeWorkspaceStudioShell locked-pane ownership", () => {
     return {
       approvalBlockedReason: null,
       approvalStateLabel: null,
-      assistantRail: <div>Assistant</div>,
-      canApproveCurrentPdf: false,
+      canApproveResume: false,
       canClearApproval: false,
       editorPanel: <div>Editor</div>,
       exportBlockedReason: null,
@@ -625,6 +1311,127 @@ describe("ResumeWorkspaceStudioShell locked-pane ownership", () => {
       ),
     };
   }
+
+  it("keeps one compact sticky row and no notice outside a scroll region", () => {
+    const { container } = render(
+      <ResumeWorkspaceStudioShell
+        {...buildStudioShellProps()}
+        approvalBlockedReason="2 hidden work-history roles are waiting on an explicit kept-omitted decision."
+        exportBlockedReason="35 generated or unsupported claims must be removed, rewritten, or grounded in candidate evidence before this resume can be exported."
+        setAsideProposalNote="1 pending suggestion was set aside."
+        validationIssues={[
+          {
+            id: "issue one",
+            severity: "error",
+            category: "unsupported_claim",
+            sectionId: "sec summary",
+            entryId: null,
+            bulletId: null,
+            message: "This claim is not supported by saved evidence.",
+          },
+        ]}
+      />,
+    );
+
+    // The header stack that used to pin ~270px of an 860px window is now one
+    // row: state, next-step sentence, attention chip, primary action.
+    const pinnedHeader = container.querySelector<HTMLElement>(
+      "[data-resume-studio-compact-header]",
+    );
+    expect(pinnedHeader).toBeTruthy();
+    expect(pinnedHeader?.className).toContain("py-1.5");
+    expect(
+      container.querySelectorAll("[data-resume-studio-compact-header]").length,
+    ).toBe(1);
+
+    // Everything else the shell owns at the top of the panel is now inside the
+    // tools column, which is the studio's own scroll region.
+    const scrollRegion = container.querySelector<HTMLElement>(
+      "[data-resume-workspace-scroll-region]",
+    );
+    expect(scrollRegion?.className).toContain("overflow-y-auto");
+
+    for (const selector of [
+      "[data-resume-studio-attention-panel]",
+      "[data-resume-validation-issues]",
+      "[data-resume-set-aside-proposal-note]",
+      "[data-resume-pdf-status]",
+    ]) {
+      const node = container.querySelector<HTMLElement>(selector);
+      expect(node, `${selector} renders`).toBeTruthy();
+      expect(scrollRegion?.contains(node), `${selector} is scrollable`).toBe(
+        true,
+      );
+    }
+
+    // No notice may sit between the sticky header and the panes.
+    const panes = container.querySelector<HTMLElement>(
+      "[data-resume-studio-desktop-grid]",
+    );
+    expect(panes).toBeTruthy();
+    expect(pinnedHeader?.nextElementSibling?.className).not.toContain(
+      "border-(--warning-border)",
+    );
+  });
+
+  it("summarises the pinned notices as one attention chip", () => {
+    const onSetMobileStudioTab = vi.fn();
+    render(
+      <ResumeWorkspaceStudioShell
+        {...buildStudioShellProps()}
+        approvalBlockedReason="1 hidden work-history role is waiting on a decision."
+        exportBlockedReason="35 generated or unsupported claims must be removed."
+        onSetMobileStudioTab={onSetMobileStudioTab}
+        validationIssues={[
+          {
+            id: "issue one",
+            severity: "error",
+            category: "unsupported_claim",
+            sectionId: "sec summary",
+            entryId: null,
+            bulletId: null,
+            message: "This claim is not supported by saved evidence.",
+          },
+        ]}
+      />,
+    );
+
+    const chip = screen.getByRole("button", {
+      name: "3 items need attention",
+    });
+    fireEvent.click(chip);
+    expect(onSetMobileStudioTab).toHaveBeenCalledWith("editor");
+  });
+
+  it("offers one route back to Shortlisted after approval", () => {
+    const approved = render(
+      <ResumeWorkspaceStudioShell
+        {...buildStudioShellProps()}
+        canClearApproval
+        onPrepareApplication={vi.fn()}
+      />,
+    );
+
+    // `Continue to Shortlisted →` used to sit beside `Prepare application →`
+    // while `← Back to Shortlisted` was ~100px away in the workspace header.
+    expect(
+      screen.queryByRole("button", { name: /Continue to Shortlisted/ }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Prepare application/ }),
+    ).toBeTruthy();
+    approved.unmount();
+
+    render(
+      <ResumeWorkspaceStudioShell
+        {...buildStudioShellProps()}
+        canClearApproval
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /Back to Shortlisted/ }),
+    ).toBeTruthy();
+  });
 
   function stubCollapsedHeaderMetrics() {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
@@ -672,7 +1479,7 @@ describe("ResumeWorkspaceStudioShell locked-pane ownership", () => {
     ).toHaveLength(0);
   });
 
-  it("consumes wheel input with the rail once the header has collapsed", () => {
+  it("leaves the wheel to the rail natively while the rail still has range", () => {
     stubCollapsedHeaderMetrics();
 
     const { container } = render(
@@ -708,12 +1515,16 @@ describe("ResumeWorkspaceStudioShell locked-pane ownership", () => {
       .querySelector<HTMLElement>("[data-resume-template-chooser]")
       ?.dispatchEvent(wheelEvent);
 
-    expect(wheelEvent.defaultPrevented).toBe(true);
-    expect(rail.scrollTop).toBe(350);
+    // The rail has 350px of range left in this direction, so the browser owns
+    // the event: no `preventDefault`, no manual `scrollTop` write, and the
+    // outer route owner does not move. Custom arbitration is reserved for a
+    // true boundary.
+    expect(wheelEvent.defaultPrevented).toBe(false);
+    expect(rail.scrollTop).toBe(250);
     expect(outerScroller?.scrollTop).toBe(200);
   });
 
-  it("chains wheel residual outward when the rail hits its bottom boundary", () => {
+  it("leaves boundary chaining to the browser when the rail is exhausted", () => {
     stubCollapsedHeaderMetrics();
 
     const { container } = render(
@@ -741,7 +1552,7 @@ describe("ResumeWorkspaceStudioShell locked-pane ownership", () => {
     if (outerScroller) {
       outerScroller.scrollTop = 200;
     }
-    rail.scrollTop = 550;
+    rail.scrollTop = 600;
 
     const wheelEvent = new WheelEvent("wheel", {
       bubbles: true,
@@ -753,9 +1564,12 @@ describe("ResumeWorkspaceStudioShell locked-pane ownership", () => {
       .querySelector<HTMLElement>("[data-resume-template-chooser]")
       ?.dispatchEvent(wheelEvent);
 
-    expect(wheelEvent.defaultPrevented).toBe(true);
+    // With the rail exhausted and the header already collapsed there is
+    // nothing left for the layout to arbitrate, so the event stays native and
+    // the browser chains it outward with real momentum.
+    expect(wheelEvent.defaultPrevented).toBe(false);
     expect(rail.scrollTop).toBe(600);
-    expect(outerScroller?.scrollTop).toBe(270);
+    expect(outerScroller?.scrollTop).toBe(200);
   });
 
   it("keeps keyboard scrolling with the focused rail and Space with buttons", () => {
@@ -823,8 +1637,7 @@ describe("ResumeWorkspaceStudioShell focus ring contrast", () => {
       <ResumeWorkspaceStudioShell
         approvalBlockedReason={null}
         approvalStateLabel={null}
-        assistantRail={<div>Assistant</div>}
-        canApproveCurrentPdf={false}
+        canApproveResume={false}
         canClearApproval={false}
         editorPanel={<div>Editor</div>}
         exportBlockedReason={null}
@@ -836,7 +1649,6 @@ describe("ResumeWorkspaceStudioShell focus ring contrast", () => {
         onClearApproval={vi.fn()}
         onContinueToShortlisted={vi.fn()}
         onExportPdf={vi.fn()}
-        onRegenerateDraft={vi.fn()}
         onReviewBlockingIssues={vi.fn()}
         onSaveDraft={vi.fn()}
         onSetMobileStudioTab={vi.fn()}
@@ -878,8 +1690,8 @@ describe("ResumeWorkspaceStudioShell focus ring contrast", () => {
 
     // Non-focus decoration stays diluted by design — capture before unmount.
     const previewHtml = container.innerHTML;
-    expect(previewHtml).toContain("border-primary/25");
-    expect(previewHtml).toContain("bg-primary/5");
+    expect(previewHtml).toContain("border-primary/40");
+    expect(previewHtml).toContain("bg-primary/10");
 
     // Also verify the editor tab exposes the mobile chooser with the same token.
     cleanup();
@@ -887,8 +1699,7 @@ describe("ResumeWorkspaceStudioShell focus ring contrast", () => {
       <ResumeWorkspaceStudioShell
         approvalBlockedReason={null}
         approvalStateLabel={null}
-        assistantRail={<div>Assistant</div>}
-        canApproveCurrentPdf={false}
+        canApproveResume={false}
         canClearApproval={false}
         editorPanel={<div>Editor</div>}
         exportBlockedReason={null}
@@ -900,7 +1711,6 @@ describe("ResumeWorkspaceStudioShell focus ring contrast", () => {
         onClearApproval={vi.fn()}
         onContinueToShortlisted={vi.fn()}
         onExportPdf={vi.fn()}
-        onRegenerateDraft={vi.fn()}
         onReviewBlockingIssues={vi.fn()}
         onSaveDraft={vi.fn()}
         onSetMobileStudioTab={vi.fn()}
@@ -919,5 +1729,371 @@ describe("ResumeWorkspaceStudioShell focus ring contrast", () => {
         "focus-visible:ring-ring",
       );
     }
+  });
+});
+
+describe("ResumeWorkspaceStudioShell desktop grid is Assistant-independent", () => {
+  afterEach(() => {
+    cleanup();
+    Reflect.deleteProperty(window, "matchMedia");
+    vi.restoreAllMocks();
+  });
+
+  beforeEach(() => {
+    // The studio split view is the layout under test; pin the desktop
+    // media query instead of relying on the jsdom default.
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    });
+  });
+
+  function renderShell() {
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume={false}
+        canClearApproval={false}
+        editorPanel={<div>Editor</div>}
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        previewPane={<div>Preview</div>}
+        selectedTemplateApprovalEligible
+        studioStatusMessage="Ready."
+        templatePanel={<div>Templates</div>}
+      />,
+    );
+
+    return document.querySelector<HTMLElement>(
+      "[data-resume-studio-grid-columns]",
+    );
+  }
+
+  it("keeps preview and tools as the only two columns, with no Assistant dock", () => {
+    const grid = renderShell();
+
+    expect(grid?.getAttribute("data-resume-studio-grid-columns")).toBe(
+      "preview-tools",
+    );
+    expect(grid?.className).toContain(
+      "xl:grid-cols-[minmax(0,1.15fr)_minmax(26rem,0.85fr)]",
+    );
+    // The retired docked rail added a `min(24rem,30vw)` third track and
+    // squeezed both panes the moment the Assistant opened.
+    expect(grid?.className).not.toContain("min(24rem,30vw)");
+    expect(document.querySelector("[data-resume-assistant-dock]")).toBeNull();
+  });
+
+  it("cannot change the grid or the panes with the Assistant's open state", () => {
+    // The shell has no Assistant-open input at all any more, so the column
+    // template and both panes are structurally identical open, minimized and
+    // closed. This is the whole point of the floating panel.
+    const shellSource = ResumeWorkspaceStudioShell.toString();
+    expect(shellSource).not.toContain("isAssistantRailOpen");
+
+    const grid = renderShell();
+    const previewPane = grid?.querySelector<HTMLElement>(
+      "[data-resume-studio-preview-pane]",
+    );
+    const toolsPane = grid?.querySelector<HTMLElement>(
+      "[data-resume-studio-tools-pane]",
+    );
+
+    expect(previewPane?.className).toBe(
+      "h-full min-h-[18rem] min-w-0 overflow-hidden xl:min-h-0",
+    );
+    expect(toolsPane?.className).toBe(
+      "flex h-full min-h-[18rem] min-w-0 flex-col gap-2.5 overflow-y-auto overflow-x-hidden pr-1 xl:h-[calc(100%-3.5rem)] xl:min-h-0",
+    );
+    expect(toolsPane?.className).toContain("overflow-y-auto");
+  });
+
+  it("always ends the tools column above the floating launcher's band", () => {
+    // `pb-16` only cleared the pill at the *end* of the scroll: mid-scroll the
+    // template card and the amber fallback disclosure passed underneath it.
+    // The reservation is unconditional so opening the panel moves nothing.
+    const grid = renderShell();
+    const toolsPane = grid?.querySelector<HTMLElement>(
+      "[data-resume-studio-tools-pane]",
+    );
+
+    expect(toolsPane?.className).toContain("xl:h-[calc(100%-3.5rem)]");
+    expect(toolsPane?.className).not.toContain("pb-16");
+  });
+
+  it("never reserves empty padding beside the studio grid", () => {
+    renderShell();
+
+    const desktopGrid = document.querySelector<HTMLElement>(
+      "[data-resume-studio-desktop-grid]",
+    );
+
+    expect(desktopGrid?.className).not.toContain("xl:pr-[");
+    expect(desktopGrid?.className).toContain("p-2.5");
+  });
+});
+
+describe("ResumeWorkspaceStudioShell bounded compact tabs", () => {
+  afterEach(() => {
+    cleanup();
+    Reflect.deleteProperty(window, "matchMedia");
+  });
+
+  // These tabs only exist below the desktop split view, and the shell reads
+  // that breakpoint in JS so exactly one Assistant transcript is mounted.
+  function stubCompactViewport() {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        addEventListener: vi.fn(),
+        matches: false,
+        removeEventListener: vi.fn(),
+      })),
+    });
+  }
+
+  function renderCompactShell(
+    overrides?: Partial<{
+      canClearApproval: boolean;
+      exportBlockedReason: string | null;
+      mobileStudioTab: "preview" | "editor";
+      setAsideProposalNote: string;
+    }>,
+  ) {
+    stubCompactViewport();
+
+    return render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume={false}
+        canClearApproval={overrides?.canClearApproval ?? false}
+        editorPanel={<div>Editor</div>}
+        exportBlockedReason={overrides?.exportBlockedReason ?? null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab={overrides?.mobileStudioTab ?? "editor"}
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        previewPane={<div>Preview</div>}
+        selectedTemplateApprovalEligible
+        {...(overrides?.setAsideProposalNote
+          ? { setAsideProposalNote: overrides.setAsideProposalNote }
+          : {})}
+        studioStatusMessage="Ready."
+        templatePanel={<div>Templates</div>}
+      />,
+    );
+  }
+
+  it("bounds the studio and every tab so tab content cannot grow the route", () => {
+    const { container } = renderCompactShell();
+
+    // The studio fills the height its caller gives it at every width; before,
+    // `xl:h-full` left the compact tab surface free to grow with its content
+    // and one grounded proposal pushed the route past 38,000px.
+    const studio = container.firstElementChild as HTMLElement | null;
+    expect(studio?.className).toContain("h-full");
+    expect(studio?.className).toContain("min-h-0");
+    expect(studio?.className).toContain("overflow-hidden");
+    expect(studio?.className).not.toContain("xl:h-full");
+
+    const activeTab = container.querySelector<HTMLElement>(
+      '[data-slot="tabs-content"][data-state="active"]',
+    );
+    expect(activeTab?.className).toContain("h-full");
+    expect(activeTab?.className).toContain("min-h-0");
+
+    // Two tabs, not three: the Assistant is the floating panel here too, so
+    // there is no compact variant of it to grow the route.
+    const tabs = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-slot="tabs-trigger"]'),
+    ).map((tab) => tab.textContent);
+    expect(tabs).toEqual(["Preview", "Tools"]);
+  });
+
+  // At 1200x640 the approved studio rendered two contiguous rows totalling
+  // 116px: a 53px state row and a 63px band repeating the same fact and owning
+  // `Clear approval`. At 1440 it was correctly one row.
+  it("renders exactly one approval row at compact width after approval", () => {
+    renderCompactShell({ canClearApproval: true, mobileStudioTab: "preview" });
+
+    // The compact status band is gone. The only status row left belongs to the
+    // desktop tools column, which is not rendered at this width.
+    const statusRows = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-resume-studio-status]"),
+    );
+    expect(statusRows).toHaveLength(1);
+    expect(
+      statusRows[0]?.closest("[data-resume-studio-desktop-grid]"),
+    ).not.toBeNull();
+
+    const stickyRow = document.querySelector<HTMLElement>(
+      "[data-resume-studio-compact-header]",
+    );
+    expect(stickyRow).not.toBeNull();
+    expect(
+      document.querySelectorAll("[data-resume-studio-compact-header]").length,
+    ).toBe(1);
+
+    // `Clear approval` moved into that row rather than disappearing with the
+    // band, and it is still the secondary action beside the primary one.
+    const clearButtons = screen.getAllByRole("button", {
+      name: "Clear approval",
+    });
+    expect(clearButtons).toHaveLength(1);
+    expect(stickyRow?.contains(clearButtons[0]!)).toBe(true);
+    expect(clearButtons[0]?.getAttribute("data-variant")).toBe("ghost");
+
+    // The one thing the retired band said that the sticky row did not still
+    // reaches the reader.
+    const note = stickyRow?.querySelector(
+      "[data-resume-studio-compact-approval-note]",
+    );
+    expect(note?.textContent).toContain("Any new edit needs approval again.");
+  });
+
+  // A 1440 -> 1200 -> 1440 excursion used to swap the Assistant between a
+  // docked column and a CSS-hidden tab, which left two mounted copies of the
+  // same live region, composer and proposal controls. The studio no longer
+  // renders the Assistant at any width — the floating panel owns the single
+  // transcript — so no width can duplicate it.
+  it("mounts no Assistant surface of its own at any width", () => {
+    const props = {
+      approvalBlockedReason: null,
+      approvalStateLabel: null,
+      canApproveResume: false,
+      canClearApproval: false,
+      editorPanel: <div>Editor</div>,
+      exportBlockedReason: null,
+      hasUnsavedChanges: false,
+      historyPanel: <div>History</div>,
+      isWorkspacePending: false,
+      mobileStudioTab: "editor" as const,
+      onApproveCurrentPdf: vi.fn(),
+      onClearApproval: vi.fn(),
+      onContinueToShortlisted: vi.fn(),
+      onExportPdf: vi.fn(),
+      onReviewBlockingIssues: vi.fn(),
+      onSaveDraft: vi.fn(),
+      onSetMobileStudioTab: vi.fn(),
+      previewPane: <div>Preview</div>,
+      selectedTemplateApprovalEligible: true,
+      studioStatusMessage: "Ready.",
+      templatePanel: <div>Templates</div>,
+    };
+
+    const { rerender } = render(<ResumeWorkspaceStudioShell {...props} />);
+
+    const assistantSurfaceCount = () =>
+      document.querySelectorAll(
+        "[data-resume-assistant-panel], [data-resume-guided-edits-transcript]",
+      ).length;
+
+    // 1440.
+    expect(assistantSurfaceCount()).toBe(0);
+    expect(screen.queryByRole("tab", { name: "Assistant" })).toBeNull();
+
+    // 1200.
+    stubCompactViewport();
+    rerender(<ResumeWorkspaceStudioShell {...props} />);
+    expect(assistantSurfaceCount()).toBe(0);
+    expect(screen.queryByRole("tab", { name: "Assistant" })).toBeNull();
+  });
+
+  it("leaves exactly one always-visible studio row above the desktop panes", () => {
+    // G3: the stack above the content used to be 117px of shell + a ~90px
+    // workspace title row + this 53px state row. The title row now scrolls with
+    // the locked layout, so on desktop this is the only row between the shell
+    // and the panes.
+    const { container } = renderCompactShell();
+    const studio = container.firstElementChild as HTMLElement;
+    const rows = Array.from(studio.children) as HTMLElement[];
+
+    const stickyRow = studio.querySelector<HTMLElement>(
+      "[data-resume-studio-compact-header]",
+    );
+    const desktopGrid = studio.querySelector<HTMLElement>(
+      "[data-resume-studio-desktop-grid]",
+    );
+
+    expect(stickyRow?.parentElement).toBe(studio);
+    expect(desktopGrid?.parentElement).toBe(studio);
+    expect(stickyRow?.className).toContain("shrink-0");
+
+    // Everything between them belongs to the compact tab surface and is hidden
+    // from xl up, so the desktop stack is: sticky row, then panes.
+    const between = rows.slice(
+      rows.indexOf(stickyRow as HTMLElement) + 1,
+      rows.indexOf(desktopGrid as HTMLElement),
+    );
+    expect(between.length).toBeGreaterThan(0);
+    for (const row of between) {
+      expect(row.className).toContain("xl:hidden");
+    }
+  });
+
+  it("scrolls the Tools tab inside the studio instead of growing it", () => {
+    const { container } = renderCompactShell({ mobileStudioTab: "editor" });
+
+    const toolsTab = container.querySelector<HTMLElement>(
+      '[data-slot="tabs-content"][data-state="active"]',
+    );
+
+    expect(toolsTab?.className).toContain("h-full");
+    expect(toolsTab?.className).toContain("overflow-y-auto");
+    // Compact widths sit below the locked-pane breakpoint, so the tab must not
+    // claim wheel-chain ownership.
+    expect(toolsTab?.hasAttribute("data-locked-pane-scroll-region")).toBe(
+      false,
+    );
+  });
+
+  it("offers the attention chip for every notice the panel can show, and titles the panel truthfully", () => {
+    // The attention panel lives in the Tools tab at compact widths, so this
+    // reads the tab that owns it.
+    const quiet = renderCompactShell({ mobileStudioTab: "editor" });
+
+    expect(
+      quiet.container.querySelector("[data-resume-studio-attention-chip]"),
+    ).toBeNull();
+    // A panel called "Needs your attention" with nothing outstanding is a lie.
+    expect(quiet.container.textContent).toContain("Resume checks");
+    expect(quiet.container.textContent).not.toContain("Needs your attention");
+
+    cleanup();
+
+    const noisy = renderCompactShell({
+      exportBlockedReason: "Two claims are blocked.",
+      mobileStudioTab: "editor",
+      setAsideProposalNote: "A suggestion was set aside when you approved.",
+    });
+    const chip = noisy.container.querySelector<HTMLElement>(
+      "[data-resume-studio-attention-chip]",
+    );
+
+    expect(chip?.textContent).toContain("2 items need attention");
+    expect(noisy.container.textContent).toContain("Needs your attention");
   });
 });

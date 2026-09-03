@@ -8,18 +8,25 @@ export {
   normalizeCompositeTitle,
   normalizeTitleCompanyPair,
 } from "./deterministic/job-extraction";
-export {
-  deriveResumeCoveragePlan,
-} from "./deterministic/resume-coverage";
+export { deriveResumeCoveragePlan } from "./deterministic/resume-coverage";
 export type { ResumeCoverageDecision } from "@unemployed/contracts";
 export {
   composeDeterministicFullText,
   buildDeterministicResumeText,
   buildDeterministicStructuredResumeDraft,
   buildDeterministicTailoredResume,
+  VISIBLE_ADDITIONAL_SKILL_LIMIT,
+  VISIBLE_CORE_SKILL_LIMIT,
 } from "./deterministic/tailoring";
 export {
+  compactNarrativeToSentences,
+  orderSkillsByJobRelevance,
+  splitInlineBulletSummary,
+  stripLeadingBulletGlyphs,
+} from "./deterministic/resume-narrative-presentation";
+export {
   buildCandidateSkillBank,
+  filterCandidateFacingResumeKeywords,
   filterGroundedVisibleSkills,
 } from "./deterministic/resume-skill-grounding";
 export {

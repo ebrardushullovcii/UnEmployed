@@ -1,4 +1,7 @@
 import type {
+  ApplicationAuthorityEnvelope,
+  ApplicationAuthorityEnvelopeMutationResult,
+  ApplicationAuthorityReadiness,
   ApplicationCrmBulkStageMutationInput,
   ApplicationCrmExportInput,
   ApplicationCrmFileExportResult,
@@ -8,6 +11,8 @@ import type {
   ApplicationDocumentListResult,
   ApplicationDocumentRevision,
   AppearanceTheme,
+  ApproveCurrentApplicationAnswersInput,
+  ApproveCurrentApplicationAnswersResult,
   ApproveApplicationDocumentInput,
   ApplyGroupedManualAnswerInput,
   ApplyRunDetails,
@@ -20,6 +25,7 @@ import type {
   CandidateAssetRestoreInput,
   CandidateAssetRestoreResult,
   CampaignRuleFunnelProjection,
+  CreateApplicationAuthorityEnvelopeInput,
   JobFinderApplicationPacketExportResult,
   JobFinderDiagnosticExportResult,
   JobFinderApplyConsentActionInput,
@@ -41,9 +47,13 @@ import type {
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
   DiscoveryFeedbackReason,
+  GetApplicationAuthorityEnvelopeInput,
+  GetApplicationAuthorityReadinessInput,
   InterviewExportFormat,
   InterviewExportResult,
   JobFinderInterviewFollowUpInput,
+  ListApplicationAuthorityEnvelopesInput,
+  ListApplicationAuthorityEnvelopesResult,
   ListApplicationDocumentsInput,
   InterviewHotkeyAction,
   InterviewOverlayMoveInput,
@@ -77,6 +87,10 @@ import type {
   ResumeImportProgressEvent,
   ResumeImportRun,
   ResumeApplicationMode,
+  ResumePdfExportIntent,
+  RevokeApplicationAuthorityEnvelopeInput,
+  ResolveSubmissionOutcomeInput,
+  ResolveSubmissionOutcomeResult,
   RemoveEmployerExclusionInput,
   ResumeTimelineRepairAction,
   ResumeDocumentBundle,
@@ -116,6 +130,7 @@ import type {
   SetJobFinderActivityControlInput,
   SnoozeGroupedDecisionInput,
   UpdateApplicationDefaultsInput,
+  UpdateApplicationAuthorityEnvelopeInput,
   UpdateWorkspaceBehaviorInput,
   WorkspaceRevision,
   UserActionCommandInput,
@@ -205,6 +220,30 @@ declare global {
         ) => Promise<JobFinderWorkspaceSnapshot>;
       };
       jobFinder: {
+        getApplicationAuthorityReadiness: (
+          input?: GetApplicationAuthorityReadinessInput,
+        ) => Promise<ApplicationAuthorityReadiness>;
+        approveCurrentApplicationAnswers: (
+          input: ApproveCurrentApplicationAnswersInput,
+        ) => Promise<ApproveCurrentApplicationAnswersResult>;
+        listApplicationAuthorityEnvelopes: (
+          input?: ListApplicationAuthorityEnvelopesInput,
+        ) => Promise<ListApplicationAuthorityEnvelopesResult>;
+        getApplicationAuthorityEnvelope: (
+          input: GetApplicationAuthorityEnvelopeInput,
+        ) => Promise<ApplicationAuthorityEnvelope | null>;
+        createApplicationAuthorityEnvelope: (
+          input: CreateApplicationAuthorityEnvelopeInput,
+        ) => Promise<ApplicationAuthorityEnvelopeMutationResult>;
+        updateApplicationAuthorityEnvelope: (
+          input: UpdateApplicationAuthorityEnvelopeInput,
+        ) => Promise<ApplicationAuthorityEnvelopeMutationResult>;
+        revokeApplicationAuthorityEnvelope: (
+          input: RevokeApplicationAuthorityEnvelopeInput,
+        ) => Promise<ApplicationAuthorityEnvelopeMutationResult>;
+        resolveSubmissionOutcome: (
+          input: ResolveSubmissionOutcomeInput,
+        ) => Promise<ResolveSubmissionOutcomeResult>;
         listApplicationDocuments: (
           input: ListApplicationDocumentsInput,
         ) => Promise<ApplicationDocumentListResult>;
@@ -377,6 +416,7 @@ declare global {
         importResume: (
           onProgress?: (event: ResumeImportProgressEvent) => void,
         ) => Promise<JobFinderWorkspaceSnapshot>;
+        cancelImportResume: () => void;
         runDiscovery: () => Promise<JobFinderWorkspaceSnapshot>;
         runAgentDiscovery: (
           onActivity?: (event: DiscoveryActivityEvent) => void,
@@ -482,7 +522,10 @@ declare global {
           jobId: string,
           sectionId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
-        exportResumePdf: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+        exportResumePdf: (
+          jobId: string,
+          intent?: ResumePdfExportIntent,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         approveResume: (
           jobId: string,
           exportId: string,

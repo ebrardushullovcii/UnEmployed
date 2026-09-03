@@ -64,6 +64,37 @@ describe("resume generation grounding", () => {
     ).toBeNull();
   });
 
+  test("replaces a strict-prefix rewrite with the complete canonical bullet", () => {
+    const canonical =
+      "Recorded supply counts in a shared spreadsheet for weekly operations.";
+    const selection = selectResumeRewrite({
+      generated: {
+        text: "Recorded supply counts in a shared spreadsheet",
+        evidenceRefs: ["experience:role_1:achievement:0"],
+      },
+      canonicalCandidates: [canonical],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: canonical,
+          scope: "experience",
+          profileRecordId: "role_1",
+        },
+      ],
+      allowedScope: {
+        scope: "experience",
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: [],
+    });
+
+    expect(selection).toMatchObject({
+      text: canonical,
+      kind: "canonical",
+    });
+  });
+
   test("rejects a novel clause even when every preceding phrase is grounded", () => {
     const selection = selectResumeRewrite({
       generated: {
@@ -646,7 +677,8 @@ describe("resume generation grounding", () => {
       },
       {
         evidenceText: "Built temporal workflows for nightly reconciliation.",
-        generatedText: "Designed temporal workflows for nightly reconciliation.",
+        generatedText:
+          "Designed temporal workflows for nightly reconciliation.",
       },
     ];
 
@@ -788,7 +820,8 @@ describe("classifyResumeClaimGrounding", () => {
     });
 
   test("classifies verbatim evidence text as exact", () => {
-    const evidenceText = "Built reliable TypeScript workflow tools for operations teams.";
+    const evidenceText =
+      "Built reliable TypeScript workflow tools for operations teams.";
     const result = classify(evidenceText, [
       makeEvidence("experience:role_1:achievement:0", evidenceText),
     ]);
@@ -927,12 +960,15 @@ describe("classifyResumeClaimGrounding", () => {
   });
 
   test("reports hard gaps for unevidenced leadership and credential claims", () => {
-    const leadership = classify("Led a team of engineers on workflow tooling.", [
-      makeEvidence(
-        "experience:role_1:achievement:0",
-        "Built reliable TypeScript workflow tools for operations teams.",
-      ),
-    ]);
+    const leadership = classify(
+      "Led a team of engineers on workflow tooling.",
+      [
+        makeEvidence(
+          "experience:role_1:achievement:0",
+          "Built reliable TypeScript workflow tools for operations teams.",
+        ),
+      ],
+    );
     expect(leadership.verdict).toBe("unsupported");
     expect(leadership.gaps).toEqual([
       { type: "unevidenced_leadership_claim", values: [] },

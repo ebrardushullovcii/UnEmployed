@@ -85,13 +85,15 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
         "surface-card grid gap-2.5 rounded-(--radius-field) border border-(--surface-panel-border) p-2.5 transition-colors",
         isSelected && "border-primary/35 bg-primary/5",
       )}
+      data-resume-editor-entry={entry.id}
       onFocusCapture={handleEntryFocusCapture}
       onMouseDownCapture={() => onSelectEntry(section.id, entry.id)}
       ref={(node) => {
         registerEntryRef(entry.id, node);
       }}
+      tabIndex={-1}
     >
-      <div className="grid min-w-0 gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+      <div className="grid min-w-0 gap-2">
         <Field className="min-w-0">
           <FieldLabel htmlFor={`${controlIdPrefix}_entry_title_${entry.id}`}>
             Title
@@ -229,7 +231,7 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
           className="grid gap-1 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-5 text-(--warning-text)"
           role="region"
         >
-          <h3 className="font-medium text-foreground" id={workHistoryHeadingId}>
+          <h3 className="text-foreground" id={workHistoryHeadingId}>
             {reviewHeading}
           </h3>
           {workHistoryReviewSuggestions.map((suggestion) => (
@@ -294,7 +296,7 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
         </Field>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+      <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
         <Field className="min-w-0">
           <FieldLabel
             htmlFor={`${controlIdPrefix}_entry_start_date_${entry.id}`}
@@ -348,7 +350,7 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
             }}
           />
         </Field>
-        <label className="flex min-h-10 items-center gap-2 whitespace-nowrap text-(length:--text-small) font-semibold uppercase tracking-(--tracking-caps) text-foreground-soft">
+        <label className="flex min-h-10 min-w-0 items-center gap-2 whitespace-nowrap text-(length:--text-small) font-semibold uppercase tracking-(--tracking-caps) text-foreground-soft sm:col-span-2">
           <Checkbox
             checked={entry.isCurrent}
             data-resume-editor-target={getResumeEntryFieldTargetId(
@@ -419,6 +421,17 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
         <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
           Entry bullets
         </p>
+        {/* The per-row controls stay icons so a long entry does not become a
+            wall of repeated words; naming them once here means the row is
+            readable without hovering each glyph. */}
+        {entry.bullets.length > 0 ? (
+          <p
+            className="text-(length:--text-tiny) leading-4 text-foreground-soft"
+            data-resume-entry-bullet-actions-legend
+          >
+            Each row: show or hide, lock, move up, move down.
+          </p>
+        ) : null}
         <ResumeBulletListEditor
           bulletRows={entry.bullets}
           controlIdPrefix={controlIdPrefix}

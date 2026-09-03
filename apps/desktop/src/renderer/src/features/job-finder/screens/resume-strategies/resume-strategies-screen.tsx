@@ -135,13 +135,13 @@ function StrategyForm(props: {
         <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
           Resume approach
         </p>
-        <h2 className="mt-1 text-xl font-semibold text-(--text-headline)">
+        <h2 className="mt-1 font-semibold text-(--text-headline)">
           {isEdit ? "Edit resume approach" : "Create resume approach"}
         </h2>
         <p className="mt-1 text-(length:--text-small) leading-6 text-foreground-soft">
-          An approach saves your targeting preferences for a role family.
-          Saving or reusing one never approves a resume — you review and
-          approve each resume before it is applied.
+          An approach saves your targeting preferences for a role family. Saving
+          or reusing one never approves a resume — you review and approve each
+          resume before it is applied.
         </p>
       </div>
 
@@ -367,7 +367,7 @@ function StrategyCard(props: {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold text-(--text-headline)">
+            <h2 className="font-semibold text-(--text-headline)">
               {strategy.name}
             </h2>
             <StatusBadge tone={strategy.enabled ? "active" : "muted"}>

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Link } from "react-router-dom";
 import type {
   BrowserSessionState,
@@ -12,22 +19,35 @@ import type {
   SourceAccessPrompt,
   SavedJob,
 } from "@unemployed/contracts";
+import { isListableCompanyName } from "@unemployed/contracts";
 import { PauseCircle, Play } from "lucide-react";
 import { Button } from "@renderer/components/ui/button";
 import {
   DISCOVERY_PAUSED_SEARCH_REASON,
+  getDiscoveryRuntimeProjection,
 } from "./discovery-search-readiness";
 import { LockedScreenLayout } from "@renderer/features/job-finder/components/locked-screen-layout";
-import {
-  PageHeaderStack,
-  PageSubnav,
-} from "@renderer/features/job-finder/components/page-header";
+import { PageHeaderStack } from "@renderer/features/job-finder/components/page-header";
 import { JOB_FINDER_ROUTE_PATHS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
 import { formatCountLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
+import {
+  formatDiscoveryRunCountLabel,
+  getDiscoveryRunCountEvidence,
+} from "@renderer/features/job-finder/lib/discovery-run-count-label";
+import { settleJobFinderRouteHeaderScroll } from "@renderer/features/job-finder/lib/job-finder-scroll-reveal";
 import { DiscoveryHistoryModal } from "./discovery-activity-panel";
+import { isDiscoveryAlsoFoundResult } from "./discovery-result-groups";
+import {
+  DISCOVERY_SEARCH_SETUP_PANEL_ID,
+  DiscoverySearchBar,
+} from "./discovery-search-bar";
 import { DiscoveryDetailPanel } from "./discovery-detail-panel";
 import { DiscoveryFiltersPanel } from "./discovery-filters-panel";
-import { DiscoveryResultsPanel } from "./discovery-results-panel";
+import {
+  DISCOVERY_OFFLINE_CATALOG_NOTICE_ID,
+  DISCOVERY_SEARCH_SETUP_BLOCKER_ID,
+  DiscoveryResultsPanel,
+} from "./discovery-results-panel";
 import { DiscoveryRunFeedbackCallout } from "./discovery-run-feedback-callout";
 import {
   getDiscoveryLatestRunVerdict,
@@ -36,6 +56,7 @@ import {
 import { compareDiscoveryFitOrder } from "./discovery-results-sort";
 import { getDiscoverySearchReadiness } from "./discovery-search-readiness";
 import type { JobFinderQueuedJobOutcome } from "@renderer/features/job-finder/lib/job-finder-types";
+import { cn } from "@renderer/lib/cn";
 
 export function getDiscoveryConfiguredFilters(
   searchPreferences: JobSearchPreferences,
@@ -45,37 +66,55 @@ export function getDiscoveryConfiguredFilters(
   const searchTargetCount =
     searchPreferences.targetRoles.length + searchPreferences.jobFamilies.length;
 
+  // A remote-only search has no locations by design; reporting "0 locations"
+  // beside "1 work mode" reads as a setup error instead of the intended
+  // configuration.
+  const isRemoteOnlySearch =
+    searchPreferences.locations.length === 0 &&
+    searchPreferences.workModes.length > 0 &&
+    searchPreferences.workModes.every((workMode) => workMode === "remote");
+
   return [
     searchTargetCount > 0
       ? formatCountLabel(searchTargetCount, "search target")
-      : "Profile-inferred search",
-    formatCountLabel(searchPreferences.locations.length, "location"),
-    formatCountLabel(searchPreferences.workModes.length, "work mode"),
+      : "No search targets",
+    ...(isRemoteOnlySearch
+      ? ["remote only"]
+      : [
+          formatCountLabel(searchPreferences.locations.length, "location"),
+          formatCountLabel(searchPreferences.workModes.length, "work mode"),
+        ]),
     formatCountLabel(enabledSourceCount, "enabled source"),
   ];
 }
+export {
+  DISCOVERY_CLEAR_MISMATCH_SCORE_FLOOR,
+  isDiscoveryClearMismatch,
+} from "./discovery-result-groups";
+
 export function getDiscoveryResultVisibility(
   jobs: readonly SavedJob[],
   selectedJob: SavedJob | null,
-  showClearMismatches: boolean,
+  showAlsoFound: boolean,
   preserveSelectedJob = false,
 ): {
-  hiddenMismatchCount: number;
+  alsoFoundCount: number;
+  hiddenAlsoFoundCount: number;
   jobs: readonly SavedJob[];
-  mismatchCount: number;
   selectedJob: SavedJob | null;
 } {
-  const clearMismatches = jobs.filter(
-    (job) => job.matchAssessment.recommendation === "skip",
-  );
-  // A deep-linked selection keeps only that job visible even when it is a
-  // clear mismatch; other mismatches stay hidden so the preserve path never
-  // silently reveals the whole mismatch set.
-  const displayCandidates = showClearMismatches
+  // Weaker matches and clear mismatches are one "also found" pool. Presenting
+  // them beside the leading band made the headline count describe jobs the
+  // app itself had already scored well below the saved targets.
+  const alsoFound = jobs.filter(isDiscoveryAlsoFoundResult);
+  // A deep-linked selection keeps only that job visible even when it is in the
+  // also-found pool; the rest stay hidden so the preserve path never silently
+  // reveals the whole pool.
+  const displayCandidates = showAlsoFound
     ? jobs
     : jobs.filter(
         (job) =>
-          job.matchAssessment.recommendation !== "skip" ||
+          !isDiscoveryAlsoFoundResult(job) ||
           (preserveSelectedJob && job.id === selectedJob?.id),
       );
   // Ordering is the canonical Best-match chain (see compareDiscoveryFitOrder),
@@ -89,13 +128,12 @@ export function getDiscoveryResultVisibility(
   const visibleJobIds = new Set(visibleJobs.map((job) => job.id));
 
   return {
-    // Truthful hidden count: mismatches actually absent from the displayed
-    // list, so a deep-linked mismatch held visible counts as shown.
-    hiddenMismatchCount: clearMismatches.filter(
-      (job) => !visibleJobIds.has(job.id),
-    ).length,
+    alsoFoundCount: alsoFound.length,
+    // Truthful hidden count: also-found rows actually absent from the
+    // displayed list, so a deep-linked row held visible counts as shown.
+    hiddenAlsoFoundCount: alsoFound.filter((job) => !visibleJobIds.has(job.id))
+      .length,
     jobs: visibleJobs,
-    mismatchCount: clearMismatches.length,
     selectedJob: visibleSelectedJob,
   };
 }
@@ -200,9 +238,7 @@ export function DiscoveryScreen(props: {
   onOpenBrowserSession: () => void;
   onOpenBrowserSessionForTarget: (targetId: string) => void;
   onOpenCompany?: (companyId: string) => void;
-  onQueueJob: (
-    jobId: string,
-  ) => void | Promise<JobFinderQueuedJobOutcome>;
+  onQueueJob: (jobId: string) => void | Promise<JobFinderQueuedJobOutcome>;
   onRunAgentDiscovery: (() => void) | undefined;
   onRunDiscoveryForTarget?: (targetId: string) => void;
   onSelectJob: (jobId: string) => void;
@@ -251,7 +287,7 @@ export function DiscoveryScreen(props: {
     sourceAccessPrompts,
   } = props;
   const [showHistory, setShowHistory] = useState(false);
-  const [showClearMismatches, setShowClearMismatches] = useState(false);
+  const [showAlsoFound, setShowAlsoFound] = useState(false);
   // What the results panel actually displays on its current filtered and
   // paginated page. Null state means "not reported yet"; an explicit null
   // jobId means the panel is showing no results at all.
@@ -298,31 +334,95 @@ export function DiscoveryScreen(props: {
     },
     [onQueueJob],
   );
-  const [workspaceMode, setWorkspaceMode] = useState<"results" | "setup">(() =>
-    jobs.length === 0 ? "setup" : "results",
+  // Results own the page. Search setup is a disclosure opened from the search
+  // bar's chips, so editing what the search looks for never costs a
+  // navigation act and never hides a finished search behind a tab.
+  const [openSetupChipId, setOpenSetupChipId] = useState<string | null>(() =>
+    jobs.length === 0 ? "roles" : null,
   );
+  const isSetupOpen = openSetupChipId !== null;
+  // The wait belongs beside the control that started it, in the same
+  // vocabulary Home and Search history use for the finished run.
+  const liveSearchProgressLabel = useMemo(() => {
+    if (activeRun?.state !== "running") {
+      return null;
+    }
+
+    const evidence = getDiscoveryRunCountEvidence(
+      activeRun,
+      liveEvents.at(-1) ?? null,
+    );
+    return evidence.distinctJobsRetained > 0 || evidence.duplicatesMerged > 0
+      ? formatDiscoveryRunCountLabel(evidence)
+      : null;
+  }, [activeRun, liveEvents]);
+  const workspaceMode: "results" | "setup" = isSetupOpen ? "setup" : "results";
+  const setWorkspaceMode = useCallback((mode: "results" | "setup") => {
+    setOpenSetupChipId(mode === "setup" ? "roles" : null);
+  }, []);
   // One-shot reveal: a workspace that opens empty lands on Search setup, and
   // the first arrival of saved results switches to Results exactly once so a
   // first successful search is never hidden behind the setup tab. The flag is
   // latched, so later empty→nonempty transitions stay wherever the user
   // navigated instead of yanking them back.
   const hasRevealedFirstResultsRef = useRef(jobs.length > 0);
-  useEffect(() => {
-    if (hasRevealedFirstResultsRef.current || jobs.length === 0) {
-      return;
+  const firstResultRevealPendingRef = useRef(false);
+  useLayoutEffect(() => {
+    // Detect the first arrival in the same layout phase as settlement. A
+    // passive effect can otherwise set the pending ref after this effect has
+    // already run; when the user is already on Results, its no-op state update
+    // would not produce another commit to settle the route header.
+    if (!hasRevealedFirstResultsRef.current && jobs.length > 0) {
+      hasRevealedFirstResultsRef.current = true;
+      firstResultRevealPendingRef.current = true;
+
+      if (workspaceMode === "setup") {
+        setWorkspaceMode("results");
+        return undefined;
+      }
     }
-    hasRevealedFirstResultsRef.current = true;
-    setWorkspaceMode((mode) => (mode === "setup" ? "results" : mode));
-  }, [jobs.length]);
+
+    if (!firstResultRevealPendingRef.current || workspaceMode !== "results") {
+      return undefined;
+    }
+
+    firstResultRevealPendingRef.current = false;
+    const settleRouteHeader = () => {
+      const headerStack = document.querySelector<HTMLElement>(
+        "[data-page-header-stack]",
+      );
+      const scrollArea = headerStack?.closest<HTMLElement>(
+        "[data-locked-screen-scroll-area]",
+      );
+      const topContent = headerStack?.parentElement;
+      const topContentHeight = topContent?.getBoundingClientRect().height ?? 0;
+      const headerHeight =
+        topContentHeight || headerStack?.getBoundingClientRect().height || 0;
+
+      if (scrollArea && headerHeight > 0) {
+        settleJobFinderRouteHeaderScroll(scrollArea, headerHeight);
+      }
+    };
+
+    // The first-results render changes the locked layout's top height. Run
+    // once after commit and once after that geometry settles so a browser
+    // reveal can never leave the route title half under the fixed shell.
+    settleRouteHeader();
+    if (typeof window.requestAnimationFrame !== "function") {
+      return undefined;
+    }
+    const frame = window.requestAnimationFrame(settleRouteHeader);
+    return () => window.cancelAnimationFrame(frame);
+  }, [jobs.length, setWorkspaceMode, workspaceMode]);
   const resultVisibility = useMemo(
     () =>
       getDiscoveryResultVisibility(
         jobs,
         selectedJob,
-        showClearMismatches,
+        showAlsoFound,
         preserveSelectedJob,
       ),
-    [jobs, selectedJob, showClearMismatches, preserveSelectedJob],
+    [jobs, selectedJob, showAlsoFound, preserveSelectedJob],
   );
   const inspectedJob = getDiscoveryInspectedJob(
     resultVisibility.jobs,
@@ -349,13 +449,16 @@ export function DiscoveryScreen(props: {
   const inspectedJobQueueFeedback = inspectedJob
     ? (queueOutcomesByJobId.get(inspectedJob.id) ?? null)
     : null;
+  const hasInspectableJob = inspectedJob !== null;
   const selectedJobCompanyId =
     inspectedJob && (companies ?? []).length > 0
-      ? ((companies ?? []).find((company) =>
-          company.jobIds.includes(inspectedJob.id),
+      ? ((companies ?? []).find(
+          (company) =>
+            isListableCompanyName(company.canonicalName) &&
+            company.jobIds.includes(inspectedJob.id),
         )?.id ?? null)
       : null;
-  const hiddenJobCount = resultVisibility.hiddenMismatchCount;
+  const hiddenJobCount = resultVisibility.hiddenAlsoFoundCount;
 
   const showEmptyDiscoveryState = jobs.length === 0;
   // Newest-run truth for the results panel's empty states, so a failed or
@@ -383,13 +486,31 @@ export function DiscoveryScreen(props: {
     ) ??
     enabledSourceAccessPrompts[0] ??
     null;
+  const runtimeProjection = getDiscoveryRuntimeProjection(browserSession);
+  // A run that is active now, or whose newest attempt completed, proves the
+  // browser runtime works; a stale blocked snapshot must not gate the next
+  // search or contradict the results on screen.
+  const trustRecentRun =
+    activeRun?.state === "running" ||
+    isDiscoveryAllPending ||
+    latestRunVerdict.kind === "completed";
+  const searchReadiness = getDiscoverySearchReadiness(
+    searchPreferences,
+    browserSession,
+    { trustRecentRun },
+  );
+  const hasOfflineCatalogRows =
+    runtimeProjection.isOffline && resultVisibility.jobs.length > 0;
   let primaryRecoveryAction: {
     label: string;
     pending: boolean;
     nextStep: string;
     onAction: () => void;
   } | null = null;
-  if (primarySourceAccessPrompt?.state === "prompt_login_required") {
+  if (
+    !runtimeProjection.isOffline &&
+    primarySourceAccessPrompt?.state === "prompt_login_required"
+  ) {
     if (browserSession.status === "ready" && props.onRunDiscoveryForTarget) {
       primaryRecoveryAction = {
         label: `I'm signed in — retry ${primarySourceAccessPrompt.targetLabel}`,
@@ -411,7 +532,13 @@ export function DiscoveryScreen(props: {
           onOpenBrowserSessionForTarget(primarySourceAccessPrompt.targetId),
       };
     }
-  } else if (browserSession.status !== "ready") {
+  } else if (
+    !runtimeProjection.isOffline &&
+    (browserSession.status === "blocked" ||
+      browserSession.status === "login_required")
+  ) {
+    // A browser that is merely not open never needs recovery: the search
+    // opens it. Only a blocked or sign-in-pending session earns a handoff.
     primaryRecoveryAction = primarySourceAccessPrompt
       ? {
           label: primarySourceAccessPrompt.actionLabel,
@@ -434,8 +561,6 @@ export function DiscoveryScreen(props: {
           onAction: onOpenBrowserSession,
         };
   }
-  const configuredFilters = getDiscoveryConfiguredFilters(searchPreferences);
-  const searchReadiness = getDiscoverySearchReadiness(searchPreferences);
   const hasEnabledSources = searchReadiness.enabledSourceCount > 0;
   const hasLocations = searchPreferences.locations.length > 0;
   // A single-source run also occupies the shared discovery pipeline; every
@@ -459,21 +584,89 @@ export function DiscoveryScreen(props: {
   }, [isActiveRunRunning, isStopSearchRequested, onCancelDiscovery]);
   const isAnyDiscoveryRunActive =
     activeRun?.state === "running" || isDiscoveryAllPending;
-  const isSearchUnavailable =
-    activityPaused || isAnyDiscoveryRunActive;
+  const isSearchUnavailable = activityPaused || isAnyDiscoveryRunActive;
+  const savedSourceCount = searchPreferences.discovery.targets.length;
   const searchSetupBlocker =
     showEmptyDiscoveryState && !hasEnabledSources
       ? {
-          title: "Choose at least one source before searching",
+          title:
+            savedSourceCount > 0
+              ? "Enable a source before searching"
+              : "Choose at least one source before searching",
           description:
-            "Enable at least one source in Profile so Find jobs has somewhere to search. Your profile will guide the search even when you leave target roles blank.",
-          actionLabel: "Add a job source",
+            savedSourceCount > 0
+              ? "Sources are saved but none are turned on, so Search stays disabled. Enable a saved source in Profile, then search."
+              : "Enable at least one source in Profile so Find jobs has somewhere to search. Your profile will guide the search even when you leave target roles blank.",
+          actionLabel:
+            savedSourceCount > 0 ? "Enable sources" : "Add a job source",
           actionHref: JOB_FINDER_ROUTE_PATHS.profileSources,
           nextStep: hasLocations
             ? "Then search again."
             : "Then add locations if you want tighter matches and search again.",
         }
       : null;
+
+  // Keep the readiness explanation out of the title/action grid. It is a
+  // route-level status row, so the title keeps its full width while the
+  // Search now button remains aligned with the configured search summary.
+  const discoveryHeaderStatus =
+    workspaceMode !== "results" ? null : activityPaused ? (
+      <span
+        className="block w-full min-w-0 text-(length:--text-description) leading-5 text-(--warning-text)"
+        id="discovery-header-search-paused-reason"
+        role="status"
+      >
+        {DISCOVERY_PAUSED_SEARCH_REASON}
+      </span>
+    ) : searchReadiness.ready ||
+      searchSetupBlocker ||
+      hasOfflineCatalogRows ? null : (
+      <span
+        className="flex w-full min-w-0 flex-wrap items-center gap-2 text-(length:--text-description) leading-5 text-(--warning-text)"
+        id="discovery-header-search-disabled-reason"
+        role="status"
+      >
+        <span className="min-w-0 flex-1 break-words">
+          {searchReadiness.reason}
+        </span>
+        {/* The action is derived from the exact blocker so a browser problem
+            never reads as "Enable sources" while a source is already on. */}
+        {searchReadiness.blocker === "browser_blocked" ? (
+          <Button
+            className="h-8 shrink-0 whitespace-nowrap px-3 text-xs normal-case tracking-normal"
+            onClick={onOpenBrowserSession}
+            pending={isBrowserSessionPending}
+            size="sm"
+            type="button"
+            variant="primary"
+          >
+            Open browser
+          </Button>
+        ) : searchReadiness.blocker === "no_search_roles" ? (
+          <Button
+            asChild
+            className="h-8 shrink-0 whitespace-nowrap px-3 text-xs normal-case tracking-normal"
+            size="sm"
+            variant="primary"
+          >
+            <Link to={JOB_FINDER_ROUTE_PATHS.profileTargetRoles}>
+              Add target roles
+            </Link>
+          </Button>
+        ) : searchReadiness.blocker === "no_enabled_sources" ? (
+          <Button
+            asChild
+            className="h-8 shrink-0 whitespace-nowrap px-3 text-xs normal-case tracking-normal"
+            size="sm"
+            variant="primary"
+          >
+            <Link to={JOB_FINDER_ROUTE_PATHS.profileSources}>
+              {savedSourceCount > 0 ? "Enable sources" : "Add sources"}
+            </Link>
+          </Button>
+        ) : null}
+      </span>
+    );
 
   const filtersPanel = (
     <DiscoveryFiltersPanel
@@ -488,13 +681,16 @@ export function DiscoveryScreen(props: {
       isTargetPending={isTargetPending}
       onOpenBrowserSession={onOpenBrowserSession}
       onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
-      onRunAgentDiscovery={onRunAgentDiscovery}
+      // The search bar above owns the single Search command, so the setup
+      // panel keeps only its own secondary browser and history actions.
+      onRunAgentDiscovery={undefined}
       {...(props.onRunDiscoveryForTarget
         ? { onRunDiscoveryForTarget: props.onRunDiscoveryForTarget }
         : {})}
       onViewProgress={() => setShowHistory(true)}
       searchPreferences={searchPreferences}
       sourceAccessPrompts={sourceAccessPrompts}
+      trustRecentRun={trustRecentRun}
     />
   );
 
@@ -509,7 +705,12 @@ export function DiscoveryScreen(props: {
 
   const resultsWorkspace = (
     <div
-      className="grid min-h-0 min-w-0 grid-cols-1 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(30rem,1.35fr)_minmax(25rem,0.9fr)] xl:overflow-hidden"
+      className={cn(
+        "grid min-h-0 min-w-0 grid-cols-1 items-stretch gap-4 xl:h-full xl:min-h-0 xl:overflow-hidden",
+        hasInspectableJob
+          ? "xl:grid-cols-[minmax(30rem,1.35fr)_minmax(25rem,0.9fr)]"
+          : "xl:grid-cols-1",
+      )}
       id="discovery-workspace-content"
     >
       <div
@@ -578,7 +779,8 @@ export function DiscoveryScreen(props: {
           </details>
         ) : null}
         <DiscoveryResultsPanel
-          areHiddenJobsShown={showClearMismatches}
+          alsoFoundCount={resultVisibility.alsoFoundCount}
+          areAlsoFoundShown={showAlsoFound}
           browserSession={browserSession}
           discoveryTargets={searchPreferences.discovery.targets}
           emptyClassName="min-h-80"
@@ -592,38 +794,37 @@ export function DiscoveryScreen(props: {
             (run) => run.state === "completed",
           )}
           isSearchInProgress={activeRun?.state === "running"}
-          hiddenJobCount={hiddenJobCount}
+          hiddenAlsoFoundCount={hiddenJobCount}
           jobs={resultVisibility.jobs}
           latestRunVerdict={latestRunVerdict}
-          mismatchJobCount={resultVisibility.mismatchCount}
           onDisplayedSelectedJobIdChange={(jobId) =>
             setDisplayedSelection({ jobId })
           }
-          onShowHiddenJobs={() => setShowClearMismatches(true)}
-          onToggleHiddenJobs={() =>
-            setShowClearMismatches((current) => !current)
-          }
+          onShowAlsoFound={() => setShowAlsoFound(true)}
+          onToggleAlsoFound={() => setShowAlsoFound((current) => !current)}
           onSelectJob={onSelectJob}
           searchSetupBlocker={searchSetupBlocker}
           selectedJob={resultVisibility.selectedJob}
           {...recoveryActionProps}
         />
       </div>
-      <div className="min-h-0 min-w-0">
-        <DiscoveryDetailPanel
-          discoveryTargets={searchPreferences.discovery.targets}
-          isJobPending={isJobPending}
-          onDismissJob={onDismissJob}
-          {...(onPreviewEmployerExclusion
-            ? { onPreviewEmployerExclusion }
-            : {})}
-          {...(onOpenCompany ? { onOpenCompany } : {})}
-          onQueueJob={handleQueueJob}
-          queueFeedback={inspectedJobQueueFeedback}
-          selectedJob={inspectedJob}
-          selectedJobCompanyId={selectedJobCompanyId}
-        />
-      </div>
+      {hasInspectableJob ? (
+        <div className="min-h-0 min-w-0">
+          <DiscoveryDetailPanel
+            discoveryTargets={searchPreferences.discovery.targets}
+            isJobPending={isJobPending}
+            onDismissJob={onDismissJob}
+            {...(onPreviewEmployerExclusion
+              ? { onPreviewEmployerExclusion }
+              : {})}
+            {...(onOpenCompany ? { onOpenCompany } : {})}
+            onQueueJob={handleQueueJob}
+            queueFeedback={inspectedJobQueueFeedback}
+            selectedJob={inspectedJob}
+            selectedJobCompanyId={selectedJobCompanyId}
+          />
+        </div>
+      ) : null}
     </div>
   );
 
@@ -631,121 +832,62 @@ export function DiscoveryScreen(props: {
     <>
       <LockedScreenLayout
         contentClassName="xl:overflow-hidden"
+        lockContentHeight
         topContent={
           <>
             <PageHeaderStack
               actions={
-                <>
-                  {onBackToRapidReview ? (
-                    <Button
-                      onClick={onBackToRapidReview}
-                      size="sm"
-                      type="button"
-                      variant="ghost"
-                    >
-                      Back to rapid review
-                    </Button>
-                  ) : null}
-                  <span className="min-w-0 truncate text-(length:--text-small) text-foreground-muted">
-                    {configuredFilters.join(" · ")}
-                  </span>
-                  {/* One primary search command per mode: Results keeps the
-                      route-level header action; Search setup demotes to the
-                      panel's own primary so two primaries never compete. */}
-                  {workspaceMode === "results" ? (
-                    <>
-                      <Button
-                        aria-describedby={
-                          activityPaused
-                            ? "discovery-header-search-paused-reason"
-                            : searchReadiness.ready
-                              ? undefined
-                              : "discovery-header-search-disabled-reason"
-                        }
-                        disabled={
-                          !searchReadiness.ready ||
-                          isSearchUnavailable
-                        }
-                        onClick={onRunAgentDiscovery}
-                        pending={isDiscoveryAllPending}
-                        size="sm"
-                        type="button"
-                        variant="primary"
-                      >
-                        {activeRun?.state === "running"
-                          ? "Searching"
-                          : "Search now"}
-                      </Button>
-                      {/* Same-channel stop: a running run exposes the Task
-                          Center cancellation beside the truthful disabled
-                          Searching status. The shared pending convention
-                          keeps focus stable and swallows repeat activation;
-                          committed jobs always stay kept. */}
-                      {onCancelDiscovery && isActiveRunRunning ? (
-                        <Button
-                          data-testid="discovery-header-stop-search"
-                          onClick={handleStopSearch}
-                          pending={isStopSearchRequested}
-                          size="sm"
-                          type="button"
-                          variant="outline"
-                        >
-                          Stop search
-                        </Button>
-                      ) : null}
-                      {/* Sighted users need the disabled reason too, not
-                          only assistive tech. Paused activity outranks the
-                          readiness reason because it changes the fix (resume
-                          activity), and it must never be masked by an
-                          unrelated failure message. */}
-                      {activityPaused ? (
-                        <span
-                          className="order-first w-full text-(length:--text-description) leading-5 text-(--warning-text)"
-                          id="discovery-header-search-paused-reason"
-                          role="status"
-                        >
-                          {DISCOVERY_PAUSED_SEARCH_REASON}
-                        </span>
-                      ) : searchReadiness.ready ||
-                        searchSetupBlocker ? null : (
-                        <span
-                          className="order-first w-full text-(length:--text-description) leading-5 text-(--warning-text)"
-                          id="discovery-header-search-disabled-reason"
-                          role="status"
-                        >
-                          {searchReadiness.reason}{" "}
-                          <Link
-                            className="font-medium underline underline-offset-4"
-                            to={JOB_FINDER_ROUTE_PATHS.profileSources}
-                          >
-                            Review job sources
-                          </Link>
-                        </span>
-                      )}
-                    </>
-                  ) : null}
-                </>
+                onBackToRapidReview ? (
+                  <Button
+                    onClick={onBackToRapidReview}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    Back to rapid review
+                  </Button>
+                ) : null
               }
               description="Search your sources and review the strongest matches."
+              layout="stacked-until-xl"
+              status={discoveryHeaderStatus}
               subnav={
-                <PageSubnav
-                  aria-label="Find jobs workspace"
-                  className="w-fit shrink-0 gap-1 rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel) p-0.5"
-                  role="group"
-                >
-                  {(["results", "setup"] as const).map((mode) => (
-                    <button
-                      aria-controls="discovery-workspace-content"
-                      aria-pressed={workspaceMode === mode}
-                      className={`min-h-8 rounded-(--radius-small) px-3 text-sm transition-colors ${workspaceMode === mode ? "bg-accent font-semibold text-accent-foreground" : "font-medium text-foreground-muted hover:text-foreground"}`}
-                      key={mode}
-                      onClick={() => setWorkspaceMode(mode)}
-                      type="button"
-                    >
-                      {mode === "results" ? "Results" : "Search setup"}
-                    </button>
-                  ))}
-                </PageSubnav>
+                // The search settings used to be a peer tab whose whole content
+                // was four read-only summary rows. They are now an interactive
+                // bar: each chip opens the same editor in place, and the one
+                // search command lives at its right end.
+                <DiscoverySearchBar
+                  browserSession={browserSession}
+                  isBrowserSessionPending={isBrowserSessionPending}
+                  isSearchDisabled={
+                    !searchReadiness.ready ||
+                    isSearchUnavailable ||
+                    !onRunAgentDiscovery
+                  }
+                  isSearchPending={isDiscoveryAllPending}
+                  isSearchRunning={isActiveRunRunning}
+                  isSetupOpen={isSetupOpen}
+                  openSetupChipId={openSetupChipId}
+                  isStopPending={isStopSearchRequested}
+                  onOpenBrowserSession={onOpenBrowserSession}
+                  onRunAgentDiscovery={onRunAgentDiscovery}
+                  onToggleSetup={setOpenSetupChipId}
+                  searchActionDescribedBy={
+                    activityPaused
+                      ? "discovery-header-search-paused-reason"
+                      : hasOfflineCatalogRows
+                        ? DISCOVERY_OFFLINE_CATALOG_NOTICE_ID
+                        : searchReadiness.ready || !searchSetupBlocker
+                          ? undefined
+                          : DISCOVERY_SEARCH_SETUP_BLOCKER_ID
+                  }
+                  searchPreferences={searchPreferences}
+                  searchProgressLabel={liveSearchProgressLabel}
+                  searchStartedAt={activeRun?.startedAt ?? null}
+                  {...(onCancelDiscovery
+                    ? { onStopSearch: handleStopSearch }
+                    : {})}
+                />
               }
               title="Find jobs"
             />
@@ -755,11 +897,17 @@ export function DiscoveryScreen(props: {
                 {...(onResumeActivity ? { onResolve: onResumeActivity } : {})}
               />
             ) : null}
-            {discoveryRunFeedback ? (
+            {/* A results banner belongs where the results are. While the
+                search-setup editor is open there are no results on screen, so
+                only feedback that still needs the user — a failure, a
+                cancellation, a run in flight — stays visible. */}
+            {discoveryRunFeedback &&
+            (!isSetupOpen || discoveryRunFeedback.status !== "succeeded") ? (
               <DiscoveryRunFeedbackCallout
                 feedback={discoveryRunFeedback}
                 isRecoveryPending={isBrowserSessionPending}
                 onOpenBrowserSession={onOpenBrowserSession}
+                suppressBrowserRecovery={runtimeProjection.isOffline}
               />
             ) : null}
             {/* One route-owned action surface shared by Results and Search
@@ -767,7 +915,7 @@ export function DiscoveryScreen(props: {
                 refusal stays visible in every mode. It renders below the
                 paused banner and run feedback so a stale message can never
                 mask the pause truth or the newest run verdict. */}
-            {actionState.message ? (
+            {actionState.message && !discoveryRunFeedback ? (
               <p
                 aria-atomic="true"
                 aria-live="polite"
@@ -781,12 +929,27 @@ export function DiscoveryScreen(props: {
           </>
         }
       >
-        {workspaceMode === "setup" ? (
+        {isSetupOpen ? (
           <div
-            className="min-h-0 min-w-0 xl:h-full"
-            id="discovery-workspace-content"
+            className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-2 xl:h-full"
+            id={DISCOVERY_SEARCH_SETUP_PANEL_ID}
           >
-            {filtersPanel}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-(length:--text-small) text-foreground-muted">
+                Editing what this search looks for. Results stay saved.
+              </p>
+              <Button
+                onClick={() => setOpenSetupChipId(null)}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                {jobs.length > 0 ? "Back to results" : "Close search setup"}
+              </Button>
+            </div>
+            <div className="min-h-0 min-w-0" id="discovery-workspace-content">
+              {filtersPanel}
+            </div>
           </div>
         ) : (
           resultsWorkspace

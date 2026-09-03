@@ -36,11 +36,7 @@ vi.mock("./discovery-detail-panel", () => ({
   ),
 }));
 vi.mock("./discovery-filters-panel", () => ({
-  DiscoveryFiltersPanel: ({
-    activityPaused,
-  }: {
-    activityPaused?: boolean;
-  }) => (
+  DiscoveryFiltersPanel: ({ activityPaused }: { activityPaused?: boolean }) => (
     <section aria-label="Current search">
       {activityPaused ? "setup-search-paused" : "setup-search-available"}
     </section>
@@ -52,17 +48,15 @@ vi.mock("./discovery-results-panel", () => ({
   ),
 }));
 
-import {
-  DISCOVERY_PAUSED_SEARCH_REASON,
-} from "./discovery-search-readiness";
+import { DISCOVERY_PAUSED_SEARCH_REASON } from "./discovery-search-readiness";
 import { DiscoveryScreen } from "./discovery-screen";
 
 const browserSession = {
   source: "target_site",
-  status: "unknown",
+  status: "ready",
   driver: "chrome_profile_agent",
-  label: "Browser not open",
-  detail: "The browser is not open.",
+  label: "Browser ready",
+  detail: "The browser is ready for source search.",
   lastCheckedAt: "2026-08-25T10:00:00.000Z",
 } as BrowserSessionState;
 
@@ -184,7 +178,11 @@ describe("DiscoveryScreen paused search availability", () => {
   it("keeps the paused truth visible in setup mode and reports the pause to the setup panel", () => {
     render(buildScreen({ activityPaused: true }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Search setup" }));
+    fireEvent.click(
+      document.querySelector(
+        '[data-discovery-search-chip="roles"]',
+      ) as HTMLElement,
+    );
 
     // Setup mode renders the filters panel; the banner stays above it.
     expect(screen.getByText(/setup-search-paused/i)).toBeTruthy();
@@ -198,7 +196,11 @@ describe("DiscoveryScreen paused search availability", () => {
     const searchButton = screen.getByRole("button", { name: "Search now" });
     expect(searchButton.hasAttribute("disabled")).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: "Search setup" }));
+    fireEvent.click(
+      document.querySelector(
+        '[data-discovery-search-chip="roles"]',
+      ) as HTMLElement,
+    );
     expect(screen.getByText(/setup-search-available/i)).toBeTruthy();
   });
 

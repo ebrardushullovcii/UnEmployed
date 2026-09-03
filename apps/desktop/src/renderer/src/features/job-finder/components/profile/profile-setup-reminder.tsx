@@ -15,9 +15,11 @@ const PROFILE_SETUP_STEP_LABELS: Record<
   essentials: "your basics",
   background: "your work history",
   targeting: "your job targets",
-  narrative: "your professional story",
-  answers: "your application answers",
-  ready_check: "your readiness review",
+  extras: "the optional extras",
+  // Retired step ids kept so a legacy stored value still reads as English.
+  narrative: "the optional extras",
+  answers: "the optional extras",
+  ready_check: "your job targets",
 };
 
 function readReminderDismissed(): boolean {

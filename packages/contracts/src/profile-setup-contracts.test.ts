@@ -12,6 +12,8 @@ import {
   deriveProfileSetupState,
   getProfileSetupReadinessBlockers,
   hasProfileSetupPlaceholderValue,
+  normalizeProfileSetupStep,
+  profileSetupVisibleStepValues,
 } from "./index";
 
 const emptyProfessionalSummary = {
@@ -363,8 +365,62 @@ describe("contracts profile setup schemas", () => {
     );
 
     expect(state.status).toBe("completed");
-    expect(state.currentStep).toBe("ready_check");
+    // Finish lives on Job targets now; there is no summary step to park on.
+    expect(state.currentStep).toBe("targeting");
     expect(state.completedAt).toBe("2026-04-11T10:15:00.000Z");
+  });
+
+  test("migrates retired step ids onto the five visible guided-setup steps", () => {
+    expect(normalizeProfileSetupStep("narrative")).toBe("extras");
+    expect(normalizeProfileSetupStep("answers")).toBe("extras");
+    expect(normalizeProfileSetupStep("ready_check")).toBe("targeting");
+    expect(profileSetupVisibleStepValues).toEqual([
+      "import",
+      "essentials",
+      "background",
+      "targeting",
+      "extras",
+    ]);
+
+    // A stored workspace is migrated at parse time, so nothing downstream has
+    // to know a retired step id ever existed.
+    const parsed = ProfileSetupStateSchema.parse({
+      status: "in_progress",
+      currentStep: "answers",
+      completedAt: null,
+      lastResumedAt: null,
+      reviewItems: [
+        {
+          id: "review_story",
+          step: "narrative",
+          target: {
+            domain: "narrative",
+            key: "professionalStory",
+            recordId: null,
+          },
+          label: "Professional story",
+          reason: "Confirm the imported story.",
+          severity: "optional",
+          status: "pending",
+          createdAt: "2026-04-11T10:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(parsed.currentStep).toBe("extras");
+    expect(parsed.reviewItems[0]?.step).toBe("extras");
+  });
+
+  test("keeps optional narrative and answer details outside core setup readiness", () => {
+    const readiness = evaluateProfileSetupReadiness(
+      completeProfileFixture,
+      completeSearchPreferencesFixture,
+    );
+
+    expect(readiness.materiallyComplete).toBe(true);
+    expect(readiness.hasNarrative).toBe(false);
+    expect(readiness.hasAnswerBank).toBe(false);
+    expect(getProfileSetupReadinessBlockers(readiness)).toEqual([]);
   });
 
   test("keeps setup in progress when pending critical review items remain", () => {

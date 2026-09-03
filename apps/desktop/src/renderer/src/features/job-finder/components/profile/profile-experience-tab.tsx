@@ -2,8 +2,10 @@ import type { UseFieldArrayReturn, UseFormReturn } from "react-hook-form";
 import { Controller } from "react-hook-form";
 import { workModeValues } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
+import { Checkbox } from "@renderer/components/ui/checkbox";
 import { Field, FieldLabel } from "@renderer/components/ui/field";
 import { CheckboxField } from "../checkbox-field";
+import { FormSelect } from "../form-select";
 import { EmptyState } from "../empty-state";
 import type { ProfileEditorValues } from "../../lib/profile-editor";
 import {
@@ -11,12 +13,50 @@ import {
   joinListInput,
   parseListInput,
 } from "../../lib/job-finder-utils";
-import { ProfileInput, ProfileTextarea } from "./profile-form-primitives";
+import {
+  ProfileAutoGrowTextarea,
+  ProfileInput,
+  profileSelectTriggerClassName,
+} from "./profile-form-primitives";
 import type { ProfileFieldArrayKeyName } from "./profile-field-array-types";
 import { ProfileListEditor } from "./profile-list-editor";
 import { ProfileRecordCard } from "./profile-record-card";
 import { ProfileSectionHeader } from "./profile-section-header";
 import { useProfileAppendedRecordOpenSignal } from "./use-profile-appended-record-open-signal";
+
+/**
+ * Employment type is a short fixed list. An unrecognised stored value (an
+ * older import, or a value typed before this became a select) is preserved as
+ * its own option instead of being silently dropped.
+ */
+const EMPLOYMENT_TYPE_VALUES = [
+  "Full-time",
+  "Part-time",
+  "Contract",
+  "Internship",
+  "Temporary",
+] as const;
+
+function buildEmploymentTypeOptions(
+  currentValue: string,
+): Array<{ label: string; value: string }> {
+  const options: Array<{ label: string; value: string }> = [
+    { label: "Not set", value: "" },
+    ...EMPLOYMENT_TYPE_VALUES.map((value) => ({ label: value, value })),
+  ];
+  const trimmed = currentValue.trim();
+
+  if (
+    trimmed.length > 0 &&
+    !options.some(
+      (option) => option.value.toLowerCase() === trimmed.toLowerCase(),
+    )
+  ) {
+    options.push({ label: trimmed, value: trimmed });
+  }
+
+  return options;
+}
 
 interface ProfileExperienceTabProps {
   isProfileSetupPending?: boolean;
@@ -96,8 +136,13 @@ export function ProfileExperienceTab({
     const startDate = watch(`records.experiences.${index}.startDate`)?.trim();
     const endDate = watch(`records.experiences.${index}.endDate`)?.trim();
     const isCurrent = watch(`records.experiences.${index}.isCurrent`);
+    // The card heading already shows the role title (or the company when
+    // there is no title), so the subtitle must not repeat it verbatim.
+    const cardTitle = title || company || `Role ${index + 1}`;
     const primaryLine =
-      [title, company].filter(Boolean).join(" - ") || "New role";
+      [title, company]
+        .filter((value) => value && value !== cardTitle)
+        .join(" - ") || "";
     const detailLine = [
       location,
       [startDate, isCurrent ? "Present" : endDate].filter(Boolean).join(" to "),
@@ -105,13 +150,20 @@ export function ProfileExperienceTab({
       .filter(Boolean)
       .join(" | ");
 
-    return detailLine ? `${primaryLine}. ${detailLine}` : primaryLine;
+    if (primaryLine && detailLine) {
+      return `${primaryLine}. ${detailLine}`;
+    }
+
+    return primaryLine || detailLine || "";
   }
 
   return (
-    <section className="grid content-start gap-(--gap-card)">
+    <section
+      className="grid content-start gap-(--gap-card)"
+      id="profile-setup-experience"
+    >
       <ProfileSectionHeader
-        eyebrow="Experience"
+        eyebrow="Work history"
         title="Work history"
         description="Keep one role per card so you can review it quickly, then expand only the entries that need more detail."
         action={
@@ -155,17 +207,18 @@ export function ProfileExperienceTab({
                 title={recordTitle}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">
+                  <p className="text-(length:--text-field-label) font-medium uppercase tracking-[0.16em] text-foreground-muted">
                     Role details
                   </p>
                   <Button
                     aria-label={`Remove ${recordTitle}`}
+                    className="text-destructive hover:text-destructive"
                     disabled={isProfileSetupPending}
                     pending={isProfileSetupPending}
                     onClick={() => handleRemoveExperience(index)}
                     size="compact"
                     type="button"
-                    variant="ghost"
+                    variant="outline"
                   >
                     Remove
                   </Button>
@@ -205,22 +258,35 @@ export function ProfileExperienceTab({
                       {...register(`records.experiences.${index}.title`)}
                     />
                   </Field>
-                  <Field>
-                    <FieldLabel
-                      htmlFor={buildExperienceFieldId(
+                  <Controller
+                    control={control}
+                    name={`records.experiences.${index}.employmentType`}
+                    render={({ field }) => {
+                      const fieldId = buildExperienceFieldId(
                         entry.id,
                         "employment-type",
-                      )}
-                    >
-                      Employment type
-                    </FieldLabel>
-                    <ProfileInput
-                      id={buildExperienceFieldId(entry.id, "employment-type")}
-                      {...register(
-                        `records.experiences.${index}.employmentType`,
-                      )}
-                    />
-                  </Field>
+                      );
+                      const currentValue = field.value ?? "";
+                      return (
+                        <div className="grid min-w-0 content-start gap-(--gap-field)">
+                          <FieldLabel htmlFor={fieldId}>
+                            Employment type
+                          </FieldLabel>
+                          {/* A four-value list, not free text: the old
+                              placeholder was a comma list that read like the
+                              value should be all four at once. */}
+                          <FormSelect
+                            onValueChange={field.onChange}
+                            options={buildEmploymentTypeOptions(currentValue)}
+                            placeholder="Not set"
+                            triggerClassName={profileSelectTriggerClassName}
+                            triggerId={fieldId}
+                            value={currentValue}
+                          />
+                        </div>
+                      );
+                    }}
+                  />
                   <Field>
                     <FieldLabel
                       htmlFor={buildExperienceFieldId(entry.id, "location")}
@@ -229,34 +295,43 @@ export function ProfileExperienceTab({
                     </FieldLabel>
                     <ProfileInput
                       id={buildExperienceFieldId(entry.id, "location")}
+                      placeholder="City or region shown on this role"
                       {...register(`records.experiences.${index}.location`)}
                     />
                   </Field>
                   <fieldset className="grid min-w-0 gap-(--gap-field)">
-                    <legend className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
+                    {/* Same casing as the field labels beside it. */}
+                    <legend className="text-(length:--text-field-label) font-medium uppercase tracking-(--tracking-label) text-muted-foreground">
                       Work mode
                     </legend>
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    {/* A preference row, not a table header: the boxed
+                        checkboxes drew a rule segment above every option. */}
+                    <div className="flex min-h-11 flex-wrap items-center gap-x-5 gap-y-2">
                       {workModeValues.map((workMode) => (
                         <Controller
                           key={workMode}
                           control={control}
                           name={`records.experiences.${index}.workMode`}
                           render={({ field }) => (
-                            <CheckboxField
-                              checked={field.value.includes(workMode)}
-                              inputId={buildWorkModeFieldId(entry.id, workMode)}
-                              label={formatStatusLabel(workMode)}
-                              onCheckedChange={(checked) =>
-                                field.onChange(
-                                  checked
-                                    ? [...field.value, workMode]
-                                    : field.value.filter(
-                                        (value) => value !== workMode,
-                                      ),
-                                )
-                              }
-                            />
+                            <label
+                              className="flex items-center gap-2 text-(length:--text-field) text-foreground-soft"
+                              htmlFor={buildWorkModeFieldId(entry.id, workMode)}
+                            >
+                              <Checkbox
+                                checked={field.value.includes(workMode)}
+                                id={buildWorkModeFieldId(entry.id, workMode)}
+                                onCheckedChange={(checked) =>
+                                  field.onChange(
+                                    checked === true
+                                      ? [...field.value, workMode]
+                                      : field.value.filter(
+                                          (value) => value !== workMode,
+                                        ),
+                                  )
+                                }
+                              />
+                              <span>{formatStatusLabel(workMode)}</span>
+                            </label>
                           )}
                         />
                       ))}
@@ -341,10 +416,10 @@ export function ProfileExperienceTab({
                     >
                       Industries or domains
                     </FieldLabel>
-                    <ProfileTextarea
+                    <ProfileAutoGrowTextarea
                       id={buildExperienceFieldId(entry.id, "domain-tags")}
-                      className="min-h-(--textarea-tall) max-h-(--textarea-tall)"
-                      rows={4}
+                      placeholder="Example: Healthcare, Payments"
+                      rows={2}
                       {...register(`records.experiences.${index}.domainTags`)}
                     />
                   </Field>
@@ -354,10 +429,10 @@ export function ProfileExperienceTab({
                     >
                       Role overview
                     </FieldLabel>
-                    <ProfileTextarea
+                    <ProfileAutoGrowTextarea
                       id={buildExperienceFieldId(entry.id, "summary")}
-                      className="min-h-(--textarea-compact) max-h-(--textarea-compact)"
-                      rows={4}
+                      placeholder="Optional. One or two lines about the role itself; achievements go below."
+                      rows={2}
                       {...register(`records.experiences.${index}.summary`)}
                     />
                   </Field>

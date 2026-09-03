@@ -16,6 +16,7 @@ import {
   deduplicatePostingCandidates,
   deriveSourceJobIdFromUrl,
   expandInlineMetadataSegments,
+  buildDomCardPostingCandidate,
   truncateBoundedText,
   type CaptureCompactDiscoveryObservationInput,
   type CompactDiscoveryScanPayload,
@@ -33,6 +34,8 @@ import {
 // ---------------------------------------------------------------------------
 
 const SCANNER_FN_NAME = "compactDiscoveryInPageScan";
+const ROLE_PAGE_URL =
+  "https://wellfound.com/role/l/data-engineer/san-francisco";
 
 interface FakePageConfig {
   url: string;
@@ -108,6 +111,8 @@ function makeElement(overrides: {
   href?: string | null;
   containerKey?: string | null;
   jobIdHint?: string | null;
+  companyHref?: string | null;
+  companyLabel?: string | null;
 }): CompactDiscoveryScanPayload["elements"][number] {
   return {
     role: overrides.role ?? "link",
@@ -116,19 +121,28 @@ function makeElement(overrides: {
     containerKey:
       overrides.containerKey === undefined ? "c0" : overrides.containerKey,
     jobIdHint: overrides.jobIdHint ?? null,
+    companyHref: overrides.companyHref ?? null,
+    companyLabel: overrides.companyLabel ?? null,
   };
 }
 
 function makeContainer(
   key: string,
   lines: string[],
-  overrides?: { headingText?: string | null; easyApplyHint?: boolean },
+  overrides?: {
+    headingText?: string | null;
+    easyApplyHint?: boolean;
+    companyHref?: string | null;
+    companyLabel?: string | null;
+  },
 ): CompactDiscoveryScanPayload["cardContainers"][number] {
   return {
     key,
     headingText: overrides?.headingText ?? null,
     lines,
     easyApplyHint: overrides?.easyApplyHint ?? false,
+    companyHref: overrides?.companyHref ?? null,
+    companyLabel: overrides?.companyLabel ?? null,
   };
 }
 
@@ -140,12 +154,16 @@ function standardListingPayload(): CompactDiscoveryScanPayload {
   const payload = emptyScanPayload();
   for (let index = 1; index <= 3; index += 1) {
     payload.cardContainers.push(
-      makeContainer(`c${index}`, [
-        `Job Title ${index}`,
-        `Company ${index} · Berlin, DE`,
-        `Posted ${index} days ago`,
-        `Build thing number ${index} with a small team.`,
-      ], { headingText: `Job Title ${index}` }),
+      makeContainer(
+        `c${index}`,
+        [
+          `Job Title ${index}`,
+          `Company ${index} · Berlin, DE`,
+          `Posted ${index} days ago`,
+          `Build thing number ${index} with a small team.`,
+        ],
+        { headingText: `Job Title ${index}` },
+      ),
     );
     payload.elements.push(
       makeElement({
@@ -175,7 +193,7 @@ describe("compact discovery observer", () => {
       url: "https://jobs.example.com/listing",
       title: "Example Jobs",
       bodyText: ["Example Jobs", "Job Title 1", "Job Title 2"].join("\n"),
-      snapshot: "- list:\n  - link \"Job Title 1\"",
+      snapshot: '- list:\n  - link "Job Title 1"',
       scanPayload: standardListingPayload(),
     });
 
@@ -217,10 +235,14 @@ describe("compact discovery observer", () => {
   test("inline-metadata cards split company, location, salary, and date", async () => {
     const payload = emptyScanPayload();
     payload.cardContainers.push(
-      makeContainer("inline-1", [
-        "Data Platform Engineer",
-        "Acme Systems · Berlin, DE · €70,000 - €90,000 · Posted 3 days ago",
-      ], { headingText: "Data Platform Engineer" }),
+      makeContainer(
+        "inline-1",
+        [
+          "Data Platform Engineer",
+          "Acme Systems · Berlin, DE · €70,000 - €90,000 · Posted 3 days ago",
+        ],
+        { headingText: "Data Platform Engineer" },
+      ),
     );
     payload.elements.push(
       makeElement({
@@ -291,6 +313,46 @@ describe("compact discovery observer", () => {
         note.includes("duplicate posting row(s) merged"),
       ),
     ).toBe(true);
+  });
+
+  test("duplicate DOM rows fill missing or malformed JSON-LD metadata", async () => {
+    const payload = standardListingPayload();
+    payload.structuredPostings.push({
+      sourceJobId: "1001",
+      canonicalUrl: "https://jobs.example.com/jobs/view/1001",
+      title: "Job Title 1 (canonical)",
+      company: "Https Jobs Example Com",
+      location: null,
+      description: null,
+      postedAtText: null,
+      salaryText: null,
+      employmentType: null,
+      workModeHints: [],
+    });
+
+    const observation = await captureFrom({
+      url: "https://jobs.example.com/listing",
+      bodyText: "listing",
+      scanPayload: payload,
+    });
+
+    expect(observation.kind).toBe("supported");
+    if (observation.kind !== "supported") {
+      return;
+    }
+
+    const merged = observation.postingCandidates.find(
+      (posting) => posting.sourceJobId === "1001",
+    );
+    expect(merged).toEqual(
+      expect.objectContaining({
+        title: "Job Title 1 (canonical)",
+        company: "Company 1",
+        location: "Berlin, DE",
+        description: "Build thing number 1 with a small team.",
+        postedAtText: "Posted 1 days ago",
+      }),
+    );
   });
 
   test("exact duplicates merge while distinct source ids stay separate", async () => {
@@ -383,7 +445,10 @@ describe("compact discovery observer", () => {
     }
 
     const kindsByLabel = new Map(
-      observation.paginationCandidates.map((candidate) => [candidate.label, candidate]),
+      observation.paginationCandidates.map((candidate) => [
+        candidate.label,
+        candidate,
+      ]),
     );
     expect(kindsByLabel.get("Next »")?.kind).toBe("next_page");
     expect(kindsByLabel.get("Previous")?.kind).toBe("previous_page");
@@ -490,28 +555,31 @@ describe("compact discovery observer", () => {
       "manual_step_required",
       "Press and hold to confirm you are not a robot, then complete the puzzle.",
     ],
-  ])("%s returns exactly one explicit unsupported reason", async (_label, reason, bodyText) => {
-    const observation = await captureFrom({
-      url: "https://jobs.example.com/walled",
-      title: "Example Corp",
-      bodyText,
-      snapshot: `- text "${bodyText.slice(0, 40)}"`,
-      scanPayload: emptyScanPayload(),
-    });
+  ])(
+    "%s returns exactly one explicit unsupported reason",
+    async (_label, reason, bodyText) => {
+      const observation = await captureFrom({
+        url: "https://jobs.example.com/walled",
+        title: "Example Corp",
+        bodyText,
+        snapshot: `- text "${bodyText.slice(0, 40)}"`,
+        scanPayload: emptyScanPayload(),
+      });
 
-    expect(observation.kind).toBe("unsupported");
-    if (observation.kind !== "unsupported") {
-      return;
-    }
+      expect(observation.kind).toBe("unsupported");
+      if (observation.kind !== "unsupported") {
+        return;
+      }
 
-    expect(observation.reason).toBe(reason);
-    expect(observation.detail).toBeTruthy();
-    // Unsupported observations keep bounded summaries as escalation context.
-    expect(observation.content.textSample).toBeTruthy();
-    expect(
-      DiscoveryCompactObservationSchema.safeParse(observation).success,
-    ).toBe(true);
-  });
+      expect(observation.reason).toBe(reason);
+      expect(observation.detail).toBeTruthy();
+      // Unsupported observations keep bounded summaries as escalation context.
+      expect(observation.content.textSample).toBeTruthy();
+      expect(
+        DiscoveryCompactObservationSchema.safeParse(observation).success,
+      ).toBe(true);
+    },
+  );
 
   test("keeps public inventory when a non-blocking sign-in banner is present", async () => {
     const observation = await captureFrom({
@@ -691,9 +759,9 @@ describe("compact discovery observer", () => {
     expect(isCurrentDiscoveryCompactObservationRef(ref, firstObservation)).toBe(
       true,
     );
-    expect(isCurrentDiscoveryCompactObservationRef(ref, secondObservation)).toBe(
-      false,
-    );
+    expect(
+      isCurrentDiscoveryCompactObservationRef(ref, secondObservation),
+    ).toBe(false);
   });
 
   test("duplicate control labels can never produce duplicate ref ids", async () => {
@@ -853,15 +921,223 @@ describe("compact discovery observer pure helpers", () => {
   });
 
   test("inline metadata expansion splits separators but keeps plain lines", () => {
-    expect(expandInlineMetadataSegments("Acme · Berlin, DE · Full-time")).toEqual([
-      "Acme",
-      "Berlin, DE",
-      "Full-time",
-    ]);
+    expect(
+      expandInlineMetadataSegments("Acme · Berlin, DE · Full-time"),
+    ).toEqual(["Acme", "Berlin, DE", "Full-time"]);
     expect(expandInlineMetadataSegments("Senior Engineer")).toEqual([
       "Senior Engineer",
     ]);
     expect(expandInlineMetadataSegments("  ")).toEqual([]);
+  });
+
+  test("prefers observed company label over slug inference", () => {
+    const candidate = buildDomCardPostingCandidate({
+      container: null,
+      element: {
+        href: "https://wellfound.com/jobs/4505800-data-engineer",
+        accessibleName: "Data Engineer",
+        jobIdHint: null,
+        companyHref: "https://wellfound.com/company/coalitioninc",
+        companyLabel: "Coalition, inc.",
+      },
+      pageUrl: ROLE_PAGE_URL,
+    });
+
+    expect(candidate?.company).toBe("Coalition, inc.");
+  });
+
+  test("derives Wellfound numeric job ids from /jobs/{id}-slug URLs", () => {
+    expect(
+      deriveSourceJobIdFromUrl(
+        "https://wellfound.com/jobs/4505800-data-engineer",
+      ),
+    ).toBe("4505800");
+  });
+
+  test("infers employer from company profile href when job URL lacks /company/", () => {
+    const candidate = buildDomCardPostingCandidate({
+      container: makeContainer(
+        "c1",
+        ["AI Product Engineer", "Remote · Full-time", "Build AI workflows."],
+        {
+          headingText: "AI Product Engineer",
+          companyHref: "https://wellfound.com/company/signal-systems",
+        },
+      ),
+      element: {
+        href: "https://wellfound.com/jobs/4634158-ai-product-engineer",
+        accessibleName: "AI Product Engineer",
+        jobIdHint: null,
+        companyHref: null,
+        companyLabel: null,
+      },
+      pageUrl: "https://wellfound.com/role/r/software-engineer",
+    });
+
+    expect(candidate).toEqual(
+      expect.objectContaining({
+        title: "AI Product Engineer",
+        company: "Signal Systems",
+        canonicalUrl: "https://wellfound.com/jobs/4634158-ai-product-engineer",
+      }),
+    );
+  });
+
+  test("uses company profile href recovered from a single-job parent wrapper", () => {
+    // Mirrors Wellfound cards where the `/company/{slug}` logo/link sits on a
+    // parent wrapper while the nested listitem only has the `/jobs/{id}-…` link.
+    // The in-page scanner now walks ancestors when the listitem itself has no
+    // company href; this asserts the downstream employer inference still wins.
+    const candidate = buildDomCardPostingCandidate({
+      container: makeContainer(
+        "c1",
+        ["AI Product Engineer", "Remote · Full-time"],
+        {
+          headingText: "AI Product Engineer",
+          companyHref: "https://wellfound.com/company/lamatic",
+        },
+      ),
+      element: {
+        href: "https://wellfound.com/jobs/3994821-2-data-engineer-staff-principal-lead",
+        accessibleName: "AI Product Engineer",
+        jobIdHint: null,
+        companyHref: null,
+        companyLabel: null,
+      },
+      pageUrl: "https://wellfound.com/jobs",
+    });
+
+    expect(candidate?.company).toBe("Lamatic");
+    expect(candidate?.canonicalUrl).toContain("/jobs/3994821");
+  });
+
+  test("infers employer from multi-job company-card href (role-page grouping)", () => {
+    // Live Wellfound role pages nest several `/jobs/{id}` titles under one
+    // company card with a single `/company/{slug}` link (1 company, N jobs).
+    // Ancestor recovery must accept that shape — not only single-job wrappers.
+    const candidate = buildDomCardPostingCandidate({
+      container: makeContainer(
+        "c1",
+        ["Data Engineer", "San Francisco · Full-time"],
+        {
+          headingText: "Data Engineer",
+          companyHref: "https://wellfound.com/company/sigma-computing-2",
+        },
+      ),
+      element: {
+        href: "https://wellfound.com/jobs/4505800-data-engineer",
+        accessibleName: "Data Engineer",
+        jobIdHint: null,
+        companyHref: null,
+        companyLabel: null,
+      },
+      pageUrl: "https://wellfound.com/role/l/data-engineer/san-francisco",
+    });
+
+    expect(candidate?.company).toBe("Sigma Computing");
+    expect(candidate?.canonicalUrl).toContain("/jobs/4505800");
+  });
+
+  test("infers employer from element companyHref when semantic container is absent", () => {
+    // Wellfound role cards are plain divs (no listitem/article), so the scan
+    // yields standalone job links with containerKey=null. Employer recovery
+    // must still win via element.companyHref from the unique company ancestor.
+    const candidate = buildDomCardPostingCandidate({
+      container: null,
+      element: {
+        href: "https://wellfound.com/jobs/4505800-data-engineer",
+        accessibleName: "Data Engineer",
+        jobIdHint: null,
+        companyHref: "https://wellfound.com/company/sigma-computing-2",
+        companyLabel: "Sigma Computing",
+      },
+      pageUrl: "https://wellfound.com/role/l/data-engineer/san-francisco",
+    });
+
+    expect(candidate?.company).toBe("Sigma Computing");
+    expect(candidate?.title).toBe("Data Engineer");
+  });
+
+  test("prefers visible company link text over slug title-case when both exist", () => {
+    const candidate = buildDomCardPostingCandidate({
+      container: null,
+      element: {
+        href: "https://wellfound.com/jobs/3727184-data-engineer",
+        accessibleName: "Data Engineer",
+        jobIdHint: null,
+        companyHref: "https://wellfound.com/company/green-usd",
+        companyLabel: "Green",
+      },
+      pageUrl: ROLE_PAGE_URL,
+    });
+
+    expect(candidate?.company).toBe("Green");
+    expect(candidate?.company).not.toBe("Green Usd");
+  });
+
+  test("rejects URL-like and low-quality slug-only employer labels", () => {
+    expect(
+      buildDomCardPostingCandidate({
+        container: null,
+        element: {
+          href: "https://wellfound.com/jobs/1-data-engineer",
+          accessibleName: "Data Engineer",
+          jobIdHint: null,
+          companyHref: "https://wellfound.com/company/strongholdpay",
+          companyLabel: null,
+        },
+        pageUrl: ROLE_PAGE_URL,
+      })?.company,
+    ).toBeNull();
+
+    expect(
+      buildDomCardPostingCandidate({
+        container: null,
+        element: {
+          href: "https://wellfound.com/jobs/2-ai-engineer",
+          accessibleName: "AI Engineer",
+          jobIdHint: null,
+          companyHref: null,
+          companyLabel: "Https Therichmondmarketing Com",
+        },
+        pageUrl: ROLE_PAGE_URL,
+      })?.company,
+    ).toBeNull();
+
+    expect(
+      buildDomCardPostingCandidate({
+        container: null,
+        element: {
+          href: "https://wellfound.com/jobs/3-ml-researcher",
+          accessibleName: "ML Researcher",
+          jobIdHint: null,
+          companyHref: "https://wellfound.com/company/scale-ai/jobs/1-role",
+          companyLabel: null,
+        },
+        pageUrl: ROLE_PAGE_URL,
+      })?.company,
+    ).toBe("Scale AI");
+  });
+
+  test("does not invent employer from /jobs/{id}-… URLs without company evidence", () => {
+    const candidate = buildDomCardPostingCandidate({
+      container: makeContainer(
+        "c1",
+        ["AI Product Engineer", "Remote · Full-time", "Build AI workflows."],
+        { headingText: "AI Product Engineer" },
+      ),
+      element: {
+        href: "https://wellfound.com/jobs/4634158-ai-product-engineer",
+        accessibleName: "AI Product Engineer",
+        jobIdHint: null,
+        companyHref: null,
+        companyLabel: null,
+      },
+      pageUrl: "https://wellfound.com/role/r/software-engineer",
+    });
+
+    expect(candidate?.company).not.toMatch(/4634158|Ai Product Engineer/i);
+    expect(candidate?.company).not.toBe("Signal Systems");
   });
 
   test("source job id derivation reads id-shaped segments and params only", () => {
@@ -883,8 +1159,7 @@ describe("compact discovery observer pure helpers", () => {
       )?.reason,
     ).toBe("site_protection");
     expect(
-      classifyUnsupportedSignal(null, "Press and hold to continue")
-        ?.reason,
+      classifyUnsupportedSignal(null, "Press and hold to continue")?.reason,
     ).toBe("manual_step_required");
     expect(
       classifyUnsupportedSignal(null, "Please log in to view saved roles")

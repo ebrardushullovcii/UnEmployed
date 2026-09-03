@@ -27,7 +27,7 @@ import {
   CompanySourceHistoryRefSchema,
   type CompanySourceHistoryRef,
   IsoDateTimeSchema,
-  isGenericCompanyName,
+  isListableCompanyName,
   NonEmptyStringSchema,
   normalizeCompanyName,
   ReviewCompanyMergeInputSchema,
@@ -62,8 +62,48 @@ function tokenSet(value: string): string[] {
   return value.split(/\s+/u).filter(Boolean);
 }
 
-function isSpecificCompanyName(normalizedName: string): boolean {
-  return normalizedName !== "" && !isGenericCompanyName(normalizedName);
+function isSpecificCompanyName(name: string): boolean {
+  return isListableCompanyName(name);
+}
+
+function isListableCompanyEntity(company: { canonicalName: string }): boolean {
+  return isListableCompanyName(company.canonicalName);
+}
+
+/**
+ * Drops legacy placeholder/generic/utility-chrome company shells and any
+ * merge-review edges that pointed at them. New evidence already refuses to
+ * create these entities; this pass cleans rows that predate that guard.
+ */
+function purgeUnlistableCompanies(
+  companies: readonly CompanyEntity[],
+  now: string,
+): CompanyEntity[] {
+  const purgedIds = new Set<string>();
+  const retained: CompanyEntity[] = [];
+  for (const company of companies) {
+    if (!isListableCompanyEntity(company)) {
+      purgedIds.add(company.id);
+      continue;
+    }
+    retained.push(company);
+  }
+  if (purgedIds.size === 0) {
+    return [...companies];
+  }
+  return retained.map((company) => {
+    const mergeReviewCandidates = company.mergeReviewCandidates.filter(
+      (candidate) => !purgedIds.has(candidate.candidateCompanyId),
+    );
+    if (mergeReviewCandidates.length === company.mergeReviewCandidates.length) {
+      return company;
+    }
+    return CompanyEntitySchema.parse({
+      ...company,
+      mergeReviewCandidates,
+      updatedAt: nextCompanyIntelligenceUpdatedAt(now, company.updatedAt),
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -235,7 +275,7 @@ function resolveEvidence(
   const domainMatches = normalizedDomain
     ? (indexes.domainIndex.get(normalizedDomain) ?? [])
     : [];
-  if (!isSpecificCompanyName(normalizedName)) return { status: "none" };
+  if (!isSpecificCompanyName(name)) return { status: "none" };
 
   if (nameMatches.length > 1) {
     return {
@@ -802,8 +842,9 @@ function applyNearConflictCandidates(
  * domains are research evidence and do not veto that name owner. Ambiguous
  * matches are never attached and instead produce pending merge candidates.
  * Near-name and near-domain conflicts also produce explicit pending
- * candidates. Existing companies are preserved; new companies receive
- * caller-provided ids and the caller-provided `now` timestamp.
+ * candidates. Existing listable companies are preserved; legacy
+ * placeholder/generic shells are purged. New companies receive caller-provided
+ * ids and the caller-provided `now` timestamp.
  */
 export function reconcileCompanies(input: {
   companies: readonly CompanyEntity[];
@@ -951,7 +992,7 @@ export function reconcileCompanies(input: {
     const rawName =
       evidence.kind === "job" ? evidence.job.company : evidence.record.company;
     const normalizedName = normalizeCompanyName(rawName);
-    if (!isSpecificCompanyName(normalizedName)) {
+    if (!isSpecificCompanyName(rawName)) {
       summary.unresolvableEvidenceCount += 1;
       return null;
     }
@@ -1070,9 +1111,14 @@ export function reconcileCompanies(input: {
     };
   }
 
+  const listableCompanies = purgeUnlistableCompanies(working, now);
+  working.length = 0;
+  working.push(...listableCompanies);
+  const listableIndexes = buildIndexes(working);
+
   applyNearConflictCandidates(
     working,
-    indexes,
+    listableIndexes,
     now,
     summary.createdMergeCandidates,
   );

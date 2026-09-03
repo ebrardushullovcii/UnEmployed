@@ -4,24 +4,31 @@ import type {
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
 import type { QueueEntry } from "./applications-detail-panel-helpers";
-import { ApplicationsDetailPanelRecoveryActionsSection } from "./applications-detail-panel-recovery-actions-section";
-import { ApplicationsDetailPanelRunHistorySection } from "./applications-detail-panel-run-history-section";
+import {
+  ApplicationsDetailPanelRecoveryActionsSection,
+  type ConfirmFinishedInBrowserStatus,
+  type FinishInBrowserInput,
+} from "./applications-detail-panel-recovery-actions-section";
 
+/**
+ * Recovery keeps only the action group here; the per-run history now lives in
+ * the collapsed Technical details block rendered by the activity sections.
+ */
 export function ApplicationsDetailPanelRecoverySections(props: {
-  applyRunHistory: Array<{
-    result: JobFinderWorkspaceSnapshot["applyJobResults"][number];
-    run: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
-  }>;
   canRestageAutoRun: boolean;
   canRestageQueueRun: boolean;
   dailyPreparationCapacity: GlobalDailyApplicationPreparationCapacity | null;
   excludedQueueRecoveryEntries: QueueEntry[];
   isApplyPending: boolean;
-  onSelectApplyRun: (runId: string) => void;
   onStartApplyCopilot: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApply: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
-  selectedApplyRunId: string | null;
+  onOpenSafeguards?: () => void;
+  onFinishInBrowser?: (input: FinishInBrowserInput) => void;
+  onConfirmFinishedInBrowser?: (input: FinishInBrowserInput) => void;
+  canConfirmFinishedInBrowser?: boolean;
+  confirmFinishedInBrowserStatus?: ConfirmFinishedInBrowserStatus;
+  confirmFinishedInBrowserBlockerText?: string | null;
   selectedQueueOutcomeEntries: QueueEntry[];
   selectedQueueRecoveryEntries: QueueEntry[];
   selectedQueueRecoveryJobIds: string[];
@@ -33,17 +40,20 @@ export function ApplicationsDetailPanelRecoverySections(props: {
     | null;
 }) {
   const {
-    applyRunHistory,
     canRestageAutoRun,
     canRestageQueueRun,
     dailyPreparationCapacity,
     excludedQueueRecoveryEntries,
     isApplyPending,
-    onSelectApplyRun,
     onStartApplyCopilot,
     onStartAutoApply,
     onStartAutoApplyQueue,
-    selectedApplyRunId,
+    onOpenSafeguards,
+    onFinishInBrowser,
+    onConfirmFinishedInBrowser,
+    canConfirmFinishedInBrowser,
+    confirmFinishedInBrowserStatus,
+    confirmFinishedInBrowserBlockerText,
     selectedQueueOutcomeEntries,
     selectedQueueRecoveryEntries,
     selectedQueueRecoveryJobIds,
@@ -54,30 +64,30 @@ export function ApplicationsDetailPanelRecoverySections(props: {
   } = props;
 
   return (
-    <>
-      <ApplicationsDetailPanelRecoveryActionsSection
-        applyRunHistoryCount={applyRunHistory.length}
-        canRestageAutoRun={canRestageAutoRun}
-        canRestageQueueRun={canRestageQueueRun}
-        dailyPreparationCapacity={dailyPreparationCapacity}
-        excludedQueueRecoveryEntries={excludedQueueRecoveryEntries}
-        isApplyPending={isApplyPending}
-        onStartApplyCopilot={onStartApplyCopilot}
-        onStartAutoApply={onStartAutoApply}
-        onStartAutoApplyQueue={onStartAutoApplyQueue}
-        selectedQueueOutcomeEntries={selectedQueueOutcomeEntries}
-        selectedQueueRecoveryEntries={selectedQueueRecoveryEntries}
-        selectedQueueRecoveryJobIds={selectedQueueRecoveryJobIds}
-        selectedApplicationRecordId={selectedApplicationRecordId}
-        selectedRecordJobId={selectedRecordJobId}
-        selectedRun={selectedRun}
-        visibleApplyResult={visibleApplyResult}
-      />
-      <ApplicationsDetailPanelRunHistorySection
-        applyRunHistory={applyRunHistory}
-        onSelectApplyRun={onSelectApplyRun}
-        selectedApplyRunId={selectedApplyRunId}
-      />
-    </>
+    <ApplicationsDetailPanelRecoveryActionsSection
+      canRestageAutoRun={canRestageAutoRun}
+      canRestageQueueRun={canRestageQueueRun}
+      dailyPreparationCapacity={dailyPreparationCapacity}
+      excludedQueueRecoveryEntries={excludedQueueRecoveryEntries}
+      isApplyPending={isApplyPending}
+      onStartApplyCopilot={onStartApplyCopilot}
+      onStartAutoApply={onStartAutoApply}
+      onStartAutoApplyQueue={onStartAutoApplyQueue}
+      {...(onOpenSafeguards ? { onOpenSafeguards } : {})}
+      {...(onFinishInBrowser ? { onFinishInBrowser } : {})}
+      {...(onConfirmFinishedInBrowser ? { onConfirmFinishedInBrowser } : {})}
+      canConfirmFinishedInBrowser={canConfirmFinishedInBrowser ?? false}
+      confirmFinishedInBrowserStatus={confirmFinishedInBrowserStatus ?? "idle"}
+      confirmFinishedInBrowserBlockerText={
+        confirmFinishedInBrowserBlockerText ?? null
+      }
+      selectedQueueOutcomeEntries={selectedQueueOutcomeEntries}
+      selectedQueueRecoveryEntries={selectedQueueRecoveryEntries}
+      selectedQueueRecoveryJobIds={selectedQueueRecoveryJobIds}
+      selectedApplicationRecordId={selectedApplicationRecordId}
+      selectedRecordJobId={selectedRecordJobId}
+      selectedRun={selectedRun}
+      visibleApplyResult={visibleApplyResult}
+    />
   );
 }

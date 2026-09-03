@@ -6,7 +6,10 @@ import {
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import { describe, expect, test, vi } from "vitest";
 
-import { persistApplicationUserAction } from "./internal/workspace-application-user-action";
+import {
+  describeApplicationBlockerReason,
+  persistApplicationUserAction,
+} from "./internal/workspace-application-user-action";
 import { reduceUserActionCommand } from "./user-action-domain";
 import { createJobFinderWorkspaceService } from "./index";
 import {
@@ -68,6 +71,88 @@ describe("application login UserActionRequest adoption", () => {
         expectedOrigin: "https://www.linkedin.com/",
       },
     });
+  });
+
+  test("carries the concrete blocker reason into the Needs-you summary for an unclassified step", async () => {
+    const harness = createWorkspaceServiceHarness({ seed: createSeed() });
+    const job = (await harness.repository.listSavedJobs())[0];
+    if (!job) throw new Error("Expected a saved job fixture.");
+    const blocker = ApplicationAttemptBlockerSchema.parse({
+      code: "requires_manual_review",
+      summary: "The application page could not safely save a prepared field",
+      detail:
+        "The application site tried to save 'Work authorization' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.",
+      url: job.applicationUrl,
+    });
+
+    await persistApplicationUserAction({
+      repository: harness.repository,
+      applicationRecordId: `application_${job.id}`,
+      job,
+      runId: "apply_run_autosave",
+      resultId: "apply_result_autosave",
+      replayCheckpointId: "apply_checkpoint_autosave",
+      blocker,
+      occurredAt: "2026-07-30T10:00:00.000Z",
+    });
+
+    const [request] = await harness.repository.listUserActionRequests();
+    if (!request) throw new Error("Expected the autosave user action.");
+    expect(request.kind).toBe("other");
+    // The card must say what the step is: the blocker's own summary and
+    // detail lead, followed by the prepare-only continuation.
+    // The no-submit boundary is stated once per card by the renderer, so the
+    // reason keeps the concrete cause without repeating it.
+    expect(request.summary).toBe(
+      `${blocker.summary}. The application site tried to save 'Work authorization' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open. Complete this manual step in the managed browser, then return so Job Finder can verify the exact blocker no longer appears.`,
+    );
+    expect(request.summary).not.toContain("Complete the described step");
+    expect(request.summary).not.toMatch(/risking a final/i);
+    // The credentials boundary is owned by the Needs-you page header, not
+    // repeated inside every unclassified instruction.
+    expect(request.instructions.join(" ")).not.toMatch(/credential/i);
+    expect(request.instructions[0]).toBe(
+      "Finish this step yourself in the managed browser.",
+    );
+
+    // A generic placeholder field name reads as a real field the user could
+    // go and find, so it is never quoted back to them.
+    expect(
+      describeApplicationBlockerReason({
+        summary: "The application page could not safely save a prepared field",
+        detail:
+          "The application site tried to save 'application field' while it was being prepared.",
+      }),
+    ).toBe(
+      // The detail is the same event told more specifically, so the short
+      // summary label is dropped instead of opening the card with two
+      // near-identical sentences.
+      "The application site tried to save a field while it was being prepared.",
+    );
+
+    // A detail that genuinely adds a different fact still keeps both.
+    expect(
+      describeApplicationBlockerReason({
+        summary: "Resume attachment needs your help",
+        detail:
+          "The application site tried to upload the approved resume file, but this run had no permission for that external save.",
+      }),
+    ).toBe(
+      "Resume attachment needs your help. The application site tried to upload the approved resume file, but this run had no permission for that external save.",
+    );
+
+    expect(
+      describeApplicationBlockerReason({
+        summary: "Sign in before continuing.",
+        detail: "Sign in before continuing.",
+      }),
+    ).toBe("Sign in before continuing.");
+    expect(
+      describeApplicationBlockerReason({
+        summary: "Attach a file",
+        detail: null,
+      }),
+    ).toBe("Attach a file.");
   });
 
   test("persists no Needs-you request when the application page never opened", async () => {

@@ -189,6 +189,7 @@ export const resumeValidationCategoryValues = [
   "stale_approval",
   "date_quality",
   "claim_confirmation_needed",
+  "identity_mismatch",
 ] as const;
 
 export const ResumeValidationCategorySchema = z.enum(
@@ -376,9 +377,8 @@ export const ResumeDraftBulletSchema = z.object({
   locked: z.boolean().default(false),
   included: z.boolean().default(true),
   sourceRefs: z.array(ResumeDraftSourceRefSchema).default([]),
-  lastGeneratedContentHash: ResumeClaimContentHashSchema.nullable().default(
-    null,
-  ),
+  lastGeneratedContentHash:
+    ResumeClaimContentHashSchema.nullable().default(null),
   updatedAt: IsoDateTimeSchema,
 });
 export type ResumeDraftBullet = z.infer<typeof ResumeDraftBulletSchema>;
@@ -691,6 +691,11 @@ export const ResumeValidationIssueSchema = z.object({
   entryId: NonEmptyStringSchema.nullable().default(null),
   bulletId: NonEmptyStringSchema.nullable().default(null),
   message: NonEmptyStringSchema,
+  // The exact sentence the deterministic classifier flagged, when the issue
+  // came from one. Blockers can then name the text a user must rewrite or
+  // restore instead of only naming a locator. Optional so historical issues
+  // and non-claim issues stay valid without a synthetic value.
+  flaggedText: NonEmptyStringSchema.nullable().optional(),
 });
 export type ResumeValidationIssue = z.infer<typeof ResumeValidationIssueSchema>;
 
@@ -698,6 +703,73 @@ export function isBlockingResumeValidationIssue(
   issue: Pick<ResumeValidationIssue, "severity">,
 ): boolean {
   return issue.severity === "error";
+}
+
+export function isGeneratedResumeClaimOrigin(
+  origin: ResumeDraftOrigin,
+): boolean {
+  return (
+    origin === "ai_generated" ||
+    origin === "assistant_edited" ||
+    origin === "deterministic_fallback"
+  );
+}
+
+/**
+ * The single deterministic rule that decides whether one assessed claim blocks
+ * export/approval. Every layer that judges grounded-ness — the export/approval
+ * validator, the Resume Studio blocker surfaces, and the Guided Edits proposal
+ * gate — must call this exact function so a proposal can never be presented as
+ * grounded while the export gate would reject the same text.
+ *
+ * A claim blocks when it was produced by the stale v1 verifier and is either
+ * generated or hard-unsupported, when it is unsupported under any origin, when
+ * it needs confirmation and no exact locator/content-hash confirmation exists,
+ * or when it is review-status generated content.
+ */
+export function isBlockingResumeClaimAssessment(input: {
+  assessment: Pick<
+    ResumeClaimAssessment,
+    | "bulletId"
+    | "claimOrigin"
+    | "contentHash"
+    | "entryId"
+    | "field"
+    | "sectionId"
+    | "status"
+    | "verifier"
+  >;
+  draft: Pick<ResumeDraft, "id" | "claimConfirmations">;
+}): boolean {
+  const assessment = input.assessment;
+
+  if (assessment.verifier !== "deterministic_candidate_evidence_v2") {
+    return (
+      isGeneratedResumeClaimOrigin(assessment.claimOrigin) ||
+      assessment.status === "unsupported"
+    );
+  }
+
+  if (assessment.status === "unsupported") {
+    return true;
+  }
+
+  if (assessment.status === "confirm_needed") {
+    return !input.draft.claimConfirmations.some(
+      (confirmation) =>
+        confirmation.draftId === input.draft.id &&
+        confirmation.field === assessment.field &&
+        confirmation.sectionId === assessment.sectionId &&
+        confirmation.entryId === assessment.entryId &&
+        confirmation.bulletId === assessment.bulletId &&
+        confirmation.confirmedClaimContentHash === assessment.contentHash,
+    );
+  }
+
+  return (
+    assessment.status === "review" &&
+    isGeneratedResumeClaimOrigin(assessment.claimOrigin)
+  );
 }
 
 export const resumeCoverageRoleStatusValues = [
@@ -870,12 +942,32 @@ export type ResumeAssistantProposalStatus = z.infer<
   typeof ResumeAssistantProposalStatusSchema
 >;
 
+/**
+ * One export-gate blocker the proposed wording would introduce, produced by
+ * running the same deterministic classifier the export/approval validator uses
+ * against the draft that would result from accepting the proposal.
+ */
+export const ResumeProposalApprovalBlockerSchema = z.object({
+  patchId: NonEmptyStringSchema.nullable().default(null),
+  sectionId: NonEmptyStringSchema.nullable().default(null),
+  entryId: NonEmptyStringSchema.nullable().default(null),
+  bulletId: NonEmptyStringSchema.nullable().default(null),
+  flaggedText: NonEmptyStringSchema.nullable().default(null),
+  message: NonEmptyStringSchema,
+});
+export type ResumeProposalApprovalBlocker = z.infer<
+  typeof ResumeProposalApprovalBlockerSchema
+>;
+
 export const ResumeAssistantMessageSchema = z.object({
   id: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
   role: ResumeAssistantRoleSchema,
   content: NonEmptyStringSchema,
   patches: z.array(ResumeDraftPatchSchema).default([]),
+  // Empty means the export gate accepted the proposed wording; non-empty means
+  // accepting this proposal would block approval until the text is rewritten.
+  approvalBlockers: z.array(ResumeProposalApprovalBlockerSchema).optional(),
   proposalStatus: ResumeAssistantProposalStatusSchema.default("none"),
   baseDraftUpdatedAt: IsoDateTimeSchema.nullable().default(null),
   resolvedPatchIds: z.array(NonEmptyStringSchema).default([]),

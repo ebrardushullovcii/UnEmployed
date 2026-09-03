@@ -8,7 +8,7 @@ Owns profile, resume import, discovery, source-debug, resume workspace, review q
 
 - Guided setup and profile copilot create and maintain local-first candidate data.
 - Resume import uses parser/text/vision evidence, review candidates, and explicit user confirmation before canonical writes.
-- Discovery and source-debug stay source-generic and use typed target instructions.
+- Discovery, source-debug, and apply preparation stay source-generic and use typed target instructions; users configure which sources run. See [ARCHITECTURE.md](../ARCHITECTURE.md) and [ADR 0007](../adr/0007-source-generic-browser-workflows.md).
 - Agent discovery persists kept jobs incrementally: each successful extraction
   checkpoint runs new postings through the same triage/ledger/budget/merge path
   and commits them atomically (saved jobs, or staged pending jobs in
@@ -65,7 +65,7 @@ Owns profile, resume import, discovery, source-debug, resume workspace, review q
   pane binds keys inside its iframe document, not app chrome.
 - At CSS widths of at least 1440px, navigation uses a persistent 17rem sidebar
   with the grouped destinations. Below that breakpoint, the compact top
-  navigation exposes the core flow and a `Planning & settings` menu for the
+  navigation exposes the core flow and a `More` menu for the
   remaining destinations.
 - Search plans are optional reusable campaign settings; the default plan is
   enough to begin finding jobs and never configure application volume. Fixed

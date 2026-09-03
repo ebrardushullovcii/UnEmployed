@@ -3,7 +3,21 @@ import { History, Search } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@renderer/components/ui/button";
 import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
-import { DISCOVERY_PAUSED_SEARCH_REASON } from "./discovery-search-readiness";
+import {
+  DISCOVERY_OFFLINE_CATALOG_NOTICE,
+  DISCOVERY_OFFLINE_RUNTIME_LABEL,
+  DISCOVERY_OFFLINE_SEARCH_REASON,
+  DISCOVERY_OFFLINE_SETUP_NOTICE,
+  DISCOVERY_PAUSED_SEARCH_REASON,
+  type DiscoverySearchBlocker,
+} from "./discovery-search-readiness";
+
+/**
+ * Plain-language purpose of the optional browser action. The browser is not
+ * a prerequisite for Search: the run opens it on its own.
+ */
+export const DISCOVERY_OPEN_BROWSER_DESCRIPTION =
+  "Open the browser Job Finder uses for searches. Useful if a job site needs you to sign in.";
 
 type SectionValue =
   | string
@@ -12,10 +26,18 @@ type SectionValue =
       label: string;
     };
 
+type SectionEditAction = {
+  href: string;
+  label: string;
+  variant?: "primary" | "secondary";
+};
+
 export function DiscoverySessionSummary(props: {
   hasRecommendedSourceAccessPrompt: boolean;
   isBlocked: boolean;
   isBrowserSessionVisible: boolean;
+  isOfflineRuntime: boolean;
+  isSearchSetupReady?: boolean;
   isReady: boolean;
   isTargetPending: (targetId: string) => boolean;
   needsLogin: boolean;
@@ -31,6 +53,8 @@ export function DiscoverySessionSummary(props: {
     isBrowserSessionVisible,
     isBrowserSessionPendingForTarget,
     isReady,
+    isOfflineRuntime,
+    isSearchSetupReady = false,
     isTargetPending,
     needsLogin,
     onConfirmSignedInForTarget,
@@ -42,14 +66,14 @@ export function DiscoverySessionSummary(props: {
   return (
     <>
       {sectionDetail ? (
-        <p className="max-w-full break-words text-sm leading-5 text-foreground-soft">
+        <p className="max-w-full break-words text-(length:--text-small) leading-5 text-foreground-soft">
           {sectionDetail}
         </p>
       ) : null}
 
       {isBrowserSessionVisible ? (
         <div className="grid gap-2">
-          {primarySourceAccessPrompt ? (
+          {!isOfflineRuntime && primarySourceAccessPrompt ? (
             <div
               aria-live="polite"
               className={
@@ -117,7 +141,9 @@ export function DiscoverySessionSummary(props: {
               ) : null}
             </div>
           ) : null}
-          {(needsLogin || isBlocked) && !primarySourceAccessPrompt ? (
+          {!isOfflineRuntime &&
+          (needsLogin || isBlocked) &&
+          !primarySourceAccessPrompt ? (
             <div
               role="status"
               className="rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--warning-text)"
@@ -125,16 +151,17 @@ export function DiscoverySessionSummary(props: {
               Some sources may need sign-in before the next search can finish.
             </div>
           ) : null}
-          {isReady && !primarySourceAccessPrompt ? (
+          {!isOfflineRuntime && isReady && !primarySourceAccessPrompt ? (
             <div
               role="status"
               className="rounded-(--radius-small) border border-(--success-border) bg-(--success-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--success-text)"
             >
-              Browser ready. Any signed-in source sessions in this dedicated
-              profile will be reused.
+              Browser ready. If you signed in to a job site here, that sign-in
+              is reused.
             </div>
           ) : null}
-          {hasRecommendedSourceAccessPrompt &&
+          {!isOfflineRuntime &&
+          hasRecommendedSourceAccessPrompt &&
           !primarySourceAccessPrompt &&
           !needsLogin &&
           !isBlocked ? (
@@ -145,21 +172,40 @@ export function DiscoverySessionSummary(props: {
               The browser can improve coverage for sources that support sign-in.
             </div>
           ) : null}
-          {!sectionDetail && !needsLogin && !isBlocked && !isReady ? (
+          {isOfflineRuntime ? (
+            <div
+              role="status"
+              className="rounded-(--radius-small) border border-(--info-border) bg-(--info-surface) px-3 py-3 text-(length:--text-description) leading-6 text-(--info-text)"
+            >
+              {isSearchSetupReady
+                ? DISCOVERY_OFFLINE_SETUP_NOTICE
+                : DISCOVERY_OFFLINE_CATALOG_NOTICE}
+            </div>
+          ) : !sectionDetail &&
+            !needsLogin &&
+            !isBlocked &&
+            !isReady &&
+            !hasRecommendedSourceAccessPrompt ? (
             <p className="text-(length:--text-description) leading-5 text-foreground-soft">
-              Open the browser only when a source needs sign-in or a warm
-              browser session.
+              {DISCOVERY_OPEN_BROWSER_DESCRIPTION}
             </p>
           ) : null}
         </div>
       ) : null}
 
-      <Link
-        className="text-(length:--text-small) font-medium text-primary underline-offset-4 hover:underline"
-        to={JOB_FINDER_ROUTE_PATHS.profileSources}
+      {/* Navigation register, not a command: a normal-width link keeps
+          Search jobs as the panel's single primary action. */}
+      <Button
+        asChild
+        className="h-auto w-fit justify-start px-0 py-0.5 text-xs normal-case tracking-normal"
+        size="sm"
+        type="button"
+        variant="link"
       >
-        Edit sources and preferences
-      </Link>
+        <Link to={JOB_FINDER_ROUTE_PATHS.profileSources}>
+          Edit sources and preferences
+        </Link>
+      </Button>
     </>
   );
 }
@@ -169,7 +215,7 @@ export function DiscoverySearchSections(props: {
     label: string;
     values: SectionValue[];
     empty: string;
-    editAction?: { label: string; href: string };
+    editAction?: SectionEditAction;
   }>;
 }) {
   const { sectionHeadingPrefix, sections } = props;
@@ -180,8 +226,15 @@ export function DiscoverySearchSections(props: {
         const sectionHeadingId = `${sectionHeadingPrefix}-${section.label
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "-")}`;
-        const editAction =
-          section.values.length === 0 ? (section.editAction ?? null) : null;
+        const isEmpty = section.values.length === 0;
+        // Every saved value row now carries its own labelled control. Before,
+        // only an EMPTY row offered a route to editing, so a configured search
+        // was a read-only summary whose single edit route was a body-copy link
+        // at the bottom of the panel.
+        const editAction = section.editAction ?? null;
+        const editLabel = isEmpty
+          ? editAction?.label
+          : `Edit ${section.label.toLowerCase()}`;
 
         return (
           <section
@@ -191,10 +244,10 @@ export function DiscoverySearchSections(props: {
               (index === 0
                 ? "min-w-0 px-4 "
                 : "min-w-0 border-t border-(--surface-panel-border) px-4 ") +
-              (editAction ? "py-2.5" : "py-4")
+              (isEmpty && editAction ? "py-2.5" : "py-4")
             }
           >
-            {editAction ? (
+            <div className="grid min-w-0 gap-2">
               <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1">
                 <h3
                   className="shrink-0 text-(length:--text-field-label) font-medium uppercase tracking-(--tracking-badge) text-foreground-muted"
@@ -202,42 +255,36 @@ export function DiscoverySearchSections(props: {
                 >
                   {section.label}
                 </h3>
-                <p className="min-w-0 text-(length:--text-small) leading-5 text-foreground-muted">
-                  {section.empty}{" "}
-                  <Link
-                    className="font-medium whitespace-nowrap text-primary underline underline-offset-4 hover:no-underline"
-                    to={editAction.href.slice(1)}
+                {editAction && editLabel ? (
+                  <Button
+                    asChild
+                    className="h-8 shrink-0 whitespace-nowrap px-3 normal-case tracking-normal"
+                    size="sm"
+                    variant={
+                      isEmpty ? (editAction.variant ?? "secondary") : "outline"
+                    }
                   >
-                    {editAction.label}
-                  </Link>
+                    <Link to={editAction.href}>{editLabel}</Link>
+                  </Button>
+                ) : null}
+              </div>
+              {isEmpty ? (
+                <p className="min-w-0 text-(length:--text-small) leading-5 text-foreground-soft">
+                  {section.empty}
                 </p>
-              </div>
-            ) : (
-              <div className="grid min-w-0 gap-3">
-                <h3
-                  className="text-(length:--text-field-label) font-medium uppercase tracking-(--tracking-badge) text-foreground-muted"
-                  id={sectionHeadingId}
-                >
-                  {section.label}
-                </h3>
-                {section.values.length > 0 ? (
-                  // Saved criteria are read-only facts, not controls: flat
-                  // inert text with strong contrast, no border, fill, hover,
-                  // or tooltip chrome that could read as a disabled button.
-                  <p className="min-w-0 text-(length:--text-small) leading-5 text-foreground [overflow-wrap:anywhere]">
-                    {section.values
-                      .map((value) =>
-                        typeof value === "string" ? value : value.label,
-                      )
-                      .join(" · ")}
-                  </p>
-                ) : (
-                  <p className="text-(length:--text-item) leading-7 text-foreground-soft">
-                    {section.empty}
-                  </p>
-                )}
-              </div>
-            )}
+              ) : (
+                // Saved criteria are read-only facts, not controls: flat
+                // inert text with strong contrast, no border, fill, hover,
+                // or tooltip chrome that could read as a disabled button.
+                <p className="min-w-0 text-(length:--text-small) leading-5 text-foreground [overflow-wrap:anywhere]">
+                  {section.values
+                    .map((value) =>
+                      typeof value === "string" ? value : value.label,
+                    )
+                    .join(" · ")}
+                </p>
+              )}
+            </div>
           </section>
         );
       })}
@@ -249,6 +296,7 @@ export function DiscoveryRunOneSourceSection(props: {
   enabledSourceAccessPrompts: readonly SourceAccessPrompt[];
   enabledTargets: ReadonlyArray<{ id: string; label: string }>;
   isAnyDiscoveryRunActive?: boolean;
+  isOfflineRuntime?: boolean;
   isSearchUnavailable?: boolean;
   isBrowserSessionPendingForTarget: (targetId: string) => boolean;
   isTargetPending: (targetId: string) => boolean;
@@ -264,6 +312,7 @@ export function DiscoveryRunOneSourceSection(props: {
     enabledSourceAccessPrompts,
     enabledTargets,
     isAnyDiscoveryRunActive = false,
+    isOfflineRuntime = false,
     isSearchUnavailable = false,
     isBrowserSessionPendingForTarget,
     isTargetPending,
@@ -296,32 +345,34 @@ export function DiscoveryRunOneSourceSection(props: {
 
             return (
               <div className="grid gap-2" key={target.id}>
-                <Button
-                  aria-label={`Run discovery for ${target.label}`}
-                  className="h-auto min-h-11 w-full min-w-0 max-w-full justify-between overflow-hidden whitespace-normal px-4 py-3 text-left normal-case tracking-(--tracking-normal) [&>span]:w-full [&>span]:min-w-0 [&>span]:justify-between"
-                  disabled={
-                    isTargetPending(target.id) ||
-                    isSearchUnavailable ||
-                    (isAnyDiscoveryRunActive && !isActiveSingleTarget)
-                  }
-                  pending={isTargetPending(target.id)}
-                  onClick={() => onRunDiscoveryForTarget(target.id)}
-                  size="sm"
-                  type="button"
-                  variant={isActiveSingleTarget ? "secondary" : "ghost"}
-                >
+                {/* The action is a real button, not label-shaped text beside
+                    the source name. */}
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                   <span
-                    className="min-w-0 max-w-full truncate"
+                    className="min-w-0 flex-1 truncate text-(length:--text-small) font-medium text-foreground"
                     title={target.label}
                   >
                     {target.label}
                   </span>
-                  <span className="shrink-0 text-(length:--text-small) text-foreground-muted">
+                  <Button
+                    aria-label={`Run discovery for ${target.label}`}
+                    className="shrink-0"
+                    disabled={
+                      isTargetPending(target.id) ||
+                      isSearchUnavailable ||
+                      (isAnyDiscoveryRunActive && !isActiveSingleTarget)
+                    }
+                    pending={isTargetPending(target.id)}
+                    onClick={() => onRunDiscoveryForTarget(target.id)}
+                    size="sm"
+                    type="button"
+                    variant="secondary"
+                  >
                     {isActiveSingleTarget
                       ? "Running now"
                       : "Search only this source"}
-                  </span>
-                </Button>
+                  </Button>
+                </div>
                 {targetPrompt &&
                 targetPrompt.targetId !==
                   primarySourceAccessPrompt?.targetId ? (
@@ -335,20 +386,25 @@ export function DiscoveryRunOneSourceSection(props: {
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span>{targetPrompt.summary}</span>
-                      <Button
-                        onClick={() => onOpenBrowserSessionForTarget(target.id)}
-                        pending={isBrowserSessionPendingForTarget(target.id)}
-                        size="sm"
-                        type="button"
-                        variant={
-                          targetPrompt.state === "prompt_login_required"
-                            ? "secondary"
-                            : "outline"
-                        }
-                      >
-                        {targetPrompt.actionLabel}
-                      </Button>
-                      {targetPrompt.state === "prompt_login_required" ? (
+                      {!isOfflineRuntime ? (
+                        <Button
+                          onClick={() =>
+                            onOpenBrowserSessionForTarget(target.id)
+                          }
+                          pending={isBrowserSessionPendingForTarget(target.id)}
+                          size="sm"
+                          type="button"
+                          variant={
+                            targetPrompt.state === "prompt_login_required"
+                              ? "secondary"
+                              : "outline"
+                          }
+                        >
+                          {targetPrompt.actionLabel}
+                        </Button>
+                      ) : null}
+                      {!isOfflineRuntime &&
+                      targetPrompt.state === "prompt_login_required" ? (
                         <Button
                           onClick={() => onConfirmSignedInForTarget(target.id)}
                           pending={isTargetPending(target.id)}
@@ -358,6 +414,11 @@ export function DiscoveryRunOneSourceSection(props: {
                         >
                           I'm signed in — retry
                         </Button>
+                      ) : null}
+                      {isOfflineRuntime ? (
+                        <span className="text-(length:--text-small) opacity-80">
+                          {DISCOVERY_OFFLINE_SEARCH_REASON}
+                        </span>
                       ) : null}
                     </div>
                   </div>
@@ -373,6 +434,7 @@ export function DiscoveryRunOneSourceSection(props: {
 
 export function DiscoveryFiltersFooter(props: {
   canRunDiscovery: boolean;
+  isOfflineRuntime?: boolean;
   isBrowserSessionPending: boolean;
   isBrowserSessionPendingForTarget: (targetId: string) => boolean;
   isDiscoveryAllPending: boolean;
@@ -382,11 +444,14 @@ export function DiscoveryFiltersFooter(props: {
   onRunAgentDiscovery: (() => void) | undefined;
   onViewProgress: () => void;
   primarySourceAccessPrompt: SourceAccessPrompt | null;
+  searchBlocker?: DiscoverySearchBlocker | null;
   searchDisabledReason: string | null;
+  searchSetupActionLabel: string;
   searchSetupHref: string;
 }) {
   const {
     canRunDiscovery,
+    isOfflineRuntime = false,
     isBrowserSessionPending,
     isBrowserSessionPendingForTarget,
     isDiscoveryAllPending,
@@ -396,60 +461,33 @@ export function DiscoveryFiltersFooter(props: {
     onRunAgentDiscovery,
     onViewProgress,
     primarySourceAccessPrompt,
+    searchBlocker = null,
     searchDisabledReason,
+    searchSetupActionLabel,
     searchSetupHref,
   } = props;
+  const showSourcesSetupAction =
+    Boolean(searchDisabledReason) &&
+    searchDisabledReason !== DISCOVERY_PAUSED_SEARCH_REASON &&
+    !isOfflineRuntime;
+  // A blocked browser is the one setup problem whose fix is a browser action,
+  // never a Profile link; the warning box owns that action so the label
+  // always matches the reason beside it.
+  const isBrowserBlocked = searchBlocker === "browser_blocked";
 
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 border-b border-(--surface-panel-border) px-3 py-2.5">
-      {onRunAgentDiscovery ? (
-        <div className="grid min-w-0 gap-2">
-          <Button
-            aria-describedby={
-              searchDisabledReason
-                ? "discovery-search-disabled-reason"
-                : undefined
-            }
-            className="h-9 w-full whitespace-nowrap px-3 text-center text-xs normal-case tracking-normal"
-            disabled={!canRunDiscovery}
-            pending={isDiscoveryAllPending}
-            onClick={onRunAgentDiscovery}
-            size="sm"
-            type="button"
-            variant="primary"
-          >
-            Search jobs
-          </Button>
-          {searchDisabledReason ? (
-            <p
-              className="text-(length:--text-description) leading-6 text-(--warning-text)"
-              id="discovery-search-disabled-reason"
-              role="status"
-            >
-              {searchDisabledReason}
-              {searchDisabledReason === DISCOVERY_PAUSED_SEARCH_REASON ? null : (
-                <>
-                  {" "}
-                  <Link
-                    className="font-medium underline underline-offset-4"
-                    to={searchSetupHref}
-                  >
-                    Fix search setup
-                  </Link>
-                </>
-              )}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div
-        className={
-          onRunAgentDiscovery
-            ? "grid min-w-0 gap-2"
-            : "col-span-2 grid min-w-0 gap-2"
-        }
-      >
+  // Both secondary controls share the primary's row so the setup strip stays
+  // one line: the browser control (or the offline note that replaces it) and
+  // Search history, which is navigation rather than a third command.
+  const secondaryActions = (
+    <>
+      {isOfflineRuntime ? (
+        <span
+          className="text-(length:--text-small) leading-5 text-foreground-muted"
+          role="status"
+        >
+          {DISCOVERY_OFFLINE_RUNTIME_LABEL}; live source search unavailable.
+        </span>
+      ) : isBrowserBlocked && showSourcesSetupAction ? null : (
         <Button
           className="h-9 w-auto min-w-0 justify-center whitespace-nowrap px-3 text-xs normal-case tracking-normal"
           pending={
@@ -478,20 +516,98 @@ export function DiscoveryFiltersFooter(props: {
               ? "Reopen browser"
               : "Open browser"}
         </Button>
-      </div>
-
-      {/* Navigation register, not a third command: link styling keeps Search
-          history clearly below the primary and secondary actions. */}
+      )}
       <Button
-        className="col-span-2 h-auto w-full justify-start gap-1.5 px-0 py-0.5 text-left text-xs normal-case tracking-normal"
+        className="h-9 w-auto min-w-0 justify-center gap-1.5 whitespace-nowrap px-3 text-xs normal-case tracking-normal"
         onClick={onViewProgress}
         size="sm"
         type="button"
-        variant="link"
+        variant="outline"
       >
-        <History className="size-3.5" />
+        <History className="size-3.5 shrink-0" />
         Search history
       </Button>
+    </>
+  );
+
+  return (
+    // One left-aligned action row instead of a two-column grid: the primary
+    // sat at the far left while the two secondary actions stacked at the far
+    // right, leaving ~800px of empty band between them and using two rows
+    // where one does.
+    <div className="grid min-w-0 gap-2 border-b border-(--surface-panel-border) px-3 py-2.5">
+      {onRunAgentDiscovery ? (
+        <div className="grid min-w-0 gap-2">
+          {showSourcesSetupAction ? (
+            <div className="grid gap-2 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-3">
+              <p
+                className="text-(length:--text-description) leading-6 text-(--warning-text)"
+                id="discovery-search-disabled-reason"
+                role="status"
+              >
+                {searchDisabledReason}
+              </p>
+              {isBrowserBlocked ? (
+                <Button
+                  className="h-9 w-fit whitespace-nowrap px-3 text-center text-xs normal-case tracking-normal"
+                  onClick={onOpenBrowserSession}
+                  pending={isBrowserSessionPending}
+                  size="sm"
+                  type="button"
+                  variant="primary"
+                >
+                  Open browser
+                </Button>
+              ) : (
+                <Button
+                  asChild
+                  className="h-9 w-fit whitespace-nowrap px-3 text-center text-xs normal-case tracking-normal"
+                  size="sm"
+                  variant="primary"
+                >
+                  <Link to={searchSetupHref}>{searchSetupActionLabel}</Link>
+                </Button>
+              )}
+            </div>
+          ) : null}
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <Button
+              aria-describedby={
+                searchDisabledReason
+                  ? "discovery-search-disabled-reason"
+                  : undefined
+              }
+              // A page-wide bar is not a button: the primary search command
+              // keeps its natural width beside the browser action.
+              className="h-9 w-fit whitespace-nowrap px-3.5 text-center text-xs normal-case tracking-normal"
+              disabled={!canRunDiscovery}
+              pending={isDiscoveryAllPending}
+              onClick={onRunAgentDiscovery}
+              size="sm"
+              type="button"
+              variant={canRunDiscovery ? "primary" : "secondary"}
+            >
+              Search jobs
+            </Button>
+            {secondaryActions}
+          </div>
+          {searchDisabledReason && !showSourcesSetupAction ? (
+            <p
+              className="text-(length:--text-description) leading-6 text-(--warning-text)"
+              id="discovery-search-disabled-reason"
+              role="status"
+            >
+              {searchDisabledReason}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {onRunAgentDiscovery ? null : (
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {secondaryActions}
+        </div>
+      )}
     </div>
   );
 }

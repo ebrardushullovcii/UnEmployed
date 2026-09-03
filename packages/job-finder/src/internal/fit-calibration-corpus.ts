@@ -236,6 +236,12 @@ function cases(cohortId: string, specs: CaseSpec[]): FitCalibrationCase[] {
       posting: JobPostingSchema.parse({
         source: "target_site",
         sourceJobId: `${cohortId}_${id}`,
+        // Calibration postings model the output of a completed listing-route
+        // discovery run.  Keep this explicit so their session-bound
+        // assessment is authoritative in the ranking benchmark rather than
+        // inheriting the schema's offline catalog default.
+        discoveryMethod: "browser_agent",
+        collectionMethod: "listing_route",
         canonicalUrl: `https://jobs.example.test/${cohortId}/${id}`,
         applicationUrl: `https://apply.example.test/${cohortId}/${id}`,
         title,

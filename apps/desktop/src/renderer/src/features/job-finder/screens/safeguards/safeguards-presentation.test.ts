@@ -4,6 +4,7 @@ import { JobFinderIntelligenceSafeguardsSchema } from "@unemployed/contracts";
 import {
   buildSafeguardsPresentationModel,
   filterSafeguardRows,
+  formatSafeguardTimestamp,
   type SafeguardRow,
 } from "./safeguards-presentation";
 
@@ -256,6 +257,128 @@ describe("buildSafeguardsPresentationModel", () => {
     ).toEqual(["resolve", "dismiss"]);
   });
 
+  it("counts All as the rendered rows and as the sum of its categories", () => {
+    const model = buildSafeguardsPresentationModel({
+      safeguards: buildSafeguards({
+        caps: [
+          {
+            id: "cap_1",
+            companyId: "company_signal",
+            maxApplicationsPerWindow: 3,
+            windowDays: 7,
+            currentWindowCount: 3,
+            limitReached: true,
+            windowStartedAt: "2026-08-01T00:00:00.000Z",
+            explanation: "Per-company weekly cap reached.",
+            recoveryGuidance: "Wait for rollover or pick another company.",
+          },
+        ],
+        pauses: [
+          {
+            id: "pause_1",
+            windowStartedAt: "2026-08-01T00:00:00.000Z",
+            failuresInWindow: 4,
+            sampleSize: 5,
+            failureRatePercent: 80,
+            failureRateThresholdPercent: 40,
+            minimumSample: 5,
+            paused: true,
+            explanation: "Elevated discovery failure rate.",
+            recoveryGuidance: "Inspect the failed source history.",
+          },
+        ],
+      }),
+      workspace: workspaceWith(),
+    });
+
+    const { counts } = model;
+    const categorySum =
+      counts.caps +
+      counts.conflicts +
+      counts.signals +
+      counts.pauses +
+      counts.reviews +
+      counts.contradictions +
+      counts.dismissals;
+
+    expect(counts.total).toBe(model.rows.length);
+    expect(counts.total).toBe(categorySum);
+    expect(counts.total).toBe(2);
+  });
+
+  it("never builds a row for a threshold that has not been crossed", () => {
+    const model = buildSafeguardsPresentationModel({
+      safeguards: buildSafeguards({
+        caps: [
+          {
+            id: "cap_quiet",
+            companyId: "company_signal",
+            maxApplicationsPerWindow: 3,
+            windowDays: 7,
+            currentWindowCount: 1,
+            limitReached: false,
+            windowStartedAt: "2026-08-01T00:00:00.000Z",
+            explanation: "Per-company weekly cap.",
+            recoveryGuidance: "Nothing to do.",
+          },
+        ],
+        pauses: [
+          {
+            id: "pause_quiet",
+            windowStartedAt: "2026-08-01T00:00:00.000Z",
+            failuresInWindow: 0,
+            sampleSize: 1,
+            failureRatePercent: 0,
+            failureRateThresholdPercent: 40,
+            minimumSample: 5,
+            paused: false,
+            explanation: "Failures stayed under the threshold.",
+            recoveryGuidance: "Nothing to do.",
+          },
+        ],
+      }),
+      workspace: workspaceWith(),
+    });
+
+    expect(model.rows).toHaveLength(0);
+    expect(model.counts.total).toBe(0);
+    expect(model.counts.blockers).toBe(0);
+  });
+
+  it("carries a real destination for every recovery sentence that names one", () => {
+    const model = buildSafeguardsPresentationModel({
+      safeguards: buildSafeguards({
+        pauses: [
+          {
+            id: "pause_1",
+            windowStartedAt: "2026-08-01T00:00:00.000Z",
+            failuresInWindow: 4,
+            sampleSize: 5,
+            failureRatePercent: 80,
+            failureRateThresholdPercent: 40,
+            minimumSample: 5,
+            paused: true,
+            explanation: "Elevated discovery failure rate.",
+            recoveryGuidance:
+              "Inspect the failed source history and retry only after the cause is understood.",
+          },
+        ],
+      }),
+      workspace: workspaceWith(),
+    });
+
+    const pauseRow = model.rows.find((row) => row.kind === "pauses");
+    expect(pauseRow?.recoveryLink).toEqual({
+      href: "/job-finder/discovery",
+      label: "Open Find jobs",
+    });
+    // No raw ISO instant reaches the user.
+    expect(pauseRow?.subtitle).not.toContain("2026-08-01T00:00:00.000Z");
+    expect(pauseRow?.subtitle).toContain(
+      formatSafeguardTimestamp("2026-08-01T00:00:00.000Z"),
+    );
+  });
+
   it("dismissals suppress a signal row until restored", () => {
     const signal = {
       id: "signal_1",
@@ -315,6 +438,7 @@ describe("filterSafeguardRows", () => {
       },
       tags: ["signal:closed"],
       controls: [],
+      recoveryLink: null,
       searchText: "listing closed signal systems",
       ...overrides,
     };

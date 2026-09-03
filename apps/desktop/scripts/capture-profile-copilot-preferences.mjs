@@ -48,6 +48,89 @@ async function getWorkspace(window) {
   return window.evaluate(() => window.unemployed.jobFinder.getWorkspace());
 }
 
+async function captureProfileCopilotReviewDiagnostics(window) {
+  const diagnostics = await window.evaluate(() => {
+    const describeElement = (element) => {
+      if (!element) {
+        return null;
+      }
+
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return {
+        tagName: element.tagName,
+        text: element.textContent?.trim().slice(0, 240) ?? "",
+        className: element.className,
+        rect: {
+          bottom: rect.bottom,
+          height: rect.height,
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          width: rect.width,
+        },
+        display: style.display,
+        visibility: style.visibility,
+        opacity: style.opacity,
+        pointerEvents: style.pointerEvents,
+        overflow: style.overflow,
+        overflowY: style.overflowY,
+        position: style.position,
+        zIndex: style.zIndex,
+        disabled:
+          element instanceof HTMLButtonElement ? element.disabled : false,
+      };
+    };
+
+    const reviewSection = document.querySelector(
+      '[data-profile-copilot-review-actions="true"]',
+    );
+    const panel = document.querySelector('[data-profile-copilot-panel="true"]');
+    const content = document.querySelector(
+      '[data-profile-copilot-content="true"]',
+    );
+    const transcript = document.querySelector(
+      '[data-profile-copilot-transcript="true"]',
+    );
+    const composerFooter = document.querySelector(
+      '[data-profile-copilot-composer-footer="true"]',
+    );
+    const applyButtons = Array.from(
+      document.querySelectorAll('button[aria-label^="Apply changes"]'),
+    );
+    const firstButton = applyButtons[0] ?? null;
+    const firstButtonRect = firstButton?.getBoundingClientRect();
+    const hitTest = firstButtonRect
+      ? document.elementsFromPoint(
+          firstButtonRect.left + firstButtonRect.width / 2,
+          firstButtonRect.top + firstButtonRect.height / 2,
+        )
+      : [];
+
+    return {
+      viewport: { height: window.innerHeight, width: window.innerWidth },
+      reviewSection: describeElement(reviewSection),
+      panel: describeElement(panel),
+      content: describeElement(content),
+      transcript: {
+        ...describeElement(transcript),
+        scrollHeight: transcript?.scrollHeight ?? null,
+        scrollTop: transcript?.scrollTop ?? null,
+        clientHeight: transcript?.clientHeight ?? null,
+      },
+      composerFooter: describeElement(composerFooter),
+      applyButtons: applyButtons.map(describeElement),
+      hitTest: hitTest.slice(0, 8).map(describeElement),
+    };
+  });
+
+  await writeJson("02-review-action-diagnostics.json", diagnostics);
+  await window.screenshot({
+    animations: "disabled",
+    path: path.join(outputDir, "02-review-action-diagnostics.png"),
+  });
+}
+
 async function addListEditorValue(window, inputSelector, value) {
   const input = window.locator(inputSelector);
   await input.fill(value);
@@ -99,7 +182,7 @@ async function clickProfilePreferencesTab(window) {
 
 async function ensureProfileCopilotOpen(window) {
   const requestField = window.getByRole("textbox", {
-    name: "Ask for an edit",
+    name: "Message the Assistant",
     exact: true,
   });
 
@@ -108,7 +191,7 @@ async function ensureProfileCopilotOpen(window) {
   }
 
   await window
-    .getByRole("button", { name: /Profile Copilot/ })
+    .getByRole("button", { name: /the Assistant/ })
     .last()
     .click();
   await requestField.waitFor({ state: "visible", timeout: 10000 });
@@ -125,7 +208,7 @@ async function applyProfileCopilotRequest(window, request, options = {}) {
 
   await requestField.fill(request);
   await window
-    .getByRole("button", { name: "Send request", exact: true })
+    .getByRole("button", { name: "Send message", exact: true })
     .click();
 
   if (verifyDraftWhilePendingText) {
@@ -159,10 +242,16 @@ async function applyProfileCopilotRequest(window, request, options = {}) {
 
   for (const patchGroup of latestAssistantMessage?.patchGroups ?? []) {
     if (autoApplyReview && patchGroup.applyMode === "needs_review") {
-      await window
-        .getByRole("button", { name: "Apply changes", exact: true })
-        .first()
-        .click();
+      const applyButton = window
+        .getByRole("button", { name: /^Apply changes(?::|$)/ })
+        .first();
+
+      try {
+        await applyButton.click();
+      } catch (error) {
+        await captureProfileCopilotReviewDiagnostics(window);
+        throw error;
+      }
     }
   }
 
@@ -207,7 +296,7 @@ async function captureBlockedProfileCopilotMutationGuard(window) {
   );
 
   const sendButton = window.getByRole("button", {
-    name: "Send request",
+    name: "Send message",
     exact: true,
   });
   if (!(await sendButton.isDisabled())) {
@@ -225,7 +314,7 @@ async function captureBlockedProfileCopilotMutationGuard(window) {
     .waitFor({ timeout: 10000 });
 
   const applyChangesButton = window
-    .getByRole("button", { name: "Apply changes", exact: true })
+    .getByRole("button", { name: /^Apply changes(?::|$)/ })
     .first();
   await applyChangesButton.waitFor({ state: "visible", timeout: 10000 });
   if (!(await applyChangesButton.isDisabled())) {
@@ -235,7 +324,7 @@ async function captureBlockedProfileCopilotMutationGuard(window) {
   }
 
   const rejectButton = window
-    .getByRole("button", { name: "Reject", exact: true })
+    .getByRole("button", { name: /^Reject(?: changes:|$)/ })
     .first();
   if (!(await rejectButton.isDisabled())) {
     throw new Error(

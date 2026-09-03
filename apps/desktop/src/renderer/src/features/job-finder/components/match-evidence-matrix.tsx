@@ -10,7 +10,14 @@ import type {
   RoleSuitabilityState,
 } from "@unemployed/contracts";
 import type { BadgeTone } from "../lib/job-finder-types";
-import { fitRecommendationCopy } from "../lib/match-assessment-presentation";
+import {
+  fitRecommendationCopy,
+  getFitEvidenceDepth,
+} from "../lib/match-assessment-presentation";
+import {
+  scrubJobAbsencePlaceholders,
+  scrubJobAbsencePlaceholdersList,
+} from "../lib/job-employer-location-display";
 import { StatusBadge } from "./status-badge";
 
 const roleSuitabilityCopy: Record<
@@ -84,6 +91,31 @@ interface DimensionRowProps {
   status: { label: string; tone: BadgeTone };
 }
 
+/**
+ * Plain-language rewrite of the one machine-shaped evidence row the scorer
+ * emits ("Listing detail depth — card only"); every other evidence row is
+ * already a sentence.
+ */
+function presentDimensionEvidence(
+  primaryEvidence: MatchDimensionEvidence,
+): string {
+  const label = scrubJobAbsencePlaceholders(primaryEvidence.label);
+  const detail = scrubJobAbsencePlaceholders(primaryEvidence.detail);
+  if (label === "Listing detail depth") {
+    switch (detail) {
+      case "card only":
+        return "Only the listing summary was available.";
+      case "partial detail":
+        return "Part of the listing detail was available.";
+      case "detail enriched":
+        return "The full listing detail was available.";
+      default:
+        break;
+    }
+  }
+  return [label, detail].filter(Boolean).join(" — ");
+}
+
 function DimensionRow({
   evidence,
   explanation,
@@ -92,6 +124,10 @@ function DimensionRow({
   status,
 }: DimensionRowProps) {
   const primaryEvidence = evidence[0];
+  const scrubbedExplanation = scrubJobAbsencePlaceholders(explanation);
+  const presentedEvidence = primaryEvidence
+    ? presentDimensionEvidence(primaryEvidence)
+    : "";
 
   return (
     <div
@@ -106,14 +142,16 @@ function DimensionRow({
           <StatusBadge className="shrink-0" tone={status.tone}>
             {status.label}
           </StatusBadge>
-          <p className="min-w-0 flex-1 break-words text-(length:--text-small) leading-6 text-foreground-soft">
-            {explanation}
-          </p>
+          {scrubbedExplanation ? (
+            <p className="min-w-0 flex-1 break-words text-(length:--text-small) leading-6 text-foreground-soft">
+              {scrubbedExplanation}
+            </p>
+          ) : null}
         </div>
-        {primaryEvidence ? (
+        {presentedEvidence ? (
           <p className="break-words text-(length:--text-tiny) leading-5 text-foreground-muted">
             <span className="font-medium text-foreground-soft">Evidence:</span>{" "}
-            {primaryEvidence.label} — {primaryEvidence.detail}
+            {presentedEvidence}
           </p>
         ) : null}
       </dd>
@@ -127,6 +165,12 @@ function RequirementRow({
   requirement: JobRequirementAssessment;
 }) {
   const status = statusCopy[requirement.status];
+  const scrubbedExplanation = scrubJobAbsencePlaceholders(
+    requirement.explanation,
+  );
+  const scrubbedJobEvidence = scrubJobAbsencePlaceholders(
+    requirement.jobEvidence,
+  );
 
   return (
     <li className="grid gap-3 border-t border-(--surface-panel-border) py-4 first:border-t-0 first:pt-0 last:pb-0">
@@ -140,21 +184,25 @@ function RequirementRow({
               {requirement.importance}
             </span>
           </div>
-          <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-            {requirement.explanation}
-          </p>
+          {scrubbedExplanation ? (
+            <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+              {scrubbedExplanation}
+            </p>
+          ) : null}
         </div>
         <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
       </div>
 
-      <div className="grid gap-1.5 rounded-(--radius-small) border border-(--surface-panel-border) bg-background/25 px-3 py-2.5">
-        <span className="text-(length:--text-label-mono-xs) uppercase tracking-(--tracking-badge) text-foreground-muted">
-          Listing says
-        </span>
-        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-          “{requirement.jobEvidence}”
-        </p>
-      </div>
+      {scrubbedJobEvidence ? (
+        <div className="grid gap-1.5 rounded-(--radius-small) border border-(--surface-panel-border) bg-background/25 px-3 py-2.5">
+          <span className="text-(length:--text-label-mono-xs) uppercase tracking-(--tracking-badge) text-foreground-muted">
+            Listing says
+          </span>
+          <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+            “{scrubbedJobEvidence}”
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid gap-2">
         <span className="text-(length:--text-label-mono-xs) uppercase tracking-(--tracking-badge) text-foreground-muted">
@@ -186,13 +234,33 @@ function RequirementRow({
   );
 }
 
+/**
+ * The evidence-depth rule lives with the rest of the score presentation so
+ * the row, the inspector and this breakdown cannot disagree about whether a
+ * percentage was earned. Re-exported here for the surfaces that already
+ * import it from the matrix.
+ */
+export {
+  FIT_TITLE_ONLY_REASON,
+  getFitEvidenceDepth,
+  type FitEvidenceDepth,
+} from "../lib/match-assessment-presentation";
+
 interface MatchEvidenceMatrixProps {
   assessment: MatchAssessment;
+  /**
+   * The qualified score sentence for this breakdown. This is the only place a
+   * withheld percentage may appear, so callers that know the job's binding
+   * state pass their own label; the default is derived from the assessment's
+   * own evidence depth. Pass `null` to print no number at all.
+   */
+  scoreLabel?: string | null;
   showRecommendation?: boolean;
 }
 
 export function MatchEvidenceMatrix({
   assessment,
+  scoreLabel,
   showRecommendation = true,
 }: MatchEvidenceMatrixProps) {
   const requirements = assessment.requirements ?? [];
@@ -208,12 +276,21 @@ export function MatchEvidenceMatrix({
       requirement.importance === "required" &&
       requirement.status !== "supported",
   ).length;
+  const evidenceDepth = getFitEvidenceDepth(assessment);
+  const resolvedScoreLabel =
+    scoreLabel === undefined
+      ? evidenceDepth.isTitleOnly
+        ? `Title-only estimate: ${assessment.score}%`
+        : `${assessment.score}% fit`
+      : scoreLabel;
   const hasDetailedFitEvidence =
     assessment.scorerVersion >= 3 || requirements.length > 0;
-  const legacyReasons = assessment.reasons.filter(
-    (reason) => reason.trim().length > 0,
+  const legacyReasons = scrubJobAbsencePlaceholdersList(
+    assessment.reasons.filter((reason) => reason.trim().length > 0),
   );
-  const legacyGaps = assessment.gaps.filter((gap) => gap.trim().length > 0);
+  const legacyGaps = scrubJobAbsencePlaceholdersList(
+    assessment.gaps.filter((gap) => gap.trim().length > 0),
+  );
   const showLegacySummary =
     !hasDetailedFitEvidence &&
     (legacyReasons.length > 0 || legacyGaps.length > 0);
@@ -246,23 +323,80 @@ export function MatchEvidenceMatrix({
     explanation:
       "The listing does not provide comparable compensation evidence.",
   };
+  const informativeDimensions = [
+    roleSuitability.state === "unknown"
+      ? null
+      : {
+          evidence: roleSuitability.evidence,
+          explanation: roleSuitability.explanation,
+          id: "role-suitability",
+          label: "Role and requirements",
+          status: roleSuitabilityCopy[roleSuitability.state],
+        },
+    preferenceAlignment.state === "unknown" ||
+    preferenceAlignment.state === "not_configured"
+      ? null
+      : {
+          evidence: preferenceAlignment.evidence,
+          explanation: preferenceAlignment.explanation,
+          id: "preference-alignment",
+          label: "Your preferences",
+          status: preferenceAlignmentCopy[preferenceAlignment.state],
+        },
+    compensationFit.state === "unknown" ||
+    compensationFit.state === "not_requested"
+      ? null
+      : {
+          evidence: [] as readonly MatchDimensionEvidence[],
+          explanation: compensationFit.explanation,
+          id: "compensation",
+          label: "Compensation",
+          status: compensationCopy[compensationFit.state],
+        },
+    applicationEffort.level === "unknown"
+      ? null
+      : {
+          evidence: applicationEffort.evidence,
+          explanation: applicationEffort.explanation,
+          id: "application-effort",
+          label: "Application effort",
+          status: applicationEffortCopy[applicationEffort.level],
+        },
+    evidenceConfidence.level === "unavailable"
+      ? null
+      : {
+          evidence: evidenceConfidence.evidence,
+          explanation: evidenceConfidence.explanation,
+          id: "evidence-confidence",
+          label: "Evidence coverage",
+          status: evidenceConfidenceCopy[evidenceConfidence.level],
+        },
+  ].filter((dimension) => dimension !== null);
 
   return (
     <section
       aria-labelledby="fit-breakdown-heading"
       className="surface-card-tint grid min-w-0 gap-4 rounded-(--radius-field) border border-(--surface-panel-border) p-4"
     >
+      {/* One heading, not three. The percentage lives here — beside the
+          evidence it came from — and never in the row or inspector headline
+          when the evidence behind it is only the listing title. */}
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="grid min-w-0 gap-1">
           <h3
-            className="text-(length:--text-label) uppercase tracking-(--tracking-heading) text-muted-foreground"
+            className="break-words text-(length:--text-body) text-(--text-headline)"
             id="fit-breakdown-heading"
           >
-            Fit breakdown
+            Score and evidence
           </h3>
-          <strong className="break-words text-(length:--text-body) text-(--text-headline)">
-            Five checks to review before you shortlist
-          </strong>
+          {resolvedScoreLabel ? (
+            <strong
+              className="text-(length:--text-small) font-medium text-foreground-soft"
+              data-testid="fit-breakdown-score"
+            >
+              {resolvedScoreLabel}
+            </strong>
+          ) : null}
         </div>
         {showRecommendation ? (
           <StatusBadge tone={recommendation.tone}>
@@ -272,13 +406,19 @@ export function MatchEvidenceMatrix({
       </div>
 
       <div className="grid gap-1.5">
+        {evidenceDepth.isTitleOnly ? (
+          <p
+            className="rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-6 text-(--warning-text)"
+            data-testid="fit-title-only-note"
+          >
+            {evidenceDepth.reason}
+          </p>
+        ) : null}
         <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-          {assessment.recommendationRationale ??
-            "Review the listing and resume evidence before applying."}
-        </p>
-        <p className="text-(length:--text-tiny) leading-5 text-foreground-muted">
-          Application effort never raises fit. Evidence coverage describes how
-          much explicit information backs the assessment, not your hiring odds.
+          {scrubJobAbsencePlaceholders(
+            assessment.recommendationRationale ??
+              "Review the listing and resume evidence before applying.",
+          ) || "Review the listing and resume evidence before applying."}
         </p>
       </div>
 
@@ -321,49 +461,38 @@ export function MatchEvidenceMatrix({
         </div>
       ) : null}
 
-      <dl className="grid min-w-0 gap-2" data-testid="fit-dimensions">
-        <DimensionRow
-          evidence={roleSuitability.evidence}
-          explanation={roleSuitability.explanation}
-          id="role-suitability"
-          label="Role and requirements"
-          status={roleSuitabilityCopy[roleSuitability.state]}
-        />
-        <DimensionRow
-          evidence={preferenceAlignment.evidence}
-          explanation={preferenceAlignment.explanation}
-          id="preference-alignment"
-          label="Your preferences"
-          status={preferenceAlignmentCopy[preferenceAlignment.state]}
-        />
-        <DimensionRow
-          evidence={[]}
-          explanation={compensationFit.explanation}
-          id="compensation"
-          label="Compensation"
-          status={compensationCopy[compensationFit.state]}
-        />
-        <DimensionRow
-          evidence={applicationEffort.evidence}
-          explanation={applicationEffort.explanation}
-          id="application-effort"
-          label="Application effort"
-          status={applicationEffortCopy[applicationEffort.level]}
-        />
-        <DimensionRow
-          evidence={evidenceConfidence.evidence}
-          explanation={evidenceConfidence.explanation}
-          id="evidence-confidence"
-          label="Evidence coverage"
-          status={evidenceConfidenceCopy[evidenceConfidence.level]}
-        />
-      </dl>
+      {/* A dimension that knows nothing is not evidence. Five cards reading
+          UNKNOWN / NOT REQUESTED / UNAVAILABLE restate the title-only note
+          above them in ~900px, so only rows that actually carry a finding are
+          rendered; the rest are dropped until they have something to show. */}
+      {informativeDimensions.length > 0 ? (
+        <dl className="grid min-w-0 gap-2" data-testid="fit-dimensions">
+          {informativeDimensions.map((dimension) => (
+            <DimensionRow
+              evidence={dimension.evidence}
+              explanation={dimension.explanation}
+              id={dimension.id}
+              key={dimension.id}
+              label={dimension.label}
+              status={dimension.status}
+            />
+          ))}
+        </dl>
+      ) : (
+        <p
+          className="text-(length:--text-small) leading-6 text-foreground-muted"
+          data-testid="fit-dimensions-empty"
+        >
+          Nothing else has been checked yet. Open the listing to fill in the
+          role, preference, pay, and evidence details.
+        </p>
+      )}
 
       {requiredGapCount > 0 ? (
         <div className="rounded-(--radius-small) border border-destructive/25 bg-destructive/5 px-3 py-2.5 text-(length:--text-small) leading-6 text-destructive">
           {requiredGapCount} required item{requiredGapCount === 1 ? "" : "s"}{" "}
-          still {requiredGapCount === 1 ? "needs" : "need"} evidence or conflict
-          with the saved profile.
+          still {requiredGapCount === 1 ? "needs" : "need"} evidence or{" "}
+          {requiredGapCount === 1 ? "conflicts" : "conflict"} with your profile.
         </div>
       ) : null}
 
@@ -379,7 +508,7 @@ export function MatchEvidenceMatrix({
             ))}
           </ul>
         </details>
-      ) : (
+      ) : evidenceDepth.isTitleOnly ? null : (
         <p className="text-(length:--text-small) leading-6 text-foreground-muted">
           Requirement-by-requirement evidence is unavailable for this listing.
         </p>

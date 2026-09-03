@@ -6,7 +6,14 @@ import type {
   MatchAssessmentChangeAudit,
   SavedJob,
 } from "@unemployed/contracts";
-import { useLayoutEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { Button } from "@renderer/components/ui/button";
 import { EmptyState } from "../../components/empty-state";
 import { PreferenceList } from "../../components/preference-list";
@@ -23,15 +30,40 @@ import {
   getApplicationTone,
   getPostedDateLabel,
 } from "../../lib/job-finder-utils";
-import { fitRecommendationCopy } from "../../lib/match-assessment-presentation";
+import {
+  fitRecommendationCopy,
+  getMatchAssessmentPresentation,
+} from "../../lib/match-assessment-presentation";
 import { presentListingActivity } from "../../lib/listing-activity-presentation";
 import { formatNormalizedCompensation } from "../../lib/normalized-compensation";
+import {
+  formatJobEmployerLocationLine,
+  resolveJobEmployerDisplay,
+  scrubJobAbsencePlaceholders,
+} from "../../lib/job-employer-location-display";
 import type { JobFinderQueuedJobOutcome } from "../../lib/job-finder-types";
 import {
   DISCOVERY_DETAIL_HEADING_ID,
   DISCOVERY_DETAIL_REGION_ID,
 } from "./discovery-accessibility";
 import { getDiscoverySourceLabels } from "./discovery-source-attribution";
+
+/**
+ * The bare workflow value reads as a verdict on the job itself ("APPROVED"),
+ * not on the artifact the state is actually about.
+ */
+export function presentDiscoveryJobStatusLabel(status: string): string {
+  switch (status) {
+    case "approved":
+      return "Resume approved";
+    case "ready_for_review":
+      return "Resume needs review";
+    case "drafting":
+      return "Resume in progress";
+    default:
+      return formatStatusLabel(status);
+  }
+}
 
 const discoveryFeedbackOptions: ReadonlyArray<{
   value: DiscoveryFeedbackReason;
@@ -210,6 +242,91 @@ export function SourceChronologyDisclosure(props: {
   );
 }
 
+/**
+ * The inspector's two decision blocks — the Shortlist summary above and the
+ * Not-interested footer below — are flex siblings of the scroller, never its
+ * ancestors, so detail content can never render underneath either bar. What
+ * the live walkthrough exposed is the other half of that contract: the
+ * scroller needs its own breathing room and a visible boundary, or a
+ * half-height fact card butted straight against the Shortlist block reads as
+ * a collision instead of as "there is more above".
+ *
+ * `pt-6`/`pb-6` keep the first and last rows clear of both bars, and the
+ * matching `scroll-pt-6`/`scroll-pb-6` keep programmatic reveals (focus moves,
+ * `scrollIntoView` from the results list) from parking a row flush against an
+ * edge.
+ */
+export const DISCOVERY_DETAIL_SCROLL_AREA_CLASS_NAME =
+  "min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-pb-6 scroll-pt-6 px-6 pb-6 pt-6";
+
+/** Height of one edge treatment; matches the scroller's own edge padding. */
+const DISCOVERY_DETAIL_SCROLL_EDGE_CLASS_NAME =
+  "pointer-events-none absolute inset-x-0 h-6 z-10";
+
+type DiscoveryDetailScrollEdges = { top: boolean; bottom: boolean };
+
+/**
+ * Reports which edges of a scroller currently clip content. Measured from the
+ * element itself (not from a scroll delta) so it is correct on first paint,
+ * after a resize, after a disclosure such as "How this was scored" opens, and
+ * after the selected job resets the scroll position.
+ */
+function useDiscoveryDetailScrollEdges(
+  scrollAreaRef: RefObject<HTMLDivElement | null>,
+  measurementKey: string,
+): DiscoveryDetailScrollEdges {
+  const [edges, setEdges] = useState<DiscoveryDetailScrollEdges>({
+    top: false,
+    bottom: false,
+  });
+
+  const measure = useCallback(() => {
+    const element = scrollAreaRef.current;
+    if (!element) {
+      setEdges({ top: false, bottom: false });
+      return;
+    }
+
+    // Sub-pixel layout rounding must not flicker an edge on and off.
+    const next = {
+      top: element.scrollTop > 1,
+      bottom:
+        element.scrollHeight - element.clientHeight - element.scrollTop > 1,
+    };
+    setEdges((current) =>
+      current.top === next.top && current.bottom === next.bottom
+        ? current
+        : next,
+    );
+  }, [scrollAreaRef]);
+
+  useEffect(() => {
+    const element = scrollAreaRef.current;
+    measure();
+    if (!element) {
+      return;
+    }
+
+    element.addEventListener("scroll", measure, { passive: true });
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => measure());
+    observer?.observe(element);
+    const firstChild = element.firstElementChild;
+    if (firstChild) {
+      observer?.observe(firstChild);
+    }
+
+    return () => {
+      element.removeEventListener("scroll", measure);
+      observer?.disconnect();
+    };
+  }, [measure, measurementKey, scrollAreaRef]);
+
+  return edges;
+}
+
 export function DiscoveryDetailPanel({
   discoveryTargets,
   isJobPending,
@@ -250,6 +367,10 @@ export function DiscoveryDetailPanel({
     useState<string | null>(null);
   const [isDismissPending, setDismissPending] = useState(false);
   const [dismissError, setDismissError] = useState<string | null>(null);
+  const detailScrollEdges = useDiscoveryDetailScrollEdges(
+    detailScrollAreaRef,
+    selectedJob?.id ?? "",
+  );
   selectedJobIdRef.current = selectedJob?.id ?? null;
   const sourceLabels = getDiscoverySourceLabels(
     selectedJob?.provenance ?? [],
@@ -275,7 +396,24 @@ export function DiscoveryDetailPanel({
         selectedJob.matchAssessment.recommendation ?? "review_before_applying"
       ]
     : null;
+  const assessmentPresentation = selectedJob
+    ? getMatchAssessmentPresentation(selectedJob)
+    : null;
   const listingDate = selectedJob ? getPostedDateLabel(selectedJob) : null;
+  // A listing with no posted or provider-updated date must not render a bare
+  // "Updated — Unknown" fact; the absent date is not useful information.
+  const hasListingDate = Boolean(
+    selectedJob &&
+    (selectedJob.postedAtText ??
+      selectedJob.postedAt ??
+      selectedJob.providerUpdatedAt),
+  );
+  const applicationMethodLabel =
+    selectedJob?.applyPath === "easy_apply"
+      ? "Easy Apply"
+      : selectedJob?.applyPath === "external_redirect"
+        ? "Apply on company site"
+        : "Manual application";
   const listingActivity = presentListingActivity(
     selectedJob?.listingActivity ?? { status: "unknown" },
   );
@@ -283,6 +421,48 @@ export function DiscoveryDetailPanel({
     selectedJob?.listingActivity?.status === "inactive" ||
     selectedJob?.listingActivity?.status === "stale";
   const isReportedClosed = selectedJob?.listingActivity?.status === "closed";
+  const employerLocationLine = selectedJob
+    ? formatJobEmployerLocationLine({
+        company: selectedJob.company,
+        location: selectedJob.location,
+        canonicalUrl: selectedJob.canonicalUrl,
+        separator: " • ",
+      })
+    : "";
+  const employerDisplay = selectedJob
+    ? resolveJobEmployerDisplay({
+        company: selectedJob.company,
+        canonicalUrl: selectedJob.canonicalUrl,
+      })
+    : null;
+  // An echoed job title is not listing text; it reads as a bug under an
+  // "About this job" heading.
+  const listingText = (() => {
+    if (!selectedJob) {
+      return "";
+    }
+    const text = jobDescriptionToText(
+      selectedJob.summary ?? selectedJob.description,
+    ).trim();
+    return text.toLowerCase() === selectedJob.title.trim().toLowerCase()
+      ? ""
+      : text;
+  })();
+  // One honest sentence instead of a wall of cards: the hedge when nothing was
+  // verified, otherwise the first saved reason.
+  const whyItFitsLine = selectedJob
+    ? (assessmentPresentation?.withheldReason ??
+      (selectedJob.matchAssessment.recommendation === "skip"
+        ? scrubJobAbsencePlaceholders(
+            selectedJob.matchAssessment.recommendationRationale ?? "",
+          ) || "This listing conflicts with your saved profile."
+        : scrubJobAbsencePlaceholders(
+            selectedJob.matchAssessment.reasons.find(
+              (reason) => reason.trim().length > 0,
+            ) ?? "",
+          ) ||
+          "Estimated from the listing requirements and evidence in your approved profile."))
+    : "";
 
   useLayoutEffect(() => {
     const selectedJobId = selectedJob?.id ?? null;
@@ -429,13 +609,13 @@ export function DiscoveryDetailPanel({
       className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) scroll-mt-4 sm:scroll-mt-[8.25rem] min-[1440px]:scroll-mt-[4.5rem] xl:h-full xl:min-h-0"
       id={DISCOVERY_DETAIL_REGION_ID}
     >
-      <div className="flex min-h-14 flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-4 py-3">
-        <p className="text-base font-semibold text-(--text-headline)">
+      <div className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-4 py-3">
+        <p className="text-(length:--text-heading-3) font-semibold text-(--text-headline)">
           Job inspector
         </p>
         {selectedJob ? (
           <StatusBadge tone={getApplicationTone(selectedJob.status)}>
-            {formatStatusLabel(selectedJob.status)}
+            {presentDiscoveryJobStatusLabel(selectedJob.status)}
           </StatusBadge>
         ) : null}
       </div>
@@ -456,255 +636,14 @@ export function DiscoveryDetailPanel({
               >
                 {selectedJob.title}
               </h2>
-              <p className="text-(length:--text-description) text-foreground-muted">
-                {selectedJob.company} • {selectedJob.location}
-              </p>
-              {selectedJobCompanyId && onOpenCompany ? (
-                <Button
-                  className="justify-self-start"
-                  onClick={() => onOpenCompany(selectedJobCompanyId)}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  View {selectedJob.company} in Companies
-                </Button>
+              {employerLocationLine ? (
+                <p className="text-(length:--text-description) text-foreground-soft">
+                  {employerLocationLine}
+                </p>
               ) : null}
             </div>
-          </div>
-
-          <div
-            aria-label="Job detail content"
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pb-5 pt-5"
-            data-locked-pane-scroll-region
-            data-testid="discovery-detail-scroll-area"
-            ref={detailScrollAreaRef}
-            role="region"
-            tabIndex={0}
-          >
-            <div className="grid min-h-full content-start gap-5">
-              <div className="grid sm:grid-cols-2" data-job-fact-grid>
-                <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
-                  <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Overall assessment
-                  </span>
-                  <strong
-                    aria-label={`Overall fit: ${selectedJob.matchAssessment.score} percent`}
-                    className="mt-2 block text-(length:--text-section-title) text-(--text-headline)"
-                  >
-                    {selectedJob.matchAssessment.score}%
-                  </strong>
-                  {recommendation ? (
-                    <StatusBadge className="mt-2" tone={recommendation.tone}>
-                      {recommendation.label}
-                    </StatusBadge>
-                  ) : null}
-                  <p className="mt-2 text-(length:--text-small) leading-5 text-foreground-soft">
-                    Estimated from the listing requirements and evidence in your
-                    approved profile. Unknown details do not count as evidence.
-                  </p>
-                </div>
-                <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
-                  <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Listing activity
-                  </span>
-                  <StatusBadge className="mt-2" tone={listingActivity.tone}>
-                    {listingActivity.label}
-                  </StatusBadge>
-                  <p className="mt-2 break-words text-(length:--text-small) leading-5 text-foreground-soft">
-                    {listingActivity.description}
-                  </p>
-                </div>
-                <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-                  <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    {listingDate?.label}
-                  </span>
-                  <strong className="mt-2 block text-(length:--text-section-title) text-(--text-headline)">
-                    {listingDate?.value}
-                  </strong>
-                </div>
-                <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-                  <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Work mode
-                  </span>
-                  <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
-                    {selectedJob.workMode.length > 0
-                      ? selectedJob.workMode.join(", ")
-                      : "Not specified"}
-                  </strong>
-                </div>
-                <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-                  <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Application method
-                  </span>
-                  <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
-                    {selectedJob.applyPath === "easy_apply"
-                      ? "Easy Apply"
-                      : selectedJob.applyPath === "external_redirect"
-                        ? "Apply on company site"
-                        : "Manual application"}
-                  </strong>
-                </div>
-                {selectedJob.salaryText || normalizedCompensation ? (
-                  <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
-                    <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                      Salary
-                    </span>
-                    <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
-                      {selectedJob.salaryText ??
-                        "Provided through structured compensation metadata"}
-                    </strong>
-                    {normalizedCompensation ? (
-                      <p className="mt-2 text-(length:--text-small) text-foreground-soft">
-                        Normalized: {normalizedCompensation}
-                      </p>
-                    ) : null}
-                  </div>
-                ) : null}
-                {selectedJob.atsProvider ? (
-                  <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-                    <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                      ATS or provider
-                    </span>
-                    <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
-                      {selectedJob.atsProvider}
-                    </strong>
-                  </div>
-                ) : null}
-                {selectedJob.applicationUrl &&
-                selectedJob.applicationUrl !== selectedJob.canonicalUrl ? (
-                  <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
-                    <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                      Application route
-                    </span>
-                    <strong className="mt-2 block break-all text-(length:--text-small) text-(--text-headline)">
-                      {selectedJob.applicationUrl}
-                    </strong>
-                  </div>
-                ) : null}
-                <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
-                  <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Original listing
-                  </span>
-                  <strong className="mt-2 block break-all text-(length:--text-small) text-(--text-headline)">
-                    {selectedJob.canonicalUrl}
-                  </strong>
-                  {listingCopyFailedJobId === selectedJob.id ? (
-                    <p className="mt-2 text-(length:--text-small) leading-5 text-destructive">
-                      The link could not be copied. Select the URL above and
-                      copy it manually.
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-
-              <MatchAssessmentChangeDisclosure
-                audit={selectedJob.latestMatchAssessmentAudit}
-              />
-
-              <MatchEvidenceMatrix
-                assessment={selectedJob.matchAssessment}
-                showRecommendation={false}
-              />
-
-              <p className="text-(length:--text-body) leading-7 text-foreground-soft">
-                {jobDescriptionToText(
-                  selectedJob.summary ?? selectedJob.description,
-                )}
-              </p>
-
-              <PreferenceList compact label="Found on" values={sourceLabels} />
-              <SourceDiagnostics summaries={intelligenceSummaries} />
-              {selectedJob.keySkills.length > 0 ? (
-                <PreferenceList
-                  compact
-                  label="Skills mentioned"
-                  values={selectedJob.keySkills}
-                />
-              ) : null}
-              {selectedJob.keywordSignals.length > 0 ? (
-                <PreferenceList
-                  compact
-                  label="Targeting cues"
-                  values={selectedJob.keywordSignals.map(
-                    (signal) => signal.label,
-                  )}
-                />
-              ) : null}
-
-              {selectedJob.screeningHints.remoteGeographies.length > 0 ? (
-                <PreferenceList
-                  compact
-                  label="Remote geography hints"
-                  values={selectedJob.screeningHints.remoteGeographies}
-                />
-              ) : null}
-              {selectedJob.screeningHints.sponsorshipText ? (
-                <div className="grid gap-2">
-                  <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Screening hint
-                  </p>
-                  <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                    {selectedJob.screeningHints.sponsorshipText}
-                  </p>
-                </div>
-              ) : null}
-              {selectedJob.screeningHints.relocationText ? (
-                <div className="grid gap-2">
-                  <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Relocation
-                  </p>
-                  <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                    {selectedJob.screeningHints.relocationText}
-                  </p>
-                </div>
-              ) : null}
-              {selectedJob.screeningHints.travelText ? (
-                <div className="grid gap-2">
-                  <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Travel
-                  </p>
-                  <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                    {selectedJob.screeningHints.travelText}
-                  </p>
-                </div>
-              ) : null}
-              {selectedJob.screeningHints.requiresSecurityClearance === true ? (
-                <div className="grid gap-2">
-                  <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Security clearance
-                  </p>
-                  <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                    This listing mentions an active or required security
-                    clearance.
-                  </p>
-                </div>
-              ) : null}
-              <SourceChronologyDisclosure
-                firstSeenAt={selectedJob.firstSeenAt}
-                lastSeenAt={selectedJob.lastSeenAt}
-                lastVerifiedActiveAt={selectedJob.lastVerifiedActiveAt}
-              />
-              {selectedJob.employerWebsiteUrl ? (
-                <div className="grid gap-2">
-                  <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Company site
-                  </p>
-                  <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                    This job points to a company site that opens during the
-                    application flow.
-                  </p>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div
-            className="grid min-w-0 shrink-0 gap-2 border-t border-(--surface-panel-border) bg-(--surface-panel) px-6 py-3"
-            data-testid="discovery-detail-actions"
-          >
             {isAlreadyShortlisted ? (
-              <Button asChild className="h-10 w-full" variant="primary">
+              <Button asChild className="h-11 w-full" variant="primary">
                 <Link
                   aria-describedby={DISCOVERY_DETAIL_HEADING_ID}
                   data-testid="discovery-detail-open-shortlisted"
@@ -718,7 +657,7 @@ export function DiscoveryDetailPanel({
             ) : (
               <Button
                 aria-describedby={DISCOVERY_DETAIL_HEADING_ID}
-                className="h-10 w-full"
+                className="h-11 w-full"
                 disabled={isSelectedJobPending || isReportedClosed}
                 onClick={() => onQueueJob(selectedJob.id)}
                 type="button"
@@ -746,21 +685,356 @@ export function DiscoveryDetailPanel({
                 role="note"
               >
                 Shortlisting is unavailable because this listing was reported
-                closed. The original listing link remains available above.
+                closed. The original listing link remains available below.
               </p>
             ) : null}
+          </div>
+
+          <div
+            className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+            data-testid="discovery-detail-scroll-frame"
+          >
+            <div
+              aria-hidden="true"
+              className={`${DISCOVERY_DETAIL_SCROLL_EDGE_CLASS_NAME} top-0 border-t border-(--surface-panel-border) bg-gradient-to-b from-(--surface-panel) to-transparent`}
+              data-testid="discovery-detail-scroll-edge-top"
+              hidden={!detailScrollEdges.top}
+            />
+            <div
+              aria-hidden="true"
+              className={`${DISCOVERY_DETAIL_SCROLL_EDGE_CLASS_NAME} bottom-0 border-b border-(--surface-panel-border) bg-gradient-to-t from-(--surface-panel) to-transparent`}
+              data-testid="discovery-detail-scroll-edge-bottom"
+              hidden={!detailScrollEdges.bottom}
+            />
+            <div
+              aria-label="Job detail content"
+              className={DISCOVERY_DETAIL_SCROLL_AREA_CLASS_NAME}
+              data-locked-pane-scroll-region
+              data-testid="discovery-detail-scroll-area"
+              ref={detailScrollAreaRef}
+              role="region"
+              tabIndex={0}
+            >
+              <div className="grid min-h-full content-start gap-5">
+                {/* The job first, the app's reasoning after it. A job seeker
+                  asks what the job is, what it pays, and why them — in that
+                  order — so the listing text, pay and place lead, the score
+                  is one line, and the full breakdown waits behind a
+                  disclosure. */}
+                <div
+                  className="grid min-w-0 gap-2"
+                  data-testid="discovery-detail-listing-text"
+                >
+                  <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
+                    About this job
+                  </span>
+                  <p className="text-(length:--text-body) leading-7 text-foreground-soft">
+                    {listingText ||
+                      "The listing text was not captured, so this job was only matched on its title. Copy the original listing link below and open it in your browser to read it."}
+                  </p>
+                </div>
+
+                <div
+                  className="grid min-w-0 gap-3 sm:grid-cols-2"
+                  data-job-fact-grid
+                >
+                  <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+                    <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
+                      Salary
+                    </span>
+                    <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
+                      {selectedJob.salaryText ??
+                        (normalizedCompensation
+                          ? normalizedCompensation
+                          : "Not stated")}
+                    </strong>
+                    {selectedJob.salaryText && normalizedCompensation ? (
+                      <p className="mt-2 text-(length:--text-small) text-foreground-soft">
+                        Normalized: {normalizedCompensation}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+                    <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
+                      Location and work mode
+                    </span>
+                    <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
+                      {[
+                        selectedJob.location?.trim()
+                          ? selectedJob.location
+                          : null,
+                        selectedJob.workMode.length > 0
+                          ? selectedJob.workMode.join(", ")
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "Not stated"}
+                    </strong>
+                  </div>
+                </div>
+
+                <div
+                  className="grid min-w-0 gap-2"
+                  data-testid="discovery-detail-why-it-fits"
+                >
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <strong
+                      aria-label={
+                        assessmentPresentation?.headlineScoreAriaLabel
+                      }
+                      className={
+                        assessmentPresentation?.isScoreWithheld
+                          ? "text-(length:--text-body) text-foreground-soft"
+                          : "text-(length:--text-body) text-(--text-headline)"
+                      }
+                      data-testid="discovery-detail-fit-score"
+                    >
+                      {/* A percentage is only printed when the evidence behind
+                        it was actually checkable. Otherwise the number stays
+                        inside "How this was scored" beside its evidence. */}
+                      {assessmentPresentation?.headlineScoreLabel}
+                    </strong>
+                    {recommendation ? (
+                      <StatusBadge
+                        tone={
+                          assessmentPresentation?.isProvisional
+                            ? "neutral"
+                            : recommendation.tone
+                        }
+                      >
+                        {recommendation.label}
+                      </StatusBadge>
+                    ) : null}
+                  </div>
+                  <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                    {whyItFitsLine}
+                  </p>
+                </div>
+
+                <details className="min-w-0 rounded-(--radius-field) border border-(--surface-panel-border)">
+                  <summary className="cursor-pointer px-4 py-3 text-(length:--text-small) font-medium text-foreground-soft">
+                    How this was scored
+                  </summary>
+                  <div className="grid gap-4 px-4 pb-4">
+                    <MatchAssessmentChangeDisclosure
+                      audit={selectedJob.latestMatchAssessmentAudit}
+                    />
+                    <MatchEvidenceMatrix
+                      assessment={selectedJob.matchAssessment}
+                      scoreLabel={
+                        assessmentPresentation?.breakdownScoreLabel ?? null
+                      }
+                      showRecommendation={false}
+                    />
+                  </div>
+                </details>
+
+                <div className="grid sm:grid-cols-2" data-job-detail-fact-grid>
+                  <div
+                    className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2"
+                    data-testid="discovery-detail-listing-activity"
+                  >
+                    <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                      <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
+                        Listing activity
+                      </span>
+                      <StatusBadge
+                        className="shrink-0 px-2.5 py-1 text-(length:--text-tiny) font-semibold tracking-[0.04em]"
+                        tone={listingActivity.tone}
+                      >
+                        {listingActivity.label}
+                      </StatusBadge>
+                    </div>
+                    <p className="mt-2 break-words text-(length:--text-small) leading-5 text-foreground-soft">
+                      {listingActivity.description}
+                    </p>
+                  </div>
+                  {hasListingDate && listingDate ? (
+                    <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+                      <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
+                        {listingDate.label}
+                      </span>
+                      <strong className="mt-2 block text-(length:--text-section-title) text-(--text-headline)">
+                        {listingDate.value}
+                      </strong>
+                    </div>
+                  ) : null}
+                  {selectedJob.atsProvider ? (
+                    <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+                      <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
+                        ATS or provider
+                      </span>
+                      <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
+                        {selectedJob.atsProvider}
+                      </strong>
+                    </div>
+                  ) : null}
+                  {selectedJob.applicationUrl &&
+                  selectedJob.applicationUrl !== selectedJob.canonicalUrl ? (
+                    <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
+                      <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
+                        Application route
+                      </span>
+                      <strong className="mt-2 block break-all text-(length:--text-small) text-(--text-headline)">
+                        {selectedJob.applicationUrl}
+                      </strong>
+                    </div>
+                  ) : null}
+                  <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4 sm:col-span-2">
+                    <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
+                      Original listing
+                    </span>
+                    <strong className="mt-2 block break-all text-(length:--text-small) text-(--text-headline)">
+                      {selectedJob.canonicalUrl}
+                    </strong>
+                    <p
+                      className="mt-2 text-(length:--text-small) leading-5 text-foreground-soft"
+                      data-testid="discovery-detail-application-method"
+                    >
+                      Application method: {applicationMethodLabel}
+                    </p>
+                    {listingCopyFailedJobId === selectedJob.id ? (
+                      <p className="mt-2 text-(length:--text-small) leading-5 text-destructive">
+                        The link could not be copied. Select the URL above and
+                        copy it manually.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Company context is a detour, not the decision on this
+                    screen, so it sits below the listing rather than above it. */}
+                {selectedJobCompanyId && onOpenCompany && employerDisplay ? (
+                  <Button
+                    className="justify-self-start"
+                    onClick={() => onOpenCompany(selectedJobCompanyId)}
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                  >
+                    View {employerDisplay} in Companies
+                  </Button>
+                ) : null}
+
+                <PreferenceList
+                  compact
+                  label="Found on"
+                  values={sourceLabels}
+                />
+                <SourceDiagnostics summaries={intelligenceSummaries} />
+                {selectedJob.keySkills.length > 0 ? (
+                  <PreferenceList
+                    compact
+                    label="Skills mentioned"
+                    values={selectedJob.keySkills}
+                  />
+                ) : null}
+                {selectedJob.keywordSignals.length > 0 ? (
+                  <PreferenceList
+                    compact
+                    label="Targeting cues"
+                    values={selectedJob.keywordSignals.map(
+                      (signal) => signal.label,
+                    )}
+                  />
+                ) : null}
+
+                {selectedJob.screeningHints.remoteGeographies.length > 0 ? (
+                  <PreferenceList
+                    compact
+                    label="Remote geography hints"
+                    values={selectedJob.screeningHints.remoteGeographies}
+                  />
+                ) : null}
+                {selectedJob.screeningHints.sponsorshipText ? (
+                  <div className="grid gap-2">
+                    <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+                      Screening hint
+                    </p>
+                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                      {selectedJob.screeningHints.sponsorshipText}
+                    </p>
+                  </div>
+                ) : null}
+                {selectedJob.screeningHints.relocationText ? (
+                  <div className="grid gap-2">
+                    <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+                      Relocation
+                    </p>
+                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                      {selectedJob.screeningHints.relocationText}
+                    </p>
+                  </div>
+                ) : null}
+                {selectedJob.screeningHints.travelText ? (
+                  <div className="grid gap-2">
+                    <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+                      Travel
+                    </p>
+                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                      {selectedJob.screeningHints.travelText}
+                    </p>
+                  </div>
+                ) : null}
+                {selectedJob.screeningHints.requiresSecurityClearance ===
+                true ? (
+                  <div className="grid gap-2">
+                    <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+                      Security clearance
+                    </p>
+                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                      This listing mentions an active or required security
+                      clearance.
+                    </p>
+                  </div>
+                ) : null}
+                <SourceChronologyDisclosure
+                  firstSeenAt={selectedJob.firstSeenAt}
+                  lastSeenAt={selectedJob.lastSeenAt}
+                  lastVerifiedActiveAt={selectedJob.lastVerifiedActiveAt}
+                />
+                {selectedJob.employerWebsiteUrl ? (
+                  <div className="grid gap-2">
+                    <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+                      Company site
+                    </p>
+                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                      This job points to a company site that opens during the
+                      application flow.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="grid min-w-0 shrink-0 gap-2 border-t border-(--surface-panel-border) bg-(--surface-panel) px-6 py-3"
+            data-testid="discovery-detail-actions"
+          >
             {queueFeedback ? (
-              <p
-                className={
-                  queueFeedback.status === "failure"
-                    ? "break-words text-(length:--text-small) leading-5 text-destructive"
-                    : "break-words text-(length:--text-small) leading-5 text-foreground-muted"
-                }
-                data-testid="discovery-detail-queue-feedback"
-                role={queueFeedback.status === "failure" ? "alert" : "status"}
-              >
-                {queueFeedback.message}
-              </p>
+              <>
+                <p
+                  className={
+                    queueFeedback.status === "failure"
+                      ? "break-words text-(length:--text-small) leading-5 text-destructive"
+                      : "break-words text-(length:--text-small) leading-5 text-foreground-muted"
+                  }
+                  data-testid="discovery-detail-queue-feedback"
+                  role={queueFeedback.status === "failure" ? "alert" : "status"}
+                >
+                  {queueFeedback.message}
+                </p>
+                {queueFeedback.status === "success" ? (
+                  <p
+                    className="break-words text-(length:--text-small) leading-5 text-foreground-muted"
+                    data-testid="discovery-detail-queue-identity"
+                  >
+                    Selected for Shortlisted: {selectedJob.title} at{" "}
+                    {employerDisplay ?? selectedJob.company}.
+                  </p>
+                ) : null}
+              </>
             ) : null}
             {feedbackJobId === selectedJob.id ? (
               <fieldset className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-3">
@@ -922,47 +1196,54 @@ export function DiscoveryDetailPanel({
                   </p>
                 ) : null}
               </fieldset>
-            ) : (
+            ) : null}
+            {/* A dismissal and a link copy are secondary work: they keep their
+                natural width on one left-aligned row instead of two stacked
+                full-width filled bars under the primary decision. The copy
+                action stays available while the feedback form is open. */}
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {feedbackJobId === selectedJob.id ? null : (
+                <Button
+                  disabled={isSelectedJobPending}
+                  onClick={() => {
+                    employerExclusionPreviewRequestRef.current += 1;
+                    setFeedbackJobId(selectedJob.id);
+                    setFeedbackReasons([]);
+                    setFeedbackAction("hide_job");
+                    setEmployerExclusionPreview(null);
+                    setEmployerExclusionPreviewPending(false);
+                    setEmployerExclusionPreviewError(null);
+                    setDismissError(null);
+                  }}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  Not interested
+                </Button>
+              )}
               <Button
-                className="h-10 w-full"
-                disabled={isSelectedJobPending}
                 onClick={() => {
-                  employerExclusionPreviewRequestRef.current += 1;
-                  setFeedbackJobId(selectedJob.id);
-                  setFeedbackReasons([]);
-                  setFeedbackAction("hide_job");
-                  setEmployerExclusionPreview(null);
-                  setEmployerExclusionPreviewPending(false);
-                  setEmployerExclusionPreviewError(null);
-                  setDismissError(null);
+                  void navigator.clipboard
+                    .writeText(selectedJob.canonicalUrl)
+                    .then(() => {
+                      setCopiedListingJobId(selectedJob.id);
+                      setListingCopyFailedJobId(null);
+                    })
+                    .catch(() => {
+                      setCopiedListingJobId(null);
+                      setListingCopyFailedJobId(selectedJob.id);
+                    });
                 }}
+                size="sm"
                 type="button"
-                variant="secondary"
+                variant="outline"
               >
-                Not interested
+                {copiedListingJobId === selectedJob.id
+                  ? "Listing link copied"
+                  : "Copy listing link"}
               </Button>
-            )}
-            <Button
-              className="h-10 w-full"
-              onClick={() => {
-                void navigator.clipboard
-                  .writeText(selectedJob.canonicalUrl)
-                  .then(() => {
-                    setCopiedListingJobId(selectedJob.id);
-                    setListingCopyFailedJobId(null);
-                  })
-                  .catch(() => {
-                    setCopiedListingJobId(null);
-                    setListingCopyFailedJobId(selectedJob.id);
-                  });
-              }}
-              type="button"
-              variant="ghost"
-            >
-              {copiedListingJobId === selectedJob.id
-                ? "Listing link copied"
-                : "Copy original listing link"}
-            </Button>
+            </div>
             <p aria-live="polite" className="sr-only" role="status">
               {copiedListingJobId === selectedJob.id
                 ? "Original listing link copied."

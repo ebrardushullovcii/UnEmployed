@@ -155,17 +155,56 @@ function formatPatchGroupSummaryList(
   return summaries.join(" and ");
 }
 
+function findUniqueProfileCopilotPatchGroup(
+  messages: readonly ProfileCopilotMessage[],
+  patchGroupId: string,
+): {
+  message: ProfileCopilotMessage;
+  patchGroup: ProfileCopilotPatchGroup;
+} | null {
+  let match: {
+    message: ProfileCopilotMessage;
+    patchGroup: ProfileCopilotPatchGroup;
+  } | null = null;
+
+  for (const message of messages) {
+    for (const patchGroup of message.patchGroups) {
+      if (patchGroup.id !== patchGroupId) {
+        continue;
+      }
+
+      if (match) {
+        // Legacy provider IDs may have been persisted more than once. A
+        // caller that has only the group ID must never silently apply the
+        // oldest matching proposal.
+        return null;
+      }
+
+      match = { message, patchGroup };
+    }
+  }
+
+  return match;
+}
+
 function normalizeAssistantPatchGroups(input: {
   patchGroups: readonly ProfileCopilotPatchGroup[];
   context: ProfileCopilotContext;
   content: string;
+  assistantMessageId: string;
 }): {
   patchGroups: ProfileCopilotPatchGroup[];
   content: string;
 } {
-  const normalizedPatchGroups = input.patchGroups.map((patchGroup) => {
-    const normalizedPatchGroup =
-      ProfileCopilotPatchGroupSchema.parse(patchGroup);
+  const normalizedPatchGroups = input.patchGroups.map((patchGroup, index) => {
+    const parsedPatchGroup = ProfileCopilotPatchGroupSchema.parse(patchGroup);
+    const normalizedPatchGroup = ProfileCopilotPatchGroupSchema.parse({
+      ...parsedPatchGroup,
+      // Provider-generated IDs are only proposal-local and may repeat on a
+      // later response. Persist an identity owned by this assistant message
+      // so the renderer can safely carry it across apply/reject/undo flows.
+      id: `${input.assistantMessageId}_patch_${index + 1}`,
+    });
 
     if (
       normalizedPatchGroup.applyMode === "applied" &&
@@ -452,17 +491,21 @@ export function createWorkspaceProfileCopilotMethods(input: {
         relevantReviewItems,
       }),
     });
+    const assistantMessageId = createUniqueId(
+      "profile_copilot_assistant_message",
+    );
     const normalizedAssistantReply = normalizeAssistantPatchGroups({
       patchGroups: assistantReply.patchGroups,
       context,
       content: assistantReply.content,
+      assistantMessageId,
     });
     const assistantContent =
       !autoApplySafeGroups && normalizedAssistantReply.patchGroups.length > 0
         ? `I prepared ${normalizedAssistantReply.patchGroups.length === 1 ? "this change" : `${normalizedAssistantReply.patchGroups.length} changes`} for your review: ${normalizedAssistantReply.patchGroups.map((patchGroup) => patchGroup.summary).join("; ")}. Nothing changed yet.`
         : normalizedAssistantReply.content;
     const assistantMessage: ProfileCopilotMessage = {
-      id: createUniqueId("profile_copilot_assistant_message"),
+      id: assistantMessageId,
       role: "assistant",
       content: assistantContent,
       context,
@@ -827,11 +870,11 @@ export function createWorkspaceProfileCopilotMethods(input: {
         ]);
         const captured = await ctx.repository.getProfileWithRevision();
         const now = new Date().toISOString();
-        const patchGroup =
-          options?.patchGroup ??
-          messages
-            .flatMap((message) => message.patchGroups)
-            .find((group) => group.id === patchGroupId);
+        const persistedMatch = findUniqueProfileCopilotPatchGroup(
+          messages,
+          patchGroupId,
+        );
+        const patchGroup = options?.patchGroup ?? persistedMatch?.patchGroup;
 
         if (!patchGroup) {
           throw new Error(
@@ -846,9 +889,17 @@ export function createWorkspaceProfileCopilotMethods(input: {
         }
 
         const sourceMessage =
-          messages.find((message) =>
-            message.patchGroups.some((group) => group.id === patchGroupId),
-          ) ?? null;
+          (options?.messageId
+            ? (messages.find(
+                (message) =>
+                  message.id === options.messageId &&
+                  message.patchGroups.some(
+                    (group) => group.id === patchGroupId,
+                  ),
+              ) ?? null)
+            : null) ??
+          persistedMatch?.message ??
+          null;
 
         const patched = applyPatchGroupOperationsToWorkspace(
           {
@@ -942,22 +993,19 @@ export function createWorkspaceProfileCopilotMethods(input: {
 
   async function rejectProfileCopilotPatchGroup(patchGroupId: string) {
     const messages = await ctx.repository.listProfileCopilotMessages();
-    const message = messages.find((entry) =>
-      entry.patchGroups.some((group) => group.id === patchGroupId),
-    );
+    const match = findUniqueProfileCopilotPatchGroup(messages, patchGroupId);
 
-    if (!message) {
+    if (!match) {
       throw new Error(`Unknown profile copilot patch group '${patchGroupId}'.`);
     }
 
     // The flag flip resolves against transaction-current persisted state, so
     // a sibling group applied or rejected while this call was in flight keeps
     // its status instead of being reverted by a stale whole-message write.
-    const didUpdate =
-      await ctx.repository.commitProfileCopilotPatchFlagUpdate({
-        patchGroupId,
-        applyMode: "rejected",
-      });
+    const didUpdate = await ctx.repository.commitProfileCopilotPatchFlagUpdate({
+      patchGroupId,
+      applyMode: "rejected",
+    });
 
     if (!didUpdate) {
       throw new Error(`Unknown profile copilot patch group '${patchGroupId}'.`);

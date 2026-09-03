@@ -526,10 +526,9 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
     expect(result.jobs[0]?.canonicalUrl).toBe(
       "https://www.linkedin.com/jobs/view/job_merge_fast_path_1",
     );
-    // Batch-size-one flushing reviews the first (card-less) capture while
-    // budget remains, so the slower extractor runs once; the richer
-    // recapture still resolves through the fast path without a second call.
-    expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(1);
+    // The richer deferred recapture resolves through structured fast path;
+    // an earlier card-less snapshot no longer forces a legacy extractor pass.
+    expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(0);
   });
 
   test("deferred search-result flush does not call the slower extractor once fast path fills the capped budget", async () => {

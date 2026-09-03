@@ -66,7 +66,9 @@ export function describeEvidenceBoundaries(
       ? "Paraphrased claims allowed"
       : "Paraphrased claims blocked",
   );
-  parts.push(`Up to ${boundaries.maxEvidenceRefsPerBullet} evidence refs per bullet`);
+  parts.push(
+    `Up to ${boundaries.maxEvidenceRefsPerBullet} evidence refs per bullet`,
+  );
   parts.push(
     boundaries.requireVerifierPass
       ? "Verifier pass required"

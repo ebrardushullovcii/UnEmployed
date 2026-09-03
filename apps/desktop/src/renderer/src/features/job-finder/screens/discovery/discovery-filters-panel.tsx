@@ -6,10 +6,18 @@ import type {
   SourceAccessPrompt,
   JobSearchPreferences,
 } from "@unemployed/contracts";
-import { Ban, CircleCheck, CircleDashed, KeyRound } from "lucide-react";
+import { AppWindow, Ban, CircleCheck, KeyRound } from "lucide-react";
 import { StatusBadge } from "../../components/status-badge";
-import { DISCOVERY_PAUSED_SEARCH_REASON } from "./discovery-search-readiness";
-import { formatCountLabel, getSessionTone } from "../../lib/job-finder-utils";
+import {
+  DISCOVERY_OFFLINE_RUNTIME_LABEL,
+  DISCOVERY_PAUSED_SEARCH_REASON,
+  getDiscoveryRuntimeProjection,
+} from "./discovery-search-readiness";
+import {
+  formatCountLabel,
+  formatWorkModeLabel,
+  getSessionTone,
+} from "../../lib/job-finder-utils";
 import {
   DiscoveryFiltersFooter,
   DiscoveryRunOneSourceSection,
@@ -18,16 +26,6 @@ import {
 } from "./discovery-filters-panel-sections";
 import { getDiscoverySearchReadiness } from "./discovery-search-readiness";
 import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
-
-const NEUTRAL_SESSION_SNAPSHOT: BrowserSessionState = {
-  source: "target_site",
-  status: "unknown",
-  driver: "chrome_profile_agent",
-  label: "Browser optional",
-  detail:
-    "You can run this search without opening the browser first. Open it when you want to sign in or prepare a site before the next run.",
-  lastCheckedAt: new Date(0).toISOString(),
-};
 
 interface DiscoveryFiltersPanelProps {
   activeRun: DiscoveryRunRecord | null;
@@ -46,6 +44,11 @@ interface DiscoveryFiltersPanelProps {
   onViewProgress: () => void;
   searchPreferences: JobSearchPreferences;
   sourceAccessPrompts: readonly SourceAccessPrompt[];
+  /**
+   * A running or most-recently completed run proves the browser runtime
+   * works, so a stale blocked snapshot must not disable Search here.
+   */
+  trustRecentRun?: boolean;
 }
 
 type SectionValue =
@@ -143,7 +146,12 @@ export function getDiscoveryOtherActiveCriteria(
 function getBrowserStatusLabel(
   status: BrowserSessionState["status"],
   isPending: boolean,
+  isOfflineRuntime: boolean,
 ): string {
+  if (isOfflineRuntime) {
+    return DISCOVERY_OFFLINE_RUNTIME_LABEL;
+  }
+
   switch (status) {
     case "ready":
       return "Ready";
@@ -152,7 +160,7 @@ function getBrowserStatusLabel(
     case "blocked":
       return "Blocked";
     default:
-      return isPending ? "Starting" : "Not open";
+      return isPending ? "Starting browser" : "Browser not open";
   }
 }
 
@@ -170,7 +178,9 @@ function getSessionStatusIcon(status: BrowserSessionState["status"]) {
     case "blocked":
       return Ban;
     default:
-      return CircleDashed;
+      // A dashed circle read as a spinner beside "Not open"; a browser-window
+      // glyph is a neutral, non-progress cue.
+      return AppWindow;
   }
 }
 
@@ -191,16 +201,25 @@ export function DiscoveryFiltersPanel({
   onViewProgress,
   searchPreferences,
   sourceAccessPrompts,
+  trustRecentRun = false,
 }: DiscoveryFiltersPanelProps) {
   const searchControlsHeadingId = useId();
   const sectionHeadingPrefix = useId();
   const totalSourceCount = searchPreferences.discovery.targets.length;
+  const isRemoteOnlySearch =
+    searchPreferences.locations.length === 0 &&
+    searchPreferences.workModes.length > 0 &&
+    searchPreferences.workModes.every((workMode) => workMode === "remote");
   const sections = useMemo<
     Array<{
       label: string;
       values: SectionValue[];
       empty: string;
-      editAction?: { label: string; href: string };
+      editAction?: {
+        label: string;
+        href: string;
+        variant?: "primary" | "secondary";
+      };
     }>
   >(
     () => [
@@ -211,24 +230,39 @@ export function DiscoveryFiltersPanel({
         editAction: {
           label: "Add roles",
           href: JOB_FINDER_ROUTE_PATHS.profileTargetRoles,
+          // Profile→Search handoff: empty blockers use primary CTAs so they
+          // read as the next action, not gold underlines.
+          variant: "primary",
         },
       },
       {
         label: "Locations",
         values: searchPreferences.locations,
-        empty: "No locations added yet.",
-        editAction: {
-          label: "Add locations",
-          href: JOB_FINDER_ROUTE_PATHS.profile,
-        },
+        // A remote-only search legitimately has no locations, so reporting
+        // it as a missing setup step reads like an error the user must fix.
+        empty: isRemoteOnlySearch
+          ? "Not needed — this search is remote only."
+          : "No locations added yet.",
+        ...(isRemoteOnlySearch
+          ? {}
+          : {
+              editAction: {
+                label: "Add locations",
+                href: JOB_FINDER_ROUTE_PATHS.profile,
+                variant: "primary" as const,
+              },
+            }),
       },
       {
         label: "Work modes",
-        values: searchPreferences.workModes,
+        // Stored enum values print lowercase ("remote") beside sentence-case
+        // sibling rows, so they are labelled the same way results are.
+        values: searchPreferences.workModes.map(formatWorkModeLabel),
         empty: "No work modes added yet.",
         editAction: {
           label: "Set work modes",
-          href: JOB_FINDER_ROUTE_PATHS.profile,
+          href: JOB_FINDER_ROUTE_PATHS.profileWorkModes,
+          variant: "primary",
         },
       },
       {
@@ -248,10 +282,11 @@ export function DiscoveryFiltersPanel({
         editAction: {
           label: totalSourceCount === 0 ? "Add sources" : "Enable sources",
           href: JOB_FINDER_ROUTE_PATHS.profileSources,
+          variant: "primary",
         },
       },
     ],
-    [searchPreferences, totalSourceCount],
+    [isRemoteOnlySearch, searchPreferences, totalSourceCount],
   );
 
   const enabledTargets = searchPreferences.discovery.targets.filter(
@@ -267,17 +302,10 @@ export function DiscoveryFiltersPanel({
     enabledTargetIds.has(prompt.targetId),
   );
   const runOneSourceHeadingId = `${sectionHeadingPrefix}-run-one-source`;
-  const searchReadiness = getDiscoverySearchReadiness(searchPreferences);
   const chromeProfileSession =
     discoverySessions.find(
       (session) => session.driver === "chrome_profile_agent",
     ) ?? null;
-  const isNeutralBrowserSessionSnapshot =
-    browserSession.driver === "catalog_seed" &&
-    browserSession.status === "unknown";
-  const browserSessionSnapshot = isNeutralBrowserSessionSnapshot
-    ? NEUTRAL_SESSION_SNAPSHOT
-    : browserSession;
   const displaySessionSnapshot: BrowserSessionState = chromeProfileSession
     ? {
         source: chromeProfileSession.adapterKind,
@@ -287,10 +315,23 @@ export function DiscoveryFiltersPanel({
         detail: chromeProfileSession.detail ?? "",
         lastCheckedAt: chromeProfileSession.lastCheckedAt,
       }
-    : browserSessionSnapshot;
-  const sessionDetail = displaySessionSnapshot.detail?.trim() ?? "";
-  const isBrowserSessionVisible =
-    Boolean(chromeProfileSession) || !isNeutralBrowserSessionSnapshot;
+    : browserSession;
+  const runtimeProjection = getDiscoveryRuntimeProjection(
+    displaySessionSnapshot,
+  );
+  const isOfflineRuntime = runtimeProjection.isOffline;
+  const searchReadiness = getDiscoverySearchReadiness(
+    searchPreferences,
+    displaySessionSnapshot,
+    { trustRecentRun },
+  );
+  // A not-yet-opened browser carries only a generic runtime sentence; the
+  // summary shows its own plain-language description for that state instead.
+  const sessionDetail =
+    isOfflineRuntime || displaySessionSnapshot.status === "unknown"
+      ? ""
+      : (displaySessionSnapshot.detail?.trim() ?? "");
+  const isBrowserSessionVisible = true;
   const isReady = displaySessionSnapshot.status === "ready";
   const needsLogin = displaySessionSnapshot.status === "login_required";
   const isBlocked = displaySessionSnapshot.status === "blocked";
@@ -322,49 +363,32 @@ export function DiscoveryFiltersPanel({
       className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) xl:h-full xl:min-h-0"
     >
       <h2
-        className="border-b border-(--surface-panel-border) px-4 py-3 text-base font-semibold text-(--text-headline)"
+        className="border-b border-(--surface-panel-border) px-4 py-3 text-(--text-headline)"
         id={searchControlsHeadingId}
       >
         Search setup
       </h2>
 
-      <div className="flex min-h-106 min-w-0 flex-1 flex-col overflow-hidden xl:min-h-0">
-        <div className="grid min-w-0 gap-2 border-b border-(--surface-panel-border) px-3 py-3">
-          <p className="text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-label) text-foreground-muted">
-            Current search
-          </p>
-          <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-            <StatusBadge tone={getSessionTone(displaySessionSnapshot)}>
-              <SessionStatusIcon aria-hidden="true" />
-              {getBrowserStatusLabel(
-                displaySessionSnapshot.status,
-                isBrowserSessionPending,
-              )}
-            </StatusBadge>
-          </div>
-          <DiscoverySessionSummary
-            hasRecommendedSourceAccessPrompt={hasRecommendedSourceAccessPrompt}
-            isBlocked={isBlocked}
-            isBrowserSessionPendingForTarget={isBrowserSessionPendingForTarget}
-            isBrowserSessionVisible={isBrowserSessionVisible}
-            isReady={isReady}
-            isTargetPending={isTargetPending}
-            needsLogin={needsLogin}
-            onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
-            {...(onRunDiscoveryForTarget
-              ? { onConfirmSignedInForTarget: onRunDiscoveryForTarget }
-              : {})}
-            primarySourceAccessPrompt={primarySourceAccessPrompt}
-            sectionDetail={sessionDetail}
-          />
-        </div>
-
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden xl:min-h-0">
         <DiscoveryFiltersFooter
           canRunDiscovery={canRunDiscovery}
+          isOfflineRuntime={isOfflineRuntime}
           searchDisabledReason={
             searchDisabledOverrideReason ?? searchReadiness.reason
           }
-          searchSetupHref={JOB_FINDER_ROUTE_PATHS.profileSources}
+          searchBlocker={searchReadiness.blocker}
+          searchSetupActionLabel={
+            searchReadiness.blocker === "no_search_roles"
+              ? "Add target roles"
+              : totalSourceCount === 0
+                ? "Add sources"
+                : "Enable sources"
+          }
+          searchSetupHref={
+            searchReadiness.blocker === "no_search_roles"
+              ? JOB_FINDER_ROUTE_PATHS.profileTargetRoles
+              : JOB_FINDER_ROUTE_PATHS.profileSources
+          }
           isBrowserSessionPending={isBrowserSessionPending}
           isBrowserSessionPendingForTarget={isBrowserSessionPendingForTarget}
           isDiscoveryAllPending={isDiscoveryAllPending}
@@ -387,6 +411,52 @@ export function DiscoveryFiltersPanel({
             sectionHeadingPrefix={sectionHeadingPrefix}
             sections={sections}
           />
+
+          <div className="grid min-w-0 gap-2 border-t border-(--surface-panel-border) px-3 py-3">
+            {/* This block describes the browser Job Finder searches with, not
+              the current search, so the label must say so: "Current search /
+              Not open" read as though the search itself was not open. */}
+            <p className="text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-label) text-foreground-muted">
+              Search browser
+            </p>
+            <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+              <StatusBadge
+                tone={
+                  isOfflineRuntime
+                    ? "muted"
+                    : getSessionTone(displaySessionSnapshot)
+                }
+              >
+                <SessionStatusIcon aria-hidden="true" />
+                {getBrowserStatusLabel(
+                  displaySessionSnapshot.status,
+                  isBrowserSessionPending,
+                  isOfflineRuntime,
+                )}
+              </StatusBadge>
+            </div>
+            <DiscoverySessionSummary
+              hasRecommendedSourceAccessPrompt={
+                hasRecommendedSourceAccessPrompt
+              }
+              isBlocked={isBlocked}
+              isBrowserSessionPendingForTarget={
+                isBrowserSessionPendingForTarget
+              }
+              isBrowserSessionVisible={isBrowserSessionVisible}
+              isOfflineRuntime={isOfflineRuntime}
+              isSearchSetupReady={searchReadiness.setupReady}
+              isReady={isReady}
+              isTargetPending={isTargetPending}
+              needsLogin={needsLogin}
+              onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
+              {...(onRunDiscoveryForTarget
+                ? { onConfirmSignedInForTarget: onRunDiscoveryForTarget }
+                : {})}
+              primarySourceAccessPrompt={primarySourceAccessPrompt}
+              sectionDetail={sessionDetail}
+            />
+          </div>
 
           {otherActiveCriteriaCount > 0 ? (
             <details className="min-w-0 border-t border-(--surface-panel-border) px-4 py-3">
@@ -436,7 +506,13 @@ export function DiscoveryFiltersPanel({
             </details>
           ) : null}
 
-          {enabledTargets.length > 0 && onRunDiscoveryForTarget ? (
+          {/* With one enabled source, "Search now" already searches exactly
+              that source, so a per-source row repeats the Sources list
+              directly above it. It returns as soon as there is a real choice
+              to make, or a source needs its own sign-in handoff. */}
+          {(enabledTargets.length > 1 ||
+            enabledSourceAccessPrompts.length > 0) &&
+          onRunDiscoveryForTarget ? (
             <DiscoveryRunOneSourceSection
               activeTargetId={activeTargetId}
               enabledSourceAccessPrompts={enabledSourceAccessPrompts}
@@ -445,7 +521,10 @@ export function DiscoveryFiltersPanel({
                 label: target.label,
               }))}
               isAnyDiscoveryRunActive={isAnyDiscoveryRunActive}
-              isSearchUnavailable={activityPaused}
+              isOfflineRuntime={isOfflineRuntime}
+              isSearchUnavailable={
+                activityPaused || !searchReadiness.sourceSearchAvailable
+              }
               isBrowserSessionPendingForTarget={
                 isBrowserSessionPendingForTarget
               }

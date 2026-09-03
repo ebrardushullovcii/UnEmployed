@@ -6,6 +6,7 @@ import type {
   ReviewCompanyMergeInput,
   SavedJob,
 } from "@unemployed/contracts";
+import { isListableCompanyName } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { EmptyState } from "../../components/empty-state";
 import {
@@ -82,7 +83,7 @@ function CompanyCard(props: {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="grid min-w-0 gap-1">
-          <h2 className="min-w-0 break-words text-lg font-semibold text-(--text-headline)">
+          <h2 className="min-w-0 break-words font-semibold text-(--text-headline)">
             {company.canonicalName}
           </h2>
           {company.domains.length > 0 ? (
@@ -349,12 +350,20 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
 
   const jobById = indexCompanyJobs(props.discoveryJobs);
 
-  const filteredCompanies = useMemo(
+  const listableCompanies = useMemo(
     () =>
       props.companies.filter((company) =>
+        isListableCompanyName(company.canonicalName),
+      ),
+    [props.companies],
+  );
+
+  const filteredCompanies = useMemo(
+    () =>
+      listableCompanies.filter((company) =>
         matchesCollectionSearch(query, companySearchTokens(company)),
       ),
-    [props.companies, query],
+    [listableCompanies, query],
   );
   const pageCount = Math.max(
     1,
@@ -392,7 +401,7 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
     <section className="grid gap-5 pb-8">
       <PageHeader
         actions={
-          props.companies.length > 0 ? (
+          listableCompanies.length > 0 ? (
             <Button
               onClick={handleRefresh}
               pending={props.isRefreshPending}
@@ -430,18 +439,18 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
       ) : null}
 
       <MergeReviewSection
-        companies={props.companies}
+        companies={listableCompanies}
         isPending={props.isMergePending}
         onNavigate={props.onNavigate}
         onReview={props.onReviewCompanyMerge}
       />
 
-      {props.companies.length === 0 ? (
+      {listableCompanies.length === 0 ? (
         <div className="grid gap-3">
           <EmptyState
             className="min-h-40 px-5 py-6"
-            title="No companies yet"
-            description="Companies appear here after jobs are discovered or applications are tracked. Reconcile the employers you already have."
+            title="No companies reconciled yet"
+            description="Companies are a local projection of saved jobs and application records. Choose Refresh from jobs and applications to reconcile employers already in this workspace."
           />
           <div className="flex justify-center">
             <Button
@@ -461,7 +470,7 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
             onQueryChange={setQuery}
             placeholder="Search name, alias, domain, contact, or preference"
             query={query}
-            totalCount={props.companies.length}
+            totalCount={listableCompanies.length}
             visibleCount={filteredCompanies.length}
           />
           {filteredCompanies.length === 0 ? (

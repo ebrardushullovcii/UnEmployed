@@ -19,22 +19,34 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  CandidateProfileSchema,
+  JobSearchPreferencesSchema,
+  ProfileSetupStateSchema,
+  deriveProfileSetupState,
+} from "@unemployed/contracts";
+import { createInMemoryJobFinderRepository } from "@unemployed/db";
+
+import {
   BLIND_PERSONA_SEED_HELP,
   BLIND_PERSONA_TESTER_HELP,
   BLIND_PERSONA_VERIFY_ALL_HELP,
   createUniquePersonaRoot,
+  compareCodeUnitOrder,
   currentSourcePathSetDigest,
   dependencyIdentity,
   hardenSeedEnvironment,
   hardenTesterEnvironment,
   inventoryTree,
+  isBrowserManagedTransientSidecar,
   isPathInside,
   launchBlindPersonaTester,
+  launchElectronWithMainEvaluation,
   parseBlindPersonaSeedCli,
   parseBlindPersonaTesterCli,
   parseBlindPersonaVerifyAllCli,
   prepareBlindPersonaWorkspaces,
   resolveConfinedPath,
+  scanCrossPersonaPaths,
   scanSeedAuthority,
   sha256,
   stableSeedSerialization,
@@ -47,6 +59,11 @@ import {
   type ElectronSeedProcess,
   type LaunchSeedElectron,
 } from "./prepare-blind-persona-workspaces";
+import { createEmptyJobFinderRepositoryState } from "../src/main/adapters/job-finder-initial-state";
+import {
+  migrateLegacyResumeSource,
+  missingResumeSourceWarning,
+} from "../src/main/services/job-finder/migrate-resume-source";
 import {
   dependencyRootsFingerprint,
   digestSeed,
@@ -66,7 +83,7 @@ interface ParityProbe {
 // non-ASCII keys are exactly where a localeCompare-based duplicate diverged.
 describe("blind persona canonical serializer custody parity", () => {
   const divergenceProbes: Array<[string, ParityProbe]> = [
-    ["non-ASCII keys", { z: 1, "ä": 2, "中": 3 }],
+    ["non-ASCII keys", { z: 1, ä: 2, 中: 3 }],
     ["mixed-case ASCII keys", { a: 1, B: 2 }],
     [
       "custody-shaped mixed payload",
@@ -74,7 +91,7 @@ describe("blind persona canonical serializer custody parity", () => {
         build: { finalSealSha256: "a".repeat(64), runDir: "/run/P01-x" },
         personas: [{ personaId: "P01", userDataRoot: "/roots/P01" }],
         waveComplete: true,
-        zKey: { B: 1, "ä": 2 },
+        zKey: { B: 1, ä: 2 },
       },
     ],
   ];
@@ -88,7 +105,7 @@ describe("blind persona canonical serializer custody parity", () => {
   );
 
   it("pins canonical key order to code-unit sort, not locale collation", () => {
-    expect(stableSeedSerialization({ z: 1, "ä": 2 })).toBe('{"z":1,"ä":2}');
+    expect(stableSeedSerialization({ z: 1, ä: 2 })).toBe('{"z":1,"ä":2}');
     expect(stableSeedSerialization({ a: 1, B: 2 })).toBe('{"B":2,"a":1}');
   });
 
@@ -102,6 +119,100 @@ describe("blind persona canonical serializer custody parity", () => {
       äKey: { BKey: true, aKey: false },
     };
     expect(digestSeed(subject)).toBe(sha256(stableSeedSerialization(subject)));
+  });
+});
+
+describe("persona launcher main-process evaluation ownership", () => {
+  const input = {
+    args: ["--remote-debugging-port=0"],
+    cwd: "/accepted-app",
+    env: { PATH: "/bin", OMITTED: undefined },
+    executablePath: "/accepted-app/Electron",
+  };
+
+  function fakePlaywrightApplication(
+    identity: string,
+    onClose: () => void = () => undefined,
+  ) {
+    return {
+      close: async () => onClose(),
+      evaluate: async <R>(callback: (electron: unknown) => R): Promise<R> =>
+        callback({ identity }),
+      firstWindow: async () => ({
+        evaluate: async <R>(callback: (window: unknown) => R): Promise<R> =>
+          callback({ identity }),
+        waitForFunction: async () => undefined,
+        waitForLoadState: async () => undefined,
+      }),
+      process: () => ({
+        exitCode: null,
+        pid: [...identity].reduce(
+          (sum, character) => sum + character.charCodeAt(0),
+          0,
+        ),
+        signalCode: null,
+      }),
+    };
+  }
+
+  it("adapts an isolated real-launch boundary to the required main evaluation channel", async () => {
+    let receivedEnvironment: Record<string, string> | undefined;
+    const application = await launchElectronWithMainEvaluation(
+      input,
+      async (options) => {
+        receivedEnvironment = options.env;
+        return fakePlaywrightApplication("single");
+      },
+    );
+
+    await expect(
+      application.evaluateInMain?.((electron) =>
+        String((electron as { identity: string }).identity),
+      ),
+    ).resolves.toBe("single");
+    expect(receivedEnvironment).toEqual({ PATH: "/bin" });
+  });
+
+  it("keeps concurrent launch evaluation channels attached to their owning applications", async () => {
+    const closeCounts = { P01: 0, P02: 0 };
+    const launches = ["P01", "P02"].map((identity) =>
+      launchElectronWithMainEvaluation(input, async () =>
+        fakePlaywrightApplication(identity, () => {
+          closeCounts[identity as keyof typeof closeCounts] += 1;
+        }),
+      ),
+    );
+    const [first, second] = await Promise.all(launches);
+
+    const [firstIdentity, secondIdentity, firstWindow, secondWindow] =
+      await Promise.all([
+        first.evaluateInMain?.((electron) =>
+          String((electron as { identity: string }).identity),
+        ),
+        second.evaluateInMain?.((electron) =>
+          String((electron as { identity: string }).identity),
+        ),
+        first.firstWindow(),
+        second.firstWindow(),
+      ]);
+
+    expect([firstIdentity, secondIdentity]).toEqual(["P01", "P02"]);
+    await expect(
+      firstWindow.evaluate((window) =>
+        String((window as { identity: string }).identity),
+      ),
+    ).resolves.toBe("P01");
+    await expect(
+      secondWindow.evaluate((window) =>
+        String((window as { identity: string }).identity),
+      ),
+    ).resolves.toBe("P02");
+    expect(first.process()?.pid).not.toBe(second.process()?.pid);
+
+    await first.close();
+    expect(closeCounts).toEqual({ P01: 1, P02: 0 });
+    await second.close();
+    expect(closeCounts).toEqual({ P01: 1, P02: 1 });
   });
 });
 
@@ -122,6 +233,21 @@ function runGit(args: string[], cwd: string): Promise<void> {
 // stableJson key ordering); a localeCompare regression would make the digest
 // depend on the verifying machine's ICU locale.
 describe("blind persona source path-set digest ordering", () => {
+  it("waits for the startup workspace read before the one seed reset", async () => {
+    const source = await readFile(
+      path.join(
+        repositoryRoot,
+        "apps/desktop/scripts/prepare-blind-persona-workspaces.ts",
+      ),
+      "utf8",
+    );
+    const readinessIndex = source.indexOf("await workspaceApi();");
+    const resetIndex = source.indexOf("return resetApi(repositoryState);");
+
+    expect(readinessIndex).toBeGreaterThan(-1);
+    expect(resetIndex).toBeGreaterThan(readinessIndex);
+  });
+
   it("digests code-unit-sorted paths, never ambient-locale collation", async () => {
     // "R" sorts before "a" and "Ä" after "z" ONLY in code-unit order; every
     // common collation reorders at least one of these pairs.
@@ -148,9 +274,14 @@ describe("blind persona source path-set digest ordering", () => {
   // would fail verifyAcceptedBuild purely on inventory ordering.
   it("recomputes the acceptance producer's sealed source path-set digest byte-identically", async () => {
     const paths = ["README", "alpha/nested.txt", "zeta.txt", "Änderung.txt"];
+    const excludedPaths = [
+      "apps/desktop/test-artifacts/generated.json",
+      "packages/browser-agent/tsconfig.tsbuildinfo",
+      "docs/audits/evidence-manifests/generated.manifest.json",
+    ];
     const fixtureRoot = await uniqueTestRoot("blind-source-producer-parity");
     await runGit(["init"], fixtureRoot);
-    for (const name of paths) {
+    for (const name of [...paths, ...excludedPaths]) {
       await mkdir(path.dirname(path.join(fixtureRoot, name)), {
         recursive: true,
       });
@@ -168,6 +299,56 @@ describe("blind persona source path-set digest ordering", () => {
     expect(sha256(stableSeedSerialization(localeOrder))).not.toBe(
       verifierDigest,
     );
+  });
+
+  it("orders custody inventory entries by deterministic code units", async () => {
+    const fixtureRoot = await uniqueTestRoot("blind-custody-inventory-order");
+    for (const name of ["zeta.txt", "Änderung.txt", "alpha.txt", "Beta.txt"]) {
+      await writeFile(path.join(fixtureRoot, name), `${name}\n`);
+    }
+
+    const first = await inventoryTree(fixtureRoot);
+    const second = await inventoryTree(fixtureRoot);
+    const expectedPaths = ["Beta.txt", "alpha.txt", "zeta.txt", "Änderung.txt"];
+    expect(first.files.map((entry) => entry.path)).toEqual(expectedPaths);
+    expect(first.digest).toBe(second.digest);
+    expect([...expectedPaths].sort(compareCodeUnitOrder)).toEqual(
+      expectedPaths,
+    );
+    expect(
+      [...expectedPaths].sort(new Intl.Collator("en").compare),
+    ).not.toEqual(expectedPaths);
+  });
+
+  it("excludes only exact top-level Chromium DIPS sidecars from payload inventory", async () => {
+    const fixtureRoot = await uniqueTestRoot("blind-dips-inventory-boundary");
+    for (const relativePath of [
+      "DIPS",
+      "DIPS-shm",
+      "DIPS-wal",
+      "nested/DIPS-shm",
+      "nested/DIPS-wal",
+      "arbitrary-shm",
+    ]) {
+      const filePath = path.join(fixtureRoot, relativePath);
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, `${relativePath}\n`);
+    }
+
+    const inventory = await inventoryTree(fixtureRoot);
+    const paths = inventory.files.map((entry) => entry.path);
+
+    expect(isBrowserManagedTransientSidecar("DIPS-shm")).toBe(true);
+    expect(isBrowserManagedTransientSidecar("DIPS-wal")).toBe(true);
+    expect(isBrowserManagedTransientSidecar("DIPS")).toBe(false);
+    expect(isBrowserManagedTransientSidecar("nested/DIPS-shm")).toBe(false);
+    expect(isBrowserManagedTransientSidecar("arbitrary-shm")).toBe(false);
+    expect(paths).toEqual([
+      "DIPS",
+      "arbitrary-shm",
+      "nested/DIPS-shm",
+      "nested/DIPS-wal",
+    ]);
   });
 });
 
@@ -305,7 +486,7 @@ async function makeAcceptedRun(root: string) {
       path: "package.json",
       sha256: sha256(`${stableSeedSerialization(packageMetadata)}\n`),
     },
-  ].sort((left, right) => left.path.localeCompare(right.path));
+  ].sort((left, right) => compareCodeUnitOrder(left.path, right.path));
   const acceptedAppDigest = sha256(
     acceptedAppFiles
       .map((entry) => `${stableSeedSerialization(entry)}\n`)
@@ -490,8 +671,10 @@ async function makeAcceptedRun(root: string) {
 }
 
 function durableSnapshot(state: Record<string, unknown>) {
+  const discovery = state.discovery as Record<string, unknown> | undefined;
   return {
     ...state,
+    activeSourceDebugRun: discovery?.activeSourceDebugRun ?? null,
     applicationAttempts: state.applicationAttempts ?? [],
     applicationRecords: state.applicationRecords ?? [],
     applyJobResults: state.applyJobResults ?? [],
@@ -499,8 +682,13 @@ function durableSnapshot(state: Record<string, unknown>) {
     campaignNotifications: state.campaignNotifications ?? [],
     campaigns: state.campaigns ?? [],
     discoveryJobs: state.savedJobs ?? [],
+    // Keep the fixture's durable intelligence exactly as the production
+    // snapshot does; P13's outcome events and batch safeguards are part of
+    // restart parity, not disposable seed intent.
+    intelligence: state.intelligence ?? {},
     resumeDrafts: state.resumeDrafts ?? [],
     resumeExportArtifacts: state.resumeExportArtifacts ?? [],
+    recentSourceDebugRuns: discovery?.recentSourceDebugRuns ?? [],
     tailoredAssets: state.tailoredAssets ?? [],
     userActionEvents: state.userActionEvents ?? [],
     userActionRequests: state.userActionRequests ?? [],
@@ -509,11 +697,15 @@ function durableSnapshot(state: Record<string, unknown>) {
 
 function runtimeLaunch(options: {
   exposeTesterApi?: boolean;
+  materializeDerivedSetupState?: boolean;
+  migrateResumeOnRestart?: boolean;
+  mutateRestartIntelligence?: boolean;
   mutateRestart?: boolean;
   mutateRestartAt?: number;
   onEnvironment?: (env: NodeJS.ProcessEnv) => void;
 }) {
   let saved: Record<string, unknown> | undefined;
+  let lastRestartSnapshot: Record<string, unknown> | undefined;
   let launches = 0;
   const launch: LaunchSeedElectron = async ({ env }) => {
     launches += 1;
@@ -527,15 +719,106 @@ function runtimeLaunch(options: {
           argument: A,
         ): Promise<R> => {
           if (isSeed) {
-            saved = durableSnapshot(argument as Record<string, unknown>);
+            const state = argument as Record<string, unknown>;
+            const derivedSetupState = options.materializeDerivedSetupState
+              ? deriveProfileSetupState(
+                  CandidateProfileSchema.parse(state.profile),
+                  JobSearchPreferencesSchema.parse(state.searchPreferences),
+                  {
+                    currentState: ProfileSetupStateSchema.parse(
+                      state.profileSetupState,
+                    ),
+                  },
+                )
+              : null;
+            const seededState = derivedSetupState
+              ? {
+                  ...state,
+                  // Production adds these missing-field items during its
+                  // startup read. Their timestamps are intentionally
+                  // runtime-generated, so the harness must not require them
+                  // in the pre-reset intent projection.
+                  profileSetupState: {
+                    ...derivedSetupState,
+                    reviewItems: [
+                      {
+                        id: "derived-contact-review",
+                        step: "essentials",
+                        target: {
+                          domain: "identity",
+                          key: "contactPath",
+                          recordId: null,
+                        },
+                        label: "Contact details",
+                        reason: "Add a contact path.",
+                        severity: "critical",
+                        status: "pending",
+                        proposedValue: null,
+                        sourceSnippet: null,
+                        sourceCandidateId: null,
+                        sourceRunId: null,
+                        createdAt: new Date().toISOString(),
+                        resolvedAt: null,
+                      },
+                      {
+                        id: "derived-work-history-review",
+                        step: "background",
+                        target: {
+                          domain: "experience",
+                          key: "record",
+                          recordId: null,
+                        },
+                        label: "Work history",
+                        reason: "Add work history.",
+                        severity: "critical",
+                        status: "pending",
+                        proposedValue: null,
+                        sourceSnippet: null,
+                        sourceCandidateId: null,
+                        sourceRunId: null,
+                        createdAt: new Date().toISOString(),
+                        resolvedAt: null,
+                      },
+                    ],
+                  },
+                }
+              : state;
+            saved = durableSnapshot(seededState);
             return saved as R;
           }
           const snapshot = structuredClone(saved!);
+          if (options.migrateResumeOnRestart) {
+            const userDataDirectory = env.UNEMPLOYED_USER_DATA_DIR;
+            if (!userDataDirectory) {
+              throw new Error("Runtime fixture is missing its user-data path.");
+            }
+            const repository = createInMemoryJobFinderRepository(
+              createEmptyJobFinderRepositoryState(),
+            );
+            await repository.saveProfile(
+              CandidateProfileSchema.parse(snapshot.profile),
+            );
+            await migrateLegacyResumeSource({
+              documentsDirectory: path.join(
+                userDataDirectory,
+                "documents",
+                "resumes",
+              ),
+              repository,
+            });
+            snapshot.profile = await repository.getProfile();
+          }
           if (
             options.mutateRestart &&
             launches === (options.mutateRestartAt ?? 2)
           )
             snapshot.settings = { broken: true };
+          if (
+            options.mutateRestartIntelligence &&
+            launches === (options.mutateRestartAt ?? 2)
+          )
+            snapshot.intelligence = {};
+          lastRestartSnapshot = structuredClone(snapshot);
           return {
             snapshot,
             testApiPresent: options.exposeTesterApi === true,
@@ -557,6 +840,9 @@ function runtimeLaunch(options: {
     get launches() {
       return launches;
     },
+    get restartSnapshot() {
+      return structuredClone(lastRestartSnapshot);
+    },
   };
 }
 
@@ -568,20 +854,22 @@ interface FakeCdpServer {
 
 async function startFakeCdpServer(options: {
   port: number;
+  responseBody?: Record<string, unknown>;
   withRequiredKeys: boolean;
 }): Promise<FakeCdpServer> {
   const state = { requests: 0 };
   const server = createHttpServer((_request, response) => {
     state.requests += 1;
     response.setHeader("content-type", "application/json");
-    response.end(
-      options.withRequiredKeys
-        ? JSON.stringify({
+    const responseBody =
+      options.responseBody ??
+      (options.withRequiredKeys
+        ? {
             Browser: "fake/1",
             webSocketDebuggerUrl: `ws://127.0.0.1:${options.port}/devtools/browser/guid`,
-          })
-        : JSON.stringify({ unexpected: true }),
-    );
+          }
+        : { unexpected: true });
+    response.end(JSON.stringify(responseBody));
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -602,9 +890,14 @@ async function startFakeCdpServer(options: {
 }
 
 function driverChannelLaunch(options: {
+  cdpResponse?: (
+    port: number,
+    args: string[],
+  ) => Record<string, unknown> | undefined;
   emitPorts: (args: string[]) => number | null;
   unkeyedPorts?: number[];
   filePortOverride?: (emittedPort: number) => number;
+  omitDevToolsActivePortFile?: (emittedPort: number, args: string[]) => boolean;
 }) {
   let saved: Record<string, unknown> | undefined;
   const launches: string[][] = [];
@@ -622,15 +915,18 @@ function driverChannelLaunch(options: {
       servers.push(
         await startFakeCdpServer({
           port: emittedPort,
+          responseBody: options.cdpResponse?.(emittedPort, args),
           withRequiredKeys: !(options.unkeyedPorts ?? []).includes(emittedPort),
         }),
       );
       const filePort = options.filePortOverride?.(emittedPort) ?? emittedPort;
-      await writeFile(
-        path.join(String(env.UNEMPLOYED_USER_DATA_DIR), "DevToolsActivePort"),
-        `${filePort}\nws://127.0.0.1:${emittedPort}/devtools/browser/guid\n`,
-        "utf8",
-      );
+      if (!options.omitDevToolsActivePortFile?.(emittedPort, args)) {
+        await writeFile(
+          path.join(String(env.UNEMPLOYED_USER_DATA_DIR), "DevToolsActivePort"),
+          `${filePort}\nws://127.0.0.1:${emittedPort}/devtools/browser/guid\n`,
+          "utf8",
+        );
+      }
     }
     const launchIndex = counter;
     const probeFromEnvironment = () => {
@@ -689,6 +985,29 @@ function driverChannelLaunch(options: {
 }
 
 describe("blind persona accepted-build preparation", () => {
+  it("selects fresh jobs by manifest corpus binding without P01-P12 branches", async () => {
+    const source = await readFile(
+      path.join(
+        repositoryRoot,
+        "apps/desktop/scripts/prepare-blind-persona-workspaces.ts",
+      ),
+      "utf8",
+    );
+    const buildStart = source.indexOf("async function buildPersonaState(");
+    const buildEnd = source.indexOf("const defaultLaunch", buildStart);
+    expect(buildStart).toBeGreaterThan(-1);
+    expect(buildEnd).toBeGreaterThan(buildStart);
+    const buildSource = source.slice(buildStart, buildEnd);
+
+    expect(buildSource).toContain(
+      "getBlindPersonaJobsForSession(data, session)",
+    );
+    expect(buildSource).not.toContain("jobsByPersona[personaId]");
+    expect(buildSource).not.toMatch(
+      /personaId\s*===\s*["']P(?:0[1-9]|1[0-2])["']/u,
+    );
+  });
+
   it("uses canonical paths and rejects aliases", () => {
     const root = path.join(approvedTempRoot, "personas");
     expect(isPathInside(root, path.join(root, "P01-a"))).toBe(true);
@@ -728,7 +1047,9 @@ describe("blind persona accepted-build preparation", () => {
   // the producer's files array order and digest, or a mixed-case/non-ASCII
   // toolchain tree would fail verifyAcceptedBuild on ordering alone.
   it("recomputes the acceptance producer's sealed dependency identity byte-identically across roots", async () => {
-    const fixtureRoot = await uniqueTestRoot("blind-dependency-producer-parity");
+    const fixtureRoot = await uniqueTestRoot(
+      "blind-dependency-producer-parity",
+    );
     const rootA = path.join(fixtureRoot, "node_modules", "pkg-a");
     const rootB = path.join(
       fixtureRoot,
@@ -773,7 +1094,9 @@ describe("blind persona accepted-build preparation", () => {
     );
     // Fixture guard: this multi-root interleaving genuinely diverges from
     // ambient collation, so a localeCompare regression fails this test.
-    const localeOrder = [...expectedOrder].sort(new Intl.Collator("en").compare);
+    const localeOrder = [...expectedOrder].sort(
+      new Intl.Collator("en").compare,
+    );
     expect(localeOrder).not.toEqual(expectedOrder);
   });
 
@@ -821,6 +1144,24 @@ describe("blind persona accepted-build preparation", () => {
         expect.stringMatching(/credentials/u),
       ]),
     );
+  });
+
+  it("rejects foreign P##-UUID workspace paths while allowing the own root", () => {
+    const ownRoot =
+      "/private/tmp/personas/P13-550e8400-e29b-41d4-a716-446655440000";
+    const foreignRoot =
+      "/private/tmp/personas/P14-550e8400-e29b-41d4-a716-446655440000";
+    const state = {
+      profile: {
+        baseResume: {
+          storagePath: `${ownRoot}/documents/resumes/original.txt`,
+        },
+      },
+      retainedCopy: `${foreignRoot}/persona-assets/resume/original.txt`,
+    };
+
+    expect(scanCrossPersonaPaths({ own: state.profile }, "P13")).toEqual([]);
+    expect(scanCrossPersonaPaths(state, "P13")).toEqual(["retainedCopy"]);
   });
 
   it("consumes independently loaded real runner report/manifest shape", async () => {
@@ -1064,6 +1405,166 @@ describe("blind persona accepted-build preparation", () => {
     });
   });
 
+  it("keeps browser-managed DIPS sidecars out of the sealed payload while retaining normal files", async () => {
+    const root = await uniqueTestRoot("blind-dips-sealed-payload");
+    const fixture = await makeAcceptedRun(root);
+    const runtime = runtimeLaunch({});
+    const launch: LaunchSeedElectron = async (input) => {
+      const userDataRoot = input.env.UNEMPLOYED_USER_DATA_DIR;
+      if (!userDataRoot)
+        throw new Error("Runtime fixture is missing its user-data path.");
+      for (const relativePath of [
+        "DIPS",
+        "DIPS-shm",
+        "DIPS-wal",
+        "nested/DIPS-shm",
+        "arbitrary-shm",
+      ]) {
+        const filePath = path.join(userDataRoot, relativePath);
+        await mkdir(path.dirname(filePath), { recursive: true });
+        await writeFile(filePath, `${relativePath}\n`);
+      }
+      return runtime.launch(input);
+    };
+    const result = await prepareBlindPersonaWorkspaces(
+      {
+        acceptanceRunDir: fixture.runDir,
+        expectedSealSha256: fixture.expectedSealSha256,
+        custodyRoot: path.join(root, "custody"),
+        destinationRoot: path.join(root, "personas"),
+        personaIds: ["P01"],
+      },
+      { launch },
+    );
+    const prepared = result.prepared[0]!;
+    const manifest = JSON.parse(
+      await readFile(prepared.seedManifestPath, "utf8"),
+    ) as {
+      contaminationProof: { excludedFiles: string[] };
+      payloadInventory: { files: Array<{ path: string }> };
+    };
+    const sealedPaths = manifest.payloadInventory.files.map(
+      (entry) => entry.path,
+    );
+    expect(sealedPaths).toContain("DIPS");
+    expect(sealedPaths).toContain("nested/DIPS-shm");
+    expect(sealedPaths).toContain("arbitrary-shm");
+    expect(sealedPaths).not.toContain("DIPS-shm");
+    expect(sealedPaths).not.toContain("DIPS-wal");
+    expect(manifest.contaminationProof.excludedFiles).toEqual([
+      "blind-persona-seed-manifest.json",
+      "DIPS-shm",
+      "DIPS-wal",
+    ]);
+
+    await rm(path.join(prepared.userDataRoot, "DIPS-shm"));
+    await rm(path.join(prepared.userDataRoot, "DIPS-wal"));
+    await writeFile(
+      path.join(
+        path.dirname(result.custodyIndexPath!),
+        testerLaunchRecordName("P01"),
+      ),
+      "{}\n",
+    );
+    await expect(
+      verifyPreparedPersonaWorkspace(
+        prepared.userDataRoot,
+        result.custodyIndexPath!,
+      ),
+    ).resolves.toMatchObject({ mode: "consumed" });
+
+    await rm(path.join(prepared.userDataRoot, "DIPS"));
+    await expect(
+      verifyPreparedPersonaWorkspace(
+        prepared.userDataRoot,
+        result.custodyIndexPath!,
+      ),
+    ).rejects.toThrow(/missing or shadowed/u);
+  });
+
+  it.each(["P13", "P14"] as const)(
+    "accepts persisted %s setup state derived during reset",
+    async (personaId) => {
+      const root = await uniqueTestRoot(
+        `blind-${personaId.toLowerCase()}-derived-setup-state`,
+      );
+      const fixture = await makeAcceptedRun(root);
+      const runtime = runtimeLaunch({
+        materializeDerivedSetupState: true,
+        migrateResumeOnRestart: true,
+      });
+      const result = await prepareBlindPersonaWorkspaces(
+        {
+          acceptanceRunDir: fixture.runDir,
+          expectedSealSha256: fixture.expectedSealSha256,
+          custodyRoot: path.join(root, "custody"),
+          destinationRoot: path.join(root, "personas"),
+          personaIds: [personaId],
+        },
+        { launch: runtime.launch },
+      );
+      expect(runtime.launches).toBe(2);
+      const restartSnapshot = runtime.restartSnapshot;
+      if (!restartSnapshot)
+        throw new Error("Restart snapshot was not captured.");
+      const restartProfile = CandidateProfileSchema.parse(
+        restartSnapshot.profile,
+      );
+      const persistedResumePath = restartProfile.baseResume.storagePath;
+      if (!persistedResumePath) {
+        throw new Error("Returning persona resume was not persisted.");
+      }
+      expect(path.isAbsolute(persistedResumePath)).toBe(true);
+      expect(
+        path.relative(
+          path.join(result.prepared[0]!.userDataRoot, "documents", "resumes"),
+          persistedResumePath,
+        ),
+      ).not.toMatch(/^\.\./u);
+      const persistedResumeBytes = await readFile(persistedResumePath);
+      const personaInputResumePath = path.join(
+        result.prepared[0]!.userDataRoot,
+        "persona-assets",
+        "resume",
+        path.basename(persistedResumePath),
+      );
+      expect(persistedResumeBytes).toEqual(
+        await readFile(personaInputResumePath),
+      );
+      expect(restartProfile.baseResume.sha256).toBe(
+        sha256(persistedResumeBytes),
+      );
+      expect(restartProfile.baseResume.analysisWarnings).not.toContain(
+        missingResumeSourceWarning,
+      );
+      if (personaId === "P13") {
+        const intelligence = restartSnapshot.intelligence as Record<
+          string,
+          unknown
+        >;
+        expect(intelligence.outcomeEvents).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ id: "blind_p13_outcome_01" }),
+          ]),
+        );
+        expect(
+          ((intelligence.safeguards ?? {}) as Record<string, unknown>)
+            .preparedBatchSampleReviews,
+        ).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ id: "blind_p13_batch_review" }),
+          ]),
+        );
+      }
+      await expect(
+        verifyPreparedPersonaWorkspace(
+          result.prepared[0]!.userDataRoot,
+          result.custodyIndexPath!,
+        ),
+      ).resolves.toMatchObject({ personaId });
+    },
+  );
+
   it("quarantines restart semantic mismatch without deleting successful roots", async () => {
     const root = await uniqueTestRoot("blind-restart-mismatch");
     const fixture = await makeAcceptedRun(root);
@@ -1076,6 +1577,27 @@ describe("blind persona accepted-build preparation", () => {
           custodyRoot: path.join(root, "custody"),
           destinationRoot: path.join(root, "personas"),
           personaIds: ["P01"],
+        },
+        { launch: runtime.launch },
+      ),
+    ).rejects.toThrow(/quarantined or removed/u);
+    await expect(
+      (await import("node:fs/promises")).readdir(path.join(root, "personas")),
+    ).resolves.toEqual([expect.stringMatching(/\.incomplete$/u)]);
+  });
+
+  it("quarantines a restart that loses P13 durable intelligence", async () => {
+    const root = await uniqueTestRoot("blind-restart-intelligence-mismatch");
+    const fixture = await makeAcceptedRun(root);
+    const runtime = runtimeLaunch({ mutateRestartIntelligence: true });
+    await expect(
+      prepareBlindPersonaWorkspaces(
+        {
+          acceptanceRunDir: fixture.runDir,
+          expectedSealSha256: fixture.expectedSealSha256,
+          custodyRoot: path.join(root, "custody"),
+          destinationRoot: path.join(root, "personas"),
+          personaIds: ["P13"],
         },
         { launch: runtime.launch },
       ),
@@ -1268,6 +1790,25 @@ describe("blind persona accepted-build preparation", () => {
     const record = JSON.parse(await readFile(tester.launchRecordPath, "utf8"));
     expect(record.environment.UNEMPLOYED_ENABLE_TEST_API).toBeUndefined();
     expect(record.intent.socketTelemetryAvailable).toBe(false);
+    expect(tester.testerBrief).toMatchObject({
+      kind: "blind-persona-tester-brief",
+      routeFreedom: "outcome_only",
+      schemaVersion: 1,
+    });
+    expect(tester.testerBrief.postJourneyCheckpoint).toContain(
+      "POST-JOURNEY OPTIONAL CHECKPOINT",
+    );
+    expect(record.testerBrief).toEqual(tester.testerBrief);
+    const intent = JSON.parse(
+      await readFile(
+        path.join(
+          path.dirname(tester.launchRecordPath),
+          testerLaunchIntentName("P01", 2),
+        ),
+        "utf8",
+      ),
+    );
+    expect(intent.testerBrief).toEqual(tester.testerBrief);
     await expect(tester.close()).resolves.toMatchObject({
       survivorsAfterCleanup: [],
     });
@@ -1982,6 +2523,10 @@ describe("blind persona accepted-build preparation", () => {
     // workspace DevToolsActivePort file AND confirmed live with the required
     // endpoint keys; network blocking stays intact.
     const ephemeral = driverChannelLaunch({
+      cdpResponse: (port) => ({
+        Browser: "fake/1",
+        webSocketDebuggerUrl: `wss://127.0.0.1:${port}/devtools/browser/guid`,
+      }),
       emitPorts: (args) =>
         args.includes("--remote-debugging-port=0") &&
         args.includes("--remote-debugging-address=127.0.0.1")
@@ -2109,6 +2654,92 @@ describe("blind persona accepted-build preparation", () => {
       await unkeyed.stop();
     }
   });
+
+  const invalidCdpResponses: Array<
+    [string, (port: number) => Record<string, unknown>]
+  > = [
+    [
+      "a non-string Browser value",
+      (port) => ({
+        Browser: 42,
+        webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/browser/guid`,
+      }),
+    ],
+    [
+      "a non-string webSocketDebuggerUrl value",
+      () => ({ Browser: "fake/1", webSocketDebuggerUrl: 42 }),
+    ],
+    [
+      "an empty Browser string",
+      (port) => ({
+        Browser: "  ",
+        webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/browser/guid`,
+      }),
+    ],
+    [
+      "an empty webSocketDebuggerUrl string",
+      () => ({ Browser: "fake/1", webSocketDebuggerUrl: "  " }),
+    ],
+    [
+      "a foreign websocket host",
+      (port) => ({
+        Browser: "fake/1",
+        webSocketDebuggerUrl: `ws://192.0.2.1:${port}/devtools/browser/guid`,
+      }),
+    ],
+    [
+      "a websocket port that differs from the resolved endpoint",
+      (port) => ({
+        Browser: "fake/1",
+        webSocketDebuggerUrl: `ws://127.0.0.1:${port === 65_535 ? 65_534 : port + 1}/devtools/browser/guid`,
+      }),
+    ],
+  ];
+
+  it.each(invalidCdpResponses)(
+    "fails closed for %s, including fixed-port HTTP fallback without a port file",
+    async (_label, responseFactory) => {
+      const root = await uniqueTestRoot("blind-driver-endpoint-proof");
+      const fixture = await makeAcceptedRun(root);
+      const prepared = await prepareBlindPersonaWorkspaces(
+        {
+          acceptanceRunDir: fixture.runDir,
+          expectedSealSha256: fixture.expectedSealSha256,
+          custodyRoot: path.join(root, "custody"),
+          destinationRoot: path.join(root, "personas"),
+          personaIds: ["P01"],
+        },
+        { launch: runtimeLaunch({}).launch },
+      );
+      const invalid = driverChannelLaunch({
+        cdpResponse: (port) => responseFactory(port),
+        emitPorts: (args) => {
+          if (args.includes("--remote-debugging-port=0")) return null;
+          const requested = args
+            .map((arg) => /--remote-debugging-port=(\d+)/u.exec(arg)?.[1])
+            .find(Boolean);
+          const port = Number(requested);
+          return requested && port > 0 ? port : null;
+        },
+        omitDevToolsActivePortFile: () => true,
+      });
+      try {
+        await expect(
+          launchBlindPersonaTester(
+            {
+              custodyIndexPath: prepared.custodyIndexPath!,
+              driverCdp: true,
+              personaId: "P01",
+            },
+            { driverTimeoutMs: 200, launch: invalid.launch },
+          ),
+        ).rejects.toThrow(/failing closed/u);
+        expect(invalid.launches).toHaveLength(2);
+      } finally {
+        await invalid.stop();
+      }
+    },
+  );
 
   it("falls back to the fixed high port when ephemeral liveness fails", async () => {
     const root = await uniqueTestRoot("blind-driver-liveness-fallback");
@@ -2443,7 +3074,8 @@ describe("blind persona accepted-build preparation", () => {
       },
       // The endpoint is live with required keys but the file names a
       // different port: this can never succeed.
-      filePortOverride: (emittedPort) => emittedPort + 1,
+      filePortOverride: (emittedPort) =>
+        emittedPort === 65_535 ? 65_534 : emittedPort + 1,
     });
     try {
       await expect(
@@ -2461,6 +3093,47 @@ describe("blind persona accepted-build preparation", () => {
       expect(conflicted.servers[0]?.requests ?? 0).toBeGreaterThanOrEqual(2);
     } finally {
       await conflicted.stop();
+    }
+  });
+
+  it("fails closed when the fixed-port proof file is malformed", async () => {
+    const root = await uniqueTestRoot("blind-driver-malformed-port-file");
+    const fixture = await makeAcceptedRun(root);
+    const prepared = await prepareBlindPersonaWorkspaces(
+      {
+        acceptanceRunDir: fixture.runDir,
+        expectedSealSha256: fixture.expectedSealSha256,
+        custodyRoot: path.join(root, "custody"),
+        destinationRoot: path.join(root, "personas"),
+        personaIds: ["P01"],
+      },
+      { launch: runtimeLaunch({}).launch },
+    );
+    const malformed = driverChannelLaunch({
+      emitPorts: (args) => {
+        const requested = args
+          .map((arg) => /--remote-debugging-port=(\d+)/u.exec(arg)?.[1])
+          .find(Boolean);
+        const port = Number(requested);
+        return requested && port > 0 ? port : null;
+      },
+      filePortOverride: () => 65_536,
+    });
+    try {
+      await expect(
+        launchBlindPersonaTester(
+          {
+            custodyIndexPath: prepared.custodyIndexPath!,
+            driverCdp: true,
+            personaId: "P01",
+          },
+          { driverTimeoutMs: 200, launch: malformed.launch },
+        ),
+      ).rejects.toThrow(/failing closed/u);
+      expect(malformed.launches).toHaveLength(2);
+      expect(malformed.servers[0]?.requests ?? 0).toBeGreaterThanOrEqual(2);
+    } finally {
+      await malformed.stop();
     }
   });
 

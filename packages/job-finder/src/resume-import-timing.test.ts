@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 import {
+  createFreshStartSeedProfile,
   createSeed,
   createWorkspaceServiceHarness,
 } from "./workspace-service.test-support";
@@ -12,9 +13,7 @@ describe("resume import timing persistence", () => {
       seed: {
         ...seed,
         profile: {
-          ...seed.profile,
-          fullName: "Candidate",
-          email: null,
+          ...createFreshStartSeedProfile(),
           baseResume: {
             ...seed.profile.baseResume,
             extractionStatus: "not_started",

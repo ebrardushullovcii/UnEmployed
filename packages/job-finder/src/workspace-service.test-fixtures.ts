@@ -7,6 +7,7 @@ import type {
   SourceInstructionArtifact,
 } from "@unemployed/contracts";
 import {
+  FRESH_START_CANDIDATE_PROFILE_ID,
   JobFinderDiscoveryStateSchema,
   JobFinderIntelligenceStateSchema,
   SavedJobDiscoveryProvenanceSchema,
@@ -276,7 +277,7 @@ export function createSeed(): JobFinderRepositorySeed {
     },
     profileSetupState: {
       status: "completed",
-      currentStep: "ready_check",
+      currentStep: "targeting",
       completedAt: "2026-03-20T10:02:00.000Z",
       reviewItems: [],
       lastResumedAt: null,
@@ -481,6 +482,12 @@ export function createSeed(): JobFinderRepositorySeed {
     applicationArtifactRefs: [],
     applicationReplayCheckpoints: [],
     applicationConsentRequests: [],
+    applicationAuthorityEnvelopes: [],
+    submissionPreflights: [],
+    submissionExecutionGrants: [],
+    submissionIdempotencyRecords: [],
+    submissionArmedMarkers: [],
+    submissionOutcomeRecords: [],
     applicationRecords: [],
     applicationAttempts: [],
     userActionRequests: [],
@@ -518,6 +525,48 @@ export function createSeed(): JobFinderRepositorySeed {
     campaignNotifications: [],
     activityControl: { paused: false, pausedAt: null, reason: null },
     intelligence: JobFinderIntelligenceStateSchema.parse({}),
+  };
+}
+
+/**
+ * Seed profile in the canonical first-run state, mirroring
+ * `createFreshStartCandidateProfile()`: no persisted identity facts and no
+ * preferred application contact. Fixtures that model a first resume import
+ * must start from this shape so the resume identity gate legitimately lets the
+ * imported resume establish the profile identity instead of failing closed on
+ * a mismatch with a different seeded person.
+ */
+export function createFreshStartSeedProfile(): JobFinderRepositorySeed["profile"] {
+  const profile = createSeed().profile;
+
+  return {
+    ...profile,
+    id: FRESH_START_CANDIDATE_PROFILE_ID,
+    firstName: null,
+    middleName: null,
+    lastName: null,
+    fullName: null,
+    preferredDisplayName: null,
+    headline: null,
+    summary: null,
+    currentLocation: null,
+    currentCity: null,
+    currentRegion: null,
+    currentCountry: null,
+    yearsExperience: 0,
+    email: null,
+    secondaryEmail: null,
+    phone: null,
+    applicationIdentity: {
+      ...profile.applicationIdentity,
+      preferredEmail: null,
+      preferredPhone: null,
+    },
+    baseResume: {
+      ...profile.baseResume,
+      extractionStatus: "not_started",
+      lastAnalyzedAt: null,
+    },
   };
 }
 

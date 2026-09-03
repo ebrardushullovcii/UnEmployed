@@ -27,9 +27,7 @@ const MAX_SAVED_VIEW_METADATA_KEYS = 8;
 const MAX_SAVED_VIEW_METADATA_VALUES = 24;
 const MAX_SAVED_VIEW_METADATA_VALUE_LENGTH = 200;
 
-function readSavedViewMetadata(
-  value: unknown,
-): SavedViewMetadata | undefined {
+function readSavedViewMetadata(value: unknown): SavedViewMetadata | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
   }
@@ -40,8 +38,8 @@ function readSavedViewMetadata(
       if (!Array.isArray(values)) return [];
       // Empty lists are kept: capturing a cleared facet is meaningful.
       const clean = values
-        .filter((entryValue): entryValue is string =>
-          typeof entryValue === "string",
+        .filter(
+          (entryValue): entryValue is string => typeof entryValue === "string",
         )
         .map((entryValue) =>
           entryValue.slice(0, MAX_SAVED_VIEW_METADATA_VALUE_LENGTH),

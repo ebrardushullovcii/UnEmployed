@@ -5,7 +5,7 @@
  * real Electron webContents zoom (the same setZoomFactor path the app's own
  * zoom shortcuts use), not CSS root zoom. Captures 1024x768 and 1440x920 at
  * 100/125/150/200% and records header geometry, overlap candidates, horizontal
- * overflow, and Planning & settings reachability at compact widths.
+ * overflow, and More-menu reachability at compact widths.
  *
  * Usage (after `pnpm --filter @unemployed/desktop build`):
  *   node ./scripts/capture-shell-zoom-sweep.mjs
@@ -77,9 +77,7 @@ async function probeLayout(page) {
       'nav[aria-label="Job Finder sections"]:not([data-desktop-module-navigation])',
     );
     const compactStrip = compactNav?.firstElementChild ?? null;
-    const moreButton = compactNav?.querySelector(
-      'button[aria-label^="Planning and settings"]',
-    );
+    const moreButton = compactNav?.querySelector('button[aria-label^="More"]');
     const notificationGroup = document.querySelector(
       'div[aria-label="Notifications and actions"]',
     );
@@ -393,15 +391,15 @@ async function run() {
 
       const isCompact = layout.sidebarMode === "compact-top-nav";
       if (isCompact) {
-        // Planning & settings reachability at compact width.
+        // More-menu reachability at compact width.
         const moreButton = page.locator(
-          'nav[aria-label="Job Finder sections"]:not([data-desktop-module-navigation]) button[aria-label^="Planning and settings"]',
+          'nav[aria-label="Job Finder sections"]:not([data-desktop-module-navigation]) button[aria-label^="More"]',
         );
         try {
           if ((await moreButton.count()) > 0) {
             await moreButton.click({ timeout: 5_000 });
             await page
-              .getByRole("navigation", { name: "Planning and settings" })
+              .getByRole("navigation", { name: "More" })
               .waitFor({ state: "visible", timeout: 8_000 });
             await page.screenshot({
               animations: "disabled",
@@ -411,7 +409,7 @@ async function run() {
               ),
             });
             await page
-              .getByRole("navigation", { name: "Planning and settings" })
+              .getByRole("navigation", { name: "More" })
               .getByRole("button", { name: /^Settings/ })
               .click();
             await page

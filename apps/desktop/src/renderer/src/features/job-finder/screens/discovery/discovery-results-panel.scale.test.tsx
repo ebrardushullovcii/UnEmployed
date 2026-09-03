@@ -58,6 +58,32 @@ function createJobs(count = JOB_COUNT): SavedJob[] {
   });
 }
 
+/**
+ * The minimum evidence an assessment needs before its percentage is treated
+ * as earned: one supported requirement plus a settled role-suitability state.
+ */
+const checkedAssessmentEvidence = {
+  dimensions: {
+    roleSuitability: {
+      state: "exact",
+      explanation: "The listing title matches a saved target role.",
+      evidence: [],
+    },
+  },
+  requirements: [
+    {
+      id: "skill_figma",
+      category: "skill",
+      label: "Figma",
+      importance: "required",
+      status: "supported",
+      jobEvidence: "Figma is used daily.",
+      resumeEvidence: [],
+      explanation: "The resume contains explicit Figma evidence.",
+    },
+  ],
+};
+
 function getRenderedJobButtons(container: HTMLElement): HTMLButtonElement[] {
   return Array.from(
     container.querySelectorAll<HTMLButtonElement>("button[data-job-result-id]"),
@@ -104,14 +130,17 @@ describe("DiscoveryResultsPanel workspace scale", () => {
       "dom_scale_job_0049",
     );
     expect(screen.getByText("1–50 of 1000")).toBeTruthy();
+    // The default "review before applying" verdict is the list baseline and
+    // earns no per-row badge; only stronger or weaker verdicts are badged.
     expect(
       resultButtons.filter((button) =>
         button.textContent?.includes("Review before applying"),
       ),
-    ).toHaveLength(DISCOVERY_RESULTS_PAGE_SIZE);
+    ).toHaveLength(0);
     expect(
-      screen.getAllByLabelText("Overall fit: 70 percent").length,
+      screen.getAllByLabelText("Overall fit: not assessed").length,
     ).toBeGreaterThan(0);
+    expect(screen.queryByText("70% fit")).toBeNull();
     expect(screen.queryByText("Role and requirements")).toBeNull();
     expect(
       screen.getByRole<HTMLButtonElement>("button", { name: "Previous" })
@@ -121,6 +150,75 @@ describe("DiscoveryResultsPanel workspace scale", () => {
       screen.getByRole<HTMLButtonElement>("button", { name: "Next" }).disabled,
     ).toBe(false);
     expect(durationMs).toBeLessThan(DOM_COMMIT_BUDGET_MS);
+  });
+
+  it("suppresses provisional numbers while preserving authoritative labels", () => {
+    const catalogJob = createJobs(1)[0];
+    if (!catalogJob) {
+      throw new Error("Expected the scale fixture to include one catalog job.");
+    }
+    const authoritativeJob = SavedJobSchema.parse({
+      ...catalogJob,
+      id: `${catalogJob.id}_authoritative`,
+      discoveryMethod: "browser_agent",
+      matchAssessment: {
+        ...catalogJob.matchAssessment,
+        ...checkedAssessmentEvidence,
+        contextFingerprint: "match_context_v4_candidate",
+        postingFingerprint: "match_posting_v4_listing",
+      },
+    });
+
+    const { container } = renderResults([catalogJob, authoritativeJob], null);
+
+    expect(screen.getByLabelText("Overall fit: not assessed")).toBeTruthy();
+    expect(screen.getByText("Fit not assessed")).toBeTruthy();
+    const provisionalResult = container.querySelector<HTMLButtonElement>(
+      `[data-job-result-id="${catalogJob.id}"]`,
+    );
+    if (!provisionalResult) {
+      throw new Error("Expected the provisional result row to be rendered.");
+    }
+    expect(provisionalResult.textContent).not.toContain("70% fit");
+    expect(
+      provisionalResult.querySelector('[aria-label="Overall fit: 70 percent"]'),
+    ).toBeNull();
+    expect(screen.getByLabelText("Overall fit: 70 percent")).toBeTruthy();
+    expect(screen.getByText("70% fit")).toBeTruthy();
+  });
+
+  it("withholds the percentage when only the listing title was checkable", () => {
+    const titleOnlyJob = SavedJobSchema.parse({
+      ...createJobs(1)[0],
+      id: "dom_scale_job_title_only",
+      discoveryMethod: "browser_agent",
+      matchAssessment: {
+        score: 54,
+        reasons: [],
+        gaps: [],
+        contextFingerprint: "match_context_v4_candidate",
+        postingFingerprint: "match_posting_v4_listing",
+      },
+    });
+
+    const { container } = renderResults([titleOnlyJob], null);
+    const row = container.querySelector<HTMLButtonElement>(
+      `[data-job-result-id="${titleOnlyJob.id}"]`,
+    );
+    if (!row) {
+      throw new Error("Expected the title-only result row to be rendered.");
+    }
+
+    // The number is not printed anywhere on the row, and the row says what is
+    // missing instead of asserting a confidence it has not earned.
+    expect(row.textContent).not.toContain("54%");
+    expect(screen.getByText("Title match only")).toBeTruthy();
+    expect(
+      screen.getByLabelText("Overall fit: title match only, not scored"),
+    ).toBeTruthy();
+    expect(row.textContent).toContain(
+      "Only the listing title could be checked",
+    );
   });
 
   it("wraps unbroken result labels and exposes their full names", () => {
@@ -308,6 +406,7 @@ describe("DiscoveryResultsPanel workspace scale", () => {
       screen.getByRole("region", { name: "Job results list" }),
     );
     expect(scrollRegion?.getAttribute("tabindex")).toBe("0");
+    expect(scrollRegion?.className).toContain("pb-8");
     expect(pagination).toBeTruthy();
     expect(scrollRegion?.contains(pagination)).toBe(false);
     expect(pagination?.className).not.toContain("sticky");
@@ -418,26 +517,31 @@ describe("DiscoveryResultsPanel workspace scale", () => {
   });
 
   it("explains an all-hidden result set and offers a working reveal action", () => {
-    const onShowHiddenJobs = vi.fn();
+    const onShowAlsoFound = vi.fn();
 
     render(
       <DiscoveryResultsPanel
         browserSession={browserSession}
         hasCompletedSearch
-        hiddenJobCount={3}
+        alsoFoundCount={3}
+        hiddenAlsoFoundCount={3}
         jobs={[]}
         onSelectJob={vi.fn()}
-        onShowHiddenJobs={onShowHiddenJobs}
+        onShowAlsoFound={onShowAlsoFound}
         selectedJob={null}
       />,
     );
 
-    expect(screen.getByText("0 shown · 3 mismatches hidden")).toBeTruthy();
-    expect(screen.getByText("All results are hidden")).toBeTruthy();
+    expect(screen.getByText("0 worth opening · 3 also found")).toBeTruthy();
+    expect(
+      screen.getByText("Nothing scored close to your targets"),
+    ).toBeTruthy();
     expect(screen.queryByText("No matches from this search")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Show mismatches" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show also found (3)" }),
+    );
 
-    expect(onShowHiddenJobs).toHaveBeenCalledTimes(1);
+    expect(onShowAlsoFound).toHaveBeenCalledTimes(1);
   });
 });

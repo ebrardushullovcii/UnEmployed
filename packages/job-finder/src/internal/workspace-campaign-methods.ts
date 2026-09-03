@@ -244,9 +244,14 @@ export async function commitCampaignRunTerminal(input: {
     // Never commit a run that is not terminal yet.
     if (outcome === null) return;
 
+    // Discovery-only mode keeps new findings in pendingDiscoveryJobs until the
+    // user shortlists them. They are still real results owned by this campaign
+    // and must participate in retention; otherwise the renderer's campaign
+    // filter hides the entire completed run.
+    const availableJobs = [...savedJobs, ...discovery.pendingDiscoveryJobs];
     const candidateJobIds = new Set([
       ...campaign.jobIds,
-      ...savedJobs
+      ...availableJobs
         .filter(
           (job) =>
             input.beforeJobProvenanceFingerprints.get(job.id) !==
@@ -254,7 +259,7 @@ export async function commitCampaignRunTerminal(input: {
         )
         .map((job) => job.id),
     ]);
-    const candidateJobs = savedJobs.filter((job) =>
+    const candidateJobs = availableJobs.filter((job) =>
       candidateJobIds.has(job.id),
     );
     const measuredAt = latestRun.completedAt ?? latestRun.startedAt;
@@ -312,7 +317,7 @@ export async function commitCampaignRunTerminal(input: {
       jobIds: retainedJobIds,
     });
 
-    const strongMatches = savedJobs
+    const strongMatches = candidateJobs
       .filter(
         (job) =>
           retainedJobIds.includes(job.id) &&
@@ -323,6 +328,10 @@ export async function commitCampaignRunTerminal(input: {
         title: job.title,
         company: job.company,
         fitScore: job.matchAssessment.score,
+        assessment: {
+          discoveryMethod: job.discoveryMethod,
+          matchAssessment: job.matchAssessment,
+        },
       }));
     const failedSourceWork = (digest?.failedSources ?? []).map((source) => ({
       workId: `discovery_source_${latestRun.id}_${source.sourceTargetId}`,
@@ -612,9 +621,15 @@ async function executeCampaignRun(input: {
   ) => Promise<JobFinderWorkspaceSnapshot>;
   now: string;
 }): Promise<void> {
-  const beforeSavedJobs = await input.ctx.repository.listSavedJobs();
+  const [beforeSavedJobs, beforeDiscovery] = await Promise.all([
+    input.ctx.repository.listSavedJobs(),
+    input.ctx.repository.getDiscoveryState(),
+  ]);
   const beforeJobProvenanceFingerprints = new Map(
-    beforeSavedJobs.map((job) => [job.id, JSON.stringify(job.provenance)]),
+    [...beforeSavedJobs, ...beforeDiscovery.pendingDiscoveryJobs].map((job) => [
+      job.id,
+      JSON.stringify(job.provenance),
+    ]),
   );
   try {
     await input.runCampaignDiscovery({

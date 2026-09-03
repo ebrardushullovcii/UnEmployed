@@ -25,6 +25,10 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { SettingsScreen } from "./settings-screen";
 
+// Plain-language section label. The rename changes the tab name only; the
+// prepare-only boundary is untouched.
+const WORKSPACE_BEHAVIOR_LABEL = "Browser & saved jobs";
+
 const globalActScope = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;
 };
@@ -131,7 +135,34 @@ describe("SettingsScreen scoped section saves", () => {
       },
     );
     expect(appearanceSave.disabled).toBe(true);
-    fireEvent.click(within(appDevice).getByRole("radio", { name: "Dark" }));
+
+    // The three themes are one segmented control of ordinary buttons with
+    // aria-pressed, so they are addressable by role "button" and their
+    // pressed state is exposed without radio semantics.
+    const themeGroup = within(appDevice).getByRole("group");
+    expect(
+      themeGroup.hasAttribute("data-settings-appearance-theme-group"),
+    ).toBe(true);
+    const themeButtons = within(themeGroup).getAllByRole("button");
+    expect(themeButtons.map((button) => button.textContent)).toEqual([
+      "System",
+      "Light",
+      "Dark",
+    ]);
+    expect(
+      themeButtons.map((button) => button.getAttribute("aria-pressed")),
+    ).toEqual(["true", "false", "false"]);
+    expect(within(appDevice).queryByRole("radiogroup")).toBeNull();
+    expect(within(appDevice).queryAllByRole("radio")).toHaveLength(0);
+
+    fireEvent.click(within(appDevice).getByRole("button", { name: "Light" }));
+    expect(
+      within(appDevice)
+        .getByRole("button", { name: "Light" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+
+    fireEvent.click(within(appDevice).getByRole("button", { name: "Dark" }));
     expect(appearanceSave.disabled).toBe(false);
     fireEvent.click(appearanceSave);
 
@@ -142,7 +173,7 @@ describe("SettingsScreen scoped section saves", () => {
     expect(callbacks.onUpdateWorkspaceBehavior).not.toHaveBeenCalled();
 
     const workspace = screen.getByRole("region", {
-      name: "Workspace behavior",
+      name: WORKSPACE_BEHAVIOR_LABEL,
     });
     const defaults = screen.getByRole("region", {
       name: "Application defaults",
@@ -207,7 +238,7 @@ describe("SettingsScreen scoped section saves", () => {
     expect(stillStagedChoice.getAttribute("aria-checked")).toBe("true");
 
     const refreshedWorkspaceRegion = screen.getByRole("region", {
-      name: "Workspace behavior",
+      name: WORKSPACE_BEHAVIOR_LABEL,
     });
     expect(
       within(refreshedWorkspaceRegion)
@@ -355,7 +386,7 @@ describe("SettingsScreen scoped section saves", () => {
     const view = renderScreen(parseSettings(), callbacks);
 
     const appDevice = screen.getByRole("region", { name: "App & device" });
-    fireEvent.click(within(appDevice).getByRole("radio", { name: "Dark" }));
+    fireEvent.click(within(appDevice).getByRole("button", { name: "Dark" }));
     fireEvent.click(
       within(appDevice).getByRole<HTMLButtonElement>("button", {
         name: "Save appearance",
@@ -364,20 +395,19 @@ describe("SettingsScreen scoped section saves", () => {
 
     // The pending state must last for the IPC promise, not end early.
     expect(
-      within(appDevice).getByRole<HTMLButtonElement>("button", {
-        name: "Saving appearance",
-      }).hasAttribute("disabled"),
+      within(appDevice)
+        .getByRole<HTMLButtonElement>("button", {
+          name: "Saving appearance",
+        })
+        .hasAttribute("disabled"),
     ).toBe(false);
     expect(
       within(appDevice)
         .getByRole<HTMLButtonElement>("button", { name: "Saving appearance" })
         .getAttribute("aria-disabled"),
     ).toBe("true");
-    expect(
-      within(appDevice)
-        .getByRole("status")
-        .getAttribute("data-settings-save-state"),
-    ).toBe("saving");
+    // A save in flight shows no status line: the pending button is the state.
+    expect(within(appDevice).queryByRole("status")).toBeNull();
 
     await act(() => {
       resolveAppearance?.(false);
@@ -397,8 +427,8 @@ describe("SettingsScreen scoped section saves", () => {
     // A failed save keeps the staged choice dirty and retryable.
     expect(
       within(appDevice)
-        .getByRole("radio", { name: "Dark" })
-        .getAttribute("aria-checked"),
+        .getByRole("button", { name: "Dark" })
+        .getAttribute("aria-pressed"),
     ).toBe("true");
     expect(
       within(appDevice).getByRole<HTMLButtonElement>("button", {
@@ -468,7 +498,7 @@ describe("SettingsScreen scoped section saves", () => {
     const view = renderScreen(parseSettings(), callbacks);
 
     const workspace = screen.getByRole("region", {
-      name: "Workspace behavior",
+      name: WORKSPACE_BEHAVIOR_LABEL,
     });
     fireEvent.click(within(workspace).getAllByRole("switch")[0]!);
     fireEvent.click(
@@ -478,9 +508,11 @@ describe("SettingsScreen scoped section saves", () => {
     );
 
     expect(
-      within(workspace).getByRole<HTMLButtonElement>("button", {
-        name: "Saving workspace behavior",
-      }).hasAttribute("disabled"),
+      within(workspace)
+        .getByRole<HTMLButtonElement>("button", {
+          name: "Saving workspace behavior",
+        })
+        .hasAttribute("disabled"),
     ).toBe(false);
     expect(
       within(workspace)
@@ -532,29 +564,35 @@ describe("SettingsScreen scoped section saves", () => {
       }),
     );
 
-    // Submit stays pending for the IPC promise.
+    // Submit stays pending for the IPC promise. Tracker now uses the shared
+    // settings save control, so the pending label matches every other section
+    // ("Saving tracker settings") instead of a bespoke "Saving…".
     await act(async () => {});
     expect(
-      within(tracker).getByRole<HTMLButtonElement>("button", {
-        name: "Saving…",
-      }).disabled,
-    ).toBe(true);
+      within(tracker)
+        .getByRole<HTMLButtonElement>("button", {
+          name: "Saving tracker settings",
+        })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
 
     await act(() => {
       resolveTracker?.(false);
       return Promise.resolve();
     });
 
-    expect(within(tracker).getByRole("alert").textContent).toBe(
+    expect(within(tracker).getByRole("status").textContent).toBe(
       "The application tracker settings could not be saved.",
     );
     // A failed save must not reset the staged tracker values.
     expect(
       within(tracker).getByLabelText<HTMLInputElement>("After days").value,
     ).toBe("9");
+    // A failed save offers the retry, named the way every other section
+    // names its retry.
     expect(
       within(tracker).getByRole<HTMLButtonElement>("button", {
-        name: "Save tracker settings",
+        name: "Retry tracker settings",
       }).disabled,
     ).toBe(false);
 
@@ -587,7 +625,9 @@ describe("SettingsScreen scoped section saves", () => {
         }).disabled,
       ).toBe(true),
     );
-    expect(within(tracker).queryByRole("alert")).toBeNull();
+    expect(
+      within(tracker).queryByRole("button", { name: "Retry tracker settings" }),
+    ).toBeNull();
 
     view.unmount();
   });

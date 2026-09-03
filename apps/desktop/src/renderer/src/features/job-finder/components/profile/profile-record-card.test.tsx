@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -145,9 +151,9 @@ describe("ProfileRecordCard", () => {
     // jsdom queues the details toggle event, so wait for the state flip.
     fireEvent.click(details.querySelector("summary")!);
     expect(details.open).toBe(true);
-    const collapsedChip = await screen.findByText("Collapse").then(
-      (collapsedLabel) => collapsedLabel.parentElement,
-    );
+    const collapsedChip = await screen
+      .findByText("Collapse")
+      .then((collapsedLabel) => collapsedLabel.parentElement);
 
     // Toggling must not move any newly announced label into the tree: the
     // flipped word stays confined to the same hidden chip.

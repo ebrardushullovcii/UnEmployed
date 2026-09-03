@@ -88,7 +88,7 @@ export function SettingsPerformanceEvidence() {
         <p className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
           Performance
         </p>
-        <h2 className="font-display text-lg font-semibold text-(--text-headline)">
+        <h2 className="font-display font-semibold text-(--text-headline)">
           Workflow timing evidence
         </h2>
         <p className="text-sm leading-6 text-foreground-soft">
@@ -126,7 +126,7 @@ export function SettingsPerformanceEvidence() {
             >
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-medium text-foreground">
+                  <h3 className="font-semibold text-foreground">
                     {areaLabels[entry.area]}
                   </h3>
                   <p className="mt-1 text-(length:--text-description) text-foreground-muted">

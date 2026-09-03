@@ -7,7 +7,13 @@ import {
   type JobSearchCampaign,
   type SaveCampaignRuleInput,
 } from "@unemployed/contracts";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetJobFinderOverlaysForTests } from "../../lib/job-finder-overlay-ownership";
 import { CampaignRuleBuilder } from "./campaign-rule-builder";

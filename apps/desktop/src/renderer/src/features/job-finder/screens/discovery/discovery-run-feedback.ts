@@ -42,7 +42,9 @@ export type DiscoveryRunVerdictInput = Pick<
   summary?: Pick<
     DiscoveryRunRecord["summary"],
     "validJobsFound" | "sourceHealth"
-  >;
+  > & {
+    duplicatesMerged?: number;
+  };
 };
 
 function hasFailedSourceExecution(run: DiscoveryRunVerdictInput): boolean {
@@ -70,7 +72,9 @@ export function getDiscoveryLatestRunVerdict(
   // `idle` rows are placeholders, not attempts; every other state is a
   // settled or live verdict candidate.
   const settledRuns = runs.filter(
-    (run): run is DiscoveryRunVerdictInput & {
+    (
+      run,
+    ): run is DiscoveryRunVerdictInput & {
       state: Exclude<DiscoveryRunRecord["state"], "idle">;
     } => run.state !== "idle",
   );
@@ -85,8 +89,7 @@ export function getDiscoveryLatestRunVerdict(
   const newestStartedMs = Date.parse(newestRun.startedAt);
   const hasEarlierCompleted = settledRuns.some(
     (run) =>
-      run.state === "completed" &&
-      Date.parse(run.startedAt) < newestStartedMs,
+      run.state === "completed" && Date.parse(run.startedAt) < newestStartedMs,
   );
 
   if (newestRun.state === "running") {
@@ -95,14 +98,21 @@ export function getDiscoveryLatestRunVerdict(
   if (newestRun.state === "completed") {
     // A finished run still cannot claim "no matches" when a source execution
     // failed and the whole run produced zero results; results or fully
-    // successful executions keep the completed verdict.
-    return hasFailedSourceExecution(newestRun) && hasZeroValidResults(newestRun)
-      ? {
-          hasEarlierCompleted,
-          interruptState: "sources_failed",
-          kind: "interrupted",
-        }
-      : { kind: "completed" };
+    // successful executions keep the completed verdict. Zero new additions
+    // with duplicate merges are a completed repeat search — not an interrupt.
+    const duplicatesMerged = newestRun.summary?.duplicatesMerged ?? 0;
+    if (
+      hasFailedSourceExecution(newestRun) &&
+      hasZeroValidResults(newestRun) &&
+      duplicatesMerged === 0
+    ) {
+      return {
+        hasEarlierCompleted,
+        interruptState: "sources_failed",
+        kind: "interrupted",
+      };
+    }
+    return { kind: "completed" };
   }
 
   return {
@@ -140,6 +150,8 @@ const SOURCE_SETUP_FAILURE_RE =
   /single_target|not found or unavailable|missing, disabled|no runnable|no enabled|enable at least one|add at least one|add or enable/i;
 const CONNECTION_FAILURE_RE =
   /fetch failed|network|offline|\bdns\b|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|timed?\s?out|unreachable|socket|provider (is )?(unavailable|unreachable)/i;
+const AI_TOOL_CALLING_FAILURE_RE =
+  /does not support tool calling|chatWithTools|tool calling|Cannot run agent discovery/i;
 
 /**
  * Maps a classified discovery failure to the exact corrective action using
@@ -178,9 +190,21 @@ export function getDiscoveryRunFailureRecovery(
     };
   }
 
+  if (AI_TOOL_CALLING_FAILURE_RE.test(detail)) {
+    return {
+      kind: "retry",
+      headline: "This search needs an AI provider that can use tools.",
+      actionLabel: null,
+      nextStep:
+        "Use a tool-capable provider (or enable live AI in test mode), then search again from the same button.",
+    };
+  }
+
   return {
     kind: "retry",
-    headline: "The search stopped before it could finish.",
+    // Keep this distinct from interrupted feedback.headline so the callout
+    // never prints the same "stopped before it could finish" line twice.
+    headline: "Something unexpected stopped this search.",
     actionLabel: null,
     nextStep: "Wait a moment, then search again from the same button.",
   };
@@ -209,6 +233,39 @@ export function createDiscoveryRunSucceededFeedback(
     headline: targetLabel
       ? `Search finished for ${targetLabel} and results were saved on this device.`
       : "Search finished and results were saved on this device.",
+    recovery: null,
+    targetLabel,
+  };
+}
+
+/**
+ * Success feedback when a run completed but every reviewed listing merged
+ * into jobs already on this device. Keeps the visible results list truthful:
+ * zero new additions does not mean the search failed.
+ */
+export function shouldPresentRepeatedDiscoveryFeedback(input: {
+  duplicatesMerged: number;
+  validJobsFound: number;
+}): boolean {
+  return input.duplicatesMerged > 0 && input.validJobsFound === 0;
+}
+
+export function createDiscoveryRunRepeatedFeedback(input: {
+  duplicatesMerged: number;
+  targetLabel?: string | null;
+}): DiscoveryRunFeedback {
+  const targetLabel = input.targetLabel ?? null;
+  const duplicateLabel =
+    input.duplicatesMerged === 1
+      ? "1 listing was already saved"
+      : `${input.duplicatesMerged} listings were already saved`;
+
+  return {
+    status: "succeeded",
+    detail: null,
+    headline: targetLabel
+      ? `Search finished for ${targetLabel}. ${duplicateLabel}; your existing results are unchanged.`
+      : `Search finished. ${duplicateLabel}; your existing results are unchanged.`,
     recovery: null,
     targetLabel,
   };

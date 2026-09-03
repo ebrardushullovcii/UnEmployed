@@ -17,6 +17,7 @@ import {
   JobFinderSetWorkHistoryReviewAcknowledgmentInputSchema,
   JobFinderSetResumeClaimConfirmationInputSchema,
   ResumeAssistantMessageSchema,
+  type ResumeProposalApprovalBlocker,
   ResumeClaimConfirmationSchema,
   ResumeValidationResultSchema,
   WorkHistoryReviewAcknowledgmentSchema,
@@ -30,6 +31,7 @@ import {
   TailoredAssetSchema,
   type ApplyExecutionResult,
   type BrowserVisualEvidenceSummary,
+  type CandidateProfile,
   type JobSource,
   type ResumeValidationIssue,
   type ResumeValidationResult,
@@ -42,6 +44,7 @@ import {
 } from "@unemployed/contracts";
 import { sanitizeTailoredAssetFailureMessage } from "./tailored-asset-failure";
 import { projectDiscoveryJobViews } from "./listing-activity";
+import { isApprovedTailoredResumeReadyForApply } from "./matching-review-queue";
 import {
   buildApplyCopilotArtifacts,
   buildSingleJobAutoApplyArtifacts,
@@ -96,6 +99,9 @@ import {
   buildWorkHistoryReviewSuggestions,
   collectResearchContext,
   collectResumeWorkspaceEvidence,
+  buildResumeProposalReplyContent,
+  evaluateResumeProposalGrounding,
+  hasBlockingResumeIdentityMismatch,
   isWorkHistoryOmissionReviewSuggestion,
   hasBlockingResumeClaimAssessment,
   listUnresolvedWorkHistoryOmissionSuggestions,
@@ -105,6 +111,11 @@ import {
   validateResumeDraft,
 } from "./resume-workspace-helpers";
 import {
+  findResumeDraftIdentityConflicts,
+  resolveResumeIdentity,
+  resumeIdentityMismatchMessage,
+} from "./resume-identity";
+import {
   buildResumeWorkspace,
   buildWorkHistoryReviewSuggestionsFromValidation,
   ensureResumeDraft,
@@ -112,6 +123,7 @@ import {
   loadUnresolvedWorkHistoryOmissionSuggestions,
   previewResumeDraft,
   renderDraftToPdf,
+  assertResumeProfileRevisionCurrent,
 } from "./workspace-application-resume-support";
 import {
   buildResumeGenerationStrategyPolicy,
@@ -121,6 +133,8 @@ import {
 import { createApplicationUserActionResumer } from "./workspace-application-user-action-resumption";
 import { persistApplicationUserAction } from "./workspace-application-user-action";
 import { persistAutomaticApplicationSafeguards } from "./automatic-safeguards";
+import { reconcileStaleMissingResumeBlockers } from "./workspace-application-blocker-sync";
+import { resolvePrepareOnlyIntermediateMutationAuthority } from "./prepare-only-intermediate-mutation-authority";
 import {
   appendExactEmployerExclusion,
   removeExactEmployerExclusion,
@@ -290,6 +304,34 @@ async function getLatestResumeRevisionId(
     (await ctx.repository.listResumeDraftRevisions(draftId))[0]?.id ?? null
   );
 }
+
+function assertCoherentResumeIdentity(profile: CandidateProfile): void {
+  const identityResolution = resolveResumeIdentity(profile);
+  if (identityResolution.mismatchReasons.length > 0) {
+    throw new Error(
+      resumeIdentityMismatchMessage(identityResolution.mismatchReasons),
+    );
+  }
+}
+
+async function assertCurrentResumeProfile(
+  ctx: WorkspaceServiceContext,
+  expectedRevision: number,
+  operation: string,
+): Promise<
+  Awaited<
+    ReturnType<WorkspaceServiceContext["repository"]["getProfileWithRevision"]>
+  >
+> {
+  const current = await assertResumeProfileRevisionCurrent(
+    ctx,
+    expectedRevision,
+    operation,
+  );
+  assertCoherentResumeIdentity(current.profile);
+  return current;
+}
+
 export function createWorkspaceApplicationMethods(
   ctx: WorkspaceServiceContext,
 ): WorkspaceApplicationMethods {
@@ -919,6 +961,50 @@ export function createWorkspaceApplicationMethods(
     return actualSha256.toLowerCase();
   }
 
+  async function buildIntermediateMutationExecutionOptions(input: {
+    job: ReturnType<typeof SavedJobSchema.parse>;
+    resumeArtifact: ExecuteApplicationFlowInput["resumeArtifact"];
+  }): Promise<
+    Pick<
+      ExecuteApplicationFlowInput,
+      | "intermediateMutationsAuthorized"
+      | "intermediateMutationAllowedOrigins"
+      | "recheckIntermediateMutationAuthority"
+    >
+  > {
+    const initial = await resolvePrepareOnlyIntermediateMutationAuthority({
+      job: input.job,
+      now: new Date().toISOString(),
+      repository: ctx.repository,
+      resumeSha256: input.resumeArtifact.sha256,
+    });
+    if (!initial.authorized) {
+      return {
+        intermediateMutationsAuthorized: false,
+        intermediateMutationAllowedOrigins: [],
+      };
+    }
+
+    return {
+      intermediateMutationsAuthorized: true,
+      intermediateMutationAllowedOrigins: initial.allowedOrigins,
+      recheckIntermediateMutationAuthority: async (observedOrigin) => {
+        const current = await resolvePrepareOnlyIntermediateMutationAuthority({
+          job: input.job,
+          now: new Date().toISOString(),
+          observedOrigin,
+          repository: ctx.repository,
+          resumeSha256: input.resumeArtifact.sha256,
+        });
+        return (
+          current.authorized &&
+          current.authorityEnvelopeId === initial.authorityEnvelopeId &&
+          current.authorityRevision === initial.authorityRevision
+        );
+      },
+    };
+  }
+
   async function resolveJobApplyPrerequisites(
     jobId: string,
     scopedSavedJobs?: readonly ReturnType<typeof SavedJobSchema.parse>[],
@@ -927,17 +1013,25 @@ export function createWorkspaceApplicationMethods(
       profile?: Awaited<
         ReturnType<WorkspaceServiceContext["repository"]["getProfile"]>
       >;
+      profileRevision?: number;
       settings?: Awaited<
         ReturnType<WorkspaceServiceContext["repository"]["getSettings"]>
       >;
     },
   ) {
+    const profileStatePromise =
+      scope?.profile && scope.profileRevision !== undefined
+        ? Promise.resolve({
+            profile: scope.profile,
+            revision: scope.profileRevision,
+          })
+        : ctx.repository.getProfileWithRevision();
     const [
       savedJobs,
       tailoredAssets,
       draft,
       approvedExports,
-      profile,
+      profileState,
       settings,
     ] = await Promise.all([
       scopedSavedJobs
@@ -948,9 +1042,7 @@ export function createWorkspaceApplicationMethods(
         : ctx.repository.listTailoredAssets(),
       ctx.repository.getResumeDraftByJobId(jobId),
       ctx.repository.listResumeExportArtifacts({ jobId }),
-      scope?.profile
-        ? Promise.resolve(scope.profile)
-        : ctx.repository.getProfile(),
+      profileStatePromise,
       scope?.settings
         ? Promise.resolve(scope.settings)
         : ctx.repository.getSettings(),
@@ -966,6 +1058,8 @@ export function createWorkspaceApplicationMethods(
       job,
       settings,
     );
+    assertCoherentResumeIdentity(profileState.profile);
+    const profile = profileState.profile;
 
     if (resumeApplicationMode === "original_resume") {
       const originalResumePath = profile.baseResume.storagePath?.trim() ?? "";
@@ -992,6 +1086,8 @@ export function createWorkspaceApplicationMethods(
 
       return {
         job,
+        profile,
+        profileRevision: profileState.revision,
         resumeApplicationMode,
         resumeArtifact: ApplicationResumeArtifactSchema.parse({
           id: `application_resume_${job.id}_${profile.baseResume.id}`,
@@ -1007,11 +1103,13 @@ export function createWorkspaceApplicationMethods(
       };
     }
 
-    const approvedExport = draft?.approvedExportId
-      ? (approvedExports.find((entry) => entry.id === draft.approvedExportId) ??
-        null)
-      : null;
     const asset = tailoredAssets.find((entry) => entry.jobId === jobId) ?? null;
+    const approvedExportResolution = isApprovedTailoredResumeReadyForApply({
+      draft,
+      exports: approvedExports,
+      asset,
+    });
+    const approvedExport = approvedExportResolution.approvedExport;
 
     if (!draft || draft.status !== "approved" || !approvedExport) {
       throw new Error(
@@ -1045,11 +1143,7 @@ export function createWorkspaceApplicationMethods(
       }
     }
 
-    if (
-      !asset ||
-      asset.status !== "ready" ||
-      asset.storagePath !== approvedExport.filePath
-    ) {
+    if (!approvedExportResolution.ready) {
       throw new Error(
         `A ready approved tailored resume is required before staging automatic apply for '${job.title}'.`,
       );
@@ -1063,6 +1157,9 @@ export function createWorkspaceApplicationMethods(
 
     return {
       job,
+      profile,
+      profileState,
+      profileRevision: profileState.revision,
       resumeApplicationMode,
       resumeArtifact: ApplicationResumeArtifactSchema.parse({
         id: `application_resume_${job.id}_${approvedExport.id}`,
@@ -1196,6 +1293,33 @@ export function createWorkspaceApplicationMethods(
         input.existingRecord.events,
         input.applicationRecord.events,
       ),
+    });
+  }
+
+  async function clearStaleMissingResumeBlockerForJob(
+    jobId: string,
+  ): Promise<void> {
+    const [
+      applicationRecords,
+      resumeDrafts,
+      resumeExportArtifacts,
+      tailoredAssets,
+    ] = await Promise.all([
+      ctx.repository.listApplicationRecords(),
+      ctx.repository.listResumeDrafts(),
+      ctx.repository.listResumeExportArtifacts({ jobId }),
+      ctx.repository.listTailoredAssets(),
+    ]);
+    const now = new Date().toISOString();
+
+    await reconcileStaleMissingResumeBlockers(ctx.repository, {
+      applicationRecords: applicationRecords.filter(
+        (record) => record.jobId === jobId,
+      ),
+      resumeDrafts,
+      resumeExportArtifacts,
+      tailoredAssets,
+      detectedAt: now,
     });
   }
 
@@ -1365,7 +1489,7 @@ export function createWorkspaceApplicationMethods(
     capacityToken?: ApplicationPreparationCapacityToken,
   ): Promise<void> {
     const [
-      profile,
+      profileState,
       searchPreferences,
       settings,
       sourceInstructionArtifacts,
@@ -1381,7 +1505,7 @@ export function createWorkspaceApplicationMethods(
       campaignState,
       savedJobs,
     ] = await Promise.all([
-      ctx.repository.getProfile(),
+      ctx.repository.getProfileWithRevision(),
       ctx.repository.getSearchPreferences(),
       ctx.repository.getSettings(),
       ctx.repository.listSourceInstructionArtifacts(),
@@ -1397,6 +1521,7 @@ export function createWorkspaceApplicationMethods(
       ctx.repository.getCampaignState(),
       ctx.repository.listSavedJobs(),
     ]);
+    assertCoherentResumeIdentity(profileState.profile);
     const run = runs.find((entry) => entry.id === input.runId) ?? null;
     const savedJobsById = new Map(savedJobs.map((job) => [job.id, job]));
 
@@ -1565,17 +1690,31 @@ export function createWorkspaceApplicationMethods(
           return;
         }
 
-        const { job, resumeApplicationMode, resumeArtifact } =
-          await resolveJobApplyPrerequisites(
-            jobId,
-            savedJobsById.get(jobId) ? [savedJobsById.get(jobId)!] : [],
-          );
+        const prerequisites = await resolveJobApplyPrerequisites(
+          jobId,
+          savedJobsById.get(jobId) ? [savedJobsById.get(jobId)!] : [],
+        );
         if (await stopIfRunWasCancelled()) {
           return;
         }
+        // The prerequisite read verifies the selected export/file, but it is
+        // not itself a lock. Recheck the shared profile epoch immediately
+        // before marking preparation started or opening the browser so an
+        // intervening profile edit cannot execute stale identity input.
+        await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "starting automatic application preparation",
+        );
+        const { job, resumeApplicationMode, resumeArtifact } = prerequisites;
         const recoverySeed = await buildApplyRecoveryContext(
           jobId,
           exactApplicationRecordId,
+        );
+        await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "marking this application preparation started",
         );
         jobResult = await ctx.markApplicationPreparationStarted(
           {
@@ -1615,6 +1754,16 @@ export function createWorkspaceApplicationMethods(
           ...buildInstructionGuidance(activeInstruction),
           ...recoverySeed.recoveryInstructions,
         ]);
+        const intermediateMutationAuthority =
+          await buildIntermediateMutationExecutionOptions({
+            job,
+            resumeArtifact,
+          });
+        const browserProfile = await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "executing this application preparation",
+        );
 
         const executionResult = enforcePrepareOnlyExecutionResult(
           await ctx.browserRuntime.executeApplicationFlow(
@@ -1622,10 +1771,10 @@ export function createWorkspaceApplicationMethods(
             {
               job,
               resumeArtifact,
-              profile,
+              profile: browserProfile.profile,
               settings: { ...settings, resumeApplicationMode },
               mode: "prepare_only",
-              intermediateMutationsAuthorized: false,
+              ...intermediateMutationAuthority,
               accountCreationAuthorized: false,
               submitAuthorized: false,
               ...(recoverySeed.recoveryContext
@@ -1641,6 +1790,11 @@ export function createWorkspaceApplicationMethods(
             },
             { signal: executionSignal },
           ),
+        );
+        await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "recording this application preparation",
         );
         if (await stopIfRunWasCancelled()) {
           return;
@@ -2181,7 +2335,7 @@ export function createWorkspaceApplicationMethods(
     jobId: string,
   ): Promise<JobFinderWorkspaceSnapshot> {
     const [
-      profile,
+      profileState,
       searchPreferences,
       settings,
       savedJobs,
@@ -2189,7 +2343,7 @@ export function createWorkspaceApplicationMethods(
       intelligenceState,
       campaignState,
     ] = await Promise.all([
-      ctx.repository.getProfile(),
+      ctx.repository.getProfileWithRevision(),
       ctx.repository.getSearchPreferences(),
       ctx.repository.getSettings(),
       ctx.repository.listSavedJobs(),
@@ -2197,6 +2351,7 @@ export function createWorkspaceApplicationMethods(
       ctx.repository.getIntelligenceState(),
       ctx.repository.getCampaignState(),
     ]);
+    const { profile, revision: profileRevision } = profileState;
     const job = savedJobs.find((entry) => entry.id === jobId);
 
     if (!job) {
@@ -2205,9 +2360,14 @@ export function createWorkspaceApplicationMethods(
       );
     }
 
-    const existingAsset = tailoredAssets.find(
-      (asset) => asset.jobId === jobId,
-    );
+    const identityResolution = resolveResumeIdentity(profile);
+    if (identityResolution.mismatchReasons.length > 0) {
+      throw new Error(
+        resumeIdentityMismatchMessage(identityResolution.mismatchReasons),
+      );
+    }
+
+    const existingAsset = tailoredAssets.find((asset) => asset.jobId === jobId);
     const existingDraft = await ctx.repository.getResumeDraftByJobId(jobId);
     const templates = ctx.documentManager.listResumeTemplates();
     const strategyContext = buildResumeStrategyContext({
@@ -2249,7 +2409,7 @@ export function createWorkspaceApplicationMethods(
     // queue truth behind: record the failed tailored asset before
     // propagating the original error to callers.
     try {
-      const research = await fetchAndPersistResearch(ctx, job);
+      const research = await fetchAndPersistResearch(ctx, job, profileRevision);
       const evidence = collectResumeWorkspaceEvidence({
         profile,
         job,
@@ -2266,13 +2426,28 @@ export function createWorkspaceApplicationMethods(
         evidence,
         researchContext,
       });
-      const generationMethod = draft.notes.some((note: string) =>
-        normalizeText(note).includes("deterministic"),
-      )
-        ? "deterministic"
-        : ctx.aiClient.getStatus().kind === "openai_compatible"
+      // Prefer the structured provenance recorded by the AI boundary; the
+      // note-prose inference stays only for legacy clients that omit it.
+      const provenance = draft.generationProvenance ?? null;
+      const generationMethod = provenance
+        ? provenance.method === "ai"
           ? "ai_assisted"
-          : "deterministic";
+          : "deterministic"
+        : draft.notes.some((note: string) =>
+              normalizeText(note).includes("deterministic"),
+            )
+          ? "deterministic"
+          : ctx.aiClient.getStatus().kind === "openai_compatible"
+            ? "ai_assisted"
+            : "deterministic";
+      const generationReason =
+        generationMethod === "deterministic"
+          ? (provenance?.reason ??
+            (ctx.aiClient.getStatus().kind === "openai_compatible"
+              ? "provider_failed"
+              : "no_provider_configured"))
+          : null;
+      const generationDetail = provenance?.detail?.trim() || null;
       const now = createMonotonicTimestamp(existingDraft?.updatedAt ?? null);
       // A strategy may supply the template default for a fresh draft, but it
       // never approves or readies the artifact: the generated draft stays
@@ -2322,17 +2497,26 @@ export function createWorkspaceApplicationMethods(
         job,
         sanitizedResumeDraft,
       );
-      const renderedArtifact = await ctx.documentManager.renderResumeArtifact(
-        {
-          job,
+      await assertCurrentResumeProfile(
+        ctx,
+        profileRevision,
+        "rendering this generated resume",
+      );
+      const renderedArtifact = await ctx.documentManager.renderResumeArtifact({
+        job,
+        profile,
+        renderDocument: buildResumeRenderDocument(
           profile,
-          renderDocument: buildResumeRenderDocument(
-            profile,
-            sanitizedResumeDraft,
-          ),
-          templateId: sanitizedResumeDraft.templateId,
-          settings,
-        },
+          sanitizedResumeDraft,
+        ),
+        templateId: sanitizedResumeDraft.templateId,
+        settings,
+      });
+
+      await assertCurrentResumeProfile(
+        ctx,
+        profileRevision,
+        "completing this generated resume",
       );
 
       if (!renderedArtifact.storagePath) {
@@ -2353,33 +2537,31 @@ export function createWorkspaceApplicationMethods(
         draft: sanitizedResumeDraft,
         tailoredDraft: draft,
       });
-      const validationWithReviewGuidance = ResumeValidationResultSchema.parse(
-        {
-          ...validation,
-          coverageComparison: buildResumeCoverageComparison({
-            profile,
-            draft: sanitizedResumeDraft,
-            pageCount: renderedArtifact.pageCount ?? null,
-            validationIssues: validation.issues,
-            coverageMetadata: draft.coverageMetadata,
-          }),
-          issues: [
-            ...validation.issues,
-            ...workHistoryReviewSuggestions.map((suggestion) => ({
-              id: `issue_${suggestion.id}`,
-              severity: suggestion.severity,
-              category:
-                suggestion.kind === "date_quality"
-                  ? ("date_quality" as const)
-                  : ("work_history_review" as const),
-              sectionId: suggestion.sectionId,
-              entryId: suggestion.entryId,
-              bulletId: null,
-              message: suggestion.message,
-            })),
-          ],
-        },
-      );
+      const validationWithReviewGuidance = ResumeValidationResultSchema.parse({
+        ...validation,
+        coverageComparison: buildResumeCoverageComparison({
+          profile,
+          draft: sanitizedResumeDraft,
+          pageCount: renderedArtifact.pageCount ?? null,
+          validationIssues: validation.issues,
+          coverageMetadata: draft.coverageMetadata,
+        }),
+        issues: [
+          ...validation.issues,
+          ...workHistoryReviewSuggestions.map((suggestion) => ({
+            id: `issue_${suggestion.id}`,
+            severity: suggestion.severity,
+            category:
+              suggestion.kind === "date_quality"
+                ? ("date_quality" as const)
+                : ("work_history_review" as const),
+            sectionId: suggestion.sectionId,
+            entryId: suggestion.entryId,
+            bulletId: null,
+            message: suggestion.message,
+          })),
+        ],
+      });
       const nextAsset = TailoredAssetSchema.parse({
         id: existingAsset?.id ?? `resume_${jobId}`,
         jobId,
@@ -2401,6 +2583,8 @@ export function createWorkspaceApplicationMethods(
         contentText,
         previewSections,
         generationMethod,
+        generationReason,
+        generationDetail,
         notes: uniqueStrings([
           ...draft.notes,
           ...(strategyTemplateId && !existingDraft
@@ -2445,6 +2629,12 @@ export function createWorkspaceApplicationMethods(
         failedAt: null,
       });
 
+      await assertCurrentResumeProfile(
+        ctx,
+        profileRevision,
+        "saving this generated resume",
+      );
+
       if (
         existingDraft &&
         buildResumeDraftStateHash(existingDraft) !==
@@ -2462,6 +2652,11 @@ export function createWorkspaceApplicationMethods(
           mutationKind: "regenerate_draft",
           reason: "Regenerated full resume draft",
         });
+        await assertCurrentResumeProfile(
+          ctx,
+          profileRevision,
+          "committing this generated resume",
+        );
         await ctx.repository.applyResumePatchWithRevision({
           expectedDraftUpdatedAt: existingDraft.updatedAt,
           draft: sanitizedResumeDraft,
@@ -2490,6 +2685,7 @@ export function createWorkspaceApplicationMethods(
       // persistence failure worth recording.
       try {
         const latestDraft = await ctx.repository.getResumeDraftByJobId(jobId);
+        const latestProfile = await ctx.repository.getProfileWithRevision();
         const supersededByNewerEdit =
           existingDraft === null
             ? latestDraft !== null
@@ -2497,7 +2693,10 @@ export function createWorkspaceApplicationMethods(
               (latestDraft.updatedAt !== existingDraft.updatedAt ||
                 buildResumeDraftStateHash(latestDraft) !==
                   buildResumeDraftStateHash(existingDraft));
-        if (!supersededByNewerEdit) {
+        if (
+          !supersededByNewerEdit &&
+          latestProfile.revision === profileRevision
+        ) {
           await ctx.repository.upsertTailoredAsset(
             buildFailedTailoredAsset({
               jobId,
@@ -2556,7 +2755,11 @@ export function createWorkspaceApplicationMethods(
       );
     }
 
-    const research = await fetchAndPersistResearch(ctx, state.job);
+    const research = await fetchAndPersistResearch(
+      ctx,
+      state.job,
+      state.profileRevision,
+    );
     const assistantReply = await ctx.aiClient.reviseResumeDraft({
       draft,
       job: state.job,
@@ -2598,6 +2801,12 @@ export function createWorkspaceApplicationMethods(
       ? []
       : normalizedSectionPatches;
 
+    await assertResumeProfileRevisionCurrent(
+      ctx,
+      state.profileRevision,
+      "saving this generated resume proposal",
+    );
+
     if (reviewablePatches.length === 0) {
       await ctx.repository.upsertResumeAssistantMessage(
         buildAssistantReplyMessage({
@@ -2612,10 +2821,44 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     }
 
+    // One rule with export: a rewrite may only be called grounded when the
+    // same classifier that gates export accepts the resulting text.
+    let sectionProposalGate: {
+      accepted: boolean;
+      approvalBlockers: ResumeProposalApprovalBlocker[];
+    };
+    try {
+      sectionProposalGate = evaluateResumeProposalGrounding({
+        baselineDraft: draft,
+        patches: reviewablePatches,
+        job: state.job,
+        profile: state.profile,
+        evaluatedAt: proposedAt,
+      });
+    } catch {
+      // An unappliable patch is never presented as a reviewable proposal.
+      await ctx.repository.upsertResumeAssistantMessage(
+        buildAssistantReplyMessage({
+          jobId,
+          content: `I reviewed the '${targetSection.label}' section but the rewrite could not be applied to the current draft, so no change was proposed.`,
+          patches: [],
+          executionAttribution: assistantReply.executionReceipt,
+          createdAt: proposedAt,
+        }),
+      );
+
+      return ctx.getWorkspaceSnapshot();
+    }
+
     await ctx.repository.upsertResumeAssistantMessage(
       buildAssistantReplyMessage({
         jobId,
-        content: `I prepared ${reviewablePatches.length} grounded rewrite${reviewablePatches.length === 1 ? "" : "s"} for the '${targetSection.label}' section. Nothing changed yet; review the proposal and accept the changes you want.`,
+        content: buildResumeProposalReplyContent({
+          approvalBlockers: sectionProposalGate.approvalBlockers,
+          changeCount: reviewablePatches.length,
+          scopeLabel: targetSection.label,
+        }),
+        approvalBlockers: sectionProposalGate.approvalBlockers,
         patches: reviewablePatches,
         baseDraftUpdatedAt: draft.updatedAt,
         executionAttribution: assistantReply.executionReceipt,
@@ -2723,13 +2966,19 @@ export function createWorkspaceApplicationMethods(
       return ctx.getWorkspaceSnapshot();
     },
     async queueJobForReview(jobId) {
-      const [discoveryState, settings, savedJobs, intelligence] =
-        await Promise.all([
-          ctx.repository.getDiscoveryState(),
-          ctx.repository.getSettings(),
-          ctx.repository.listSavedJobs(),
-          ctx.repository.getIntelligenceState(),
-        ]);
+      const [
+        discoveryState,
+        settings,
+        savedJobs,
+        intelligence,
+        tailoredAssets,
+      ] = await Promise.all([
+        ctx.repository.getDiscoveryState(),
+        ctx.repository.getSettings(),
+        ctx.repository.listSavedJobs(),
+        ctx.repository.getIntelligenceState(),
+        ctx.repository.listTailoredAssets(),
+      ]);
       const defaultResumeApplicationMode =
         settings.resumeApplicationMode ?? DEFAULT_RESUME_APPLICATION_MODE;
       const pendingIndex = discoveryState.pendingDiscoveryJobs.findIndex(
@@ -2761,7 +3010,11 @@ export function createWorkspaceApplicationMethods(
         }
         const nextJob = SavedJobSchema.parse({
           ...pendingJob,
-          status: "shortlisted",
+          status: tailoredAssets.some(
+            (asset) => asset.jobId === jobId && asset.status === "ready",
+          )
+            ? "ready_for_review"
+            : "drafting",
           resumeApplicationMode:
             pendingJob.resumeApplicationMode ?? defaultResumeApplicationMode,
         });
@@ -2779,7 +3032,6 @@ export function createWorkspaceApplicationMethods(
           }),
         });
       } else {
-        const tailoredAssets = await ctx.repository.listTailoredAssets();
         const asset = tailoredAssets.find((entry) => entry.jobId === jobId);
 
         await ctx.updateJob(jobId, (job) => ({
@@ -3336,8 +3588,15 @@ export function createWorkspaceApplicationMethods(
     },
     async exportResumePdf(jobId, outputPath) {
       return withResumeDraftTransition(jobId, async () => {
-        const { draft, job, profile, settings, tailoredAsset, templates } =
-          await ensureResumeDraft(ctx, jobId);
+        const {
+          draft,
+          job,
+          profile,
+          profileRevision,
+          settings,
+          tailoredAsset,
+          templates,
+        } = await ensureResumeDraft(ctx, jobId);
         // The persisted draft is the single render input: validation, content
         // hash binding, PDF rendering, and approval all describe this exact
         // draft. Persisted drafts are saved sanitized, so sanitization must be
@@ -3365,7 +3624,8 @@ export function createWorkspaceApplicationMethods(
           hasBlockingResumeClaimAssessment({
             validation: preExportValidation,
             draft: exportDraft,
-          })
+          }) ||
+          hasBlockingResumeIdentityMismatch(preExportValidation)
         ) {
           const previousValidation =
             (await ctx.repository.listResumeValidationResults(draft.id))[0] ??
@@ -3376,15 +3636,27 @@ export function createWorkspaceApplicationMethods(
             draft: exportDraft,
           });
           await assertResumeDraftCurrent(draft);
+          await assertCurrentResumeProfile(
+            ctx,
+            profileRevision,
+            "saving export validation",
+          );
           await ctx.repository.saveResumeDraftWithValidation({
             draft: exportDraft,
             validation: visibleValidation,
             tailoredAsset,
           });
           throw new Error(
-            "This resume has blocking candidate-claim validation issues and cannot be exported yet.",
+            hasBlockingResumeIdentityMismatch(preExportValidation)
+              ? "This resume has an identity mismatch between the visible profile and imported resume and cannot be exported yet."
+              : "This resume has blocking candidate-claim validation issues and cannot be exported yet.",
           );
         }
+        await assertCurrentResumeProfile(
+          ctx,
+          profileRevision,
+          "rendering this resume export",
+        );
         const renderedArtifact = await renderDraftToPdf(ctx, {
           job,
           profile,
@@ -3392,6 +3664,12 @@ export function createWorkspaceApplicationMethods(
           draft: exportDraft,
           outputPath: outputPath ?? null,
         });
+
+        await assertCurrentResumeProfile(
+          ctx,
+          profileRevision,
+          "completing this resume export",
+        );
 
         if (!renderedArtifact.storagePath) {
           throw new Error(
@@ -3446,8 +3724,18 @@ export function createWorkspaceApplicationMethods(
         });
 
         await assertResumeDraftCurrent(draft);
+        await assertCurrentResumeProfile(
+          ctx,
+          profileRevision,
+          "saving this resume export",
+        );
         await ctx.repository.upsertResumeExportArtifact(exportArtifact);
         await assertResumeDraftCurrent(draft);
+        await assertCurrentResumeProfile(
+          ctx,
+          profileRevision,
+          "saving this exported resume draft",
+        );
         await ctx.repository.saveResumeDraftWithValidation({
           draft: exportDraft,
           validation: validationWithReviewGuidance,
@@ -3459,8 +3747,14 @@ export function createWorkspaceApplicationMethods(
     },
     async approveResume(jobId, exportId) {
       return withResumeDraftTransition(jobId, async () => {
-        const { draft, job, profile, tailoredAsset, templates } =
-          await ensureResumeDraft(ctx, jobId);
+        const {
+          draft,
+          job,
+          profile,
+          profileRevision,
+          tailoredAsset,
+          templates,
+        } = await ensureResumeDraft(ctx, jobId);
         const [exports, validations] = await Promise.all([
           ctx.repository.listResumeExportArtifacts({ jobId }),
           ctx.repository.listResumeValidationResults(draft.id),
@@ -3509,6 +3803,29 @@ export function createWorkspaceApplicationMethods(
         ) {
           throw new Error(
             `Resume export '${exportId}' contains unconfirmed or unsupported candidate claims and cannot be approved.`,
+          );
+        }
+
+        const identityResolution = resolveResumeIdentity(profile);
+        const draftIdentityConflicts = findResumeDraftIdentityConflicts(
+          profile,
+          draft.identity,
+        );
+        if (
+          identityResolution.mismatchReasons.length > 0 ||
+          draftIdentityConflicts.length > 0 ||
+          hasBlockingResumeIdentityMismatch(latestValidation)
+        ) {
+          throw new Error(
+            resumeIdentityMismatchMessage(
+              identityResolution.mismatchReasons.length > 0
+                ? identityResolution.mismatchReasons
+                : draftIdentityConflicts.length > 0
+                  ? draftIdentityConflicts
+                  : [
+                      "The saved validation result contains a blocking resume identity mismatch.",
+                    ],
+            ),
           );
         }
 
@@ -3576,6 +3893,11 @@ export function createWorkspaceApplicationMethods(
         });
 
         await assertResumeDraftCurrent(draft);
+        await assertCurrentResumeProfile(
+          ctx,
+          profileRevision,
+          "approving this resume export",
+        );
         await ctx.repository.approveResumeExport({
           draft: approvedDraft,
           exportArtifact: {
@@ -3586,6 +3908,8 @@ export function createWorkspaceApplicationMethods(
           validation: latestValidation,
           tailoredAsset: nextAsset,
         });
+
+        await clearStaleMissingResumeBlockerForJob(jobId);
 
         return ctx.getWorkspaceSnapshot();
       });
@@ -3851,8 +4175,7 @@ export function createWorkspaceApplicationMethods(
               confirmation.sectionId === assessment.sectionId &&
               confirmation.entryId === assessment.entryId &&
               confirmation.bulletId === assessment.bulletId &&
-              confirmation.confirmedClaimContentHash ===
-                assessment.contentHash,
+              confirmation.confirmedClaimContentHash === assessment.contentHash,
           ) ?? null;
         if (identicalConfirmation) {
           // Deterministic dedupe: the exact locator and normalized content
@@ -3871,16 +4194,13 @@ export function createWorkspaceApplicationMethods(
           nextConfirmations: [
             ...currentDraft.claimConfirmations,
             ResumeClaimConfirmationSchema.parse({
-              id: createUniqueId(
-                `claim_confirmation_${assessment.sectionId}`,
-              ),
+              id: createUniqueId(`claim_confirmation_${assessment.sectionId}`),
               draftId: currentDraft.id,
               field: assessment.field,
               sectionId: assessment.sectionId,
               entryId: assessment.entryId,
               bulletId: assessment.bulletId,
-              confirmedClaimContentHash:
-                parsedInput.confirmedClaimContentHash,
+              confirmedClaimContentHash: parsedInput.confirmedClaimContentHash,
               ownershipStatement: parsedInput.ownershipStatement,
               confirmedAt: mutatedAt,
             }),
@@ -3895,9 +4215,9 @@ export function createWorkspaceApplicationMethods(
       // would create a second, uncoordinated lock for the same job and let a
       // patch race an in-flight generation's stale snapshot.
       const targetJobId =
-        (
-          await ctx.repository.listResumeDrafts()
-        ).find((entry) => entry.id === parsedPatch.draftId)?.jobId ?? null;
+        (await ctx.repository.listResumeDrafts()).find(
+          (entry) => entry.id === parsedPatch.draftId,
+        )?.jobId ?? null;
 
       if (!targetJobId) {
         throw new Error(
@@ -4039,31 +4359,22 @@ export function createWorkspaceApplicationMethods(
       const reviewablePatches = invalidReplacementPatch
         ? []
         : normalizedPatches;
-      const assistantContent =
-        reviewablePatches.length > 0
-          ? `I prepared ${reviewablePatches.length} grounded resume edit${reviewablePatches.length === 1 ? "" : "s"} for your review. Nothing changed yet; select the changes you want and accept them explicitly.`
-          : invalidReplacementPatch
-            ? "I could not produce a usable replacement for that request, so no resume change was proposed. Try asking for the exact section and outcome you want."
-            : assistantReply.content;
-      const assistantMessage = buildAssistantReplyMessage({
-        jobId,
-        content: assistantContent,
-        patches: reviewablePatches,
-        baseDraftUpdatedAt: workspaceState.draft.updatedAt,
-        executionAttribution: assistantReply.executionReceipt,
-        createdAt: assistantMessageTimestamp,
-      });
-
-      let candidateDraft = workspaceState.draft;
+      // The proposal is only described as grounded when the exact classifier
+      // that gates export and approval accepts the draft that accepting it
+      // would produce. Applying the patches also proves they are appliable, so
+      // one evaluation replaces the previous apply-only dry run.
+      let proposalGate: {
+        accepted: boolean;
+        approvalBlockers: ResumeProposalApprovalBlocker[];
+      };
       try {
-        for (const patch of reviewablePatches) {
-          const updatedAt = createMonotonicTimestamp(candidateDraft.updatedAt);
-          candidateDraft = applyPatchToResumeDraft({
-            draft: candidateDraft,
-            patch,
-            updatedAt,
-          });
-        }
+        proposalGate = evaluateResumeProposalGrounding({
+          baselineDraft: workspaceState.draft,
+          patches: reviewablePatches,
+          job: workspaceState.job,
+          profile: workspaceState.profile,
+          evaluatedAt: assistantMessageTimestamp,
+        });
       } catch (error) {
         const failureDetail =
           error instanceof Error
@@ -4082,6 +4393,25 @@ export function createWorkspaceApplicationMethods(
         await ctx.repository.upsertResumeAssistantMessage(failureMessage);
         return ctx.repository.listResumeAssistantMessages(jobId);
       }
+
+      const assistantContent =
+        reviewablePatches.length > 0
+          ? buildResumeProposalReplyContent({
+              approvalBlockers: proposalGate.approvalBlockers,
+              changeCount: reviewablePatches.length,
+            })
+          : invalidReplacementPatch
+            ? "I could not produce a usable replacement for that request, so no resume change was proposed. Try asking for the exact section and outcome you want."
+            : assistantReply.content;
+      const assistantMessage = buildAssistantReplyMessage({
+        jobId,
+        content: assistantContent,
+        approvalBlockers: proposalGate.approvalBlockers,
+        patches: reviewablePatches,
+        baseDraftUpdatedAt: workspaceState.draft.updatedAt,
+        executionAttribution: assistantReply.executionReceipt,
+        createdAt: assistantMessageTimestamp,
+      });
 
       await ctx.repository.upsertResumeAssistantMessage(userMessage);
       await ctx.repository.upsertResumeAssistantMessage(assistantMessage);
@@ -4267,20 +4597,22 @@ export function createWorkspaceApplicationMethods(
       return trackDirectApplyExecution(claim, async () => {
         await requireApplyActivityEnabled();
         const [
-          profile,
+          profileState,
           searchPreferences,
           settings,
           savedJobs,
           sourceInstructionArtifacts,
           sourceDebugAttempts,
         ] = await Promise.all([
-          ctx.repository.getProfile(),
+          ctx.repository.getProfileWithRevision(),
           ctx.repository.getSearchPreferences(),
           ctx.repository.getSettings(),
           ctx.repository.listSavedJobs(),
           ctx.repository.listSourceInstructionArtifacts(),
           ctx.repository.listSourceDebugAttempts(),
         ]);
+        const profile = profileState.profile;
+        assertCoherentResumeIdentity(profile);
         const job = savedJobs.find((entry) => entry.id === jobId);
 
         if (!job) {
@@ -4289,11 +4621,16 @@ export function createWorkspaceApplicationMethods(
           );
         }
 
-        const { resumeApplicationMode, resumeArtifact } =
-          await resolveJobApplyPrerequisites(jobId);
+        const prerequisites = await resolveJobApplyPrerequisites(jobId);
+        const { resumeApplicationMode, resumeArtifact } = prerequisites;
         const capturedCampaignId = await ctx.getActiveCampaignId();
         await assertNoOtherRunningApplyForJob(claim);
         await assertDirectApplyExecutionCanContinue(claim);
+        await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "staging this approved application preparation",
+        );
         await persistDirectApplyRunStart({
           claim,
           job,
@@ -4324,7 +4661,17 @@ export function createWorkspaceApplicationMethods(
         const applyInstructions = uniqueStrings([
           ...buildInstructionGuidance(activeInstruction),
         ]);
+        const intermediateMutationAuthority =
+          await buildIntermediateMutationExecutionOptions({
+            job,
+            resumeArtifact,
+          });
         await assertDirectApplyExecutionCanContinue(claim);
+        await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "opening this approved application preparation",
+        );
         const markedResult = await ctx.markApplicationPreparationStarted(
           {
             resultId: claim.resultId,
@@ -4333,6 +4680,11 @@ export function createWorkspaceApplicationMethods(
           },
           capacityToken,
         );
+        const browserProfile = await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "executing this approved application preparation",
+        );
 
         const executionResult = enforcePrepareOnlyExecutionResult(
           await ctx.browserRuntime.executeApplicationFlow(
@@ -4340,10 +4692,10 @@ export function createWorkspaceApplicationMethods(
             {
               job,
               resumeArtifact,
-              profile,
+              profile: browserProfile.profile,
               settings: { ...settings, resumeApplicationMode },
               mode: "prepare_only",
-              intermediateMutationsAuthorized: false,
+              ...intermediateMutationAuthority,
               accountCreationAuthorized: false,
               submitAuthorized: false,
               ...(applyInstructions.length > 0
@@ -4352,6 +4704,11 @@ export function createWorkspaceApplicationMethods(
             },
             { signal: claim.controller.signal },
           ),
+        );
+        await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "recording this application preparation",
         );
         await assertDirectApplyExecutionCanContinue(claim);
         const now = new Date().toISOString();
@@ -4564,7 +4921,7 @@ export function createWorkspaceApplicationMethods(
       return trackDirectApplyExecution(claim, async () => {
         await requireApplyActivityEnabled();
         const [
-          profile,
+          profileState,
           searchPreferences,
           settings,
           savedJobs,
@@ -4575,7 +4932,7 @@ export function createWorkspaceApplicationMethods(
           approvedExports,
           recoverySeed,
         ] = await Promise.all([
-          ctx.repository.getProfile(),
+          ctx.repository.getProfileWithRevision(),
           ctx.repository.getSearchPreferences(),
           ctx.repository.getSettings(),
           ctx.repository.listSavedJobs(),
@@ -4586,6 +4943,8 @@ export function createWorkspaceApplicationMethods(
           ctx.repository.listResumeExportArtifacts({ jobId }),
           buildApplyRecoveryContext(jobId, selectedApplicationRecord.id),
         ]);
+        const profile = profileState.profile;
+        assertCoherentResumeIdentity(profile);
         const capturedCampaignId = await ctx.getActiveCampaignId();
         const job = savedJobs.find((entry) => entry.id === jobId) ?? null;
 
@@ -4600,25 +4959,21 @@ export function createWorkspaceApplicationMethods(
         // actively preparing.
         await assertNoOtherRunningApplyForJob(claim);
 
-        const approvedExport = draft?.approvedExportId
-          ? (approvedExports.find(
-              (entry) => entry.id === draft.approvedExportId,
-            ) ?? null)
-          : null;
         const asset =
           tailoredAssets.find((entry) => entry.jobId === jobId) ?? null;
+        const approvedExportResolution = isApprovedTailoredResumeReadyForApply({
+          draft,
+          exports: approvedExports,
+          asset,
+        });
+        const approvedExport = approvedExportResolution.approvedExport;
         const originalResumePath = profile.baseResume.storagePath?.trim() ?? "";
         const usesOriginalResume =
           resolveJobResumeApplicationMode(job, settings) === "original_resume";
 
         const shouldBlockForMissingResume = usesOriginalResume
           ? !originalResumePath
-          : !draft ||
-            draft.status !== "approved" ||
-            !approvedExport ||
-            !asset ||
-            asset.status !== "ready" ||
-            asset.storagePath !== approvedExport.filePath;
+          : !approvedExportResolution.ready;
 
         // The missing-resume handoff must never orphan terminal artifacts on a
         // run nobody can cancel: register a durable cancellable running row
@@ -4637,6 +4992,11 @@ export function createWorkspaceApplicationMethods(
             detectedAt,
           });
           await assertDirectApplyExecutionCanContinue(claim);
+          await assertCurrentResumeProfile(
+            ctx,
+            profileState.revision,
+            "staging this missing-resume application preparation",
+          );
           await persistDirectApplyRunStart({
             claim,
             job,
@@ -4741,17 +5101,31 @@ export function createWorkspaceApplicationMethods(
           return ctx.getWorkspaceSnapshot();
         }
 
-        const { resumeApplicationMode, resumeArtifact } =
-          await resolveJobApplyPrerequisites(jobId);
+        const prerequisites = await resolveJobApplyPrerequisites(jobId);
+        const {
+          job: currentJob,
+          resumeApplicationMode,
+          resumeArtifact,
+        } = prerequisites;
+        await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "staging this application preparation",
+        );
         if (!ctx.browserRuntime.executeApplicationFlow) {
           throw new Error(
             "The current browser runtime does not support non-submitting apply copilot execution yet.",
           );
         }
         await assertDirectApplyExecutionCanContinue(claim);
+        await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "starting this application preparation",
+        );
         await persistDirectApplyRunStart({
           claim,
-          job,
+          job: currentJob,
           campaignId: capturedCampaignId,
           startedAt: new Date().toISOString(),
         });
@@ -4775,7 +5149,17 @@ export function createWorkspaceApplicationMethods(
           ...buildInstructionGuidance(activeInstruction),
           ...recoverySeed.recoveryInstructions,
         ]);
+        const intermediateMutationAuthority =
+          await buildIntermediateMutationExecutionOptions({
+            job: currentJob,
+            resumeArtifact,
+          });
         await assertDirectApplyExecutionCanContinue(claim);
+        await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "opening this application preparation",
+        );
         const markedResult = await ctx.markApplicationPreparationStarted(
           {
             resultId: claim.resultId,
@@ -4784,16 +5168,21 @@ export function createWorkspaceApplicationMethods(
           },
           capacityToken,
         );
+        const browserProfile = await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "executing this application preparation",
+        );
         const executionResult = enforcePrepareOnlyExecutionResult(
           await ctx.browserRuntime.executeApplicationFlow(
-            job.source,
+            currentJob.source,
             {
-              job,
+              job: currentJob,
               resumeArtifact,
-              profile,
+              profile: browserProfile.profile,
               settings: { ...settings, resumeApplicationMode },
               mode: "prepare_only",
-              intermediateMutationsAuthorized: false,
+              ...intermediateMutationAuthority,
               accountCreationAuthorized: false,
               submitAuthorized: false,
               ...(recoverySeed.recoveryContext
@@ -4804,11 +5193,16 @@ export function createWorkspaceApplicationMethods(
                 : {}),
               ...buildApplyVisualExecutionOptions({
                 enabled: options?.visualCheckpointsEnabled === true,
-                source: job.source,
+                source: currentJob.source,
               }),
             },
             { signal: claim.controller.signal },
           ),
+        );
+        await assertCurrentResumeProfile(
+          ctx,
+          prerequisites.profileRevision,
+          "recording this application preparation",
         );
         await assertDirectApplyExecutionCanContinue(claim);
         const detectedAt = new Date().toISOString();
@@ -4988,7 +5382,8 @@ export function createWorkspaceApplicationMethods(
       });
     },
     async startAutoApplyRun(jobId, applicationRecordId?: string | null) {
-      const { job } = await resolveJobApplyPrerequisites(jobId);
+      const prerequisites = await resolveJobApplyPrerequisites(jobId);
+      const { job } = prerequisites;
       const selectedApplicationRecord = await resolveApplicationRecordForJob({
         repository: ctx.repository,
         job,
@@ -5007,6 +5402,11 @@ export function createWorkspaceApplicationMethods(
         campaignId: capturedCampaignId,
       });
 
+      await assertCurrentResumeProfile(
+        ctx,
+        prerequisites.profileRevision,
+        "staging this automatic application run",
+      );
       await Promise.all([
         ctx.repository.upsertApplyRun(persistedRun),
         ctx.repository.upsertApplyJobResult(runArtifacts.result),
@@ -5076,12 +5476,12 @@ export function createWorkspaceApplicationMethods(
       const [
         scopedSavedJobs,
         scopedTailoredAssets,
-        scopedProfile,
+        scopedProfileState,
         scopedSettings,
       ] = await Promise.all([
         ctx.repository.listSavedJobs(),
         ctx.repository.listTailoredAssets(),
-        ctx.repository.getProfile(),
+        ctx.repository.getProfileWithRevision(),
         ctx.repository.getSettings(),
       ]);
       const jobs = await Promise.all(
@@ -5090,7 +5490,8 @@ export function createWorkspaceApplicationMethods(
             (
               await resolveJobApplyPrerequisites(jobId, scopedSavedJobs, {
                 tailoredAssets: scopedTailoredAssets,
-                profile: scopedProfile,
+                profile: scopedProfileState.profile,
+                profileRevision: scopedProfileState.revision,
                 settings: scopedSettings,
               })
             ).job,
@@ -5177,6 +5578,11 @@ export function createWorkspaceApplicationMethods(
         }),
       );
 
+      await assertCurrentResumeProfile(
+        ctx,
+        scopedProfileState.revision,
+        "staging this automatic application queue",
+      );
       await Promise.all([
         ctx.repository.upsertApplyRun(run),
         ctx.repository.upsertApplySubmitApproval(approval),

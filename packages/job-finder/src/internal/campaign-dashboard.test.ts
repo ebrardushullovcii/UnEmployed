@@ -107,6 +107,154 @@ describe("dashboard summary recommendations", () => {
     );
     expect(summary.recommendedNextAction.detail).not.toContain("campaign");
   });
+
+  test("counts a never-verified source as healthy once its latest run completed", () => {
+    const seed = createSeed();
+    const campaign = createCampaign({
+      id: "campaign_health",
+      name: "Health plan",
+      mode: "precision",
+      searchPreferences: seed.searchPreferences,
+      now: "2026-08-15T09:00:00.000Z",
+    });
+    const enabledTarget = seed.searchPreferences.discovery.targets.find(
+      (target) => target.enabled,
+    );
+    if (!enabledTarget) throw new Error("Expected an enabled seed target.");
+    expect(enabledTarget.lastVerifiedAt).toBeNull();
+    const completedRun: DiscoveryRunRecord = {
+      id: "run_health",
+      campaignId: campaign.id,
+      state: "completed",
+      scope: "run_all",
+      startedAt: "2026-08-15T09:30:00.000Z",
+      completedAt: "2026-08-15T09:31:00.000Z",
+      targetIds: [enabledTarget.id],
+      targetExecutions: [
+        {
+          targetId: enabledTarget.id,
+          adapterKind: enabledTarget.adapterKind,
+          resolvedAdapterKind: null,
+          collectionMethod: null,
+          sourceIntelligenceProvider: null,
+          state: "completed",
+          startedAt: "2026-08-15T09:30:00.000Z",
+          completedAt: "2026-08-15T09:31:00.000Z",
+          requestedJobBudget: null,
+          jobsReviewed: 12,
+          jobsFound: 12,
+          jobsPersisted: 12,
+          jobsStaged: 0,
+          jobsSkippedByLedger: 0,
+          jobsSkippedByTitleTriage: 0,
+          duplicatesMerged: 0,
+          invalidSkipped: 0,
+          changeDigest: {
+            new: 12,
+            unchanged: 0,
+            changed: 0,
+            reactivated: 0,
+            inactive: 0,
+            known: 0,
+            skipped: 0,
+          },
+          warning: null,
+          compactionState: null,
+          compactionUsedFallbackTrigger: false,
+          timing: null,
+          agentCheckpoint: null,
+        },
+      ],
+      activity: [],
+      summary: {
+        targetsPlanned: 1,
+        targetsCompleted: 1,
+        validJobsFound: 12,
+        jobsPersisted: 12,
+        jobsStaged: 0,
+        jobsSkippedByLedger: 0,
+        jobsSkippedByTitleTriage: 0,
+        duplicatesMerged: 0,
+        invalidSkipped: 0,
+        changeDigest: {
+          new: 12,
+          unchanged: 0,
+          changed: 0,
+          reactivated: 0,
+          inactive: 0,
+          known: 0,
+          skipped: 0,
+        },
+        sourceHealth: [],
+        warnings: [],
+        durationMs: 60_000,
+        outcome: "completed",
+        browserCloseout: null,
+        timing: null,
+      },
+    };
+    const input = {
+      generatedAt: "2026-08-15T10:00:00.000Z",
+      campaigns: {
+        notifications: [],
+        activeCampaignId: campaign.id,
+        campaigns: [campaign],
+      },
+      savedJobs: [],
+      reviewQueue: [],
+      applicationRecords: [],
+      applyRuns: [],
+      userActionRequests: [],
+      searchPreferences: seed.searchPreferences,
+    };
+
+    const beforeRun = deriveDashboardSummary({
+      ...input,
+      discovery: seed.discovery,
+    });
+    const afterRun = deriveDashboardSummary({
+      ...input,
+      discovery: { ...seed.discovery, recentRuns: [completedRun] },
+    });
+    const afterFailure = deriveDashboardSummary({
+      ...input,
+      discovery: {
+        ...seed.discovery,
+        recentRuns: [
+          {
+            ...completedRun,
+            id: "run_health_failed",
+            state: "failed",
+            startedAt: "2026-08-15T09:40:00.000Z",
+            completedAt: "2026-08-15T09:41:00.000Z",
+            targetExecutions: completedRun.targetExecutions.map(
+              (execution) => ({
+                ...execution,
+                state: "failed" as const,
+                startedAt: "2026-08-15T09:40:00.000Z",
+                completedAt: "2026-08-15T09:41:00.000Z",
+              }),
+            ),
+          },
+          completedRun,
+        ],
+      },
+    });
+
+    expect(beforeRun.sourceHealth).toMatchObject({
+      healthy: 0,
+      needsAttention: 1,
+    });
+    expect(afterRun.sourceHealth).toMatchObject({
+      healthy: 1,
+      needsAttention: 0,
+    });
+    // A later failed execution withdraws the proof again.
+    expect(afterFailure.sourceHealth).toMatchObject({
+      healthy: 0,
+      needsAttention: 1,
+    });
+  });
 });
 
 describe("campaign workspace core", () => {
@@ -298,6 +446,101 @@ describe("campaign workspace core", () => {
     const state = await repository.getCampaignState();
     expect(state?.campaigns[0]?.jobIds).toEqual(["high", "mid"]);
     expect(state?.campaigns[0]?.history[0]?.discoveryRunId).toBe("run_1");
+  });
+
+  test("retains discovery-only staged jobs so the active campaign can display them", async () => {
+    const seed = createSeed();
+    const jobs = [
+      savedJob("staged_low", 40),
+      savedJob("staged_mid", 75),
+      savedJob("staged_high", 95),
+    ];
+    const repository = createInMemoryJobFinderRepository({
+      ...seed,
+      savedJobs: [],
+      discovery: {
+        ...seed.discovery,
+        pendingDiscoveryJobs: jobs,
+        recentRuns: [
+          {
+            id: "run_discovery_only",
+            campaignId: "campaign_discovery_only",
+            state: "completed",
+            startedAt: "2026-08-15T10:00:00.000Z",
+            completedAt: "2026-08-15T10:01:00.000Z",
+            scope: "run_all",
+            targetIds: [],
+            targetExecutions: [],
+            activity: [],
+            summary: {
+              targetsPlanned: 0,
+              targetsCompleted: 0,
+              validJobsFound: 3,
+              jobsPersisted: 0,
+              jobsStaged: 3,
+              jobsSkippedByLedger: 0,
+              jobsSkippedByTitleTriage: 0,
+              duplicatesMerged: 0,
+              invalidSkipped: 0,
+              changeDigest: {
+                new: 3,
+                unchanged: 0,
+                changed: 0,
+                reactivated: 0,
+                inactive: 0,
+                known: 0,
+                skipped: 0,
+              },
+              sourceHealth: [],
+              warnings: [],
+              durationMs: 60_000,
+              outcome: "completed",
+              browserCloseout: null,
+              timing: null,
+            },
+          },
+        ],
+      },
+    });
+    const campaign = {
+      ...createCampaign({
+        id: "campaign_discovery_only",
+        name: "Discovery only",
+        mode: "precision",
+        searchPreferences: seed.searchPreferences,
+        now: "2026-08-15T09:00:00.000Z",
+      }),
+      minimumFitScore: 70,
+      limits: {
+        ...createCampaign({
+          id: "discovery_only_template",
+          name: "Template",
+          mode: "precision",
+          searchPreferences: seed.searchPreferences,
+          now: "2026-08-15T09:00:00.000Z",
+        }).limits,
+        retainedJobTarget: 2,
+      },
+    };
+    await repository.saveCampaignState({
+      notifications: [],
+      activeCampaignId: campaign.id,
+      campaigns: [campaign],
+    });
+
+    await recordCampaignDiscoveryResult({
+      ctx: {
+        repository,
+        withCampaignTransition: async (operation) => operation(),
+      } as WorkspaceServiceContext,
+      campaignId: campaign.id,
+      beforeJobProvenanceFingerprints: new Map(),
+    });
+
+    expect((await repository.getCampaignState())?.campaigns[0]?.jobIds).toEqual(
+      ["staged_high", "staged_mid"],
+    );
+    expect((await repository.listSavedJobs()).map((job) => job.id)).toEqual([]);
   });
 
   test("adds an existing global job when another campaign rediscovers it", async () => {
@@ -1364,7 +1607,11 @@ describe("campaign create and delete active-pointer semantics", () => {
 });
 
 describe("campaign apply-run queue truth", () => {
-  function queueRun(id: string, state: ApplyRunState, stalePendingJobs: number) {
+  function queueRun(
+    id: string,
+    state: ApplyRunState,
+    stalePendingJobs: number,
+  ) {
     return ApplyRunSchema.parse({
       id,
       campaignId: "campaign_default",
@@ -1449,7 +1696,12 @@ describe("campaign apply-run queue truth", () => {
         ),
         // Transient work stranded by a terminal run is history, not queue.
         queueResult("res_filling_failed", "run_failed", "job_b", "filling"),
-        queueResult("res_planned_cancelled", "run_cancelled", "job_c", "planned"),
+        queueResult(
+          "res_planned_cancelled",
+          "run_cancelled",
+          "job_c",
+          "planned",
+        ),
         queueResult(
           "res_review_cancelled",
           "run_cancelled",
@@ -1463,7 +1715,12 @@ describe("campaign apply-run queue truth", () => {
           "job_e",
           "submitted",
         ),
-        queueResult("res_skipped_completed", "run_completed", "job_f", "skipped"),
+        queueResult(
+          "res_skipped_completed",
+          "run_completed",
+          "job_f",
+          "skipped",
+        ),
         queueResult("res_failed_completed", "run_completed", "job_g", "failed"),
       ],
     });
@@ -1516,7 +1773,12 @@ describe("campaign apply-run queue truth", () => {
         queueResult("res_planned_draft", "run_draft", "job_h", "planned"),
         // The same run/job lineage counts at most once, even if anomalous
         // duplicate rows ever share it.
-        queueResult("res_planned_staged_dupe", "run_staged", "job_e", "planned"),
+        queueResult(
+          "res_planned_staged_dupe",
+          "run_staged",
+          "job_e",
+          "planned",
+        ),
       ],
     });
 
@@ -1587,5 +1849,113 @@ describe("dashboard applied-day metrics follow local calendar days", () => {
     // Existing rolling seven-day window (Aug 9..15 local), re-anchored at
     // local midnight: eight days ago and future entries stay excluded.
     expect(summary.applicationsAppliedThisWeek).toBe(4);
+  });
+});
+
+describe("ready-for-approval notification resolves once preparation begins", () => {
+  function approvalRecord(lastAttemptState: string | null) {
+    return ApplicationRecordSchema.parse({
+      id: "application_record_approval",
+      jobId: "job_approval",
+      title: "Engineer job_approval",
+      company: "Example",
+      status: "approved",
+      lastActionLabel: "Resume approved",
+      nextActionLabel: null,
+      lastUpdatedAt: "2026-08-15T09:45:00.000Z",
+      lastAttemptState,
+    });
+  }
+
+  function summaryFor(lastAttemptState: string | null) {
+    const seed = createSeed();
+    const campaign = createCampaign({
+      id: "campaign_approval",
+      name: "Approval plan",
+      mode: "precision",
+      searchPreferences: seed.searchPreferences,
+      now: "2026-08-15T09:00:00.000Z",
+    });
+
+    return deriveDashboardSummary({
+      generatedAt: "2026-08-15T10:00:00.000Z",
+      campaigns: {
+        notifications: [],
+        activeCampaignId: campaign.id,
+        campaigns: [campaign],
+      },
+      savedJobs: [],
+      reviewQueue: [],
+      applicationRecords: [approvalRecord(lastAttemptState)],
+      applyRuns: [],
+      userActionRequests: [],
+      discovery: seed.discovery,
+      searchPreferences: seed.searchPreferences,
+    });
+  }
+
+  test("counts an approved application that has not been prepared yet", () => {
+    expect(summaryFor(null).applicationsReadyForApproval).toBe(1);
+    expect(summaryFor("not_started").applicationsReadyForApproval).toBe(1);
+    expect(summaryFor("ready").applicationsReadyForApproval).toBe(1);
+  });
+
+  test("stops counting once the application was prepared", () => {
+    // The live walkthrough left Home saying "1 application is ready for your
+    // approval" after the resume was approved and the application had already
+    // been prepared and paused for the user on the employer page.
+    expect(summaryFor("paused").applicationsReadyForApproval).toBe(0);
+    expect(summaryFor("in_progress").applicationsReadyForApproval).toBe(0);
+    expect(summaryFor("failed").applicationsReadyForApproval).toBe(0);
+    expect(summaryFor("submitted").applicationsReadyForApproval).toBe(0);
+    expect(summaryFor("unsupported").applicationsReadyForApproval).toBe(0);
+  });
+
+  test("drops the recommended approval step once preparation began", () => {
+    expect(summaryFor(null).recommendedNextAction.label).toBe(
+      "Review prepared applications",
+    );
+    expect(summaryFor("paused").recommendedNextAction.label).not.toBe(
+      "Review prepared applications",
+    );
+  });
+
+  test("keeps a still-preparing record out of the approval count", () => {
+    const seed = createSeed();
+    const campaign = createCampaign({
+      id: "campaign_preparing",
+      name: "Preparing plan",
+      mode: "precision",
+      searchPreferences: seed.searchPreferences,
+      now: "2026-08-15T09:00:00.000Z",
+    });
+    const summary = deriveDashboardSummary({
+      generatedAt: "2026-08-15T10:00:00.000Z",
+      campaigns: {
+        notifications: [],
+        activeCampaignId: campaign.id,
+        campaigns: [campaign],
+      },
+      savedJobs: [],
+      reviewQueue: [],
+      applicationRecords: [
+        ApplicationRecordSchema.parse({
+          id: "application_record_drafting",
+          jobId: "job_drafting",
+          title: "Engineer job_drafting",
+          company: "Example",
+          status: "drafting",
+          lastActionLabel: "Preparing",
+          nextActionLabel: null,
+          lastUpdatedAt: "2026-08-15T09:45:00.000Z",
+        }),
+      ],
+      applyRuns: [],
+      userActionRequests: [],
+      discovery: seed.discovery,
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(summary.applicationsReadyForApproval).toBe(0);
   });
 });

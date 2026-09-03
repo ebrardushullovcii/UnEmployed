@@ -23,6 +23,12 @@ import type {
   SavedJob,
 } from "@unemployed/contracts";
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
+import type {
+  ApplicationFinalActionResult,
+  ApplicationFormObservation,
+  ExecuteExactlyOneFinalActionInput,
+  ObserveApplicationFormOptions,
+} from "./application-submission-browser-hands";
 
 export interface OpenBrowserSessionOptions {
   targetUrl?: string | null;
@@ -78,9 +84,29 @@ export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
    * performs without this flag; only the site's attempt to transmit or
    * persist that selection externally is gated here. This never authorizes
    * DOM form submission or clicking a final apply control; those remain
-   * independently blocked. Omitted values are false.
+   * independently blocked. The runtime opens a short, same-origin window only
+   * around one exact grounded field action, accepts bounded fetch/XHR
+   * POST/PUT/PATCH traffic only when the URL or operation body has explicit
+   * draft/autosave/update semantics, and denies final-action, ambiguous,
+   * cross-origin, late, long-lived, beacon, and navigation traffic. Omitted
+   * values are false.
    */
   intermediateMutationsAuthorized?: boolean;
+  /**
+   * Canonical origins covered by the exact authority envelope. This list is
+   * inert unless `intermediateMutationsAuthorized` is true, and the runtime
+   * refuses to open a field-save window when the current page origin is not
+   * an exact member.
+   */
+  intermediateMutationAllowedOrigins?: string[];
+  /**
+   * Main-owned last-instant authority recheck. The runtime calls it before
+   * every field-save window with the currently observed canonical origin;
+   * omission or a false/error result keeps external persistence blocked.
+   */
+  recheckIntermediateMutationAuthority?: (
+    observedOrigin: string,
+  ) => Promise<boolean>;
   /**
    * Explicit final-submit authorization. The production Playwright runtime
    * treats omitted values as false.
@@ -130,6 +156,23 @@ export interface BrowserSessionRuntime {
     input: ExecuteApplicationFlowInput,
     options?: BrowserApplicationExecutionOptions,
   ): Promise<ApplyExecutionResult>;
+  /**
+   * Main-process-only application hand. The runtime retains Page ownership
+   * and returns a redacted, transient observation with no DOM handle.
+   * Catalog/seed runtimes intentionally omit this capability.
+   */
+  observeApplicationForm?(
+    source: JobSource,
+    options?: ObserveApplicationFormOptions,
+  ): Promise<ApplicationFormObservation>;
+  /**
+   * Main-process-only one-shot final-action hand. It never returns a
+   * submission claim; external verification is a separate boundary.
+   */
+  executeExactlyOneFinalAction?(
+    source: JobSource,
+    input: ExecuteExactlyOneFinalActionInput,
+  ): Promise<ApplicationFinalActionResult>;
   captureVisualSnapshot?(
     source: JobSource,
     request: BrowserVisualSnapshotRequest,

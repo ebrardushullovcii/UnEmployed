@@ -5,7 +5,10 @@ import {
   type ResumeImportFieldCandidate,
 } from "@unemployed/contracts";
 import { createSeed } from "../workspace-service.test-support";
-import { buildProfileSetupReviewItems } from "./profile-setup-review-items";
+import {
+  buildProfileSetupReviewItems,
+  resolvePendingReviewItemsAfterExplicitSave,
+} from "./profile-setup-review-items";
 
 const createdAt = "2026-07-16T10:00:00.000Z";
 
@@ -38,6 +41,69 @@ function candidate(input: {
 }
 
 describe("buildProfileSetupReviewItems", () => {
+  test("represents an empty work history as one required setup item", () => {
+    const seed = createSeed();
+    const items = buildProfileSetupReviewItems({
+      currentState: null,
+      documentBundle: null,
+      now: createdAt,
+      profile: { ...seed.profile, experiences: [], projects: [] },
+      candidates: [],
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(items.filter((item) => item.target.domain === "experience")).toEqual(
+      [
+        expect.objectContaining({
+          label: "Work history",
+          severity: "critical",
+          status: "pending",
+          proposedValue: null,
+          sourceCandidateId: null,
+          target: { domain: "experience", key: "record", recordId: null },
+        }),
+      ],
+    );
+    expect(
+      items.find((item) => item.label === "Work history")?.reason,
+    ).toContain("Add at least one meaningful work-history role");
+  });
+
+  test("keeps an existing role's missing work mode as an imported review item", () => {
+    const seed = createSeed();
+    const workModeCandidate = candidate({
+      id: "experience_work_mode",
+      section: "experience",
+      key: "workMode",
+      recordId: "experience_1",
+      label: "Work mode",
+      value: "remote",
+    });
+    const items = buildProfileSetupReviewItems({
+      currentState: null,
+      documentBundle: null,
+      now: createdAt,
+      profile: seed.profile,
+      candidates: [workModeCandidate],
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "Work mode",
+          status: "pending",
+          sourceCandidateId: workModeCandidate.id,
+          target: {
+            domain: "experience",
+            key: "workMode",
+            recordId: "experience_1",
+          },
+        }),
+      ]),
+    );
+  });
+
   test("does not create duplicate scalar blockers after a complete education record is confirmed", () => {
     const seed = createSeed();
     const candidates = [
@@ -54,10 +120,30 @@ describe("buildProfileSetupReviewItems", () => {
           location: "Prishtina, Kosovo",
         },
       }),
-      candidate({ id: "education_school", key: "institution", label: "School name", value: "University of Prishtina" }),
-      candidate({ id: "education_degree", key: "degree", label: "Degree", value: "Bachelor of Science" }),
-      candidate({ id: "education_field", key: "fieldOfStudy", label: "Field of study", value: "Computer Science" }),
-      candidate({ id: "education_location", key: "location", label: "Location", value: "Prishtina, Kosovo" }),
+      candidate({
+        id: "education_school",
+        key: "institution",
+        label: "School name",
+        value: "University of Prishtina",
+      }),
+      candidate({
+        id: "education_degree",
+        key: "degree",
+        label: "Degree",
+        value: "Bachelor of Science",
+      }),
+      candidate({
+        id: "education_field",
+        key: "fieldOfStudy",
+        label: "Field of study",
+        value: "Computer Science",
+      }),
+      candidate({
+        id: "education_location",
+        key: "location",
+        label: "Location",
+        value: "Prishtina, Kosovo",
+      }),
     ];
 
     const items = buildProfileSetupReviewItems({
@@ -70,7 +156,12 @@ describe("buildProfileSetupReviewItems", () => {
     });
 
     expect(items.map((item) => item.label)).not.toEqual(
-      expect.arrayContaining(["School name", "Degree", "Field of study", "Location"]),
+      expect.arrayContaining([
+        "School name",
+        "Degree",
+        "Field of study",
+        "Location",
+      ]),
     );
   });
 
@@ -87,9 +178,17 @@ describe("buildProfileSetupReviewItems", () => {
           key: "record",
           label: "Education",
           recordId: "education_1",
-          value: { schoolName: "University of Prishtina", degree: "Bachelor of Science" },
+          value: {
+            schoolName: "University of Prishtina",
+            degree: "Bachelor of Science",
+          },
         }),
-        candidate({ id: "education_field", key: "fieldOfStudy", label: "Field of study", value: "Computer Science" }),
+        candidate({
+          id: "education_field",
+          key: "fieldOfStudy",
+          label: "Field of study",
+          value: "Computer Science",
+        }),
       ],
       searchPreferences: seed.searchPreferences,
     });
@@ -115,7 +214,11 @@ describe("buildProfileSetupReviewItems", () => {
       searchPreferences: seed.searchPreferences,
     });
 
-    expect(initialItems.find((item) => item.sourceCandidateId === locationCandidate.id)?.status).toBe("pending");
+    expect(
+      initialItems.find(
+        (item) => item.sourceCandidateId === locationCandidate.id,
+      )?.status,
+    ).toBe("pending");
 
     const unchangedItems = buildProfileSetupReviewItems({
       currentState: { ...seed.profileSetupState, reviewItems: initialItems },
@@ -126,7 +229,11 @@ describe("buildProfileSetupReviewItems", () => {
       searchPreferences: seed.searchPreferences,
     });
 
-    expect(unchangedItems.find((item) => item.sourceCandidateId === locationCandidate.id)).toMatchObject({
+    expect(
+      unchangedItems.find(
+        (item) => item.sourceCandidateId === locationCandidate.id,
+      ),
+    ).toMatchObject({
       status: "pending",
       resolvedAt: null,
     });
@@ -141,7 +248,11 @@ describe("buildProfileSetupReviewItems", () => {
       searchPreferences: seed.searchPreferences,
     });
 
-    expect(refreshedItems.find((item) => item.sourceCandidateId === locationCandidate.id)).toMatchObject({
+    expect(
+      refreshedItems.find(
+        (item) => item.sourceCandidateId === locationCandidate.id,
+      ),
+    ).toMatchObject({
       status: "confirmed",
       resolvedAt: "2026-07-16T11:00:00.000Z",
     });
@@ -177,7 +288,11 @@ describe("buildProfileSetupReviewItems", () => {
       searchPreferences: seed.searchPreferences,
     });
 
-    expect(items.find((item) => item.sourceCandidateId === "education_degree_evidence")?.sourceSnippet).toBe(evidence);
+    expect(
+      items.find(
+        (item) => item.sourceCandidateId === "education_degree_evidence",
+      )?.sourceSnippet,
+    ).toBe(evidence);
   });
 
   test("creates critical field-targeted items for missing first and last names", () => {
@@ -198,13 +313,15 @@ describe("buildProfileSetupReviewItems", () => {
       searchPreferences: seed.searchPreferences,
     });
 
-    expect(items.find((item) => item.target.key === "firstName")).toMatchObject({
-      step: "essentials",
-      target: { domain: "identity", key: "firstName", recordId: null },
-      label: "First name",
-      severity: "critical",
-      status: "pending",
-    });
+    expect(items.find((item) => item.target.key === "firstName")).toMatchObject(
+      {
+        step: "essentials",
+        target: { domain: "identity", key: "firstName", recordId: null },
+        label: "First name",
+        severity: "critical",
+        status: "pending",
+      },
+    );
     expect(items.find((item) => item.target.key === "lastName")).toMatchObject({
       step: "essentials",
       target: { domain: "identity", key: "lastName", recordId: null },
@@ -241,7 +358,9 @@ describe("buildProfileSetupReviewItems", () => {
     ]);
     for (const item of nameItems) {
       expect(item.reason).toContain("profile and application fields");
-      expect(item.reason).toContain("preferred display name remains how Job Finder addresses you");
+      expect(item.reason).toContain(
+        "preferred display name remains how Job Finder addresses you",
+      );
       expect(item.reason.toLowerCase()).not.toContain("legal");
     }
   });
@@ -286,9 +405,7 @@ describe("buildProfileSetupReviewItems", () => {
     });
 
     expect(
-      items.some((item) =>
-        ["firstName", "lastName"].includes(item.target.key),
-      ),
+      items.some((item) => ["firstName", "lastName"].includes(item.target.key)),
     ).toBe(false);
   });
 
@@ -307,7 +424,9 @@ describe("buildProfileSetupReviewItems", () => {
       searchPreferences: seed.searchPreferences,
     });
 
-    expect(items.find((item) => item.target.key === "yearsExperience")).toMatchObject({
+    expect(
+      items.find((item) => item.target.key === "yearsExperience"),
+    ).toMatchObject({
       severity: "critical",
     });
     expect(
@@ -326,11 +445,131 @@ describe("buildProfileSetupReviewItems", () => {
       searchPreferences: seed.searchPreferences,
     });
 
-    expect(items.find((item) => item.target.key === "yearsExperience")).toMatchObject({
+    expect(
+      items.find((item) => item.target.key === "yearsExperience"),
+    ).toMatchObject({
       severity: "recommended",
     });
     expect(
       items.find((item) => item.target.key === "yearsExperience")?.reason,
     ).not.toContain("fresh-start");
+  });
+
+  test("resolves a saved zero years value for an existing missing-field item", () => {
+    const seed = createSeed();
+    const profile = { ...seed.profile, yearsExperience: 0 };
+    const initialItems = buildProfileSetupReviewItems({
+      currentState: null,
+      documentBundle: null,
+      now: createdAt,
+      profile,
+      candidates: [],
+      searchPreferences: seed.searchPreferences,
+    });
+    const yearsItem = initialItems.find(
+      (item) => item.target.key === "yearsExperience",
+    );
+
+    expect(yearsItem).toMatchObject({
+      status: "pending",
+      proposedValue: null,
+    });
+
+    const refreshedItems = buildProfileSetupReviewItems({
+      currentState: {
+        ...seed.profileSetupState,
+        reviewItems: initialItems,
+      },
+      documentBundle: null,
+      now: "2026-07-16T11:00:00.000Z",
+      profile,
+      candidates: [],
+      searchPreferences: seed.searchPreferences,
+    });
+
+    expect(
+      refreshedItems.find((item) => item.target.key === "yearsExperience"),
+    ).toMatchObject({
+      status: "edited",
+      resolvedAt: "2026-07-16T11:00:00.000Z",
+    });
+  });
+  test("resolves an imported suggestion as edited when the user saves a different value", () => {
+    const seed = createSeed();
+    const locationsCandidate = candidate({
+      id: "suggested_preferred_locations",
+      section: "search_preferences",
+      key: "locations",
+      label: "Preferred locations",
+      value: ["Cedar Park, TX"],
+    });
+    const currentSearchPreferences = {
+      ...seed.searchPreferences,
+      locations: [] as string[],
+    };
+    const initialItems = buildProfileSetupReviewItems({
+      currentState: null,
+      documentBundle: null,
+      now: createdAt,
+      profile: seed.profile,
+      candidates: [locationsCandidate],
+      searchPreferences: currentSearchPreferences,
+    });
+    const pendingItem = initialItems.find(
+      (item) => item.sourceCandidateId === locationsCandidate.id,
+    );
+
+    expect(pendingItem).toMatchObject({
+      status: "pending",
+      proposedValue: "Cedar Park, TX",
+      target: { domain: "search_preferences", key: "locations" },
+    });
+
+    // The user keeps their own city instead of the imported proposal. That is
+    // an explicit edit, not an unresolved suggestion.
+    const nextSearchPreferences = {
+      ...currentSearchPreferences,
+      locations: ["Austin, TX"],
+    };
+    const savedState = resolvePendingReviewItemsAfterExplicitSave({
+      currentProfile: seed.profile,
+      currentSearchPreferences,
+      nextProfile: seed.profile,
+      nextSearchPreferences,
+      profileSetupState: {
+        ...seed.profileSetupState,
+        reviewItems: initialItems,
+      },
+      now: "2026-07-16T11:00:00.000Z",
+    });
+
+    expect(
+      savedState.reviewItems.find(
+        (item) => item.sourceCandidateId === locationsCandidate.id,
+      ),
+    ).toMatchObject({
+      status: "edited",
+      resolvedAt: "2026-07-16T11:00:00.000Z",
+    });
+
+    // The following derivation must keep that resolution instead of reopening
+    // the item just because the proposal was never accepted verbatim.
+    const refreshedItems = buildProfileSetupReviewItems({
+      currentState: savedState,
+      documentBundle: null,
+      now: "2026-07-16T11:30:00.000Z",
+      profile: seed.profile,
+      candidates: [locationsCandidate],
+      searchPreferences: nextSearchPreferences,
+    });
+
+    expect(
+      refreshedItems.find(
+        (item) => item.sourceCandidateId === locationsCandidate.id,
+      ),
+    ).toMatchObject({
+      status: "edited",
+      resolvedAt: "2026-07-16T11:00:00.000Z",
+    });
   });
 });

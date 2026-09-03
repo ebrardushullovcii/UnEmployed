@@ -312,10 +312,7 @@ function renderCanonicalRoute(
     <MemoryRouter initialEntries={[path]}>
       <Suspense fallback={null}>
         <Routes>
-          <Route
-            path="/job-finder"
-            element={<Outlet context={context} />}
-          >
+          <Route path="/job-finder" element={<Outlet context={context} />}>
             <Route index element={element} />
             <Route path="discovery" element={element} />
             <Route path="profile" element={element} />
@@ -360,16 +357,14 @@ describe("canonical route first paint", () => {
     expect(setTimeoutSpy).not.toHaveBeenCalled();
   });
 
-  it("opens a browser session without forwarding the React click event", () => {
+  it("renders the offline catalog state without a browser CTA", () => {
     const context = createContext();
     const onOpenBrowserSession = vi.fn();
     context.onOpenBrowserSession = onOpenBrowserSession;
     const baseCampaign = context.workspace.campaigns[0];
     context.workspace = {
       ...context.workspace,
-      campaigns: baseCampaign
-        ? [{ ...baseCampaign, jobIds: [] }]
-        : [],
+      campaigns: baseCampaign ? [{ ...baseCampaign, jobIds: [] }] : [],
       discoveryJobs: [],
     };
     renderCanonicalRoute(
@@ -378,10 +373,16 @@ describe("canonical route first paint", () => {
       context,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open browser" }));
-
-    expect(onOpenBrowserSession).toHaveBeenCalledTimes(1);
-    expect(onOpenBrowserSession.mock.calls[0]).toEqual([]);
+    // One owner for the offline runtime fact: the setup panel status badge
+    // plus its sentence. The slim search bar drops its browser link entirely
+    // offline instead of repeating "Offline catalog" beside it.
+    expect(screen.getByText("Offline catalog")).toBeTruthy();
+    expect(
+      screen.getByText("Offline catalog; live source search unavailable."),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("discovery-search-bar-browser")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open browser" })).toBeNull();
+    expect(onOpenBrowserSession).not.toHaveBeenCalled();
   });
 
   it("opens a browser session from Home without forwarding the React click event", async () => {

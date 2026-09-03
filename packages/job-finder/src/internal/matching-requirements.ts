@@ -7,12 +7,13 @@ import type {
 } from "@unemployed/contracts";
 
 import type { MatchAssessmentPostingInput } from "./match-assessment-posting-input";
+import { buildCareerStageRequirement } from "./matching-career-stage";
 import { buildEligibilityRequirementAssessments } from "./matching-eligibility";
 import type {
   LocationCompatibilityState,
   WorkModeCompatibilityState,
 } from "./matching";
-import { normalizeText, uniqueStrings } from "./shared";
+import { isAbsentFieldText, normalizeText, uniqueStrings } from "./shared";
 
 const technologySignals = [
   { label: "TypeScript", aliases: ["typescript"] },
@@ -727,9 +728,16 @@ export function buildRequirementEvidenceAssessment(input: {
   profile: CandidateProfile;
   posting: MatchAssessmentPostingInput;
   locationCompatibility: LocationCompatibilityState;
+  locationRemotePreferenceApplied?: boolean;
   workModeCompatibility: WorkModeCompatibilityState;
   hasLocationPreferences: boolean;
   hasWorkModePreferences: boolean;
+  /**
+   * Saved target roles, used only as extra career-stage evidence about the
+   * candidate. Omitted by callers that have no saved preferences; the
+   * career-stage requirement then falls back to the profile alone.
+   */
+  targetRoles?: readonly string[];
 }): JobRequirementAssessment[] {
   const { profile, posting } = input;
   const jobText = [
@@ -1122,6 +1130,17 @@ export function buildRequirementEvidenceAssessment(input: {
     });
   }
 
+  // Career stage is checked before eligibility so an opening reserved for
+  // entrants surfaces as the first hard conflict on the row.
+  const careerStageRequirement = buildCareerStageRequirement({
+    profile,
+    posting,
+    searchPreferences: { targetRoles: input.targetRoles ?? [] },
+  });
+  if (careerStageRequirement) {
+    requirements.push(careerStageRequirement);
+  }
+
   requirements.push(
     ...buildEligibilityRequirementAssessments({ profile, posting }),
   );
@@ -1135,21 +1154,34 @@ export function buildRequirementEvidenceAssessment(input: {
           : profile.workEligibility.willingToRelocate === false
             ? "conflict"
             : "unknown";
-    const locationExplanation =
-      input.locationCompatibility === "compatible"
+    // A stored absence placeholder ("Location not stated") is not a stated
+    // location: it must not become a "Location: Location not stated" label or
+    // pose as captured listing evidence.
+    const rawLocation = posting.location.trim();
+    const statedLocation = isAbsentFieldText(rawLocation) ? "" : rawLocation;
+    const locationExplanation = input.locationRemotePreferenceApplied
+      ? input.locationCompatibility === "compatible"
+        ? "Remote listing; remote is one of your preferred work modes."
+        : "Remote listing; remote is one of your preferred work modes, but its stated region may exclude the saved search areas."
+      : input.locationCompatibility === "compatible"
         ? "The listing location is compatible with the saved search area."
         : input.locationCompatibility === "unknown"
-          ? "The listing does not specify enough geographic detail to verify it against the saved search areas."
+          ? statedLocation
+            ? "The listing does not specify enough geographic detail to verify it against the saved search areas."
+            : "The listing does not state a location, so it could not be compared with the saved search areas."
           : profile.workEligibility.willingToRelocate === false
             ? "The listing location is outside the saved search area and the profile rules out relocation."
             : "The listing location is outside the saved search area; relocation needs confirmation.";
     requirements.push({
-      id: requirementId("location", posting.location),
+      id: requirementId("location", statedLocation || "not stated"),
       category: "location",
-      label: `Location: ${posting.location}`,
+      // A missing location must not produce a dangling "Location: " label.
+      label: statedLocation
+        ? `Location: ${statedLocation}`
+        : "Location (not stated in listing)",
       importance: "required",
       status: locationStatus,
-      jobEvidence: posting.location,
+      jobEvidence: statedLocation || "The listing does not state a location.",
       resumeEvidence: profile.currentLocation
         ? [
             {
@@ -1205,7 +1237,8 @@ export function buildRequirementEvidenceAssessment(input: {
             ? "The listing does not state a concrete work mode, so it cannot be verified against the saved preference."
             : isRemotePosting && profile.workEligibility.remoteEligible === null
               ? "The listing matches the saved remote-work preference, but remote-work eligibility is not confirmed in the profile."
-              : isRemotePosting && profile.workEligibility.remoteEligible === false
+              : isRemotePosting &&
+                  profile.workEligibility.remoteEligible === false
                 ? "The listing is remote, but the profile does not confirm remote-work eligibility."
                 : "The listing work mode matches the saved preference.",
     });
@@ -1255,6 +1288,34 @@ export function buildRequirementEvidenceAssessment(input: {
   return requirements;
 }
 
+/**
+ * Location, work mode, and work authorization are compared with saved
+ * preferences and profile facts, never with resume evidence, so their
+ * rationale must not claim that a resume failed to prove them.
+ * Returns `null` for the resume-evidence categories (skills, experience,
+ * seniority, domain), which keep the evidence-shaped sentence.
+ */
+function preferenceRequirementRationale(
+  requirement: JobRequirementAssessment,
+): string | null {
+  switch (requirement.category) {
+    case "location":
+      return requirement.status === "unknown"
+        ? "The listing location could not be compared with the saved search areas yet."
+        : "The listing location is outside the saved search areas.";
+    case "work_mode":
+      return requirement.status === "unknown"
+        ? `${requirement.label} — not stated clearly enough to compare with your preferred work modes.`
+        : `${requirement.label} — does not match your preferred work modes.`;
+    case "work_authorization":
+      return requirement.status === "unknown"
+        ? "Work authorization is not stated in your profile yet."
+        : "Work authorization does not match what this listing requires.";
+    default:
+      return null;
+  }
+}
+
 export function buildFitRecommendation(input: {
   score: number;
   requirements: readonly JobRequirementAssessment[];
@@ -1290,7 +1351,9 @@ export function buildFitRecommendation(input: {
     const requirement = missingRequired[0] ?? unknownRequired[0]!;
     return {
       recommendation: "review_before_applying",
-      rationale: `${requirement.label} is not yet supported by explicit resume evidence.`,
+      rationale:
+        preferenceRequirementRationale(requirement) ??
+        `${requirement.label} is not yet supported by explicit resume evidence.`,
     };
   }
 

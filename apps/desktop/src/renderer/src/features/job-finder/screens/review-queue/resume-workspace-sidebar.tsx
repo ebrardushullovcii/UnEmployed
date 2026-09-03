@@ -117,7 +117,7 @@ export function ResumeWorkspaceSidebar({
 
       <div className="grid min-h-0 gap-3 xl:grid-cols-(--resume-sidebar-columns)">
         <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-foreground-soft">
             Role snapshot
           </p>
           <div className="grid gap-1.5 text-sm text-foreground-soft">
@@ -158,7 +158,7 @@ export function ResumeWorkspaceSidebar({
         </div>
 
         <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-foreground-soft">
             Shared profile inputs
           </p>
           {profileSummary ? (
@@ -187,7 +187,7 @@ export function ResumeWorkspaceSidebar({
         </div>
 
         <div className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
-          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-foreground-soft">
             Saved research
           </p>
           {research.length === 0 ? (
@@ -207,7 +207,7 @@ export function ResumeWorkspaceSidebar({
           ) : null}
 
           {job.applicationUrl || job.employerWebsiteUrl || job.atsProvider ? (
-            <div className="grid gap-1 border-t border-(--surface-panel-border) pt-2 text-(length:--text-small) leading-5 text-foreground-muted">
+            <div className="grid gap-1 border-t border-(--surface-panel-border) pt-2 text-(length:--text-small) leading-5 text-foreground-soft">
               {job.atsProvider ? (
                 <p className="break-words">Provider: {job.atsProvider}</p>
               ) : null}

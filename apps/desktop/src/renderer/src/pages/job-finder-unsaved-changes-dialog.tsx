@@ -50,10 +50,7 @@ export function JobFinderUnsavedChangesDialog(props: {
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
             Unsaved changes
           </p>
-          <h2
-            className="text-(length:--text-section-title) font-semibold text-(--text-headline)"
-            id={titleId}
-          >
+          <h2 className="text-(--text-headline)" id={titleId}>
             {confirmation.title}
           </h2>
           <p

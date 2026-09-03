@@ -8,15 +8,17 @@ import type {
 } from "@unemployed/contracts";
 import type { createResumeDraftPatch } from "./resume-section-editor-helpers";
 import { ResumeBulletListEditor } from "./resume-section-editor-bullet-list";
+import { ResumeSectionEditor } from "./resume-section-editor";
 
 function buildSection(
   bullets: readonly ResumeDraftBullet[],
+  text: string | null = null,
 ): ResumeDraftSection {
   return {
     id: "section_summary",
     kind: "summary",
     label: "Summary",
-    text: null,
+    text,
     bullets: [...bullets],
     entries: [],
     origin: "ai_generated",
@@ -102,8 +104,25 @@ describe("ResumeBulletListEditor", () => {
       screen.getByRole("button", { name: "Move bullet 3 down" }),
     ).toHaveProperty("disabled", true);
     for (const button of screen.getAllByRole("button")) {
-      expect(button.className).toContain("h-8");
+      expect(button.getAttribute("data-size")).toBe("icon-sm");
+      expect(button.getAttribute("data-variant")).toBe("ghost");
+      expect(button.className).toContain("size-8");
+      expect(button.getAttribute("title")).toBeTruthy();
+      expect(button.textContent?.trim()).toBe("");
     }
+    expect(
+      screen
+        .getByRole("button", { name: "Hide bullet 1" })
+        .getAttribute("title"),
+    ).toBe("Hide bullet 1");
+    expect(lockButtons[0]?.getAttribute("title")).toBe("Lock bullet 1");
+  });
+
+  it("keeps every bullet action in one 32px row", () => {
+    const { container } = renderList({ bullets: [bullet(1)] });
+    const row = container.querySelector("textarea")?.previousElementSibling;
+    expect(row?.className).toContain("h-8");
+    expect(row?.querySelectorAll("button")).toHaveLength(4);
   });
 
   it("sends typed patches with exact ids when toggling visibility", () => {
@@ -139,7 +158,8 @@ describe("ResumeBulletListEditor", () => {
 
     expect(marked.container.textContent).toContain("AI-generated");
     expect(
-      Array.from(marked.container.querySelectorAll(".h-8")).length,
+      Array.from(marked.container.querySelectorAll('[data-size="icon-sm"]'))
+        .length,
     ).toBeGreaterThan(0);
   });
 
@@ -149,5 +169,103 @@ describe("ResumeBulletListEditor", () => {
     expect(textarea.className).toContain("[field-sizing:content]");
     expect(textarea.className).toContain("min-h-[3.9rem]");
     expect(textarea.getAttribute("rows")).toBe("2");
+  });
+
+  it("renders a skills section one row per skill instead of a prose block per word", () => {
+    const skills = [
+      bullet(1, { text: "SQL Server" }),
+      bullet(2, { text: "REST APIs" }),
+    ];
+    const { container } = render(
+      <ResumeSectionEditor
+        disabled={false}
+        isExpanded
+        isSelected={false}
+        onToggleExpanded={vi.fn()}
+        onChange={vi.fn()}
+        onPatch={vi.fn()}
+        onSelectEntry={vi.fn()}
+        onSelectSection={vi.fn()}
+        section={{
+          ...buildSection(skills),
+          id: "section_skills",
+          kind: "skills",
+          label: "Skills",
+        }}
+        selectedEntryId={null}
+        selectedTargetId={null}
+        showGeneratedMarkers={false}
+        workHistoryReviewSuggestions={[]}
+      />,
+    );
+
+    const rows = Array.from(
+      container.querySelectorAll("[data-resume-bullet-row-density]"),
+    );
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.getAttribute("data-resume-bullet-row-density")).toBe(
+        "compact",
+      );
+      // Actions sit beside the field instead of stacking above it.
+      expect(row.className).toContain("flex");
+      expect(row.className).not.toContain("grid");
+    }
+
+    for (const row of rows) {
+      const textarea = row.querySelector("textarea")!;
+      expect(textarea.getAttribute("rows")).toBe("1");
+      expect(textarea.className).toContain("min-h-8");
+      expect(textarea.className).not.toContain("min-h-[3.9rem]");
+    }
+
+    // Every control inside a compact bullet row is icon-only, so each one
+    // keeps its exact accessible name. The section title beside them is a
+    // labelled disclosure button and is deliberately not icon-only.
+    for (const row of rows) {
+      for (const button of row.querySelectorAll("button")) {
+        expect(button.getAttribute("aria-label") ?? "").not.toBe("");
+        expect(button.getAttribute("title")).toBeTruthy();
+      }
+    }
+  });
+
+  it("keeps prose sections on the comfortable row density", () => {
+    const { container } = renderList();
+
+    for (const row of container.querySelectorAll(
+      "[data-resume-bullet-row-density]",
+    )) {
+      expect(row.getAttribute("data-resume-bullet-row-density")).toBe(
+        "comfortable",
+      );
+    }
+  });
+
+  it("does not show an empty bullets state when Summary already has text", () => {
+    const summaryText =
+      "Product designer who turns complex workflows into clear, usable systems.";
+    const section = buildSection([], summaryText);
+
+    render(
+      <ResumeSectionEditor
+        disabled={false}
+        isExpanded
+        isSelected={false}
+        onToggleExpanded={vi.fn()}
+        onChange={vi.fn()}
+        onPatch={vi.fn()}
+        onSelectEntry={vi.fn()}
+        onSelectSection={vi.fn()}
+        section={section}
+        selectedEntryId={null}
+        selectedTargetId={null}
+        showGeneratedMarkers={false}
+        workHistoryReviewSuggestions={[]}
+      />,
+    );
+
+    expect(screen.getByDisplayValue(summaryText)).toBeTruthy();
+    expect(screen.queryByText("No bullets yet")).toBeNull();
   });
 });

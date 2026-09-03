@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import {
   JobDiscoveryTargetSchema,
   SavedJobSchema,
@@ -309,8 +315,6 @@ const FACET_FILTERS_STORAGE_KEY =
   "unemployed.job-finder.discovery.result-filters.v2";
 const LEGACY_FACET_FILTERS_STORAGE_KEY =
   "unemployed.job-finder.discovery.result-filters.v1";
-const SAVED_VIEWS_STORAGE_KEY =
-  "unemployed.job-finder.collection.discovery-results.v1";
 
 function readFacetScopesById(): Record<string, Record<string, unknown>> {
   const raw = window.localStorage.getItem(FACET_FILTERS_STORAGE_KEY);
@@ -359,7 +363,12 @@ describe("DiscoveryResultsPanel facet target size", () => {
 describe("DiscoveryResultsPanel facet persistence", () => {
   const persistenceJobs = [
     createJob("strong-remote", "strong_fit", ["remote"], primarySource),
-    createJob("review-hybrid", "review_before_applying", ["hybrid"], longSource),
+    createJob(
+      "review-hybrid",
+      "review_before_applying",
+      ["hybrid"],
+      longSource,
+    ),
   ];
 
   function planPanelElement(facetScopeId: string) {
@@ -405,7 +414,8 @@ describe("DiscoveryResultsPanel facet persistence", () => {
         .checked,
     ).toBe(true);
     expect(
-      screen.getByRole<HTMLInputElement>("checkbox", { name: "Remote" }).checked,
+      screen.getByRole<HTMLInputElement>("checkbox", { name: "Remote" })
+        .checked,
     ).toBe(true);
 
     fireEvent.click(
@@ -454,14 +464,18 @@ describe("DiscoveryResultsPanel facet persistence", () => {
         .checked,
     ).toBe(true);
     expect(
-      screen.getByRole<HTMLInputElement>("checkbox", { name: "Remote" }).checked,
+      screen.getByRole<HTMLInputElement>("checkbox", { name: "Remote" })
+        .checked,
     ).toBe(true);
     // No longer offered by any visible result, or outside the facet's known
     // value space: dropped from the UI and the stored snapshot alike.
-    expect(screen.queryByRole("checkbox", { name: "Retired board" })).toBeNull();
+    expect(
+      screen.queryByRole("checkbox", { name: "Retired board" }),
+    ).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "On-site" })).toBeNull();
     expect(
-      screen.getByRole<HTMLInputElement>("checkbox", { name: "Hybrid" }).checked,
+      screen.getByRole<HTMLInputElement>("checkbox", { name: "Hybrid" })
+        .checked,
     ).toBe(false);
     expect(screen.getByText("1 of 2 results")).toBeTruthy();
 
@@ -570,7 +584,8 @@ describe("DiscoveryResultsPanel facet persistence", () => {
         .checked,
     ).toBe(true);
     expect(
-      screen.getByRole<HTMLInputElement>("checkbox", { name: "Hybrid" }).checked,
+      screen.getByRole<HTMLInputElement>("checkbox", { name: "Hybrid" })
+        .checked,
     ).toBe(true);
 
     const scopes = readFacetScopesById();
@@ -579,8 +594,23 @@ describe("DiscoveryResultsPanel facet persistence", () => {
   });
 });
 
+describe("DiscoveryResultsPanel toolbar", () => {
+  it("offers two densities because the rows have two shapes", () => {
+    renderResults([
+      createJob("strong-remote", "strong_fit", ["remote"], primarySource),
+    ]);
+
+    const densityGroup = screen.getByRole("group", { name: "List density" });
+    expect(
+      within(densityGroup)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["Compact", "Comfortable"]);
+  });
+});
+
 describe("DiscoveryResultsPanel facet saved views", () => {
-  it("captures and restores the four facet sets in a named saved view", () => {
+  it("offers no saved-view chrome and keeps the plan's own facet snapshot", () => {
     renderResults(
       [
         createJob("strong-remote", "strong_fit", ["remote"], primarySource),
@@ -598,51 +628,9 @@ describe("DiscoveryResultsPanel facet saved views", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Primary board" }));
     expect(screen.getByText("1 of 2 results")).toBeTruthy();
 
-    // Capture the current facets under a named view.
-    fireEvent.click(screen.getByRole("button", { name: /Saved views/u }));
-    fireEvent.change(screen.getByLabelText("Saved view name"), {
-      target: { value: "Focus" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-    // Later state changes must not leak into the captured view.
-    fireEvent.click(
-      screen.getAllByRole("button", { name: "Clear filters" })[0]!,
-    );
-    expect(screen.queryByLabelText(/active filters?/u)).toBeNull();
-
-    // Applying the view brings the captured facets back.
-    fireEvent.click(screen.getByRole("button", { name: "Focus" }));
-    expect(screen.getByLabelText("2 active filters")).toBeTruthy();
-    expect(screen.getByText("1 of 2 results")).toBeTruthy();
-    expect(
-      screen.getByRole<HTMLInputElement>("checkbox", { name: "Strong fit" })
-        .checked,
-    ).toBe(true);
-    expect(
-      screen.getByRole<HTMLInputElement>("checkbox", { name: "Primary board" })
-        .checked,
-    ).toBe(true);
-    expect(
-      screen.getByRole<HTMLInputElement>("checkbox", { name: "Remote" }).checked,
-    ).toBe(false);
-
-    // The stored view keeps its query/density schema and gains the typed
-    // metadata payload with all four facets.
-    const saved = JSON.parse(
-      window.localStorage.getItem(SAVED_VIEWS_STORAGE_KEY)!,
-    ) as { savedViews: ReadonlyArray<Record<string, unknown>> };
-    expect(saved.savedViews[0]?.name).toBe("Focus");
-    expect(saved.savedViews[0]?.density).toBe("comfortable");
-    expect(saved.savedViews[0]?.query).toBe("");
-    expect(saved.savedViews[0]?.metadata).toEqual({
-      activity: [],
-      recommendation: ["strong_fit"],
-      source: ["Primary board"],
-      workMode: [],
-    });
-
-    // Applying also refreshes the plan's own snapshot to match the view.
+    // Named views were list-management chrome on a handful of rows; the
+    // per-plan facet snapshot that actually survives navigation stays.
+    expect(screen.queryByRole("button", { name: /Saved views/u })).toBeNull();
     expect(readFacetScopesById()["plan-views"]).toEqual({
       id: "plan-views",
       activity: [],

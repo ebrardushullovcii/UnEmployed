@@ -3,6 +3,7 @@ import { JobSearchPreferencesSchema } from "@unemployed/contracts";
 
 import {
   assessLocationCompatibility,
+  assessPostingLocationCompatibility,
   createMatchAssessment,
   buildDiscoveryJobs,
   getBroadLocationCompatibility,
@@ -709,6 +710,43 @@ describe("matching helpers", () => {
     ).toBe("incompatible");
   });
 
+  test("reads a stored absence placeholder as unknown, never as a conflict", () => {
+    // Discovery stores a readable placeholder when a board exposes no place at
+    // all. Reading that placeholder as a real geography made the app claim it
+    // had compared a location it never saw, which then propagated into a
+    // "mixed" preference verdict and an earned-looking fit percentage.
+    for (const absence of [
+      "Location not stated",
+      "location not stated",
+      "Not specified",
+      "Not listed",
+      "N/A",
+      "Unknown",
+      "—",
+      "   ",
+    ]) {
+      expect(
+        assessLocationCompatibility(absence, ["Austin, TX"]),
+        absence,
+      ).toBe("unknown");
+      expect(matchesExcludedLocation(absence, ["Austin, TX"]), absence).toBe(
+        false,
+      );
+    }
+
+    // A real place is still compared normally in both directions.
+    expect(assessLocationCompatibility("Berlin, Germany", ["Austin, TX"])).toBe(
+      "incompatible",
+    );
+    expect(assessLocationCompatibility("Austin, TX", ["Austin, TX"])).toBe(
+      "compatible",
+    );
+    // "Notting Hill, London" starts with "not" but is a place, not an absence.
+    expect(
+      assessLocationCompatibility("Notting Hill, London", ["London"]),
+    ).toBe("compatible");
+  });
+
   test("applies one location-semantics table across positive fit and exclusion conflict", () => {
     const table: ReadonlyArray<{
       listing: string;
@@ -986,7 +1024,7 @@ describe("matching helpers", () => {
       salaryText: "$90k-$100k/year",
     });
 
-    expect(meetsMinimum.scorerVersion).toBe(6);
+    expect(meetsMinimum.scorerVersion).toBe(8);
     expect(meetsMinimum.compensationFit.state).toBe("meets_minimum");
     expect(belowMinimum.compensationFit.state).toBe("below_minimum");
     expect(belowMinimum.score).toBeLessThan(meetsMinimum.score);
@@ -1845,6 +1883,109 @@ describe("matching helpers", () => {
     expect(conflictingRegion.score).toBeLessThan(unspecifiedRemote.score);
   });
 
+  test("lets a preferred remote work mode settle a remote listing's place comparison", () => {
+    const austin = {
+      locations: ["Austin, TX"],
+      workModes: ["remote" as const],
+    };
+
+    // The saved city alone would read as outside the area; remote preference
+    // plus a remote listing settles it as compatible.
+    expect(
+      assessLocationCompatibility("Remote (Chicago, IL)", austin.locations),
+    ).toBe("incompatible");
+    expect(
+      assessPostingLocationCompatibility(
+        { location: "Remote (Chicago, IL)", workMode: ["remote"] },
+        austin,
+      ),
+    ).toEqual({ state: "compatible", remotePreferenceApplied: true });
+    expect(
+      assessPostingLocationCompatibility(
+        { location: "Remote", workMode: ["remote"] },
+        austin,
+      ),
+    ).toEqual({ state: "compatible", remotePreferenceApplied: true });
+
+    // Without a remote preference the place comparison is unchanged.
+    expect(
+      assessPostingLocationCompatibility(
+        { location: "Remote (Chicago, IL)", workMode: ["remote"] },
+        { locations: ["Austin, TX"], workModes: ["onsite"] },
+      ),
+    ).toEqual({ state: "incompatible", remotePreferenceApplied: false });
+
+    // An onsite listing elsewhere is still outside the area.
+    expect(
+      assessPostingLocationCompatibility(
+        { location: "Chicago, IL", workMode: ["onsite"] },
+        austin,
+      ),
+    ).toEqual({ state: "incompatible", remotePreferenceApplied: false });
+
+    // An explicit regional restriction excluding every saved area needs the
+    // user's confirmation and stays unknown instead of compatible.
+    expect(
+      assessPostingLocationCompatibility(
+        { location: "Remote - United States", workMode: ["remote"] },
+        { locations: ["Berlin, Germany"], workModes: ["remote"] },
+      ),
+    ).toEqual({ state: "unknown", remotePreferenceApplied: true });
+  });
+
+  test("scores a remote listing as location-compatible for a remote-preferring search and says why", () => {
+    const seed = createSeed();
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: ["Senior Software Engineer"],
+      locations: ["Austin, TX"],
+      workModes: ["remote" as const],
+    };
+    const posting = {
+      ...seed.savedJobs[0]!,
+      title: "Senior Software Engineer",
+      location: "Remote (Chicago, IL)",
+      workMode: ["remote" as const],
+      detailQuality: "detail_enriched" as const,
+      screeningHints: {
+        ...seed.savedJobs[0]!.screeningHints,
+        remoteGeographies: [],
+        requiresSecurityClearance: null,
+      },
+    };
+
+    const assessment = createMatchAssessment(
+      seed.profile,
+      preferences,
+      posting,
+    );
+
+    expect(assessment.reasons).toContain(
+      "Remote listing; remote is one of your preferred work modes.",
+    );
+    expect(assessment.gaps).not.toContain(
+      "Location falls outside the preferred search areas.",
+    );
+    const locationRequirement = assessment.requirements.find(
+      (requirement) =>
+        requirement.category === "location" &&
+        requirement.label.startsWith("Location"),
+    );
+    expect(locationRequirement).toMatchObject({
+      status: "supported",
+      explanation:
+        "Remote listing; remote is one of your preferred work modes.",
+    });
+    const locationEvidence =
+      assessment.dimensions?.preferenceAlignment.evidence.find(
+        (evidence) => evidence.label === "Location comparison",
+      );
+    expect(locationEvidence?.detail).toBe(
+      "Remote listing; remote is one of your preferred work modes.",
+    );
+    expect(locationEvidence?.detail).not.toMatch(/outside the saved areas/);
+  });
+
   test("keeps geographically unspecified listings out of location evidence claims", () => {
     const seed = createSeed();
     const profile = {
@@ -1893,7 +2034,8 @@ describe("matching helpers", () => {
       assessment.requirements.find(
         (requirement) =>
           requirement.category === "location" &&
-          requirement.label.startsWith("Location:"),
+          (requirement.label.startsWith("Location:") ||
+            requirement.label === "Location (not stated in listing)"),
       );
 
     for (const [location, label] of [
@@ -1921,9 +2063,18 @@ describe("matching helpers", () => {
       expect(locationRequirement(assessment), label).toMatchObject({
         importance: "required",
         status: "unknown",
+        label:
+          label === "empty_location"
+            ? "Location (not stated in listing)"
+            : "Location: Remote",
       });
+      expect(assessment.recommendationRationale, label).not.toMatch(
+        /^Location: is not yet supported/,
+      );
       expect(locationRequirement(assessment)?.explanation, label).toContain(
-        "does not specify enough geographic detail",
+        label === "empty_location"
+          ? "does not state a location"
+          : "does not specify enough geographic detail",
       );
     }
     expect(assessAt("Remote", "bare_remote").score).toBe(

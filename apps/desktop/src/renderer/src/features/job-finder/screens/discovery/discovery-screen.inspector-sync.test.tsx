@@ -15,6 +15,7 @@ import {
   type SavedJob,
 } from "@unemployed/contracts";
 import type { ReactNode } from "react";
+import { useEffect } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -45,6 +46,14 @@ vi.mock("./discovery-activity-panel", () => ({
 vi.mock("./discovery-detail-panel", () => ({
   DiscoveryDetailPanel: (props: { selectedJob: SavedJob | null }) => {
     detailProbe.latest = { selectedJob: props.selectedJob };
+    // The screen unmounts the inspector when nothing is inspectable; an
+    // unmounted panel is the same truth as a cleared selection.
+    useEffect(
+      () => () => {
+        detailProbe.latest = { selectedJob: null };
+      },
+      [],
+    );
     return <section aria-label="Job details">Job details</section>;
   },
 }));

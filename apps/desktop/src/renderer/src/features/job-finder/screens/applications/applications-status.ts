@@ -4,6 +4,22 @@ import {
   getApplicationTone,
 } from "../../lib/job-finder-utils";
 import type { BadgeTone } from "../../lib/job-finder-types";
+import { FINISH_IN_JOB_FINDER_BROWSER_LIST_NEXT_STEP } from "../../lib/job-finder-browser-handoff-copy";
+import {
+  SITE_BLOCKED_AUTOMATIC_PREP_LIST_NEXT_STEP,
+  applicationRecordLooksSiteBlocked,
+} from "./applications-detail-panel-helpers";
+
+const SERVICE_WORKER_LIKE_NEXT_STEP = /service worker/i;
+
+/**
+ * The runtime records an autosave/attachment pause as "Complete the affected
+ * step manually in the open application, or cancel". The detail panel already
+ * says the truthful thing for that pause, so list rows must say it too instead
+ * of exposing the raw runtime phrasing.
+ */
+const MANUAL_OPEN_APPLICATION_FINISH_NEXT_STEP =
+  /complete the (?:affected|resume) step manually in the open application/i;
 
 function shouldPresentConsentState(record: ApplicationRecord): boolean {
   return (
@@ -26,6 +42,14 @@ export function getApplicationLatestActivityLabel(
 
   if (record.lastAttemptState === "submitted") {
     return record.lastActionLabel || "Submitted";
+  }
+
+  if (
+    shouldPresentConsentState(record) &&
+    record.lastAttemptState === "paused" &&
+    applicationRecordLooksSiteBlocked(record)
+  ) {
+    return "Automatic prep paused";
   }
 
   if (
@@ -65,6 +89,47 @@ export function getApplicationLatestActivityLabel(
   return record.lastActionLabel;
 }
 
+/**
+ * The plain answer to the question the record never answered: *did I apply,
+ * and is anything of mine on that site?*
+ *
+ * The round-eight review found one application described by seven different
+ * state words — NEEDS YOU five times, plus "Needs follow-up", plus a Tracker
+ * stage of "Preparing" — and none of them said "Not submitted". This is the
+ * one sentence that does, and it leads the detail pane uncollapsed.
+ *
+ * It is deliberately conservative: only a recorded submission says submitted.
+ * Preparing, pausing and blocking all say not submitted, because that is what
+ * is true — Job Finder never submits.
+ */
+export function getApplicationSubmissionAnswer(
+  record: ApplicationRecord,
+  employerName?: string | null,
+): { headline: string; detail: string; submitted: boolean } {
+  const employer = employerName?.trim() || record.company?.trim() || null;
+  const submitted =
+    record.lastAttemptState === "submitted" ||
+    ["submitted", "assessment", "interview", "offer"].includes(record.status);
+
+  if (submitted) {
+    return {
+      headline: "You recorded this as submitted.",
+      detail: employer
+        ? `Job Finder never sends an application — this is the outcome you recorded after sending it to ${employer} yourself.`
+        : "Job Finder never sends an application — this is the outcome you recorded after sending it yourself.",
+      submitted: true,
+    };
+  }
+
+  return {
+    headline: "Not submitted.",
+    detail: employer
+      ? `Job Finder prepared this application at ${employer} and attached your approved resume. Reviewing it and sending it stays yours to do.`
+      : "Job Finder prepared this application and attached your approved resume. Reviewing it and sending it stays yours to do.",
+    submitted: false,
+  };
+}
+
 export function getApplicationStagePresentation(record: ApplicationRecord): {
   label: string;
   tone: BadgeTone;
@@ -73,7 +138,10 @@ export function getApplicationStagePresentation(record: ApplicationRecord): {
     shouldPresentConsentState(record) &&
     record.lastAttemptState === "unsupported"
   ) {
-    return { label: "Manual apply only", tone: "critical" };
+    // Attention, not failure: the site cannot be prepared automatically, so
+    // the user finishes it themselves. `warning` (F44) says that without the
+    // failure hue that `critical` claimed before the tone existed.
+    return { label: "Manual apply only", tone: "warning" };
   }
 
   if (
@@ -95,7 +163,13 @@ export function getApplicationStagePresentation(record: ApplicationRecord): {
     record.lastAttemptState === "paused" &&
     record.consentSummary.status !== "declined"
   ) {
-    return { label: "Needs you", tone: "active" };
+    // Site-blocked finish-yourself pauses need stronger list contrast than the
+    // default active steel chip. `warning` (F44) supplies it without the
+    // failure hue: nothing failed, the user has to finish on the site.
+    return {
+      label: "Needs you",
+      tone: applicationRecordLooksSiteBlocked(record) ? "warning" : "active",
+    };
   }
 
   if (
@@ -143,6 +217,14 @@ export function getApplicationNextStepLabel(record: ApplicationRecord): string {
 
   if (
     shouldPresentConsentState(record) &&
+    record.lastAttemptState === "paused" &&
+    applicationRecordLooksSiteBlocked(record)
+  ) {
+    return SITE_BLOCKED_AUTOMATIC_PREP_LIST_NEXT_STEP;
+  }
+
+  if (
+    shouldPresentConsentState(record) &&
     record.consentSummary.status === "requested"
   ) {
     return "Choose continue or skip in Consent requests below.";
@@ -178,6 +260,21 @@ export function getApplicationReadableNextStepLabel(
 
   if (!trimmed) {
     return null;
+  }
+
+  if (
+    /inspect the application page manually|job site blocked|reset (?:the (?:job finder )?)?browser in safeguards/i.test(
+      trimmed,
+    ) ||
+    SERVICE_WORKER_LIKE_NEXT_STEP.test(trimmed)
+  ) {
+    return SITE_BLOCKED_AUTOMATIC_PREP_LIST_NEXT_STEP;
+  }
+
+  if (MANUAL_OPEN_APPLICATION_FINISH_NEXT_STEP.test(trimmed)) {
+    // List rows get the compact one-line form; the detail pane carries the
+    // full instruction naming the window and the confirm action.
+    return FINISH_IN_JOB_FINDER_BROWSER_LIST_NEXT_STEP;
   }
 
   if (

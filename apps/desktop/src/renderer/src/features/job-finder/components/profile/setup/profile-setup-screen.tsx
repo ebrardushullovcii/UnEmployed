@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   evaluateProfileSetupReadiness,
   type CandidateProfile,
@@ -8,7 +9,9 @@ import {
   type ProfileSetupReviewActionOptions,
   type ProfileSetupState,
   type ProfileSetupStep,
+  type ResumeApplicationMode,
   type ResumeImportFieldCandidateSummary,
+  type ResumeImportRun,
   type ResumeImportProgressEvent,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
@@ -18,11 +21,11 @@ import { ProfileCopilotRail } from "../profile-copilot-rail";
 import { COPILOT_BOTTOM_OFFSET } from "../profile-copilot-rail-layout";
 import { buildCopilotStarterQuestion } from "../profile-copilot-prompts";
 import { ProfileSetupStepEditor } from "./profile-setup-step-editor";
+import { ProfileSetupStepFooter } from "./profile-setup-step-footer";
 import {
-  buildProfileSetupSummaryCards,
+  buildProfileSetupReadinessPresentation,
   buildSetupCopilotPlaceholder,
-  isBlockingPendingReviewItem,
-  isOptionalPendingReviewItem,
+  getProfileSetupReadinessBlockerLabel,
   buildStepEditorContext,
 } from "./profile-setup-screen-helpers";
 import {
@@ -32,46 +35,63 @@ import {
 } from "./profile-setup-screen-sections";
 import { useProfileSetupForms } from "./profile-setup-screen-hooks";
 import {
-  getProfileSetupScrollBehavior,
   useProfileSetupScreenActions,
+  type ProfileSetupResolvedReviewItem,
 } from "./profile-setup-screen-actions";
 import {
   PROFILE_SETUP_STEP_HEADING_ID,
   focusProfileSetupStepHeading,
 } from "./profile-setup-step-focus";
+import { markGuidedSetupAutoOpenSpent } from "./guided-setup-auto-open";
 import { formatProfileSetupStepLabel } from "./profile-setup-steps";
 
-const setupScreenColumnsClassName =
-  "grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.95fr)]";
-const setupScreenWideEditorClassName = "grid gap-6 xl:grid-cols-1";
-const pristineSetupSummaryClassName = "mx-auto grid w-full max-w-5xl gap-6";
-const setupScreenReviewRailClassName =
-  "flex h-full min-h-0 flex-col gap-6 pb-24 xl:pb-28";
-const setupScreenInlineReviewClassName = "grid gap-6 pb-24 xl:pb-28";
+// Guided setup is always one column: the step editor owns the full width and
+// the review queue renders full-width beneath it. A second column used to
+// leave thousands of pixels empty beside long steps and squeezed inputs.
+const setupScreenSingleColumnClassName = "grid min-w-0 gap-6 xl:grid-cols-1";
+const pristineSetupSummaryClassName = "grid min-w-0 w-full gap-6";
+const setupScreenInlineReviewClassName = "grid min-w-0 gap-6 pb-4 xl:pb-6";
+const pristineSetupTopClassName = "grid min-w-0 gap-4 overflow-visible pb-4";
+const activeSetupTopClassName = "grid min-w-0 gap-3 overflow-visible pb-3";
+// Sticky footer height plus the floating Copilot launcher that docks above it,
+// so the last field of a step is never permanently under either one.
+export const PROFILE_SETUP_FOOTER_CLEARANCE_CLASS_NAME = "pb-32 xl:pb-36";
 const unsavedSetupCopilotMessage =
-  "Save this step before asking Profile Copilot to edit it so your current setup draft does not get overwritten.";
+  "Save this step before asking the Assistant to edit it so your current setup draft does not get overwritten.";
 const unsavedSetupCopilotActionsMessage =
   "Save this step before applying, rejecting, or undoing copilot changes so your current setup draft stays intact.";
 const unsavedSetupReviewActionsMessage =
   "Save this step before confirming, dismissing, or clearing review items so your current setup draft stays intact.";
+const defaultResumeApplicationMode: ResumeApplicationMode = "tailored_per_job";
 
 export function getProfileSetupLayoutClassNames(input: {
   hasPendingReviewItems: boolean;
   isPristineSetup: boolean;
 }) {
-  const hasReviewRail = !input.isPristineSetup && input.hasPendingReviewItems;
+  void input.hasPendingReviewItems;
 
   return {
-    content: hasReviewRail
-      ? setupScreenColumnsClassName
-      : setupScreenWideEditorClassName,
-    reviewRail: hasReviewRail
-      ? setupScreenReviewRailClassName
-      : setupScreenInlineReviewClassName,
+    content: setupScreenSingleColumnClassName,
+    reviewRail: setupScreenInlineReviewClassName,
     summary: input.isPristineSetup
       ? pristineSetupSummaryClassName
-      : setupScreenColumnsClassName,
+      : setupScreenSingleColumnClassName,
   };
+}
+
+export function getProfileSetupTopClassName(isPristineSetup: boolean): string {
+  return isPristineSetup ? pristineSetupTopClassName : activeSetupTopClassName;
+}
+
+/**
+ * Footer clearance only belongs under a rendered sticky footer. The pristine
+ * entry screen has no footer, so the reserved space only pushed a page that
+ * otherwise fits past the viewport and produced a scrollbar.
+ */
+export function getProfileSetupContentClassName(
+  isPristineSetup: boolean,
+): string {
+  return isPristineSetup ? "" : PROFILE_SETUP_FOOTER_CLEARANCE_CLASS_NAME;
 }
 
 export function ProfileSetupScreen(props: {
@@ -81,7 +101,9 @@ export function ProfileSetupScreen(props: {
   isProfileSetupPending: boolean;
   isReviewItemPending: (reviewItemId: string) => boolean;
   profileCopilotBusy: boolean;
+  profileMutationPending: boolean;
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[];
+  latestResumeImportRun: ResumeImportRun | null;
   resumeImportProgress: ResumeImportProgressEvent | null;
   onApplyProfileCopilotPatchGroup: (patchGroupId: string) => void;
   onApplyProfileSetupReviewAction: (
@@ -91,6 +113,7 @@ export function ProfileSetupScreen(props: {
   ) => void;
   onContinueToProfile: () => void;
   onImportResume: () => void;
+  onCancelImportResume: () => void;
   onProfileSurfaceDirtyChange: (dirty: boolean) => void;
   /**
    * Reports each user-authored draft edit so the shell can retire an
@@ -108,18 +131,20 @@ export function ProfileSetupScreen(props: {
       finishSetup?: boolean;
       message?: string;
       openProfile?: boolean;
+      resolvedReviewItems?: readonly ProfileSetupResolvedReviewItem[];
       stayOnCurrentStep?: boolean;
     },
   ) => void;
   onSendProfileCopilotMessage: (
     content: string,
     context?: ProfileCopilotContext,
-  ) => void;
+  ) => void | Promise<boolean>;
   onUndoProfileRevision: (revisionId: string) => void;
   profile: CandidateProfile;
   profileCopilotMessages: readonly JobFinderWorkspaceSnapshot["profileCopilotMessages"][number][];
   profileRevisions: readonly JobFinderWorkspaceSnapshot["profileRevisions"][number][];
   profileSetupState: ProfileSetupState;
+  resumeApplicationMode?: ResumeApplicationMode;
   searchPreferences: JobSearchPreferences;
 }) {
   const {
@@ -129,12 +154,15 @@ export function ProfileSetupScreen(props: {
     isProfileSetupPending,
     isReviewItemPending,
     profileCopilotBusy,
+    profileMutationPending,
     latestResumeImportReviewCandidates,
+    latestResumeImportRun,
     resumeImportProgress,
     onApplyProfileCopilotPatchGroup,
     onApplyProfileSetupReviewAction,
     onContinueToProfile,
     onImportResume,
+    onCancelImportResume,
     onProfileSurfaceDirtyChange,
     onProfileSurfaceDraftEdited,
     profileCopilotPendingContextKey,
@@ -147,8 +175,19 @@ export function ProfileSetupScreen(props: {
     profileCopilotMessages,
     profileRevisions,
     profileSetupState,
+    resumeApplicationMode,
     searchPreferences,
   } = props;
+
+  const navigate = useNavigate();
+  const savedResumeApplicationMode =
+    resumeApplicationMode ?? defaultResumeApplicationMode;
+  const [selectedResumeApplicationMode, setSelectedResumeApplicationMode] =
+    useState<ResumeApplicationMode>(savedResumeApplicationMode);
+
+  useEffect(() => {
+    setSelectedResumeApplicationMode(savedResumeApplicationMode);
+  }, [savedResumeApplicationMode]);
 
   const {
     backgroundArrays,
@@ -175,10 +214,23 @@ export function ProfileSetupScreen(props: {
     searchPreferences,
   });
 
+  const hasUnsavedSetupChanges =
+    hasUnsavedChanges ||
+    selectedResumeApplicationMode !== savedResumeApplicationMode;
+
+  // The shell's dirty signal (import guard, leave confirmation) must follow
+  // actual user edits only. `hasUnsavedChanges` also becomes true when the
+  // editor is pre-filled from imported review candidates, which made the
+  // "save before importing" guard appear right after a fresh import with no
+  // edits at all.
+  const hasUserAuthoredSetupChanges =
+    hasUserDraftChanges ||
+    selectedResumeApplicationMode !== savedResumeApplicationMode;
+
   useEffect(() => {
-    onProfileSurfaceDirtyChange(hasUnsavedChanges);
+    onProfileSurfaceDirtyChange(hasUserAuthoredSetupChanges);
     return () => onProfileSurfaceDirtyChange(false);
-  }, [hasUnsavedChanges, onProfileSurfaceDirtyChange]);
+  }, [hasUserAuthoredSetupChanges, onProfileSurfaceDirtyChange]);
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -199,13 +251,13 @@ export function ProfileSetupScreen(props: {
     handleEditReviewItem,
     handleSaveCurrentStep,
     handleSaveStep,
-    openProfile,
   } = useProfileSetupScreenActions({
     draftAwareReviewItems,
-    hasUnsavedChanges,
+    hasUnsavedChanges: hasUnsavedSetupChanges,
     onContinueToProfile,
     onResumeSetup,
     onSaveSetupStep,
+    resumeApplicationMode: selectedResumeApplicationMode,
     preferencesFormValues: () => preferencesForm.getValues(),
     profile,
     profileFormValues: () => profileForm.getValues(),
@@ -217,12 +269,6 @@ export function ProfileSetupScreen(props: {
   const pendingCurrentStepReviewItems = currentStepReviewItems.filter(
     (item) => item.status === "pending",
   );
-  const blockingCurrentStepReviewItems = pendingCurrentStepReviewItems.filter(
-    isBlockingPendingReviewItem,
-  );
-  const optionalCurrentStepReviewItems = pendingCurrentStepReviewItems.filter(
-    isOptionalPendingReviewItem,
-  );
   const starterQuestion = buildCopilotStarterQuestion(
     pendingCurrentStepReviewItems,
   );
@@ -233,65 +279,119 @@ export function ProfileSetupScreen(props: {
     hasPendingReviewItems: pendingCurrentStepReviewItems.length > 0,
     isPristineSetup,
   });
-  const setupMutationPending = isProfileSetupPending || isImportResumePending;
-  const setupActionsDisabledReason = isImportResumePending
+  // A null progress event means the native file browser is still open (or a
+  // local pending lifecycle has gone stale). Keep editing/recovery available
+  // in that phase; once the importer reports a real pipeline stage, protect
+  // the draft from concurrent canonical writes.
+  const isResumeImportProcessing =
+    isImportResumePending && resumeImportProgress !== null;
+  const setupMutationPending =
+    isProfileSetupPending || isResumeImportProcessing;
+  const setupActionsDisabledReason = isResumeImportProcessing
     ? "Resume import is updating this workspace. Wait for it to finish before editing or reviewing profile details."
     : null;
+  const profileCopilotActionsBusy =
+    profileCopilotBusy || profileMutationPending;
+  const profileCopilotActionsDisabledReason =
+    setupActionsDisabledReason ??
+    (profileMutationPending
+      ? "A profile update is in progress. Wait for it to finish before changing Assistant proposals."
+      : hasUserDraftChanges
+        ? unsavedSetupCopilotActionsMessage
+        : null);
 
-  function resumeCurrentStep() {
-    goToStep(profileSetupState.currentStep);
-
-    window.requestAnimationFrame(() => {
-      const target = document.getElementById(
-        blockingCurrentStepReviewItems.length > 0
-          ? "profile-setup-review-queue"
-          : "profile-setup-step-editor",
-      );
-      target?.scrollIntoView?.({
-        behavior: getProfileSetupScrollBehavior(),
-        block: "start",
-      });
-      target?.focus({ preventScroll: true });
-    });
-  }
-
-  // Canonical readiness derivation: summary cards must agree with the ready
-  // check and derived setup state, so they read the shared evaluation.
-  const readinessCards = useMemo(
-    () =>
-      buildProfileSetupSummaryCards({
-        draftProfile,
-        draftSearchPreferences,
-        hasImportedResume,
-        profileSetupStateStatus: profileSetupState.status,
-      }),
-    [
-      draftProfile,
-      draftSearchPreferences,
-      hasImportedResume,
-      profileSetupState.status,
-    ],
-  );
-
-  // Setup path rows reuse the same canonical evaluation so a row can only
-  // read Complete when its own domain evidence actually exists.
+  // Canonical readiness derivation: every visible setup count reads this one
+  // presentation model, so the summary card and sticky footer cannot diverge
+  // when a canonical blocker and a pending review item coexist.
   const pathReadiness = useMemo(
     () => evaluateProfileSetupReadiness(draftProfile, draftSearchPreferences),
     [draftProfile, draftSearchPreferences],
   );
+  const readinessPresentation = useMemo(
+    () =>
+      buildProfileSetupReadinessPresentation({
+        readiness: pathReadiness,
+        reviewItems: draftAwareReviewItems,
+      }),
+    [draftAwareReviewItems, pathReadiness],
+  );
+  const canFinishSetup = readinessPresentation.remainingBlockerCount === 0;
+  // Named, not counted: the stepper chips already carry the per-step review
+  // counts, so the footer states what is missing in words.
+  const remainingBlockerLabels = useMemo(
+    () => [
+      ...readinessPresentation.blockers.map((blocker) =>
+        getProfileSetupReadinessBlockerLabel(blocker.id),
+      ),
+      ...(readinessPresentation.blockingPendingReviewItemCount > 0
+        ? ["the required details marked on the steps above"]
+        : []),
+    ],
+    [readinessPresentation],
+  );
 
   return (
     <LockedScreenLayout
-      contentClassName="pb-8 xl:pb-10"
+      bottomContent={
+        isPristineSetup ? null : (
+          <ProfileSetupStepFooter
+            canFinishSetup={canFinishSetup}
+            currentStep={profileSetupState.currentStep}
+            hasUnsavedChanges={hasUnsavedSetupChanges}
+            hasUserEdits={hasUserDraftChanges}
+            isProfileSetupPending={setupMutationPending}
+            onSaveAndFinish={() =>
+              handleSaveStep("targeting", { finishSetup: true })
+            }
+            onSaveAndGoToStep={(step) => handleSaveStep(step)}
+            onSaveCurrentStep={handleSaveCurrentStep}
+            remainingBlockerLabels={remainingBlockerLabels}
+            validationMessage={validationMessage}
+          />
+        )
+      }
+      contentClassName={getProfileSetupContentClassName(isPristineSetup)}
       lockTopContent={!isPristineSetup}
-      topClassName="grid gap-4 pb-4 pt-4"
+      scrollResetKey={profileSetupState.currentStep}
+      topClassName={getProfileSetupTopClassName(isPristineSetup)}
       topContent={
         <>
           <PageHeader
+            actions={
+              // First run opens guided setup directly, so setup owns the way
+              // back out of it.
+              <Button
+                onClick={() => {
+                  markGuidedSetupAutoOpenSpent();
+                  void navigate("/job-finder");
+                }}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                Back to Home
+              </Button>
+            }
             eyebrow="Profile setup"
             title="Guided setup"
-            description="Import a resume, fill important gaps, and keep your profile in sync."
+            description={
+              isPristineSetup
+                ? "Import a resume and we fill in your profile, then ask only about the gaps."
+                : "Work through each step; you can return to any step later."
+            }
           />
+
+          {isPristineSetup ? null : (
+            <ProfileSetupPathCard
+              currentStep={profileSetupState.currentStep}
+              disabled={setupMutationPending}
+              hasImportedResume={hasImportedResume}
+              onGoToStep={goToStep}
+              profileSetupState={profileSetupState}
+              readiness={pathReadiness}
+              reviewItems={draftAwareReviewItems}
+            />
+          )}
 
           {backgroundMergeNotice ? (
             <div
@@ -312,29 +412,29 @@ export function ProfileSetupScreen(props: {
             </div>
           ) : null}
 
-          <div
-            className={profileSetupLayoutClassNames.summary}
-            data-profile-setup-summary-layout={
-              isPristineSetup ? "pristine" : "overview"
-            }
-          >
-            <ProfileSetupSummaryCards
-              actionMessage={actionState.message}
-              importDisabledReason={importResumeGuardMessage}
-              isImportResumePending={isImportResumePending}
-              isProfileSetupPending={isProfileSetupPending}
-              resumeImportProgress={resumeImportProgress}
-              hasImportedResume={hasImportedResume}
-              onImportResume={onImportResume}
-              onOpenProfile={openProfile}
-              onResumeCurrentStep={resumeCurrentStep}
-              onStartManually={() => goToStep("essentials")}
-              profileSetupState={profileSetupState}
-              readinessCards={readinessCards}
-              reviewItemCount={blockingCurrentStepReviewItems.length}
-              optionalReviewItemCount={optionalCurrentStepReviewItems.length}
-            />
-          </div>
+          {isPristineSetup ? (
+            <div
+              className={profileSetupLayoutClassNames.summary}
+              data-profile-setup-summary-layout="pristine"
+            >
+              <ProfileSetupSummaryCards
+                actionMessage={actionState.message}
+                importDisabledReason={importResumeGuardMessage}
+                isImportResumePending={isImportResumePending}
+                isProfileSetupPending={isProfileSetupPending}
+                resumeImportProgress={resumeImportProgress}
+                hasImportedResume={hasImportedResume}
+                onImportResume={onImportResume}
+                onStartManually={() => {
+                  if (isImportResumePending && resumeImportProgress === null) {
+                    onCancelImportResume();
+                  }
+                  goToStep("essentials");
+                }}
+                profileSetupState={profileSetupState}
+              />
+            </div>
+          ) : null}
         </>
       }
     >
@@ -360,18 +460,15 @@ export function ProfileSetupScreen(props: {
               {formatProfileSetupStepLabel(profileSetupState.currentStep)} setup
               step
             </h2>
-            <ProfileSetupPathCard
-              currentStep={profileSetupState.currentStep}
-              disabled={setupMutationPending}
-              hasImportedResume={hasImportedResume}
-              onGoToStep={goToStep}
-              profileSetupState={profileSetupState}
-              readiness={pathReadiness}
-            />
-
+            {/* F31: the import used to freeze this whole editor for ~36s.
+                Only a real setup save disables the fields now. During an
+                import the user keeps typing into their own draft while the
+                footer's Save stays disabled and says why, so no canonical
+                write can race the import's revision-guarded finalization and
+                no typed work is thrown away. */}
             <fieldset
               className="m-0 min-w-0 border-0 p-0 disabled:opacity-80"
-              disabled={setupMutationPending}
+              disabled={isProfileSetupPending}
             >
               <ProfileSetupStepEditor
                 backgroundArrays={backgroundArrays}
@@ -382,28 +479,26 @@ export function ProfileSetupScreen(props: {
                 draftSearchPreferences={draftSearchPreferences}
                 focusedReviewItemId={focusedReviewItemId}
                 focusedReviewRequestKey={focusedReviewRequestKey}
-                hasUnsavedChanges={hasUnsavedChanges}
+                hasUnsavedChanges={hasUnsavedSetupChanges}
+                inlineFooter={false}
                 importDisabledReason={importResumeGuardMessage ?? null}
                 isImportResumePending={isImportResumePending}
                 isProfileSetupPending={setupMutationPending}
                 latestResumeImportReviewCandidates={
                   latestResumeImportReviewCandidates
                 }
+                latestResumeImportRun={latestResumeImportRun}
                 resumeImportProgress={resumeImportProgress}
                 onContinueToProfile={onContinueToProfile}
                 onImportResume={onImportResume}
                 onSaveCurrentStep={handleSaveCurrentStep}
-                onSaveAndFinish={() =>
-                  handleSaveStep("ready_check", {
-                    finishSetup: true,
-                    openProfile: true,
-                  })
-                }
                 onSaveAndGoToStep={(step) => handleSaveStep(step)}
+                onResumeApplicationModeChange={setSelectedResumeApplicationMode}
                 profile={profile}
                 profileForm={profileForm}
                 profileSetupReviewItems={draftAwareReviewItems}
                 preferencesForm={preferencesForm}
+                resumeApplicationMode={selectedResumeApplicationMode}
                 searchPreferences={searchPreferences}
                 validationMessage={validationMessage}
               />
@@ -426,21 +521,16 @@ export function ProfileSetupScreen(props: {
             />
 
             <ProfileCopilotRail
-              busy={profileCopilotBusy}
-              actionsDisabledReason={
-                setupActionsDisabledReason ??
-                (hasUserDraftChanges ? unsavedSetupCopilotActionsMessage : null)
-              }
+              busy={profileCopilotActionsBusy}
+              actionsDisabledReason={profileCopilotActionsDisabledReason}
               context={setupCopilotContext}
               emptyStateDescription="Ask why a field matters or request a specific change for this step. You review every proposal before anything is applied."
               emptyStateTitle="No requests yet"
-              messages={profileCopilotMessages.filter((message) => {
-                if (message.context.surface !== "setup") {
-                  return false;
-                }
-
-                return message.context.step === profileSetupState.currentStep;
-              })}
+              // Keep the setup conversation available across steps; message
+              // context chips identify which step each exchange belongs to.
+              messages={profileCopilotMessages.filter(
+                (message) => message.context.surface === "setup",
+              )}
               onApplyPatchGroup={onApplyProfileCopilotPatchGroup}
               onRejectPatchGroup={onRejectProfileCopilotPatchGroup}
               onSendMessage={onSendProfileCopilotMessage}
@@ -455,7 +545,8 @@ export function ProfileSetupScreen(props: {
                 (hasUserDraftChanges ? unsavedSetupCopilotMessage : null)
               }
               starterQuestion={starterQuestion}
-              title="Profile Copilot"
+              showProactivePrompt={false}
+              title="the Assistant"
               minBottomOffset={COPILOT_BOTTOM_OFFSET}
             />
           </div>

@@ -290,7 +290,7 @@ describe("workspace service high-volume safeguards", () => {
     expect(overview.counts.activeSignals).toBe(1);
   });
 
-  test("abnormal failure pauses: below the threshold does not block, at the threshold blocks discovery and preparation", async () => {
+  test("abnormal failure pauses: below the threshold does not block, at the threshold blocks preparation but not discovery", async () => {
     const harness = createWorkspaceServiceHarness({
       seed: seedWithCompanies(),
     });
@@ -327,9 +327,9 @@ describe("workspace service high-volume safeguards", () => {
     await expect(
       workspaceService.startAutoApplyRun("job_ready"),
     ).rejects.toThrow(/Safeguards are blocking this step/);
-    expect(
-      await workspaceService.evaluateDiscoverySafeguardBlockers(),
-    ).toHaveLength(1);
+    expect(await workspaceService.evaluateDiscoverySafeguardBlockers()).toEqual(
+      [],
+    );
 
     // Re-applying evidence that drops the rate clears the pause (recovery).
     await recordEvidence([true, false, false, false, false]);

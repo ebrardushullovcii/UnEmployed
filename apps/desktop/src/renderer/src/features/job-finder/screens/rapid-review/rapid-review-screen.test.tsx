@@ -147,7 +147,8 @@ function decisionEntry(input: {
 }
 
 describe("RapidReviewScreen undo binding", () => {
-  it("binds U to the newest logged decision instead of the active row", () => {    const jobs = [
+  it("binds U to the newest logged decision instead of the active row", () => {
+    const jobs = [
       createJob({ id: "job_a", sourceJobId: "source_a" }),
       createJob({ id: "job_b", sourceJobId: "source_b" }),
     ];

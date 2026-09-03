@@ -16,6 +16,7 @@ import {
   JobSearchPreferencesSchema,
   type JobSearchPreferences,
 } from "@unemployed/contracts";
+import { LockedScreenLayout } from "../../locked-screen-layout";
 import {
   buildSearchPreferencesPayload,
   createProfileEditorValues,
@@ -187,6 +188,7 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
   afterEach(() => {
     document.body.innerHTML = "";
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("presents seeded starter sources on a true fresh workspace and enables one explicitly", () => {
@@ -206,6 +208,24 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
         "All 3 saved sources are turned off. Enable at least one source below so Job Finder has somewhere to search.",
       ),
     ).toBeTruthy();
+    const jumpCta = screen.getByRole("button", {
+      name: "Show job sources to enable",
+    });
+    expect(jumpCta).toBeTruthy();
+    expect(screen.getByText(/Saved job sources are still off/i)).toBeTruthy();
+    const heading = document.getElementById(
+      "profile-setup-job-sources-heading",
+    );
+    expect(heading).toBeTruthy();
+    const scrollSpy = vi.fn();
+    if (heading) {
+      heading.scrollIntoView = scrollSpy;
+    }
+    fireEvent.click(jumpCta);
+    expect(scrollSpy).toHaveBeenCalledWith({
+      behavior: "auto",
+      block: "start",
+    });
 
     const kosovaRowCandidate = screen.getByText("KosovaJob").closest("article");
     expect(kosovaRowCandidate).toBeTruthy();
@@ -218,28 +238,101 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
         "Public regional job board that is usually readable without an account.",
       ),
     ).toBeTruthy();
-    expect(within(kosovaRow).getByText("Disabled")).toBeTruthy();
+    expect(within(kosovaRow).queryByText("Disabled")).toBeNull();
+    expect(
+      within(kosovaRow)
+        .getByRole("checkbox", { name: /^Include / })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
     expect(screen.getByText(/usually requires signing in/i)).toBeTruthy();
     expect(getDiscoveryReady()).toBe(false);
 
+    expect(
+      within(kosovaRow)
+        .getByRole("checkbox", {
+          name: "Include KosovaJob in searches",
+        })
+        .getAttribute("data-profile-setup-source-enable"),
+    ).toBeTruthy();
+
     fireEvent.click(
-      within(kosovaRow).getByRole("button", {
-        name: "Enable KosovaJob in searches",
+      within(kosovaRow).getByRole("checkbox", {
+        name: "Include KosovaJob in searches",
       }),
     );
 
-    expect(within(kosovaRow).getByText("Enabled")).toBeTruthy();
+    // The checkbox is the state; no badge repeats it.
+    expect(within(kosovaRow).queryByText("Enabled")).toBeNull();
+    expect(
+      within(kosovaRow)
+        .getByRole("checkbox", { name: /^Include / })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
     expect(screen.getByText("1 of 3 sources enabled for search")).toBeTruthy();
+    expect(screen.queryByText(/Enable at least one source below/)).toBeNull();
     expect(
-      screen.queryByText(/Enable at least one source below/),
+      screen.queryByRole("button", { name: "Show job sources to enable" }),
     ).toBeNull();
-    expect(
-      screen.getByText("Wellfound").closest("article")?.textContent,
-    ).toContain("Disabled");
-    expect(
-      screen.getByText("LinkedIn Jobs").closest("article")?.textContent,
-    ).toContain("Disabled");
+    for (const label of ["Wellfound", "LinkedIn Jobs"]) {
+      const row = screen.getByText(label).closest("article") as HTMLElement;
+      expect(row.textContent).not.toContain("Disabled");
+      expect(
+        within(row)
+          .getByRole("checkbox", { name: /^Include / })
+          .getAttribute("aria-checked"),
+      ).toBe("false");
+    }
     expect(getDiscoveryReady()).toBe(true);
+  });
+
+  it("enables a starter source under sticky footer chrome without crashing", () => {
+    class ResizeObserverMock {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    Element.prototype.scrollIntoView = vi.fn();
+
+    render(
+      <LockedScreenLayout
+        bottomContent={<button type="button">Save and continue</button>}
+        topContent={<div>Guided setup</div>}
+      >
+        <SetupCatalogHarness
+          baselinePreferences={freshSeedPreferences}
+          targets={freshSeedEditorTargets}
+        />
+      </LockedScreenLayout>,
+    );
+
+    const jumpCta = screen.getByRole("button", {
+      name: "Show job sources to enable",
+    });
+    fireEvent.click(jumpCta);
+
+    const wellfoundRow = assertIsHTMLElement(
+      screen.getByText("Wellfound").closest("article"),
+      "Expected Wellfound row to be an HTMLElement",
+    );
+    fireEvent.click(
+      within(wellfoundRow).getByRole("checkbox", {
+        name: "Include Wellfound in searches",
+      }),
+    );
+
+    expect(
+      within(wellfoundRow)
+        .getByRole("checkbox", { name: /^Include / })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      screen.queryByRole("button", { name: "Show job sources to enable" }),
+    ).toBeNull();
+    expect(getDiscoveryReady()).toBe(true);
+    expect(
+      document.querySelector("[data-locked-screen-bottom-content]"),
+    ).toBeTruthy();
   });
 
   it("scrolls the source list with responsive header margins before claiming focus on page change", () => {
@@ -315,20 +408,31 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
       mercuryRowCandidate,
       "Expected Mercury Greenhouse board row to be an HTMLElement",
     );
-    expect(within(mercuryRow).getByText("Disabled")).toBeTruthy();
+    expect(
+      within(mercuryRow)
+        .getByRole("checkbox", { name: /^Include / })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
 
     fireEvent.click(
-      within(mercuryRow).getByRole("button", {
-        name: "Enable Mercury Greenhouse board in searches",
+      within(mercuryRow).getByRole("checkbox", {
+        name: "Include Mercury Greenhouse board in searches",
       }),
     );
 
-    expect(within(mercuryRow).getByText("Enabled")).toBeTruthy();
     expect(
-      within(mercuryRow).getByRole("button", {
-        name: "Disable Mercury Greenhouse board in searches",
-      }),
-    ).toBeTruthy();
+      within(mercuryRow)
+        .getByRole("checkbox", { name: /^Include / })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    // The same control now reports the state instead of flipping its label.
+    expect(
+      within(mercuryRow)
+        .getByRole("checkbox", {
+          name: "Include Mercury Greenhouse board in searches",
+        })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
     expect(screen.getByText("1 of 40 sources enabled for search")).toBeTruthy();
     expect(getDiscoveryReady()).toBe(true);
     expect(container.textContent).not.toContain("Board 010 Enabled");
@@ -358,7 +462,12 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
     for (const card of Array.from(
       container.querySelectorAll("[data-profile-setup-source-card]"),
     )) {
-      expect(card.textContent).toContain("Disabled");
+      expect(card.textContent).not.toContain("Disabled");
+      expect(
+        card
+          .querySelector("[data-profile-setup-source-enable]")
+          ?.getAttribute("aria-checked"),
+      ).toBe("false");
     }
 
     fireEvent.click(screen.getByRole("button", { name: "Edit Board 026" }));
@@ -412,22 +521,32 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
 
     fireEvent.click(addButton);
 
-    const acmeRowCandidate = screen.getByText("Acme careers").closest("article");
+    const acmeRowCandidate = screen
+      .getByText("Acme careers")
+      .closest("article");
     expect(acmeRowCandidate).toBeTruthy();
     const acmeRow = assertIsHTMLElement(
       acmeRowCandidate,
       "Expected Acme careers row to be an HTMLElement",
     );
-    expect(within(acmeRow).getByText("Disabled")).toBeTruthy();
+    expect(
+      within(acmeRow)
+        .getByRole("checkbox", { name: /^Include / })
+        .getAttribute("aria-checked"),
+    ).toBe("false");
     expect(getDiscoveryReady()).toBe(false);
 
     fireEvent.click(
-      within(acmeRow).getByRole("button", {
-        name: "Enable Acme careers in searches",
+      within(acmeRow).getByRole("checkbox", {
+        name: "Include Acme careers in searches",
       }),
     );
 
-    expect(within(acmeRow).getByText("Enabled")).toBeTruthy();
+    expect(
+      within(acmeRow)
+        .getByRole("checkbox", { name: /^Include / })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
     expect(getDiscoveryReady()).toBe(true);
   });
 
@@ -458,15 +577,17 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
 
     expect(
       screen
-        .getByRole("button", {
-          name: "Enable Unsupported board in searches",
+        .getByRole("checkbox", {
+          name: "Include Unsupported board in searches",
         })
         .hasAttribute("disabled"),
     ).toBe(false);
 
     expect(
       screen
-        .getByRole("button", { name: "Enable Broken board in searches" })
+        .getByRole("checkbox", {
+          name: "Include Broken board in searches",
+        })
         .hasAttribute("disabled"),
     ).toBe(true);
     expect(

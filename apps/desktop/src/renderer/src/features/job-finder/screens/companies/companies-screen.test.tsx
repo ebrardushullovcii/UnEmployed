@@ -77,7 +77,56 @@ describe("CompaniesScreen", () => {
   it("renders an empty state when no companies are reconciled yet", () => {
     renderScreen({ companies: [] });
 
-    expect(screen.getByText("No companies yet")).toBeTruthy();
+    expect(screen.getByText("No companies reconciled yet")).toBeTruthy();
+    expect(
+      screen.getByText(
+        /local projection of saved jobs and application records.*Refresh from jobs and applications/i,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("hides legacy absence-placeholder company shells from the list", () => {
+    renderScreen({
+      companies: [
+        makeCompany({
+          id: "placeholder",
+          canonicalName: "Employer not stated",
+          jobIds: ["job_1"],
+        }),
+        makeCompany({
+          id: "real",
+          canonicalName: "Acme Inc",
+          jobIds: ["job_2"],
+        }),
+      ],
+    });
+
+    expect(screen.queryByText("Employer not stated")).toBeNull();
+    expect(screen.getByText("Acme Inc")).toBeTruthy();
+    expect(screen.queryByTestId("company-card-placeholder")).toBeNull();
+    expect(screen.getByTestId("company-card-real")).toBeTruthy();
+  });
+
+  it("hides Albanian privacy-policy utility chrome company shells from the list", () => {
+    renderScreen({
+      companies: [
+        makeCompany({
+          id: "privacy",
+          canonicalName: "Politikë e Privatësisë",
+          jobIds: ["job_privacy"],
+        }),
+        makeCompany({
+          id: "real",
+          canonicalName: "Acme Inc",
+          jobIds: ["job_2"],
+        }),
+      ],
+    });
+
+    expect(screen.queryByText("Politikë e Privatësisë")).toBeNull();
+    expect(screen.getByText("Acme Inc")).toBeTruthy();
+    expect(screen.queryByTestId("company-card-privacy")).toBeNull();
+    expect(screen.getByTestId("company-card-real")).toBeTruthy();
   });
 
   it("makes refresh the primary inline action while no companies are reconciled", async () => {

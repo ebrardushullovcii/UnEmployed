@@ -39,6 +39,10 @@ const jobFinderSourceHealthPath = path.resolve(
   currentDir,
   "../../packages/job-finder/src/source-health.ts",
 );
+const jobFinderApplicationSubmissionRuntimeMainPath = path.resolve(
+  currentDir,
+  "../../packages/job-finder/src/application-submission-runtime-main.ts",
+);
 const jobFinderPath = path.resolve(
   currentDir,
   "../../packages/job-finder/src/index.ts",
@@ -69,10 +73,16 @@ const workspaceAliases = {
   "@unemployed/os-integration": osIntegrationPath,
 };
 
+const mainWorkspaceAliases = {
+  ...workspaceAliases,
+  "@unemployed/job-finder/application-submission-runtime-main":
+    jobFinderApplicationSubmissionRuntimeMainPath,
+};
+
 export default defineConfig({
   main: {
     resolve: {
-      alias: workspaceAliases,
+      alias: mainWorkspaceAliases,
     },
     build: {
       rollupOptions: {

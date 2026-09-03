@@ -1,13 +1,20 @@
 import { describe, expect, test } from "vitest";
 
 import { createResumeImportFixtureBundle } from "@unemployed/ai-providers";
+import {
+  PROFILE_SETUP_PLACEHOLDER_HEADLINE,
+  PROFILE_SETUP_PLACEHOLDER_SUMMARY,
+} from "@unemployed/contracts";
 
 import {
   aggregateBenchmarkMetrics,
   buildCaseResult,
   runResumeImportBenchmark,
 } from "./resume-import-benchmark";
-import { createSeed } from "./workspace-service.test-fixtures";
+import {
+  createFreshStartSeedProfile,
+  createSeed,
+} from "./workspace-service.test-fixtures";
 
 describe("resume import benchmark", () => {
   test("aggregates benchmark metrics across cases", () => {
@@ -79,7 +86,8 @@ describe("resume import benchmark", () => {
           {
             id: "txt_canary",
             label: "TXT canary",
-            resumePath: "apps/desktop/test-fixtures/job-finder/resume-import-sample.txt",
+            resumePath:
+              "apps/desktop/test-fixtures/job-finder/resume-import-sample.txt",
             canary: true,
             tags: ["txt"],
             expected: {
@@ -278,14 +286,10 @@ describe("resume import benchmark", () => {
 
         return Promise.resolve({
           profile: {
-            ...seed.profile,
-            fullName: "New Candidate",
-            firstName: "New",
-            lastName: "Candidate",
-            headline: "Import your resume to begin",
-            currentLocation: "Set your preferred location",
-            email: null,
-            phone: null,
+            ...createFreshStartSeedProfile(),
+            // Legacy first-run strings the import is expected to replace.
+            headline: PROFILE_SETUP_PLACEHOLDER_HEADLINE,
+            summary: PROFILE_SETUP_PLACEHOLDER_SUMMARY,
             baseResume: {
               ...seed.profile.baseResume,
               id: `resume_${benchmarkCase.id}`,
@@ -314,7 +318,9 @@ describe("resume import benchmark", () => {
     expect(report.aggregate.literalFieldRecall).toBeGreaterThan(0.75);
     expect(report.aggregate.autoApplyPrecision).toBe(1);
     expect(report.parserManifestVersion).toBe("019-plain-text-fixture-v1");
-    expect(report.parserManifestVersions).toEqual(["019-plain-text-fixture-v1"]);
+    expect(report.parserManifestVersions).toEqual([
+      "019-plain-text-fixture-v1",
+    ]);
   });
 
   test("reports mixed parser manifest versions instead of dropping the summary to null", async () => {
@@ -357,7 +363,8 @@ describe("resume import benchmark", () => {
       createHarness(benchmarkCase) {
         const bundle = createResumeImportFixtureBundle({
           id: benchmarkCase.id,
-          parserManifestVersion: benchmarkCase.id === "case_a" ? "parser-a" : "parser-b",
+          parserManifestVersion:
+            benchmarkCase.id === "case_a" ? "parser-a" : "parser-b",
           pageTexts: [["Jamie Rivers"].join("\n")],
           blocks: [
             {
@@ -772,7 +779,8 @@ describe("resume import benchmark", () => {
             id: "experience_1",
             companyName: "AUTOMATEDPROS",
             companyUrl: null,
-            title: "Senior Full-Stack Software Engineer / Chief Experience Officer",
+            title:
+              "Senior Full-Stack Software Engineer / Chief Experience Officer",
             employmentType: null,
             location: null,
             workMode: [],

@@ -14,6 +14,10 @@ import {
 } from "./discovery-filters-panel";
 import { DiscoverySearchSections } from "./discovery-filters-panel-sections";
 import { DiscoveryResultsPanel } from "./discovery-results-panel";
+import {
+  DISCOVERY_OFFLINE_CATALOG_NOTICE,
+  DISCOVERY_OFFLINE_SETUP_NOTICE,
+} from "./discovery-search-readiness";
 
 describe("DiscoveryFiltersPanel", () => {
   afterEach(() => {
@@ -49,7 +53,119 @@ describe("DiscoveryFiltersPanel", () => {
       discovery: { historyLimit: 5, targets: [] },
     };
 
-    const { container, getAllByRole, getByRole, queryByText } = render(
+    const { container, getAllByRole, getByRole, queryByRole, queryByText } =
+      render(
+        <MemoryRouter>
+          <DiscoveryFiltersPanel
+            activeRun={null}
+            browserSession={{
+              source: "target_site",
+              status: "unknown",
+              driver: "catalog_seed",
+              label: "Browser optional",
+              detail: "The browser is only needed for sign-in.",
+              lastCheckedAt: "2026-03-20T10:00:00.000Z",
+            }}
+            discoverySessions={[]}
+            isBrowserSessionPending={false}
+            isBrowserSessionPendingForTarget={() => false}
+            isDiscoveryAllPending={false}
+            isTargetPending={() => false}
+            onOpenBrowserSession={vi.fn()}
+            onOpenBrowserSessionForTarget={vi.fn()}
+            onRunAgentDiscovery={vi.fn()}
+            onViewProgress={vi.fn()}
+            searchPreferences={searchPreferences}
+            sourceAccessPrompts={[]}
+          />
+        </MemoryRouter>,
+      );
+
+    const scrollRegion = getByRole("region", {
+      name: "Current search details",
+    });
+    expect(
+      scrollRegion.getAttribute("data-locked-pane-scroll-region"),
+    ).not.toBeNull();
+    expect(scrollRegion.getAttribute("tabindex")).toBe("0");
+    expect(scrollRegion.className).toContain("overflow-y-auto");
+    expect(scrollRegion.className).toContain("overscroll-contain");
+
+    // Action hierarchy in Search setup: when no sources are enabled, Add
+    // sources is the primary command, Search jobs stays disabled/secondary,
+    // the offline catalog has no browser action, and Search history stays a
+    // quiet secondary control rather than a lone underlined link.
+    const searchButtons = getAllByRole("button", { name: "Search jobs" });
+    expect(searchButtons).toHaveLength(1);
+    expect(searchButtons[0]?.getAttribute("data-variant")).toBe("secondary");
+    const addSourceLinks = getAllByRole("link", { name: "Add sources" });
+    expect(
+      addSourceLinks.some(
+        (link) => link.getAttribute("data-variant") === "primary",
+      ),
+    ).toBe(true);
+    expect(queryByRole("button", { name: "Open browser" })).toBeNull();
+    expect(queryByText("Offline catalog")).not.toBeNull();
+    const historyButton = getByRole("button", { name: "Search history" });
+    expect(historyButton.getAttribute("data-variant")).toBe("outline");
+    expect(historyButton.className).not.toContain("col-span-2");
+
+    // The decorative Browser/Search scope pill is gone; the status badge
+    // carries a non-color glyph instead.
+    expect(queryByText("Search")).toBeNull();
+    expect(
+      container.querySelector("[data-slot='badge'] svg[aria-hidden='true']"),
+    ).not.toBeNull();
+    expect(queryByText(/^Other active criteria/)).toBeNull();
+  });
+
+  it("describes complete filters as review-only when the runtime is catalog-only", () => {
+    const searchPreferences: JobSearchPreferences = {
+      targetRoles: ["Software Engineer"],
+      jobFamilies: [],
+      locations: ["Remote"],
+      excludedLocations: [],
+      workModes: ["remote"],
+      seniorityLevels: [],
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: [],
+      minimumSalaryUsd: null,
+      targetSalaryUsd: null,
+      salaryCurrency: "USD",
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "inherited",
+      },
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      companyBlacklist: [],
+      companyWhitelist: [],
+      discovery: {
+        historyLimit: 5,
+        targets: [
+          {
+            id: "catalog-source",
+            label: "Catalog source",
+            startingUrl: "https://example.com/jobs",
+            enabled: true,
+            adapterKind: "auto",
+            customInstructions: null,
+            instructionStatus: "draft",
+            validatedInstructionId: null,
+            draftInstructionId: null,
+            lastDebugRunId: null,
+            lastVerifiedAt: null,
+            staleReason: null,
+          },
+        ],
+      },
+    };
+
+    const { getByRole, getByText, queryByText } = render(
       <MemoryRouter>
         <DiscoveryFiltersPanel
           activeRun={null}
@@ -57,7 +173,7 @@ describe("DiscoveryFiltersPanel", () => {
             source: "target_site",
             status: "unknown",
             driver: "catalog_seed",
-            label: "Browser optional",
+            label: "Offline catalog",
             detail: "The browser is only needed for sign-in.",
             lastCheckedAt: "2026-03-20T10:00:00.000Z",
           }}
@@ -76,34 +192,11 @@ describe("DiscoveryFiltersPanel", () => {
       </MemoryRouter>,
     );
 
-    const scrollRegion = getByRole("region", {
-      name: "Current search details",
-    });
+    expect(getByText(DISCOVERY_OFFLINE_SETUP_NOTICE)).toBeTruthy();
     expect(
-      scrollRegion.getAttribute("data-locked-pane-scroll-region"),
-    ).not.toBeNull();
-    expect(scrollRegion.getAttribute("tabindex")).toBe("0");
-    expect(scrollRegion.className).toContain("overflow-y-auto");
-    expect(scrollRegion.className).toContain("overscroll-contain");
-
-    // Action hierarchy in Search setup: exactly one primary command, a
-    // visibly bounded secondary browser action, and Search history styled as
-    // navigation (link register) rather than a third command.
-    const searchButtons = getAllByRole("button", { name: "Search jobs" });
-    expect(searchButtons).toHaveLength(1);
-    expect(searchButtons[0]?.getAttribute("data-variant")).toBe("primary");
-    const browserButton = getByRole("button", { name: "Open browser" });
-    expect(browserButton.getAttribute("data-variant")).toBe("secondary");
-    const historyButton = getByRole("button", { name: "Search history" });
-    expect(historyButton.getAttribute("data-variant")).toBe("link");
-
-    // The decorative Browser/Search scope pill is gone; the status badge
-    // carries a non-color glyph instead.
-    expect(queryByText("Search")).toBeNull();
-    expect(
-      container.querySelector("[data-slot='badge'] svg[aria-hidden='true']"),
-    ).not.toBeNull();
-    expect(queryByText(/^Other active criteria/)).toBeNull();
+      getByRole("button", { name: "Search jobs" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(queryByText(/Search setup is ready/iu)).toBeNull();
   });
 
   it("discloses configured omitted preferences and hard exclusions in a collapsed native control", () => {
@@ -293,7 +386,7 @@ describe("DiscoveryFiltersPanel", () => {
       discovery: { historyLimit: 5, targets: [] },
     };
 
-    const { getByRole } = render(
+    const { getByRole, getAllByRole } = render(
       <MemoryRouter>
         <DiscoveryFiltersPanel
           activeRun={null}
@@ -325,13 +418,34 @@ describe("DiscoveryFiltersPanel", () => {
         getByRole("link", { name: "Add roles" }) as HTMLAnchorElement
       ).getAttribute("href"),
     ).toBe("/job-finder/profile?section=preferences&focus=target-roles");
-    expect(getByRole("link", { name: "Add locations" })).toBeTruthy();
-    expect(getByRole("link", { name: "Set work modes" })).toBeTruthy();
+    expect(
+      getByRole("link", { name: "Add roles" }).getAttribute("data-variant"),
+    ).toBe("primary");
+    expect(
+      getByRole("link", { name: "Add locations" }).getAttribute("data-variant"),
+    ).toBe("primary");
+    expect(
+      getByRole("link", { name: "Set work modes" }).getAttribute(
+        "data-variant",
+      ),
+    ).toBe("primary");
     expect(
       (
-        getByRole("link", { name: "Add sources" }) as HTMLAnchorElement
+        getByRole("link", { name: "Set work modes" }) as HTMLAnchorElement
       ).getAttribute("href"),
-    ).toBe("/job-finder/profile?section=sources&focus=job-sources");
+    ).toBe("/job-finder/profile?section=preferences&focus=work-modes");
+    expect(getByRole("link", { name: "Add locations" })).toBeTruthy();
+    expect(getByRole("link", { name: "Set work modes" })).toBeTruthy();
+    const addSourceLinks = getAllByRole("link", { name: "Add sources" }).map(
+      (link) => (link as HTMLAnchorElement).getAttribute("href"),
+    );
+    expect(addSourceLinks.length).toBeGreaterThan(0);
+    expect(
+      addSourceLinks.every(
+        (href) =>
+          href === "/job-finder/profile?section=sources&focus=job-sources",
+      ),
+    ).toBe(true);
 
     // Sources saved but all disabled must not read as "no sources added yet".
     cleanup();
@@ -358,41 +472,45 @@ describe("DiscoveryFiltersPanel", () => {
       },
     };
 
-    const { getByText: getDisabledText, getByRole: getDisabledRole } = render(
-      <MemoryRouter>
-        <DiscoveryFiltersPanel
-          activeRun={null}
-          browserSession={{
-            source: "target_site",
-            status: "unknown",
-            driver: "catalog_seed",
-            label: "Browser optional",
-            detail: "The browser is only needed for sign-in.",
-            lastCheckedAt: "2026-03-20T10:00:00.000Z",
-          }}
-          discoverySessions={[]}
-          isBrowserSessionPending={false}
-          isBrowserSessionPendingForTarget={() => false}
-          isDiscoveryAllPending={false}
-          isTargetPending={() => false}
-          onOpenBrowserSession={vi.fn()}
-          onOpenBrowserSessionForTarget={vi.fn()}
-          onRunAgentDiscovery={vi.fn()}
-          onViewProgress={vi.fn()}
-          searchPreferences={disabledOnlyPreferences}
-          sourceAccessPrompts={[]}
-        />
-      </MemoryRouter>,
-    );
+    const { getByText: getDisabledText, getAllByRole: getDisabledAllByRole } =
+      render(
+        <MemoryRouter>
+          <DiscoveryFiltersPanel
+            activeRun={null}
+            browserSession={{
+              source: "target_site",
+              status: "unknown",
+              driver: "catalog_seed",
+              label: "Browser optional",
+              detail: "The browser is only needed for sign-in.",
+              lastCheckedAt: "2026-03-20T10:00:00.000Z",
+            }}
+            discoverySessions={[]}
+            isBrowserSessionPending={false}
+            isBrowserSessionPendingForTarget={() => false}
+            isDiscoveryAllPending={false}
+            isTargetPending={() => false}
+            onOpenBrowserSession={vi.fn()}
+            onOpenBrowserSessionForTarget={vi.fn()}
+            onRunAgentDiscovery={vi.fn()}
+            onViewProgress={vi.fn()}
+            searchPreferences={disabledOnlyPreferences}
+            sourceAccessPrompts={[]}
+          />
+        </MemoryRouter>,
+      );
 
     expect(getDisabledText("1 source saved, none enabled yet.")).toBeTruthy();
+    const enableSourceLinks = getDisabledAllByRole("link", {
+      name: "Enable sources",
+    }).map((link) => (link as HTMLAnchorElement).getAttribute("href"));
+    expect(enableSourceLinks.length).toBeGreaterThan(0);
     expect(
-      (
-        getDisabledRole("link", {
-          name: "Enable sources",
-        }) as HTMLAnchorElement
-      ).getAttribute("href"),
-    ).toBe("/job-finder/profile?section=sources&focus=job-sources");
+      enableSourceLinks.every(
+        (href) =>
+          href === "/job-finder/profile?section=sources&focus=job-sources",
+      ),
+    ).toBe(true);
   });
 
   it("shows a source-aware sign-in prompt near the search controls", () => {
@@ -454,7 +572,7 @@ describe("DiscoveryFiltersPanel", () => {
       updatedAt: "2026-03-20T10:01:00.000Z",
     };
 
-    const { container, getByRole } = render(
+    const { container } = render(
       <MemoryRouter>
         <DiscoveryFiltersPanel
           activeRun={null}
@@ -502,7 +620,14 @@ describe("DiscoveryFiltersPanel", () => {
       ),
     ).toHaveLength(1);
 
-    const signInButton = within(getByRole("status")).getByRole("button", {
+    const signInPrompt = container.querySelector<HTMLElement>(
+      '[role="status"][aria-live="polite"]',
+    );
+    if (!signInPrompt) {
+      throw new Error("Expected the source sign-in prompt status region.");
+    }
+
+    const signInButton = within(signInPrompt).getByRole("button", {
       name: /sign in to linkedin/i,
     });
 
@@ -513,7 +638,7 @@ describe("DiscoveryFiltersPanel", () => {
     );
 
     fireEvent.click(
-      within(getByRole("status")).getByRole("button", {
+      within(signInPrompt).getByRole("button", {
         name: /i'm signed in — retry linkedin/i,
       }),
     );
@@ -524,6 +649,15 @@ describe("DiscoveryFiltersPanel", () => {
     expect(container.textContent).toContain(
       "Job Finder waits here and never handles your credentials.",
     );
+
+    // Run one source offers a real secondary button beside the source name,
+    // not label-shaped text inside a full-width row.
+    const runOneSource = within(container).getByRole("button", {
+      name: "Run discovery for LinkedIn",
+    });
+    expect(runOneSource.textContent).toBe("Search only this source");
+    expect(runOneSource.getAttribute("data-variant")).toBe("secondary");
+    expect(runOneSource.className).toContain("shrink-0");
   });
 
   it("ignores disabled-target prompts for the primary sign-in CTA", () => {
@@ -763,10 +897,13 @@ describe("DiscoveryFiltersPanel", () => {
     ).toBeTruthy();
     expect(
       queryByText(
-        "Open the browser only when a source needs sign-in or a warm browser session.",
+        "Open the browser Job Finder uses for searches. Useful if a job site needs you to sign in.",
       ),
     ).toBeNull();
-    expect(getByText("Not open")).toBeTruthy();
+    // The chip states what is not open; the heading above it says which
+    // thing this block is about.
+    expect(getByText("Browser not open")).toBeTruthy();
+    expect(getByText("Search browser")).toBeTruthy();
     expect(queryByRole("button", { name: "Sign in to GreenHouse" })).toBeNull();
 
     fireEvent.click(getByRole("button", { name: "Open browser" }));
@@ -1097,7 +1234,7 @@ describe("DiscoveryFiltersPanel", () => {
     ).toBe("job_progressive");
   });
 
-  it("does not treat the neutral optional-browser snapshot as browser startup", () => {
+  it("does not treat the catalog runtime as browser startup or a live-search-ready state", () => {
     const { getByText, queryByText } = render(
       <MemoryRouter>
         <DiscoveryResultsPanel
@@ -1116,9 +1253,71 @@ describe("DiscoveryFiltersPanel", () => {
       </MemoryRouter>,
     );
 
-    expect(getByText("Ready for your first search")).toBeTruthy();
+    expect(getByText("Live source search unavailable")).toBeTruthy();
+    expect(getByText(DISCOVERY_OFFLINE_SETUP_NOTICE)).toBeTruthy();
     expect(queryByText("Browser is starting")).toBeNull();
     expect(queryByText("No matches from this search")).toBeNull();
+    expect(queryByText("Ready for your first search")).toBeNull();
+  });
+
+  it("marks catalog jobs as review-only without inventing source, activity, or fit evidence", () => {
+    const catalogJob = {
+      id: "catalog-job",
+      title: "Catalog role",
+      company: "Example Company",
+      location: "Remote",
+      canonicalUrl: "https://example.com/jobs/catalog-role",
+      workMode: ["remote"],
+      status: "discovered",
+      applyPath: "external_redirect",
+      salaryText: null,
+      postedAt: null,
+      postedAtText: null,
+      providerUpdatedAt: null,
+      provenance: [],
+      matchAssessment: {
+        score: 92,
+        recommendation: "strong_fit",
+        reasons: ["Role evidence"],
+        gaps: [],
+      },
+    } as unknown as SavedJob;
+
+    const { getAllByRole, getAllByText, getByText, queryByText } = render(
+      <MemoryRouter>
+        <DiscoveryResultsPanel
+          browserSession={{
+            source: "target_site",
+            status: "unknown",
+            driver: "catalog_seed",
+            label: "Offline catalog",
+            detail: "The browser is only needed for sign-in.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          jobs={[catalogJob]}
+          onSelectJob={vi.fn()}
+          selectedJob={catalogJob}
+        />
+      </MemoryRouter>,
+    );
+
+    const offlineCatalogStatus = getAllByRole("status").find((status) =>
+      status.textContent?.includes(DISCOVERY_OFFLINE_CATALOG_NOTICE),
+    );
+
+    expect(offlineCatalogStatus).toBeTruthy();
+    expect(offlineCatalogStatus?.id).toBe("discovery-offline-catalog-notice");
+    expect(offlineCatalogStatus?.textContent).toContain(
+      "Offline catalog · review-only.",
+    );
+    expect(offlineCatalogStatus?.textContent).toContain(
+      "Enable a live source in Profile to search current openings.",
+    );
+    expect(offlineCatalogStatus?.parentElement?.className).toContain("py-4");
+    expect(getAllByText("Source unavailable").length).toBeGreaterThan(0);
+    expect(getAllByText("Unknown").length).toBeGreaterThan(0);
+    expect(getByText("Provisional assessment")).toBeTruthy();
+    expect(queryByText("92% fit")).toBeNull();
   });
 
   it("shows live search progress instead of an empty result verdict", () => {

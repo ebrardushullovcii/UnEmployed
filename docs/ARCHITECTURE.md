@@ -21,7 +21,7 @@
 - cross-package contracts live in `packages/contracts`
 - package public APIs are the only supported import surface
 - `browser-runtime` stays generic; site or workflow policy belongs higher
-- `job-finder` discovery and source-debug stay source-generic; do not add per-board route builders, query maps, triage overrides, or policy branches that only make sense for one job source
+- `job-finder` discovery, source-debug, and apply preparation stay source-generic; do not add per-board route builders, query maps, triage overrides, or policy branches that only make sense for one job source
 - source-specific code is acceptable only for reusable provider adapters or contained `browser-agent` extraction/navigation quirks
 - reusable provider adapters currently include public Ashby board ingestion and exact-job Workday candidate-experience ingestion; they normalize provider payloads into shared discovery contracts without adding board-specific workflow policy
 - `pnpm source-generic:check` guards the browser/discovery boundary
@@ -49,6 +49,13 @@ See [ADR 0007](adr/0007-source-generic-browser-workflows.md) for the source-gene
   `job-finder` owns authority envelopes, preflight, idempotency, revocation,
   lineage, capacity, and tri-state outcome truth. Models and heuristics may
   propose typed actions but cannot grant authority or prove external outcomes.
+- approved application answers: Profile owns mutable reusable answer content;
+  Electron main is the only approval boundary. Main canonicalizes the current
+  non-empty answer bank, computes its content digest, and appends an immutable
+  snapshot through `packages/db`. Authority/preflight records bind only the
+  snapshot revision and digest. Renderer readiness receives counts, kinds,
+  status, and lifecycle identity but never raw answer text or a caller-supplied
+  digest. An approved snapshot does not grant, arm, or execute anything.
 - product actions: schema-validated local tools call a narrow injected subset of the `job-finder` workspace service. They never expose raw IPC, browser primitives, arbitrary navigation, or filesystem access; proposal-only Profile Copilot calls persist reviewable patch groups without applying them
 - source-debug: `job-finder` orchestrates phases and artifacts, `browser-agent` returns structured attempts, `db` persists runs and evidence
 - browser visual evidence: `browser-runtime` owns screenshot capture and cleanup; `browser-agent` owns generic trigger policy and interpretation; `job-finder` persists only schema-validated summaries
@@ -108,7 +115,30 @@ See [ADR 0007](adr/0007-source-generic-browser-workflows.md) for the source-gene
   treat ambiguous/final controls as stop points, and never infer submit
   permission from an apply mode. Future submit authority requires the new typed
   path from ADR 0012; legacy flags do not acquire that meaning
-- prepare-only browser execution installs page and network mutation guards before filling fields. A separate `intermediateMutationsAuthorized` capability may allow autosave/draft/non-final ATS traffic, but it never permits DOM form submission, `requestSubmit`, or a final-control click; omitted authorization remains false. Today this intermediate capability is not endpoint-aware: the current mutation guard cannot distinguish an autosave endpoint from a site submission endpoint, so an authorized window may permit traffic to either. A future deny-default classification that separates submission endpoints would tighten this behavior without changing the boundary above. Either way, observed external writes and receipt attestations describe Job Finder's own authority and actions — they cannot confirm an external site outcome, which only the user can verify on the site
+- bounded intermediate ATS persistence is a separate prepare-only capability.
+  Its production resolver requires one active, unexpired envelope bound to one
+  job, one canonical origin, one verified resume digest, and the current
+  main-approved answer snapshot. The browser receives only that exact origin
+  and a main-owned callback which re-reads the same envelope revision before
+  every short field-save window. Revocation, revision/answer/origin/resume drift,
+  or callback failure closes the window; none of this grants a final action
+- Browser Runtime keeps Playwright `Page` private and exposes optional typed
+  application observation/exact-one-action hands only to main-process
+  composition. Job Finder owns the authority/preflight/idempotency policy around
+  those mechanics through the explicit
+  `@unemployed/job-finder/application-submission-runtime-main` subpath. No
+  renderer, preload, IPC, or legacy apply route calls that seam; browser-local
+  action facts can record only `not_submitted` or `outcome_uncertain`, never
+  prove `submitted`
+- uncertain outcomes are a durable stop state. Applications may resolve one only
+  from an explicit two-step user confirmation after the user checks the employer
+  site. Renderer input carries no evidence id, timestamp, revision, URL, or
+  retry decision; Electron main derives those facts from current persisted
+  lineage and `packages/db` commits the original uncertainty, resolved outcome,
+  idempotency, ApplyJobResult receipt/state, and exact ApplicationRecord
+  projection atomically. This recovery channel records external operator
+  evidence but grants no browser action or submission authority
+- prepare-only browser execution installs page and network mutation guards before filling fields. A separate `intermediateMutationsAuthorized` capability may allow autosave/draft/non-final ATS traffic, but it never permits DOM form submission, `requestSubmit`, a final-control click, navigation mutation, beacon, WebSocket, EventSource, or WebTransport; omitted authorization remains false. The capability is deny-default and field-scoped: one exact grounded field action opens a same-origin 3-second/8-request window, only fetch/XHR `POST`/`PUT`/`PATCH` traffic with explicit draft/autosave/save/update/field/answer/upload/progress semantics can pass, and final-action, cross-origin, ambiguous, late, or exhausted traffic is blocked and journaled. Both the page wrapper and Playwright route enforce the boundary. Observed external writes and receipt attestations describe Job Finder's own authority and actions — they cannot confirm an external site outcome, which only the user can verify on the site
 - prepare-only execution continuously rechecks application-origin service-worker registration through the run sentinel plus an in-page scan, with explicit rechecks before safe-advance clicks and at the preparation step limit, and pauses untouched before any further field or click action when a worker can influence the origin; a failed employer-page goto is classified once as the technical `application_page_unreachable` blocker carrying only causal-free user copy, while its raw transport detail stays in session diagnostics
 - exact provider job URLs are prioritized before per-source collection caps so a configured vacancy cannot silently degrade into an unrelated board result
 - authentication remains owned by the dedicated browser profile. The app may open a source and persist a human-action prompt, but it must not receive credentials or infer that authentication succeeded merely because the browser launched; the user explicitly confirms sign-in before a source-scoped retry
@@ -129,7 +159,7 @@ See [ADR 0010](adr/0010-opencode-go-mixed-text-and-vision-routing.md) for config
   `browser-runtime`; decompose it as ADR 0013's deterministic policy executor is
   integrated so workflow authority moves to `job-finder` and only reusable
   browser mechanics remain below
-- compact discovery observation is selected but not yet integrated into the
-  production run loop; the current loop remains the baseline until the adapter,
-  bounded fallback, and persistence changes are focused-green
+- compact discovery observation is integrated as the deterministic first pass
+  in the production discovery run loop. Keep the bounded legacy/model path as
+  fallback until compact coverage is broad enough to retire it with evidence
 - remaining source-named discovery debt from the browser substrate evaluation must not expand to other sources

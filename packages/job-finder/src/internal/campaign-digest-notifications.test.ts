@@ -4,6 +4,7 @@ import {
   CampaignNotificationSchema,
   CampaignRunFactsSchema,
   DiscoveryRunRecordSchema,
+  MatchAssessmentSchema,
   type CampaignNotification,
   type CampaignRunFacts,
   type DiscoveryRunRecord,
@@ -62,6 +63,17 @@ function createRunFacts(
     consecutiveFailures: 0,
     ...overrides,
   });
+}
+
+function boundAssessment(score: number) {
+  return {
+    discoveryMethod: "browser_agent" as const,
+    matchAssessment: MatchAssessmentSchema.parse({
+      score,
+      contextFingerprint: "match_context_v4_test",
+      postingFingerprint: `match_posting_v4_test_${score}`,
+    }),
+  };
 }
 
 describe("buildCampaignDigest", () => {
@@ -408,14 +420,21 @@ describe("deriveCampaignNotifications", () => {
           jobId: "job-86",
           title: "Threshold",
           fitScore: STRONG_MATCH_MIN_SCORE,
+          assessment: boundAssessment(STRONG_MATCH_MIN_SCORE),
         },
         {
           jobId: "job-90",
           title: "Senior Engineer",
           company: "Acme",
           fitScore: 90,
+          assessment: boundAssessment(90),
         },
-        { jobId: "job-100", title: "Principal", fitScore: 100 },
+        {
+          jobId: "job-100",
+          title: "Principal",
+          fitScore: 100,
+          assessment: boundAssessment(100),
+        },
       ],
     });
 
@@ -436,6 +455,44 @@ describe("deriveCampaignNotifications", () => {
       sourceTargetId: null,
     });
     expect(notifications[1]?.body).toBe("New match at Acme scores 90 of 100.");
+  });
+
+  test("keeps an authoritative bound fit score numeric in the notification body", () => {
+    const notifications = deriveCampaignNotifications({
+      campaignId: "campaign-1",
+      now: "2026-07-31T10:31:00.000Z",
+      strongMatches: [
+        {
+          jobId: "job-bound",
+          title: "Bound assessment",
+          company: "Acme",
+          fitScore: 94,
+          assessment: boundAssessment(94),
+        },
+      ],
+    });
+
+    expect(notifications[0]?.body).toBe("New match at Acme scores 94 of 100.");
+  });
+
+  test("does not expose an unbound fit score in the notification body", () => {
+    const notifications = deriveCampaignNotifications({
+      campaignId: "campaign-1",
+      now: "2026-07-31T10:31:00.000Z",
+      strongMatches: [
+        {
+          jobId: "job-unbound",
+          title: "Unbound assessment",
+          company: "Acme",
+          fitScore: 99,
+        },
+      ],
+    });
+
+    expect(notifications[0]?.body).toBe(
+      "New match at Acme has fit not assessed.",
+    );
+    expect(notifications[0]?.body).not.toContain("99");
   });
 
   test("raises the strong threshold to the campaign minimum fit score", () => {

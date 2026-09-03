@@ -1,6 +1,4 @@
-import type { ProfileSetupStep } from "@unemployed/contracts";
 import type { UseFormReturn } from "react-hook-form";
-import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import {
   Card,
@@ -10,23 +8,26 @@ import {
   CardTitle,
 } from "@renderer/components/ui/card";
 import { Field, FieldLabel } from "@renderer/components/ui/field";
-import { EmptyState } from "../../empty-state";
-import { formatStatusLabel } from "../../../lib/job-finder-utils";
+import { JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES } from "../../../lib/job-finder-scroll-reveal";
 import type { ProfileEditorValues } from "../../../lib/profile-editor";
 import type { ProfileBackgroundArrays } from "../profile-field-array-types";
-import type { ProfileSetupReviewItemDisplay } from "./profile-setup-screen-helpers";
-import { ProfileInput, ProfileTextarea } from "../profile-form-primitives";
+import {
+  ProfileAutoGrowTextarea,
+  ProfileInput,
+  ProfileTextarea,
+} from "../profile-form-primitives";
 import { ProfileRecordCard } from "../profile-record-card";
 import { PreferredApplicationLinksField } from "../preferred-application-links-field";
 import type { RenderFooter } from "./profile-setup-step-sections";
 
-export function ProfileSetupNarrativeStep(props: {
+const PROFILE_SETUP_REVEAL_SCROLL_MARGIN_CLASS_NAME = Object.values(
+  JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES,
+).join(" ");
+
+function ProfileSetupStorySection(props: {
   backgroundArrays: ProfileBackgroundArrays;
   isProfileSetupPending: boolean;
-  nextStep: ProfileSetupStep | null;
-  onSaveAndGoToStep: (step: ProfileSetupStep) => void;
   profileForm: UseFormReturn<ProfileEditorValues>;
-  renderFooter: RenderFooter;
 }) {
   const professionalStoryId =
     "profile-setup-field-narrative-professional-story";
@@ -36,63 +37,79 @@ export function ProfileSetupNarrativeStep(props: {
   const motivationThemesId = "profile-setup-field-narrative-motivation-themes";
 
   return (
-    <Card className="rounded-(--radius-panel) border-border/40">
-      <CardHeader className="gap-2 border-b border-border/30 pb-5">
-        <CardTitle>Capture the story behind the facts</CardTitle>
-        <CardDescription>
-          Give the app a short professional story, differentiators, and proof
-          that later resume or apply flows can reuse safely.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4 pt-6">
-        <Field>
+    <section aria-labelledby="profile-setup-extras-story-heading">
+      <div className="grid gap-1 border-b border-border/30 pb-4">
+        <h3
+          className="font-semibold text-foreground"
+          id="profile-setup-extras-story-heading"
+        >
+          Your story, in your own words
+        </h3>
+        <p className="text-sm leading-6 text-foreground-soft">
+          Anything you write here is reused in resumes and application answers.
+        </p>
+      </div>
+      <div className="grid gap-4 pt-4">
+        <Field className={PROFILE_SETUP_REVEAL_SCROLL_MARGIN_CLASS_NAME}>
           <FieldLabel htmlFor={professionalStoryId}>
             Professional story
           </FieldLabel>
-          <ProfileTextarea
+          <ProfileAutoGrowTextarea
+            className={PROFILE_SETUP_REVEAL_SCROLL_MARGIN_CLASS_NAME}
             id={professionalStoryId}
-            rows={5}
+            placeholder="Example: I have spent ten years on healthcare platforms, mostly making slow, fragile systems dependable."
+            rows={3}
             {...props.profileForm.register("narrative.professionalStory")}
           />
         </Field>
         <div className="grid gap-(--gap-content) md:grid-cols-2">
-          <Field>
+          <Field className={PROFILE_SETUP_REVEAL_SCROLL_MARGIN_CLASS_NAME}>
             <FieldLabel htmlFor={nextChapterId}>
-              Next chapter summary
+              What you&apos;re looking for next
             </FieldLabel>
-            <ProfileTextarea
+            <ProfileAutoGrowTextarea
+              className={PROFILE_SETUP_REVEAL_SCROLL_MARGIN_CLASS_NAME}
               id={nextChapterId}
-              rows={4}
+              placeholder="Example: A senior backend role on a small team, with real ownership."
+              rows={3}
               {...props.profileForm.register("narrative.nextChapterSummary")}
             />
           </Field>
-          <Field>
-            <FieldLabel htmlFor={differentiatorsId}>Differentiators</FieldLabel>
-            <ProfileTextarea
+          <Field className={PROFILE_SETUP_REVEAL_SCROLL_MARGIN_CLASS_NAME}>
+            <FieldLabel htmlFor={differentiatorsId}>
+              What sets you apart
+            </FieldLabel>
+            <ProfileAutoGrowTextarea
+              className={PROFILE_SETUP_REVEAL_SCROLL_MARGIN_CLASS_NAME}
               id={differentiatorsId}
-              rows={4}
+              placeholder="Example: I am the person teams call when a system is slow and nobody knows why."
+              rows={3}
               {...props.profileForm.register("narrative.differentiators")}
             />
           </Field>
-          <Field>
+          <Field className={PROFILE_SETUP_REVEAL_SCROLL_MARGIN_CLASS_NAME}>
             <FieldLabel htmlFor={careerTransitionId}>
-              Career transition summary
+              If you&apos;re changing direction
             </FieldLabel>
-            <ProfileTextarea
+            <ProfileAutoGrowTextarea
+              className={PROFILE_SETUP_REVEAL_SCROLL_MARGIN_CLASS_NAME}
               id={careerTransitionId}
-              rows={4}
+              placeholder="Example: Moving from consulting back to a product team."
+              rows={3}
               {...props.profileForm.register(
                 "narrative.careerTransitionSummary",
               )}
             />
           </Field>
-          <Field>
+          <Field className={PROFILE_SETUP_REVEAL_SCROLL_MARGIN_CLASS_NAME}>
             <FieldLabel htmlFor={motivationThemesId}>
-              Motivation themes
+              What motivates you
             </FieldLabel>
-            <ProfileTextarea
+            <ProfileAutoGrowTextarea
+              className={PROFILE_SETUP_REVEAL_SCROLL_MARGIN_CLASS_NAME}
               id={motivationThemesId}
-              rows={4}
+              placeholder="Example: Work that reaches real users, and a team that reviews carefully."
+              rows={3}
               {...props.profileForm.register("narrative.motivationThemes")}
             />
           </Field>
@@ -102,10 +119,10 @@ export function ProfileSetupNarrativeStep(props: {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-foreground">
-                Proof bank
+                Saved evidence
               </p>
               <p className="text-sm text-foreground-soft">
-                Save measurable wins and supporting context once.
+                Save an achievement with numbers once and reuse it everywhere.
               </p>
             </div>
             <Button
@@ -125,7 +142,7 @@ export function ProfileSetupNarrativeStep(props: {
               type="button"
               variant="secondary"
             >
-              Add proof
+              Add evidence
             </Button>
           </div>
 
@@ -148,7 +165,7 @@ export function ProfileSetupNarrativeStep(props: {
                 }
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">
+                  <p className="text-(length:--text-field-label) font-medium uppercase tracking-[0.16em] text-foreground-muted">
                     Proof details
                   </p>
                   <Button
@@ -232,29 +249,24 @@ export function ProfileSetupNarrativeStep(props: {
               </ProfileRecordCard>
             ))
           ) : (
-            <EmptyState
-              description="Add one or two strong proof points so the setup captures more than just raw role history."
-              title="No proof points yet"
-            />
+            <p
+              className="text-sm leading-6 text-foreground-muted"
+              data-profile-setup-proof-bank-empty
+            >
+              Nothing saved yet — choose Add evidence to record an achievement
+              with numbers.
+            </p>
           )}
         </div>
-
-        {props.renderFooter({
-          nextLabel: "Save and continue to answers",
-          onPrimary: () => props.onSaveAndGoToStep(props.nextStep ?? "answers"),
-        })}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
-export function ProfileSetupAnswersStep(props: {
+function ProfileSetupScreenerAnswersSection(props: {
   backgroundArrays: ProfileBackgroundArrays;
   isProfileSetupPending: boolean;
-  nextStep: ProfileSetupStep | null;
-  onSaveAndGoToStep: (step: ProfileSetupStep) => void;
   profileForm: UseFormReturn<ProfileEditorValues>;
-  renderFooter: RenderFooter;
 }) {
   const availabilityAnswerId = "profile-setup-field-answer-bank-availability";
   const visaAnswerId = "profile-setup-field-answer-bank-visa-sponsorship";
@@ -269,9 +281,15 @@ export function ProfileSetupAnswersStep(props: {
     "profile-setup-field-application-identity-preferred-phone";
   const preferredLinksId =
     "profile-setup-field-application-identity-preferred-links";
-  const professionalStory = props.profileForm
-    .watch("narrative.professionalStory")
-    .trim();
+  // The spoken introduction is never pre-filled from the written resume
+  // paragraph any more; it is offered as a one-click suggestion instead, from
+  // whichever of the user's own saved texts exists.
+  const introductionSuggestion = (
+    props.profileForm.watch("narrative.professionalStory") ||
+    props.profileForm.watch("summary.fullSummary") ||
+    props.profileForm.watch("identity.summary") ||
+    ""
+  ).trim();
   const transitionSummary = props.profileForm
     .watch("narrative.careerTransitionSummary")
     .trim();
@@ -288,76 +306,94 @@ export function ProfileSetupAnswersStep(props: {
   } as const;
 
   return (
-    <Card className="rounded-(--radius-panel) border-border/40">
-      <CardHeader className="gap-2 border-b border-border/30 pb-5">
-        <CardTitle>Save the answers you reuse most</CardTitle>
-        <CardDescription>
-          Capture work authorization, availability, and short reusable responses
-          now so applications start from grounded defaults.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-4 pt-6">
+    <section aria-labelledby="profile-setup-extras-answers-heading">
+      <div className="grid gap-1 border-b border-border/30 pb-4">
+        <h3
+          className="font-semibold text-foreground"
+          id="profile-setup-extras-answers-heading"
+        >
+          Screener answers you reuse
+        </h3>
+        <p className="text-sm leading-6 text-foreground-soft">
+          Application forms ask the same few questions. Answer them once here
+          and Job Finder fills them in for you to check, never to send.
+        </p>
+      </div>
+      <div className="grid gap-4 pt-4">
         <div className="grid gap-(--gap-content) md:grid-cols-2">
           <Field>
-            <FieldLabel htmlFor={availabilityAnswerId}>Availability</FieldLabel>
-            <ProfileTextarea
+            <FieldLabel htmlFor={availabilityAnswerId}>
+              When could you start?
+            </FieldLabel>
+            <ProfileAutoGrowTextarea
               id={availabilityAnswerId}
-              rows={4}
+              placeholder="Example: Two weeks after signing."
+              rows={3}
               {...props.profileForm.register("answerBank.availability")}
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor={visaAnswerId}>Visa sponsorship</FieldLabel>
-            <ProfileTextarea
+            <FieldLabel htmlFor={visaAnswerId}>
+              Do you need visa sponsorship?
+            </FieldLabel>
+            <ProfileAutoGrowTextarea
               id={visaAnswerId}
-              rows={4}
+              placeholder="Example: No, I can work in the US without sponsorship."
+              rows={3}
               {...props.profileForm.register("answerBank.visaSponsorship")}
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor={relocationId}>Relocation</FieldLabel>
-            <ProfileTextarea
+            <FieldLabel htmlFor={relocationId}>
+              Are you open to relocating?
+            </FieldLabel>
+            <ProfileAutoGrowTextarea
               id={relocationId}
-              rows={4}
+              placeholder="Example: Yes, for the right role, with relocation support."
+              rows={3}
               {...props.profileForm.register("answerBank.relocation")}
             />
           </Field>
           <Field>
             <div className="flex items-center justify-between gap-3">
               <FieldLabel htmlFor={selfIntroductionId}>
-                Short self-introduction
+                How would you introduce yourself?
               </FieldLabel>
-              {!selfIntroduction && professionalStory ? (
+              {!selfIntroduction && introductionSuggestion ? (
                 <Button
+                  data-profile-setup-use-summary-as-introduction
                   onClick={() =>
                     props.profileForm.setValue(
                       "answerBank.selfIntroduction",
-                      professionalStory,
+                      introductionSuggestion,
                       copiedFieldOptions,
                     )
                   }
                   size="compact"
                   type="button"
-                  variant="ghost"
+                  variant="secondary"
                 >
-                  Use professional story
+                  Use my summary
                 </Button>
               ) : null}
             </div>
-            <ProfileTextarea
+            {/* The caveat sits above the field so a sticky footer can never
+                clip the sentence that explains what this answer is for. */}
+            <p className="text-xs leading-5 text-foreground-muted">
+              A short spoken introduction, not your written resume summary.
+              Start from your summary if it helps, then shorten it.
+            </p>
+            <ProfileAutoGrowTextarea
               id={selfIntroductionId}
-              rows={4}
+              placeholder="Example: I am a backend engineer who has spent ten years making healthcare systems dependable."
+              rows={3}
               {...props.profileForm.register("answerBank.selfIntroduction")}
             />
-            <p className="text-xs leading-5 text-foreground-muted">
-              Keep this consistent with your saved professional story; edit it
-              into a concise spoken introduction.
-            </p>
           </Field>
           <Field className="md:col-span-2">
             <div className="flex items-center justify-between gap-3">
               <FieldLabel htmlFor={careerTransitionId}>
-                Career transition explanation
+                If your path changed direction, why?
               </FieldLabel>
               {!careerTransition && transitionSummary ? (
                 <Button
@@ -376,9 +412,9 @@ export function ProfileSetupAnswersStep(props: {
                 </Button>
               ) : null}
             </div>
-            <ProfileTextarea
+            <ProfileAutoGrowTextarea
               id={careerTransitionId}
-              rows={4}
+              rows={3}
               {...props.profileForm.register("answerBank.careerTransition")}
             />
           </Field>
@@ -460,7 +496,7 @@ export function ProfileSetupAnswersStep(props: {
                     }
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
-                      <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">
+                      <p className="text-(length:--text-field-label) font-medium uppercase tracking-[0.16em] text-foreground-muted">
                         Reusable answer
                       </p>
                       <Button
@@ -528,189 +564,53 @@ export function ProfileSetupAnswersStep(props: {
               },
             )
           ) : (
-            <EmptyState
-              description="No custom answers yet. Add one when a recurring screener is worth saving."
-              title="No reusable answers saved"
-            />
+            <p
+              className="text-sm leading-6 text-foreground-muted"
+              data-profile-setup-reusable-answers-empty
+            >
+              Nothing saved yet — choose Add answer when a recurring screener is
+              worth keeping.
+            </p>
           )}
         </div>
-
-        {props.renderFooter({
-          nextLabel: "Save and review readiness",
-          onPrimary: () =>
-            props.onSaveAndGoToStep(props.nextStep ?? "ready_check"),
-        })}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
-export function ProfileSetupReadyCheckStep(props: {
-  applyStatus: "ready" | "needs_review" | "missing";
-  blockingPendingItems: readonly ProfileSetupReviewItemDisplay[];
-  canFinishSetup: boolean;
-  discoveryStatus: "ready" | "needs_review" | "missing";
-  getReadinessTone: (
-    status: "ready" | "needs_review" | "missing",
-  ) => "default" | "outline" | "destructive";
-  narrativeStatus: "ready" | "needs_review" | "missing";
-  onGoToStep: (step: ProfileSetupStep) => void;
-  onSaveAndFinish: () => void;
-  readinessBlockers?: readonly {
-    label: string;
-    reason: string;
-    step: ProfileSetupStep;
-  }[];
+/**
+ * The optional last step. "Your story" and "Screener answers" used to be two
+ * separate steps a first-time user had to walk through before finishing; they
+ * are one skippable step now, and setup can be finished without opening it.
+ */
+export function ProfileSetupExtrasStep(props: {
+  backgroundArrays: ProfileBackgroundArrays;
+  isProfileSetupPending: boolean;
+  profileForm: UseFormReturn<ProfileEditorValues>;
   renderFooter: RenderFooter;
 }) {
   return (
     <Card className="rounded-(--radius-panel) border-border/40">
       <CardHeader className="gap-2 border-b border-border/30 pb-5">
-        <CardTitle>Readiness check</CardTitle>
+        <CardTitle>Extras — all optional</CardTitle>
         <CardDescription>
-          Finish setup only when the core profile is materially complete and
-          blocking review items are resolved.
+          Skip this step and nothing breaks: you can finish setup without it and
+          add any of it later in Profile. Filling it in gives resumes and
+          application answers your own words to work from.
         </CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-4 pt-6">
-        <div className="grid gap-3 md:grid-cols-3">
-          {[
-            {
-              label: "Discovery",
-              status: props.discoveryStatus,
-              description:
-                props.discoveryStatus === "ready"
-                  ? "Roles, constraints, and at least one valid job source are ready for targeted search."
-                  : props.discoveryStatus === "needs_review"
-                    ? "Review the pending targeting or source items listed below before relying on search results."
-                    : "Add a target role, real constraints, and at least one valid job source.",
-            },
-            {
-              label: "Resume quality",
-              status: props.narrativeStatus,
-              description:
-                props.narrativeStatus === "ready"
-                  ? "Narrative and proof exist for stronger summaries and bullets."
-                  : props.narrativeStatus === "needs_review"
-                    ? "There is useful background, but the story still needs sharpening."
-                    : "The app still lacks enough story or proof to produce strong output.",
-            },
-            {
-              label: "Apply readiness",
-              status: props.applyStatus,
-              description:
-                props.applyStatus === "ready"
-                  ? "Contact, eligibility, and reusable answers are ready for application defaults."
-                  : props.applyStatus === "needs_review"
-                    ? "Review the pending contact, eligibility, or reusable-answer items listed below."
-                    : "Add a contact method and the application defaults you want forms to reuse.",
-            },
-          ].map((card) => (
-            <div
-              className="rounded-(--radius-field) border border-border/30 bg-background/60 p-4"
-              key={card.label}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-sm font-semibold text-foreground">
-                  {card.label}
-                </p>
-                <Badge variant={props.getReadinessTone(card.status)}>
-                  {formatStatusLabel(card.status)}
-                </Badge>
-              </div>
-              <p className="mt-2 text-sm leading-6 text-foreground-soft">
-                {card.description}
-              </p>
-            </div>
-          ))}
-        </div>
-
-        {(props.readinessBlockers?.length ?? 0) > 0 ? (
-          <div className="grid gap-3 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-4">
-            <div>
-              <p className="text-sm font-semibold text-foreground">
-                Finish these before continuing
-              </p>
-              <p className="mt-1 text-sm leading-6 text-foreground-soft">
-                Each action opens the setup step that owns the missing
-                information.
-              </p>
-            </div>
-            <div className="grid gap-2">
-              {(props.readinessBlockers ?? []).map((blocker) => (
-                <div
-                  className="flex flex-col gap-3 rounded-(--radius-field) border border-border/35 bg-background/75 p-3 sm:flex-row sm:items-center sm:justify-between"
-                  key={`${blocker.step}-${blocker.label}`}
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-foreground">
-                      {blocker.label}
-                    </p>
-                    <p className="mt-1 text-sm leading-6 text-foreground-soft">
-                      {blocker.reason}
-                    </p>
-                  </div>
-                  <Button
-                    onClick={() => props.onGoToStep(blocker.step)}
-                    size="compact"
-                    type="button"
-                    variant="secondary"
-                  >
-                    Open {formatStatusLabel(blocker.step)}
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {props.blockingPendingItems.length > 0 ? (
-          <div className="grid gap-3 rounded-(--radius-field) border border-destructive/30 bg-destructive/5 p-4">
-            <div>
-              <p className="text-sm font-semibold text-foreground">
-                {props.blockingPendingItems.length} item
-                {props.blockingPendingItems.length === 1 ? "" : "s"} to resolve
-              </p>
-              <p className="mt-1 text-sm leading-6 text-foreground-soft">
-                Each item below links to the exact setup step where it can be
-                confirmed or corrected.
-              </p>
-            </div>
-            <div className="grid gap-2">
-              {props.blockingPendingItems.map((item) => (
-                <div
-                  className="flex flex-col gap-3 rounded-(--radius-field) border border-border/35 bg-background/70 p-3 sm:flex-row sm:items-center sm:justify-between"
-                  key={item.id}
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-foreground">
-                      {item.label}
-                    </p>
-                    <p className="mt-1 text-sm leading-6 text-foreground-soft">
-                      {item.reason}
-                    </p>
-                  </div>
-                  <Button
-                    onClick={() => props.onGoToStep(item.step)}
-                    size="compact"
-                    type="button"
-                    variant="secondary"
-                  >
-                    Review {formatStatusLabel(item.step)}
-                  </Button>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {props.renderFooter({
-          primaryDisabled: !props.canFinishSetup,
-          primaryLabel: props.canFinishSetup
-            ? "Finish setup and open Profile"
-            : "Complete the items above to finish",
-          onPrimary: props.canFinishSetup ? props.onSaveAndFinish : null,
-        })}
+      <CardContent className="grid gap-6 pt-6">
+        <ProfileSetupStorySection
+          backgroundArrays={props.backgroundArrays}
+          isProfileSetupPending={props.isProfileSetupPending}
+          profileForm={props.profileForm}
+        />
+        <ProfileSetupScreenerAnswersSection
+          backgroundArrays={props.backgroundArrays}
+          isProfileSetupPending={props.isProfileSetupPending}
+          profileForm={props.profileForm}
+        />
+        {props.renderFooter()}
       </CardContent>
     </Card>
   );

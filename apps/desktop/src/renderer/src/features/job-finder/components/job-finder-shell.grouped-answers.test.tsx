@@ -13,6 +13,7 @@ import { JobFinderShell, countUnresolvedUserActions } from "./job-finder-shell";
 
 const windowControlsState = {
   isClosable: true,
+  isFullScreen: false,
   isMaximized: false,
   isMinimizable: true,
 } as const;

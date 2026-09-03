@@ -53,6 +53,8 @@ try {
           driverChannel: session.driverChannel,
           launchRecordPath: session.launchRecordPath,
           pid: session.pid,
+          testerBrief: session.testerBrief,
+          testerBriefPath: session.launchRecordPath,
         },
         null,
         2,

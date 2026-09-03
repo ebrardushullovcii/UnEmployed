@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ResumeCoverageComparison } from "@unemployed/contracts";
 import { ResumeCoverageComparisonPanel } from "./resume-coverage-comparison-panel";
@@ -86,5 +92,46 @@ describe("ResumeCoverageComparisonPanel", () => {
     expect(summary?.className).toContain("focus-visible:ring-2");
     expect(summary?.className).toContain("focus-visible:ring-ring");
     expect(summary?.className).not.toMatch(/ring-primary\/\d/);
+  });
+  it("gives every dropped line its own labelled Restore control", () => {
+    const removedClaim = {
+      field: "bullet" as const,
+      text: "Developed internal tools and customer-facing pages with ASP.NET MVC.",
+      restorable: true,
+    };
+    const onRestoreClaim = vi.fn();
+    const { container } = render(
+      <ResumeCoverageComparisonPanel
+        comparison={{
+          ...baseComparison,
+          removedClaimCount: 1,
+          roles: [
+            {
+              ...baseComparison.roles[0]!,
+              status: "compacted",
+              removedClaims: [removedClaim],
+            },
+          ],
+        }}
+        disabled={false}
+        onRestoreClaim={onRestoreClaim}
+        onRestoreRole={vi.fn()}
+      />,
+    );
+
+    // Restore used to render inline at the end of the sentence, so it read as
+    // the last word of the dropped line rather than an action.
+    const restore = screen.getByRole("button", {
+      name: `Restore this line: ${removedClaim.text}`,
+    });
+    const claimParagraph = within(container).getByText(
+      `− ${removedClaim.text}`,
+    );
+
+    expect(claimParagraph.contains(restore)).toBe(false);
+    expect(restore.closest("div")?.className).toContain("justify-end");
+
+    fireEvent.click(restore);
+    expect(onRestoreClaim).toHaveBeenCalledTimes(1);
   });
 });

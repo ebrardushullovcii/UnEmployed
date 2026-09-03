@@ -319,6 +319,80 @@ describe("importResumeFromSourcePath", () => {
     }
   });
 
+  test("routes a native no-text import through the revision-safe workspace boundary", async () => {
+    const { importResumeFromSourcePath } = await import("./import-resume");
+    const { directory, filePath } = await createTempResumeFile();
+    const targetDirectory = path.join(directory, "target");
+    const extractedBundle = {
+      ...createTestBundle("native image-only resume"),
+      pages: [],
+      blocks: [],
+      fullText: null,
+    };
+    const workspaceService = {
+      runResumeImport: vi.fn(
+        ({ baseResume }: { baseResume: ResumeSourceDocument }) =>
+          Promise.resolve(createSnapshot(baseResume)),
+      ),
+      getWorkspaceSnapshot: vi.fn(),
+      saveProfile: vi.fn(),
+    };
+    const progressEvents: ResumeImportProgressEvent[] = [];
+
+    mockMkdir.mockResolvedValue(undefined);
+    mockCopyFile.mockResolvedValue(undefined);
+    mockGetJobFinderDocumentsDirectory.mockReturnValue(targetDirectory);
+    mockGetJobFinderWorkspaceService.mockResolvedValue(workspaceService);
+    mockExtractResumeDocument.mockResolvedValue({
+      textContent: null,
+      bundle: extractedBundle,
+      warnings: [],
+    });
+
+    try {
+      await importResumeFromSourcePath(filePath, {
+        useVision: false,
+        onProgress: (event) => progressEvents.push(event),
+      });
+
+      expect(workspaceService.saveProfile).not.toHaveBeenCalled();
+      expect(workspaceService.runResumeImport).toHaveBeenCalledTimes(1);
+      const [resumeImportInput] =
+        workspaceService.runResumeImport.mock.calls[0] ?? [];
+      expect(resumeImportInput?.baseResume).toMatchObject({
+        textContent: null,
+        extractionStatus: "needs_text",
+      });
+      // Every stage is announced, including for an unreadable file: skipping
+      // one left the previous label frozen on screen for the whole wait.
+      expect(progressEvents.map((event) => event.stage)).toEqual([
+        "saving_file",
+        "reading_document",
+        "building_profile",
+        "saving_results",
+      ]);
+      // Determinate progress: the event for a stage counts the stages behind
+      // it, so the renderer can render "Step n of 4" rather than a spinner.
+      expect(
+        progressEvents.map((event) => [event.completed, event.total]),
+      ).toEqual([
+        [0, 4],
+        [1, 4],
+        [2, 4],
+        [3, 4],
+      ]);
+      // The long model stage states its own cost from the first second; the
+      // old 45s escalation never fired inside a 36s import.
+      const buildingProfile = progressEvents.find(
+        (event) => event.stage === "building_profile",
+      );
+      expect(buildingProfile?.expectedSecondsMin).toBe(15);
+      expect(buildingProfile?.expectedSecondsMax).toBe(60);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   test("skips vision artifacts for plain-text resumes", async () => {
     const { importResumeFromSourcePath } = await import("./import-resume");
     const { directory, filePath } = await createTempResumeFile("resume.txt");

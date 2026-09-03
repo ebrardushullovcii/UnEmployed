@@ -81,6 +81,9 @@ describe("ResumeWorkspaceTemplatePanel", () => {
       0,
     );
     expect(screen.getAllByText("Apply-safe").length).toBeGreaterThan(0);
+    // The header chip that repeated the row's own lane badge is gone; only
+    // the blocking case still gets a header.
+    expect(screen.queryByText("Cannot be used for applications")).toBeNull();
 
     const options = container.querySelector("#resume-template-chooser-options");
     expect(options?.className).toContain("hidden");
@@ -92,6 +95,7 @@ describe("ResumeWorkspaceTemplatePanel", () => {
   it("auto-opens and keeps the full chooser reachable when selection is blocked", () => {
     renderPanel({ eligible: false });
 
+    expect(screen.getByText("Cannot be used for applications")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Change template" }),
     ).toBeNull();

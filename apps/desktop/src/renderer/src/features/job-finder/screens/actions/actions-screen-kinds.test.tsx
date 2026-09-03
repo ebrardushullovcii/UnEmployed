@@ -68,7 +68,14 @@ describe("Needs you manual-action presentation matrix", () => {
         />,
       );
 
-      expect(screen.getByText(presentation.label)).toBeTruthy();
+      // "Other" is not a category the user can act on, so that kind shows
+      // only the requirement and state badges; every classified kind keeps
+      // its specific label badge.
+      if (kind === "other") {
+        expect(screen.queryByText(presentation.label)).toBeNull();
+      } else {
+        expect(screen.getByText(presentation.label)).toBeTruthy();
+      }
       expect(
         screen.getByText(new RegExp(presentation.guidance, "i")),
       ).toBeTruthy();
@@ -87,10 +94,10 @@ describe("Needs you manual-action presentation matrix", () => {
           accountCreationAuthorized: false,
         });
       }
+      // The boundary is still stated on every card, once, in plain language
+      // instead of a boxed footnote in internal wording.
       expect(
-        screen.getByText(
-          /cannot authorize account creation or a final application submission/i,
-        ),
+        screen.getByText(/cannot create an account or submit an application/i),
       ).toBeTruthy();
     },
   );

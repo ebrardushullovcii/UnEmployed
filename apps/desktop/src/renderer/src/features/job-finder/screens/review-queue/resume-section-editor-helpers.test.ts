@@ -74,8 +74,16 @@ describe("orderResumeEntriesNewestFirst", () => {
 
   it("treats textual range separators as chronology separators", () => {
     const ordered = orderResumeEntriesNewestFirst([
-      buildEntry({ id: "older", dateRange: "Jan 2020 through Feb 2021", sortOrder: 0 }),
-      buildEntry({ id: "newer", dateRange: "Mar 2021 until Apr 2022", sortOrder: 1 }),
+      buildEntry({
+        id: "older",
+        dateRange: "Jan 2020 through Feb 2021",
+        sortOrder: 0,
+      }),
+      buildEntry({
+        id: "newer",
+        dateRange: "Mar 2021 until Apr 2022",
+        sortOrder: 1,
+      }),
     ]);
 
     expect(ordered.map((entry) => entry.id)).toEqual(["newer", "older"]);
@@ -88,14 +96,24 @@ describe("orderResumeEntriesNewestFirst", () => {
       sortOrder: 0,
     });
     const structuredNewer = {
-      ...buildEntry({ id: "structured_newer", dateRange: "Jan 2020 – Jan 2021", sortOrder: 1 }),
+      ...buildEntry({
+        id: "structured_newer",
+        dateRange: "Jan 2020 – Jan 2021",
+        sortOrder: 1,
+      }),
       startDate: "2025-01",
       endDate: "2025-12",
     };
 
-    const ordered = orderResumeEntriesNewestFirst([legacyCurrent, structuredNewer]);
+    const ordered = orderResumeEntriesNewestFirst([
+      legacyCurrent,
+      structuredNewer,
+    ]);
 
-    expect(ordered.map((entry) => entry.id)).toEqual(["structured_newer", "legacy_current"]);
+    expect(ordered.map((entry) => entry.id)).toEqual([
+      "structured_newer",
+      "legacy_current",
+    ]);
   });
 });
 
@@ -134,10 +152,7 @@ describe("createResumeDraftPatch", () => {
 
 const fixtureUpdatedAt = "2026-05-04T00:00:00.000Z";
 
-function buildBullet(
-  id: string,
-  origin: ResumeDraftOrigin,
-): ResumeDraftBullet {
+function buildBullet(id: string, origin: ResumeDraftOrigin): ResumeDraftBullet {
   return {
     id,
     text: `${id} line`,
@@ -156,7 +171,11 @@ function buildSectionWithBullets(input: {
   sectionBullets: readonly ResumeDraftBullet[];
 }): ResumeDraftSection {
   const entry: ResumeDraftEntry = {
-    ...buildEntry({ id: "entry_1", dateRange: "Jan 2020 – Jan 2021", sortOrder: 0 }),
+    ...buildEntry({
+      id: "entry_1",
+      dateRange: "Jan 2020 – Jan 2021",
+      sortOrder: 0,
+    }),
     bullets: [...input.entryBullets],
   };
 
@@ -247,17 +266,22 @@ describe("inline bullet text origin transitions", () => {
       "entry_bullet_assistant",
       "entry_bullet_assistant line rewritten",
     );
-    expect(findBullet(afterAssistantEdit, "entry_bullet_assistant")?.origin).toBe(
-      "user_edited",
-    );
+    expect(
+      findBullet(afterAssistantEdit, "entry_bullet_assistant")?.origin,
+    ).toBe("user_edited");
 
     const afterSectionEdit = updateSectionBulletText(
       section,
       "section_bullet_det",
       "Deterministic line rewritten by hand",
     );
-    const editedSectionBullet = findBullet(afterSectionEdit, "section_bullet_det");
-    expect(editedSectionBullet?.text).toBe("Deterministic line rewritten by hand");
+    const editedSectionBullet = findBullet(
+      afterSectionEdit,
+      "section_bullet_det",
+    );
+    expect(editedSectionBullet?.text).toBe(
+      "Deterministic line rewritten by hand",
+    );
     expect(editedSectionBullet?.origin).toBe("user_edited");
 
     // Untouched lines keep their exact objects and origins (no accidental flips).
@@ -269,9 +293,9 @@ describe("inline bullet text origin transitions", () => {
     expect(findBullet(afterAssistantEdit, "entry_bullet_user")?.origin).toBe(
       "user_edited",
     );
-    expect(findBullet(afterSectionEdit, "section_bullet_imported")?.origin).toBe(
-      "imported",
-    );
+    expect(
+      findBullet(afterSectionEdit, "section_bullet_imported")?.origin,
+    ).toBe("imported");
 
     // Version behavior is unchanged: timestamps are never touched by inline edits.
     for (const bullet of [
@@ -323,7 +347,9 @@ describe("inline bullet text origin transitions", () => {
       "entry_bullet_ai",
       "First rewrite",
     );
-    expect(findBullet(firstEdit, "entry_bullet_ai")?.origin).toBe("user_edited");
+    expect(findBullet(firstEdit, "entry_bullet_ai")?.origin).toBe(
+      "user_edited",
+    );
 
     const secondEdit = updateEntryBulletText(
       firstEdit,
@@ -334,7 +360,9 @@ describe("inline bullet text origin transitions", () => {
     expect(findBullet(secondEdit, "entry_bullet_ai")?.text).toBe(
       "Second ordinary edit",
     );
-    expect(findBullet(secondEdit, "entry_bullet_ai")?.origin).toBe("user_edited");
+    expect(findBullet(secondEdit, "entry_bullet_ai")?.origin).toBe(
+      "user_edited",
+    );
   });
 
   it("marks materially rewritten imported bullets as user_edited while untouched imported lines stay imported", () => {
@@ -380,11 +408,18 @@ describe("inline bullet text origin transitions", () => {
   it("keeps the save/reload shape valid after an inline edit", () => {
     const section = buildSectionWithBullets({
       entryBullets: [buildBullet("entry_bullet_ai", "ai_generated")],
-      sectionBullets: [buildBullet("section_bullet_det", "deterministic_fallback")],
+      sectionBullets: [
+        buildBullet("section_bullet_det", "deterministic_fallback"),
+      ],
     });
 
     const edited = updateSectionBulletText(
-      updateEntryBulletText(section, "entry_1", "entry_bullet_ai", "Hand rewrite"),
+      updateEntryBulletText(
+        section,
+        "entry_1",
+        "entry_bullet_ai",
+        "Hand rewrite",
+      ),
       "section_bullet_det",
       "Deterministic hand rewrite",
     );
@@ -394,9 +429,9 @@ describe("inline bullet text origin transitions", () => {
 
     const reloaded = parsed.success ? parsed.data : null;
     expect(
-      reloaded?.entries.flatMap((entry) => entry.bullets).find(
-        (bullet) => bullet.id === "entry_bullet_ai",
-      ),
+      reloaded?.entries
+        .flatMap((entry) => entry.bullets)
+        .find((bullet) => bullet.id === "entry_bullet_ai"),
     ).toMatchObject({
       origin: "user_edited",
       text: "Hand rewrite",
@@ -527,11 +562,7 @@ describe("inline entry summary and section text origin transitions", () => {
     );
     expect(findEntry(added, "entry_fallback")?.origin).toBe("user_edited");
 
-    const cleared = updateEntrySummary(
-      section,
-      "entry_assistant",
-      null,
-    );
+    const cleared = updateEntrySummary(section, "entry_assistant", null);
     expect(findEntry(cleared, "entry_assistant")?.summary).toBeNull();
     expect(findEntry(cleared, "entry_assistant")?.origin).toBe("user_edited");
   });
@@ -562,7 +593,11 @@ describe("inline entry summary and section text origin transitions", () => {
 
   it("marks materially rewritten imported summary and section text as user_edited", () => {
     const importedSummaryEntry: ResumeDraftEntry = {
-      ...buildEntry({ id: "entry_imported_summary", dateRange: null, sortOrder: 0 }),
+      ...buildEntry({
+        id: "entry_imported_summary",
+        dateRange: null,
+        sortOrder: 0,
+      }),
       summary: "Imported summary wording",
       origin: "imported",
     };

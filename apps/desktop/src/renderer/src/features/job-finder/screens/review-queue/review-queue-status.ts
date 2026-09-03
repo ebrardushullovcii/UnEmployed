@@ -102,9 +102,12 @@ export function getReviewQueueWorkflowStatus(
   }
 
   if (item.resumeReview.status === "stale") {
+    // The approved draft is stale, not broken: the resume still exists and the
+    // job is still reviewable, it just needs regenerating. `warning` (F44)
+    // instead of the failure hue `critical` used before the tone existed.
     return {
       label: "Out of date",
-      tone: "critical",
+      tone: "warning",
     };
   }
 
@@ -152,6 +155,48 @@ export function isQueueStageReady(item: ReviewQueueItem | null): boolean {
     (item.resumeReview.status === "approved" ||
       item.resumeReview.status === "original_resume"),
   );
+}
+
+/**
+ * Shortlisted list-card caption for the resume policy. Must match readiness:
+ * never say a tailored resume "will be created" when an approved PDF is ready.
+ */
+export function getReviewQueueResumePolicyCaption(
+  item: ReviewQueueItem,
+): string {
+  if (item.resumeApplicationMode === "original_resume") {
+    return item.resumeReview.status === "original_resume"
+      ? "Original resume ready"
+      : "Original resume will be used unchanged";
+  }
+
+  if (isQueueStageReady(item)) {
+    return "Approved resume ready";
+  }
+
+  if (item.assetStatus === "generating" || item.assetStatus === "queued") {
+    return "Creating a tailored resume…";
+  }
+
+  if (item.resumeReview.status === "stale") {
+    return "Approved resume is out of date";
+  }
+
+  if (hasResumeGenerationFailure(item)) {
+    return "Tailored resume needs another try";
+  }
+
+  if (
+    item.assetStatus === "ready" ||
+    item.resumeReview.status === "needs_review" ||
+    item.resumeReview.status === "draft" ||
+    item.resumeReview.status === "approved"
+  ) {
+    return "Tailored draft ready for your review";
+  }
+
+  // Nothing has been requested yet; name the need, not a promised action.
+  return "Needs a tailored resume";
 }
 
 /**

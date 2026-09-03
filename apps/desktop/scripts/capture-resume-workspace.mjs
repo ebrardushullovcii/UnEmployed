@@ -390,7 +390,9 @@ function editorFieldByTarget(window, targetId) {
 
 function assistantField(window) {
   return window
-    .locator('[data-testid="resume-assistant-input"]:visible')
+    .locator(
+      '[data-resume-guided-edits-open="true"] textarea[aria-label="Message the Assistant"]:visible',
+    )
     .first();
 }
 
@@ -414,7 +416,9 @@ async function loadResumeWorkspaceDemo(window, previewMode = "ok") {
 
 async function openResumeWorkspace(window) {
   await window
-    .getByRole("button", { name: /Open resume workspace/i })
+    .getByRole("button", {
+      name: /Open resume workspace|Review and approve resume/i,
+    })
     .first()
     .click();
   await window
@@ -530,21 +534,24 @@ async function getActiveEditorLabel(window) {
 }
 
 async function getTemplateBadgeText(window) {
-  return (
-    (
-      await window
-        .getByText(/^Template:/)
-        .first()
-        .textContent()
-    )?.trim() ?? null
-  );
+  const selectedTemplateLabel = await window
+    .locator("[data-resume-template-toggle]:visible")
+    .first()
+    .locator("xpath=ancestor::section[1]")
+    .locator("span.text-sm.font-semibold")
+    .first()
+    .textContent();
+
+  return selectedTemplateLabel?.trim() ?? null;
 }
 
 function templateStrategyPanel(window) {
   return window
-    .locator("section:visible")
-    .filter({ hasText: "Template strategy" })
-    .first();
+    .locator(
+      "[data-resume-template-toggle]:visible, [data-resume-template-option]:visible",
+    )
+    .first()
+    .locator("xpath=ancestor::section[1]");
 }
 
 async function clickLocatorViaDom(locator, description) {
@@ -559,9 +566,9 @@ async function clickLocatorViaDom(locator, description) {
 }
 
 async function clickShellNavigationWithMouse(window, name) {
-  const navigation = window.getByRole("navigation", {
-    name: "Job Finder sections",
-  });
+  const navigation = window.locator(
+    'nav[aria-label="Job Finder sections"]:visible, nav[aria-label="Job Finder sidebar destinations"]:visible',
+  );
   const control = navigation.getByRole("button", { name }).first();
   await control.waitFor({ state: "visible", timeout: 10_000 });
   await control.evaluate((element) => element.click());
@@ -721,7 +728,7 @@ async function captureResumeWorkspace() {
 
     const resumeProofDetails = window
       .locator("details")
-      .filter({ hasText: "Résumé proof details" })
+      .filter({ hasText: /Resume proof details/ })
       .first();
     await resumeProofDetails.locator(":scope > summary").click();
     await window
@@ -733,10 +740,15 @@ async function captureResumeWorkspace() {
       path: path.join(outputDir, "04-resume-workspace-sources.png"),
     });
 
-    await window
-      .getByText("Template strategy", { exact: true })
-      .first()
-      .waitFor({ timeout: 10000 });
+    await window.getByText("Template", { exact: true }).first().waitFor({
+      timeout: 10000,
+    });
+    const changeTemplateButton = window.getByRole("button", {
+      name: "Change template",
+    });
+    if (await changeTemplateButton.isVisible()) {
+      await changeTemplateButton.click();
+    }
     const recommendedTemplateLabels = await templateStrategyPanel(window)
       .locator('[data-slot="badge"]')
       .evaluateAll((elements) =>
@@ -763,11 +775,14 @@ async function captureResumeWorkspace() {
     await clickTemplateStrategyVariant(
       window,
       "Engineering Spec · Technical Brief",
-      "Use this template",
+      "Use template",
     );
     await waitForCondition(
       async () =>
-        (await getTemplateBadgeText(window)) === "Template: Engineering Spec",
+        window
+          .getByText("Engineering Spec · Technical Brief", { exact: true })
+          .first()
+          .isVisible(),
       "template header badge to reflect the recommended template selection",
     );
     await waitForPreviewReady(window, {
@@ -778,8 +793,12 @@ async function captureResumeWorkspace() {
       path: path.join(outputDir, "04c-template-selected-engineering-spec.png"),
     });
 
-    const unsavedPreviewSentinel =
-      "Senior systems designer with strong workflow automation, design-system, and operations-platform experience who leads cross-functional discovery, turns complex service constraints into accessible product decisions, documents implementation tradeoffs, and helps engineering teams ship reliable customer workflows across high-volume operational environments.";
+    const savedSummaryBeforePreviewEdit = getDraftSummaryText(
+      await getResumeWorkspace(window, "job_ready"),
+    );
+    const unsavedPreviewSentinel = savedSummaryBeforePreviewEdit.endsWith(".")
+      ? savedSummaryBeforePreviewEdit.slice(0, -1)
+      : `${savedSummaryBeforePreviewEdit}.`;
     await summaryField(window).fill(unsavedPreviewSentinel);
     await visiblePreviewPane(window)
       .locator("span:visible", { hasText: /^Unsaved edits rendered$/ })
@@ -906,9 +925,10 @@ async function captureResumeWorkspace() {
       .evaluate((input) => {
         const article = input.closest("article");
         const buttons = Array.from(article?.querySelectorAll("button") ?? []);
-        const moveDownButton = buttons.find((button) =>
-          button.textContent?.toLowerCase().includes("move down"),
-        );
+        const moveDownButton = buttons.find((button) => {
+          const label = button.getAttribute("aria-label")?.toLowerCase() ?? "";
+          return label.startsWith("move ") && label.endsWith(" down");
+        });
 
         if (!(moveDownButton instanceof HTMLButtonElement)) {
           throw new Error(
@@ -1037,19 +1057,19 @@ async function captureResumeWorkspace() {
     const previousMessageCount = (
       await getResumeAssistantMessages(window, "job_ready")
     ).length;
-    await window.getByRole("button", { name: "Open guided edits" }).click();
+    await window.getByRole("button", { name: /^Open the Assistant/ }).click();
     await waitForCondition(
       async () =>
         await window
           .locator('[data-resume-guided-edits-open="true"]')
           .first()
           .isVisible(),
-      "guided edits popup to open",
+      "the Assistant panel to open",
     );
     await assistantField(window).fill(
       "Shorten the summary for ATS readability.",
     );
-    await window.getByRole("button", { name: "Send request" }).click();
+    await window.getByRole("button", { name: "Send message" }).click();
     await waitForCondition(
       async () => {
         const messages = await getResumeAssistantMessages(window, "job_ready");
@@ -1078,7 +1098,7 @@ async function captureResumeWorkspace() {
       );
     assert(
       pendingProposal?.patches.length > 0,
-      "Expected Guided Edits to create a pending proposal with at least one patch.",
+      "Expected the Assistant to create a pending proposal with at least one patch.",
     );
     const assistantDraftProposed = await getResumeWorkspace(
       window,
@@ -1087,17 +1107,17 @@ async function captureResumeWorkspace() {
     assert(
       JSON.stringify(assistantDraftProposed.draft) ===
         JSON.stringify(assistantDraftBefore.draft),
-      "Guided Edits changed the saved draft before the user approved its proposal.",
+      "The Assistant changed the saved draft before the user approved its proposal.",
     );
     await window.screenshot({
       animations: "disabled",
       path: path.join(outputDir, "08-assistant-proposal.png"),
     });
 
-    const guidedEditsDialog = window.getByRole("dialog", {
-      name: /Guided edits/i,
+    const assistantDialog = window.getByRole("dialog", {
+      name: /^Assistant$/,
     });
-    await guidedEditsDialog
+    await assistantDialog
       .getByRole("button", { name: /Accept selected \(\d+\)/i })
       .click();
     await waitForCondition(async () => {
@@ -1108,7 +1128,7 @@ async function captureResumeWorkspace() {
           message.proposalStatus === "accepted" &&
           message.resolvedPatchIds.length > 0,
       );
-    }, "explicit acceptance of the Guided Edits proposal");
+    }, "explicit acceptance of the Assistant proposal");
     const assistantDraftAccepted = await getResumeWorkspace(
       window,
       "job_ready",
@@ -1116,7 +1136,7 @@ async function captureResumeWorkspace() {
     assert(
       JSON.stringify(assistantDraftAccepted.draft) !==
         JSON.stringify(assistantDraftBefore.draft),
-      "The saved draft did not change after the user approved Guided Edits.",
+      "The saved draft did not change after the user approved the Assistant proposal.",
     );
     Object.assign(studioResults, {
       guidedEditsProposal: {
@@ -1168,12 +1188,18 @@ async function captureResumeWorkspace() {
     await window
       .getByRole("heading", { level: 1, name: "Shortlisted jobs" })
       .waitFor({ timeout: 10000 });
-    const gatedApproveButton = window.getByRole("button", {
-      name: "Prepare application",
+    const gatedPrepareButtons = window.getByRole("button", {
+      name: /^Prepare application/,
     });
-    if (!(await gatedApproveButton.isDisabled())) {
+    const enabledPrepareButtonCount = await gatedPrepareButtons.evaluateAll(
+      (buttons) =>
+        buttons.filter(
+          (button) => button instanceof HTMLButtonElement && !button.disabled,
+        ).length,
+    );
+    if (enabledPrepareButtonCount > 0) {
       throw new Error(
-        "Prepare application should stay disabled before resume approval.",
+        "Prepare application should stay unavailable before resume approval.",
       );
     }
     await window.screenshot({
@@ -1186,7 +1212,7 @@ async function captureResumeWorkspace() {
     await waitForPreviewReady(window, getPreviewExpectation(reopenedWorkspace));
 
     const approveButton = window.getByRole("button", {
-      name: "Approve current PDF",
+      name: /Approve (?:this|current) PDF/,
     });
     await approveButton.waitFor({ timeout: 10000 });
     await approveButton.click();
@@ -1206,9 +1232,11 @@ async function captureResumeWorkspace() {
     await window
       .getByRole("heading", { level: 1, name: "Shortlisted jobs" })
       .waitFor({ timeout: 10000 });
-    const readyApproveButton = window.getByRole("button", {
-      name: "Prepare application",
-    });
+    const readyApproveButton = window
+      .getByRole("button", {
+        name: /^Prepare application/,
+      })
+      .first();
     if (await readyApproveButton.isDisabled()) {
       throw new Error(
         "Prepare application should be enabled after resume approval.",
@@ -1223,12 +1251,12 @@ async function captureResumeWorkspace() {
     const checkpointDialog = window.getByRole("dialog");
     await checkpointDialog.waitFor({ timeout: 10000 });
     await checkpointDialog
-      .getByRole("button", { name: "Continue without" })
+      .getByRole("button", { name: "Prepare application", exact: true })
       .click();
     await waitForCondition(async () => {
       const currentWorkspace = await getWorkspace(window);
       return currentWorkspace.applicationRecords.length > 0;
-    }, "application record created by Apply Copilot");
+    }, "application record created by the prepare-only run");
     await window.evaluate(() => {
       window.location.hash = "#/job-finder/applications";
     });

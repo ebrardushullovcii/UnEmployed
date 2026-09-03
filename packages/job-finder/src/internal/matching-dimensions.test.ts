@@ -85,7 +85,7 @@ describe("match dimensions", () => {
       unknownCount: 0,
     });
     expect(dimensions.evidenceConfidence.explanation).toContain(
-      "not positive fit",
+      "still counts against the fit",
     );
   });
 
@@ -259,6 +259,33 @@ describe("match dimensions", () => {
     expect(locationEvidence?.detail).not.toMatch(
       /aligned|outside the saved areas/i,
     );
+  });
+
+  test("explains a remote listing through the remote work-mode preference instead of the saved city", () => {
+    const base = createInput();
+    const dimensions = buildMatchDimensionsAssessment({
+      ...base,
+      locationCompatibility: "compatible",
+      locationRemotePreferenceApplied: true,
+      searchPreferences: {
+        ...base.searchPreferences,
+        locations: ["Austin, TX"],
+        workModes: ["remote"],
+      },
+      posting: {
+        ...base.posting,
+        location: "Remote (Chicago, IL)",
+        workMode: ["remote"],
+      },
+    });
+
+    const locationEvidence = dimensions.preferenceAlignment.evidence.find(
+      (evidence) => evidence.label === "Location comparison",
+    );
+    expect(locationEvidence?.detail).toBe(
+      "Remote listing; remote is one of your preferred work modes.",
+    );
+    expect(locationEvidence?.detail).not.toMatch(/outside the saved areas/);
   });
 
   test("uses Easy Apply only for effort and recognizes redirect and consent checkpoints", () => {

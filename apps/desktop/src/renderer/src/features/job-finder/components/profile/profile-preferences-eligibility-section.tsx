@@ -18,6 +18,7 @@ import {
   ProfileTextarea,
   profileSelectTriggerClassName,
 } from "./profile-form-primitives";
+import { PROFILE_WORK_CONSTRAINT_COPY } from "./profile-work-constraints-copy";
 import { ProfileOptionalSection } from "./profile-optional-section";
 import type { ProfileFieldArrayKeyName } from "./profile-field-array-types";
 import { ProfileRecordCard } from "./profile-record-card";
@@ -34,6 +35,7 @@ const booleanSelectOptions = [
 
 function BooleanSelectField(props: {
   control: Control<ProfileEditorValues>;
+  description?: string;
   id?: string;
   label: string;
   name:
@@ -44,6 +46,7 @@ function BooleanSelectField(props: {
 }) {
   const generatedId = useId();
   const fieldId = props.id ?? generatedId;
+  const descriptionId = `${fieldId}-help`;
 
   return (
     <Controller
@@ -58,10 +61,21 @@ function BooleanSelectField(props: {
             }
             options={booleanSelectOptions}
             placeholder="Not set"
+            {...(props.description
+              ? { triggerAriaDescribedBy: descriptionId }
+              : {})}
             triggerClassName={profileSelectTriggerClassName}
             triggerId={fieldId}
             value={field.value}
           />
+          {props.description ? (
+            <p
+              className="text-xs leading-5 text-foreground-muted"
+              id={descriptionId}
+            >
+              {props.description}
+            </p>
+          ) : null}
         </div>
       )}
     />
@@ -140,36 +154,49 @@ export function ProfilePreferencesEligibilitySection(props: {
       <ProfileSectionHeader
         eyebrow="Preferences"
         title="Work eligibility"
-        description="Keep screening answers separate from resume facts so they are easy to review when an application asks for them."
+        description="Record only legal work-authorization facts you know. Leave unknown answers Not set; Job Finder will not guess from your resume or your preferred work mode."
       />
 
       <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-        <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">
-          Authorization
-        </h3>
+        <h3 className="font-semibold text-(--text-headline)">Authorization</h3>
         <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
           <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
             <FieldLabel htmlFor={authorizedWorkCountriesId}>
-              Authorized work countries
+              {PROFILE_WORK_CONSTRAINT_COPY.authorizedWorkCountries.label}
             </FieldLabel>
             <ProfileTextarea
+              aria-describedby={`${authorizedWorkCountriesId}-help`}
               className="min-h-(--textarea-tall) max-h-(--textarea-tall)"
               id={authorizedWorkCountriesId}
-              placeholder="List countries where you can work without extra sponsorship"
+              placeholder={
+                PROFILE_WORK_CONSTRAINT_COPY.authorizedWorkCountries.placeholder
+              }
               rows={4}
               {...register("eligibility.authorizedWorkCountries")}
             />
+            <p
+              className="text-xs leading-5 text-foreground-muted"
+              id={`${authorizedWorkCountriesId}-help`}
+            >
+              {PROFILE_WORK_CONSTRAINT_COPY.authorizedWorkCountries.description}
+            </p>
           </div>
           <BooleanSelectField
             control={profileControl}
+            description={
+              PROFILE_WORK_CONSTRAINT_COPY.requiresVisaSponsorship.description
+            }
             id="profile-setup-field-eligibility-requires-visa-sponsorship"
-            label="Requires visa sponsorship"
+            label={PROFILE_WORK_CONSTRAINT_COPY.requiresVisaSponsorship.label}
             name="eligibility.requiresVisaSponsorship"
           />
           <BooleanSelectField
             control={profileControl}
+            description={
+              PROFILE_WORK_CONSTRAINT_COPY.remoteEligible.description
+            }
             id="profile-setup-field-eligibility-remote-eligible"
-            label="Can work remotely"
+            label={PROFILE_WORK_CONSTRAINT_COPY.remoteEligible.label}
             name="eligibility.remoteEligible"
           />
         </div>
@@ -194,40 +221,58 @@ export function ProfilePreferencesEligibilitySection(props: {
       </ProfileOptionalSection>
 
       <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-        <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">
+        <h3 className="font-semibold text-(--text-headline)">
           Relocation and travel
         </h3>
         <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
           <BooleanSelectField
             control={profileControl}
+            description={
+              PROFILE_WORK_CONSTRAINT_COPY.willingToRelocate.description
+            }
             id="profile-setup-field-eligibility-willing-to-relocate"
-            label="Willing to relocate"
+            label={PROFILE_WORK_CONSTRAINT_COPY.willingToRelocate.label}
             name="eligibility.willingToRelocate"
           />
           <BooleanSelectField
             control={profileControl}
+            description={
+              PROFILE_WORK_CONSTRAINT_COPY.willingToTravel.description
+            }
             id="profile-setup-field-eligibility-willing-to-travel"
-            label="Willing to travel"
+            label={PROFILE_WORK_CONSTRAINT_COPY.willingToTravel.label}
             name="eligibility.willingToTravel"
           />
           <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
             <FieldLabel htmlFor={preferredRelocationRegionsId}>
-              Preferred relocation locations
+              {PROFILE_WORK_CONSTRAINT_COPY.preferredRelocationRegions.label}
             </FieldLabel>
             <ProfileTextarea
+              aria-describedby={`${preferredRelocationRegionsId}-help`}
               className="min-h-(--textarea-tall) max-h-(--textarea-tall)"
               id={preferredRelocationRegionsId}
+              placeholder={
+                PROFILE_WORK_CONSTRAINT_COPY.preferredRelocationRegions
+                  .placeholder
+              }
               rows={4}
               {...register("eligibility.preferredRelocationRegions")}
             />
+            <p
+              className="text-xs leading-5 text-foreground-muted"
+              id={`${preferredRelocationRegionsId}-help`}
+            >
+              {
+                PROFILE_WORK_CONSTRAINT_COPY.preferredRelocationRegions
+                  .description
+              }
+            </p>
           </div>
         </div>
       </article>
 
       <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-        <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">
-          Availability
-        </h3>
+        <h3 className="font-semibold text-(--text-headline)">Availability</h3>
         <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
           <div className="grid min-w-0 content-start gap-(--gap-field) h-full">
             <FieldLabel htmlFor={noticePeriodId}>
@@ -255,7 +300,7 @@ export function ProfilePreferencesEligibilitySection(props: {
       </article>
 
       <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-        <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">
+        <h3 className="font-semibold text-(--text-headline)">
           Application defaults
         </h3>
         <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
@@ -287,7 +332,7 @@ export function ProfilePreferencesEligibilitySection(props: {
       </article>
 
       <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-        <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">
+        <h3 className="font-semibold text-(--text-headline)">
           Reusable screener answers
         </h3>
         <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
@@ -443,7 +488,7 @@ export function ProfilePreferencesEligibilitySection(props: {
                   }
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-foreground-muted">
+                    <p className="text-(length:--text-field-label) font-medium uppercase tracking-[0.16em] text-foreground-muted">
                       Answer details
                     </p>
                     <Button

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
 import { ApplyRunSchema } from "@unemployed/contracts";
@@ -10,6 +10,61 @@ import { ApplicationsDetailPanelRecoveryActionsSection } from "./applications-de
 afterEach(cleanup);
 
 describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
+  it("makes a blocker-only uncertain submission terminal with no retry controls", () => {
+    const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
+      {
+        id: "result_uncertain",
+        runId: "run_uncertain",
+        jobId: "job_uncertain",
+        applicationRecordId: "application_uncertain",
+        queuePosition: 0,
+        state: "blocked",
+        summary: "Submission outcome needs verification.",
+        detail: "Check the employer site.",
+        startedAt: "2026-08-28T10:00:00.000Z",
+        updatedAt: "2026-08-28T10:01:00.000Z",
+        completedAt: "2026-08-28T10:01:00.000Z",
+        blockerReason: "submission_outcome_uncertain",
+        blockerSummary: "Verify on the employer site.",
+        listingSignalEvidence: null,
+        visualObservationSets: [],
+        visualCheckpoints: [],
+        latestQuestionCount: 0,
+        latestAnswerCount: 0,
+        pendingConsentRequestCount: 0,
+        artifactCount: 0,
+        latestCheckpointId: null,
+        privacyReceipt: null,
+      };
+
+    const { getByText, queryByRole, queryByTestId } = render(
+      <ApplicationsDetailPanelRecoveryActionsSection
+        canRestageAutoRun
+        canRestageQueueRun
+        dailyPreparationCapacity={null}
+        excludedQueueRecoveryEntries={[]}
+        isApplyPending={false}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApply={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        selectedQueueOutcomeEntries={[]}
+        selectedQueueRecoveryEntries={[]}
+        selectedQueueRecoveryJobIds={[]}
+        selectedRecordJobId="job_uncertain"
+        selectedApplicationRecordId="application_uncertain"
+        selectedRun={null}
+        visibleApplyResult={visibleApplyResult}
+      />,
+    );
+
+    expect(getByText("Manual verification required")).toBeTruthy();
+    expect(
+      getByText(/automatic retry and preparation stay unavailable/i),
+    ).toBeTruthy();
+    expect(queryByRole("button")).toBeNull();
+    expect(queryByTestId("applications-recovery-actions")).toBeNull();
+  });
+
   it("offers an explicit user-confirmed retry after an application sign-in handoff", () => {
     const onStartApplyCopilot = vi.fn();
     const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
@@ -38,9 +93,8 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         privacyReceipt: null,
       };
 
-    const { getByRole, getByText } = render(
+    const { getByRole, getByText, queryByRole } = render(
       <ApplicationsDetailPanelRecoveryActionsSection
-        applyRunHistoryCount={1}
         canRestageAutoRun={false}
         canRestageQueueRun={false}
         dailyPreparationCapacity={null}
@@ -61,20 +115,187 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
 
     expect(getByText(/never handles or stores your credentials/i)).toBeTruthy();
     fireEvent.click(
-      getByRole("button", { name: /i'm signed in — retry preparation/i }),
+      getByRole("button", { name: /i'm signed in — run preparation again/i }),
     );
     expect(onStartApplyCopilot).toHaveBeenCalledWith({
       jobId: "job_workday",
       applicationRecordId: "application_workday",
     });
-    expect(getByRole("button", { name: /retry preparation/i })).toBeTruthy();
     expect(
-      getByRole("button", { name: "Queue automatic preparation" }),
+      getByRole("button", { name: /run preparation again/i }),
     ).toBeTruthy();
-    expect(getByRole("button", { name: "Queue remaining jobs" })).toBeTruthy();
+    expect(
+      queryByRole("button", { name: "Prepare this job automatically" }),
+    ).toBeNull();
+    expect(
+      getByText(/staging an automatic preparation stays available only/i),
+    ).toBeTruthy();
+    expect(
+      queryByRole("button", { name: "Prepare remaining jobs" }),
+    ).toBeNull();
     expect(document.body.textContent ?? "").not.toMatch(
       /apply copilot|restage|rerun/i,
     );
+  });
+
+  it("keeps recovery actions start-aligned with natural widths and responsive secondary wrapping", () => {
+    const onStartApplyCopilot = vi.fn();
+    const onStartAutoApply = vi.fn();
+    const onStartAutoApplyQueue = vi.fn();
+    const { container, getByRole, getByTestId } = render(
+      <ApplicationsDetailPanelRecoveryActionsSection
+        canRestageAutoRun
+        canRestageQueueRun
+        dailyPreparationCapacity={null}
+        excludedQueueRecoveryEntries={[]}
+        isApplyPending={false}
+        onStartApplyCopilot={onStartApplyCopilot}
+        onStartAutoApply={onStartAutoApply}
+        onStartAutoApplyQueue={onStartAutoApplyQueue}
+        selectedQueueOutcomeEntries={[]}
+        selectedQueueRecoveryEntries={[]}
+        selectedQueueRecoveryJobIds={["job_workday"]}
+        selectedRecordJobId="job_workday"
+        selectedApplicationRecordId="application_workday"
+        selectedRun={null}
+        visibleApplyResult={null}
+      />,
+    );
+
+    const actions = getByTestId("applications-recovery-actions");
+    expect(actions.className).toContain("min-w-0");
+    expect(actions.className).toContain("flex-wrap");
+    expect(actions.className).toContain("items-start");
+    expect(actions.className).toContain("justify-start");
+    expect(actions.className).not.toContain("grid");
+
+    const primary = getByTestId("applications-recovery-primary-action");
+    expect(primary.className).toContain("flex-wrap");
+    // Stretch, not start: every control in the row shares one box metric so
+    // the row cannot render at three heights and three tops.
+    expect(primary.className).toContain("items-stretch");
+    expect(primary.className).toContain("min-w-0");
+    expect(primary.className).toContain("max-w-full");
+    expect(primary.className).not.toContain("grid");
+
+    const retry = getByRole("button", { name: "Run preparation again" });
+    expect(retry.className).toContain("w-fit");
+    expect(retry.className).toContain("min-w-0");
+    expect(retry.className).toContain("max-w-full");
+    expect(retry.className).toContain("min-h-11");
+    expect(retry.className).toContain("whitespace-normal");
+    expect(retry.className.split(/\s+/)).not.toContain("w-full");
+    expect(retry.getAttribute("data-variant")).toBe("primary");
+
+    const secondary = getByTestId("applications-recovery-secondary-actions");
+    expect(secondary.className).toContain("flex-wrap");
+    expect(secondary.className).toContain("items-start");
+    expect(secondary.className).toContain("min-w-0");
+    expect(secondary.className).toContain("max-w-full");
+    const secondaryClassNames = secondary.className.split(/\s+/);
+    expect(secondaryClassNames).not.toContain("rounded-(--radius-field)");
+    expect(secondaryClassNames).not.toContain("border");
+    expect(secondaryClassNames).not.toContain("bg-background/40");
+    expect(secondaryClassNames).not.toContain("p-2");
+    const secondaryActionList = getByTestId(
+      "applications-recovery-secondary-action-list",
+    );
+    expect(secondaryActionList.className).toContain("flex-wrap");
+    expect(secondaryActionList.className).toContain("justify-start");
+    expect(secondaryActionList.className).toContain("max-w-full");
+    expect(secondaryActionList.className).not.toContain("grid");
+    expect(within(secondary).getAllByRole("button")).toHaveLength(2);
+
+    const automatic = getByRole("button", {
+      name: "Prepare this job automatically",
+    });
+    const remaining = getByRole("button", {
+      name: "Prepare remaining jobs",
+    });
+    for (const button of [automatic, remaining]) {
+      expect(button.className).toContain("w-fit");
+      expect(button.className).toContain("min-w-0");
+      expect(button.className).toContain("max-w-full");
+      // One box metric across the whole row, primary included.
+      expect(button.className).toContain("min-h-11");
+      expect(button.className).toContain("whitespace-normal");
+      expect(button.className.split(/\s+/)).not.toContain("w-full");
+    }
+
+    const buttonLabels = Array.from(
+      container.querySelectorAll(
+        '[data-testid="applications-recovery-actions"] button',
+      ),
+    ).map((button) => button.textContent?.trim());
+    expect(buttonLabels).toEqual([
+      "Run preparation again",
+      "Prepare this job automatically",
+      "Prepare remaining jobs",
+    ]);
+
+    fireEvent.click(retry);
+    expect(onStartApplyCopilot).toHaveBeenCalledWith({
+      jobId: "job_workday",
+      applicationRecordId: "application_workday",
+    });
+    fireEvent.click(automatic);
+    expect(onStartAutoApply).toHaveBeenCalledWith({
+      jobId: "job_workday",
+      applicationRecordId: "application_workday",
+    });
+    fireEvent.click(remaining);
+    expect(onStartAutoApplyQueue).toHaveBeenCalledWith(["job_workday"]);
+  });
+
+  it("keeps a single optional recovery action natural-width and start-aligned", () => {
+    const onStartAutoApply = vi.fn();
+
+    const { getByRole, getByTestId } = render(
+      <ApplicationsDetailPanelRecoveryActionsSection
+        canRestageAutoRun
+        canRestageQueueRun={false}
+        dailyPreparationCapacity={null}
+        excludedQueueRecoveryEntries={[]}
+        isApplyPending={false}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApply={onStartAutoApply}
+        onStartAutoApplyQueue={vi.fn()}
+        selectedQueueOutcomeEntries={[]}
+        selectedQueueRecoveryEntries={[]}
+        selectedQueueRecoveryJobIds={[]}
+        selectedRecordJobId="job_workday"
+        selectedApplicationRecordId="application_workday"
+        selectedRun={null}
+        visibleApplyResult={null}
+      />,
+    );
+
+    const secondary = getByTestId("applications-recovery-secondary-actions");
+    expect(secondary.className).toContain("flex-wrap");
+    expect(secondary.className).toContain("items-start");
+    const secondaryClassNames = secondary.className.split(/\s+/);
+    expect(secondaryClassNames).not.toContain("rounded-(--radius-field)");
+    expect(secondaryClassNames).not.toContain("border");
+    expect(secondaryClassNames).not.toContain("bg-background/40");
+    expect(secondaryClassNames).not.toContain("p-2");
+    const secondaryActionList = getByTestId(
+      "applications-recovery-secondary-action-list",
+    );
+    expect(secondaryActionList.className).toContain("flex-wrap");
+    expect(secondaryActionList.className).toContain("justify-start");
+    expect(secondaryActionList.className).not.toContain("grid");
+
+    const automatic = getByRole("button", {
+      name: "Prepare this job automatically",
+    });
+    expect(automatic.className).toContain("w-fit");
+    expect(automatic.className).toContain("max-w-full");
+    expect(automatic.className.split(/\s+/)).not.toContain("w-full");
+    fireEvent.click(automatic);
+    expect(onStartAutoApply).toHaveBeenCalledWith({
+      jobId: "job_workday",
+      applicationRecordId: "application_workday",
+    });
   });
 
   it("explains a failed resume attachment and makes retry an explicit approval", () => {
@@ -107,7 +328,6 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
 
     const { getByRole, getByText, queryByText } = render(
       <ApplicationsDetailPanelRecoveryActionsSection
-        applyRunHistoryCount={1}
         canRestageAutoRun={false}
         canRestageQueueRun={false}
         dailyPreparationCapacity={null}
@@ -128,14 +348,16 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
 
     expect(getByText(/approved resume was not attached/i)).toBeTruthy();
     expect(
-      getByText(/no verified site writes are recorded for this run/i),
+      getByText(
+        /no verified writes to the employer page were recorded for this run/i,
+      ),
     ).toBeTruthy();
     expect(document.body.textContent ?? "").not.toMatch(
       /fields? (?:were )?saved|fields? remain/i,
     );
     expect(queryByText(/POST|XHR|mutating page action/i)).toBeNull();
     fireEvent.click(
-      getByRole("button", { name: /approve and retry resume attachment/i }),
+      getByRole("button", { name: /approve and reattach the resume/i }),
     );
     expect(onStartApplyCopilot).toHaveBeenCalledWith({
       jobId: "job_greenhouse",
@@ -146,7 +368,6 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
   it("keeps long safe preparation visibly explained while controls are disabled", () => {
     const { getByRole, getByText } = render(
       <ApplicationsDetailPanelRecoveryActionsSection
-        applyRunHistoryCount={1}
         canRestageAutoRun={false}
         canRestageQueueRun={false}
         dailyPreparationCapacity={null}
@@ -165,9 +386,14 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
       />,
     );
 
-    expect(getByRole("status").textContent).toMatch(
+    // The boundary is stated once on this screen, by the guidance paragraph
+    // that owns it; the preparing status no longer repeats it word for word.
+    expect(getByRole("status").textContent).not.toMatch(
       /stop before the final submit control/i,
     );
+    expect(
+      getByText(/still stops before any final submit click/i),
+    ).toBeTruthy();
     const pendingButton = getByRole("button", { name: /preparing safely/i });
     expect(getByText(/can take up to a minute/i)).toBeTruthy();
     // Pending keeps the control exposed but inert instead of natively
@@ -175,6 +401,669 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     expect(pendingButton.hasAttribute("disabled")).toBe(false);
     expect(pendingButton.getAttribute("aria-disabled")).toBe("true");
     expect(pendingButton.getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("makes Safeguards the primary action for a site-blocked pause without a preparing spinner", () => {
+    const onOpenSafeguards = vi.fn();
+    const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
+      {
+        id: "result_sw_block",
+        runId: "run_sw_block",
+        jobId: "job_linkedin",
+        applicationRecordId: "application_linkedin",
+        queuePosition: 0,
+        state: "blocked",
+        summary: "A LinkedIn service worker blocked automated preparation.",
+        detail: "The dedicated browser could not continue safely.",
+        startedAt: "2026-08-27T10:00:00.000Z",
+        updatedAt: "2026-08-27T10:01:00.000Z",
+        completedAt: "2026-08-27T10:01:00.000Z",
+        blockerReason: "site_protection",
+        blockerSummary: "Service worker interference on this job site.",
+        listingSignalEvidence: null,
+        visualObservationSets: [],
+        visualCheckpoints: [],
+        latestQuestionCount: 2,
+        latestAnswerCount: 0,
+        pendingConsentRequestCount: 0,
+        artifactCount: 0,
+        latestCheckpointId: null,
+        privacyReceipt: null,
+      };
+
+    const { getByRole, getByTestId, queryByRole, queryByText } = render(
+      <ApplicationsDetailPanelRecoveryActionsSection
+        canRestageAutoRun={false}
+        canRestageQueueRun={false}
+        dailyPreparationCapacity={null}
+        excludedQueueRecoveryEntries={[]}
+        isApplyPending={true}
+        onOpenSafeguards={onOpenSafeguards}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApply={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        selectedQueueOutcomeEntries={[]}
+        selectedQueueRecoveryEntries={[]}
+        selectedQueueRecoveryJobIds={[]}
+        selectedRecordJobId="job_linkedin"
+        selectedApplicationRecordId="application_linkedin"
+        selectedRun={null}
+        visibleApplyResult={visibleApplyResult}
+      />,
+    );
+
+    // The instruction is owned by the Next step callout above this section;
+    // it is not restated here (it used to arrive three times).
+    expect(
+      getByRole("heading", { name: /Finish this application/i }),
+    ).toBeTruthy();
+    // Page-layout commentary was removed: heading, one sentence in Next
+    // step, and the action are enough.
+    expect(queryByText(/Use the action below/i)).toBeNull();
+    expect(
+      queryByRole("button", { name: /Prepare this job automatically/i }),
+    ).toBeNull();
+    expect(
+      queryByRole("button", { name: /Prepare remaining jobs/i }),
+    ).toBeNull();
+    expect(
+      queryByRole("button", { name: /run preparation again/i }),
+    ).toBeNull();
+    expect(queryByText(/service worker that can interfere/i)).toBeNull();
+    expect(queryByRole("button", { name: /preparing safely/i })).toBeNull();
+    expect(queryByText(/can take up to a minute/i)).toBeNull();
+    expect(queryByText(/Run outcome summary/i)).toBeNull();
+    expect(queryByText(/Will be prepared/i)).toBeNull();
+    const safeguardsPrimary = getByTestId("site-blocked-safeguards-primary");
+    expect(safeguardsPrimary.className).toContain("w-fit");
+    expect(safeguardsPrimary.className).toContain("min-w-0");
+    expect(safeguardsPrimary.className).toContain("max-w-full");
+    expect(safeguardsPrimary.className.split(/\s+/)).not.toContain("w-full");
+    fireEvent.click(
+      getByRole("button", {
+        name: /Open Safeguards to reset the Job Finder browser/i,
+      }),
+    );
+    expect(onOpenSafeguards).toHaveBeenCalledOnce();
+  });
+
+  it("makes finish-in-browser primary for conflicting prefilled fields and demotes retry", () => {
+    const onStartApplyCopilot = vi.fn();
+    const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
+      {
+        id: "result_prefill_conflict",
+        runId: "run_prefill_conflict",
+        jobId: "job_partiful",
+        applicationRecordId: "application_partiful",
+        queuePosition: 0,
+        state: "blocked",
+        summary: "Prefilled application values need manual review",
+        detail:
+          "One or more known application fields already contain values that do not match the exact saved candidate profile. The runtime preserved those values, captured the conflicts for review, and stopped before advancing.",
+        startedAt: "2026-08-27T10:00:00.000Z",
+        updatedAt: "2026-08-27T10:01:00.000Z",
+        completedAt: "2026-08-27T10:01:00.000Z",
+        blockerReason: "required_human_input",
+        blockerSummary: "Prefilled application values need manual review",
+        listingSignalEvidence: null,
+        visualObservationSets: [],
+        visualCheckpoints: [],
+        latestQuestionCount: 2,
+        latestAnswerCount: 0,
+        pendingConsentRequestCount: 0,
+        artifactCount: 0,
+        latestCheckpointId: null,
+        privacyReceipt: null,
+      };
+
+    const { getByRole, getByTestId, getByText, queryByRole, queryByText } =
+      render(
+        <ApplicationsDetailPanelRecoveryActionsSection
+          canRestageAutoRun={false}
+          canRestageQueueRun={false}
+          dailyPreparationCapacity={null}
+          excludedQueueRecoveryEntries={[]}
+          isApplyPending={true}
+          onStartApplyCopilot={onStartApplyCopilot}
+          onStartAutoApply={vi.fn()}
+          onStartAutoApplyQueue={vi.fn()}
+          selectedQueueOutcomeEntries={[]}
+          selectedQueueRecoveryEntries={[]}
+          selectedQueueRecoveryJobIds={[]}
+          selectedRecordJobId="job_partiful"
+          selectedApplicationRecordId="application_partiful"
+          selectedRun={null}
+          visibleApplyResult={visibleApplyResult}
+        />,
+      );
+
+    expect(getByText(/Finish this application/i)).toBeTruthy();
+    // Page-layout commentary was removed: heading, one sentence in Next
+    // step, and the action are enough.
+    expect(queryByText(/Use the action below/i)).toBeNull();
+    expect(
+      queryByRole("button", { name: /Prepare this job automatically/i }),
+    ).toBeNull();
+    const finishPrimary = getByTestId("manual-field-finish-primary");
+    expect(finishPrimary.textContent).toMatch(/Open the Job Finder browser/i);
+    expect(finishPrimary.className).toContain("w-fit");
+    expect(finishPrimary.className).toContain("min-w-0");
+    expect(finishPrimary.className).toContain("max-w-full");
+    expect(finishPrimary.className).toContain("min-h-11");
+    expect(finishPrimary.className.split(/\s+/)).not.toContain("w-full");
+    expect(queryByRole("button", { name: /preparing safely/i })).toBeNull();
+    expect(queryByText(/can take up to a minute/i)).toBeNull();
+    expect(
+      queryByRole("button", { name: /^Run preparation again$/i }),
+    ).toBeNull();
+
+    const retryLater = getByRole("button", {
+      name: /Run preparation again later/i,
+    });
+    expect(retryLater.className).toContain("w-fit");
+    expect(retryLater.className).toContain("min-w-0");
+    expect(retryLater.className).toContain("max-w-full");
+    expect(retryLater.className.split(/\s+/)).not.toContain("w-full");
+    expect(retryLater).toHaveProperty("disabled", false);
+    fireEvent.click(retryLater);
+    expect(onStartApplyCopilot).toHaveBeenCalledWith({
+      jobId: "job_partiful",
+      applicationRecordId: "application_partiful",
+    });
+  });
+
+  it("uses the same finish-first hierarchy for a prepare-only field save pause", () => {
+    const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
+      {
+        id: "result_field_save",
+        runId: "run_field_save",
+        jobId: "job_partiful",
+        applicationRecordId: "application_partiful",
+        queuePosition: 0,
+        state: "blocked",
+        summary: "The application page could not safely save a prepared field",
+        detail:
+          "The application site tried to save 'application field' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.",
+        startedAt: "2026-08-27T10:00:00.000Z",
+        updatedAt: "2026-08-27T10:01:00.000Z",
+        completedAt: "2026-08-27T10:01:00.000Z",
+        blockerReason: "required_human_input",
+        blockerSummary:
+          "The application page could not safely save a prepared field",
+        listingSignalEvidence: null,
+        visualObservationSets: [],
+        visualCheckpoints: [],
+        latestQuestionCount: 0,
+        latestAnswerCount: 0,
+        pendingConsentRequestCount: 0,
+        artifactCount: 0,
+        latestCheckpointId: null,
+        privacyReceipt: null,
+      };
+
+    const { getByRole, getByTestId, queryByRole, queryByText } = render(
+      <ApplicationsDetailPanelRecoveryActionsSection
+        canRestageAutoRun={false}
+        canRestageQueueRun={false}
+        dailyPreparationCapacity={null}
+        excludedQueueRecoveryEntries={[]}
+        isApplyPending={false}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApply={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        selectedQueueOutcomeEntries={[]}
+        selectedQueueRecoveryEntries={[]}
+        selectedQueueRecoveryJobIds={[]}
+        selectedRecordJobId="job_partiful"
+        selectedApplicationRecordId="application_partiful"
+        selectedRun={null}
+        visibleApplyResult={visibleApplyResult}
+      />,
+    );
+
+    expect(
+      getByRole("heading", { name: /Finish this application/i }),
+    ).toBeTruthy();
+    expect(getByTestId("manual-field-finish-primary")).toBeTruthy();
+    expect(
+      getByRole("button", { name: /Run preparation again later/i }),
+    ).toBeTruthy();
+    expect(
+      queryByRole("button", { name: /^Run preparation again$/i }),
+    ).toBeNull();
+    // Autosave pause: the reason is owned by the Next step callout above this
+    // section, which is why this section no longer restates it. F71: the same
+    // instruction used to be printed three times on one screen.
+    expect(queryByText(/tried to save a field automatically/i)).toBeNull();
+    expect(getByTestId("manual-field-finish-primary")).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(getByTestId("manual-field-finish-unavailable-note")).toBeTruthy();
+  });
+
+  it("opens the Job Finder browser on the paused application from the finish action", () => {
+    const onFinishInBrowser = vi.fn();
+    const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
+      {
+        id: "result_field_save_open",
+        runId: "run_field_save_open",
+        jobId: "job_partiful",
+        applicationRecordId: "application_partiful",
+        queuePosition: 0,
+        state: "awaiting_review",
+        summary: "The application page could not safely save a prepared field",
+        detail:
+          "The application site tried to save 'application field' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.",
+        startedAt: "2026-08-27T10:00:00.000Z",
+        updatedAt: "2026-08-27T10:01:00.000Z",
+        completedAt: "2026-08-27T10:01:00.000Z",
+        blockerReason: "required_human_input",
+        blockerSummary:
+          "The application page could not safely save a prepared field",
+        listingSignalEvidence: null,
+        visualObservationSets: [],
+        visualCheckpoints: [],
+        latestQuestionCount: 0,
+        latestAnswerCount: 0,
+        pendingConsentRequestCount: 0,
+        artifactCount: 0,
+        latestCheckpointId: null,
+        privacyReceipt: {
+          schemaVersion: 1,
+          generatedAt: "2026-08-27T10:01:00.000Z",
+          lineage: {
+            applicationRecordId: "application_partiful",
+            runId: "run_field_save_open",
+            jobId: "job_partiful",
+            resultId: "result_field_save_open",
+          },
+          destination: {
+            origin: "https://jobs.example.com",
+            safePath: "/apply/123",
+          },
+          resume: {
+            source: "tailored_export",
+            sourceDocumentId: null,
+            fileName: "resume.pdf",
+            sha256: "a".repeat(64),
+            format: "pdf",
+          },
+          stayedLocal: [],
+          modelUse: [],
+          externalWrites: [],
+          accountCreationAuthorized: false,
+          finalSubmitAuthorized: false,
+          finalSubmitOccurred: false,
+        } as unknown as NonNullable<
+          JobFinderWorkspaceSnapshot["applyJobResults"][number]["privacyReceipt"]
+        >,
+      };
+
+    const { getByRole, getByTestId, queryByTestId } = render(
+      <ApplicationsDetailPanelRecoveryActionsSection
+        canRestageAutoRun={false}
+        canRestageQueueRun={false}
+        dailyPreparationCapacity={null}
+        excludedQueueRecoveryEntries={[]}
+        isApplyPending={false}
+        onFinishInBrowser={onFinishInBrowser}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApply={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        selectedQueueOutcomeEntries={[]}
+        selectedQueueRecoveryEntries={[]}
+        selectedQueueRecoveryJobIds={[]}
+        selectedRecordJobId="job_partiful"
+        selectedApplicationRecordId="application_partiful"
+        selectedRun={null}
+        visibleApplyResult={visibleApplyResult}
+      />,
+    );
+
+    const finishPrimary = getByRole("button", {
+      name: /Open the Job Finder browser/i,
+    });
+    expect(finishPrimary).toBe(getByTestId("manual-field-finish-primary"));
+    expect(finishPrimary).toHaveProperty("disabled", false);
+    expect(queryByTestId("manual-field-finish-unavailable-note")).toBeNull();
+    expect(queryByTestId("manual-field-finish-status")).toBeNull();
+
+    fireEvent.click(finishPrimary);
+
+    expect(onFinishInBrowser).toHaveBeenCalledExactlyOnceWith({
+      jobId: "job_partiful",
+      resultId: "result_field_save_open",
+      runId: "run_field_save_open",
+      applicationRecordId: "application_partiful",
+      destinationUrl: "https://jobs.example.com/apply/123",
+    });
+    const status = getByTestId("manual-field-finish-status");
+    expect(status.getAttribute("role")).toBe("status");
+    expect(status.textContent).toMatch(
+      /Opened in the Job Finder browser\. Switch to that window/i,
+    );
+    // Retry stays the secondary action and never fires from the finish click.
+    expect(
+      getByRole("button", { name: /Run preparation again later/i }),
+    ).toHaveProperty("disabled", false);
+  });
+
+  it("closes the browser hand-off loop on the page that opened it", () => {
+    const onConfirmFinishedInBrowser = vi.fn();
+    const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
+      {
+        id: "result_field_save_confirm",
+        runId: "run_field_save_confirm",
+        jobId: "job_partiful",
+        applicationRecordId: "application_partiful",
+        queuePosition: 0,
+        state: "blocked",
+        summary:
+          "The application site tried to save 'application field' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.",
+        detail: "Job Finder stopped before that save.",
+        startedAt: "2026-08-27T10:00:00.000Z",
+        updatedAt: "2026-08-27T10:01:00.000Z",
+        completedAt: "2026-08-27T10:01:00.000Z",
+        blockerReason: "required_human_input",
+        blockerSummary:
+          "The application page could not safely save a prepared field",
+        listingSignalEvidence: null,
+        visualObservationSets: [],
+        visualCheckpoints: [],
+        latestQuestionCount: 0,
+        latestAnswerCount: 0,
+        pendingConsentRequestCount: 0,
+        artifactCount: 0,
+        latestCheckpointId: null,
+        privacyReceipt: null,
+      };
+
+    const { getByRole, getByTestId } = render(
+      <ApplicationsDetailPanelRecoveryActionsSection
+        canConfirmFinishedInBrowser
+        canRestageAutoRun={false}
+        canRestageQueueRun={false}
+        dailyPreparationCapacity={null}
+        excludedQueueRecoveryEntries={[]}
+        isApplyPending={false}
+        onConfirmFinishedInBrowser={onConfirmFinishedInBrowser}
+        onFinishInBrowser={vi.fn()}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApply={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        selectedQueueOutcomeEntries={[]}
+        selectedQueueRecoveryEntries={[]}
+        selectedQueueRecoveryJobIds={[]}
+        selectedRecordJobId="job_partiful"
+        selectedApplicationRecordId="application_partiful"
+        selectedRun={null}
+        visibleApplyResult={visibleApplyResult}
+      />,
+    );
+
+    // The screen that sends the user to the browser takes them back in; the
+    // return leg used to exist only on Needs you.
+    const confirm = getByRole("button", {
+      name: "Check whether this step is done",
+    });
+    expect(confirm).toBe(getByTestId("confirm-finished-in-browser"));
+
+    fireEvent.click(confirm);
+
+    expect(onConfirmFinishedInBrowser).toHaveBeenCalledExactlyOnceWith({
+      jobId: "job_partiful",
+      resultId: "result_field_save_confirm",
+      runId: "run_field_save_confirm",
+      applicationRecordId: "application_partiful",
+      destinationUrl: null,
+    });
+  });
+
+  it("resolves the finished-step check in place from pending to still blocked", () => {
+    // The live walkthrough clicked "I finished this step", got a
+    // "Verification started…" banner, and then watched the card sit unchanged
+    // for six seconds with no progress and no result.
+    const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
+      {
+        id: "result_field_save_status",
+        runId: "run_field_save_status",
+        jobId: "job_partiful",
+        applicationRecordId: "application_partiful",
+        queuePosition: 0,
+        state: "blocked",
+        summary:
+          "The application site tried to save 'application field' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.",
+        detail: "Job Finder stopped before that save.",
+        startedAt: "2026-08-27T10:00:00.000Z",
+        updatedAt: "2026-08-27T10:01:00.000Z",
+        completedAt: "2026-08-27T10:01:00.000Z",
+        blockerReason: "required_human_input",
+        blockerSummary:
+          "The application page could not safely save a prepared field",
+        listingSignalEvidence: null,
+        visualObservationSets: [],
+        visualCheckpoints: [],
+        latestQuestionCount: 0,
+        latestAnswerCount: 0,
+        pendingConsentRequestCount: 0,
+        artifactCount: 0,
+        latestCheckpointId: null,
+        privacyReceipt: null,
+      };
+    const onConfirmFinishedInBrowser = vi.fn();
+    const renderSection = (
+      status: "idle" | "checking" | "still_blocked",
+      blockerText: string | null,
+    ) => (
+      <ApplicationsDetailPanelRecoveryActionsSection
+        canConfirmFinishedInBrowser
+        canRestageAutoRun={false}
+        canRestageQueueRun={false}
+        confirmFinishedInBrowserBlockerText={blockerText}
+        confirmFinishedInBrowserStatus={status}
+        dailyPreparationCapacity={null}
+        excludedQueueRecoveryEntries={[]}
+        isApplyPending={false}
+        onConfirmFinishedInBrowser={onConfirmFinishedInBrowser}
+        onFinishInBrowser={vi.fn()}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApply={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        selectedQueueOutcomeEntries={[]}
+        selectedQueueRecoveryEntries={[]}
+        selectedQueueRecoveryJobIds={[]}
+        selectedRecordJobId="job_partiful"
+        selectedApplicationRecordId="application_partiful"
+        selectedRun={null}
+        visibleApplyResult={visibleApplyResult}
+      />
+    );
+
+    const { getByRole, getByTestId, queryByTestId, rerender } = render(
+      renderSection("idle", null),
+    );
+
+    // Idle: the offer, and no status noise.
+    expect(
+      getByRole("button", { name: "Check whether this step is done" }),
+    ).toBeTruthy();
+    expect(queryByTestId("confirm-finished-in-browser-status")).toBeNull();
+
+    // Pending: the button says the check is running, is disabled, and an
+    // in-place row with a spinner explains what is happening.
+    rerender(renderSection("checking", null));
+    const pendingButton = getByTestId(
+      "confirm-finished-in-browser",
+    ) as HTMLButtonElement;
+    // Pending controls stay focusable and expose aria-busy/aria-disabled
+    // instead of native `disabled`, so focus survives the transition.
+    expect(pendingButton.getAttribute("aria-disabled")).toBe("true");
+    expect(pendingButton.getAttribute("aria-busy")).toBe("true");
+    expect(pendingButton.textContent).toContain("Checking");
+    const pendingStatus = getByTestId("confirm-finished-in-browser-status");
+    expect(pendingStatus.getAttribute("role")).toBe("status");
+    expect(pendingStatus.textContent).toContain(
+      "Checking the application page in the Job Finder browser…",
+    );
+    expect(getByTestId("confirm-finished-in-browser-spinner")).toBeTruthy();
+    expect(pendingButton.getAttribute("aria-describedby")).toBe(
+      pendingStatus.id,
+    );
+    fireEvent.click(pendingButton);
+    expect(onConfirmFinishedInBrowser).not.toHaveBeenCalled();
+
+    // Resolved as still blocked: the outcome, its reason, and the same action
+    // offered again.
+    rerender(
+      renderSection(
+        "still_blocked",
+        "The application page still shows the field you need to complete.",
+      ),
+    );
+    const resolvedStatus = getByTestId("confirm-finished-in-browser-status");
+    expect(resolvedStatus.textContent).toContain("Not done yet —");
+    expect(resolvedStatus.textContent).toContain(
+      "The application page still shows the field you need to complete.",
+    );
+    expect(queryByTestId("confirm-finished-in-browser-spinner")).toBeNull();
+    const retryButton = getByTestId(
+      "confirm-finished-in-browser",
+    ) as HTMLButtonElement;
+    expect(retryButton.getAttribute("aria-disabled")).toBeNull();
+    // One name, always: a failed check is reported beside the control, not
+    // by renaming it into a third label.
+    expect(retryButton.textContent).toContain(
+      "Check whether this step is done",
+    );
+    expect(retryButton.textContent).not.toContain("Check again");
+    fireEvent.click(retryButton);
+    expect(onConfirmFinishedInBrowser).toHaveBeenCalledExactlyOnceWith({
+      jobId: "job_partiful",
+      resultId: "result_field_save_status",
+      runId: "run_field_save_status",
+      applicationRecordId: "application_partiful",
+      destinationUrl: null,
+    });
+  });
+
+  it("states a plain still-blocked reason when the request carries none", () => {
+    const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
+      {
+        id: "result_field_save_no_reason",
+        runId: "run_field_save_no_reason",
+        jobId: "job_partiful",
+        applicationRecordId: "application_partiful",
+        queuePosition: 0,
+        state: "blocked",
+        summary:
+          "The application site tried to save 'application field' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.",
+        detail: "Job Finder stopped before that save.",
+        startedAt: "2026-08-27T10:00:00.000Z",
+        updatedAt: "2026-08-27T10:01:00.000Z",
+        completedAt: "2026-08-27T10:01:00.000Z",
+        blockerReason: "required_human_input",
+        blockerSummary:
+          "The application page could not safely save a prepared field",
+        listingSignalEvidence: null,
+        visualObservationSets: [],
+        visualCheckpoints: [],
+        latestQuestionCount: 0,
+        latestAnswerCount: 0,
+        pendingConsentRequestCount: 0,
+        artifactCount: 0,
+        latestCheckpointId: null,
+        privacyReceipt: null,
+      };
+
+    const { getByTestId } = render(
+      <ApplicationsDetailPanelRecoveryActionsSection
+        canConfirmFinishedInBrowser
+        canRestageAutoRun={false}
+        canRestageQueueRun={false}
+        confirmFinishedInBrowserBlockerText="   "
+        confirmFinishedInBrowserStatus="still_blocked"
+        dailyPreparationCapacity={null}
+        excludedQueueRecoveryEntries={[]}
+        isApplyPending={false}
+        onConfirmFinishedInBrowser={vi.fn()}
+        onFinishInBrowser={vi.fn()}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApply={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        selectedQueueOutcomeEntries={[]}
+        selectedQueueRecoveryEntries={[]}
+        selectedQueueRecoveryJobIds={[]}
+        selectedRecordJobId="job_partiful"
+        selectedApplicationRecordId="application_partiful"
+        selectedRun={null}
+        visibleApplyResult={visibleApplyResult}
+      />,
+    );
+
+    const status = getByTestId("confirm-finished-in-browser-status");
+    expect(status.textContent).toContain(
+      "Not done yet — the application page still shows the step you need to finish.",
+    );
+    expect(status.textContent).toContain("the Job Finder browser");
+    expect(status.textContent).toContain("Check whether this step is done");
+  });
+
+  it("offers no confirmation when no pending browser step exists", () => {
+    const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
+      {
+        id: "result_field_save_no_request",
+        runId: "run_field_save_no_request",
+        jobId: "job_partiful",
+        applicationRecordId: "application_partiful",
+        queuePosition: 0,
+        state: "blocked",
+        summary:
+          "The application site tried to save 'application field' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.",
+        detail: "Job Finder stopped before that save.",
+        startedAt: "2026-08-27T10:00:00.000Z",
+        updatedAt: "2026-08-27T10:01:00.000Z",
+        completedAt: "2026-08-27T10:01:00.000Z",
+        blockerReason: "required_human_input",
+        blockerSummary:
+          "The application page could not safely save a prepared field",
+        listingSignalEvidence: null,
+        visualObservationSets: [],
+        visualCheckpoints: [],
+        latestQuestionCount: 0,
+        latestAnswerCount: 0,
+        pendingConsentRequestCount: 0,
+        artifactCount: 0,
+        latestCheckpointId: null,
+        privacyReceipt: null,
+      };
+
+    const { queryByRole } = render(
+      <ApplicationsDetailPanelRecoveryActionsSection
+        canConfirmFinishedInBrowser={false}
+        canRestageAutoRun={false}
+        canRestageQueueRun={false}
+        dailyPreparationCapacity={null}
+        excludedQueueRecoveryEntries={[]}
+        isApplyPending={false}
+        onConfirmFinishedInBrowser={vi.fn()}
+        onFinishInBrowser={vi.fn()}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApply={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        selectedQueueOutcomeEntries={[]}
+        selectedQueueRecoveryEntries={[]}
+        selectedQueueRecoveryJobIds={[]}
+        selectedRecordJobId="job_partiful"
+        selectedApplicationRecordId="application_partiful"
+        selectedRun={null}
+        visibleApplyResult={visibleApplyResult}
+      />,
+    );
+
+    expect(
+      queryByRole("button", { name: "Check whether this step is done" }),
+    ).toBeNull();
   });
 
   it("discloses the fresh run and daily slot cost in the sign-in retry copy", () => {
@@ -206,7 +1095,6 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
 
     const { getByText } = render(
       <ApplicationsDetailPanelRecoveryActionsSection
-        applyRunHistoryCount={1}
         canRestageAutoRun={false}
         canRestageQueueRun={false}
         dailyPreparationCapacity={null}
@@ -227,7 +1115,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
 
     expect(
       getByText(
-        /Retrying creates a fresh run and uses one of today's remaining application slots\./i,
+        /That creates a fresh run and uses one of today's remaining application slots\./i,
       ),
     ).toBeTruthy();
   });
@@ -263,7 +1151,6 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
 
     const { getByRole, getByText } = render(
       <ApplicationsDetailPanelRecoveryActionsSection
-        applyRunHistoryCount={2}
         canRestageAutoRun={true}
         canRestageQueueRun={false}
         dailyPreparationCapacity={null}
@@ -293,7 +1180,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     expect(document.body.textContent ?? "").not.toMatch(
       /needs you|manual review|net::|ERR_|timeout exceeded|sign in/i,
     );
-    fireEvent.click(getByRole("button", { name: /retry preparation/i }));
+    fireEvent.click(getByRole("button", { name: /run preparation again/i }));
     expect(onStartApplyCopilot).toHaveBeenCalledWith({
       jobId: "job_ashby",
       applicationRecordId: "application_ashby",
@@ -307,7 +1194,6 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
 
     const { getByRole, getByTestId } = render(
       <ApplicationsDetailPanelRecoveryActionsSection
-        applyRunHistoryCount={3}
         canRestageAutoRun={true}
         canRestageQueueRun={true}
         dailyPreparationCapacity={{
@@ -339,9 +1225,9 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     expect(alert.textContent).toMatch(/reset at local midnight \(/i);
 
     for (const name of [
-      /retry preparation/i,
-      /queue automatic preparation/i,
-      /queue remaining jobs/i,
+      /run preparation again/i,
+      /prepare this job automatically/i,
+      /prepare remaining jobs/i,
     ]) {
       const button = getByRole("button", { name });
       expect(button).toHaveProperty("disabled", true);
@@ -357,7 +1243,6 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
 
     const { getByRole, queryByTestId } = render(
       <ApplicationsDetailPanelRecoveryActionsSection
-        applyRunHistoryCount={1}
         canRestageAutoRun={true}
         canRestageQueueRun={false}
         dailyPreparationCapacity={{
@@ -384,7 +1269,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     );
 
     expect(queryByTestId("daily-capacity-reached-alert")).toBeNull();
-    const retryButton = getByRole("button", { name: /retry preparation/i });
+    const retryButton = getByRole("button", { name: /run preparation again/i });
     expect(retryButton).toHaveProperty("disabled", false);
     fireEvent.click(retryButton);
     expect(onStartApplyCopilot).toHaveBeenCalledWith({
@@ -393,13 +1278,12 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     });
   });
 
-  it("disables Queue remaining jobs with a trim-to-N reason when the selection exceeds today's remaining slots", () => {
+  it("disables Prepare remaining jobs with a trim-to-N reason when the selection exceeds today's remaining slots", () => {
     const onStartApplyCopilot = vi.fn();
     const onStartAutoApplyQueue = vi.fn();
 
     const { getByRole, getByTestId, queryByTestId } = render(
       <ApplicationsDetailPanelRecoveryActionsSection
-        applyRunHistoryCount={2}
         canRestageAutoRun={true}
         canRestageQueueRun={true}
         dailyPreparationCapacity={{
@@ -429,7 +1313,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     // its copy stay out of the way of the trim guidance.
     expect(queryByTestId("daily-capacity-reached-alert")).toBeNull();
 
-    const queueButton = getByRole("button", { name: "Queue remaining jobs" });
+    const queueButton = getByRole("button", { name: "Prepare remaining jobs" });
     expect(queueButton).toHaveProperty("disabled", true);
     fireEvent.click(queueButton);
     expect(onStartAutoApplyQueue).not.toHaveBeenCalled();
@@ -446,7 +1330,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     );
 
     // A single-job retry remains valid while one daily slot remains.
-    const retryButton = getByRole("button", { name: /retry preparation/i });
+    const retryButton = getByRole("button", { name: /run preparation again/i });
     expect(retryButton).toHaveProperty("disabled", false);
     fireEvent.click(retryButton);
     expect(onStartApplyCopilot).toHaveBeenCalledWith({
@@ -495,7 +1379,6 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
 
     const { getByRole, getByText } = render(
       <ApplicationsDetailPanelRecoveryActionsSection
-        applyRunHistoryCount={1}
         canRestageAutoRun={true}
         canRestageQueueRun={true}
         dailyPreparationCapacity={null}
@@ -525,18 +1408,17 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
       ),
     ).toBeTruthy();
 
-    // A stop-rule pause holds no resumable decision: say so, and point at
-    // Queue remaining jobs as the fresh-run path forward.
+    // Prepare remaining jobs as the fresh-run path forward.
     const explanation = getByText(
       /paused this run on one of its stop rules\. It will not continue on its own/i,
     );
     expect(explanation.textContent).toContain(
-      "Use Queue remaining jobs to finish the unfinished jobs in a fresh safe recovery run",
+      "Use Prepare remaining jobs to finish the unfinished jobs in a fresh safe recovery run",
     );
     expect(explanation.textContent).not.toMatch(/Resolve the consent request/i);
 
     // Finishing stays possible through a fresh recovery run.
-    const queueButton = getByRole("button", { name: "Queue remaining jobs" });
+    const queueButton = getByRole("button", { name: "Prepare remaining jobs" });
     expect(queueButton).toHaveProperty("disabled", false);
     fireEvent.click(queueButton);
     expect(onStartAutoApplyQueue).toHaveBeenCalledWith(["job_b", "job_c"]);

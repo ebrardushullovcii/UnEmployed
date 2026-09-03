@@ -10,6 +10,7 @@ import {
   bindStartupWindowZoom,
   clampStartupWindowSize,
   createMainWindow,
+  getWindowControlsState,
   isAllowedRendererNavigation,
   parseStartupWindowGeometryRequest,
   resolveRendererLoadTarget,
@@ -17,6 +18,44 @@ import {
   resolveTrustedRendererDevUrl,
   suppressRestoredDisplayMode,
 } from "./window-shell";
+
+function createControlsWindow(input: {
+  isFullScreen: boolean;
+  isMaximized: boolean;
+}): Parameters<typeof getWindowControlsState>[0] {
+  return {
+    isClosable: () => true,
+    isFullScreen: () => input.isFullScreen,
+    isMaximized: () => input.isMaximized,
+    isMinimizable: () => true,
+  } as unknown as Parameters<typeof getWindowControlsState>[0];
+}
+
+describe("desktop window controls state", () => {
+  test("distinguishes native fullscreen from a maximized window", () => {
+    expect(
+      getWindowControlsState(
+        createControlsWindow({ isFullScreen: false, isMaximized: true }),
+      ),
+    ).toEqual({
+      isClosable: true,
+      isFullScreen: false,
+      isMaximized: true,
+      isMinimizable: true,
+    });
+
+    expect(
+      getWindowControlsState(
+        createControlsWindow({ isFullScreen: true, isMaximized: false }),
+      ),
+    ).toEqual({
+      isClosable: true,
+      isFullScreen: true,
+      isMaximized: true,
+      isMinimizable: true,
+    });
+  });
+});
 
 // Recording electron mock so the REAL createMainWindow wiring can be exercised:
 // every window/webContents listener registration is captured in call order, so
@@ -727,9 +766,8 @@ describe("createMainWindow zoom wiring order", () => {
 
     // Three did-finish-load writers register in creation order: the startup
     // zoom binder, the zoom-shortcut binder, then lifecycle bookkeeping.
-    const finishLoadListeners = registeredWebContentsListeners(
-      "did-finish-load",
-    );
+    const finishLoadListeners =
+      registeredWebContentsListeners("did-finish-load");
     expect(finishLoadListeners).toHaveLength(3);
 
     const readyToShowListeners = electronMock.controller.registrations
@@ -780,9 +818,8 @@ describe("createMainWindow zoom wiring order", () => {
 
     // Only the zoom-shortcut binder plus lifecycle bookkeeping register here;
     // bindStartupWindowZoom must stay conditional on an explicit request.
-    const finishLoadListeners = registeredWebContentsListeners(
-      "did-finish-load",
-    );
+    const finishLoadListeners =
+      registeredWebContentsListeners("did-finish-load");
     expect(finishLoadListeners).toHaveLength(2);
 
     instance.simulateCommitTimeHostZoom(1.25);

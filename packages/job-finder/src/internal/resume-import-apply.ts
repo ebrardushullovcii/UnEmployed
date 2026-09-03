@@ -16,6 +16,7 @@ import {
   mergeProjectRecords,
   parseLocationParts,
 } from "./profile-merge";
+import { partitionStrengthsAndSkills } from "./profile-setup-strengths-partition";
 import { toCandidateListValues, toStringArray } from "./resume-import-common";
 import {
   candidateScore,
@@ -68,9 +69,7 @@ type ResolvedResumeImportSelection = {
   proofBank: CandidateProfile["proofBank"];
 };
 
-function isProofPointValue(
-  value: object,
-): value is {
+function isProofPointValue(value: object): value is {
   title?: unknown;
   claim?: unknown;
   heroMetric?: unknown;
@@ -91,7 +90,9 @@ function buildResolvedSelection(
   searchPreferences: JobSearchPreferences,
   candidates: readonly ResumeImportFieldCandidate[],
 ): ResolvedResumeImportSelection {
-  const autoApplied = candidates.filter((candidate) => candidate.resolution === "auto_applied");
+  const autoApplied = candidates.filter(
+    (candidate) => candidate.resolution === "auto_applied",
+  );
   const selection: ResolvedResumeImportSelection = {
     scalarFields: {},
     experiences: [],
@@ -116,24 +117,34 @@ function buildResolvedSelection(
 
       switch (candidate.target.section) {
         case "experience":
-          selection.experiences.push(value as CandidateProfile["experiences"][number]);
+          selection.experiences.push(
+            value as CandidateProfile["experiences"][number],
+          );
           break;
         case "education":
           if (candidate.target.key === "record") {
-            selection.education.push(value as CandidateProfile["education"][number]);
+            selection.education.push(
+              value as CandidateProfile["education"][number],
+            );
           }
           break;
         case "certification":
-          selection.certifications.push(value as CandidateProfile["certifications"][number]);
+          selection.certifications.push(
+            value as CandidateProfile["certifications"][number],
+          );
           break;
         case "link":
           selection.links.push(value as CandidateProfile["links"][number]);
           break;
         case "project":
-          selection.projects.push(value as CandidateProfile["projects"][number]);
+          selection.projects.push(
+            value as CandidateProfile["projects"][number],
+          );
           break;
         case "language":
-          selection.spokenLanguages.push(value as CandidateProfile["spokenLanguages"][number]);
+          selection.spokenLanguages.push(
+            value as CandidateProfile["spokenLanguages"][number],
+          );
           break;
         case "proof_point":
           if (!isProofPointValue(value)) {
@@ -261,7 +272,10 @@ function buildResolvedSelection(
       continue;
     }
 
-    if (preferNext === preferExisting && candidateScore(candidate) > candidateScore(existing)) {
+    if (
+      preferNext === preferExisting &&
+      candidateScore(candidate) > candidateScore(existing)
+    ) {
       scalarCandidates.set(key, candidate);
     }
   }
@@ -280,7 +294,8 @@ function buildResolvedSelection(
         }
         break;
       case "identity.middleName":
-        selection.scalarFields.middleName = typeof value === "string" ? value : null;
+        selection.scalarFields.middleName =
+          typeof value === "string" ? value : null;
         break;
       case "identity.fullName":
         if (typeof value === "string") {
@@ -308,7 +323,8 @@ function buildResolvedSelection(
         }
         break;
       case "location.timeZone":
-        selection.scalarFields.timeZone = typeof value === "string" ? value : null;
+        selection.scalarFields.timeZone =
+          typeof value === "string" ? value : null;
         break;
       case "contact.email":
         selection.scalarFields.email = typeof value === "string" ? value : null;
@@ -317,19 +333,24 @@ function buildResolvedSelection(
         selection.scalarFields.phone = typeof value === "string" ? value : null;
         break;
       case "contact.portfolioUrl":
-        selection.scalarFields.portfolioUrl = typeof value === "string" ? value : null;
+        selection.scalarFields.portfolioUrl =
+          typeof value === "string" ? value : null;
         break;
       case "contact.linkedinUrl":
-        selection.scalarFields.linkedinUrl = typeof value === "string" ? value : null;
+        selection.scalarFields.linkedinUrl =
+          typeof value === "string" ? value : null;
         break;
       case "contact.githubUrl":
-        selection.scalarFields.githubUrl = typeof value === "string" ? value : null;
+        selection.scalarFields.githubUrl =
+          typeof value === "string" ? value : null;
         break;
       case "contact.personalWebsiteUrl":
-        selection.scalarFields.personalWebsiteUrl = typeof value === "string" ? value : null;
+        selection.scalarFields.personalWebsiteUrl =
+          typeof value === "string" ? value : null;
         break;
       case "search_preferences.salaryCurrency":
-        selection.scalarFields.salaryCurrency = typeof value === "string" ? value : null;
+        selection.scalarFields.salaryCurrency =
+          typeof value === "string" ? value : null;
         break;
       case "application_identity.preferredEmail":
         selection.scalarFields.applicationIdentity = {
@@ -404,7 +425,9 @@ function mergeProofBankEntries(
     const key = normalizeText(`${entry.title}|${entry.claim}`);
     const match = existingByKey.get(key);
     return {
-      id: match?.id ?? `proof_${index}_${normalizeText(entry.title).replaceAll(" ", "_")}`,
+      id:
+        match?.id ??
+        `proof_${index}_${normalizeText(entry.title).replaceAll(" ", "_")}`,
       title: entry.title,
       claim: entry.claim,
       heroMetric: entry.heroMetric,
@@ -431,7 +454,9 @@ function mergeResolvedSelectionIntoWorkspace(
     selection.scalarFields.currentLocation ?? profile.currentLocation;
   const fullName = selection.scalarFields.fullName ?? profile.fullName;
   const [derivedFirstName, ...remainingNameParts] =
-    typeof fullName === "string" ? fullName.trim().split(/\s+/).filter(Boolean) : [];
+    typeof fullName === "string"
+      ? fullName.trim().split(/\s+/).filter(Boolean)
+      : [];
   const derivedLastName =
     remainingNameParts.length > 0
       ? remainingNameParts[remainingNameParts.length - 1]
@@ -441,6 +466,23 @@ function mergeResolvedSelectionIntoWorkspace(
       ? remainingNameParts.slice(0, -1).join(" ")
       : null;
   const locationParts = parseLocationParts(currentLocation);
+  // Named technologies belong in Skills, not Strengths — the profile tells the
+  // user exactly that, so an applied import must not contradict it.
+  const partitionedSkills = partitionStrengthsAndSkills({
+    skillGroupValues: [
+      ...(selection.scalarFields.skillGroups?.coreSkills ?? []),
+      ...(selection.scalarFields.skillGroups?.tools ?? []),
+      ...(selection.scalarFields.skillGroups?.languagesAndFrameworks ?? []),
+      ...(selection.scalarFields.skillGroups?.highlightedSkills ?? []),
+      ...profile.skills,
+    ],
+    skills: selection.scalarFields.skills?.length
+      ? uniqueStrings(selection.scalarFields.skills)
+      : profile.skills,
+    strengths: selection.scalarFields.skillGroups?.highlightedSkills.length
+      ? selection.scalarFields.skillGroups.highlightedSkills
+      : profile.professionalSummary.strengths,
+  });
   const mergedLinks = mergeLinkRecords(profile.links, selection.links);
   const preferredLinkUrls = uniqueStrings(
     selection.scalarFields.applicationIdentity?.preferredLinkUrls ?? [],
@@ -454,7 +496,9 @@ function mergeResolvedSelectionIntoWorkspace(
       ? selection.scalarFields.personalWebsiteUrl
       : profile.personalWebsiteUrl;
   const nextPersonalWebsiteUrl =
-    nextLinkedinUrl && rawPersonalWebsiteUrl && nextLinkedinUrl === rawPersonalWebsiteUrl
+    nextLinkedinUrl &&
+    rawPersonalWebsiteUrl &&
+    nextLinkedinUrl === rawPersonalWebsiteUrl
       ? null
       : rawPersonalWebsiteUrl;
   const preferredLinkIds =
@@ -509,10 +553,14 @@ function mergeResolvedSelectionIntoWorkspace(
       ...profile,
       firstName:
         selection.scalarFields.firstName ??
-        (selection.scalarFields.fullName ? derivedFirstName ?? profile.firstName : profile.firstName),
+        (selection.scalarFields.fullName
+          ? (derivedFirstName ?? profile.firstName)
+          : profile.firstName),
       lastName:
         selection.scalarFields.lastName ??
-        (selection.scalarFields.fullName ? derivedLastName ?? profile.lastName : profile.lastName),
+        (selection.scalarFields.fullName
+          ? (derivedLastName ?? profile.lastName)
+          : profile.lastName),
       middleName:
         selection.scalarFields.middleName !== undefined
           ? selection.scalarFields.middleName
@@ -546,11 +594,10 @@ function mergeResolvedSelectionIntoWorkspace(
       personalWebsiteUrl: nextPersonalWebsiteUrl,
       professionalSummary: {
         ...profile.professionalSummary,
-        fullSummary: selection.scalarFields.summary ?? profile.professionalSummary.fullSummary,
-        strengths:
-          selection.scalarFields.skillGroups?.highlightedSkills.length
-            ? selection.scalarFields.skillGroups.highlightedSkills
-            : profile.professionalSummary.strengths,
+        fullSummary:
+          selection.scalarFields.summary ??
+          profile.professionalSummary.fullSummary,
+        strengths: partitionedSkills.strengths,
       },
       narrative: {
         ...profile.narrative,
@@ -585,19 +632,17 @@ function mergeResolvedSelectionIntoWorkspace(
         ...profile.skillGroups,
         ...(selection.scalarFields.skillGroups ?? {}),
       },
-      targetRoles:
-        selection.scalarFields.targetRoles?.length
-          ? uniqueStrings(selection.scalarFields.targetRoles)
-          : profile.targetRoles,
-      locations:
-        selection.scalarFields.locations?.length
-          ? uniqueStrings(selection.scalarFields.locations)
-          : profile.locations,
-      skills:
-        selection.scalarFields.skills?.length
-          ? uniqueStrings(selection.scalarFields.skills)
-          : profile.skills,
-      experiences: mergeExperienceRecords(profile.experiences, selection.experiences),
+      targetRoles: selection.scalarFields.targetRoles?.length
+        ? uniqueStrings(selection.scalarFields.targetRoles)
+        : profile.targetRoles,
+      locations: selection.scalarFields.locations?.length
+        ? uniqueStrings(selection.scalarFields.locations)
+        : profile.locations,
+      skills: partitionedSkills.skills,
+      experiences: mergeExperienceRecords(
+        profile.experiences,
+        selection.experiences,
+      ),
       education: mergeEducationRecords(profile.education, selection.education),
       certifications: mergeCertificationRecords(
         profile.certifications,
@@ -620,16 +665,15 @@ function mergeResolvedSelectionIntoWorkspace(
     }),
     searchPreferences: JobSearchPreferencesSchema.parse({
       ...searchPreferences,
-      targetRoles:
-        selection.scalarFields.targetRoles?.length
-          ? uniqueStrings(selection.scalarFields.targetRoles)
-          : searchPreferences.targetRoles,
-      locations:
-        selection.scalarFields.locations?.length
-          ? uniqueStrings(selection.scalarFields.locations)
-          : searchPreferences.locations,
+      targetRoles: selection.scalarFields.targetRoles?.length
+        ? uniqueStrings(selection.scalarFields.targetRoles)
+        : searchPreferences.targetRoles,
+      locations: selection.scalarFields.locations?.length
+        ? uniqueStrings(selection.scalarFields.locations)
+        : searchPreferences.locations,
       salaryCurrency:
-        selection.scalarFields.salaryCurrency ?? searchPreferences.salaryCurrency,
+        selection.scalarFields.salaryCurrency ??
+        searchPreferences.salaryCurrency,
     }),
   };
 }

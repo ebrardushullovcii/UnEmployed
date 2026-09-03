@@ -10,6 +10,10 @@ import {
 import type { ApplicationRecord } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
+import {
+  SelectableRow,
+  SelectableRowLine,
+} from "@renderer/components/ui/selectable-row";
 import { cn } from "@renderer/lib/utils";
 import { EmptyState } from "../../components/empty-state";
 import {
@@ -25,18 +29,27 @@ import { Link } from "react-router-dom";
 import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
 import { getAttemptLabel, getAttemptTone } from "../../lib/job-finder-utils";
 import {
+  formatApplicationEmployerAriaLabel,
+  formatApplicationEmployerLine,
+} from "../../lib/job-employer-location-display";
+import {
   APPLICATION_FILTER_LABELS,
   APPLICATION_FILTERS,
   type ApplicationsViewFilter,
 } from "./applications-filters";
 import {
-  getApplicationLatestActivityLabel,
+  getApplicationNextStepLabel,
+  getApplicationReadableNextStepLabel,
   getApplicationStagePresentation,
 } from "./applications-status";
 
 interface ApplicationsRecordsPanelProps {
   activeFilter: ApplicationsViewFilter;
   applicationRecords: readonly ApplicationRecord[];
+  discoveryJobs?: ReadonlyArray<{
+    id: string;
+    canonicalUrl: string;
+  }>;
   filterCounts: Record<ApplicationsViewFilter, number>;
   hasAnyApplications: boolean;
   onFilterChange: (filter: ApplicationsViewFilter) => void;
@@ -47,6 +60,7 @@ interface ApplicationsRecordsPanelProps {
 export function ApplicationsRecordsPanel({
   activeFilter,
   applicationRecords,
+  discoveryJobs = [],
   filterCounts,
   hasAnyApplications,
   onFilterChange,
@@ -60,6 +74,10 @@ export function ApplicationsRecordsPanel({
   const recordsRegionRef = useRef<HTMLUListElement | null>(null);
   const pageCount = Math.max(1, Math.ceil(recordCount / COLLECTION_PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
+  const relatedJobsById = useMemo(
+    () => new Map(discoveryJobs.map((job) => [job.id, job] as const)),
+    [discoveryJobs],
+  );
   const selectedRecordId = selectedRecord?.id ?? null;
   const selectedRecordIndex = useMemo(
     () =>
@@ -105,6 +123,21 @@ export function ApplicationsRecordsPanel({
     },
     [applicationRecords, onSelectRecord],
   );
+  // A single record used to wrap five chips onto two rows in a narrow list
+  // column. "All" and "Needs you" always stay (they are the two views a user
+  // switches between), plus any view that actually holds something and the
+  // active view so the current selection can never disappear.
+  const visibleFilters = useMemo(
+    () =>
+      APPLICATION_FILTERS.filter(
+        (filterOption) =>
+          filterOption === "all" ||
+          filterOption === "needs_action" ||
+          filterOption === activeFilter ||
+          filterCounts[filterOption] > 0,
+      ),
+    [activeFilter, filterCounts],
+  );
   const pagedRecords = useMemo(
     () =>
       applicationRecords.slice(
@@ -115,12 +148,21 @@ export function ApplicationsRecordsPanel({
   );
 
   return (
-    <section className="surface-panel-shell @container/tracker relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-(--surface-panel-border) px-5 py-3">
+    // `xl:h-full` left a short list as a tall empty bordered rectangle beside
+    // a scrolling detail pane. Capping instead of filling lets the panel end
+    // where its content ends while a long list still scrolls inside it, and
+    // `sticky`/`self-start` keep it pinned to the top of its column instead of
+    // riding away with any surrounding scroll and leaving a dead half-screen.
+    // The column is sized by its content and capped by the viewport, not
+    // stretched to it: a 470x780 panel holding one 100px card left ~670px of
+    // empty space beside a detail pane that needed the room.
+    <section className="surface-panel-shell @container/tracker relative flex min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:sticky xl:top-0 xl:max-h-full xl:min-h-0 xl:self-start">
+      <div className="grid gap-3 border-b border-(--surface-panel-border) px-5 py-3">
         <div className="flex flex-wrap items-center gap-4">
-          <h2 className="font-display text-lg font-bold uppercase tracking-(--tracking-heading) text-primary">
-            Preparation
-          </h2>
+          {/* A panel title, not an eyebrow: the base heading scale already
+              gives it 19px/600, and the previous bold uppercase primary
+              treatment made it heavier than the page's own H1. */}
+          <h2 className="min-w-0">Preparation</h2>
           <Badge variant="section">
             {recordCount} {recordCount === 1 ? "application" : "applications"}
           </Badge>
@@ -129,16 +171,21 @@ export function ApplicationsRecordsPanel({
         {hasAnyApplications ? (
           <div
             aria-labelledby={filterGroupId}
-            className="-my-1 flex max-w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto py-1"
+            className="flex w-full min-w-0 flex-wrap items-center gap-1.5"
             role="group"
           >
             <span className="sr-only" id={filterGroupId}>
               Application filters
             </span>
-            {APPLICATION_FILTERS.map((filterOption) => (
+            {visibleFilters.map((filterOption) => (
               <Button
                 aria-pressed={activeFilter === filterOption}
-                className="shrink-0 whitespace-nowrap rounded-full ring-inset focus-visible:ring-inset"
+                className={cn(
+                  "shrink-0 whitespace-nowrap rounded-full ring-inset focus-visible:ring-inset",
+                  activeFilter === filterOption
+                    ? null
+                    : "border-(--border-strong)",
+                )}
                 key={filterOption}
                 onClick={() => onFilterChange(filterOption)}
                 size="sm"
@@ -155,95 +202,133 @@ export function ApplicationsRecordsPanel({
         ) : null}
       </div>
       {applicationRecords.length === 0 ? (
-        <div className="flex min-h-0 flex-1 items-start p-8 pt-12">
+        <div className="flex min-h-0 flex-1 items-start p-6">
           {hasAnyApplications ? (
             <EmptyState
               title="No applications in this view"
               description="Try another filter to review the rest of your application history."
             />
           ) : (
-            <div className="grid w-full gap-4">
-              <EmptyState
-                title="Start your first application"
-                description="Prepare a shortlisted job with Job Finder to see it here."
-              />
+            // The two ways out belong inside the empty state, not stranded
+            // under it: a dashed box with nothing in it read as the end of the
+            // panel, and its actions read as unrelated page furniture.
+            <EmptyState
+              title="No application started yet"
+              description="Shortlisting a job or tailoring its resume does not create an application record. Open Shortlisted, select a job, and choose Prepare application to start the prepare-only flow."
+            >
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <Button asChild size="sm" type="button" variant="primary">
                   <Link to={JOB_FINDER_ROUTE_PATHS.reviewQueue}>
-                    Go to Shortlisted
+                    Open Shortlisted
                   </Link>
                 </Button>
-                <Button asChild size="sm" type="button" variant="ghost">
+                <Button
+                  asChild
+                  className="border-(--border-strong)"
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
                   <Link to={JOB_FINDER_ROUTE_PATHS.discovery}>Find jobs</Link>
                 </Button>
               </div>
-            </div>
+            </EmptyState>
           )}
         </div>
       ) : (
         <ul
           aria-label="Applications"
-          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+          className="grid min-h-0 flex-1 content-start gap-2 overflow-x-hidden overflow-y-auto p-3"
           data-locked-pane-scroll-region
           ref={recordsRegionRef}
         >
           {pagedRecords.map((record) => {
             const stage = getApplicationStagePresentation(record);
             const attemptLabel = getAttemptLabel(record.lastAttemptState);
+            // Stage "Needs you" already covers paused prep; hiding the
+            // redundant "Needs follow-up" attempt badge reduces badge noise.
+            const showAttemptBadge = !(
+              stage.label === "Needs you" && attemptLabel === "Needs follow-up"
+            );
+            const nextStepLabel =
+              getApplicationReadableNextStepLabel(
+                getApplicationNextStepLabel(record),
+              ) ?? getApplicationNextStepLabel(record);
             const recordStateDescriptionId = `applications-record-${record.id}-state-description`;
+            const relatedJob = relatedJobsById.get(record.jobId);
+            const employerLine = formatApplicationEmployerLine({
+              company: record.company,
+              ...(relatedJob?.canonicalUrl
+                ? { canonicalUrl: relatedJob.canonicalUrl }
+                : {}),
+            });
+            const employerAriaLabel = formatApplicationEmployerAriaLabel({
+              title: record.title,
+              company: record.company,
+              ...(relatedJob?.canonicalUrl
+                ? { canonicalUrl: relatedJob.canonicalUrl }
+                : {}),
+            });
 
             return (
-              <li
-                key={record.id}
-                className={cn(
-                  "relative border-b border-(--surface-panel-border) text-[0.85rem] tracking-normal transition-colors last:border-b-0 hover:bg-(--surface-panel-raised)",
-                  selectedRecord?.id === record.id
-                    ? "border-l-2 border-l-primary bg-(--surface-panel-raised)"
-                    : "",
-                )}
-              >
-                <button
-                  aria-current={
-                    selectedRecord?.id === record.id ? "true" : undefined
-                  }
+              <li key={record.id} className="min-w-0">
+                {/* Shared selectable-row primitive: identical box metrics in
+                    both states, selection carried by a tint plus an inset
+                    accent bar, and every content line always occupying its
+                    slot. Selecting row 1 then row 2 used to move every row
+                    below by tens of pixels. */}
+                <SelectableRow
                   aria-describedby={recordStateDescriptionId}
                   aria-keyshortcuts="ArrowUp ArrowDown Home End"
-                  aria-label={`View details for ${record.title} at ${record.company}`}
-                  className="absolute inset-0 z-10 rounded-[inherit] text-left outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/30"
+                  aria-label={`View details for ${employerAriaLabel}`}
                   data-collection-item-id={record.id}
                   onClick={() => onSelectRecord(record.id)}
                   onKeyDown={(event) =>
                     handleRecordRowKeyDown(event, record.id)
                   }
-                  type="button"
-                />
-                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-1.5 px-4 py-3">
-                  <div className="grid min-w-0 gap-0.5">
-                    <strong className="font-display min-w-0 break-words text-[1rem] font-semibold tracking-[-0.015em] text-foreground">
-                      {record.title}
-                    </strong>
-                    <span className="min-w-0 break-words text-[0.85rem] text-muted-foreground">
-                      {record.company}
-                      <span className="text-foreground-soft">
-                        {" • "}
-                        {getApplicationLatestActivityLabel(record)}
-                      </span>
-                    </span>
+                  selected={selectedRecord?.id === record.id}
+                >
+                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-1.5">
+                    <div className="grid min-w-0 gap-0.5">
+                      <strong className="font-display min-w-0 break-words font-semibold tracking-[-0.015em] text-foreground">
+                        {record.title}
+                      </strong>
+                      <SelectableRowLine className="break-words text-(length:--text-small) text-foreground-soft">
+                        {employerLine}
+                      </SelectableRowLine>
+                      {/* One status line only: the stage badge already names
+                          the state, so the latest-activity sentence (which
+                          often repeated this exact next step) is not shown
+                          twice. */}
+                      <SelectableRowLine className="break-words text-(length:--text-small) font-medium leading-5 text-primary">
+                        {nextStepLabel ? `Next: ${nextStepLabel}` : null}
+                      </SelectableRowLine>
+                    </div>
+                    {/* The row's own description below already reads
+                        "Stage <label>", so no second "Stage" label is
+                        announced beside the badge. */}
+                    <div className="flex min-w-0 flex-col items-end gap-1">
+                      <StatusBadge tone={stage.tone}>{stage.label}</StatusBadge>
+                      <SelectableRowLine
+                        className="flex items-center justify-end"
+                        reserve={false}
+                      >
+                        {showAttemptBadge ? (
+                          <StatusBadge
+                            tone={getAttemptTone(record.lastAttemptState)}
+                          >
+                            {attemptLabel}
+                          </StatusBadge>
+                        ) : null}
+                      </SelectableRowLine>
+                    </div>
                   </div>
-                  <div className="flex min-w-0 items-center justify-end gap-1">
-                    <span className="sr-only">Stage</span>
-                    <StatusBadge tone={stage.tone}>{stage.label}</StatusBadge>
-                  </div>
-                  <div className="col-start-2 flex min-w-0 items-center justify-end gap-1">
-                    <span className="sr-only">Apply attempt</span>
-                    <StatusBadge tone={getAttemptTone(record.lastAttemptState)}>
-                      {attemptLabel}
-                    </StatusBadge>
-                  </div>
-                </div>
-                <span className="sr-only" id={recordStateDescriptionId}>
-                  Stage {stage.label}. Preparation attempt {attemptLabel}.
-                </span>
+                  <span className="sr-only" id={recordStateDescriptionId}>
+                    {showAttemptBadge
+                      ? `Stage ${stage.label}. Preparation attempt ${attemptLabel}.`
+                      : `Stage ${stage.label}.`}
+                  </span>
+                </SelectableRow>
               </li>
             );
           })}

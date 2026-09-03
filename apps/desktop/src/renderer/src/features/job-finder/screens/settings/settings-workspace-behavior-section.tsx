@@ -3,9 +3,13 @@ import type {
   JobFinderSettings,
   UpdateWorkspaceBehaviorInput,
 } from "@unemployed/contracts";
-import { Button } from "@renderer/components/ui/button";
 import { ToggleField } from "../../components/toggle-field";
-import { useSettingsSectionSave } from "./settings-section-save";
+import { useRegisterSettingsDirtySection } from "./settings-dirty-sections";
+import { SettingsSectionSaveControl } from "./settings-section-save-control";
+import {
+  hasOutstandingSectionChanges,
+  useSettingsSectionSave,
+} from "./settings-section-save";
 
 interface SettingsWorkspaceBehaviorSectionProps {
   /** Reports staged behavior edits so a stale shell save retry is retired. */
@@ -28,7 +32,8 @@ export function SettingsWorkspaceBehaviorSection({
   const [draftDiscoveryOnly, setDraftDiscoveryOnly] = useState(
     settings.discoveryOnly,
   );
-  const { runSectionSave, saveState } = useSettingsSectionSave();
+  const { resetSectionSave, runSectionSave, saveState } =
+    useSettingsSectionSave();
 
   useEffect(() => {
     setDraftKeepSessionAlive(settings.keepSessionAlive);
@@ -42,19 +47,12 @@ export function SettingsWorkspaceBehaviorSection({
   const hasUnsavedChanges =
     draftKeepSessionAlive !== settings.keepSessionAlive ||
     draftDiscoveryOnly !== settings.discoveryOnly;
-  const saveButtonLabel =
-    saveState.status === "saving"
-      ? "Saving workspace behavior"
-      : saveState.status === "failed"
-        ? "Retry workspace behavior"
-        : saveState.status === "saved" && !hasUnsavedChanges
-          ? "Workspace behavior saved"
-          : "Save workspace behavior";
   const updateStagedDrafts = (updater: () => void) => {
     if (isSavePending) {
       return;
     }
     updater();
+    resetSectionSave();
     onSettingsDraftEdited?.();
   };
   const saveWorkspaceBehavior = () => {
@@ -73,45 +71,37 @@ export function SettingsWorkspaceBehaviorSection({
     });
   };
 
+  useRegisterSettingsDirtySection({
+    anchorId: "settings-workspace-behavior",
+    isDirty: hasOutstandingSectionChanges(hasUnsavedChanges, saveState),
+    isSaving: isSavePending,
+    label: "Browser & saved jobs",
+    onSave: saveWorkspaceBehavior,
+    order: 3,
+    saveLabel: "Save workspace behavior",
+  });
+
   return (
     <section className="surface-panel-shell grid min-w-0 content-start gap-3 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="grid min-w-0 max-w-[72ch] flex-1 gap-1">
           <h3
-            className="min-w-0 text-[1.02rem] font-semibold text-(--text-headline)"
+            className="min-w-0 font-semibold text-(--text-headline)"
             id={sectionHeadingId}
           >
-            Run and workspace defaults
+            Browser and saved jobs
           </h3>
           <p className="text-(length:--text-description) leading-5 text-foreground-soft">
             Keep only the defaults you actually want Job Finder to reuse between
             searches and application steps.
           </p>
         </div>
-        <div className="grid min-w-0 max-w-full justify-items-end gap-1.5">
-          <Button
-            disabled={!hasUnsavedChanges || isSavePending}
-            onClick={saveWorkspaceBehavior}
-            pending={isSavePending}
-            type="button"
-            variant="primary"
-          >
-            {saveButtonLabel}
-          </Button>
-          {saveState.status === "idle" ? null : (
-            <p
-              className={
-                saveState.status === "failed"
-                  ? "min-w-0 max-w-80 break-words text-right text-xs leading-4 text-destructive"
-                  : "min-w-0 max-w-80 break-words text-right text-xs leading-4 text-foreground-soft"
-              }
-              data-settings-save-state={saveState.status}
-              role="status"
-            >
-              {saveState.message}
-            </p>
-          )}
-        </div>
+        <SettingsSectionSaveControl
+          hasUnsavedChanges={hasUnsavedChanges}
+          onSave={saveWorkspaceBehavior}
+          saveState={saveState}
+          subject="workspace behavior"
+        />
       </div>
 
       <div className="grid min-w-0 gap-(--gap-content) md:grid-cols-2">
@@ -136,17 +126,6 @@ export function SettingsWorkspaceBehaviorSection({
           }
         />
       </div>
-
-      {hasUnsavedChanges && saveState.status !== "saving" ? (
-        <p
-          className="min-h-[1.5rem] min-w-0 text-sm leading-6 text-(--warning-text)"
-          role="status"
-        >
-          You have unsaved workspace behavior changes.
-        </p>
-      ) : (
-        <div className="min-h-[1.5rem]" />
-      )}
     </section>
   );
 }

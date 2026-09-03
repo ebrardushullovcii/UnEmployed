@@ -38,7 +38,12 @@ describe("ApplicationsRecordsPanel", () => {
 
     expect(screen.getByRole("heading", { name: "Preparation" })).toBeTruthy();
     expect(screen.queryByText("Application tracker")).toBeNull();
-    expect(screen.getByText("Start your first application")).toBeTruthy();
+    expect(screen.getByText("No application started yet")).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Shortlisting a job or tailoring its resume does not create an application record.*choose Prepare application/i,
+      ),
+    ).toBeTruthy();
     expect(
       screen.queryByRole("group", { name: "Application filters" }),
     ).toBeNull();
@@ -154,17 +159,22 @@ describe("ApplicationsRecordsPanel", () => {
     const firstRowAction = screen.getByRole("button", {
       name: "View details for Product Engineer 1 at Acme",
     });
-    expect(firstRowAction.className).toContain("absolute");
-    expect(firstRowAction.className).toContain("inset-0");
+    // The row IS the action now (the shared SelectableRow primitive), rather
+    // than an absolutely positioned overlay button on top of the content.
+    expect(firstRowAction.getAttribute("data-slot")).toBe("selectable-row");
+    expect(firstRowAction.className).toContain("w-full");
+    expect(firstRowAction.className).not.toContain("absolute");
     fireEvent.click(firstRowAction);
     expect(onSelectRecord).toHaveBeenCalledWith("application_1");
 
-    // The visible Stage and attempt badges must be heard with the identity.
+    // Needs you already covers paused prep — do not also announce the
+    // redundant "Needs follow-up" attempt badge.
     const stateDescriptionId = firstRowAction.getAttribute("aria-describedby");
     expect(stateDescriptionId).toBeTruthy();
     expect(document.getElementById(stateDescriptionId!)?.textContent).toBe(
-      "Stage Needs you. Preparation attempt Needs follow-up.",
+      "Stage Needs you.",
     );
+    expect(screen.queryByText("Needs follow-up")).toBeNull();
     expect(firstRowAction.getAttribute("aria-keyshortcuts")).toBe(
       "ArrowUp ArrowDown Home End",
     );
@@ -250,14 +260,27 @@ describe("ApplicationsRecordsPanel", () => {
         .getAttribute("aria-current"),
     ).toBe("true");
 
-    const rowGrid = application.querySelector(":scope > div");
+    const rowAction = application.querySelector('[data-slot="selectable-row"]');
+    // Padding is owned by the primitive so it cannot vary with selection.
+    expect(rowAction?.className).toContain("px-4 py-3");
+    expect(rowAction?.className).not.toContain("py-4");
+    const rowGrid = rowAction?.firstElementChild;
     expect(rowGrid?.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
-    expect(rowGrid?.className).toContain("px-4 py-3");
-    expect(rowGrid?.className).not.toContain("py-4");
     expect(within(application).queryByText("Job")).toBeNull();
     expect(within(application).queryByText("Latest activity")).toBeNull();
-    expect(within(application).getByText("Stage")).toBeTruthy();
-    expect(within(application).getByText("Apply attempt")).toBeTruthy();
+    // The stage is announced exactly once, through the row description, so
+    // "Stage" is not read twice beside its own badge.
+    expect(within(application).queryByText("Stage")).toBeNull();
+    expect((application.textContent ?? "").split("Stage").length - 1).toBe(1);
+    // Needs you already covers paused prep — no second "Needs follow-up" badge.
+    expect(within(application).queryByText("Apply attempt")).toBeNull();
+    expect(within(application).queryByText("Needs follow-up")).toBeNull();
+    // Employer plus exactly one status line: the paused next step is not
+    // repeated as a latest-activity subtitle above "Next:".
+    const rowText = application.textContent ?? "";
+    expect(rowText.split(record.nextActionLabel ?? "").length - 1).toBe(1);
+    expect(rowText).not.toContain(record.lastActionLabel);
+    expect(rowText).not.toContain(" • ");
   });
 
   it("keeps the preparation header compact with one reachable filter row", () => {
@@ -317,8 +340,8 @@ describe("ApplicationsRecordsPanel", () => {
     const filterGroup = screen.getByRole("group", {
       name: "Application filters",
     });
-    expect(filterGroup.className).toContain("flex-nowrap");
-    expect(filterGroup.className).toContain("overflow-x-auto");
+    expect(filterGroup.className).toContain("flex-wrap");
+    expect(filterGroup.className).toContain("w-full");
 
     const filterButtons = within(filterGroup).getAllByRole("button");
     expect(filterButtons.length).toBeGreaterThan(1);
@@ -326,8 +349,15 @@ describe("ApplicationsRecordsPanel", () => {
       expect(filterButton.className).toContain("shrink-0");
     }
 
-    fireEvent.click(screen.getByRole("button", { name: /submitted/i }));
-    expect(onFilterChange).toHaveBeenCalledWith("submitted");
+    // Zero-count views are hidden so a single record cannot wrap the filter
+    // row; All and Needs you always stay reachable.
+    expect(screen.queryByRole("button", { name: /submitted/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /manual only/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^All/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /needs you/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /in progress/i }));
+    expect(onFilterChange).toHaveBeenCalledWith("in_progress");
   });
 
   it("keeps a large application list bounded to one page", () => {
@@ -518,5 +548,173 @@ describe("ApplicationsRecordsPanel", () => {
     expect(document.getElementById(stateDescriptionId!)?.textContent).toBe(
       "Stage Needs recovery. Preparation attempt Attempt failed.",
     );
+  });
+
+  it("omits Employer not stated and infers Wellfound listing origin", () => {
+    const record: ApplicationRecord = {
+      id: "application_wellfound",
+      jobId: "job_wellfound",
+      title: "AI Product Engineer",
+      company: "Employer not stated",
+      status: "ready_for_review",
+      lastActionLabel: "Saved from Find jobs.",
+      nextActionLabel: "Prepare this application.",
+      lastUpdatedAt: "2026-08-26T10:00:00.000Z",
+      lastAttemptState: null,
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+    };
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          discoveryJobs={[
+            {
+              id: "job_wellfound",
+              canonicalUrl:
+                "https://wellfound.com/jobs/4634158-ai-product-engineer",
+            },
+          ]}
+          filterCounts={{
+            all: 1,
+            needs_action: 1,
+            in_progress: 0,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={record}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Employer not stated")).toBeNull();
+    expect(screen.getByText(/Listing · wellfound.com/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "View details for AI Product Engineer at Listing · wellfound.com",
+      }),
+    ).toBeTruthy();
+
+    rerender(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          discoveryJobs={[
+            {
+              id: "job_wellfound",
+              canonicalUrl:
+                "https://wellfound.com/company/signal-systems/jobs/123-role",
+            },
+          ]}
+          filterCounts={{
+            all: 1,
+            needs_action: 1,
+            in_progress: 0,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={record}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Employer not stated")).toBeNull();
+    expect(screen.getByText(/Signal Systems/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "View details for AI Product Engineer at Signal Systems",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("shows employer recovered at extraction for /jobs/{id} listings", () => {
+    // End-to-end display contract: discovery stored company from an observed
+    // `/company/{slug}` href even though the listing URL is `/jobs/{id}-…`.
+    const record: ApplicationRecord = {
+      id: "application_wellfound_extracted",
+      jobId: "job_wellfound_extracted",
+      title: "Software Engineer II",
+      company: "Signal Systems",
+      status: "ready_for_review",
+      lastActionLabel: "Saved from Find jobs.",
+      nextActionLabel: "Prepare this application.",
+      lastUpdatedAt: "2026-08-27T10:00:00.000Z",
+      lastAttemptState: null,
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+    };
+
+    render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          discoveryJobs={[
+            {
+              id: "job_wellfound_extracted",
+              canonicalUrl:
+                "https://wellfound.com/jobs/4634158-software-engineer-ii",
+            },
+          ]}
+          filterCounts={{
+            all: 1,
+            needs_action: 1,
+            in_progress: 0,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={record}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Employer not stated")).toBeNull();
+    expect(screen.queryByText(/Listing ·/)).toBeNull();
+    expect(screen.getByText(/Signal Systems/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "View details for Software Engineer II at Signal Systems",
+      }),
+    ).toBeTruthy();
   });
 });

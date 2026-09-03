@@ -14,6 +14,10 @@ import {
 } from "@unemployed/contracts";
 import { z } from "zod";
 
+import {
+  experienceSectionHeadingPattern,
+  nonExperienceSectionHeadingPattern,
+} from "./deterministic/constants";
 import { buildCandidateConfidenceBreakdown } from "./resume-import-helpers";
 
 export const resumeImportExtractionStageValues = [
@@ -37,6 +41,20 @@ export type ResumeImportStageExtractionTiming = z.infer<
   typeof ResumeImportStageExtractionTimingSchema
 >;
 
+/**
+ * Recorded when a stage asked the configured model, did not get an answer, and
+ * silently continued on the deterministic reader. The stage still returns
+ * candidates, so nothing else in the pipeline can tell the difference; this is
+ * the only place the degradation is observable.
+ */
+export const ResumeImportStageFallbackSchema = z.object({
+  kind: z.enum(["timeout", "provider_error"]),
+  reason: NonEmptyStringSchema,
+});
+export type ResumeImportStageFallback = z.infer<
+  typeof ResumeImportStageFallbackSchema
+>;
+
 export const ResumeImportStageExtractionResultSchema = z.object({
   stage: ResumeImportExtractionStageSchema,
   analysisProviderKind: z.enum(["deterministic", "openai_compatible"]),
@@ -44,6 +62,9 @@ export const ResumeImportStageExtractionResultSchema = z.object({
   candidates: z.array(ResumeImportFieldCandidateDraftSchema).default([]),
   notes: z.array(NonEmptyStringSchema).default([]),
   timing: ResumeImportStageExtractionTimingSchema.nullable().optional(),
+  // Optional, like `timing`: only the fallback-aware client records it, and a
+  // stage that reached the model has nothing to declare.
+  fallback: ResumeImportStageFallbackSchema.nullable().optional(),
 });
 export type ResumeImportStageExtractionResult = z.infer<
   typeof ResumeImportStageExtractionResultSchema
@@ -214,17 +235,13 @@ export function selectBlocksForResumeImportStage(
   const blocks = sortBlocksForStructuredExtraction(documentBundle.blocks);
   const experienceBlocks = sliceHeadingRange(
     blocks,
-    [/^work experience$/i, /^experience$/i],
-    [
-      /^education(?: and training)?$/i,
-      /^language skills$/i,
-      /^certifications?$/i,
-    ],
+    [experienceSectionHeadingPattern],
+    [nonExperienceSectionHeadingPattern],
   );
   const skillsBlocks = sliceHeadingRange(
     blocks,
     [/^skills$/i, /^technical skills$/i, /^core skills$/i, /^key skills$/i],
-    [/^work experience$/i, /^experience$/i],
+    [experienceSectionHeadingPattern],
   );
   const educationBlocks = sliceHeadingRange(
     blocks,
@@ -238,8 +255,7 @@ export function selectBlocksForResumeImportStage(
   );
   const preSkillsCutoff = findHeadingIndex(blocks, 0, [
     /^skills$/i,
-    /^work experience$/i,
-    /^experience$/i,
+    experienceSectionHeadingPattern,
   ]);
   const introBlocks = blocks.slice(
     0,

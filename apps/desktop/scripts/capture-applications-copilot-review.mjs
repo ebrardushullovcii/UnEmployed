@@ -218,10 +218,10 @@ async function captureApplicationsCopilotReview() {
     await startApplyCopilotButton.click()
     const checkpointDialog = window.getByRole('dialog')
     await checkpointDialog.waitFor({ timeout: 10000 })
-    await checkpointDialog.getByRole('button', { name: 'Continue without' }).click()
+    await checkpointDialog.getByRole('button', { name: 'Prepare application', exact: true }).click()
     await waitForCondition(
       async () => (await getWorkspace(window)).applicationRecords.length > 0,
-      'application record created by Apply Copilot',
+      'application record created by the prepare-only run',
     )
     await window.evaluate(() => { window.location.hash = '#/job-finder/applications' })
     await window.locator('h1').filter({ hasText: /^Applications$/ }).waitFor({ timeout: 10000 })

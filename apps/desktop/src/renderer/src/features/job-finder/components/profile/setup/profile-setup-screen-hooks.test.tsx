@@ -10,7 +10,7 @@ import {
 } from "@unemployed/contracts";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { buildProfilePayload } from "../../../lib/profile-editor";
+import { buildProfileSetupPayload } from "./profile-setup-screen-actions";
 import {
   backgroundConflictNoticeMessage,
   backgroundMergedNoticeMessage,
@@ -253,7 +253,7 @@ describe("useProfileSetupForms background-snapshot durability", () => {
 
     // The previous baseline is retained for stale-save protection: an echo
     // computed against it still lands fully clean.
-    const userSaveEcho = buildProfilePayload(
+    const userSaveEcho = buildProfileSetupPayload(
       profile,
       result.current.profileForm.getValues(),
     ).payload;
@@ -380,7 +380,7 @@ describe("useProfileSetupForms background-snapshot durability", () => {
 
     // Mirror of the setup save action: the committed profile comes back
     // carrying the saved step content.
-    const savedProfile = buildProfilePayload(
+    const savedProfile = buildProfileSetupPayload(
       profile,
       result.current.profileForm.getValues(),
     ).payload;
@@ -454,7 +454,7 @@ describe("useProfileSetupForms background-snapshot durability", () => {
 
     // Mirror of the setup step save after the merge: the payload is
     // reconciled against the current canonical baseline, not stale data.
-    const mergedSavePayload = buildProfilePayload(
+    const mergedSavePayload = buildProfileSetupPayload(
       externallyUpdatedProfile,
       result.current.profileForm.getValues(),
     ).payload;
@@ -642,7 +642,7 @@ describe("useProfileSetupForms draft-edit revision signals", () => {
 
     // The committed snapshot carrying the saved draft rebases the forms to
     // clean; its reset must not read as a revision.
-    const savedProfile = buildProfilePayload(
+    const savedProfile = buildProfileSetupPayload(
       profile,
       result.current.profileForm.getValues(),
     ).payload;

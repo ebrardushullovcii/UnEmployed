@@ -157,6 +157,44 @@ describe("buildJobFinderGlobalSearchEntries", () => {
     );
   });
 
+  it("excludes absence-placeholder company shells from search", () => {
+    const workspace = {
+      campaigns: [],
+      discoveryJobs: [],
+      applicationRecords: [],
+      intelligence: {
+        companies: [
+          {
+            aliases: [],
+            applicationRecordIds: [],
+            canonicalName: "Employer not stated",
+            domains: [],
+            id: "company-placeholder",
+            jobIds: ["job-1"],
+            preference: "neutral",
+          },
+          {
+            aliases: [],
+            applicationRecordIds: [],
+            canonicalName: "Acme Inc",
+            domains: [],
+            id: "company-real",
+            jobIds: ["job-2"],
+            preference: "follow",
+          },
+        ],
+      },
+      resumeExportArtifacts: [],
+      tailoredAssets: [],
+    } as unknown as JobFinderWorkspaceSnapshot;
+
+    const companyIds = buildJobFinderGlobalSearchEntries(workspace)
+      .filter((entry) => entry.kind === "company")
+      .map((entry) => entry.id);
+
+    expect(companyIds).toEqual(["company-real"]);
+  });
+
   it("scopes jobs, applications, and documents to the active search plan", () => {
     const entries = buildJobFinderGlobalSearchEntries(
       buildWorkspaceFixture("campaign-active"),
@@ -191,11 +229,7 @@ describe("buildJobFinderGlobalSearchEntries", () => {
       entries.filter((entry) => entry.kind === kind).map((entry) => entry.id);
 
     expect(idsOf("campaign")).toEqual(["campaign-active", "campaign-other"]);
-    expect(idsOf("job")).toEqual([
-      "job-active",
-      "job-other",
-      "job-unassigned",
-    ]);
+    expect(idsOf("job")).toEqual(["job-active", "job-other", "job-unassigned"]);
     expect(idsOf("application")).toEqual([
       "application-active",
       "application-other",
@@ -213,7 +247,9 @@ describe("buildJobFinderGlobalSearchEntries", () => {
     expect(otherPlanJob?.subtitle).toBe("Globex · Berlin · Other plan");
 
     // Unassigned records stay searchable without a campaign label.
-    const unassignedJob = entries.find((entry) => entry.id === "job-unassigned");
+    const unassignedJob = entries.find(
+      (entry) => entry.id === "job-unassigned",
+    );
     expect(unassignedJob?.campaignId).toBeNull();
     expect(unassignedJob?.subtitle).toBe("Initech · Remote");
   });

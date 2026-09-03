@@ -244,10 +244,10 @@ export function SettingsCandidateAssets() {
   return (
     <section className="surface-panel-shell grid min-w-0 gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="grid min-w-0 gap-1.5">
-        <p className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
+        <p className="text-xs font-semibold uppercase tracking-(--tracking-badge) text-muted-foreground">
           Documents &amp; assets
         </p>
-        <h2 className="min-w-0 break-words font-display text-lg font-semibold text-(--text-headline)">
+        <h2 className="min-w-0 break-words font-display font-semibold text-(--text-headline)">
           Keep reusable application material on this device
         </h2>
         <p className="text-sm leading-6 text-foreground-soft">
@@ -321,6 +321,7 @@ export function SettingsCandidateAssets() {
             size="compact"
             type="button"
             variant="ghost"
+            className="border-(--border-strong)"
           >
             Retry
           </Button>
@@ -381,6 +382,7 @@ export function SettingsCandidateAssets() {
                 size="compact"
                 type="button"
                 variant="ghost"
+                className="border-(--border-strong)"
               >
                 Remove
               </Button>
@@ -392,9 +394,7 @@ export function SettingsCandidateAssets() {
       {trashedAssets.length > 0 ? (
         <div className="grid min-w-0 gap-2 border-t border-(--surface-panel-border) pt-4">
           <div className="grid min-w-0 gap-1">
-            <h3 className="text-sm font-semibold text-(--text-headline)">
-              Trash
-            </h3>
+            <h3 className="font-semibold text-(--text-headline)">Trash</h3>
             <p className="text-(length:--text-description) text-foreground-soft">
               Removed and expired assets are unavailable everywhere. Restore
               within 7 days or the app deletes the stored file and record.
@@ -410,7 +410,7 @@ export function SettingsCandidateAssets() {
                   key={asset.id}
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-(--text-headline)">
+                    <p className="min-w-0 break-words text-sm font-semibold text-(--text-headline)">
                       {asset.originalName}
                     </p>
                     <p className="text-(length:--text-description) text-foreground-soft">
@@ -480,7 +480,7 @@ export function SettingsCandidateAssets() {
                     Candidate asset removal
                   </p>
                   <h2
-                    className="min-w-0 break-words font-display text-xl font-semibold text-(--text-headline)"
+                    className="min-w-0 break-words font-display font-semibold text-(--text-headline)"
                     id={removalDialogTitleId}
                   >
                     Remove {assetPendingRemoval.originalName}?

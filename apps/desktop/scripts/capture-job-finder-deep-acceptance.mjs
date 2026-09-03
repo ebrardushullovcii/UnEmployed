@@ -1328,10 +1328,10 @@ async function run() {
     const copilotMessageCount = copilotBefore.profileCopilotMessages.length;
     const keepSessionAliveBefore = copilotBefore.settings.keepSessionAlive;
     const profileCopilotLauncher = page
-      .getByRole("button", { name: /Profile Copilot/ })
+      .getByRole("button", { name: /the Assistant/ })
       .last();
     await profileCopilotLauncher.click();
-    const composer = page.getByLabel("Ask for an edit");
+    const composer = page.getByLabel("Message the Assistant");
     await composer.waitFor({ state: "visible", timeout: 10_000 });
     const profileCopilotComposerFocused = await composer.evaluate(
       (element) => document.activeElement === element,
@@ -1347,9 +1347,11 @@ async function run() {
     await composer.fill(
       "Please look for jobs around New York where the pay is about 3-4k a month. Keep every unrelated preference unchanged.",
     );
-    await page.getByRole("button", { name: "Send request" }).click();
+    await page.getByRole("button", { name: "Send message" }).click();
+    // There is no separate "Preparing..." button any more; the panel marks a
+    // reply in flight with its own pending row.
     await page
-      .getByRole("button", { name: "Preparing..." })
+      .locator('[data-profile-copilot-pending="true"]')
       .waitFor({ state: "visible", timeout: 10_000 });
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page
@@ -1473,7 +1475,7 @@ async function run() {
     };
     await navigate(page, "/job-finder/profile");
     const reopenCopilot = page
-      .getByRole("button", { name: /Profile Copilot/ })
+      .getByRole("button", { name: /the Assistant/ })
       .last();
     if (await reopenCopilot.isVisible().catch(() => false)) {
       await capture(page, "copilot-completed-before-reopen", {
@@ -1496,7 +1498,7 @@ async function run() {
       report.scenarios.profileCopilotReopen = {
         pointerReopenBlocked,
         openedAfterKeyboardFallback: await page
-          .getByLabel("Ask for an edit")
+          .getByLabel("Message the Assistant")
           .isVisible()
           .catch(() => false),
       };
@@ -1647,17 +1649,19 @@ async function run() {
       }
     }
     const guidedEdits = page
-      .getByRole("button", { name: /Guided edits/i })
+      .getByRole("button", { name: /^Open the Assistant/ })
       .last();
     if (await guidedEdits.isVisible().catch(() => false)) {
       await guidedEdits.click();
-      const guidedComposer = page.getByLabel("Request a resume edit");
+      const guidedComposer = page.getByLabel("Message the Assistant");
       await guidedComposer.waitFor({ state: "visible", timeout: 10_000 });
       const composerFocusedOnOpen = await guidedComposer.evaluate(
         (element) => document.activeElement === element,
       );
       if (!composerFocusedOnOpen) {
-        throw new Error("Guided Edits did not focus its composer when opened.");
+        throw new Error(
+          "The Assistant did not focus its composer when opened.",
+        );
       }
       await page.keyboard.press("Escape");
       const launcherFocusedAfterEscape = await guidedEdits.evaluate(
@@ -1665,7 +1669,7 @@ async function run() {
       );
       if (!launcherFocusedAfterEscape) {
         throw new Error(
-          "Guided Edits did not return focus to its launcher after Escape.",
+          "The Assistant did not return focus to its launcher after Escape.",
         );
       }
       report.scenarios.guidedEditsKeyboardFocus = {
@@ -1677,9 +1681,9 @@ async function run() {
         scenario: "guided-edits-viewport",
       });
       const guidedDialog = page.getByRole("dialog", {
-        name: /Guided edits/i,
+        name: /^Assistant$/,
       });
-      const dragHeader = page.getByLabel("Drag guided edits");
+      const dragHeader = page.getByLabel("Drag the Assistant");
       const beforeDrag = await guidedDialog.boundingBox();
       const dragBox = await dragHeader.boundingBox();
       if (beforeDrag && dragBox) {
@@ -1702,26 +1706,24 @@ async function run() {
           moved,
         };
         if (!moved) {
-          throw new Error("Guided Edits did not move after a leftward drag.");
+          throw new Error(
+            "The Assistant panel did not move after a leftward drag.",
+          );
         }
         await capture(page, "resume-studio-guided-edits-dragged", {
           scenario: "guided-edits-viewport",
         });
       }
-      const maximize = page.getByRole("button", {
-        name: /Maximize Guided Edits/i,
+      // The unified Assistant panel has one size and one header control:
+      // minimize. The old maximize/restore pair no longer exists.
+      const minimize = page.getByRole("button", {
+        name: "Minimize the Assistant",
       });
-      if (await maximize.isVisible().catch(() => false)) {
-        await maximize.click();
-        await capture(page, "resume-studio-guided-edits-maximized", {
+      if (await minimize.isVisible().catch(() => false)) {
+        await minimize.click();
+        await capture(page, "resume-studio-guided-edits-minimized", {
           scenario: "guided-edits-viewport",
         });
-        const restore = page.getByRole("button", {
-          name: /Restore Guided Edits/i,
-        });
-        if (await restore.isVisible().catch(() => false)) {
-          await restore.click();
-        }
       }
     }
 

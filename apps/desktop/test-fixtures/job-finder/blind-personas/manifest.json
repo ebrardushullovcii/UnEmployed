@@ -3,9 +3,20 @@
   "idNamespace": "blind-persona-v1",
   "fixedTimestamp": "2026-08-20T14:00:00.000Z",
   "digestSubject": "canonical_manifest_without_digestSha256_and_referenced_asset_sha256_list",
-  "digestSha256": "a8cb5836e830272eea96894a80d2ed4e795d31e0a1d97dea7f05ecd092fd7b7d",
+  "digestSha256": "8b8f95b8d06b178062d5c542ecd7f927172c715a7e9a66148d4987b3fd8f1e14",
   "assetRoot": "apps/desktop",
   "jobCorpusPath": "test-fixtures/job-finder/blind-personas/jobs.json",
+  "visualReviewTemplate": {
+    "schemaVersion": 1,
+    "prompt": "While working toward the outcome in your own way, act as a product critic as well as a user. Do not follow a prescribed route. At the first stable viewport and after every click or other state change, pause long enough to notice what changed. Inspect the viewport as a finished product: useful task content and the next action should be visible above the fold, with intentional padding, margins, gutters, and use of available width. Inspect every action group, especially bottom or right-side actions, for natural sizing rather than accidental full-width stretching, consistent heights and gaps, clear primary-versus-secondary hierarchy, sensible wrapping, readable disabled reasons, and visual order matching keyboard/focus order. Check that scrolling, nested panes, tabs, and controls actually reveal an obvious visual state change. Look for repeated or unnecessary chrome, a clear top-left brand beside the native macOS traffic-light controls (or the platform equivalent), persistent navigation and active state, loading alignment, toast/banner/action overlap, painted clipping, hidden controls, overflow, and ambiguous state changes at the viewport or zoom you receive. After the primary outcome is complete or safely blocked, use the clearly labeled POST-JOURNEY OPTIONAL CHECKPOINT: if Profile Copilot is reachable, open it once and judge its discoverability, prompt wrapping, keyboard and focus behavior, form and Save-action overlap, conversation continuity, and proposal status clarity. Keep this checkpoint separate from your chosen route. If an approved local or mock provider is available, test one factual request through response, proposal review, apply or reject, and undo; otherwise record the provider blocker and do not send profile data to an external or unspecified provider. Record each visual lens as clear, issue, or not_observed. Every issue must cite at least one screenshot and be triaged P0, P1, or P2 with a short reason. Keep the existing user-owned boundary: credentials, CAPTCHA/MFA, legal consent, account creation, and final submission stay with you; do not perform them.",
+    "lenses": {
+      "firstStableViewport": "Is the first stable viewport calm and useful, with the important task content and next action visible above the fold, intentional padding and margins, and no unexplained empty rail, oversized card, or narrow column caused by chrome?",
+      "hierarchyDensityAndStateChange": "Is the hierarchy readable at this density, without repeated chrome, and does every click, tab, or action produce an obvious visual response? Check action groups for intentional alignment, natural widths, consistent heights and gaps, sensible wrapping, clear priority, and visual order that matches keyboard/focus order.",
+      "loadingState": "Do loading, progress, empty, and settled states explain themselves, align with the action or waiting region the user expects, and avoid leaving stale, hidden, or misleading controls behind?",
+      "brandAndNavigation": "Does the top-left brand remain clear and sit cleanly beside the native macOS traffic-light controls (or the platform equivalent), including collapsed or narrow navigation, while the current destination and active state remain understandable?",
+      "clippingAndOverlap": "Are headings, labels, controls, action groups, toasts, banners, and status text fully painted and visible without clipping, overlap, accidental overflow, or controls being covered at the bottom or right edge?"
+    }
+  },
   "sessions": [
     {
       "id": "blind-persona-v1/P01",

@@ -4,8 +4,8 @@ import {
   AiProviderKindSchema,
   IsoDateTimeSchema,
   NonEmptyStringSchema,
-} from "./base";import { CandidateExperienceSchema } from "./profile";
-
+} from "./base";
+import { CandidateExperienceSchema } from "./profile";
 
 const ProbabilitySchema = z.number().min(0).max(1);
 
@@ -26,6 +26,21 @@ export const ResumeImportProgressEventSchema = z.object({
   stage: ResumeImportProgressStageSchema,
   message: NonEmptyStringSchema,
   occurredAt: IsoDateTimeSchema,
+  /**
+   * Determinate progress. `completed` counts stages that have finished, so the
+   * event announcing a stage carries the count of the stages behind it, and
+   * `total` is the number of stages this import will report. Optional so an
+   * older producer or a persisted legacy event still parses; the renderer falls
+   * back to an indeterminate spinner when either is absent.
+   */
+  completed: z.number().int().min(0).optional(),
+  total: z.number().int().min(1).optional(),
+  /**
+   * How long this stage typically takes, in seconds, stated as a range the user
+   * can plan around. The long model stage is otherwise a frozen label.
+   */
+  expectedSecondsMin: z.number().int().min(0).optional(),
+  expectedSecondsMax: z.number().int().min(0).optional(),
 });
 export type ResumeImportProgressEvent = z.infer<
   typeof ResumeImportProgressEventSchema
@@ -647,6 +662,23 @@ export const resumeImportTextStageValues = [
 export const ResumeImportTextStageSchema = z.enum(resumeImportTextStageValues);
 export type ResumeImportTextStage = z.infer<typeof ResumeImportTextStageSchema>;
 
+/**
+ * Why a stage stopped using the configured model and used the built-in
+ * deterministic reader instead. A stage that degrades this way still returns
+ * usable candidates, so its status stays `completed`; without this field the
+ * degradation is invisible and the app silently under-reports what it did.
+ */
+export const resumeImportStageFallbackKindValues = [
+  "timeout",
+  "provider_error",
+] as const;
+export const ResumeImportStageFallbackKindSchema = z.enum(
+  resumeImportStageFallbackKindValues,
+);
+export type ResumeImportStageFallbackKind = z.infer<
+  typeof ResumeImportStageFallbackKindSchema
+>;
+
 export const ResumeImportTextStageTimingSchema = z.object({
   stage: ResumeImportTextStageSchema,
   status: z.enum(["completed", "failed", "timed_out"]),
@@ -656,6 +688,11 @@ export const ResumeImportTextStageTimingSchema = z.object({
   primaryProviderMs: z.number().int().min(0).nullable().default(null),
   deterministicFallbackMs: z.number().int().min(0).nullable().default(null),
   candidateCount: z.number().int().min(0).default(0),
+  // Null on a stage that genuinely used the configured model, and on the
+  // deterministic-by-design `shared_memory` stage, which never had a model
+  // call to lose.
+  fallbackKind: ResumeImportStageFallbackKindSchema.nullable().default(null),
+  fallbackReason: NonEmptyStringSchema.nullable().default(null),
 });
 export type ResumeImportTextStageTiming = z.infer<
   typeof ResumeImportTextStageTimingSchema

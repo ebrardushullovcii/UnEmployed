@@ -1,6 +1,15 @@
 import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
+import { isListableCompanyName } from "@unemployed/contracts";
 import type { JobFinderGlobalSearchEntry } from "./job-finder-global-search";
 import { buildJobFinderContextRoute } from "./job-finder-context-navigation";
+import { buildResumeWorkspaceRoute } from "./resume-workspace-route";
+import {
+  formatJobEmployerLocationLine,
+  isEmployerAbsenceLabel,
+  isLocationAbsenceLabel,
+  resolveJobEmployerDisplay,
+  resolveJobLocationDisplay,
+} from "./job-employer-location-display";
 
 export function buildJobFinderGlobalSearchEntries(
   workspace: JobFinderWorkspaceSnapshot,
@@ -12,24 +21,26 @@ export function buildJobFinderGlobalSearchEntries(
   const resumeExportArtifacts = workspace.resumeExportArtifacts ?? [];
 
   const companyEntries: JobFinderGlobalSearchEntry[] =
-    workspace.intelligence?.companies?.map((company) => ({
-      campaignId: null,
-      href: `/job-finder/companies/${company.id}`,
-      id: company.id,
-      kind: "company" as const,
-      metadata: [
-        company.canonicalName,
-        ...company.aliases.map((alias) => alias.alias),
-        ...company.domains.map((domain) => domain.domain),
-        company.preference,
-      ],
-      subtitle: [
-        `${company.jobIds.length} job${company.jobIds.length === 1 ? "" : "s"}`,
-        `${company.applicationRecordIds.length} application${company.applicationRecordIds.length === 1 ? "" : "s"}`,
-        company.preference,
-      ].join(" · "),
-      title: company.canonicalName,
-    })) ?? [];
+    workspace.intelligence?.companies
+      ?.filter((company) => isListableCompanyName(company.canonicalName))
+      .map((company) => ({
+        campaignId: null,
+        href: `/job-finder/companies/${company.id}`,
+        id: company.id,
+        kind: "company" as const,
+        metadata: [
+          company.canonicalName,
+          ...company.aliases.map((alias) => alias.alias),
+          ...company.domains.map((domain) => domain.domain),
+          company.preference,
+        ],
+        subtitle: [
+          `${company.jobIds.length} job${company.jobIds.length === 1 ? "" : "s"}`,
+          `${company.applicationRecordIds.length} application${company.applicationRecordIds.length === 1 ? "" : "s"}`,
+          company.preference,
+        ].join(" · "),
+        title: company.canonicalName,
+      })) ?? [];
 
   const campaignIdsByJobId = new Map<string, Set<string>>();
   for (const campaign of campaigns) {
@@ -58,7 +69,8 @@ export function buildJobFinderGlobalSearchEntries(
     campaignIdsByJobId.get(jobId)?.has(workspace.activeCampaignId) ?? false;
   const isInSearchScope = resolvesActivePlan ? isInActivePlan : () => true;
   const campaignIdForJob = resolvesActivePlan
-    ? (jobId: string) => (isInActivePlan(jobId) ? workspace.activeCampaignId : null)
+    ? (jobId: string) =>
+        isInActivePlan(jobId) ? workspace.activeCampaignId : null
     : (jobId: string) =>
         campaigns.find((campaign) =>
           campaignIdsByJobId.get(jobId)?.has(campaign.id),
@@ -77,25 +89,45 @@ export function buildJobFinderGlobalSearchEntries(
   );
   const jobEntries: JobFinderGlobalSearchEntry[] = discoveryJobs
     .filter((job) => isInSearchScope(job.id))
-    .map((job) => ({
-      campaignId: campaignIdForJob(job.id),
-      href: buildJobFinderContextRoute("/job-finder/discovery", {
-        jobId: job.id,
-      }),
-      id: job.id,
-      kind: "job",
-      metadata: [
-        job.company,
-        job.location,
-        ...(job.workMode ?? []),
-        job.status,
-        ...(job.matchAssessment?.reasons ?? []),
-      ].filter((value): value is string => typeof value === "string"),
-      subtitle: [job.company, job.location, campaignLabelFor(campaignIdForJob(job.id))]
-        .filter(Boolean)
-        .join(" · "),
-      title: job.title,
-    }));
+    .map((job) => {
+      const employer = resolveJobEmployerDisplay({
+        company: job.company,
+        canonicalUrl: job.canonicalUrl,
+      });
+      const location = resolveJobLocationDisplay(job.location);
+      return {
+        campaignId: campaignIdForJob(job.id),
+        href: buildJobFinderContextRoute("/job-finder/discovery", {
+          jobId: job.id,
+        }),
+        id: job.id,
+        kind: "job" as const,
+        metadata: [
+          employer,
+          location,
+          ...(job.workMode ?? []),
+          job.status,
+          ...(job.matchAssessment?.reasons ?? []),
+        ].filter(
+          (value): value is string =>
+            typeof value === "string" &&
+            value.length > 0 &&
+            !isEmployerAbsenceLabel(value) &&
+            !isLocationAbsenceLabel(value),
+        ),
+        subtitle: [
+          formatJobEmployerLocationLine({
+            company: job.company,
+            location: job.location,
+            canonicalUrl: job.canonicalUrl,
+          }),
+          campaignLabelFor(campaignIdForJob(job.id)),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        title: job.title,
+      };
+    });
   const applicationEntries: JobFinderGlobalSearchEntry[] = applicationRecords
     .filter((record) => isInSearchScope(record.jobId))
     .map((record) => ({
@@ -126,7 +158,7 @@ export function buildJobFinderGlobalSearchEntries(
       .filter((asset) => isInSearchScope(asset.jobId))
       .map((asset) => ({
         campaignId: campaignIdForJob(asset.jobId),
-        href: `/job-finder/review-queue/${asset.jobId}/resume`,
+        href: buildResumeWorkspaceRoute(asset.jobId),
         id: asset.id,
         kind: "document" as const,
         metadata: [asset.templateName, asset.status, asset.version],
@@ -143,7 +175,7 @@ export function buildJobFinderGlobalSearchEntries(
       .filter((artifact) => isInSearchScope(artifact.jobId))
       .map((artifact) => ({
         campaignId: campaignIdForJob(artifact.jobId),
-        href: `/job-finder/review-queue/${artifact.jobId}/resume`,
+        href: buildResumeWorkspaceRoute(artifact.jobId),
         id: artifact.id,
         kind: "document" as const,
         metadata: [artifact.templateId, artifact.format, artifact.filePath],

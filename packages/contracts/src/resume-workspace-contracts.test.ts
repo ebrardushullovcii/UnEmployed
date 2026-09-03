@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  JobFinderExportResumePdfInputSchema,
   JobFinderResumePreviewSchema,
   JobFinderResumeWorkspaceSchema,
   JobFinderSetWorkHistoryReviewAcknowledgmentInputSchema,
@@ -19,6 +20,24 @@ import {
 } from "./index";
 
 describe("contracts resume workspace schemas", () => {
+  test("distinguishes private approval rendering from an optional download", () => {
+    expect(
+      JobFinderExportResumePdfInputSchema.parse({ jobId: "job_1" }),
+    ).toEqual({ intent: "download", jobId: "job_1" });
+    expect(
+      JobFinderExportResumePdfInputSchema.parse({
+        intent: "approval",
+        jobId: "job_1",
+      }),
+    ).toEqual({ intent: "approval", jobId: "job_1" });
+    expect(() =>
+      JobFinderExportResumePdfInputSchema.parse({
+        intent: "submit",
+        jobId: "job_1",
+      }),
+    ).toThrow();
+  });
+
   test("only error-severity resume validation issues block approval", () => {
     expect(isBlockingResumeValidationIssue({ severity: "error" })).toBe(true);
     expect(isBlockingResumeValidationIssue({ severity: "warning" })).toBe(

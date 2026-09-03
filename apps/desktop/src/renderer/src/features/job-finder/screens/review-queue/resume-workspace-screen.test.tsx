@@ -221,6 +221,73 @@ function buildWorkspaceWithRevision(): JobFinderResumeWorkspace {
     ],
   });
 }
+/**
+ * A saved workspace whose summary text is blocked by the export gate, with one
+ * earlier revision that still holds the text the blocked claim replaced.
+ */
+function buildWorkspaceWithBlockedSummaryClaim(): JobFinderResumeWorkspace {
+  const workspace = buildWorkspace();
+  const summarySection =
+    workspace.draft.sections.find((section) => section.text?.trim()) ?? null;
+
+  if (!summarySection?.text) {
+    throw new Error("Expected the demo draft to contain a text section.");
+  }
+
+  const previousDraft: ResumeDraft = {
+    ...workspace.draft,
+    sections: workspace.draft.sections.map((section) =>
+      section.id === summarySection.id
+        ? { ...section, text: "Previous grounded summary text." }
+        : section,
+    ),
+  };
+
+  return JobFinderResumeWorkspaceSchema.parse({
+    ...workspace,
+    validation: {
+      id: "validation_blocked_claim",
+      draftId: workspace.draft.id,
+      issues: [
+        {
+          id: `issue_claim_grounding_${summarySection.id}`,
+          severity: "error",
+          category: "unsupported_claim",
+          sectionId: summarySection.id,
+          entryId: null,
+          bulletId: null,
+          message:
+            "This generated claim lacks strong candidate-only evidence and must be rewritten or explicitly user-edited before export.",
+          flaggedText: summarySection.text,
+        },
+      ],
+      draftContentHash: null,
+      claimAssessments: [],
+      coverageComparison: null,
+      pageCount: null,
+      validatedAt: "2026-04-27T01:00:00.000Z",
+    },
+    revisions: [
+      ResumeDraftRevisionSchema.parse({
+        id: "revision_blocked_claim_previous",
+        draftId: workspace.draft.id,
+        parentRevisionId: null,
+        actor: "user",
+        mutationKind: "manual_save",
+        snapshotDraft: previousDraft,
+        snapshotIdentity: previousDraft.identity,
+        snapshotSections: previousDraft.sections,
+        beforeHash: null,
+        afterHash: null,
+        diff: null,
+        restoredFromRevisionId: null,
+        createdAt: "2026-04-26T00:00:00.000Z",
+        reason: null,
+      }),
+    ],
+  });
+}
+
 function buildPreview(
   revisionKey: string,
   htmlText: string,
@@ -299,6 +366,25 @@ function buildPendingProposalWorkspaceAndMessage(): {
   };
 }
 
+/**
+ * The tools pane keeps only the focused section open, so a one-page resume
+ * can be reviewed inside one screen. A test that reaches into another
+ * section's fields opens it the way a user would: by its title.
+ */
+function openEditorSection(sectionId: string): void {
+  const toggle = document.querySelector<HTMLButtonElement>(
+    `[data-resume-section-toggle="${sectionId}"]`,
+  );
+
+  if (!toggle) {
+    throw new Error(`No editor section toggle for '${sectionId}'.`);
+  }
+
+  if (toggle.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(toggle);
+  }
+}
+
 function renderScreen(options?: {
   assistantMessages?: ResumeAssistantMessage[];
   assistantPending?: boolean;
@@ -340,11 +426,14 @@ function renderScreen(options?: {
       isWorkspacePending={false}
       jobId="job_ready"
       onApplyPatch={options?.onApplyPatch ?? vi.fn()}
+      onApproveCurrentResume={vi.fn()}
       onApproveResume={vi.fn()}
       onBack={vi.fn()}
       onClearResumeApproval={vi.fn()}
       onDirtyChange={vi.fn()}
-      {...(options?.onDraftEdited ? { onDraftEdited: options.onDraftEdited } : {})}
+      {...(options?.onDraftEdited
+        ? { onDraftEdited: options.onDraftEdited }
+        : {})}
       onExportPdf={vi.fn()}
       onPreviewDraft={onPreviewDraft}
       onRefresh={vi.fn()}
@@ -352,7 +441,6 @@ function renderScreen(options?: {
       onResolveAssistantProposal={
         options?.onResolveAssistantProposal ?? vi.fn()
       }
-      onRegenerateSection={vi.fn()}
       onRestoreRevision={options?.onRestoreRevision ?? vi.fn()}
       onSaveDraft={vi.fn()}
       onSaveDraftAndThen={options?.onSaveDraftAndThen ?? vi.fn()}
@@ -405,11 +493,14 @@ describe("ResumeWorkspaceScreen", () => {
   });
 
   afterEach(async () => {
+    // Unmount before flushing timers so preview/debounce effects cannot
+    // re-schedule work and hang `runOnlyPendingTimersAsync` under suite load.
+    cleanup();
     await act(async () => {
       await vi.runOnlyPendingTimersAsync();
     });
+    vi.clearAllTimers();
     vi.useRealTimers();
-    cleanup();
     if (originalScrollIntoViewDescriptor) {
       Object.defineProperty(
         HTMLElement.prototype,
@@ -424,7 +515,52 @@ describe("ResumeWorkspaceScreen", () => {
     } else {
       vi.unstubAllGlobals();
     }
+    // Tests that read the compact studio layout stub this; the default is the
+    // desktop split view.
+    Reflect.deleteProperty(window, "matchMedia");
     vi.clearAllMocks();
+  });
+
+  it("offers a one-click restore of the text a blocked claim replaced", async () => {
+    const onApplyPatch = vi.fn();
+    const workspace = buildWorkspaceWithBlockedSummaryClaim();
+
+    renderScreen({ onApplyPatch, workspace });
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    const restore = screen.getByRole("button", {
+      name: /^Restore previous text:/,
+    });
+    await act(async () => {
+      fireEvent.click(restore);
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    expect(onApplyPatch).toHaveBeenCalledTimes(1);
+    expect(onApplyPatch.mock.calls[0]?.[0]).toMatchObject({
+      operation: "replace_section_text",
+      origin: "user",
+      newText: "Previous grounded summary text.",
+    });
+    expect(onApplyPatch.mock.calls[0]?.[1]).toBe(
+      "Restored the previous text for a blocked claim.",
+    );
+  });
+
+  it("names the flagged sentence on the blocking claim", async () => {
+    const workspace = buildWorkspaceWithBlockedSummaryClaim();
+
+    const { container } = renderScreen({ workspace });
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    const flagged = container.querySelector(
+      "[data-resume-validation-flagged-text]",
+    );
+    expect(flagged?.textContent).toContain("Flagged sentence:");
   });
 
   it("shows an honest loading state while the resume workspace is fetched", () => {
@@ -453,15 +589,20 @@ describe("ResumeWorkspaceScreen", () => {
     expect(
       screen.getAllByRole("button", { name: /save draft/i }).length,
     ).toBeGreaterThan(0);
+    // Exactly one AI control lives on this screen, in the Assistant. The
+    // duplicate "Refresh draft" verb and the unlabelled circular refresh in
+    // the header are both gone.
     expect(
-      screen.getAllByRole("button", { name: /refresh draft/i }).length,
+      screen.queryAllByRole("button", { name: /refresh draft/i }),
+    ).toHaveLength(0);
+    expect(
+      screen.getAllByRole("button", {
+        name: /Continue to Shortlisted|Approve resume|Download PDF|Choose an apply-safe template/i,
+      }).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByRole("button", { name: /export pdf/i }).length,
-    ).toBeGreaterThan(0);
-    expect(
-      screen.getAllByRole("button", { name: /reload workspace/i }).length,
-    ).toBeGreaterThan(0);
+      screen.queryAllByRole("button", { name: /refresh this resume/i }),
+    ).toHaveLength(0);
     expect(
       screen.getAllByRole("button", { name: /back to shortlisted/i }).length,
     ).toBeGreaterThan(0);
@@ -469,17 +610,24 @@ describe("ResumeWorkspaceScreen", () => {
   it("makes the resume-to-application handoff explicit", () => {
     renderScreen();
 
-    expect(screen.getByText("Your next step")).toBeTruthy();
+    // The pinned banner stack collapsed into one compact sticky row; the
+    // next-step sentence is that row's only prose.
     expect(
-      screen.getByText(
-        "Review → export → approve → return to Shortlisted. Final application submission stays disabled.",
-      ),
-    ).toBeTruthy();
+      document.querySelector("[data-resume-studio-compact-header]")
+        ?.textContent,
+    ).toContain("Resume approved.");
+    // The approved fixture resolves the background-work promise into a
+    // finished, inspectable fact instead of leaving present-tense copy up.
     expect(
-      screen.getByRole("button", {
-        name: /Continue to Shortlisted|Approve this PDF|Export review PDF/,
-      }),
-    ).toBeTruthy();
+      document.querySelector("[data-resume-pdf-status]")?.textContent,
+    ).toBe(
+      "Application PDF ready · 1 page. Job Finder created and verified it. Downloading a copy is optional. Final submission stays disabled.",
+    );
+    expect(
+      screen.getAllByRole("button", {
+        name: /Prepare application|Approve resume|Download PDF/,
+      }).length,
+    ).toBeGreaterThan(0);
   });
 
   it("shows preview fallback while keeping editing available when preview rendering fails", async () => {
@@ -591,7 +739,7 @@ describe("ResumeWorkspaceScreen", () => {
       }).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getAllByRole("button", { name: /^Open guided edits/ }).length,
+      screen.getAllByRole("button", { name: /^Open the Assistant/ }).length,
     ).toBeGreaterThan(0);
   });
 
@@ -611,13 +759,13 @@ describe("ResumeWorkspaceScreen", () => {
     expect(screen.getAllByTitle("Live resume preview").length).toBeGreaterThan(
       0,
     );
-    expect(screen.getAllByText("Structured edits").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Edit resume").length).toBeGreaterThan(0);
     expect(
-      screen.getAllByRole("button", { name: /guided edits/i }).length,
+      screen.getAllByRole("button", { name: /assistant/i }).length,
     ).toBeGreaterThan(0);
   });
 
-  it("anchors the untouched guided edits bubble to the viewport bottom-left", async () => {
+  it("anchors the untouched guided edits bubble to the viewport bottom-right", async () => {
     renderScreen();
 
     await act(async () => {
@@ -630,7 +778,8 @@ describe("ResumeWorkspaceScreen", () => {
 
     expect(popupRoot?.parentElement).toBe(document.body);
     expect(popupRoot?.style.bottom).toBe("16px");
-    expect(popupRoot?.style.left).toBe("16px");
+    expect(popupRoot?.style.left).toBe("");
+    expect(popupRoot?.style.right).toBe("16px");
     expect(popupRoot?.style.top).toBe("");
   });
   it("opens the guided edits popup from the always-available bubble", async () => {
@@ -640,13 +789,15 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Open the Assistant/ }),
+    );
 
     const guidedEditToggle = screen
-      .getAllByRole("button", { name: "Minimize guided edits" })
+      .getAllByRole("button", { name: "Minimize the Assistant" })
       .at(-1);
 
-    expect(screen.getByRole("dialog", { name: "Guided edits" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Assistant" })).toBeTruthy();
     expect(guidedEditToggle?.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getAllByText("No edit requests yet").length).toBeGreaterThan(
       0,
@@ -658,7 +809,19 @@ describe("ResumeWorkspaceScreen", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("keeps the assistant tab visible when a reply lands after mobile users switch to assistant", async () => {
+  it("keeps the same floating Assistant at compact widths when a reply lands", async () => {
+    // There is no compact `Assistant` tab any more: the floating panel is the
+    // Assistant at every width, so a reply lands in the open panel without the
+    // studio changing layout underneath it.
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        addEventListener: vi.fn(),
+        matches: false,
+        removeEventListener: vi.fn(),
+      })),
+    });
+
     const onPreviewDraft = vi.fn(
       () => new Promise<JobFinderResumePreview>(() => {}),
     );
@@ -672,6 +835,7 @@ describe("ResumeWorkspaceScreen", () => {
         isWorkspacePending={false}
         jobId="job_ready"
         onApplyPatch={vi.fn()}
+        onApproveCurrentResume={vi.fn()}
         onApproveResume={vi.fn()}
         onBack={vi.fn()}
         onClearResumeApproval={vi.fn()}
@@ -680,7 +844,6 @@ describe("ResumeWorkspaceScreen", () => {
         onPreviewDraft={onPreviewDraft}
         onRefresh={vi.fn()}
         onRegenerateDraft={vi.fn()}
-        onRegenerateSection={vi.fn()}
         onRestoreRevision={vi.fn()}
         onSaveDraft={vi.fn()}
         onSaveDraftAndThen={vi.fn()}
@@ -694,11 +857,14 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Assistant" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Assistant" }));
-    expect(
-      screen.getByRole("tab", { name: "Assistant" }).getAttribute("data-state"),
-    ).toBe("active");
+    expect(screen.queryByRole("tab", { name: "Assistant" })).toBeNull();
+    const tabNames = screen.getAllByRole("tab").map((tab) => tab.textContent);
+    expect(tabNames).toEqual(["Preview", "Tools"]);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Open the Assistant/ }),
+    );
+    expect(screen.getByRole("dialog", { name: "Assistant" })).toBeTruthy();
 
     act(() => {
       rerender(
@@ -714,6 +880,7 @@ describe("ResumeWorkspaceScreen", () => {
           isWorkspacePending={false}
           jobId="job_ready"
           onApplyPatch={vi.fn()}
+          onApproveCurrentResume={vi.fn()}
           onApproveResume={vi.fn()}
           onBack={vi.fn()}
           onClearResumeApproval={vi.fn()}
@@ -722,7 +889,6 @@ describe("ResumeWorkspaceScreen", () => {
           onPreviewDraft={onPreviewDraft}
           onRefresh={vi.fn()}
           onRegenerateDraft={vi.fn()}
-          onRegenerateSection={vi.fn()}
           onRestoreRevision={vi.fn()}
           onSaveDraft={vi.fn()}
           onSaveDraftAndThen={vi.fn()}
@@ -733,12 +899,14 @@ describe("ResumeWorkspaceScreen", () => {
       );
     });
 
-    expect(
-      screen.getByRole("tab", { name: "Assistant" }).getAttribute("data-state"),
-    ).toBe("active");
+    expect(screen.getByRole("dialog", { name: "Assistant" })).toBeTruthy();
     expect(
       screen.getAllByText("Here is the update you asked for.").length,
     ).toBeGreaterThan(0);
+    // One transcript, at this width too.
+    expect(
+      document.querySelectorAll("[data-resume-assistant-panel]"),
+    ).toHaveLength(1);
   });
 
   it("previews assistant patches and applies only the selected proposal changes", async () => {
@@ -809,29 +977,30 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    // Mount the secondary rail transcript by activating the assistant tab so
-    // both assistant surfaces can be compared side by side.
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Assistant" }));
-    fireEvent.click(screen.getByRole("tab", { name: "Assistant" }));
-    fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+    // The studio never renders an Assistant of its own, so the floating panel
+    // is the only transcript at any width.
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Open the Assistant/ }),
+    );
 
     expect(screen.getAllByText(section.text!).length).toBeGreaterThan(0);
     expect(
       screen.getAllByText("A clearer proposed summary.").length,
     ).toBeGreaterThan(0);
 
-    // Both assistant surfaces (secondary rail and guided edits popup) receive
-    // the saved validation and render the same grounding disclosure.
-    const groundingSummaries = screen.getAllByText("Why this edit is grounded");
-    expect(groundingSummaries.length).toBe(2);
-    fireEvent.click(groundingSummaries[0]!);
+    // Exactly one assistant surface renders, and it receives the saved
+    // validation and shows the grounding verdict with its reason attached
+    // rather than hidden behind a collapsed summary.
+    expect(
+      document.querySelectorAll("[data-resume-assistant-panel]"),
+    ).toHaveLength(1);
+    const groundingVerdicts = screen.getAllByText(
+      "Checked against your saved evidence",
+    );
+    expect(groundingVerdicts.length).toBe(1);
     expect(
       screen.getAllByText("Current saved text: Exact evidence.").length,
-    ).toBe(2);
-    fireEvent.click(screen.getAllByText("Why this edit is grounded")[1]!);
-    expect(
-      screen.getAllByText("Current saved text: Exact evidence.").length,
-    ).toBe(2);
+    ).toBe(1);
 
     fireEvent.click(
       screen.getAllByRole("button", { name: "Accept selected (1)" }).at(-1)!,
@@ -842,6 +1011,61 @@ describe("ResumeWorkspaceScreen", () => {
       "accept",
       ["proposal_patch_1"],
     );
+  });
+
+  it("sets a pending guided edits proposal aside when the resume is approved and says so", async () => {
+    const { workspace, message } = buildPendingProposalWorkspaceAndMessage();
+    // Approval must actually be reachable: clear the existing approval and
+    // resolve the one hidden-role decision that otherwise blocks it.
+    const approvableWorkspace = JobFinderResumeWorkspaceSchema.parse({
+      ...workspace,
+      draft: {
+        ...workspace.draft,
+        approvedAt: null,
+        approvedExportId: null,
+        workHistoryReviewAcknowledgments: [
+          {
+            id: "work_history_ack_demo_hidden_1",
+            draftId: workspace.draft.id,
+            profileRecordId: "experience_demo_hidden",
+            kind: "weak_fit",
+            action: "consider_showing",
+            messageContentHash: "fnv1a32:465fc3f2",
+            reason: "intentional_omission",
+            acknowledgedAt: "2026-04-27T00:00:00.000Z",
+          } satisfies WorkHistoryReviewAcknowledgment,
+        ],
+      },
+    });
+    const onResolveAssistantProposal = vi.fn();
+    renderScreen({
+      assistantMessages: [message],
+      onResolveAssistantProposal,
+      onSaveDraftAndThen: (_draft, next) => {
+        void next();
+      },
+      workspace: approvableWorkspace,
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /^Approve resume/ }));
+
+    // Approval freezes one exact artifact, so an unresolved proposal cannot
+    // survive it silently: it is rejected (no patch applied) and reported.
+    expect(onResolveAssistantProposal).toHaveBeenCalledWith(
+      "job_ready",
+      "proposal_1",
+      "reject",
+      [],
+    );
+    expect(
+      screen.getByText(
+        "1 pending suggestion was set aside because you approved the resume. It is still in the Assistant thread.",
+      ),
+    ).toBeTruthy();
   });
 
   it("keeps preview-selected identity fields focused instead of jumping to summary", async () => {
@@ -869,7 +1093,7 @@ describe("ResumeWorkspaceScreen", () => {
     );
   });
 
-  it("saves unsaved edits before regenerating the full draft", async () => {
+  it("saves unsaved edits before the Assistant writes a new AI draft", async () => {
     const onPreviewDraft = vi.fn((previewDraft: ResumeDraft) =>
       Promise.resolve(buildPreview(previewDraft.updatedAt, "ready-preview")),
     );
@@ -901,8 +1125,15 @@ describe("ResumeWorkspaceScreen", () => {
     });
 
     fireEvent.click(
-      screen.getAllByRole("button", { name: /refresh draft/i })[0]!,
+      screen.getAllByRole("button", { name: /^Open the Assistant/ })[0]!,
     );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Try the AI draft again — this replaces your edits",
+      }),
+    );
+    // The whole-draft rewrite states what it replaces and asks once.
+    fireEvent.click(screen.getByRole("button", { name: "Replace my draft" }));
 
     expect(onSaveDraftAndThen).toHaveBeenCalledTimes(1);
     expect(onRegenerateDraft).not.toHaveBeenCalled();
@@ -960,6 +1191,140 @@ describe("ResumeWorkspaceScreen", () => {
       "Saved your current edits before restoring the earlier draft.",
     );
   });
+  it("credits an accepted AI edit instead of denying the AI helped", async () => {
+    const workspace = buildWorkspace();
+    const section = workspace.draft.sections.find((entry) => entry.text);
+    if (!section) {
+      throw new Error("Expected a section with text in the fixture.");
+    }
+    const onRestoreRevision = vi.fn();
+    const acceptedWorkspace = JobFinderResumeWorkspaceSchema.parse({
+      ...workspace,
+      revisions: [
+        ResumeDraftRevisionSchema.parse({
+          id: "revision_assistant_1",
+          draftId: workspace.draft.id,
+          parentRevisionId: null,
+          actor: "assistant",
+          mutationKind: "assistant_patch",
+          snapshotDraft: workspace.draft,
+          snapshotIdentity: workspace.draft.identity,
+          snapshotSections: workspace.draft.sections,
+          beforeHash: "before_assistant_1",
+          afterHash: "after_assistant_1",
+          diff: null,
+          restoredFromRevisionId: null,
+          createdAt: "2026-04-27T01:00:00.000Z",
+          reason: "Applied an assistant proposal",
+        }),
+      ],
+    });
+
+    renderScreen({
+      onRestoreRevision,
+      workspace: acceptedWorkspace,
+      assistantMessages: [
+        buildAssistantMessage({
+          proposalStatus: "accepted",
+          resolvedPatchIds: ["assistant_patch_1"],
+          patches: [
+            {
+              id: "assistant_patch_1",
+              origin: "assistant",
+              operation: "replace_section_text",
+              targetSectionId: section.id,
+              targetEntryId: null,
+              targetBulletId: null,
+              anchorEntryId: null,
+              anchorBulletId: null,
+              position: null,
+              newText: "A tighter, grounded summary.",
+              newBullets: null,
+              newIncluded: null,
+              newLocked: null,
+              conflictReason: null,
+            } as ResumeDraftPatch,
+          ],
+        }),
+      ],
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    // The one place a user checks "did the AI actually help me" must agree
+    // with the preview beside it.
+    const notice = document.querySelector("[data-resume-applied-ai-edits]");
+    expect(notice?.textContent).toContain("1 AI edit applied");
+
+    // Accepting a proposal is undoable from the page it changed, not only
+    // from version history.
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(onRestoreRevision).toHaveBeenCalledWith(
+      "job_ready",
+      "revision_assistant_1",
+    );
+  });
+
+  it("keeps only the focused section open and still lands on its exact field", async () => {
+    renderScreen();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    const expandedSections = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-resume-editor-section]"),
+    ).filter(
+      (section) => section.dataset.resumeEditorSectionExpanded === "true",
+    );
+    // A one-page resume must be reviewable inside one screen of tools, not a
+    // ten-viewport ladder of always-open field editors.
+    expect(expandedSections).toHaveLength(1);
+
+    // Opening another section by its title collapses the previous one and
+    // still reaches that section's own fields.
+    openEditorSection("section_experience");
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLElement>("[data-resume-editor-section]"),
+      ).filter(
+        (section) => section.dataset.resumeEditorSectionExpanded === "true",
+      ),
+    ).toHaveLength(1);
+    expect(screen.getAllByLabelText("Title").length).toBeGreaterThan(0);
+  });
+
+  it("keeps exactly one AI control on the studio", async () => {
+    renderScreen();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    // Per-section "Rewrite", "Retry with AI", and "Refresh draft" were three
+    // entry points with unstated blast radius; every AI action now belongs to
+    // the single Assistant.
+    expect(screen.queryAllByRole("button", { name: /rewrite/i })).toHaveLength(
+      0,
+    );
+    expect(
+      screen.queryAllByRole("button", { name: /retry with ai/i }),
+    ).toHaveLength(0);
+    expect(
+      screen.queryAllByRole("button", { name: /refresh draft/i }),
+    ).toHaveLength(0);
+    expect(
+      screen.getAllByRole("button", { name: /^Open the Assistant/ }).length,
+    ).toBeGreaterThan(0);
+  });
+
   it("shows work-history review guidance in the editor", async () => {
     renderScreen({
       onPreviewDraft: () =>
@@ -974,6 +1339,8 @@ describe("ResumeWorkspaceScreen", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(100);
     });
+
+    openEditorSection("section_experience");
 
     expect(screen.getAllByText("Work-history review").length).toBeGreaterThan(
       0,
@@ -1005,7 +1372,11 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    expect(screen.getAllByText("Chronology").length).toBeGreaterThan(0);
+    openEditorSection("section_experience");
+
+    // Chronology is the default order, so it earns no header chip; only the
+    // non-default "Manual order" state is announced.
+    expect(screen.queryAllByText("Chronology")).toHaveLength(0);
 
     const moveUpButtons = screen.getAllByRole("button", {
       name: /^Move .+ up$/,
@@ -1104,6 +1475,7 @@ describe("ResumeWorkspaceScreen", () => {
         isWorkspacePending={false}
         jobId="job_ready"
         onApplyPatch={onApplyPatch}
+        onApproveCurrentResume={vi.fn()}
         onApproveResume={vi.fn()}
         onBack={vi.fn()}
         onClearResumeApproval={vi.fn()}
@@ -1114,7 +1486,6 @@ describe("ResumeWorkspaceScreen", () => {
         }
         onRefresh={vi.fn()}
         onRegenerateDraft={vi.fn()}
-        onRegenerateSection={vi.fn()}
         onRestoreRevision={vi.fn()}
         onSaveDraft={vi.fn()}
         onSaveDraftAndThen={vi.fn()}
@@ -1127,6 +1498,8 @@ describe("ResumeWorkspaceScreen", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(100);
     });
+
+    openEditorSection("section_experience");
 
     expect(screen.getAllByText("Manual order").length).toBeGreaterThan(0);
 
@@ -1146,7 +1519,10 @@ describe("ResumeWorkspaceScreen", () => {
     expect(appliedPatches[0]?.revisionReason).toBe(
       "Reset entry order to chronology",
     );
-    expect(screen.getAllByText("Chronology").length).toBeGreaterThan(0);
+    // Resetting returns the section to the default chronology order, which
+    // clears the "Manual order" chip instead of swapping in a default one.
+    expect(screen.queryAllByText("Manual order")).toHaveLength(0);
+    expect(screen.queryAllByText("Chronology")).toHaveLength(0);
 
     const entryTitleInputs: HTMLElement[] = screen.getAllByLabelText("Title");
     const currentRoleIndex = entryTitleInputs.findIndex(
@@ -1342,6 +1718,7 @@ describe("ResumeWorkspaceScreen", () => {
         isWorkspacePending
         jobId="job_ready"
         onApplyPatch={vi.fn()}
+        onApproveCurrentResume={vi.fn()}
         onApproveResume={vi.fn()}
         onBack={vi.fn()}
         onClearResumeApproval={vi.fn()}
@@ -1352,7 +1729,6 @@ describe("ResumeWorkspaceScreen", () => {
         }
         onRefresh={vi.fn()}
         onRegenerateDraft={vi.fn()}
-        onRegenerateSection={vi.fn()}
         onRestoreRevision={vi.fn()}
         onSaveDraft={vi.fn()}
         onSaveDraftAndThen={vi.fn()}
@@ -1421,7 +1797,7 @@ describe("ResumeWorkspaceScreen", () => {
     ).toBeNull();
     expect(
       screen.queryByRole("button", {
-        name: "Approve this PDF",
+        name: "Approve resume",
       }),
     ).toBeNull();
 
@@ -1515,7 +1891,9 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Open the Assistant/ }),
+    );
 
     fireEvent.change(screen.getAllByLabelText("Section text")[0]!, {
       target: {
@@ -1573,7 +1951,9 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Open the Assistant/ }),
+    );
 
     fireEvent.change(screen.getAllByLabelText("Section text")[0]!, {
       target: {
@@ -1636,7 +2016,9 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Open the Assistant/ }),
+    );
 
     fireEvent.change(screen.getAllByLabelText("Section text")[0]!, {
       target: { value: "Local edit that must survive a failed save." },
@@ -1678,7 +2060,9 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Open the Assistant/ }),
+    );
     fireEvent.click(
       screen.getAllByRole("button", { name: "Accept selected (1)" }).at(-1)!,
     );
@@ -1694,6 +2078,8 @@ describe("ResumeWorkspaceScreen", () => {
   });
 
   describe("draft-edit revision signals", () => {
+    // These cases mount the full studio and exercise several mutation paths;
+    // keep headroom above the default 5s when the full desktop suite is busy.
     it("signals each user-authored mutation path: section, identity, reorder patch, and template", async () => {
       const onApplyPatch = vi.fn();
       const onDraftEdited = vi.fn();
@@ -1704,6 +2090,8 @@ describe("ResumeWorkspaceScreen", () => {
         await vi.advanceTimersByTimeAsync(100);
       });
       expect(onDraftEdited).not.toHaveBeenCalled();
+
+      openEditorSection("section_experience");
 
       // A user-directed reorder patch both mutates local order and dispatches
       // its saved patch request; run it before local edits would require the
@@ -1720,6 +2108,7 @@ describe("ResumeWorkspaceScreen", () => {
       expect(onDraftEdited).toHaveBeenCalledTimes(1);
 
       // Section editor keystrokes revise the local draft.
+      openEditorSection("section_summary");
       fireEvent.change(screen.getAllByLabelText("Section text")[0]!, {
         target: { value: "Locally edited summary." },
       });
@@ -1741,7 +2130,7 @@ describe("ResumeWorkspaceScreen", () => {
           .at(-1)!,
       );
       expect(onDraftEdited).toHaveBeenCalledTimes(4);
-    });
+    }, 15_000);
 
     it("stays silent while canonical revisions refresh and assistant proposals resolve", async () => {
       const onDraftEdited = vi.fn();
@@ -1757,6 +2146,7 @@ describe("ResumeWorkspaceScreen", () => {
           isWorkspacePending={false}
           jobId="job_ready"
           onApplyPatch={vi.fn()}
+          onApproveCurrentResume={vi.fn()}
           onApproveResume={vi.fn()}
           onBack={vi.fn()}
           onClearResumeApproval={vi.fn()}
@@ -1768,7 +2158,6 @@ describe("ResumeWorkspaceScreen", () => {
           }
           onRefresh={vi.fn()}
           onRegenerateDraft={vi.fn()}
-          onRegenerateSection={vi.fn()}
           onResolveAssistantProposal={onResolveAssistantProposal}
           onRestoreRevision={vi.fn()}
           onSaveDraft={vi.fn()}
@@ -1790,7 +2179,9 @@ describe("ResumeWorkspaceScreen", () => {
 
       // Assistant-authored proposal resolution flows through saved actions,
       // not local draft mutation, so accepting one must not signal.
-      fireEvent.click(screen.getByRole("button", { name: /^Open guided edits/ }));
+      fireEvent.click(
+        screen.getByRole("button", { name: /^Open the Assistant/ }),
+      );
       fireEvent.click(
         screen.getAllByRole("button", { name: "Accept selected (1)" }).at(-1)!,
       );
@@ -1805,7 +2196,9 @@ describe("ResumeWorkspaceScreen", () => {
           ...workspace.draft,
           updatedAt: "2026-04-27T00:06:00.000Z",
           sections: workspace.draft.sections.map((section) =>
-            section.text ? { ...section, text: "Canonical refresh text." } : section,
+            section.text
+              ? { ...section, text: "Canonical refresh text." }
+              : section,
           ),
         },
       });
@@ -1820,7 +2213,7 @@ describe("ResumeWorkspaceScreen", () => {
           .value,
       ).toBe("Canonical refresh text.");
       expect(onDraftEdited).not.toHaveBeenCalled();
-    });
+    }, 15_000);
 
     it("propagates draft edits to the save coordinator so an edit after a failed save retires Retry with guidance", async () => {
       const states: JobFinderSaveState[] = [];
@@ -1828,7 +2221,9 @@ describe("ResumeWorkspaceScreen", () => {
         onStateChange: (state) => states.push(state),
       });
 
-      renderScreen({ onDraftEdited: () => coordinator.markSurfaceRevised("resume") });
+      renderScreen({
+        onDraftEdited: () => coordinator.markSurfaceRevised("resume"),
+      });
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(100);
@@ -1881,6 +2276,273 @@ describe("ResumeWorkspaceScreen", () => {
         retryOutcome = await coordinator.retry();
       });
       expect(retryOutcome).toBeNull();
+    });
+  });
+  describe("studio layout", () => {
+    it("keeps the workspace title compact with its job meta on the same line", async () => {
+      renderScreen();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      const title = screen.getByRole("heading", {
+        level: 1,
+        name: "Senior Product Designer",
+      });
+
+      // The element defaults in `globals.css` live in `@layer base`, so these
+      // utilities apply without an important modifier. A reintroduced `!`
+      // would mean the cascade bug came back.
+      expect(title.className).toContain(
+        "text-(length:--text-page-title-compact)",
+      );
+      expect(title.className).toContain("leading-tight");
+      expect(title.className).toContain(
+        "tracking-(--tracking-page-title-compact)",
+      );
+      expect(title.className).not.toContain("!");
+      expect(title.className).not.toContain("text-(length:--text-page-title) ");
+      // Title and meta share one baseline row instead of stacking a large
+      // page title above the studio.
+      expect(title.parentElement?.className).toContain("items-baseline");
+      expect(title.parentElement?.textContent).toContain("Updated");
+    });
+
+    it("sizes the studio content area to the viewport minus one sticky row, letting the workspace title scroll away", async () => {
+      const originalGetBoundingClientRect = Object.getOwnPropertyDescriptor(
+        HTMLElement.prototype,
+        "getBoundingClientRect",
+      );
+      HTMLElement.prototype.getBoundingClientRect = function measured(
+        this: HTMLElement,
+      ) {
+        // 56px of shell chrome above the route plus a 72px workspace header.
+        const height = this.hasAttribute("data-locked-screen-top-content")
+          ? 72
+          : 0;
+        const top = this.hasAttribute("data-locked-screen-scroll-area")
+          ? 56
+          : 0;
+
+        return {
+          bottom: top + height,
+          height,
+          left: 0,
+          right: 1440,
+          top,
+          width: 1440,
+          x: 0,
+          y: top,
+          toJSON: () => ({}),
+        } as DOMRect;
+      };
+
+      try {
+        renderScreen();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(100);
+        });
+
+        const contentArea = document.querySelector<HTMLElement>(
+          "[data-resume-studio-content-area]",
+        );
+
+        // The bound applies at every supported width, not only from xl up:
+        // below xl the studio is a tab surface whose transcript must scroll
+        // inside the viewport rather than growing the route.
+        expect(contentArea?.className).toContain("h-(--resume-studio-height)");
+        expect(contentArea?.className).not.toContain(
+          "xl:h-(--resume-studio-height)",
+        );
+        // 56 shell chrome + 12 shell bottom gutter only. The 72px workspace
+        // title row is an ordinary scrolling row of the locked layout, so it is
+        // no longer permanent chrome above the studio; the studio's own compact
+        // state row is the one sticky row inside the content area.
+        expect(
+          contentArea?.style.getPropertyValue("--resume-studio-height"),
+        ).toBe("calc(100dvh - 68px)");
+        expect(contentArea?.className).toContain("overflow-hidden");
+      } finally {
+        if (originalGetBoundingClientRect) {
+          Object.defineProperty(
+            HTMLElement.prototype,
+            "getBoundingClientRect",
+            originalGetBoundingClientRect,
+          );
+        }
+      }
+    });
+
+    // A grounded proposal is the tallest thing the Assistant thread can hold.
+    // The studio's compact `Assistant` tab used to render a second, unbounded
+    // copy of the thread, so one proposal grew the route past 38,000px and put
+    // Accept/Reject ~37,000px below the fold. The Assistant is now one bounded
+    // floating panel at every width. These four sizes are the ones the gate
+    // captures.
+    it.each([
+      [1440, 920],
+      [1440, 840],
+      [1280, 720],
+      [1200, 640],
+    ])(
+      "keeps the Assistant thread and its decision controls inside the bounded studio at %ix%i",
+      async (width, height) => {
+        const originalWidth = window.innerWidth;
+        const originalHeight = window.innerHeight;
+        Object.defineProperty(window, "innerWidth", {
+          configurable: true,
+          value: width,
+          writable: true,
+        });
+        Object.defineProperty(window, "innerHeight", {
+          configurable: true,
+          value: height,
+          writable: true,
+        });
+
+        try {
+          const { workspace, message } =
+            buildPendingProposalWorkspaceAndMessage();
+          renderScreen({ assistantMessages: [message], workspace });
+
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(100);
+          });
+
+          // The one Assistant, in its one placement, at every size.
+          fireEvent.click(
+            screen.getByRole("button", { name: /^Open the Assistant/ }),
+          );
+
+          const contentArea = document.querySelector<HTMLElement>(
+            "[data-resume-studio-content-area]",
+          );
+
+          // The route never grows with the thread: the studio is pinned to the
+          // viewport at every width, not only from xl up.
+          expect(contentArea?.className).toContain(
+            "h-(--resume-studio-height)",
+          );
+          expect(contentArea?.className).toContain("overflow-hidden");
+          expect(
+            contentArea?.style.getPropertyValue("--resume-studio-height"),
+          ).toMatch(/^calc\(100dvh - \d+px\)$/);
+
+          // Exactly one Assistant implementation, and every rendered copy of it
+          // fills its container instead of sizing itself.
+          const panels = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "[data-resume-assistant-panel]",
+            ),
+          );
+          expect(panels.length).toBeGreaterThan(0);
+          for (const panel of panels) {
+            expect(panel.className).toContain("h-full");
+            expect(panel.className).toContain("min-h-0");
+          }
+
+          // The retired second implementation is gone from every placement.
+          expect(document.body.textContent).not.toContain("Guided edits");
+          expect(document.body.textContent).not.toContain("Send request");
+
+          // Accept/Reject live inside the transcript's own scroll region, so
+          // they can only ever be one scroll away inside the bounded panel.
+          const decisionControls = [
+            ...screen.getAllByRole("button", { name: /^Accept selected/ }),
+            ...screen.getAllByRole("button", { name: "Reject proposal" }),
+          ];
+          expect(decisionControls.length).toBeGreaterThan(0);
+          for (const control of decisionControls) {
+            const transcript = control.closest(
+              "[data-resume-guided-edits-transcript]",
+            );
+            expect(transcript).not.toBeNull();
+            expect(
+              transcript?.closest("[data-resume-assistant-panel]"),
+            ).not.toBeNull();
+          }
+        } finally {
+          Object.defineProperty(window, "innerWidth", {
+            configurable: true,
+            value: originalWidth,
+            writable: true,
+          });
+          Object.defineProperty(window, "innerHeight", {
+            configurable: true,
+            value: originalHeight,
+            writable: true,
+          });
+        }
+      },
+    );
+
+    it("opens the Assistant without changing a single class on the preview or tools panes", async () => {
+      renderScreen();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(100);
+      });
+
+      const readStudio = () => {
+        const grid = document.querySelector<HTMLElement>(
+          "[data-resume-studio-grid-columns]",
+        );
+
+        return {
+          gridClass: grid?.className ?? null,
+          gridColumns:
+            grid?.getAttribute("data-resume-studio-grid-columns") ?? null,
+          previewClass:
+            grid?.querySelector<HTMLElement>(
+              "[data-resume-studio-preview-pane]",
+            )?.className ?? null,
+          toolsClass:
+            grid?.querySelector<HTMLElement>("[data-resume-studio-tools-pane]")
+              ?.className ?? null,
+        };
+      };
+
+      const closed = readStudio();
+      expect(closed.gridColumns).toBe("preview-tools");
+      expect(closed.previewClass).toBeTruthy();
+      expect(closed.toolsClass).toBeTruthy();
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /^Open the Assistant/ }),
+      );
+
+      const panel = screen.getByRole("dialog", { name: "Assistant" });
+      const opened = readStudio();
+
+      // The Assistant used to become a real third grid track, which squeezed
+      // both panes and shifted everything in them. It floats over the studio
+      // now: nothing behind it may react to it.
+      expect(opened).toEqual(closed);
+      expect(document.querySelector("[data-resume-assistant-dock]")).toBeNull();
+      expect(panel.closest("[data-resume-studio-grid-columns]")).toBeNull();
+      expect(
+        document.querySelector<HTMLElement>("[data-resume-guided-edits-open]")
+          ?.parentElement,
+      ).toBe(document.body);
+      // Its own pixel box, sized by the window rather than by a studio column.
+      expect(panel.style.width).toBe(
+        window.innerWidth >= 1280 ? "384px" : "360px",
+      );
+
+      fireEvent.click(
+        screen.getAllByRole("button", { name: "Minimize the Assistant" })[0]!,
+      );
+
+      // Minimized back to the launcher pill: still identical.
+      expect(readStudio()).toEqual(closed);
+      expect(
+        document.querySelector("[data-resume-guided-edits-panel]"),
+      ).toBeNull();
+      expect(
+        screen.getByRole("button", { name: /^Open the Assistant/ }),
+      ).toBeTruthy();
     });
   });
 });

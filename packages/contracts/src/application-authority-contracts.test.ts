@@ -2,20 +2,57 @@ import { describe, expect, it, test } from "vitest";
 
 import {
   ApplicationAutomationModeSchema,
+  ApplicationAuthorityAnswerPolicySchema,
+  ApplicationAuthorityDecisionPolicySchema,
   ApplicationAuthorityEnvelopeSchema,
+  ApplicationAuthorityStopConditionsSchema,
   ApplicationPacketSchema,
   ApplicationPrivacyReceiptSchema,
   ApplyRunModeSchema,
   SubmissionExecutionGrantSchema,
   SubmissionOutcomeRecordSchema,
+  SubmissionOutcomeResolutionInputSchema,
   SubmissionPreflightRecordSchema,
+  isApprovedApplicationAnswerSnapshot,
   isActiveApplicationAuthorityEnvelope,
   isActiveSubmissionExecutionGrant,
+  serializeApplicationAuthorityDecisionPolicyForDigest,
 } from "./index";
 
 const VALID_SHA = "a".repeat(64);
 const ORIGIN = "https://boards.example.com";
 const CREATED_AT = "2026-08-26T10:00:00.000Z";
+
+const validAnswerPolicy = {
+  approvedAnswerSnapshot: {
+    revision: 2,
+    digest: VALID_SHA,
+  },
+  unknownRequiredQuestion: "pause_for_user" as const,
+  unknownEligibility: "pause_for_user" as const,
+  unknownLegalRequirement: "pause_for_user" as const,
+};
+
+const validStopConditions = {
+  unavailableCredentials: "pause_for_user" as const,
+  loginRequired: "pause_for_user" as const,
+  mfaRequired: "pause_for_user" as const,
+  captcha: "pause_for_user" as const,
+  antiBot: "pause_for_user" as const,
+  accountCreation: "pause_for_user" as const,
+  staleObservation: "pause_for_user" as const,
+  ambiguousFinalControl: "pause_for_user" as const,
+  originDrift: "pause_for_user" as const,
+  outcomeUncertain: "stop_no_retry" as const,
+};
+
+const validDecisionPolicy = {
+  version: 1 as const,
+  revision: 4,
+  digest: "b".repeat(64),
+  answerPolicy: validAnswerPolicy,
+  stopConditions: validStopConditions,
+};
 
 const validEnvelopeInput = {
   id: "authority_1",
@@ -35,6 +72,7 @@ const validEnvelopeInput = {
   createdAt: CREATED_AT,
   expiresAt: null,
   revokedAt: null,
+  decisionPolicy: validDecisionPolicy,
 };
 
 const elevatedScope = {
@@ -49,8 +87,15 @@ const validPreflightInput = {
   jobId: "job_1",
   resultId: "result_1",
   applicationRecordId: "application_record_1",
+  campaignId: "campaign_1",
+  origin: ORIGIN,
   authorityEnvelopeId: "authority_1",
   authorityRevision: 3,
+  decisionPolicy: {
+    version: validDecisionPolicy.version,
+    revision: validDecisionPolicy.revision,
+    digest: validDecisionPolicy.digest,
+  },
   formObservation: {
     id: "observation_1",
     revision: 7,
@@ -188,9 +233,8 @@ const basePacketInput = {
 
 function firstIssuePaths(error: unknown): string[] {
   expect(error).toBeInstanceOf(Error);
-  const issues = (
-    error as { issues?: Array<{ path: Array<string | number> }> }
-  ).issues;
+  const issues = (error as { issues?: Array<{ path: Array<string | number> }> })
+    .issues;
   expect(Array.isArray(issues)).toBe(true);
   return (issues ?? []).map((issue) => issue.path.join("."));
 }
@@ -212,13 +256,13 @@ describe("application automation mode contracts", () => {
     expect(
       ApplicationAutomationModeSchema.safeParse("single_job_auto").success,
     ).toBe(false);
-    expect(ApplicationAutomationModeSchema.safeParse("queue_auto").success).toBe(
+    expect(
+      ApplicationAutomationModeSchema.safeParse("queue_auto").success,
+    ).toBe(false);
+    expect(ApplyRunModeSchema.safeParse("prepare_only").success).toBe(false);
+    expect(ApplyRunModeSchema.safeParse("confirm_before_submit").success).toBe(
       false,
     );
-    expect(ApplyRunModeSchema.safeParse("prepare_only").success).toBe(false);
-    expect(
-      ApplyRunModeSchema.safeParse("confirm_before_submit").success,
-    ).toBe(false);
     expect(ApplyRunModeSchema.safeParse("autonomous_submit").success).toBe(
       false,
     );
@@ -227,11 +271,146 @@ describe("application automation mode contracts", () => {
 
 describe("application authority envelope contracts", () => {
   it("parses a fully explicit prepare-only envelope", () => {
-    const envelope = ApplicationAuthorityEnvelopeSchema.parse(
-      validEnvelopeInput,
-    );
+    const envelope =
+      ApplicationAuthorityEnvelopeSchema.parse(validEnvelopeInput);
     expect(envelope.mode).toBe("prepare_only");
     expect(envelope.accountCreationAuthorized).toBe(false);
+  });
+
+  it("keeps omitted decision policy null for legacy prepare-only envelopes", () => {
+    const envelope = ApplicationAuthorityEnvelopeSchema.parse({
+      ...validEnvelopeInput,
+      decisionPolicy: undefined,
+    });
+    expect(envelope.decisionPolicy).toBeNull();
+  });
+
+  it("binds an approved answer snapshot and fixed fail-closed stops", () => {
+    const envelope = ApplicationAuthorityEnvelopeSchema.parse({
+      ...validEnvelopeInput,
+      mode: "autonomous_submit",
+      scope: elevatedScope,
+      expiresAt: "2026-08-27T10:00:00.000Z",
+    });
+    expect(
+      envelope.decisionPolicy?.answerPolicy.approvedAnswerSnapshot,
+    ).toEqual({
+      revision: 2,
+      digest: VALID_SHA,
+    });
+    expect(envelope.decisionPolicy).toEqual(
+      ApplicationAuthorityDecisionPolicySchema.parse(validDecisionPolicy),
+    );
+    const policy = envelope.decisionPolicy;
+    expect(policy).not.toBeNull();
+    if (policy === null) {
+      throw new Error("Expected elevated authority decision policy.");
+    }
+    expect(policy.answerPolicy).toEqual(
+      ApplicationAuthorityAnswerPolicySchema.parse(validAnswerPolicy),
+    );
+    expect(policy.stopConditions).toEqual(
+      ApplicationAuthorityStopConditionsSchema.parse(validStopConditions),
+    );
+    expect(
+      isApprovedApplicationAnswerSnapshot(envelope, {
+        revision: 2,
+        digest: VALID_SHA,
+      }),
+    ).toBe(true);
+    expect(
+      isApprovedApplicationAnswerSnapshot(envelope, {
+        revision: 3,
+        digest: VALID_SHA,
+      }),
+    ).toBe(false);
+  });
+
+  it("serializes only canonical policy rules for trusted SHA-256 generation", () => {
+    const serialized = serializeApplicationAuthorityDecisionPolicyForDigest({
+      stopConditions: validStopConditions,
+      answerPolicy: validAnswerPolicy,
+      version: 1,
+    });
+    expect(serialized).toBe(
+      JSON.stringify({
+        version: 1,
+        answerPolicy: validAnswerPolicy,
+        stopConditions: validStopConditions,
+      }),
+    );
+    const payload = JSON.parse(serialized) as Record<string, unknown>;
+    expect(Object.hasOwn(payload, "revision")).toBe(false);
+    expect(Object.hasOwn(payload, "digest")).toBe(false);
+  });
+
+  it("rejects partial or unsafe decision policies", () => {
+    for (const decisionPolicy of [
+      { ...validDecisionPolicy, digest: "not-a-digest" },
+      { ...validDecisionPolicy, version: 2 },
+      {
+        ...validDecisionPolicy,
+        answerPolicy: {
+          ...validAnswerPolicy,
+          unknownRequiredQuestion: "guess",
+        },
+      },
+      {
+        ...validDecisionPolicy,
+        answerPolicy: validAnswerPolicy,
+        stopConditions: {
+          ...validStopConditions,
+          outcomeUncertain: "pause_for_user",
+        },
+      },
+    ]) {
+      expect(
+        ApplicationAuthorityEnvelopeSchema.safeParse({
+          ...validEnvelopeInput,
+          mode: "autonomous_submit",
+          scope: elevatedScope,
+          expiresAt: "2026-08-27T10:00:00.000Z",
+          decisionPolicy,
+        }).success,
+      ).toBe(false);
+    }
+  });
+
+  it("requires policy and expiry for intermediate external mutation capability", () => {
+    expect(
+      ApplicationAuthorityEnvelopeSchema.safeParse({
+        ...validEnvelopeInput,
+        decisionPolicy: null,
+        intermediateMutationsAuthorized: true,
+        expiresAt: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      ApplicationAuthorityEnvelopeSchema.safeParse({
+        ...validEnvelopeInput,
+        intermediateMutationsAuthorized: true,
+        expiresAt: "2026-08-27T11:00:00.000Z",
+        scope: { campaignId: null, jobIds: ["job_1"] },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("requires exact scope and resume identity for intermediate external mutation capability", () => {
+    const result = ApplicationAuthorityEnvelopeSchema.safeParse({
+      ...validEnvelopeInput,
+      allowedResumeSha256: [],
+      decisionPolicy: validDecisionPolicy,
+      expiresAt: "2026-08-27T11:00:00.000Z",
+      intermediateMutationsAuthorized: true,
+      scope: { campaignId: null, jobIds: [] },
+    });
+    expect(result.success).toBe(false);
+    if (result.success) {
+      throw new Error("Expected unscoped intermediate authority to fail.");
+    }
+    expect(firstIssuePaths(result.error)).toEqual(
+      expect.arrayContaining(["scope", "allowedResumeSha256"]),
+    );
   });
 
   test.each([
@@ -247,8 +426,7 @@ describe("application authority envelope contracts", () => {
         mode,
         scope,
         allowedResumeSha256: resumes,
-        expiresAt:
-          mode === "prepare_only" ? null : "2026-08-27T10:00:00.000Z",
+        expiresAt: mode === "prepare_only" ? null : "2026-08-27T10:00:00.000Z",
       }).success,
     ).toBe(true);
   });
@@ -279,9 +457,7 @@ describe("application authority envelope contracts", () => {
       });
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(firstIssuePaths(result.error)).toContain(
-          "allowedResumeSha256",
-        );
+        expect(firstIssuePaths(result.error)).toContain("allowedResumeSha256");
       }
     },
   );
@@ -304,13 +480,12 @@ describe("application authority envelope contracts", () => {
   );
 
   it("enforces the revoked/revokedAt pairing in both directions", () => {
-    const revokedMissingTimestamp = ApplicationAuthorityEnvelopeSchema.safeParse(
-      {
+    const revokedMissingTimestamp =
+      ApplicationAuthorityEnvelopeSchema.safeParse({
         ...validEnvelopeInput,
         status: "revoked",
         revokedAt: null,
-      },
-    );
+      });
     expect(revokedMissingTimestamp.success).toBe(false);
     if (!revokedMissingTimestamp.success) {
       expect(firstIssuePaths(revokedMissingTimestamp.error)).toContain(
@@ -452,7 +627,10 @@ describe("application authority envelope contracts", () => {
   });
 
   it("bounds collection sizes", () => {
-    const manyJobIds = Array.from({ length: 1000 }, (_, index) => `job_${index}`);
+    const manyJobIds = Array.from(
+      { length: 1000 },
+      (_, index) => `job_${index}`,
+    );
     expect(
       ApplicationAuthorityEnvelopeSchema.safeParse({
         ...validEnvelopeInput,
@@ -469,9 +647,8 @@ describe("application authority envelope contracts", () => {
       }).success,
     ).toBe(false);
 
-    const manyResumes = Array.from(
-      { length: 20 },
-      (_, index) => index.toString(16).padStart(2, "0").repeat(32),
+    const manyResumes = Array.from({ length: 20 }, (_, index) =>
+      index.toString(16).padStart(2, "0").repeat(32),
     );
     expect(manyResumes).toHaveLength(20);
     expect(
@@ -591,6 +768,28 @@ describe("submission preflight contracts", () => {
     const record = SubmissionPreflightRecordSchema.parse(validPreflightInput);
     expect(record.authorityRevision).toBe(3);
     expect(record.formObservation.revision).toBe(7);
+    expect(record.campaignId).toBe("campaign_1");
+    expect(record.origin).toBe(ORIGIN);
+    expect(record.decisionPolicy).toEqual({
+      version: 1,
+      revision: 4,
+      digest: "b".repeat(64),
+    });
+  });
+
+  it("rejects non-canonical preflight origins and partial policy identity", () => {
+    expect(
+      SubmissionPreflightRecordSchema.safeParse({
+        ...validPreflightInput,
+        origin: `${ORIGIN}/jobs/123?token=secret`,
+      }).success,
+    ).toBe(false);
+    expect(
+      SubmissionPreflightRecordSchema.safeParse({
+        ...validPreflightInput,
+        decisionPolicy: { version: 1, revision: 4 },
+      }).success,
+    ).toBe(false);
   });
 
   test.each([
@@ -612,31 +811,47 @@ describe("submission preflight contracts", () => {
   ])("cannot omit %s from the exact recheck binding", (key) => {
     const input: Record<string, unknown> = { ...validPreflightInput };
     delete input[key];
-    expect(SubmissionPreflightRecordSchema.safeParse(input).success).toBe(false);
+    expect(SubmissionPreflightRecordSchema.safeParse(input).success).toBe(
+      false,
+    );
   });
 
   test.each([
-    { label: "observation digest", mutate: (input: Record<string, unknown>) => {
-      const { formObservation, ...rest } = input;
-      void formObservation;
-      return {
-        ...rest,
-        formObservation: { id: "observation_1", revision: 7 },
-      };
-    } },
-    { label: "answer digest", mutate: (input: Record<string, unknown>) => {
-      const { answers, ...rest } = input;
-      void answers;
-      return { ...rest, answers: { revision: 2 } };
-    } },
-    { label: "control signature", mutate: (input: Record<string, unknown>) => {
-      const { finalControl, ...rest } = input;
-      void finalControl;
-      return { ...rest, finalControl: { ref: "final-control-submit-button" } };
-    } },
+    {
+      label: "observation digest",
+      mutate: (input: Record<string, unknown>) => {
+        const { formObservation, ...rest } = input;
+        void formObservation;
+        return {
+          ...rest,
+          formObservation: { id: "observation_1", revision: 7 },
+        };
+      },
+    },
+    {
+      label: "answer digest",
+      mutate: (input: Record<string, unknown>) => {
+        const { answers, ...rest } = input;
+        void answers;
+        return { ...rest, answers: { revision: 2 } };
+      },
+    },
+    {
+      label: "control signature",
+      mutate: (input: Record<string, unknown>) => {
+        const { finalControl, ...rest } = input;
+        void finalControl;
+        return {
+          ...rest,
+          finalControl: { ref: "final-control-submit-button" },
+        };
+      },
+    },
   ])("preflight cannot omit the $label", ({ mutate }) => {
     const input = mutate(validPreflightInput as Record<string, unknown>);
-    expect(SubmissionPreflightRecordSchema.safeParse(input).success).toBe(false);
+    expect(SubmissionPreflightRecordSchema.safeParse(input).success).toBe(
+      false,
+    );
   });
 
   it("carries no raw answers, DOM, credentials, or secrets", () => {
@@ -833,10 +1048,7 @@ describe("submission execution grant use gate", () => {
     ["run mismatch", { runId: "other_run" }],
     ["job mismatch", { jobId: "other_job" }],
     ["result mismatch", { resultId: "other_result" }],
-    [
-      "application record mismatch",
-      { applicationRecordId: "other_record" },
-    ],
+    ["application record mismatch", { applicationRecordId: "other_record" }],
     ["authority envelope mismatch", { authorityEnvelopeId: "other_envelope" }],
     ["authority revision mismatch", { authorityRevision: 4 }],
   ])("rejects %s", (_label, preflightPatch) => {
@@ -850,12 +1062,15 @@ describe("submission execution grant use gate", () => {
 
   test.each([
     ["revoked", { status: "revoked", revokedAt: "2026-08-26T10:01:00.000Z" }],
-    ["consumed", { status: "consumed", consumedAt: "2026-08-26T10:01:00.000Z" }],
+    [
+      "consumed",
+      { status: "consumed", consumedAt: "2026-08-26T10:01:00.000Z" },
+    ],
     ["expired", { status: "expired", expiresAt: "2026-08-26T10:30:00.000Z" }],
   ])("never activates a %s grant", (_label, patch) => {
-    expect(isActiveSubmissionExecutionGrant(parseGrant(patch), NOW, preflight)).toBe(
-      false,
-    );
+    expect(
+      isActiveSubmissionExecutionGrant(parseGrant(patch), NOW, preflight),
+    ).toBe(false);
   });
 
   it("treats the exact expiry instant as already expired", () => {
@@ -907,11 +1122,10 @@ describe("submission execution grant use gate", () => {
       ),
     ).toBe(false);
     expect(
-      isActiveSubmissionExecutionGrant(
-        parseGrant(),
-        NOW,
-        { ...preflight, authorityRevision: 4 },
-      ),
+      isActiveSubmissionExecutionGrant(parseGrant(), NOW, {
+        ...preflight,
+        authorityRevision: 4,
+      }),
     ).toBe(false);
   });
 });
@@ -956,6 +1170,44 @@ describe("submission outcome contracts", () => {
     );
     expect(record.outcome).toBe("submitted");
     expect(record.retry.eligible).toBe(false);
+  });
+
+  it("requires an explicit, evidenced operator resolution without enabling retry", () => {
+    const resolution = SubmissionOutcomeResolutionInputSchema.parse({
+      expectedOutcomeId: "outcome_uncertain_1",
+      expectedIdempotencyRevision: 3,
+      outcome: {
+        ...validSubmittedOutcomeInput,
+        id: "outcome_operator_1",
+        outcome: "not_submitted",
+        verifiedAt: "2026-08-26T10:00:06.000Z",
+        retry: { eligible: false, blockReason: "policy_decision" },
+      },
+    });
+    expect(resolution.outcome.outcome).toBe("not_submitted");
+    expect(resolution.outcome.retry).toEqual({
+      eligible: false,
+      blockReason: "policy_decision",
+    });
+
+    expect(
+      SubmissionOutcomeResolutionInputSchema.safeParse({
+        ...resolution,
+        outcome: {
+          ...resolution.outcome,
+          retry: { eligible: true, blockReason: null },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      SubmissionOutcomeResolutionInputSchema.safeParse({
+        ...resolution,
+        outcome: {
+          ...resolution.outcome,
+          id: resolution.expectedOutcomeId,
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects verification or evidence that predates the submission attempt", () => {
@@ -1240,7 +1492,8 @@ describe("application packet compatibility", () => {
         },
         submissionOccurred: false,
       },
-      expectedMessage: /must keep the packet submission claim|exactly match both result and receipt proof/i,
+      expectedMessage:
+        /must keep the packet submission claim|exactly match both result and receipt proof/i,
     },
     {
       label: "a submitted result state without external proof",

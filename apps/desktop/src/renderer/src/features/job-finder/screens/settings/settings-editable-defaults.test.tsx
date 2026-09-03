@@ -399,7 +399,9 @@ describe("SettingsEditableDefaults", () => {
     ).toContain("Saving settings");
     expect(
       Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent?.includes("Saving resume preference"))
+        .find((button) =>
+          button.textContent?.includes("Saving resume preference"),
+        )
         ?.getAttribute("aria-busy"),
     ).toBe("true");
 
@@ -491,7 +493,9 @@ describe("SettingsEditableDefaults", () => {
     expect(container.textContent).toContain("Newly shortlisted jobs");
     expect(
       Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent?.trim() === "Save resume preference")
+        .find(
+          (button) => button.textContent?.trim() === "Save resume preference",
+        )
         ?.hasAttribute("disabled"),
     ).toBe(true);
   });

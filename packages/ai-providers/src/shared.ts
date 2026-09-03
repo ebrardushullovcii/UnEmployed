@@ -1,4 +1,5 @@
 import {
+  AssetGenerationReasonSchema,
   type AgentProviderStatus,
   AgentTaskExecutionReceiptSchema,
   BrowserVisualObservationSetSchema,
@@ -177,6 +178,15 @@ export type {
   TailoredResumeCoverageMetadata,
 };
 
+export const TailoredResumeGenerationProvenanceSchema = z.object({
+  method: z.enum(["ai", "deterministic"]),
+  reason: AssetGenerationReasonSchema.nullable().default(null),
+  detail: NullableStringSchema,
+});
+export type TailoredResumeGenerationProvenance = z.infer<
+  typeof TailoredResumeGenerationProvenanceSchema
+>;
+
 export const TailoredResumeDraftSchema = z.object({
   label: NullableStringSchema,
   summary: NonEmptyStringSchema,
@@ -245,6 +255,11 @@ export const TailoredResumeDraftSchema = z.object({
       acceptedRewriteCharacters: z.number().int().min(0),
     })
     .optional(),
+  /**
+   * Structured provenance recorded by the boundary that chose the generation
+   * path. Product code must read this instead of string-matching note prose.
+   */
+  generationProvenance: TailoredResumeGenerationProvenanceSchema.optional(),
   notes: z.array(NonEmptyStringSchema).default([]),
 });
 

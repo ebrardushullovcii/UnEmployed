@@ -13,6 +13,10 @@ import type {
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import {
+  BoundedFloatingSurfaceScrollHint,
+  useBoundedFloatingSurfaceScrollState,
+} from "../../components/bounded-floating-surface";
+import {
   CollectionNoMatches,
   CollectionSearchToolbar,
   matchesCollectionSearch,
@@ -168,6 +172,12 @@ export function DiscoveryHistoryModal(props: {
     runOptions[0]?.id ?? null,
   );
   const [followLiveEvents, setFollowLiveEvents] = useState(true);
+  const followLiveEventsRef = useRef(true);
+  const eventStreamScrollState = useBoundedFloatingSurfaceScrollState(
+    eventStreamRef,
+    props.open,
+    selectedRunId,
+  );
   const fallbackRunId = runOptions[0]?.id ?? null;
   const hasSelectedRun =
     selectedRunId !== null &&
@@ -316,6 +326,7 @@ export function DiscoveryHistoryModal(props: {
       return;
     }
 
+    followLiveEventsRef.current = selectedRunIsLive;
     setFollowLiveEvents(selectedRunIsLive);
   }, [props.open, selectedRun?.id, selectedRunIsLive]);
 
@@ -344,24 +355,35 @@ export function DiscoveryHistoryModal(props: {
 
     const distanceFromBottom =
       container.scrollHeight - container.scrollTop - container.clientHeight;
-    setFollowLiveEvents(distanceFromBottom < 48);
+    const nextFollowLiveEvents = distanceFromBottom < 48;
+
+    // Scroll fires continuously; only the edge transition is observable, so a
+    // scroll that does not cross the threshold performs no state update at all
+    // rather than relying on React's equality bail-out.
+    if (nextFollowLiveEvents === followLiveEventsRef.current) {
+      return;
+    }
+
+    followLiveEventsRef.current = nextFollowLiveEvents;
+    setFollowLiveEvents(nextFollowLiveEvents);
   };
 
   const resumeLiveFollow = () => {
+    followLiveEventsRef.current = true;
     setFollowLiveEvents(true);
     eventStreamEndRef.current?.scrollIntoView({ block: "end" });
   };
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-(--modal-scrim) px-4 py-6 backdrop-blur-sm"
+      className="fixed inset-0 z-50 overflow-y-auto bg-(--modal-scrim) p-6 backdrop-blur-sm sm:p-10 backdrop-blur-sm"
       onClick={props.onClose}
     >
       <div
         aria-describedby={dialogDescriptionId}
         aria-labelledby={dialogTitleId}
         aria-modal="true"
-        className="mx-auto flex min-h-0 max-h-(--discovery-history-max-height) w-full max-w-6xl flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) shadow-(--modal-shadow)"
+        className="mx-auto flex min-h-0 max-h-(--discovery-history-max-height) w-full max-w-5xl flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) shadow-(--modal-shadow)"
         onClick={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"
@@ -577,8 +599,8 @@ export function DiscoveryHistoryModal(props: {
                   >
                     Changes since earlier searches
                   </h3>
-                  <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
-                    {[
+                  {(() => {
+                    const changeCounts: ReadonlyArray<[string, number]> = [
                       ["New", selectedRun.summary.changeDigest.new],
                       ["Unchanged", selectedRun.summary.changeDigest.unchanged],
                       ["Changed", selectedRun.summary.changeDigest.changed],
@@ -589,20 +611,40 @@ export function DiscoveryHistoryModal(props: {
                       ["Inactive", selectedRun.summary.changeDigest.inactive],
                       ["Known", selectedRun.summary.changeDigest.known],
                       ["Skipped", selectedRun.summary.changeDigest.skipped],
-                    ].map(([label, value]) => (
-                      <div
-                        className="rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-3 py-2"
-                        key={label}
-                      >
-                        <dt className="text-[0.68rem] uppercase tracking-(--tracking-label) text-foreground-muted">
-                          {label}
-                        </dt>
-                        <dd className="mt-1 text-[1rem] font-semibold text-(--text-headline)">
-                          {value}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
+                    ];
+                    // A row of zeros is not evidence. Only the states this run
+                    // actually observed get a card; when none did, one sentence
+                    // says so instead of seven empty boxes.
+                    const observed = changeCounts.filter(
+                      ([, value]) => value > 0,
+                    );
+
+                    if (observed.length === 0) {
+                      return (
+                        <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                          This search found no changes against earlier searches.
+                        </p>
+                      );
+                    }
+
+                    return (
+                      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+                        {observed.map(([label, value]) => (
+                          <div
+                            className="rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-3 py-2"
+                            key={label}
+                          >
+                            <dt className="text-(length:--text-label) uppercase tracking-(--tracking-label) text-foreground-muted">
+                              {label}
+                            </dt>
+                            <dd className="mt-1 text-(length:--text-heading-3) font-semibold text-(--text-headline)">
+                              {value}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    );
+                  })()}
                 </section>
 
                 {sourceHealth.length > 0 ? (
@@ -705,39 +747,59 @@ export function DiscoveryHistoryModal(props: {
               ) : null}
             </div>
 
-            <div
-              aria-atomic="false"
-              aria-label={
-                selectedRunIsLive
-                  ? "Current search activity"
-                  : "Search activity"
-              }
-              aria-live="polite"
-              aria-relevant="additions"
-              className="grid min-h-0 gap-3 overflow-y-auto pr-2 pb-1"
-              onScroll={handleEventStreamScroll}
-              ref={eventStreamRef}
-              role="log"
-            >
-              {displayedEvents.length > 0 ? (
-                displayedEvents.map((event) => (
-                  <ActivityEventCard
-                    event={event}
-                    key={event.id}
-                    targetLabel={
-                      event.targetId
-                        ? (targetLabels.get(event.targetId) ??
-                          "Configured source")
-                        : null
-                    }
-                  />
-                ))
-              ) : (
-                <p className="text-[0.9rem] leading-6 text-foreground-soft">
-                  No activity was recorded for this run.
-                </p>
-              )}
-              <div aria-hidden="true" ref={eventStreamEndRef} />
+            {/* The activity log clips its last row against the dialog edge,
+                so it carries the same edge affordance the shared bounded
+                floating surfaces use instead of cutting a line mid-glyph with
+                nothing to say there is more. */}
+            <div className="relative grid min-h-0">
+              <BoundedFloatingSurfaceScrollHint
+                edge="start"
+                visible={
+                  eventStreamScrollState.hasOverflow &&
+                  !eventStreamScrollState.atStart
+                }
+              />
+              <BoundedFloatingSurfaceScrollHint
+                edge="end"
+                visible={
+                  eventStreamScrollState.hasOverflow &&
+                  !eventStreamScrollState.atEnd
+                }
+              />
+              <div
+                aria-atomic="false"
+                aria-label={
+                  selectedRunIsLive
+                    ? "Current search activity"
+                    : "Search activity"
+                }
+                aria-live="polite"
+                aria-relevant="additions"
+                className="grid min-h-0 gap-3 overflow-y-auto pr-2 pb-6"
+                onScroll={handleEventStreamScroll}
+                ref={eventStreamRef}
+                role="log"
+              >
+                {displayedEvents.length > 0 ? (
+                  displayedEvents.map((event) => (
+                    <ActivityEventCard
+                      event={event}
+                      key={event.id}
+                      targetLabel={
+                        event.targetId
+                          ? (targetLabels.get(event.targetId) ??
+                            "Configured source")
+                          : null
+                      }
+                    />
+                  ))
+                ) : (
+                  <p className="text-[0.9rem] leading-6 text-foreground-soft">
+                    No activity was recorded for this run.
+                  </p>
+                )}
+                <div aria-hidden="true" ref={eventStreamEndRef} />
+              </div>
             </div>
           </div>
         </div>

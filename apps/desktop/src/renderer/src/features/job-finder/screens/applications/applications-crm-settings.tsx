@@ -1,3 +1,6 @@
+import { useRegisterSettingsDirtySection } from "../settings/settings-dirty-sections";
+import { SettingsSectionSaveControl } from "../settings/settings-section-save-control";
+import type { SettingsSectionSaveState } from "../settings/settings-section-save";
 import { useEffect, useRef, useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import type {
@@ -43,6 +46,8 @@ export function ApplicationsCrmSettingsEditor(props: {
   onSave: (settings: ApplicationCrmSettings) => Promise<void>;
 }) {
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement | null>(null);
   const {
     control,
     formState: { isDirty, isSubmitting },
@@ -54,6 +59,15 @@ export function ApplicationsCrmSettingsEditor(props: {
     mode: "onSubmit",
     reValidateMode: "onBlur",
   });
+  // The section's four-state feedback comes from the same source as every
+  // other settings section, so a failed tracker save reads the same way.
+  const saveState: SettingsSectionSaveState = isSubmitting
+    ? { message: null, status: "saving" }
+    : saveError !== null
+      ? { message: saveError, status: "failed" }
+      : savedMessage !== null
+        ? { message: savedMessage, status: "saved" }
+        : { message: null, status: "idle" };
   const { append, fields, move, remove } = useFieldArray({
     control,
     name: "customStages",
@@ -72,16 +86,35 @@ export function ApplicationsCrmSettingsEditor(props: {
       return;
     }
     if (isDirty) {
+      // A new edit retires the previous outcome: the confirmation must never
+      // sit beside fields the user has since changed.
+      setSavedMessage(null);
       props.onDraftEdited?.();
     }
   }, [isDirty, props.onDraftEdited, watchedValues]);
 
+  const submitTrackerSettings = () => {
+    formRef.current?.requestSubmit();
+  };
+
+  useRegisterSettingsDirtySection({
+    anchorId: "settings-tracker",
+    isDirty,
+    isSaving: isSubmitting,
+    label: "Tracker",
+    onSave: submitTrackerSettings,
+    order: 4,
+    saveLabel: "Save tracker settings",
+  });
+
   return (
     <form
       className="grid min-w-0 gap-5 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-5"
+      ref={formRef}
       onSubmit={(event) => {
         void handleSubmit(async (values) => {
           setSaveError(null);
+          setSavedMessage(null);
           try {
             const parsed = ApplicationCrmSettingsSchema.parse({
               ...values,
@@ -92,6 +125,7 @@ export function ApplicationsCrmSettingsEditor(props: {
             });
             await props.onSave(parsed);
             reset(parsed);
+            setSavedMessage("Tracker settings saved.");
           } catch (error) {
             setSaveError(
               error instanceof Error
@@ -104,7 +138,7 @@ export function ApplicationsCrmSettingsEditor(props: {
     >
       <div className="min-w-0">
         <p className="label-mono-xs">Application tracker</p>
-        <h2 className="mt-1 text-lg font-semibold text-foreground">
+        <h2 className="mt-1 font-semibold text-foreground">
           Follow-ups and custom stages
         </h2>
         <p className="mt-1 text-sm leading-6 text-foreground-soft">
@@ -268,15 +302,18 @@ export function ApplicationsCrmSettingsEditor(props: {
         )}
       </section>
 
-      {saveError ? (
-        <p className="text-sm text-destructive" role="alert">
-          {saveError}
-        </p>
-      ) : null}
+      {/* Tracker was the one settings section with its own bespoke submit
+          button and its own alert, so it published no dirty state and the
+          sticky unsaved-changes bar could not name it. It now renders the
+          same four-state save control every other section renders, and it
+          registers with the same dirty-section registry. */}
       <div className="flex min-w-0 flex-wrap justify-end gap-3">
-        <Button disabled={!isDirty || isSubmitting} type="submit">
-          {isSubmitting ? "Saving…" : "Save tracker settings"}
-        </Button>
+        <SettingsSectionSaveControl
+          hasUnsavedChanges={isDirty}
+          onSave={submitTrackerSettings}
+          saveState={saveState}
+          subject="tracker settings"
+        />
       </div>
     </form>
   );

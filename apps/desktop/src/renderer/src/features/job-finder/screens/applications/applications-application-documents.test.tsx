@@ -136,7 +136,7 @@ describe("ApplicationsApplicationDocuments", () => {
       await Promise.resolve();
     });
     const generate = [...document.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("Generate grounded proposal"),
+      button.textContent?.includes("Draft a cover letter"),
     ) as HTMLButtonElement;
     await act(async () => {
       generate.click();

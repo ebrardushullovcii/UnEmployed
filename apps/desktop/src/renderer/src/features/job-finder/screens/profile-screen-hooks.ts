@@ -382,17 +382,14 @@ export function useProfileScreenForms(input: {
   // for synchronous reset notifications; the name filter below carries the
   // primary semantics.
   const suppressDraftEditSignalRef = useRef(false);
-  const runWithoutDraftEditSignal = useCallback(
-    <T,>(run: () => T): T => {
-      suppressDraftEditSignalRef.current = true;
-      try {
-        return run();
-      } finally {
-        suppressDraftEditSignalRef.current = false;
-      }
-    },
-    [],
-  );
+  const runWithoutDraftEditSignal = useCallback(<T>(run: () => T): T => {
+    suppressDraftEditSignalRef.current = true;
+    try {
+      return run();
+    } finally {
+      suppressDraftEditSignalRef.current = false;
+    }
+  }, []);
 
   // Every user-authored value mutation — including edits made while the
   // surface was already dirty, when no dirty transition fires — must retire
@@ -639,9 +636,17 @@ export function useProfileScreenForms(input: {
         .filter((payload) => payload !== undefined)
         .map((payload) => buildComparableValueFingerprint(payload)),
     );
+    const incomingProfileEditorFingerprint = buildComparableValueFingerprint(
+      createProfileEditorValues(
+        input.profile,
+        input.latestResumeImportReviewCandidates,
+      ),
+    );
+    const draftEditorFingerprint = buildComparableValueFingerprint(draftValues);
     const isSavedProfileDraftEcho =
       profileForm.formState.isDirty &&
-      savedDraftEchoFingerprints.has(incomingProfileFingerprint);
+      (savedDraftEchoFingerprints.has(incomingProfileFingerprint) ||
+        incomingProfileEditorFingerprint === draftEditorFingerprint);
 
     // Seen/pending trackers advance on every path; loaded fingerprints and
     // the save baseline only advance when a form actually adopts content.
@@ -870,7 +875,7 @@ export function useProfileScreenForms(input: {
     profileForm.formState.isDirty || preferencesForm.formState.isDirty;
   // One signal per user-invoked structural mutation; the wrapper preserves
   // the full field-array shape (fields, registered methods) screens expect.
-  const wrapUserFieldArray = <TFieldArray,>(
+  const wrapUserFieldArray = <TFieldArray>(
     fieldArray: TFieldArray,
   ): TFieldArray =>
     wrapFieldArrayStructuralMutators(fieldArray, () => {

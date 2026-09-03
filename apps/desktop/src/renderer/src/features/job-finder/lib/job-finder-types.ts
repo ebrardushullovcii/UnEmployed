@@ -18,6 +18,8 @@ import type {
   EditableSourceInstructionArtifact,
   EmployerExclusionPreview,
   JobFinderApplicationPacketExportResult,
+  ResolveSubmissionOutcomeInput,
+  ResolveSubmissionOutcomeResult,
   JobFinderApplyConsentActionInput,
   JobFinderApplyCopilotActionInput,
   JobFinderApplyQueueActionInput,
@@ -55,6 +57,7 @@ import type {
   ProjectGroupedManualAnswerCommand,
   ResumeAssistantMessage,
   ResumeApplicationMode,
+  ResumePdfExportIntent,
   RemoveEmployerExclusionInput,
   ResumeDraft,
   ResumeDraftPatch,
@@ -146,6 +149,9 @@ export interface JobFinderShellActions {
   exportApplicationPacket: (
     input: JobFinderApplyRunDetailsQuery,
   ) => Promise<JobFinderApplicationPacketExportResult>;
+  resolveSubmissionOutcome: (
+    input: ResolveSubmissionOutcomeInput,
+  ) => Promise<ResolveSubmissionOutcomeResult>;
   saveSourceInstructionArtifact: (
     targetId: string,
     artifact: EditableSourceInstructionArtifact,
@@ -314,7 +320,10 @@ export interface JobFinderShellActions {
     jobId: string,
     revisionId: string,
   ) => Promise<JobFinderWorkspaceSnapshot>;
-  exportResumePdf: (jobId: string) => Promise<JobFinderWorkspaceSnapshot>;
+  exportResumePdf: (
+    jobId: string,
+    intent?: ResumePdfExportIntent,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   approveResume: (
     jobId: string,
     exportId: string,
@@ -502,7 +511,14 @@ export type BadgeTone =
   | "critical"
   | "muted"
   | "neutral"
-  | "positive";
+  | "positive"
+  /**
+   * Attention that is not yet a failure: a blocked claim, a pending
+   * work-history decision, a paused run awaiting the user. Before this member
+   * existed those states borrowed `critical` (overstating them) or `neutral`
+   * (hiding them), while `--warning-text` was used by nothing.
+   */
+  | "warning";
 
 export interface ActionState {
   message: string | null;

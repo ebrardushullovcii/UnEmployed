@@ -19,10 +19,7 @@ import {
   splitLines,
   uniqueStrings,
 } from "./utils";
-import {
-  inferSkillGroups,
-  inferSkills,
-} from "./resume-parser-skills";
+import { inferSkillGroups, inferSkills } from "./resume-parser-skills";
 import {
   inferExperienceEntries,
   normalizeHeadlineText,
@@ -55,7 +52,8 @@ function resolveNow(input?: Date | (() => Date)): Date {
   return input instanceof Date ? input : input();
 }
 
-const experienceDateTokenPattern = /(?:(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+)?(?:(\d{1,2})\/)?(\d{4})/i;
+const experienceDateTokenPattern =
+  /(?:(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\s+)?(?:(\d{1,2})\/)?(\d{4})/i;
 
 function toMonthIndex(month: string | undefined): number {
   switch ((month ?? "").toLowerCase()) {
@@ -89,7 +87,9 @@ function toMonthIndex(month: string | undefined): number {
   }
 }
 
-function parseExperienceDateToken(value: string | null): { year: number; month: number } | null {
+function parseExperienceDateToken(
+  value: string | null,
+): { year: number; month: number } | null {
   if (!value) {
     return null;
   }
@@ -101,7 +101,12 @@ function parseExperienceDateToken(value: string | null): { year: number; month: 
     const year = Number.parseInt(isoMonthMatch[1] ?? "", 10);
     const month = Number.parseInt(isoMonthMatch[2] ?? "", 10);
 
-    if (Number.isFinite(year) && Number.isFinite(month) && month >= 1 && month <= 12) {
+    if (
+      Number.isFinite(year) &&
+      Number.isFinite(month) &&
+      month >= 1 &&
+      month <= 12
+    ) {
       return { year, month: month - 1 };
     }
   }
@@ -120,7 +125,11 @@ function parseExperienceDateToken(value: string | null): { year: number; month: 
     return null;
   }
 
-  if (Number.isFinite(numericMonth) && numericMonth >= 1 && numericMonth <= 12) {
+  if (
+    Number.isFinite(numericMonth) &&
+    numericMonth >= 1 &&
+    numericMonth <= 12
+  ) {
     return { year, month: numericMonth - 1 };
   }
 
@@ -144,7 +153,7 @@ function inferYearsExperienceFromEntries(
 
       const end = experience.isCurrent
         ? { year: now.getUTCFullYear(), month: now.getUTCMonth() }
-        : parseExperienceDateToken(experience.endDate) ?? start;
+        : (parseExperienceDateToken(experience.endDate) ?? start);
 
       const startTotalMonths = start.year * 12 + start.month;
       const endTotalMonths = end.year * 12 + end.month;
@@ -180,17 +189,22 @@ function inferYearsExperienceFromEntries(
     if (range.startTotalMonths <= currentRange.endTotalMonths + 1) {
       currentRange = {
         startTotalMonths: currentRange.startTotalMonths,
-        endTotalMonths: Math.max(currentRange.endTotalMonths, range.endTotalMonths),
+        endTotalMonths: Math.max(
+          currentRange.endTotalMonths,
+          range.endTotalMonths,
+        ),
       };
       continue;
     }
 
-    coveredMonths += currentRange.endTotalMonths - currentRange.startTotalMonths + 1;
+    coveredMonths +=
+      currentRange.endTotalMonths - currentRange.startTotalMonths + 1;
     currentRange = range;
   }
 
   if (currentRange) {
-    coveredMonths += currentRange.endTotalMonths - currentRange.startTotalMonths + 1;
+    coveredMonths +=
+      currentRange.endTotalMonths - currentRange.startTotalMonths + 1;
   }
 
   if (coveredMonths < 12) {
@@ -203,7 +217,10 @@ function inferYearsExperienceFromEntries(
 const nonNamePhrasePattern =
   /\b(software|engineer|developer|designer|manager|director|analyst|consultant|specialist|architect|consulting|technical|mentorship|leadership|performance|productivity|quality|security|platform|platforms|systems|cloud|devops|support|experience|summary|profile|skills|project|projects|work|professional|staff|senior|principal|lead|frontend|backend|full-stack|scale)\b/i;
 
-function hasNearbyHeaderSignal(lines: readonly string[], index: number): boolean {
+function hasNearbyHeaderSignal(
+  lines: readonly string[],
+  index: number,
+): boolean {
   return lines
     .slice(Math.max(0, index - 2), Math.min(lines.length, index + 3))
     .some((line, relativeIndex) => {
@@ -237,7 +254,11 @@ function isLikelyHeaderName(value: string): boolean {
     return false;
   }
 
-  if (/resume|curriculum|summary|profile|experience|birth|nationality|phone|email|address|skills|linkedin/i.test(cleaned)) {
+  if (
+    /resume|curriculum|summary|profile|experience|birth|nationality|phone|email|address|skills|linkedin/i.test(
+      cleaned,
+    )
+  ) {
     return false;
   }
 
@@ -246,7 +267,9 @@ function isLikelyHeaderName(value: string): boolean {
   }
 
   const parts = cleaned.split(/\s+/).filter(Boolean);
-  return parts.length >= 2 && parts.length <= 4 && parts.every(isLikelyNameToken);
+  return (
+    parts.length >= 2 && parts.length <= 4 && parts.every(isLikelyNameToken)
+  );
 }
 
 function extractNameFromHeaderLine(line: string): string | null {
@@ -254,7 +277,11 @@ function extractNameFromHeaderLine(line: string): string | null {
 
   const tokens = cleaned.split(/\s+/).filter(Boolean);
 
-  for (let tokenCount = 2; tokenCount <= Math.min(4, tokens.length); tokenCount += 1) {
+  for (
+    let tokenCount = 2;
+    tokenCount <= Math.min(4, tokens.length);
+    tokenCount += 1
+  ) {
     const candidate = cleanLine(tokens.slice(0, tokenCount).join(" "));
     const remainder = cleanLine(tokens.slice(tokenCount).join(" "));
 
@@ -276,11 +303,11 @@ function extractNameFromHeaderLine(line: string): string | null {
 }
 
 function trimTrailingContactFragments(value: string): string {
-  return cleanLine(
-    value
-      .split(/\s*[·|]\s*/)[0] ?? value,
-  )
-    .replace(/\s+(?:\(?\+?\d[\d\s().-]{7,}\d\)?|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|https?:\/\/\S+|(?:www\.)?(?:linkedin|github)\.com\/\S+)$/i, "")
+  return cleanLine(value.split(/\s*[·|]\s*/)[0] ?? value)
+    .replace(
+      /\s+(?:\(?\+?\d[\d\s().-]{7,}\d\)?|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|https?:\/\/\S+|(?:www\.)?(?:linkedin|github)\.com\/\S+)$/i,
+      "",
+    )
     .trim();
 }
 
@@ -305,7 +332,9 @@ function extractLocationFromHeaderLine(
     const segmentMatch = segment.match(
       /([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+)*,\s*(?:[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?|[A-Za-z][A-Za-z\s.'-]+))$/,
     );
-    const segmentLocation = normalizeLocationLabel(segmentMatch?.[1] ?? segment);
+    const segmentLocation = normalizeLocationLabel(
+      segmentMatch?.[1] ?? segment,
+    );
 
     if (isLikelyHeaderLocation(segmentLocation)) {
       return segmentLocation;
@@ -336,7 +365,11 @@ function isLikelyHeaderLocation(value: string | null): boolean {
     return false;
   }
 
-  if (/\b(recently|decided|return|passion|experience|building|driven|improving)\b/i.test(cleaned)) {
+  if (
+    /\b(recently|decided|return|passion|experience|building|driven|improving)\b/i.test(
+      cleaned,
+    )
+  ) {
     return false;
   }
 
@@ -349,7 +382,9 @@ function isLikelyHeaderLocation(value: string | null): boolean {
   }
 
   if (
-    /\b(bachelor|master|ph\.?d|degree|university|college|school|academy)\b/i.test(cleaned)
+    /\b(bachelor|master|ph\.?d|degree|university|college|school|academy)\b/i.test(
+      cleaned,
+    )
   ) {
     return false;
   }
@@ -360,7 +395,9 @@ function isLikelyHeaderLocation(value: string | null): boolean {
 
   return (
     /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Za-z][A-Za-z\s.'-]+$/.test(cleaned) ||
-    /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?$/.test(cleaned) ||
+    /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?$/.test(
+      cleaned,
+    ) ||
     /^[A-Za-z][A-Za-z\s.'-]+\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?$/.test(cleaned)
   );
 }
@@ -379,7 +416,7 @@ function inferCurrentLocation(
 
     if (cleaned) {
       return cleaned;
-      }
+    }
   }
 
   for (const line of headerLines) {
@@ -417,24 +454,32 @@ function inferCurrentLocation(
     }
   }
 
-  const locationHintPattern = /\b(?:[A-Z]{2}|UK|USA|UAE|Kosovo|Canada|Germany|France|India|Japan|Australia|Singapore|London|Toronto|Berlin|Paris|Prishtina|New York)\b|\b\d{5}(?:-\d{4})?\b/;
-  const degreeOrSchoolPattern = /\b(?:Bachelor|Master|B\.?Sc|M\.?Sc|Ph\.?D|University|College|School|Academy)\b/i;
-  const roleOrCompanyPattern = /\b(?:Engineer|Developer|Designer|Manager|Director|Analyst|Consultant|Specialist|Intern|Lead|Inc|Corp|LLC|Ltd|GmbH)\b/i;
+  const locationHintPattern =
+    /\b(?:[A-Z]{2}|UK|USA|UAE|Kosovo|Canada|Germany|France|India|Japan|Australia|Singapore|London|Toronto|Berlin|Paris|Prishtina|New York)\b|\b\d{5}(?:-\d{4})?\b/;
+  const degreeOrSchoolPattern =
+    /\b(?:Bachelor|Master|B\.?Sc|M\.?Sc|Ph\.?D|University|College|School|Academy)\b/i;
+  const roleOrCompanyPattern =
+    /\b(?:Engineer|Developer|Designer|Manager|Director|Analyst|Consultant|Specialist|Intern|Lead|Inc|Corp|LLC|Ltd|GmbH)\b/i;
 
-  const fallbackLine = lines.slice(0, 12).find(
-    (line) =>
-      /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Za-z][A-Za-z\s.'-]+$/.test(line) &&
-      !/–/.test(line) &&
-      !contactOrMetaPattern.test(line) &&
-      locationHintPattern.test(line) &&
-      !degreeOrSchoolPattern.test(line) &&
-      !roleOrCompanyPattern.test(line),
-  );
+  const fallbackLine = lines
+    .slice(0, 12)
+    .find(
+      (line) =>
+        /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Za-z][A-Za-z\s.'-]+$/.test(line) &&
+        !/–/.test(line) &&
+        !contactOrMetaPattern.test(line) &&
+        locationHintPattern.test(line) &&
+        !degreeOrSchoolPattern.test(line) &&
+        !roleOrCompanyPattern.test(line),
+    );
 
   return normalizeLocationLabel(fallbackLine ?? null);
 }
 
-function inferPhone(resumeText: string, existingPhone: string | null): string | null {
+function inferPhone(
+  resumeText: string,
+  existingPhone: string | null,
+): string | null {
   const labeledMatch = resumeText.match(
     /Phone:\s*([^\n]+?)(?:\s+Email:|\s+Website:|\s+Address:|$)/i,
   );
@@ -449,7 +494,10 @@ function inferPhone(resumeText: string, existingPhone: string | null): string | 
     }
   }
 
-  return extractRegexMatch(resumeText, /(\(?\+?\d[\d\s().-]{7,}\d\)?)/) ?? existingPhone;
+  return (
+    extractRegexMatch(resumeText, /(\(?\+?\d[\d\s().-]{7,}\d\)?)/) ??
+    existingPhone
+  );
 }
 
 function inferPortfolioUrl(
@@ -492,7 +540,11 @@ function inferPortfolioUrl(
         const hostname = parsedUrl.hostname.toLowerCase();
         const haystack = `${hostname}${parsedUrl.pathname}`.toLowerCase();
 
-        if (excludedDomains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`))) {
+        if (
+          excludedDomains.some(
+            (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+          )
+        ) {
           return false;
         }
 
@@ -520,7 +572,9 @@ function inferName(lines: readonly string[]): string | null {
       if (
         !isLikelyHeaderName(line) ||
         /^https?:\/\//i.test(line) ||
-        /resume|curriculum|summary|profile|experience|birth|nationality|phone|email|address/i.test(line)
+        /resume|curriculum|summary|profile|experience|birth|nationality|phone|email|address/i.test(
+          line,
+        )
       ) {
         return null;
       }
@@ -535,7 +589,9 @@ function inferName(lines: readonly string[]): string | null {
         score,
       };
     })
-    .filter((candidate): candidate is { line: string; score: number } => Boolean(candidate))
+    .filter((candidate): candidate is { line: string; score: number } =>
+      Boolean(candidate),
+    )
     .sort((left, right) => right.score - left.score);
 
   return rankedCandidates[0]?.line ?? null;
@@ -557,7 +613,11 @@ function parseNameParts(fullName: string | null) {
   }
 
   if (parts.length === 2) {
-    return { firstName: parts[0] ?? null, lastName: parts[1] ?? null, middleName: null };
+    return {
+      firstName: parts[0] ?? null,
+      lastName: parts[1] ?? null,
+      middleName: null,
+    };
   }
 
   return {
@@ -589,8 +649,13 @@ function inferHeadline(
   lines: readonly string[],
   experiences: readonly HeadlineExperience[],
 ): string | null {
-  const firstSectionIndex = lines.findIndex((line) => isResumeSectionHeading(line));
-  const headerLines = firstSectionIndex === -1 ? lines.slice(0, 12) : lines.slice(0, firstSectionIndex);
+  const firstSectionIndex = lines.findIndex((line) =>
+    isResumeSectionHeading(line),
+  );
+  const headerLines =
+    firstSectionIndex === -1
+      ? lines.slice(0, 12)
+      : lines.slice(0, firstSectionIndex);
   const headerCandidate = headerLines.find(isHeadlineCandidate);
 
   if (headerCandidate) {
@@ -603,14 +668,20 @@ function inferHeadline(
         experience.isCurrent &&
         experience.title &&
         !/\b(?:consultant|part[ -]?time)\b/i.test(experience.title),
-    ) ?? experiences.find((experience) => experience.isCurrent && experience.title);
-  const canonicalRoleTitle = primaryCurrentExperience?.title ?? experiences.find((experience) => experience.title)?.title;
+    ) ??
+    experiences.find((experience) => experience.isCurrent && experience.title);
+  const canonicalRoleTitle =
+    primaryCurrentExperience?.title ??
+    experiences.find((experience) => experience.title)?.title;
 
   return canonicalRoleTitle ? normalizeHeadlineText(canonicalRoleTitle) : null;
 }
 
 function inferSummary(lines: readonly string[]): string | null {
-  const aboutLines = findSectionBodyLinesByAliases(lines, summarySectionAliases).filter(
+  const aboutLines = findSectionBodyLinesByAliases(
+    lines,
+    summarySectionAliases,
+  ).filter(
     (line) =>
       !/date of birth|nationality|phone|email|website|address/i.test(line) &&
       !/^https?:\/\//i.test(line),
@@ -620,7 +691,9 @@ function inferSummary(lines: readonly string[]): string | null {
     return cleanLine(aboutLines.join(" "));
   }
 
-  const firstSectionIndex = lines.findIndex((line) => isResumeSectionHeading(line));
+  const firstSectionIndex = lines.findIndex((line) =>
+    isResumeSectionHeading(line),
+  );
   const fallbackSearchLines =
     firstSectionIndex === -1 ? lines : lines.slice(0, firstSectionIndex);
   const fallbackStartIndex = fallbackSearchLines.findIndex(
@@ -638,7 +711,10 @@ function inferSummary(lines: readonly string[]): string | null {
 
   const collectedLines = [fallbackSearchLines[fallbackStartIndex]!];
 
-  for (const line of fallbackSearchLines.slice(fallbackStartIndex + 1, fallbackStartIndex + 4)) {
+  for (const line of fallbackSearchLines.slice(
+    fallbackStartIndex + 1,
+    fallbackStartIndex + 4,
+  )) {
     if (
       isResumeSectionHeading(line) ||
       line.includes("@") ||
@@ -657,7 +733,6 @@ function inferSummary(lines: readonly string[]): string | null {
 
   return cleanLine(collectedLines.join(" "));
 }
-
 
 export function buildDeterministicResumeProfileExtraction(
   input: ExtractProfileFromResumeInput,
@@ -684,15 +759,25 @@ export function buildDeterministicResumeProfileExtraction(
   const education = inferEducationEntries(input.resumeText);
   const certifications = inferCertifications(input.resumeText);
   const projects = inferProjects(input.resumeText);
-  const notes = buildProfileExtractionNotes({ fullName, headline, summary, currentLocation });
+  const notes = buildProfileExtractionNotes({
+    fullName,
+    headline,
+    summary,
+    currentLocation,
+  });
   const parsedYearsExperience = Number.parseInt(
-    extractRegexMatch(input.resumeText, /\b\d{1,2}\+?\s+years?\b/i)?.match(/\d+/)?.[0] ?? "",
+    extractRegexMatch(input.resumeText, /\b\d{1,2}\+?\s+years?\b/i)?.match(
+      /\d+/,
+    )?.[0] ?? "",
     10,
   );
   const extractedYearsExperience = Number.isNaN(parsedYearsExperience)
     ? inferYearsExperienceFromEntries(experiences, now)
     : parsedYearsExperience;
-  const extractedEmail = extractRegexMatch(input.resumeText, /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  const extractedEmail = extractRegexMatch(
+    input.resumeText,
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
+  );
   const extractedPhone = inferPhone(
     input.resumeText,
     preserveExistingValues ? input.existingProfile.phone : null,
@@ -703,42 +788,95 @@ export function buildDeterministicResumeProfileExtraction(
     /https?:\/\/(?:www\.)?linkedin\.com\/[\w./?%&=+-]*/i,
   );
   const extractedTimeZone = inferTimeZoneFromLocation(currentLocation);
-  const extractedSalaryCurrency = inferSalaryCurrencyFromLocation(currentLocation);
-  const targetRoles = headline
-    ? [headline]
-    : preserveExistingValues
-      ? uniqueStrings(input.existingProfile.targetRoles)
-      : [];
+  const extractedSalaryCurrency =
+    inferSalaryCurrencyFromLocation(currentLocation);
+  // Seed target roles from the headline plus the titles of the two most
+  // recent roles so a resume without a headline (or whose headline is a
+  // generic label) still produces a usable search target. Dedupe
+  // case-insensitively and cap at three so the list stays a suggestion.
+  const recentExperienceTitles = experiences
+    .slice(0, 2)
+    .flatMap((experience) => {
+      // Drop engagement qualifiers such as "(Part-Time Consultant)" so the
+      // same role at two employers seeds one target instead of two.
+      const title = cleanLine(
+        (experience.title ?? "").replace(/\s*\([^)]*\)\s*$/, ""),
+      );
+      return title && title.length <= 80 ? [title] : [];
+    });
+  const extractedTargetRoles = uniqueStrings([
+    ...(headline ? [headline] : []),
+    ...recentExperienceTitles,
+  ]).slice(0, 3);
+  const targetRoles =
+    extractedTargetRoles.length > 0
+      ? extractedTargetRoles
+      : preserveExistingValues
+        ? uniqueStrings(input.existingProfile.targetRoles)
+        : [];
   const preferredLocations = currentLocation
     ? uniqueStrings([currentLocation])
     : preserveExistingValues
-      ? inferLocations(currentLocation, input.existingProfile, input.existingSearchPreferences)
+      ? inferLocations(
+          currentLocation,
+          input.existingProfile,
+          input.existingSearchPreferences,
+        )
       : [];
 
   return ResumeProfileExtractionSchema.parse({
-    firstName: preserveExistingValues ? nameParts.firstName ?? input.existingProfile.firstName : nameParts.firstName,
-    lastName: preserveExistingValues ? nameParts.lastName ?? input.existingProfile.lastName : nameParts.lastName,
-    middleName: preserveExistingValues ? nameParts.middleName ?? input.existingProfile.middleName : nameParts.middleName,
-    fullName: preserveExistingValues ? fullName ?? input.existingProfile.fullName : fullName,
-    headline: preserveExistingValues ? headline ?? input.existingProfile.headline : headline,
-    summary: preserveExistingValues ? summary ?? input.existingProfile.summary : summary,
-    currentLocation: preserveExistingValues ? currentLocation ?? input.existingProfile.currentLocation : currentLocation,
-    timeZone: preserveExistingValues ? extractedTimeZone ?? input.existingProfile.timeZone : extractedTimeZone,
+    firstName: preserveExistingValues
+      ? (nameParts.firstName ?? input.existingProfile.firstName)
+      : nameParts.firstName,
+    lastName: preserveExistingValues
+      ? (nameParts.lastName ?? input.existingProfile.lastName)
+      : nameParts.lastName,
+    middleName: preserveExistingValues
+      ? (nameParts.middleName ?? input.existingProfile.middleName)
+      : nameParts.middleName,
+    fullName: preserveExistingValues
+      ? (fullName ?? input.existingProfile.fullName)
+      : fullName,
+    headline: preserveExistingValues
+      ? (headline ?? input.existingProfile.headline)
+      : headline,
+    summary: preserveExistingValues
+      ? (summary ?? input.existingProfile.summary)
+      : summary,
+    currentLocation: preserveExistingValues
+      ? (currentLocation ?? input.existingProfile.currentLocation)
+      : currentLocation,
+    timeZone: preserveExistingValues
+      ? (extractedTimeZone ?? input.existingProfile.timeZone)
+      : extractedTimeZone,
     salaryCurrency: preserveExistingValues
-      ? extractedSalaryCurrency ?? input.existingSearchPreferences.salaryCurrency
+      ? (extractedSalaryCurrency ??
+        input.existingSearchPreferences.salaryCurrency)
       : extractedSalaryCurrency,
     yearsExperience: preserveExistingValues
-      ? extractedYearsExperience ?? input.existingProfile.yearsExperience
+      ? (extractedYearsExperience ?? input.existingProfile.yearsExperience)
       : extractedYearsExperience,
-    email: preserveExistingValues ? extractedEmail ?? input.existingProfile.email : extractedEmail,
+    email: preserveExistingValues
+      ? (extractedEmail ?? input.existingProfile.email)
+      : extractedEmail,
     phone: extractedPhone,
-    portfolioUrl: preserveExistingValues ? portfolioUrl ?? input.existingProfile.portfolioUrl : portfolioUrl,
-    linkedinUrl: preserveExistingValues ? extractedLinkedinUrl ?? input.existingProfile.linkedinUrl : extractedLinkedinUrl,
-    githubUrl: preserveExistingValues ? extractedGithubUrl ?? input.existingProfile.githubUrl : extractedGithubUrl,
+    portfolioUrl: preserveExistingValues
+      ? (portfolioUrl ?? input.existingProfile.portfolioUrl)
+      : portfolioUrl,
+    linkedinUrl: preserveExistingValues
+      ? (extractedLinkedinUrl ?? input.existingProfile.linkedinUrl)
+      : extractedLinkedinUrl,
+    githubUrl: preserveExistingValues
+      ? (extractedGithubUrl ?? input.existingProfile.githubUrl)
+      : extractedGithubUrl,
     personalWebsiteUrl: preserveExistingValues
-      ? personalWebsiteUrl ?? input.existingProfile.personalWebsiteUrl
+      ? (personalWebsiteUrl ?? input.existingProfile.personalWebsiteUrl)
       : personalWebsiteUrl,
-    professionalSummary: inferProfessionalSummary(summary, headline, skillGroups.highlightedSkills),
+    professionalSummary: inferProfessionalSummary(
+      summary,
+      headline,
+      skillGroups.highlightedSkills,
+    ),
     skillGroups,
     skills,
     targetRoles,

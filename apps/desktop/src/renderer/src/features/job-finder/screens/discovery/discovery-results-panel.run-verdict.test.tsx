@@ -2,21 +2,23 @@
 
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import type { BrowserSessionState } from "@unemployed/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DiscoveryResultsPanel } from "./discovery-results-panel";
 import type { DiscoveryLatestRunVerdict } from "./discovery-run-feedback";
 
-const browserSession = {
-  source: "target_site" as const,
-  status: "ready" as const,
-  driver: "chrome_profile_agent" as const,
+const browserSession: BrowserSessionState = {
+  source: "target_site",
+  status: "ready",
+  driver: "chrome_profile_agent",
   label: "Browser ready",
   detail: "Ready when needed.",
   lastCheckedAt: "2026-08-23T10:00:00.000Z",
 };
 
 function renderEmptyResults(options?: {
+  browserSession?: BrowserSessionState;
   hasCompletedSearch?: boolean;
   isSearchInProgress?: boolean;
   latestRunVerdict?: DiscoveryLatestRunVerdict | null;
@@ -24,7 +26,7 @@ function renderEmptyResults(options?: {
   return render(
     <MemoryRouter>
       <DiscoveryResultsPanel
-        browserSession={browserSession}
+        browserSession={options?.browserSession ?? browserSession}
         jobs={[]}
         onSelectJob={vi.fn()}
         selectedJob={null}
@@ -43,6 +45,31 @@ afterEach(() => {
 });
 
 describe("DiscoveryResultsPanel newest-run empty-state verdicts", () => {
+  it("offers source setup when the offline catalog has no results", () => {
+    renderEmptyResults({
+      browserSession: {
+        ...browserSession,
+        driver: "catalog_seed",
+        status: "unknown",
+      },
+    });
+
+    expect(screen.getByText("Live source search unavailable")).toBeTruthy();
+    const emptyState = screen.getByRole("heading", {
+      name: "Live source search unavailable",
+    }).parentElement?.parentElement;
+    expect(emptyState?.className).toContain("min-h-0");
+    expect(emptyState?.className).not.toContain("min-h-80");
+    expect(
+      screen
+        .getByRole("link", { name: "Review job sources" })
+        .getAttribute("href"),
+    ).toBe("/job-finder/profile?section=sources&focus=job-sources");
+    expect(
+      screen.getByText(/this catalog cannot search current openings/iu),
+    ).toBeTruthy();
+  });
+
   it("shows an explicit failed state instead of first-search or no-match copy", () => {
     renderEmptyResults({
       latestRunVerdict: {
@@ -52,7 +79,9 @@ describe("DiscoveryResultsPanel newest-run empty-state verdicts", () => {
       },
     });
 
-    expect(screen.getByText("The last search stopped before finishing")).toBeTruthy();
+    expect(
+      screen.getByText("The last search stopped before finishing"),
+    ).toBeTruthy();
     expect(
       screen.getByText(/stopped before every enabled source was checked/),
     ).toBeTruthy();
@@ -86,9 +115,7 @@ describe("DiscoveryResultsPanel newest-run empty-state verdicts", () => {
       },
     });
 
-    expect(
-      screen.getByText(/An earlier completed search exists/),
-    ).toBeTruthy();
+    expect(screen.getByText(/An earlier completed search exists/)).toBeTruthy();
     expect(screen.getByText("The last search was cancelled")).toBeTruthy();
   });
 
@@ -122,9 +149,7 @@ describe("DiscoveryResultsPanel newest-run empty-state verdicts", () => {
     expect(
       screen.getByText("The last search finished, but sources failed"),
     ).toBeTruthy();
-    expect(
-      screen.getByText(/An earlier completed search exists/),
-    ).toBeTruthy();
+    expect(screen.getByText(/An earlier completed search exists/)).toBeTruthy();
     expect(screen.queryByText("No matches from this search")).toBeNull();
   });
 
@@ -133,7 +158,9 @@ describe("DiscoveryResultsPanel newest-run empty-state verdicts", () => {
 
     expect(screen.getByText("No matches from this search")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Broaden search" })).toBeTruthy();
-    expect(screen.queryByText("The last search stopped before finishing")).toBeNull();
+    expect(
+      screen.queryByText("The last search stopped before finishing"),
+    ).toBeNull();
   });
 
   it("keeps the ready verdict only when no settled run exists", () => {
@@ -164,7 +191,9 @@ describe("DiscoveryResultsPanel newest-run empty-state verdicts", () => {
     });
 
     expect(screen.getByText("Searching your sources")).toBeTruthy();
-    expect(screen.queryByText("The last search stopped before finishing")).toBeNull();
+    expect(
+      screen.queryByText("The last search stopped before finishing"),
+    ).toBeNull();
   });
 
   it("treats a running newest run as live progress rather than a final verdict", () => {

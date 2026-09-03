@@ -33,6 +33,11 @@ export default defineConfig({
         currentDir,
         "packages/job-finder/src/source-health.ts",
       ),
+      "@unemployed/job-finder/application-submission-runtime-main":
+        path.resolve(
+          currentDir,
+          "packages/job-finder/src/application-submission-runtime-main.ts",
+        ),
       "@unemployed/job-finder": path.resolve(
         currentDir,
         "packages/job-finder/src/index.ts",

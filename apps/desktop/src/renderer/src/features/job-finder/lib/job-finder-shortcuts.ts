@@ -1,8 +1,17 @@
 export type JobFinderPlatform = "darwin" | "linux" | "win32";
 
-export type JobFinderShortcutId = "open-global-search" | "toggle-sidebar";
+export type JobFinderShortcutId =
+  | "open-global-search"
+  | "open-shortcuts"
+  | "toggle-sidebar";
 
-export type JobFinderShortcutCombo = "/" | "mod+b" | "mod+k";
+export type JobFinderShortcutCombo = "/" | "?" | "mod+b" | "mod+k";
+
+const LITERAL_KEY_COMBOS: readonly JobFinderShortcutCombo[] = ["/", "?"];
+
+function isLiteralKeyCombo(combo: JobFinderShortcutCombo): boolean {
+  return LITERAL_KEY_COMBOS.includes(combo);
+}
 
 export interface JobFinderShortcutDefinition {
   combo: JobFinderShortcutCombo;
@@ -33,6 +42,12 @@ export const JOB_FINDER_SHORTCUTS: readonly JobFinderShortcutDefinition[] = [
     // focus is outside editable fields.
     scope: "Wide layout only, outside overlays, search, and editable fields",
   },
+  {
+    combo: "?",
+    id: "open-shortcuts",
+    label: "Show keyboard shortcuts",
+    scope: "Outside text fields, controls, and dialogs",
+  },
 ];
 
 export interface JobFinderKeyEventLike {
@@ -48,9 +63,9 @@ export function eventMatchesJobFinderShortcut(
   event: JobFinderKeyEventLike,
   combo: JobFinderShortcutCombo,
 ): boolean {
-  if (combo === "/") {
+  if (isLiteralKeyCombo(combo)) {
     return (
-      event.key === "/" && !event.altKey && !event.ctrlKey && !event.metaKey
+      event.key === combo && !event.altKey && !event.ctrlKey && !event.metaKey
     );
   }
 
@@ -94,12 +109,30 @@ export function isImeComposingEvent(event: {
   return Boolean(event.isComposing) || event.keyCode === 229;
 }
 
+/**
+ * The keycaps a combo is made of, in press order.
+ *
+ * A modifier and its key are two physical keys, so they are two caps: rendering
+ * `⌘K` as a single cap read as one unfamiliar glyph-token rather than as
+ * "hold Command, press K". Literal-key shortcuts are a single cap.
+ */
+export function getJobFinderShortcutKeycaps(
+  combo: JobFinderShortcutCombo,
+  platform: JobFinderPlatform,
+): readonly string[] {
+  if (isLiteralKeyCombo(combo)) {
+    return [combo];
+  }
+  return [platform === "darwin" ? "⌘" : "Ctrl", combo.slice(4).toUpperCase()];
+}
+
+/** One-line rendering of a combo, for tooltips and title strings. */
 export function formatJobFinderShortcutCombo(
   combo: JobFinderShortcutCombo,
   platform: JobFinderPlatform,
 ): string {
-  if (combo === "/") {
-    return "/";
+  if (isLiteralKeyCombo(combo)) {
+    return combo;
   }
   const key = combo.slice(4).toUpperCase();
   return platform === "darwin" ? `⌘${key}` : `Ctrl ${key}`;
@@ -112,32 +145,45 @@ export function getJobFinderAriaKeyshortcuts(
   return `${platform === "darwin" ? "Meta" : "Control"}+${combo.slice(4)}`;
 }
 
+/** One combo, as the individual keycaps it is pressed with. */
+export type JobFinderShortcutKeycaps = readonly string[];
+
 export interface JobFinderShortcutHelpEntry {
-  combos: readonly string[];
+  combos: readonly JobFinderShortcutKeycaps[];
   id: JobFinderShortcutId;
+  /** Stable row key; an id can appear once per distinct scope. */
+  rowId: string;
   label: string;
   scope: string;
 }
 
+/**
+ * One row per shortcut id **and scope**.
+ *
+ * Grouping purely by id used to concatenate the aliases' scopes into a single
+ * three-line grey paragraph ("Anywhere in Job Finder; Outside text fields,
+ * controls, and dialogs") describing two different conditions at once, beside a
+ * pair of keycaps that read as one broken token. Splitting by scope keeps every
+ * row to one action, one scope sentence, and the keycaps that actually fire
+ * under it; aliases that genuinely share a scope still share a row and render
+ * as separate keycaps.
+ */
 export function buildJobFinderShortcutHelp(
   platform: JobFinderPlatform,
 ): readonly JobFinderShortcutHelpEntry[] {
-  const entries = new Map<JobFinderShortcutId, JobFinderShortcutHelpEntry>();
+  const entries = new Map<string, JobFinderShortcutHelpEntry>();
   for (const shortcut of JOB_FINDER_SHORTCUTS) {
-    const existing = entries.get(shortcut.id);
-    const display = formatJobFinderShortcutCombo(shortcut.combo, platform);
+    const rowId = `${shortcut.id}::${shortcut.scope}`;
+    const keycaps = getJobFinderShortcutKeycaps(shortcut.combo, platform);
+    const existing = entries.get(rowId);
     if (existing) {
-      existing.combos = [...existing.combos, display];
-      // Aliases can carry different scopes (⌘K vs "/"); keep every distinct
-      // scope visible instead of letting the first definition win silently.
-      if (!existing.scope.includes(shortcut.scope)) {
-        existing.scope = `${existing.scope}; ${shortcut.scope}`;
-      }
+      existing.combos = [...existing.combos, keycaps];
       continue;
     }
-    entries.set(shortcut.id, {
-      combos: [display],
+    entries.set(rowId, {
+      combos: [keycaps],
       id: shortcut.id,
+      rowId,
       label: shortcut.label,
       scope: shortcut.scope,
     });

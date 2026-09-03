@@ -7,6 +7,7 @@ import {
   combineSectionProgress,
   countFilledFields,
   countFilledRecordFields,
+  withRequiredProgress,
   type ProfileSection,
   type SectionProgress,
 } from "./profile-screen-progress";
@@ -64,6 +65,8 @@ export function buildJobSourceProgress(
     filled,
     percent: total === 0 ? 0 : Math.round((filled / total) * 100),
     total,
+    // One enabled, valid public source is the only requirement.
+    required: { filled: filled > 0 ? 1 : 0, total: 1 },
   };
 }
 
@@ -127,7 +130,10 @@ export function buildProfileScreenViewModel(
       },
       {
         id: "experience",
-        label: "Experience",
+        // F83: setup calls this step "Work history", the tab called it
+        // "Experience", and the card inside the tab is titled "Work history".
+        // One name for one thing.
+        label: "Work history",
         description:
           "Keep each role separate so resumes and forms stay accurate.",
         progress: sectionProgress.experience,
@@ -157,10 +163,44 @@ export function buildProfileScreenViewModel(
   };
 }
 
+function hasAnyText(values: readonly (string | undefined)[]): string {
+  return values.find((value) => (value ?? "").trim().length > 0) ?? "";
+}
+
 function buildProfileSectionProgress(
   input: BuildProfileScreenViewModelInput,
 ): Record<ProfileSection, SectionProgress> {
-  const basics = countFilledFields([
+  // Minimal required set per section: what discovery, resume drafts, and
+  // applications actually depend on. Everything else stays optional and only
+  // feeds the thin overall progress bar.
+  const basicsRequired = [
+    input.identityValues?.firstName,
+    input.identityValues?.lastName,
+    input.identityValues?.headline,
+    input.identityValues?.currentLocation,
+    hasAnyText([input.identityValues?.email, input.identityValues?.phone]),
+    hasAnyText([
+      input.summaryValues?.shortValueProposition,
+      input.summaryValues?.fullSummary,
+    ]),
+  ];
+  const experienceRecords = input.experienceValues ?? [];
+  const experienceRequired =
+    experienceRecords.length === 0
+      ? [""]
+      : experienceRecords.flatMap((record) => [
+          record.title,
+          record.companyName,
+          record.startDate,
+        ]);
+  const preferencesRequired = [
+    input.targetRoles.length > 0 || input.jobFamilies.length > 0
+      ? "targets"
+      : "",
+    input.workModes,
+  ];
+
+  const basicsOverall = countFilledFields([
     input.identityValues?.firstName,
     input.identityValues?.lastName,
     input.identityValues?.preferredDisplayName,
@@ -191,11 +231,12 @@ function buildProfileSectionProgress(
     input.skillGroupValues?.languagesAndFrameworks,
     input.skillGroupValues?.softSkills,
   ]);
+  const basics = withRequiredProgress(basicsOverall, basicsRequired);
 
-  const experience = countFilledRecordFields(input.experienceValues ?? [], [
-    "id",
-    "isCurrent",
-  ]);
+  const experience = withRequiredProgress(
+    countFilledRecordFields(experienceRecords, ["id", "isCurrent"]),
+    experienceRequired,
+  );
 
   const background = combineSectionProgress(
     countFilledRecordFields(input.educationValues ?? [], ["id"]),
@@ -209,7 +250,7 @@ function buildProfileSectionProgress(
     countFilledRecordFields(input.proofBankValues ?? [], ["id"]),
   );
 
-  const preferences = combineSectionProgress(
+  const preferencesOverall = combineSectionProgress(
     countFilledFields([
       input.eligibilityValues?.authorizedWorkCountries,
       input.eligibilityValues?.requiresVisaSponsorship,
@@ -250,6 +291,10 @@ function buildProfileSectionProgress(
     countFilledRecordFields(input.answerBankValues?.customAnswers ?? [], [
       "id",
     ]),
+  );
+  const preferences = withRequiredProgress(
+    preferencesOverall,
+    preferencesRequired,
   );
 
   const sources = buildJobSourceProgress(input.discoveryTargets);

@@ -647,6 +647,7 @@ function buildSourceDebugSummary(result) {
 }
 
 function buildDiscoverySummary(snapshot) {
+  snapshot = snapshot?.snapshot ?? snapshot;
   if (!snapshot) {
     return null;
   }
@@ -844,7 +845,8 @@ async function executeBenchmarkPairScenarios({
             target.id,
           ),
       );
-      const discoverySnapshot = discoveryTimed.value ?? null;
+      const discoverySnapshot =
+        discoveryTimed.value?.snapshot ?? discoveryTimed.value ?? null;
       const discoveryTargetRoles = Array.isArray(
         discoverySnapshot?.searchPreferences?.targetRoles,
       )
@@ -923,7 +925,7 @@ async function runCurrentWorkspaceRunAllScenario(app, window, targets) {
     await restoreWorkspaceSnapshot(activeWindow, resetWorkspaceSnapshot);
   }
 
-  const snapshot = result.value ?? null;
+  const snapshot = result.value?.snapshot ?? result.value ?? null;
   const effectiveTargetRoles = Array.isArray(
     snapshot?.searchPreferences?.targetRoles,
   )
@@ -1138,7 +1140,9 @@ async function main() {
     browserAgentEnabledEffective: resolveBrowserAgentEnabledEffective(),
     browserHeadless:
       process.env.UNEMPLOYED_BROWSER_HEADLESS ?? "(default=false)",
-    browserHeadlessEffective: isEnabled(process.env.UNEMPLOYED_BROWSER_HEADLESS),
+    browserHeadlessEffective: isEnabled(
+      process.env.UNEMPLOYED_BROWSER_HEADLESS,
+    ),
     outputLabel,
     results,
   };

@@ -412,7 +412,9 @@ describe("ResumeStrategiesScreen", () => {
     fireEvent.click(
       screen.getByLabelText("Allow paraphrased claims grounded in evidence"),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Create resume approach" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create resume approach" }),
+    );
 
     const saved = onSaveStrategy.mock.calls[0]?.[0];
     expect(saved?.id).toBeNull();
@@ -544,7 +546,9 @@ describe("ResumeStrategiesScreen", () => {
     fireEvent.change(screen.getByLabelText("Role family"), {
       target: { value: "Frontend Engineering" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create resume approach" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create resume approach" }),
+    );
 
     await waitFor(() => expect(onSaveStrategy).toHaveBeenCalledTimes(1));
     expect(
@@ -583,7 +587,9 @@ describe("ResumeStrategiesScreen", () => {
     fireEvent.change(screen.getByLabelText("Role family"), {
       target: { value: "Frontend Engineering" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create resume approach" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create resume approach" }),
+    );
 
     await waitFor(() =>
       expect(
@@ -740,7 +746,9 @@ describe("ResumeStrategiesScreen", () => {
         onSetCampaignDefault={vi.fn()}
         strategies={[]}
       />,
-      ["/job-finder/resume-strategies?returnTo=%2Fjob-finder%2Freview-queue%3FjobId%3Djob_1"],
+      [
+        "/job-finder/resume-strategies?returnTo=%2Fjob-finder%2Freview-queue%3FjobId%3Djob_1",
+      ],
     );
 
     expect(screen.getByRole("alert")).toBeTruthy();

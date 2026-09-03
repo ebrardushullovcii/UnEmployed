@@ -1,14 +1,46 @@
 // @vitest-environment jsdom
 
-import { act } from "react";
+import { act, useEffect, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { useForm, type UseFormReturn } from "react-hook-form";
+import { fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CandidateProfileSchema,
   ResumeImportFieldCandidateSummarySchema,
   ResumeImportRunSchema,
 } from "@unemployed/contracts";
-import { ProfileResumePanel } from "./profile-resume-panel";
+import {
+  createProfileEditorValues,
+  type ProfileEditorValues,
+} from "../../lib/profile-editor";
+import {
+  ProfileResumePanel,
+  resolveResumeStripStatus,
+} from "./profile-resume-panel";
+
+type ProfileResumePanelProps = ComponentProps<typeof ProfileResumePanel>;
+type ProfileResumePanelHarnessProps = Omit<
+  ProfileResumePanelProps,
+  "profileForm"
+> & {
+  onFormReady?: (form: UseFormReturn<ProfileEditorValues>) => void;
+};
+
+function ProfileResumePanelHarness({
+  onFormReady,
+  ...props
+}: ProfileResumePanelHarnessProps) {
+  const profileForm = useForm<ProfileEditorValues>({
+    defaultValues: createProfileEditorValues(props.profile),
+  });
+
+  useEffect(() => {
+    onFormReady?.(profileForm);
+  }, [onFormReady, profileForm]);
+
+  return <ProfileResumePanel {...props} profileForm={profileForm} />;
+}
 
 describe("ProfileResumePanel", () => {
   let container: HTMLDivElement | null = null;
@@ -68,7 +100,7 @@ describe("ProfileResumePanel", () => {
 
     act(() => {
       root?.render(
-        <ProfileResumePanel
+        <ProfileResumePanelHarness
           importDisabledReason={null}
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
@@ -92,6 +124,153 @@ describe("ProfileResumePanel", () => {
     expect(container?.textContent).not.toContain(
       "This resume needs cleaner text",
     );
+  });
+
+  it("offers plain-text recovery for an unreadable import through the profile form", () => {
+    const profile = CandidateProfileSchema.parse({
+      id: "candidate_resume_recovery",
+      firstName: "Casey",
+      lastName: "Rowan",
+      fullName: "Casey Rowan",
+      headline: "Import your resume to begin",
+      summary:
+        "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+      currentLocation: "Portland, Oregon",
+      yearsExperience: 0,
+      baseResume: {
+        id: "resume_resume_recovery",
+        fileName: "casey-scanned.pdf",
+        uploadedAt: "2026-08-28T10:00:00.000Z",
+        textContent: null,
+        extractionStatus: "needs_text",
+      },
+      workEligibility: {},
+      professionalSummary: {},
+      targetRoles: [],
+      locations: [],
+      skills: [],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    });
+    const profileFormRef: {
+      current: UseFormReturn<ProfileEditorValues> | null;
+    } = { current: null };
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanelHarness
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[]}
+          latestResumeImportRun={null}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onApplyTimelineRepairAction={vi.fn()}
+          onImportResume={vi.fn()}
+          onFormReady={(form) => {
+            profileFormRef.current = form;
+          }}
+          resumeImportProgress={null}
+          profile={profile}
+        />,
+      );
+    });
+
+    const resumeTextField = container?.querySelector<HTMLTextAreaElement>(
+      "#profile-resume-recovery-text",
+    );
+    expect(resumeTextField).not.toBeNull();
+    expect(resumeTextField?.getAttribute("aria-describedby")).toBe(
+      "profile-resume-recovery-text-description",
+    );
+    expect(container?.textContent).toContain(
+      "Save your profile first, then choose Refresh from resume",
+    );
+
+    act(() => {
+      fireEvent.change(resumeTextField as HTMLTextAreaElement, {
+        target: {
+          value: "Casey Rowan\nSenior frontend engineer\ncasey@example.com",
+        },
+      });
+    });
+
+    expect(profileFormRef.current?.getValues("identity.resumeText")).toBe(
+      "Casey Rowan\nSenior frontend engineer\ncasey@example.com",
+    );
+    expect(
+      profileFormRef.current?.getFieldState("identity.resumeText").isDirty,
+    ).toBe(true);
+  });
+
+  it("enables refresh after persisted resume text is available", () => {
+    const profile = CandidateProfileSchema.parse({
+      id: "candidate_resume_recovery_saved",
+      firstName: "Casey",
+      lastName: "Rowan",
+      fullName: "Casey Rowan",
+      headline: "Senior frontend engineer",
+      summary: "Builds reliable web products.",
+      currentLocation: "Portland, Oregon",
+      yearsExperience: 8,
+      baseResume: {
+        id: "resume_resume_recovery_saved",
+        fileName: "casey-scanned.pdf",
+        uploadedAt: "2026-08-28T10:00:00.000Z",
+        textContent: "Casey Rowan\nSenior frontend engineer",
+        extractionStatus: "not_started",
+      },
+      workEligibility: {},
+      professionalSummary: {},
+      targetRoles: [],
+      locations: [],
+      skills: [],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    });
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanelHarness
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[]}
+          latestResumeImportRun={null}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onApplyTimelineRepairAction={vi.fn()}
+          onImportResume={vi.fn()}
+          resumeImportProgress={null}
+          profile={profile}
+        />,
+      );
+    });
+
+    const refreshButton = [
+      ...(container?.querySelectorAll("button") ?? []),
+    ].find((button) => button.textContent?.trim() === "Refresh from resume");
+    expect(refreshButton).toBeDefined();
+    expect(refreshButton?.hasAttribute("disabled")).toBe(false);
+    expect(container?.textContent).toContain("Ready to refresh");
+    expect(
+      container?.querySelector("#profile-resume-recovery-text"),
+    ).toBeNull();
   });
 
   it("disables resume import and refresh while a draft would be overwritten", () => {
@@ -132,7 +311,7 @@ describe("ProfileResumePanel", () => {
 
     act(() => {
       root?.render(
-        <ProfileResumePanel
+        <ProfileResumePanelHarness
           importDisabledReason="Save your current profile or setup draft before importing or refreshing from resume so those unsaved edits do not get overwritten."
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
@@ -201,7 +380,7 @@ describe("ProfileResumePanel", () => {
 
     act(() => {
       root?.render(
-        <ProfileResumePanel
+        <ProfileResumePanelHarness
           importDisabledReason={null}
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
@@ -222,6 +401,89 @@ describe("ProfileResumePanel", () => {
     expect(container?.textContent).not.toContain(
       "Python resume parser sidecar fallback: Python sidecar unavailable",
     );
+  });
+
+  it("names which part of the resume lost its AI stage instead of a generic fallback note", () => {
+    // Written by `describeResumeImportStageFallback` in the import workflow.
+    const stageFallbackNote =
+      "Job Finder could not use the AI model for your work history because the model did not answer in time. It filled that part with its built-in text reader instead, so check those details before you rely on them, or import the file again to retry.";
+    const profile = CandidateProfileSchema.parse({
+      id: "candidate_stage_fallback",
+      firstName: "Alex",
+      lastName: "Vanguard",
+      fullName: "Alex Vanguard",
+      headline: "Senior systems designer",
+      summary: "Builds resilient workflows.",
+      currentLocation: "London, UK",
+      yearsExperience: 10,
+      email: "alex@example.com",
+      phone: "+44 7700 900123",
+      baseResume: {
+        id: "resume_stage_fallback",
+        fileName: "alex-vanguard.txt",
+        uploadedAt: "2026-03-20T10:00:00.000Z",
+        textContent: "Alex Vanguard",
+        extractionStatus: "ready",
+        analysisWarnings: [
+          stageFallbackNote,
+          "Fell back to the deterministic staged resume importer after the model call failed.",
+          "Primary AI import stage failed: Model request timed out after 25s",
+        ],
+      },
+      workEligibility: {},
+      professionalSummary: {},
+      targetRoles: ["Principal Designer"],
+      locations: ["Remote"],
+      skills: ["Figma"],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    });
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanelHarness
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
+          latestResumeImportRun={null}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onApplyTimelineRepairAction={vi.fn()}
+          onImportResume={vi.fn()}
+          profile={profile}
+        />,
+      );
+    });
+
+    // The note qualifies the import status, so it sits with the file and its
+    // status in ordinary sentences, not in the uppercase mono review list far
+    // below the fold that read as machine log output.
+    const qualityNote = container?.querySelector(
+      "[data-profile-resume-quality-note]",
+    );
+    expect(qualityNote?.textContent).toContain(stageFallbackNote);
+    expect(container?.textContent).not.toContain("Import quality note");
+    expect(container?.textContent).toContain(stageFallbackNote);
+    // The specific note replaces the vague one rather than joining it, and the
+    // raw provider detail stays out of the user's way.
+    expect(container?.textContent).not.toContain(
+      "This import used a fallback parsing path",
+    );
+    expect(container?.textContent).not.toContain(
+      "Primary AI import stage failed:",
+    );
+    // The note must appear once, not once as a quality note and again in the
+    // general notes list.
+    expect(container?.textContent?.split(stageFallbackNote)).toHaveLength(2);
   });
 
   it("shows import ready to use when only optional resume suggestions remain", () => {
@@ -265,7 +527,7 @@ describe("ProfileResumePanel", () => {
 
     act(() => {
       root?.render(
-        <ProfileResumePanel
+        <ProfileResumePanelHarness
           importDisabledReason={null}
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
@@ -301,7 +563,7 @@ describe("ProfileResumePanel", () => {
       );
     });
 
-    expect(container?.textContent).toContain("Imported into profile");
+    expect(container?.textContent).toContain("Imported");
     expect(container?.textContent).toContain(
       "0 imported automatically; the resume is ready to use.",
     );
@@ -351,7 +613,7 @@ describe("ProfileResumePanel", () => {
 
     act(() => {
       root?.render(
-        <ProfileResumePanel
+        <ProfileResumePanelHarness
           importDisabledReason={null}
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
@@ -397,7 +659,7 @@ describe("ProfileResumePanel", () => {
 
     act(() => {
       root?.render(
-        <ProfileResumePanel
+        <ProfileResumePanelHarness
           importDisabledReason={null}
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
@@ -463,7 +725,7 @@ describe("ProfileResumePanel", () => {
 
     act(() => {
       root?.render(
-        <ProfileResumePanel
+        <ProfileResumePanelHarness
           importDisabledReason={null}
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
@@ -483,6 +745,192 @@ describe("ProfileResumePanel", () => {
     );
     expect(container?.textContent).toContain("Replace resume");
     expect(container?.textContent).toContain("Casey Rowan");
+  });
+
+  it("keeps an extracted resume labelled Imported even when a later import stage recorded a failure", () => {
+    const profile = CandidateProfileSchema.parse({
+      id: "candidate_ready_with_failed_run",
+      firstName: "Alex",
+      lastName: "Vanguard",
+      fullName: "Alex Vanguard",
+      headline: "Senior systems designer",
+      summary: "Builds resilient workflows.",
+      currentLocation: "London, UK",
+      yearsExperience: 10,
+      email: "alex@example.com",
+      baseResume: {
+        id: "resume_ready_with_failed_run",
+        fileName: "alex-vanguard.pdf",
+        uploadedAt: "2026-03-20T10:00:00.000Z",
+        textContent: "Alex Vanguard",
+        extractionStatus: "ready",
+        storagePath: "/tmp/alex-vanguard.pdf",
+        sha256: "a".repeat(64),
+      },
+    });
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanelHarness
+          compact
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
+          latestResumeImportRun={ResumeImportRunSchema.parse({
+            id: "resume_import_run_failed_late",
+            sourceResumeId: "resume_ready_with_failed_run",
+            sourceResumeFileName: "alex-vanguard.pdf",
+            trigger: "import",
+            status: "failed",
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:00:39.000Z",
+            primaryParserKind: "plain_text",
+            parserKinds: ["plain_text"],
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            warnings: [],
+            errorMessage:
+              "Resume import was superseded by a newer profile edit.",
+            candidateCounts: {
+              total: 0,
+              autoApplied: 0,
+              needsReview: 0,
+              rejected: 0,
+              abstained: 0,
+            },
+          })}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onApplyTimelineRepairAction={vi.fn()}
+          onImportResume={vi.fn()}
+          profile={profile}
+        />,
+      );
+    });
+
+    const badge = [
+      ...(container?.querySelectorAll("[data-slot='badge']") ?? []),
+    ].find((element) => element.textContent?.trim() === "Imported");
+    expect(badge).toBeDefined();
+    expect(container?.textContent).not.toMatch(/\bFailed\b/);
+  });
+
+  it("derives the strip label and tone from one source and surfaces run warnings as a secondary sentence", () => {
+    expect(
+      resolveResumeStripStatus({
+        extractionStatus: "ready",
+        hasImportedResume: true,
+        isProfileReady: true,
+        latestRun: { status: "failed" },
+        pendingReviewCount: 0,
+      }),
+    ).toEqual({ label: "Imported", tone: "ready" });
+    expect(
+      resolveResumeStripStatus({
+        extractionStatus: "failed",
+        hasImportedResume: true,
+        isProfileReady: false,
+        latestRun: { status: "failed" },
+        pendingReviewCount: 0,
+      }),
+    ).toEqual({ label: "Import failed", tone: "failed" });
+    expect(
+      resolveResumeStripStatus({
+        extractionStatus: "ready",
+        hasImportedResume: true,
+        isProfileReady: false,
+        latestRun: { status: "review_ready" },
+        pendingReviewCount: 2,
+      }),
+    ).toEqual({ label: "Needs review", tone: "queued" });
+    expect(
+      resolveResumeStripStatus({
+        extractionStatus: "not_started",
+        hasImportedResume: true,
+        isProfileReady: false,
+        latestRun: { status: "extracting" },
+        pendingReviewCount: 0,
+      }),
+    ).toEqual({ label: "Importing", tone: "queued" });
+
+    const profile = CandidateProfileSchema.parse({
+      id: "candidate_warned",
+      firstName: "Alex",
+      lastName: "Vanguard",
+      fullName: "Alex Vanguard",
+      headline: "Senior systems designer",
+      summary: "Builds resilient workflows.",
+      currentLocation: "London, UK",
+      yearsExperience: 10,
+      email: "alex@example.com",
+      baseResume: {
+        id: "resume_warned",
+        fileName: "alex-vanguard.pdf",
+        uploadedAt: "2026-03-20T10:00:00.000Z",
+        textContent: "Alex Vanguard",
+        extractionStatus: "ready",
+        storagePath: "/tmp/alex-vanguard.pdf",
+        sha256: "a".repeat(64),
+      },
+    });
+    const warning =
+      "Your profile changed while the visual resume scan was finishing. The imported text details stayed applied; visual-scan refinements were not applied automatically.";
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanelHarness
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
+          latestResumeImportRun={ResumeImportRunSchema.parse({
+            id: "resume_import_run_warned",
+            sourceResumeId: "resume_warned",
+            sourceResumeFileName: "alex-vanguard.pdf",
+            trigger: "import",
+            status: "applied",
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:00:39.000Z",
+            primaryParserKind: "plain_text",
+            parserKinds: ["plain_text"],
+            analysisProviderKind: "deterministic",
+            analysisProviderLabel: "Test AI",
+            warnings: [warning],
+            errorMessage: null,
+            candidateCounts: {
+              total: 4,
+              autoApplied: 4,
+              needsReview: 0,
+              rejected: 0,
+              abstained: 0,
+            },
+          })}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onApplyTimelineRepairAction={vi.fn()}
+          onImportResume={vi.fn()}
+          profile={profile}
+        />,
+      );
+    });
+
+    const badge = [
+      ...(container?.querySelectorAll("[data-slot='badge']") ?? []),
+    ].find((element) => element.textContent?.trim() === "Imported");
+    expect(badge).toBeDefined();
+    expect(
+      container?.querySelector("[data-profile-resume-run-warning]")
+        ?.textContent,
+    ).toBe(warning);
   });
 
   it("pins the extraction status badge beside the headline without wrap-induced dead space", () => {
@@ -510,7 +958,7 @@ describe("ProfileResumePanel", () => {
 
     act(() => {
       root?.render(
-        <ProfileResumePanel
+        <ProfileResumePanelHarness
           importDisabledReason={null}
           isAnalyzeProfilePending={false}
           isImportResumePending={false}
@@ -527,8 +975,11 @@ describe("ProfileResumePanel", () => {
 
     const statusBadge = [
       ...(container?.querySelectorAll("[data-slot='badge']") ?? []),
-    ].find((badge) => badge.textContent?.includes("Ready to review"));
+    ].find((badge) => badge.textContent?.includes("Imported"));
     expect(statusBadge).toBeDefined();
+    expect(
+      container?.querySelector("#profile-resume-recovery-text"),
+    ).toBeNull();
 
     const badgeRow = statusBadge?.parentElement;
     expect(badgeRow?.className).toContain("grid");

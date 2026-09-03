@@ -14,6 +14,10 @@ import {
   type ResumeImportFieldCandidate,
 } from "@unemployed/contracts";
 
+import {
+  isSearchLocationCandidateTarget,
+  sanitizeSearchLocationCandidateValue,
+} from "./profile-setup-location-suggestions";
 import { deriveAndPersistProfileSetupState } from "./profile-workspace-state";
 import { hasBlockingResumeImportCandidates } from "./resume-import-candidate-utils";
 import {
@@ -206,19 +210,28 @@ export function createWorkspaceProfileSetupReviewMethods(input: {
         );
       }
 
-      nextCandidates = nextCandidates.map((candidate) =>
-        candidate.id === linkedCandidate.id
-          ? {
-              ...applySelectedConflictChoice(
-                candidate,
-                parsedOptions.selectedConflictChoiceId,
-              ),
-              resolution: "auto_applied",
-              resolutionReason: "review_confirmed",
-              resolvedAt: now,
-            }
-          : candidate,
-      );
+      nextCandidates = nextCandidates.map((candidate) => {
+        if (candidate.id !== linkedCandidate.id) {
+          return candidate;
+        }
+
+        const selected = applySelectedConflictChoice(
+          candidate,
+          parsedOptions.selectedConflictChoiceId,
+        );
+
+        return {
+          ...selected,
+          // A confirmed preferred-location suggestion must land as a job
+          // location, not as the home address it was read from.
+          value: isSearchLocationCandidateTarget(selected.target)
+            ? sanitizeSearchLocationCandidateValue(selected.value)
+            : selected.value,
+          resolution: "auto_applied" as const,
+          resolutionReason: "review_confirmed",
+          resolvedAt: now,
+        };
+      });
       const mergedImportResult = applyResolvedResumeImportCandidatesToWorkspace(
         {
           profile: nextProfile,

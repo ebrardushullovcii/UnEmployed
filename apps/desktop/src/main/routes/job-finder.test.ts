@@ -33,12 +33,14 @@ type RegisteredHandler = (
 
 const {
   mockApplyGroupedManualAnswer,
+  mockBrowserWindowFromWebContents,
   mockBuildApplicationPacket,
   mockDeleteCampaignRule,
   mockPreviewResumeDraft,
   mockGetWorkspaceBootstrap,
   mockGetWorkspaceSnapshot,
   mockGetJobFinderWorkspaceService,
+  mockImportResumeFromSourcePath,
   mockIsDesktopTestApiEnabled,
   mockMarkAllCampaignNotificationsRead,
   mockMarkCampaignNotificationRead,
@@ -55,6 +57,7 @@ const {
   mockCancelApplyRun,
   mockGetApplyRunDetails,
   mockResolveApplyConsentRequest,
+  mockShowOpenDialog,
   mockShowSaveDialog,
   mockSnoozeGroupedDecision,
   mockToggleCampaignRule,
@@ -64,12 +67,21 @@ const {
   mockUpdateWorkspaceBehavior,
 } = vi.hoisted(() => ({
   mockApplyGroupedManualAnswer: vi.fn(),
+  mockBrowserWindowFromWebContents: vi.fn(
+    (): {
+      id: string;
+      focus: ReturnType<typeof vi.fn>;
+      isDestroyed: ReturnType<typeof vi.fn>;
+      show: ReturnType<typeof vi.fn>;
+    } | null => null,
+  ),
   mockBuildApplicationPacket: vi.fn(),
   mockDeleteCampaignRule: vi.fn(),
   mockPreviewResumeDraft: vi.fn(),
   mockGetWorkspaceBootstrap: vi.fn(),
   mockGetWorkspaceSnapshot: vi.fn(),
   mockGetJobFinderWorkspaceService: vi.fn(),
+  mockImportResumeFromSourcePath: vi.fn(),
   mockIsDesktopTestApiEnabled: vi.fn(() => false),
   mockMarkAllCampaignNotificationsRead: vi.fn(),
   mockMarkCampaignNotificationRead: vi.fn(),
@@ -86,6 +98,7 @@ const {
   mockCancelApplyRun: vi.fn(),
   mockGetApplyRunDetails: vi.fn(),
   mockResolveApplyConsentRequest: vi.fn(),
+  mockShowOpenDialog: vi.fn(),
   mockShowSaveDialog: vi.fn(),
   mockSnoozeGroupedDecision: vi.fn(),
   mockToggleCampaignRule: vi.fn(),
@@ -100,9 +113,10 @@ vi.mock("electron", () => ({
     getPath: vi.fn(() => process.cwd()),
   },
   BrowserWindow: {
-    fromWebContents: vi.fn(() => null),
+    fromWebContents: mockBrowserWindowFromWebContents,
   },
   dialog: {
+    showOpenDialog: mockShowOpenDialog,
     showSaveDialog: mockShowSaveDialog,
   },
 }));
@@ -111,7 +125,7 @@ vi.mock("../services/job-finder", () => ({
   defaultBenchmarkCases: [],
   getDesktopTestDelayMs: vi.fn(() => 0),
   getJobFinderWorkspaceService: mockGetJobFinderWorkspaceService,
-  importResumeFromSourcePath: vi.fn(),
+  importResumeFromSourcePath: mockImportResumeFromSourcePath,
   isDesktopTestApiEnabled: mockIsDesktopTestApiEnabled,
   loadApplyQueueDemoState: vi.fn(),
   loadResumeWorkspaceDemoState: vi.fn(),
@@ -275,7 +289,49 @@ describe("job-finder profile copilot patch-group routes", () => {
     expect(mockUndoProfileRevision).not.toHaveBeenCalled();
   });
 
-  it("re-parses the service snapshot before returning it to IPC", async () => {
+  // PERF-03 / F33. Mutation handlers used to run a full
+  // `JobFinderWorkspaceSnapshotSchema.parse` on every response — a second deep
+  // validation of a snapshot the workspace service had already parsed, paid
+  // once per user action and growing with every job the user has discovered.
+  // The response must now be handed through untouched, while a malformed
+  // main-process value still fails closed.
+  it("returns the exact service snapshot without re-walking it", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-22T11:30:00.000Z");
+    const parseSpy = vi.spyOn(JobFinderWorkspaceSnapshotSchema, "parse");
+    mockUndoProfileRevision.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      undoProfileRevision: mockUndoProfileRevision,
+    });
+
+    const result = await registerAndFindHandler(
+      "job-finder:undo-profile-revision",
+    )({ sender: {} }, { revisionId: "profile_revision_9" });
+
+    // Same object identity: nothing was re-parsed, re-cloned, or stripped.
+    expect(result).toBe(snapshot);
+    expect(parseSpy).not.toHaveBeenCalled();
+    parseSpy.mockRestore();
+  });
+
+  it("keeps mutation input validation ahead of any service call", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-22T11:45:00.000Z");
+    mockUndoProfileRevision.mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      undoProfileRevision: mockUndoProfileRevision,
+    });
+
+    await expect(
+      registerAndFindHandler("job-finder:undo-profile-revision")(
+        { sender: {} },
+        { revisionId: 42 },
+      ),
+    ).rejects.toThrow();
+    expect(mockUndoProfileRevision).not.toHaveBeenCalled();
+  });
+
+  // The deep parse is gone, but the fail-closed guarantee it provided is not:
+  // a malformed main-process value must never reach the renderer.
+  it("fails closed when the service returns a value that is not a workspace snapshot", async () => {
     mockUndoProfileRevision.mockResolvedValue({
       module: "job-finder",
     } as unknown as ReturnType<typeof createEmptyWorkspace>);
@@ -403,6 +459,174 @@ function createEmptyWorkspace(generatedAt: string) {
     activityControl: { paused: false, pausedAt: null, reason: null },
   });
 }
+
+describe("job-finder resume import picker route", () => {
+  let cancelImportResume: ((event: unknown, payload: unknown) => void) | null =
+    null;
+
+  function registerAndFindHandler(): RegisteredHandler {
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+      on: vi.fn(
+        (
+          channel: string,
+          listener: (event: unknown, payload: unknown) => void,
+        ) => {
+          if (channel === "job-finder:cancel-import-resume") {
+            cancelImportResume = listener;
+          }
+        },
+      ),
+      removeListener: vi.fn(),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+
+    const handler = handlers.get("job-finder:import-resume");
+    if (!handler) {
+      throw new Error("Resume import handler was not registered.");
+    }
+    return handler;
+  }
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    mockBrowserWindowFromWebContents.mockReturnValue(null);
+    cancelImportResume = null;
+  });
+
+  it("parents the picker to the invoking window and forwards valid progress", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-30T10:00:00.000Z");
+    const parentWindow = {
+      id: "main-window",
+      focus: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+      show: vi.fn(),
+    };
+    const sender = {
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+    };
+    mockBrowserWindowFromWebContents.mockReturnValue(parentWindow);
+    mockShowOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: ["/tmp/resume.pdf"],
+    });
+    mockImportResumeFromSourcePath.mockImplementation(
+      (
+        _sourcePath: string,
+        options?: {
+          onProgress?: (progress: unknown) => void;
+        },
+      ) => {
+        options?.onProgress?.({
+          stage: "saving_file",
+          message: "Saving the selected resume.",
+          occurredAt: "2026-08-30T10:00:01.000Z",
+        });
+        return Promise.resolve(snapshot);
+      },
+    );
+
+    const result = await registerAndFindHandler()(
+      { sender },
+      { requestId: "resume_import_test" },
+    );
+
+    expect(mockBrowserWindowFromWebContents).toHaveBeenCalledWith(sender);
+    expect(parentWindow.show).toHaveBeenCalledOnce();
+    expect(parentWindow.focus).toHaveBeenCalledOnce();
+    expect(mockShowOpenDialog).toHaveBeenCalledWith(
+      parentWindow,
+      expect.objectContaining({ properties: ["openFile"] }),
+    );
+    expect(sender.send).toHaveBeenCalledWith(
+      "job-finder:resume-import-progress:resume_import_test",
+      expect.objectContaining({ stage: "saving_file" }),
+    );
+    const importCall = mockImportResumeFromSourcePath.mock.calls.at(-1) as
+      | [
+          sourcePath: string,
+          options: { onProgress?: (progress: unknown) => void },
+        ]
+      | undefined;
+    expect(importCall?.[0]).toBe("/tmp/resume.pdf");
+    expect(typeof importCall?.[1].onProgress).toBe("function");
+    expect(result).toEqual(snapshot);
+  });
+
+  it("does not let a destroyed renderer abort persistence progress", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-30T10:01:00.000Z");
+    const sender = {
+      isDestroyed: vi.fn(() => true),
+      send: vi.fn(),
+    };
+    mockShowOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: ["/tmp/resume.pdf"],
+    });
+    mockImportResumeFromSourcePath.mockImplementation(
+      (
+        _sourcePath: string,
+        options?: {
+          onProgress?: (progress: unknown) => void;
+        },
+      ) => {
+        options?.onProgress?.({
+          stage: "saving_file",
+          message: "Saving the selected resume.",
+          occurredAt: "2026-08-30T10:01:01.000Z",
+        });
+        return Promise.resolve(snapshot);
+      },
+    );
+
+    await expect(
+      registerAndFindHandler()(
+        { sender },
+        { requestId: "resume_import_destroyed" },
+      ),
+    ).resolves.toEqual(snapshot);
+
+    expect(sender.send).not.toHaveBeenCalled();
+    expect(mockImportResumeFromSourcePath).toHaveBeenCalledOnce();
+  });
+
+  it("discards a late file choice after the renderer cancels the picker", async () => {
+    const snapshot = createEmptyWorkspace("2026-08-30T10:02:00.000Z");
+    const sender = {
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+    };
+    let resolvePicker!: (selection: {
+      canceled: boolean;
+      filePaths: string[];
+    }) => void;
+    mockShowOpenDialog.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePicker = resolve;
+      }),
+    );
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      getWorkspaceSnapshot: vi.fn().mockResolvedValue(snapshot),
+    });
+
+    const importPromise = registerAndFindHandler()(
+      { sender },
+      { requestId: "resume_import_cancelled" },
+    );
+    await Promise.resolve();
+    expect(cancelImportResume).toEqual(expect.any(Function));
+
+    cancelImportResume?.({ sender }, { requestId: "resume_import_cancelled" });
+    resolvePicker({ canceled: false, filePaths: ["/tmp/late-resume.pdf"] });
+
+    await expect(importPromise).resolves.toEqual(snapshot);
+    expect(mockImportResumeFromSourcePath).not.toHaveBeenCalled();
+  });
+});
 
 describe("job-finder application packet export route", () => {
   let temporaryDirectory: string;
@@ -996,9 +1220,7 @@ describe("job-finder resume claim confirmation route", () => {
 
     const handler = handlers.get("job-finder:set-resume-claim-confirmation");
     if (!handler) {
-      throw new Error(
-        "Resume claim confirmation handler was not registered.",
-      );
+      throw new Error("Resume claim confirmation handler was not registered.");
     }
     return handler;
   }
@@ -1028,9 +1250,10 @@ describe("job-finder resume claim confirmation route", () => {
       setResumeClaimConfirmation: mockSetResumeClaimConfirmation,
     });
 
-    const input = JobFinderSetResumeClaimConfirmationInputSchema.parse(
-      buildValidAddInput(),
-    );
+    const input =
+      JobFinderSetResumeClaimConfirmationInputSchema.parse(
+        buildValidAddInput(),
+      );
     const result = await registerAndFindHandler()({ sender: {} }, input);
 
     expect(mockSetResumeClaimConfirmation).toHaveBeenCalledOnce();
@@ -1064,9 +1287,7 @@ describe("job-finder resume claim confirmation route", () => {
     });
     const handler = registerAndFindHandler();
 
-    await expect(
-      handler({ sender: {} }, { intent: "add" }),
-    ).rejects.toThrow();
+    await expect(handler({ sender: {} }, { intent: "add" })).rejects.toThrow();
     await expect(
       handler({ sender: {} }, buildValidAddInput({ bulletId: null })),
     ).rejects.toThrow(/bulletId/);
@@ -2308,7 +2529,11 @@ describe("job-finder agent discovery outcome routes", () => {
   it("classifies a resolved cancel-after-partial-checkpoint run as cancelled", async () => {
     // The service finalizes a user-cancelled run as state `cancelled`,
     // persists incrementally committed jobs, and resolves — no rejection.
-    const snapshot = workspaceWithRunState("2026-08-26T10:05:00.000Z", "cancelled", 3);
+    const snapshot = workspaceWithRunState(
+      "2026-08-26T10:05:00.000Z",
+      "cancelled",
+      3,
+    );
     mockRunAgentDiscovery.mockResolvedValue(snapshot);
     mockGetJobFinderWorkspaceService.mockResolvedValue({
       runAgentDiscovery: mockRunAgentDiscovery,

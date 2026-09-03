@@ -17,6 +17,7 @@ import {
   Compass,
   FileText,
   House,
+  Keyboard,
   Layers3,
   Minus,
   Search,
@@ -54,10 +55,10 @@ import {
 import { JobFinderTaskCenter } from "./task-center/job-finder-task-center";
 import { StartupResetRecoveryBanner } from "./startup-reset-recovery-banner";
 import { countActiveSafeguardBlockers } from "../lib/safeguards-blocker-count";
+import { countDiscoveryStrongMatches } from "../screens/discovery/discovery-result-groups";
 import { buildJobFinderGlobalSearchEntries } from "../lib/build-job-finder-global-search-entries";
 import type { JobFinderGlobalSearchEntry } from "../lib/job-finder-global-search";
 import {
-  buildJobFinderShortcutHelp,
   formatJobFinderShortcutCombo,
   getJobFinderAriaKeyshortcuts,
 } from "../lib/job-finder-shortcuts";
@@ -68,6 +69,17 @@ import {
   formatStatusLabel,
   getDefaultProfileRoute,
 } from "../lib/job-finder-utils";
+import { JobFinderShellBrand } from "./job-finder-shell-brand";
+import {
+  BoundedFloatingSurfaceScrollHint,
+  boundedFloatingSurfaceStyle,
+  useBoundedFloatingSurface,
+  useBoundedFloatingSurfaceScrollState,
+} from "./bounded-floating-surface";
+import {
+  JOB_FINDER_SHORTCUTS_DIALOG_LABEL,
+  JobFinderShortcutsDialog,
+} from "./job-finder-shortcuts-dialog";
 
 interface JobFinderShellProps {
   children: ReactNode;
@@ -117,7 +129,7 @@ const screenLabelMap: Record<JobFinderScreen, string> = {
   analytics: "Outcomes",
   documents: "Documents",
   settings: "Settings",
-  "rapid-review": "Rapid review",
+  "rapid-review": "Quick review",
   "resume-strategies": "Resume approaches",
   safeguards: "Safeguards",
   companies: "Companies",
@@ -166,10 +178,22 @@ const LOCKED_LAYOUT_SCREENS: readonly JobFinderScreen[] = [
   "applications",
 ];
 
-// Below this computed planning-menu height the expanded shortcuts list always
-// severs its header from its rows at the menu's scroll cut, so the section
-// collapses into a native disclosure instead of leaving an orphan label.
-const MORE_MENU_COMPACT_SHORTCUTS_MAX_HEIGHT_PX = 480;
+// The More menu's own preferred width, and the height it needs for seven
+// destinations plus their group labels and the shortcuts entry. Supplying the
+// desired height keeps the menu below its trigger whenever it genuinely fits
+// there and only flips it upward when it does not.
+// The main window is frameless on Windows (`frame: !(isMac || isWindows)` in
+// main/setup/window-shell.ts) and this header paints its own caption buttons,
+// so there is no Window Controls Overlay and no `env(titlebar-area-*)` to read.
+// The reserved width is therefore the exact width of the buttons rendered
+// below: minimize (w-11) + maximize (w-11) + close (w-12) = 8.5rem.
+const WINDOWS_CAPTION_CONTROLS_INSET = "8.5rem";
+// macOS uses `titleBarStyle: "hiddenInset"`, so the native traffic lights are
+// painted over the left edge of this header outside native fullscreen.
+const MACOS_TRAFFIC_LIGHT_INSET = "5.5rem";
+const MORE_MENU_WIDTH_PX = 264;
+const NO_GLOBAL_SEARCH_ENTRIES: readonly JobFinderGlobalSearchEntry[] = [];
+const MORE_MENU_DESIRED_HEIGHT_PX = 440;
 
 interface CompactRouteScrollEdges {
   end: boolean;
@@ -191,7 +215,7 @@ const NO_ROUTE_SCROLL_EDGES: CompactRouteScrollEdges = {
   start: false,
 };
 
-const SIDEBAR_COLLAPSED_STORAGE_KEY =
+export const SIDEBAR_COLLAPSED_STORAGE_KEY =
   "unemployed.job-finder.sidebar-collapsed.v1";
 
 function toCountBadge(count: number): number | null {
@@ -233,9 +257,9 @@ function getScreenAccessibleName(
 }
 
 const NAV_PILL_COUNT_BADGE_CLASS =
-  "inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-foreground";
+  "ml-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-(length:--text-tiny) text-foreground";
 
-function getInitialSidebarCollapsedState(): boolean {
+export function getInitialSidebarCollapsedState(): boolean {
   try {
     return (
       window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true"
@@ -339,6 +363,7 @@ export function JobFinderShell({
   workspace,
 }: JobFinderShellProps) {
   const isMac = platform === "darwin";
+  const isWindows = platform === "win32";
   const location = useLocation();
   const navigate = useNavigate();
   const mainRef = useRef<HTMLElement | null>(null);
@@ -347,6 +372,7 @@ export function JobFinderShell({
   const [windowControlsState, setWindowControlsState] =
     useState<DesktopWindowControlsState>({
       isClosable: true,
+      isFullScreen: false,
       isMaximized: false,
       isMinimizable: true,
     });
@@ -357,34 +383,29 @@ export function JobFinderShell({
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const [globalSearchFocusRequest, setGlobalSearchFocusRequest] = useState(0);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const [isShortcutsDialogOpen, setIsShortcutsDialogOpen] = useState(false);
   const [focusedMoreMenuItemIndex, setFocusedMoreMenuItemIndex] = useState(0);
-  const [moreMenuPosition, setMoreMenuPosition] = useState<{
-    top: number;
-    right: number;
-    maxHeight: number;
-    width: number;
-  } | null>(null);
+  // Only the compact top navigation owns a More trigger now: the expanded
+  // 17rem sidebar and the 4rem rail list every secondary destination inline,
+  // so there is no second trigger for the popover to anchor to.
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
+  const moreMenuScrollRef = useRef<HTMLDivElement | null>(null);
   const moreMenuItemRefs = useRef<Array<HTMLElement | null>>([]);
   const moreMenuInitialFocusRef = useRef<"first" | "last">("first");
   const compactRouteScrollRef = useRef<HTMLDivElement | null>(null);
   const [compactRouteScrollEdges, setCompactRouteScrollEdges] =
     useState<CompactRouteScrollEdges>(NO_ROUTE_SCROLL_EDGES);
-  const [isShortcutsDisclosureOpen, setIsShortcutsDisclosureOpen] =
-    useState(false);
+  // The palette index used to be rebuilt on every workspace commit even while
+  // the palette was closed. It is only ever read by the open dialog, so it is
+  // built on demand and stays a stable empty list the rest of the time.
   const globalSearchEntries = useMemo(
-    () => buildJobFinderGlobalSearchEntries(workspace),
-    [workspace],
+    () =>
+      isGlobalSearchOpen
+        ? buildJobFinderGlobalSearchEntries(workspace)
+        : NO_GLOBAL_SEARCH_ENTRIES,
+    [isGlobalSearchOpen, workspace],
   );
-  const shortcutHelpEntries = useMemo(
-    () => buildJobFinderShortcutHelp(platform),
-    [platform],
-  );
-  const isMoreMenuShortcutsCollapsed =
-    moreMenuPosition !== null &&
-    moreMenuPosition.maxHeight > 0 &&
-    moreMenuPosition.maxHeight < MORE_MENU_COMPACT_SHORTCUTS_MAX_HEIGHT_PX;
 
   const activeScreen = useMemo(
     () => getActiveScreen(location.pathname),
@@ -428,10 +449,14 @@ export function JobFinderShell({
       },
       {
         id: "discovery",
+        // The badge counts the results actually worth opening. Adding the
+        // weaker and clearly mismatched rows made the headline oversell a
+        // search the app itself had already scored well below the targets.
         label: "Find jobs",
         count: toCountBadge(
-          workspace.discoveryJobs.filter((job) => campaignJobIds.has(job.id))
-            .length,
+          countDiscoveryStrongMatches(
+            workspace.discoveryJobs.filter((job) => campaignJobIds.has(job.id)),
+          ),
         ),
         countKind: "inventory",
         icon: Compass,
@@ -460,7 +485,13 @@ export function JobFinderShell({
       {
         id: "campaigns",
         label: "Search plans",
-        count: toCountBadge((workspace.campaigns ?? []).length),
+        // The default plan alone is not a count worth a badge; only extra
+        // plans signal something the user chose.
+        count: toCountBadge(
+          (workspace.campaigns ?? []).length > 1
+            ? (workspace.campaigns ?? []).length
+            : 0,
+        ),
         countKind: "inventory",
         icon: Layers3,
       },
@@ -564,20 +595,27 @@ export function JobFinderShell({
       screen.id,
     ),
   );
+  // Grouped by what each destination *is*, not by which part of the product
+  // introduced it. Documents holds the user's own files and used to sit under
+  // "Safety and setup"; Companies is a data browser and used to sit beside two
+  // settings pages.
+  // Order follows the declared id list rather than the order the definitions
+  // happen to be built in, so the menu's reading order is the one written here.
+  const selectMenuScreens = (ids: readonly JobFinderScreen[]) =>
+    ids.flatMap((id) => screenDefinitions.filter((screen) => screen.id === id));
   const menuGroups = [
     {
-      label: "Plan and improve",
-      screens: screenDefinitions.filter((screen) =>
-        ["campaigns", "resume-strategies", "companies", "analytics"].includes(
-          screen.id,
-        ),
-      ),
+      label: "Your data",
+      screens: selectMenuScreens(["documents", "companies", "analytics"]),
     },
     {
-      label: "Safety and setup",
-      screens: screenDefinitions.filter((screen) =>
-        ["safeguards", "documents", "settings"].includes(screen.id),
-      ),
+      label: "Setup and safety",
+      screens: selectMenuScreens([
+        "campaigns",
+        "resume-strategies",
+        "safeguards",
+        "settings",
+      ]),
     },
   ];
   const moreMenuItemCount = menuGroups.reduce(
@@ -595,32 +633,15 @@ export function JobFinderShell({
       0) +
     (screenDefinitions.find((screen) => screen.id === "safeguards")?.count ??
       0);
+  // The sidebar leads with the journey. The reference and configuration
+  // surfaces follow it inline under "Everything else": the 17rem rail has the
+  // room, so hiding seven destinations behind a dropdown inside a persistent
+  // navigation column only added a click and a second mental model. The
+  // compact top navigation, which genuinely has no room, keeps its More menu.
   const sidebarGroups = [
     {
-      label: "Overview",
-      screens: screenDefinitions.filter((screen) => screen.id === "home"),
-    },
-    {
       label: "Your job search",
-      screens: screenDefinitions.filter((screen) =>
-        ["profile", "discovery", "review-queue", "applications"].includes(
-          screen.id,
-        ),
-      ),
-    },
-    {
-      label: "Plan and improve",
-      screens: screenDefinitions.filter((screen) =>
-        ["campaigns", "resume-strategies", "companies", "analytics"].includes(
-          screen.id,
-        ),
-      ),
-    },
-    {
-      label: "Safety and setup",
-      screens: screenDefinitions.filter((screen) =>
-        ["safeguards", "documents", "settings"].includes(screen.id),
-      ),
+      screens: primaryScreens,
     },
   ];
 
@@ -667,60 +688,41 @@ export function JobFinderShell({
     };
   }, [isMoreMenuTopmost, isMoreOpen, moreMenuClose]);
 
+  // One bounded placement for the menu: it flips above its trigger when the
+  // space below cannot hold it, shifts back inside the viewport horizontally,
+  // and never claims more height than the window actually has.
+  const moreMenuPlacement = useBoundedFloatingSurface({
+    // The compact trigger opens leftward; alignment stays automatic so a
+    // narrow window can still shift the surface back inside the viewport.
+    alignment: "auto",
+    desiredHeight: MORE_MENU_DESIRED_HEIGHT_PX,
+    open: isMoreOpen,
+    preferredWidth: MORE_MENU_WIDTH_PX,
+    minWidth: 96,
+    triggerRef: moreButtonRef,
+  });
+
+  const moreMenuScrollState = useBoundedFloatingSurfaceScrollState(
+    moreMenuScrollRef,
+    isMoreOpen,
+    `${moreMenuItemCount}:${moreMenuPlacement?.maxHeight ?? 0}`,
+  );
+
   useEffect(() => {
     if (!isMoreOpen) {
-      setIsShortcutsDisclosureOpen(false);
       return;
     }
+    // The shortcuts entry is the trailing item at index `moreMenuItemCount`.
     const initialIndex =
-      moreMenuInitialFocusRef.current === "last"
-        ? Math.max(moreMenuItemCount - 1, 0)
-        : 0;
+      moreMenuInitialFocusRef.current === "last" ? moreMenuItemCount : 0;
     setFocusedMoreMenuItemIndex(initialIndex);
-    const updatePosition = () => {
-      const rect = moreButtonRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const viewportRect = document.documentElement.getBoundingClientRect();
-      const viewportWidth = window.visualViewport?.width ?? viewportRect.width;
-      const viewportHeight =
-        window.visualViewport?.height ?? viewportRect.height;
-      const right = Math.max(8, viewportWidth - rect.right);
-      const top = rect.bottom + 4;
-      const maxHeight = viewportHeight - top - 8;
-      const width = Math.max(96, Math.min(256, viewportWidth - 16));
-      setMoreMenuPosition({ top, right, maxHeight, width });
-    };
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    window.visualViewport?.addEventListener("resize", updatePosition);
-    window.visualViewport?.addEventListener("scroll", updatePosition);
     const frame = requestAnimationFrame(() => {
       moreMenuItemRefs.current[initialIndex]?.focus();
     });
     return () => {
       cancelAnimationFrame(frame);
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-      window.visualViewport?.removeEventListener("resize", updatePosition);
-      window.visualViewport?.removeEventListener("scroll", updatePosition);
     };
   }, [isMoreOpen, moreMenuItemCount]);
-
-  useLayoutEffect(() => {
-    if (!isMoreOpen || !moreMenuPosition) return;
-    const frame = requestAnimationFrame(() => {
-      const menuRect = moreMenuRef.current?.getBoundingClientRect();
-      if (!menuRect || menuRect.left >= 0) return;
-      setMoreMenuPosition((current) => {
-        if (!current) return current;
-        const width = Math.max(96, current.width + menuRect.left - 8);
-        if (width === current.width && current.right === 8) return current;
-        return { ...current, right: 8, width };
-      });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [isMoreOpen, moreMenuPosition]);
 
   useLayoutEffect(() => {
     compactRouteScrollRef.current
@@ -906,6 +908,11 @@ export function JobFinderShell({
     setGlobalSearchFocusRequest((request) => request + 1);
   }
 
+  function openShortcutsDialog() {
+    setIsMoreOpen(false);
+    setIsShortcutsDialogOpen(true);
+  }
+
   function handleGlobalSearchNavigate(entry: JobFinderGlobalSearchEntry) {
     if (onNavigate) {
       onNavigate(entry.href);
@@ -914,37 +921,97 @@ export function JobFinderShell({
     void navigate(entry.href);
   }
 
+  // One row treatment for every sidebar destination, primary or secondary, so
+  // the inline "Everything else" groups cannot drift from the journey rows.
+  const SIDEBAR_GROUP_EYEBROW_CLASS = cn(
+    "whitespace-nowrap px-2 text-(length:--text-eyebrow) uppercase tracking-(--tracking-caps) text-muted-foreground",
+    isSidebarCollapsed && "sr-only",
+  );
+  const SIDEBAR_ROW_CLASS =
+    "inline-flex min-h-9 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-(--radius-button) border-l-2 border-transparent px-2 py-1.5 text-left text-sm font-medium text-muted-foreground outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40";
+  const SIDEBAR_ROW_COLLAPSED_CLASS =
+    "relative justify-center border-l-0 px-0 text-center";
+  // Exactly one count treatment for every sidebar row, primary or secondary: a
+  // plain right-aligned tabular number with no fill. A per-kind chip made the
+  // Companies count read as a selected block beside plain neighbours, and a
+  // pale chip on the active fill previously dropped the digit to ~3.5:1.
+  // Inheriting the row's own colour keeps the class string identical while the
+  // active row still contrasts against its fill.
+  const SIDEBAR_COUNT_CLASS =
+    "mr-1 ml-auto inline-flex h-5 min-w-7 shrink-0 items-center justify-end bg-transparent px-0 text-(length:--text-tiny) text-current tabular-nums";
+  // The collapsed rail has no room for an inline number, so every count moves
+  // to the same corner marker — still one treatment, just a different state.
+  const SIDEBAR_COLLAPSED_COUNT_CLASS =
+    "absolute bottom-0 right-0 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-(--input) px-1 text-(length:--text-tiny) text-foreground tabular-nums";
+
+  function renderSidebarDestination(screen: ShellScreenDefinition) {
+    const isActive = activeScreen === screen.id;
+    return (
+      <Tooltip delayDuration={0} key={screen.id}>
+        <TooltipTrigger asChild>
+          <button
+            aria-current={isActive ? "page" : undefined}
+            aria-label={getScreenAccessibleName(
+              screen.label,
+              screen.count,
+              screen.countKind,
+            )}
+            className={cn(
+              SIDEBAR_ROW_CLASS,
+              isSidebarCollapsed && SIDEBAR_ROW_COLLAPSED_CLASS,
+              // Hover styling is scoped to inactive rows so it cannot wash the
+              // selected fill back out. In the light theme a solid hover fill
+              // read as a second selection, so hover is a translucent wash plus
+              // a border tick: exactly one row is ever filled.
+              isActive
+                ? ""
+                : "hover:border-l-(--border-strong) hover:bg-secondary/50 hover:text-foreground",
+              // The selected destination needs a fill the eye separates from
+              // the rail, not a 2px bar over a near-identical tint:
+              // --nav-active-surface stays >=3:1 non-text against
+              // --shell-header-bg in both themes, and the bolder label plus the
+              // accent bar keep the state legible without relying on color.
+              isActive
+                ? "border-l-(--nav-active-bar) bg-(--nav-active-surface) font-semibold text-(--nav-active-foreground)"
+                : "",
+            )}
+            onClick={() => handleScreenChange(screen.id)}
+            type="button"
+          >
+            <screen.icon aria-hidden="true" className="size-4 shrink-0" />
+            <span
+              className={cn(
+                "min-w-0 truncate",
+                isSidebarCollapsed && "sr-only",
+              )}
+            >
+              {screen.label}
+            </span>
+            {screen.count !== null ? (
+              <ScreenCountBadge
+                className={
+                  isSidebarCollapsed
+                    ? SIDEBAR_COLLAPSED_COUNT_CLASS
+                    : SIDEBAR_COUNT_CLASS
+                }
+                count={screen.count}
+                kind={screen.countKind}
+              />
+            ) : null}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">{screen.label}</TooltipContent>
+      </Tooltip>
+    );
+  }
+
   useJobFinderShellShortcuts({
-    isOverlayOpen: isMoreOpen || isGlobalSearchOpen,
+    isOverlayOpen: isMoreOpen || isGlobalSearchOpen || isShortcutsDialogOpen,
     isSearchOpen: isGlobalSearchOpen,
     onOpenGlobalSearch: openGlobalSearch,
+    onOpenShortcuts: openShortcutsDialog,
     onToggleSidebar: toggleSidebar,
   });
-
-  const shortcutHelpRows = shortcutHelpEntries.map((entry) => (
-    <div
-      className="flex items-start justify-between gap-3 px-3 py-1 text-[0.72rem] text-muted-foreground"
-      key={entry.id}
-    >
-      <span className="grid min-w-0 gap-0.5">
-        <span>{entry.label}</span>
-        {/* The scope line keeps the help honest about where each combo fires. */}
-        <span className="text-[0.65rem] leading-4 opacity-80">
-          {entry.scope}
-        </span>
-      </span>
-      <span className="mt-0.5 flex shrink-0 items-center gap-1">
-        {entry.combos.map((combo) => (
-          <kbd
-            className="rounded-(--radius-field) bg-(--input) px-1.5 py-0.5 text-[0.65rem] font-medium text-foreground"
-            key={combo}
-          >
-            {combo}
-          </kbd>
-        ))}
-      </span>
-    </div>
-  ));
 
   return (
     <div
@@ -968,46 +1035,62 @@ export function JobFinderShell({
       >
         <div className="job-finder-shell-grid grid grid-rows-[3.5rem_auto_auto] items-stretch overflow-visible pl-2 pr-2 sm:grid-rows-[3.5rem_3.75rem] sm:pl-3 sm:pr-3 min-[1440px]:!grid-rows-[3.5rem]">
           <div
-            className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center justify-between gap-3 gap-y-1 pl-2 pr-2 sm:pl-3 sm:pr-3"
+            className={cn(
+              // Three header regions on one row: wordmark left, module
+              // switcher centred, native window-control inset right. The two
+              // side tracks are `minmax(0,1fr)`, so they are always exactly
+              // equal and the middle track sits on the window centre line —
+              // never absolute positioning, which fought the macOS
+              // traffic-light inset and the right-hand utilities.
+              "col-start-1 row-start-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-6",
+              // At the wide layout column 1 is the 17rem sidebar column. The
+              // wordmark fits there; the wordmark plus the module switcher does
+              // not, and it wrapped onto a second line that spilled out of the
+              // 3.5rem header and under the page title. The brand row therefore
+              // spans the sidebar column and the content column (col-end-3,
+              // never the col-span shorthand, which would reset col-start) so
+              // the switcher stays on one line in the top bar, exactly as it
+              // does at compact widths.
+              "min-[1440px]:col-end-3",
+            )}
             data-desktop-brand
             style={{
               ...dragRegionStyle,
+              // Keep clear of visible macOS traffic lights in normal and
+              // maximized windows, then reclaim the space in native fullscreen.
+              // The same reserve is mirrored on the trailing edge so reserving
+              // it cannot push the centred middle track off the window centre.
               paddingInlineStart:
-                isMac && !windowControlsState.isMaximized
-                  ? "5.5rem"
+                isMac && !windowControlsState.isFullScreen
+                  ? MACOS_TRAFFIC_LIGHT_INSET
+                  : undefined,
+              paddingInlineEnd:
+                isMac && !windowControlsState.isFullScreen
+                  ? MACOS_TRAFFIC_LIGHT_INSET
                   : undefined,
             }}
           >
             <div
-              className={cn(
-                "flex min-w-0 flex-col",
-                isSidebarCollapsed && "min-[1440px]:hidden",
-              )}
+              className="col-start-1 flex min-w-0 items-center justify-self-start"
+              data-desktop-brand-region
             >
-              <span
-                className={cn(
-                  "font-display text-[1.45rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) max-[639px]:hidden sm:text-[2rem]",
-                  isMac ? "xl:text-[2rem]" : "xl:text-[2rem]",
-                )}
-              >
-                UNEMPLOYED
-              </span>
-              <span className="text-[0.72rem] uppercase tracking-(var(--tracking-caps)) text-muted-foreground sm:text-(length:var(--text-tiny))">
-                Job Finder
-              </span>
+              <JobFinderShellBrand />
             </div>
 
             <nav
               aria-label="UnEmployed modules"
               className={cn(
-                "hidden h-14 min-w-0 items-center justify-center",
-                "min-[900px]:!absolute min-[900px]:inset-x-0 min-[900px]:top-0 min-[900px]:z-10 min-[900px]:flex",
+                "col-start-2 hidden h-14 items-center justify-center justify-self-center",
+                // The switcher owns the centre track: it is sized by its
+                // content (`auto`), so the two side regions give way first and
+                // it never wraps or runs under the page title.
+                "min-[900px]:flex",
               )}
               data-desktop-module-navigation
               style={dragRegionStyle}
             >
               <div
-                className="flex items-center gap-6"
+                className="flex flex-nowrap items-center gap-6"
                 role="list"
                 style={noDragRegionStyle}
               >
@@ -1029,7 +1112,7 @@ export function JobFinderShell({
                       // aria-current carries the state; styling is unchanged.
                       <span
                         aria-current="page"
-                        className="text-[14px] font-semibold tracking-(--tracking-badge) text-(--text-headline) sm:text-[15px]"
+                        className="whitespace-nowrap text-[14px] font-semibold tracking-(--tracking-badge) text-(--text-headline) sm:text-[15px]"
                       >
                         {formatStatusLabel(moduleName)}
                       </span>
@@ -1044,7 +1127,7 @@ export function JobFinderShell({
                           }
                         }}
                         className={cn(
-                          "h-auto rounded-sm border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[15px]",
+                          "h-auto whitespace-nowrap rounded-sm border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[15px]",
                           "cursor-pointer hover:text-foreground",
                           "text-muted-foreground",
                         )}
@@ -1057,13 +1140,31 @@ export function JobFinderShell({
                 ))}
               </div>
             </nav>
+
+            {/* Trailing region. Windows paints its caption buttons over this
+                edge (the window is frameless, so there is no Window Controls
+                Overlay to measure); reserving their exact width here keeps
+                header content out from under them without moving the centred
+                switcher, because the reserve lives inside the right track
+                rather than as padding on the row. */}
+            <div
+              aria-hidden="true"
+              className="col-start-3 min-w-0 justify-self-end"
+              data-desktop-header-window-control-inset
+              style={{
+                ...dragRegionStyle,
+                inlineSize: isWindows
+                  ? WINDOWS_CAPTION_CONTROLS_INSET
+                  : undefined,
+              }}
+            />
           </div>
 
           <div
             className="absolute right-0 top-0 z-40 flex h-14 items-stretch justify-end"
             style={dragRegionStyle}
           >
-            {!isMac ? (
+            {isWindows ? (
               <div
                 className="flex h-full items-stretch gap-0"
                 role="group"
@@ -1112,11 +1213,27 @@ export function JobFinderShell({
 
           <nav
             aria-label="Job Finder sections"
-            className="col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center overflow-visible px-1 sm:col-span-1 sm:col-start-1 sm:justify-start sm:pr-64 max-[899px]:pr-40 min-[1440px]:hidden"
+            // The destination card is centred on the same axis as the module
+            // switcher above it instead of hugging the left edge. The
+            // notification/action group is absolutely positioned over this
+            // row, so its reserved width has to grow with the labels it shows
+            // and the card centres inside whatever space is left: on macOS
+            // that group moves up to the header row at >=900px, so this row is
+            // free and the card lands on the true window centre. Elsewhere the
+            // group stays here until 1440px, and reserving it on both sides
+            // would squeeze the card into a scroller at the 1024px minimum, so
+            // the trailing reserve is kept one-sided and the card centres in
+            // the remaining width rather than clipping or wrapping.
+            className={cn(
+              "col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center overflow-visible sm:col-span-1 sm:col-start-1 sm:justify-center min-[1440px]:hidden",
+              isMac
+                ? "sm:pr-64 max-[899px]:pr-40 min-[900px]:pr-0"
+                : "sm:pr-64 max-[899px]:pr-40 min-[900px]:pr-80",
+            )}
             style={noDragRegionStyle}
           >
             <div
-              className="relative flex w-full min-w-0 max-w-5xl flex-nowrap items-center gap-1 overflow-visible rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel) p-1 sm:gap-1.5"
+              className="relative flex w-fit min-w-0 max-w-full flex-nowrap items-center gap-1 overflow-visible rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel) p-1 sm:gap-1.5"
               data-job-finder-compact-navigation
             >
               <div className="relative min-w-0 flex-1">
@@ -1141,9 +1258,15 @@ export function JobFinderShell({
                         }
                         key={screen.id}
                         className={cn(
-                          "inline-flex h-9 min-h-9 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-(--radius-button) px-2 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:gap-2 sm:px-3 sm:text-[0.76rem]",
+                          "inline-flex h-9 min-h-9 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-(--radius-button) border-b-2 border-transparent px-2 py-2 text-(length:--text-small) font-medium text-muted-foreground transition-colors outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:gap-2 sm:px-3",
+                          // The compact row used --accent, which sits at
+                          // 1.16-1.27:1 on the nav bar and cannot be told from
+                          // a hovered neighbour. It now uses the same
+                          // --nav-active-surface treatment the sidebar adopted,
+                          // plus a bar and a bolder label so the state does not
+                          // rest on colour alone.
                           activeScreen === screen.id
-                            ? "bg-accent text-accent-foreground"
+                            ? "border-b-(--nav-active-bar) bg-(--nav-active-surface) font-semibold text-(--nav-active-foreground)"
                             : "",
                         )}
                         onClick={() => handleScreenChange(screen.id)}
@@ -1192,13 +1315,13 @@ export function JobFinderShell({
                   aria-expanded={isMoreOpen}
                   aria-label={`More${hiddenAttentionCount > 0 ? `: ${hiddenAttentionCount} need attention` : ""}`}
                   className={cn(
-                    "inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-(--radius-button) px-2.5 py-2 text-[0.72rem] font-medium text-muted-foreground transition-colors outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-9 sm:gap-2 sm:px-3 sm:text-[0.76rem] border border-(--surface-panel-border) bg-(--surface-panel-raised)",
+                    "inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-(--radius-button) px-2.5 py-2 text-(length:--text-small) font-medium text-muted-foreground transition-colors outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-9 sm:gap-2 sm:px-3 border border-(--control-border) bg-(--surface-panel-raised)",
                     menuGroups.some((group) =>
                       group.screens.some(
                         (screen) => activeScreen === screen.id,
                       ),
                     )
-                      ? "bg-accent text-accent-foreground"
+                      ? "border-(--nav-active-bar) bg-(--nav-active-surface) font-semibold text-(--nav-active-foreground)"
                       : "",
                   )}
                   onClick={() => {
@@ -1221,9 +1344,16 @@ export function JobFinderShell({
                   type="button"
                 >
                   <Layers3 aria-hidden="true" className="size-3.5" />
-                  <span className="sr-only">More</span>
+                  {/* An icon-only control gave compact widths no readable
+                      label; the accessible name still comes from aria-label. */}
+                  <span
+                    className="whitespace-nowrap leading-tight"
+                    data-job-finder-compact-more-label
+                  >
+                    More
+                  </span>
                   {hiddenAttentionCount > 0 ? (
-                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[0.65rem] text-primary-foreground">
+                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-(length:--text-tiny) text-primary-foreground">
                       {hiddenAttentionCount}
                     </span>
                   ) : null}
@@ -1232,17 +1362,10 @@ export function JobFinderShell({
                   ? createPortal(
                       <div
                         aria-label="More"
-                        className="fixed z-[60] grid max-h-[min(80vh,24rem)] min-w-0 max-w-[calc(100vw-1rem)] gap-2 overflow-y-auto rounded-2xl border border-(--surface-panel-border) bg-(--surface-panel-raised) p-2 shadow-xl max-[899px]:gap-1"
-                        style={
-                          moreMenuPosition
-                            ? {
-                                top: moreMenuPosition.top,
-                                right: moreMenuPosition.right,
-                                maxHeight: moreMenuPosition.maxHeight,
-                                width: moreMenuPosition.width,
-                              }
-                            : undefined
-                        }
+                        className="fixed z-[60] grid min-w-0 max-w-[calc(100vw-1rem)] grid-rows-[minmax(0,1fr)_auto] gap-1 overflow-hidden rounded-2xl border border-(--control-border) bg-(--surface-panel-raised) p-2 shadow-xl"
+                        data-job-finder-more-menu
+                        data-side={moreMenuPlacement?.side ?? "bottom"}
+                        style={boundedFloatingSurfaceStyle(moreMenuPlacement)}
                         onKeyDown={(event) => {
                           if (event.key === "Tab") {
                             event.preventDefault();
@@ -1261,11 +1384,10 @@ export function JobFinderShell({
                           // Roving order comes from the managed refs so the
                           // popover never needs menu semantics to stay
                           // keyboard-navigable.
-                          const menuItems =
-                            moreMenuItemRefs.current.filter(
-                              (element): element is HTMLElement =>
-                                element instanceof HTMLElement,
-                            );
+                          const menuItems = moreMenuItemRefs.current.filter(
+                            (element): element is HTMLElement =>
+                              element instanceof HTMLElement,
+                          );
                           if (menuItems.length === 0) {
                             return;
                           }
@@ -1293,130 +1415,150 @@ export function JobFinderShell({
                         ref={moreMenuRef}
                         role="navigation"
                       >
-                        <p className="px-3 pt-1 text-xs leading-relaxed text-muted-foreground max-[899px]:sr-only">
-                          Set up search plans and resume approaches after your
-                          profile, then review results before preparing
-                          applications.
-                        </p>
-                        {menuGroups.map((group) => (
+                        {/* The scroll row has to be a *bounded* box, not just
+                            a `min-h-0` block: a plain block child sizes to its
+                            content, so at short window heights the destination
+                            list grew past this row, was clipped by the surface,
+                            and painted across the footer entry — Settings and
+                            Keyboard shortcuts overlapped and neither was
+                            hittable. `grid-rows-[minmax(0,1fr)]` pins the
+                            region to the row the surface actually has, which is
+                            what makes `overflow-y-auto` below engage. */}
+                        <div className="relative grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)] overflow-hidden">
                           <div
-                            key={group.label}
-                            className="grid gap-1"
-                            role="group"
-                            aria-label={group.label}
+                            className="min-h-0 min-w-0 overflow-y-auto overscroll-contain"
+                            data-job-finder-more-menu-scroll-region
+                            ref={moreMenuScrollRef}
                           >
-                            <span className="px-3 pt-1 text-[0.65rem] font-semibold uppercase tracking-(--tracking-caps) text-muted-foreground">
-                              {group.label}
-                            </span>
-                            {group.screens.map((screen) => {
-                              const menuItemIndex =
-                                moreMenuItemIndexes.get(screen.id) ?? 0;
-                              return (
-                                <button
-                                  aria-label={getScreenAccessibleName(
-                                    screen.label,
-                                    screen.count,
-                                    screen.countKind,
-                                  )}
-                                  aria-current={
-                                    activeScreen === screen.id
-                                      ? "page"
-                                      : undefined
-                                  }
-                                  key={screen.id}
-                                  className={cn(
-                                    "inline-flex min-h-10 min-w-0 items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-[0.78rem] font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 max-[899px]:min-h-8 max-[899px]:py-1",
-                                    activeScreen === screen.id
-                                      ? "bg-secondary text-foreground"
-                                      : "",
-                                  )}
-                                  onClick={() => {
-                                    setIsMoreOpen(false);
-                                    handleScreenChange(screen.id);
-                                  }}
-                                  onFocus={() =>
-                                    setFocusedMoreMenuItemIndex(menuItemIndex)
-                                  }
-                                  ref={(element) => {
-                                    moreMenuItemRefs.current[menuItemIndex] =
-                                      element;
-                                  }}
-                                  tabIndex={
-                                    menuItemIndex === focusedMoreMenuItemIndex
-                                      ? 0
-                                      : -1
-                                  }
-                                  type="button"
-                                >
-                                  <span className="flex min-w-0 items-center gap-2">
-                                    <screen.icon
-                                      aria-hidden="true"
-                                      className="size-4 shrink-0"
-                                    />
-                                    <span className="truncate">
-                                      {screen.label}
-                                    </span>
-                                  </span>
-                                  {screen.count !== null ? (
-                                    <ScreenCountBadge
-                                      className={NAV_PILL_COUNT_BADGE_CLASS}
-                                      count={screen.count}
-                                      kind={screen.countKind}
-                                    />
-                                  ) : null}
-                                </button>
-                              );
-                            })}
+                            {menuGroups.map((group) => (
+                              <div
+                                key={group.label}
+                                className="grid gap-1"
+                                role="group"
+                                aria-label={group.label}
+                              >
+                                <span className="px-3 pt-1 text-(length:--text-tiny) font-semibold uppercase tracking-(--tracking-caps) text-muted-foreground">
+                                  {group.label}
+                                </span>
+                                {group.screens.map((screen) => {
+                                  const menuItemIndex =
+                                    moreMenuItemIndexes.get(screen.id) ?? 0;
+                                  return (
+                                    <button
+                                      aria-label={getScreenAccessibleName(
+                                        screen.label,
+                                        screen.count,
+                                        screen.countKind,
+                                      )}
+                                      aria-current={
+                                        activeScreen === screen.id
+                                          ? "page"
+                                          : undefined
+                                      }
+                                      key={screen.id}
+                                      className={cn(
+                                        "inline-flex min-h-10 min-w-0 items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-(length:--text-small) font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 max-[899px]:min-h-8 max-[899px]:py-1",
+                                        activeScreen === screen.id
+                                          ? "bg-secondary text-foreground"
+                                          : "",
+                                      )}
+                                      onClick={() => {
+                                        setIsMoreOpen(false);
+                                        handleScreenChange(screen.id);
+                                      }}
+                                      onFocus={() =>
+                                        setFocusedMoreMenuItemIndex(
+                                          menuItemIndex,
+                                        )
+                                      }
+                                      ref={(element) => {
+                                        moreMenuItemRefs.current[
+                                          menuItemIndex
+                                        ] = element;
+                                      }}
+                                      tabIndex={
+                                        menuItemIndex ===
+                                        focusedMoreMenuItemIndex
+                                          ? 0
+                                          : -1
+                                      }
+                                      type="button"
+                                    >
+                                      <span className="flex min-w-0 items-center gap-2">
+                                        <screen.icon
+                                          aria-hidden="true"
+                                          className="size-4 shrink-0"
+                                        />
+                                        <span className="truncate">
+                                          {screen.label}
+                                        </span>
+                                      </span>
+                                      {screen.count !== null ? (
+                                        <ScreenCountBadge
+                                          className={NAV_PILL_COUNT_BADGE_CLASS}
+                                          count={screen.count}
+                                          kind={screen.countKind}
+                                        />
+                                      ) : null}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ))}
                           </div>
-                        ))}
-                        {isMoreMenuShortcutsCollapsed ? (
-                          <details
-                            className="mt-1 border-t border-(--surface-panel-border) pt-2"
-                            data-job-finder-planning-shortcuts-disclosure
-                            onToggle={(event) => {
-                              setIsShortcutsDisclosureOpen(
-                                event.currentTarget.open,
-                              );
-                            }}
-                          >
-                            <summary
-                              aria-expanded={isShortcutsDisclosureOpen}
-                              className="cursor-pointer list-none rounded-sm px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-(--tracking-caps) text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 [&::-webkit-details-marker]:hidden"
-                              onClick={(event) => {
-                                // Activation behavior flips `open` after
-                                // dispatch, so mirror the incoming state now;
-                                // the async toggle event reconciles below.
-                                const details =
-                                  event.currentTarget.closest("details");
-                                setIsShortcutsDisclosureOpen(
-                                  !(details?.open ?? false),
-                                );
-                              }}
-                              onFocus={() => setFocusedMoreMenuItemIndex(-1)}
-                              ref={(element) => {
-                                moreMenuItemRefs.current[moreMenuItemCount] =
-                                  element;
-                              }}
-                              tabIndex={
-                                focusedMoreMenuItemIndex === -1 ? 0 : -1
-                              }
-                            >
-                              Shortcuts
-                            </summary>
-                            <div className="grid gap-1">{shortcutHelpRows}</div>
-                          </details>
-                        ) : (
-                          <div
-                            aria-label="Keyboard shortcuts"
-                            className="mt-1 grid gap-1 border-t border-(--surface-panel-border) pt-2"
-                            role="group"
-                          >
-                            <span className="px-3 pt-1 text-[0.65rem] font-semibold uppercase tracking-(--tracking-caps) text-muted-foreground">
-                              Shortcuts
+                          {/* Hints sit at the edge they describe; the previous
+                            affordance printed "More content above ↑" in the
+                            popover's bottom footer. */}
+                          <BoundedFloatingSurfaceScrollHint
+                            edge="start"
+                            visible={
+                              moreMenuScrollState.hasOverflow &&
+                              !moreMenuScrollState.atStart
+                            }
+                          />
+                          <BoundedFloatingSurfaceScrollHint
+                            edge="end"
+                            visible={
+                              moreMenuScrollState.hasOverflow &&
+                              !moreMenuScrollState.atEnd
+                            }
+                          />
+                        </div>
+                        {/* Reference material, not a destination: one row that
+                            opens the shortcuts dialog, instead of the ~270px
+                            shortcut table that stopped this menu from showing
+                            its own destinations. */}
+                        <button
+                          className="inline-flex min-h-10 min-w-0 shrink-0 items-center justify-between gap-3 rounded-xl border-t border-(--surface-panel-border) px-3 py-2 text-left text-(length:--text-small) font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                          data-job-finder-more-menu-shortcuts-entry
+                          onClick={openShortcutsDialog}
+                          onFocus={() =>
+                            setFocusedMoreMenuItemIndex(moreMenuItemCount)
+                          }
+                          ref={(element) => {
+                            moreMenuItemRefs.current[moreMenuItemCount] =
+                              element;
+                          }}
+                          tabIndex={
+                            focusedMoreMenuItemIndex === moreMenuItemCount
+                              ? 0
+                              : -1
+                          }
+                          type="button"
+                        >
+                          <span className="flex min-w-0 items-center gap-2">
+                            <Keyboard
+                              aria-hidden="true"
+                              className="size-4 shrink-0"
+                            />
+                            <span className="truncate">
+                              {JOB_FINDER_SHORTCUTS_DIALOG_LABEL}
                             </span>
-                            {shortcutHelpRows}
-                          </div>
-                        )}
+                          </span>
+                          <kbd className="inline-flex min-w-6 shrink-0 items-center justify-center rounded-(--radius-field) border border-(--surface-panel-border) bg-(--input) px-1.5 py-0.5 text-(length:--text-tiny) font-medium text-foreground">
+                            ?
+                          </kbd>
+                        </button>
                       </div>,
                       document.body,
                     )
@@ -1424,7 +1566,7 @@ export function JobFinderShell({
               </div>
               <a
                 aria-label="Open Interview Helper"
-                className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-2.5 py-2 text-[0.72rem] font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-9 sm:text-[0.76rem] min-[900px]:hidden"
+                className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-(--radius-button) border border-(--control-border) bg-(--surface-panel-raised) px-2.5 py-2 text-(length:--text-small) font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-9 min-[900px]:hidden"
                 href="#/interview-helper"
                 onClick={(event) => {
                   if (
@@ -1452,7 +1594,7 @@ export function JobFinderShell({
           <div
             aria-label="Notifications and actions"
             className={cn(
-              "col-span-2 col-start-1 row-start-3 flex min-w-0 items-center justify-center gap-2 pr-2 max-[899px]:gap-1 max-[899px]:pr-1 sm:absolute sm:z-10 sm:w-auto sm:justify-end",
+              "col-span-2 col-start-1 row-start-3 flex min-w-0 items-center justify-center gap-1.5 pr-2 max-[899px]:gap-1 max-[899px]:pr-1 sm:absolute sm:z-10 sm:w-auto sm:justify-end min-[1440px]:gap-2",
               isMac
                 ? "sm:right-0 sm:top-14 sm:h-[3.75rem] min-[900px]:!top-0 min-[900px]:!h-14"
                 : "sm:right-0 sm:top-14 sm:h-[3.75rem] min-[1440px]:!right-36 min-[1440px]:!top-0 min-[1440px]:!h-14 min-[1440px]:!z-40",
@@ -1466,7 +1608,7 @@ export function JobFinderShell({
                 platform,
               )}
               aria-label={JOB_FINDER_GLOBAL_SEARCH_LABEL}
-              className="inline-flex h-10 min-h-10 min-w-10 items-center justify-center rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel) px-2 text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 max-[899px]:min-w-9 max-[899px]:px-1.5"
+              className="inline-flex h-10 min-h-10 min-w-10 items-center justify-center rounded-(--radius-button) border border-(--control-border) bg-(--surface-panel) px-2 text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 max-[899px]:min-w-9 max-[899px]:px-1.5"
               onClick={openGlobalSearch}
               title={`${JOB_FINDER_GLOBAL_SEARCH_LABEL} (${formatJobFinderShortcutCombo("mod+k", platform)})`}
               type="button"
@@ -1496,20 +1638,24 @@ export function JobFinderShell({
                 aria-current={activeScreen === "actions" ? "page" : undefined}
                 aria-label={`Needs you: ${actionScreen.count ?? 0} unresolved`}
                 className={cn(
-                  "inline-flex h-10 min-h-10 min-w-10 items-center justify-center gap-2 rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel) px-3 py-2 text-[0.72rem] font-medium text-muted-foreground outline-none transition-colors hover:border-primary/50 hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:px-4 sm:text-[0.76rem] max-[899px]:gap-1 max-[899px]:px-2",
+                  "inline-flex h-10 min-h-10 min-w-10 items-center justify-center gap-2 rounded-(--radius-button) border border-(--control-border) bg-(--surface-panel) px-2.5 py-2 text-(length:--text-small) font-medium text-muted-foreground outline-none transition-colors hover:border-primary/50 hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 min-[1440px]:px-3 max-[899px]:gap-1 max-[899px]:px-2",
                   activeScreen === "actions"
-                    ? "border-primary/55 bg-accent text-accent-foreground"
+                    ? "border-(--nav-active-bar) bg-(--nav-active-surface) font-semibold text-(--nav-active-foreground)"
                     : "",
                 )}
                 onClick={() => handleScreenChange("actions")}
+                title={`Needs you: ${actionScreen.count ?? 0} unresolved`}
                 type="button"
               >
                 <BellRing aria-hidden="true" className="size-4 shrink-0" />
-                <span className="hidden whitespace-nowrap min-[1440px]:inline">
+                {/* A bare bell and a number read as an unlabelled glyph pill
+                    beside the task-center pill. The compact navigation row
+                    reserves the width this label needs. */}
+                <span className="hidden whitespace-nowrap min-[900px]:inline">
                   Needs you
                 </span>
                 {(actionScreen.count ?? 0) > 0 ? (
-                  <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[0.65rem] text-primary-foreground">
+                  <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-(length:--text-tiny) text-primary-foreground">
                     {actionScreen.count}
                   </span>
                 ) : null}
@@ -1521,123 +1667,162 @@ export function JobFinderShell({
 
       <aside
         aria-label="Job Finder sidebar"
-        className={cn(
-          "fixed bottom-0 left-0 top-14 z-40 hidden w-(--job-finder-side-width) overflow-x-hidden overflow-y-auto border-r border-border/15 bg-(--shell-header-bg) min-[1440px]:block",
-          isSidebarCollapsed ? "px-2 py-3" : "px-4 py-4",
-        )}
+        // The rail owns its own vertical scrolling: at short window heights the
+        // journey plus every secondary destination is taller than the column,
+        // and a clipped rail hides real destinations. `overflow-hidden` here
+        // keeps the pinned toggle row out of that inner scroller.
+        className="fixed bottom-0 left-0 top-14 z-40 hidden w-(--job-finder-side-width) overflow-hidden border-r border-border/15 bg-(--shell-header-bg) min-[1440px]:block"
         data-job-finder-sidebar
       >
         <div
           className={cn(
-            "mb-1 flex h-10 shrink-0 items-center",
-            isSidebarCollapsed ? "justify-center" : "justify-start",
+            "flex h-full min-h-0 flex-col",
+            isSidebarCollapsed ? "px-2 py-3" : "px-4 py-4",
           )}
-          data-job-finder-sidebar-toggle
-          style={{ ...noDragRegionStyle }}
         >
-          <Tooltip delayDuration={0}>
-            <TooltipTrigger asChild>
-              <button
-                aria-keyshortcuts={getJobFinderAriaKeyshortcuts(
-                  "mod+b",
-                  platform,
-                )}
-                aria-label={
-                  isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
-                }
-                className="flex size-9 items-center justify-center rounded-(--radius-field) text-foreground-muted outline-none transition-colors hover:bg-(--surface-panel-raised) hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
-                onClick={toggleSidebar}
-                type="button"
+          <div
+            className={cn(
+              "mb-1 flex h-10 shrink-0 items-center",
+              isSidebarCollapsed ? "justify-center" : "justify-start",
+            )}
+            data-job-finder-sidebar-toggle
+            style={{ ...noDragRegionStyle }}
+          >
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <button
+                  aria-keyshortcuts={getJobFinderAriaKeyshortcuts(
+                    "mod+b",
+                    platform,
+                  )}
+                  aria-label={
+                    isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+                  }
+                  className="flex size-9 items-center justify-center rounded-(--radius-field) text-foreground-muted outline-none transition-colors hover:bg-(--surface-panel-raised) hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                  onClick={toggleSidebar}
+                  type="button"
+                >
+                  <Menu aria-hidden="true" className="size-5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side={isSidebarCollapsed ? "right" : "bottom"}>
+                {`${isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} · ${formatJobFinderShortcutCombo("mod+b", platform)}`}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <nav
+            aria-label="Job Finder sidebar destinations"
+            className={cn(
+              // `content-start` keeps the grid rows at their own height once the
+              // nav becomes the flexible scroll owner, so a short list is not
+              // stretched down the column.
+              "grid min-h-0 min-w-0 flex-1 content-start overflow-x-hidden overflow-y-auto overscroll-contain",
+              isSidebarCollapsed ? "gap-2" : "gap-4",
+            )}
+            data-job-finder-sidebar-scroll-region
+          >
+            {sidebarGroups.map((group) => (
+              <section
+                key={group.label}
+                aria-label={group.label}
+                className="grid min-w-0 gap-1"
+                role="group"
               >
-                <Menu aria-hidden="true" className="size-5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side={isSidebarCollapsed ? "right" : "bottom"}>
-              {`${isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} · ${formatJobFinderShortcutCombo("mod+b", platform)}`}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-        <nav
-          aria-label="Job Finder sidebar destinations"
-          className={cn("grid min-w-0", isSidebarCollapsed ? "gap-2" : "gap-4")}
-        >
-          {sidebarGroups.map((group) => (
-            <section key={group.label} className="grid min-w-0 gap-1">
-              <h2
-                className={cn(
-                  "whitespace-nowrap px-2 text-[0.64rem] font-semibold uppercase tracking-[0.1em] text-muted-foreground",
-                  isSidebarCollapsed && "sr-only",
-                )}
+                <span
+                  className={cn(SIDEBAR_GROUP_EYEBROW_CLASS, "font-semibold")}
+                >
+                  {group.label}
+                </span>
+                <div className="grid min-w-0 gap-0.5 overflow-hidden">
+                  {group.screens.map((screen) =>
+                    renderSidebarDestination(screen),
+                  )}
+                </div>
+              </section>
+            ))}
+            <section
+              aria-label="Everything else"
+              className={cn(
+                "grid min-w-0",
+                isSidebarCollapsed ? "gap-2" : "gap-3",
+              )}
+              data-job-finder-sidebar-secondary
+              role="group"
+            >
+              <span
+                className={cn(SIDEBAR_GROUP_EYEBROW_CLASS, "font-semibold")}
               >
-                {group.label}
-              </h2>
+                Everything else
+              </span>
+              {menuGroups.map((group) => (
+                <div
+                  key={group.label}
+                  aria-label={group.label}
+                  className="grid min-w-0 gap-1"
+                  role="group"
+                >
+                  <span
+                    className={cn(SIDEBAR_GROUP_EYEBROW_CLASS, "font-medium")}
+                  >
+                    {group.label}
+                  </span>
+                  <div className="grid min-w-0 gap-0.5 overflow-hidden">
+                    {group.screens.map((screen) =>
+                      renderSidebarDestination(screen),
+                    )}
+                  </div>
+                </div>
+              ))}
               <div className="grid min-w-0 gap-0.5 overflow-hidden">
-                {group.screens.map((screen) => {
-                  return (
-                    <Tooltip delayDuration={0} key={screen.id}>
-                      <TooltipTrigger asChild>
-                        <button
-                          aria-current={
-                            activeScreen === screen.id ? "page" : undefined
-                          }
-                          aria-label={getScreenAccessibleName(
-                            screen.label,
-                            screen.count,
-                            screen.countKind,
-                          )}
-                          className={cn(
-                            "inline-flex min-h-9 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-(--radius-button) border-l-2 border-transparent px-2 py-1.5 text-left text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                            isSidebarCollapsed &&
-                              "relative justify-center border-l-0 px-0 text-center",
-                            activeScreen === screen.id
-                              ? "border-l-primary bg-accent text-accent-foreground"
-                              : "",
-                          )}
-                          onClick={() => handleScreenChange(screen.id)}
-                          type="button"
-                        >
-                          <screen.icon
-                            aria-hidden="true"
-                            className="size-4 shrink-0"
-                          />
-                          <span
-                            className={cn(
-                              "min-w-0 truncate",
-                              isSidebarCollapsed && "sr-only",
-                            )}
-                          >
-                            {screen.label}
-                          </span>
-                          {screen.count !== null ? (
-                            <ScreenCountBadge
-                              className={cn(
-                                "mr-1 ml-auto inline-flex h-5 min-w-7 shrink-0 items-center justify-end px-0 text-[0.65rem] tabular-nums",
-                                isSidebarCollapsed &&
-                                  "absolute bottom-0 right-0 mr-0 ml-0 h-4 min-w-4 justify-center rounded-full bg-(--input) px-1 text-[0.58rem]",
-                                screen.id === "actions" && screen.count > 0
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-transparent text-foreground-muted",
-                              )}
-                              count={screen.count}
-                              kind={screen.countKind}
-                            />
-                          ) : null}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="right">
-                        {screen.label}
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
+                <Tooltip delayDuration={0}>
+                  <TooltipTrigger asChild>
+                    <button
+                      aria-keyshortcuts={getJobFinderAriaKeyshortcuts(
+                        "?",
+                        platform,
+                      )}
+                      aria-label={JOB_FINDER_SHORTCUTS_DIALOG_LABEL}
+                      className={cn(
+                        SIDEBAR_ROW_CLASS,
+                        isSidebarCollapsed && SIDEBAR_ROW_COLLAPSED_CLASS,
+                        "hover:border-l-(--border-strong) hover:bg-secondary/50 hover:text-foreground",
+                      )}
+                      data-job-finder-sidebar-shortcuts-entry
+                      onClick={openShortcutsDialog}
+                      type="button"
+                    >
+                      <Keyboard
+                        aria-hidden="true"
+                        className="size-4 shrink-0"
+                      />
+                      <span
+                        className={cn(
+                          "min-w-0 truncate",
+                          isSidebarCollapsed && "sr-only",
+                        )}
+                      >
+                        {JOB_FINDER_SHORTCUTS_DIALOG_LABEL}
+                      </span>
+                      {isSidebarCollapsed ? null : (
+                        <kbd className="mr-1 ml-auto inline-flex min-w-6 shrink-0 items-center justify-center rounded-(--radius-field) border border-(--surface-panel-border) bg-(--input) px-1.5 py-0.5 text-(length:--text-tiny) font-medium text-foreground">
+                          ?
+                        </kbd>
+                      )}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {JOB_FINDER_SHORTCUTS_DIALOG_LABEL}
+                  </TooltipContent>
+                </Tooltip>
               </div>
             </section>
-          ))}
-        </nav>
+          </nav>
+        </div>
       </aside>
 
       {saveState && onRetrySave ? (
         <JobFinderSaveStatus
+          layoutKey={location.pathname}
           onDismissSaved={onDismissSavedStatus}
           onRetry={onRetrySave}
           saveState={saveState}
@@ -1653,6 +1838,12 @@ export function JobFinderShell({
         />
       ) : null}
 
+      <JobFinderShortcutsDialog
+        onClose={() => setIsShortcutsDialogOpen(false)}
+        open={isShortcutsDialogOpen}
+        platform={platform}
+      />
+
       <span
         aria-atomic="true"
         aria-live="polite"
@@ -1662,6 +1853,14 @@ export function JobFinderShell({
         {routeAnnouncement}
       </span>
 
+      {/* Content passes under the fixed header with no seam, so a title or a
+          card sitting at the boundary paints sliced through its glyphs. A
+          short fade in the header's own colour ends the page there instead. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-x-0 top-[7.25rem] z-30 hidden h-4 bg-gradient-to-b from-(--shell-header-bg) to-transparent sm:block min-[1440px]:top-14 min-[1440px]:left-(--job-finder-side-width)"
+        data-job-finder-shell-header-mask
+      />
       <div
         className="flex min-h-screen flex-col sm:h-full sm:min-h-0 sm:pt-[7.25rem] min-[1440px]:!pt-14 min-[1440px]:pl-(--job-finder-side-width)"
         data-job-finder-shell-content
@@ -1680,7 +1879,7 @@ export function JobFinderShell({
           <div
             className={cn(
               "mx-auto w-full max-w-472 min-w-0",
-              usesLockedScreenLayout ? "h-full min-h-full" : "min-h-full",
+              usesLockedScreenLayout ? "h-full min-h-0" : "min-h-full",
             )}
             key={location.pathname}
           >

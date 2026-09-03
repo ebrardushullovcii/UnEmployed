@@ -787,6 +787,63 @@ describe("createJobFinderWorkspaceService", () => {
     expect(reviewItem?.resolvedAt).toBeTruthy();
   });
 
+  test("persists and resolves an explicitly saved zero years value", async () => {
+    const seed = createSeed();
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: {
+        ...seed,
+        profile: {
+          ...seed.profile,
+          yearsExperience: 0,
+        },
+        profileSetupState: {
+          status: "in_progress",
+          currentStep: "essentials",
+          completedAt: null,
+          reviewItems: [
+            {
+              id: "review_years_experience_zero",
+              step: "essentials",
+              target: {
+                domain: "identity",
+                key: "yearsExperience",
+                recordId: null,
+              },
+              label: "Years of experience",
+              reason:
+                "Add your years of experience so setup has a grounded seniority signal.",
+              severity: "recommended",
+              status: "pending",
+              proposedValue: null,
+              sourceSnippet: null,
+              sourceCandidateId: null,
+              sourceRunId: null,
+              createdAt: "2026-04-14T09:00:00.000Z",
+              resolvedAt: null,
+            },
+          ],
+          lastResumedAt: null,
+        },
+      },
+    });
+
+    const snapshot = await workspaceService.saveProfileAndSearchPreferences(
+      {
+        ...seed.profile,
+        yearsExperience: 0,
+      },
+      seed.searchPreferences,
+    );
+
+    const reviewItem = snapshot.profileSetupState.reviewItems.find(
+      (item) => item.id === "review_years_experience_zero",
+    );
+
+    expect(snapshot.profile.yearsExperience).toBe(0);
+    expect(reviewItem?.status).toBe("edited");
+    expect(reviewItem?.resolvedAt).toBeTruthy();
+  });
+
   test("keeps placeholder identity values from resolving pending setup review items", async () => {
     const seed = createSeed();
     const { workspaceService } = createWorkspaceServiceHarness({

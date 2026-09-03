@@ -33,6 +33,9 @@ function renderConsentDialog() {
       onResolve={onResolve}
       request={{
         jobId: "job_consent_dialog",
+        subject: "Senior Frontend Engineer at Umbrel",
+        description:
+          "Job Finder will open Senior Frontend Engineer at Umbrel in the Job Finder browser and fill in the application with your approved resume. It stops before the employer's submit control — reviewing and sending the application stays yours.",
         onCancel: requestOnCancel,
         onResolve: requestOnResolve,
       }}
@@ -50,50 +53,64 @@ function renderConsentDialog() {
 }
 
 describe("ApplyCopilotVisualCheckpointDialog consent hierarchy", () => {
-  it("keeps Continue without visually primary and Enable checkpoints secondary", () => {
+  it("names the application it is gating and offers a real Cancel", () => {
     renderConsentDialog();
 
+    // The dialog used to be titled "Use visual checkpoints?" — a sub-option —
+    // and both of its visible buttons proceeded, so the only exit was an
+    // unlabelled header X.
     const dialog = screen.getByRole("dialog", {
-      name: "Use visual checkpoints?",
+      name: "Senior Frontend Engineer at Umbrel",
     });
-    expect(dialog.textContent).toContain("Optional visual checkpoints");
+    expect(
+      dialog.querySelector("[data-apply-checkpoint-dialog-job]")?.textContent,
+    ).toBe("Senior Frontend Engineer at Umbrel");
     expect(dialog.textContent).toContain(
-      "Job Finder cannot submit the application.",
+      "Job Finder will open Senior Frontend Engineer at Umbrel in the Job Finder browser",
+    );
+    // The never-submits boundary is always on screen, whether it arrives in
+    // the caller's description or from the dialog's own backstop.
+    expect(dialog.textContent).toMatch(/submit|sending the application/i);
+    expect(dialog.textContent).toContain(
+      "Screenshots of the application page help Job Finder notice a stuck or misfilled form",
     );
 
-    const continueWithout = screen.getByRole("button", {
-      name: "Continue without",
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    const confirm = screen.getByRole("button", { name: "Prepare application" });
+    expect(cancel.getAttribute("data-variant")).toBe("secondary");
+    expect(confirm.getAttribute("data-variant")).toBe("primary");
+
+    // Checkpoints are an option on the commitment, not a second way to
+    // confirm it, and they start off.
+    const checkpoints = screen.getByRole("checkbox", {
+      name: /Take temporary screenshots while it works/,
     });
-    const enable = screen.getByRole("button", { name: "Enable checkpoints" });
-
-    // The privacy-preserving action carries the filled primary treatment;
-    // sharing sensitive screenshots stays an explicit secondary opt-in.
-    expect(continueWithout.getAttribute("data-variant")).toBe("primary");
-    expect(enable.getAttribute("data-variant")).toBe("secondary");
-
-    // Safe action owns the first position in the action row's tab order.
-    expect(
-      continueWithout.compareDocumentPosition(enable) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).not.toBe(0);
+    expect((checkpoints as HTMLInputElement).checked).toBe(false);
   });
 
-  it("opens with initial focus on Continue without, so Enter cannot enable sharing", () => {
-    const { onResolve } = renderConsentDialog();
+  it("resolves with checkpoints off unless the box is ticked", () => {
+    const { onClose, onResolve } = renderConsentDialog();
 
-    const continueWithout = screen.getByRole("button", {
-      name: "Continue without",
-    });
-    expect(document.activeElement).toBe(continueWithout);
+    const confirm = screen.getByRole("button", { name: "Prepare application" });
+    // Initial focus sits on the confirm action, which resolves with sharing
+    // off, so a stray Enter can never enable screenshots.
+    expect(document.activeElement).toBe(confirm);
 
-    // A stray Enter on the initially focused control must not enable
-    // checkpoints; only an explicit activation of Enable checkpoints may.
-    fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Enter" });
-    expect(onResolve).not.toHaveBeenCalled();
-
-    fireEvent.click(continueWithout);
+    fireEvent.click(confirm);
     expect(onResolve).toHaveBeenCalledTimes(1);
     expect(onResolve).toHaveBeenCalledWith(false);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("cancels without resolving through the explicit Cancel action", () => {
+    const { onClose, onResolve, requestOnCancel, requestOnResolve } =
+      renderConsentDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onResolve).not.toHaveBeenCalled();
+    expect(requestOnCancel).not.toHaveBeenCalled();
+    expect(requestOnResolve).not.toHaveBeenCalled();
   });
 
   it("cancels on Escape without resolving and restores focus when closed", () => {
@@ -149,13 +166,19 @@ describe("ApplyCopilotVisualCheckpointDialog consent hierarchy", () => {
         onResolve={onResolve}
         request={{
           jobId: "job_consent_dialog",
+          subject: "Senior Frontend Engineer at Umbrel",
+          description:
+            "Job Finder will open Senior Frontend Engineer at Umbrel in the Job Finder browser and fill in the application with your approved resume. It stops before the employer's submit control — reviewing and sending the application stays yours.",
           onCancel: requestOnCancel,
           onResolve: vi.fn(),
         }}
       />,
     );
-    expect(screen.getByRole("dialog", { name: "Use visual checkpoints?" }))
-      .toBeTruthy();
+    expect(
+      screen.getByRole("dialog", {
+        name: "Senior Frontend Engineer at Umbrel",
+      }),
+    ).toBeTruthy();
 
     const scrim = screen.getByRole("dialog").parentElement;
     if (!scrim) throw new Error("scrim container missing");
@@ -165,10 +188,17 @@ describe("ApplyCopilotVisualCheckpointDialog consent hierarchy", () => {
     expect(onResolve).not.toHaveBeenCalled();
   });
 
-  it("resolves true only through the explicit Enable checkpoints activation", () => {
+  it("resolves true only after the screenshots box is explicitly ticked", () => {
     const { onClose, onResolve } = renderConsentDialog();
 
-    fireEvent.click(screen.getByRole("button", { name: "Enable checkpoints" }));
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /Take temporary screenshots while it works/,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Prepare application" }),
+    );
 
     expect(onResolve).toHaveBeenCalledTimes(1);
     expect(onResolve).toHaveBeenCalledWith(true);

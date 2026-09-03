@@ -10,12 +10,17 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ children, className, tone }: StatusBadgeProps) {
+  // Tinted status fills at /10 with a /25-/30 border composited to
+  // 1.18-1.4:1 in the light theme, so the chips read as tinted text runs and
+  // the status grammar collapsed. The fills and borders below keep the same
+  // hue families but survive both themes.
   const toneClassName = {
-    active: "border-primary/25 bg-primary/10 text-primary",
-    critical: "border-destructive/30 bg-destructive/10 text-destructive",
-    muted: "border-border bg-secondary text-muted-foreground",
-    neutral: "border-border bg-surface text-foreground-soft",
-    positive: "border-positive/30 bg-positive/10 text-positive",
+    active: "border-primary/65 bg-primary/15 text-primary",
+    critical: "border-critical/65 bg-critical/15 text-critical",
+    muted: "border-(--control-border) bg-secondary text-muted-foreground",
+    neutral: "border-(--control-border) bg-surface text-foreground-soft",
+    positive: "border-positive/65 bg-positive/15 text-positive",
+    warning: "border-warning/65 bg-(--warning-surface) text-(--warning-text)",
   }[tone];
 
   return (

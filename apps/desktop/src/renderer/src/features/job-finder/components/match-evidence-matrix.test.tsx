@@ -7,6 +7,58 @@ import { MatchEvidenceMatrix } from "./match-evidence-matrix";
 
 afterEach(cleanup);
 
+function buildAssessment(
+  requirements: ReadonlyArray<Record<string, unknown>>,
+): ReturnType<typeof MatchAssessmentSchema.parse> {
+  return MatchAssessmentSchema.parse({
+    scorerVersion: 6,
+    contextFingerprint: null,
+    postingFingerprint: null,
+    score: 58,
+    reasons: [],
+    gaps: [],
+    recommendation: "review_before_applying",
+    recommendationRationale: "Review the listing before applying.",
+    requirements,
+  });
+}
+
+describe("MatchEvidenceMatrix required-gap summary", () => {
+  it("reads as a grammatical sentence for one and for several gaps", () => {
+    const gap = (id: string) => ({
+      id,
+      category: "skill",
+      label: `Skill ${id}`,
+      importance: "required",
+      status: "missing",
+      jobEvidence: "Required by the listing.",
+      resumeEvidence: [],
+      explanation: "No matching resume evidence was located.",
+    });
+
+    const single = render(
+      <MatchEvidenceMatrix assessment={buildAssessment([gap("one")])} />,
+    );
+    expect(
+      within(single.container).getByText(
+        "1 required item still needs evidence or conflicts with your profile.",
+      ),
+    ).toBeTruthy();
+    cleanup();
+
+    const several = render(
+      <MatchEvidenceMatrix
+        assessment={buildAssessment([gap("one"), gap("two")])}
+      />,
+    );
+    expect(
+      within(several.container).getByText(
+        "2 required items still need evidence or conflict with your profile.",
+      ),
+    ).toBeTruthy();
+  });
+});
+
 describe("MatchEvidenceMatrix", () => {
   it("shows five plain-language dimensions and keeps detailed evidence behind a disclosure", () => {
     const assessment = MatchAssessmentSchema.parse({
@@ -108,7 +160,7 @@ describe("MatchEvidenceMatrix", () => {
     });
 
     const view = render(<MatchEvidenceMatrix assessment={assessment} />);
-    const region = view.getByRole("region", { name: "Fit breakdown" });
+    const region = view.getByRole("region", { name: "Score and evidence" });
     const terms = within(region)
       .getAllByRole("term")
       .map((term) => term.textContent);
@@ -140,7 +192,11 @@ describe("MatchEvidenceMatrix", () => {
         "High coverage",
       ),
     ).toBeTruthy();
-    expect(view.getByText(/1 required item still needs evidence/)).toBeTruthy();
+    expect(
+      view.getByText(
+        /1 required item still needs evidence or conflicts with your profile\./,
+      ),
+    ).toBeTruthy();
     expect(view.queryByTestId("legacy-fit-summary")).toBeNull();
 
     const dimensions = view.getByTestId("fit-dimensions");
@@ -192,7 +248,7 @@ describe("MatchEvidenceMatrix", () => {
     expect(within(summary).getByText("Questions to review")).toBeTruthy();
   });
 
-  it("renders legacy unknown states literally without inventing positive evidence", () => {
+  it("drops every uninformative dimension instead of printing five unknowns", () => {
     const assessment = MatchAssessmentSchema.parse({ score: 52 });
     const view = render(
       <MatchEvidenceMatrix
@@ -201,36 +257,53 @@ describe("MatchEvidenceMatrix", () => {
       />,
     );
 
-    expect(
-      within(view.getByTestId("fit-dimension-role-suitability")).getByText(
-        "Unknown",
-      ),
-    ).toBeTruthy();
-    expect(
-      within(view.getByTestId("fit-dimension-preference-alignment")).getByText(
-        "Unknown",
-      ),
-    ).toBeTruthy();
-    expect(
-      within(view.getByTestId("fit-dimension-compensation")).getByText(
-        "Pay unknown",
-      ),
-    ).toBeTruthy();
-    expect(
-      within(view.getByTestId("fit-dimension-application-effort")).getByText(
-        "Unknown",
-      ),
-    ).toBeTruthy();
-    expect(
-      within(view.getByTestId("fit-dimension-evidence-confidence")).getByText(
-        "Unavailable",
-      ),
-    ).toBeTruthy();
+    // Nothing was checked, so nothing is claimed: the five UNKNOWN /
+    // NOT REQUESTED / UNAVAILABLE cards that restated the title-only note in
+    // ~900px are gone, replaced by one line.
+    for (const dimension of [
+      "role-suitability",
+      "preference-alignment",
+      "compensation",
+      "application-effort",
+      "evidence-confidence",
+    ]) {
+      expect(view.queryByTestId(`fit-dimension-${dimension}`)).toBeNull();
+    }
+    expect(view.queryByTestId("fit-dimensions")).toBeNull();
+    expect(view.getByTestId("fit-dimensions-empty")).toBeTruthy();
     expect(view.queryByText("Strong fit")).toBeNull();
+    // The hedge itself still appears exactly once, at the top.
+    expect(view.getByTestId("fit-title-only-note").textContent).toBe(
+      "Only the listing title could be checked — no pay, location, or requirements were captured. Copy the listing link to check the rest.",
+    );
+    expect(view.getByText("Score and evidence")).toBeTruthy();
     expect(
-      view.getByText(
+      view.queryByText(
         "Requirement-by-requirement evidence is unavailable for this listing.",
       ),
-    ).toBeTruthy();
+    ).toBeNull();
+  });
+
+  it("keeps the plain heading and no provisional note once a check succeeded", () => {
+    const assessment = MatchAssessmentSchema.parse({
+      score: 64,
+      dimensions: {
+        roleSuitability: {
+          state: "exact",
+          explanation: "Matches a saved target role.",
+          evidence: [],
+        },
+      },
+    });
+    const view = render(
+      <MatchEvidenceMatrix
+        assessment={assessment}
+        showRecommendation={false}
+      />,
+    );
+
+    expect(view.queryByTestId("fit-title-only-note")).toBeNull();
+    expect(view.getByText("Score and evidence")).toBeTruthy();
+    expect(view.getByTestId("fit-breakdown-score").textContent).toBe("64% fit");
   });
 });

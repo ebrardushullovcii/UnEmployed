@@ -1,15 +1,24 @@
 import type { CandidateProfile } from "@unemployed/contracts";
 import { uniqueStrings } from "./utils";
 
+const QUANTIFIED_REQUIREMENT_PATTERN =
+  /\b(?:a|an|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+(?:[.,]\d+)?)\s*(?:\+|plus|or\s+more)?\s+(?:years?|yrs?|months?|mos?)\b/iu;
+
 function normalizeSkillPhrase(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 function tokenizeSkillPhrase(value: string): string[] {
   return normalizeSkillPhrase(value).split(/\s+/).filter(Boolean);
 }
 
-function matchesCandidateSkill(candidateSkill: string, proposedSkill: string): boolean {
+function matchesCandidateSkill(
+  candidateSkill: string,
+  proposedSkill: string,
+): boolean {
   const normalizedCandidate = normalizeSkillPhrase(candidateSkill);
   const normalizedProposed = normalizeSkillPhrase(proposedSkill);
 
@@ -37,7 +46,9 @@ function matchesCandidateSkill(candidateSkill: string, proposedSkill: string): b
     proposedTokenSet.has(token),
   ).length;
 
-  return sharedCount === smallerCount && largerCount - smallerCount <= allowedDelta;
+  return (
+    sharedCount === smallerCount && largerCount - smallerCount <= allowedDelta
+  );
 }
 
 export function buildCandidateSkillBank(
@@ -77,4 +88,18 @@ export function filterGroundedVisibleSkills(
       ),
     )
     .slice(0, limit);
+}
+
+/**
+ * A job's quantified experience threshold is useful for fit assessment, but
+ * it is not a candidate keyword or candidate evidence. Keep these
+ * requirements out of generated text and the hidden keyword editor even when
+ * a provider echoes them in its draft.
+ */
+export function filterCandidateFacingResumeKeywords(
+  keywords: readonly string[],
+): string[] {
+  return uniqueStrings(keywords).filter(
+    (keyword) => !QUANTIFIED_REQUIREMENT_PATTERN.test(keyword),
+  );
 }

@@ -4,16 +4,19 @@ import type {
   JobSearchPreferences,
 } from "@unemployed/contracts";
 
-import { dateRangePattern } from "./constants";
+import { dateRangePattern, projectSectionAliases } from "./constants";
 import {
   cleanLine,
   extractAllUrls,
   extractFirstUrl,
   findSectionBodyLinesByAliases,
+  isBulletLine,
   isLikelyPersonalWebsiteUrl,
   isResumeSectionHeading,
   normalizeLocationLabel,
+  splitInlineBulletLine,
   splitLines,
+  stripBulletPrefix,
   titleCaseWords,
   uniqueStrings,
 } from "./utils";
@@ -405,11 +408,65 @@ function isProjectRoleLine(value: string): boolean {
   );
 }
 
+function isProjectBulletLine(value: string): boolean {
+  return isBulletLine(value);
+}
+
+function isLikelyProjectHeadingLine(value: string): boolean {
+  // Bullet-prefixed lines are project detail candidates. Treating a detail
+  // bullet such as "Accessibility improvements" as a new project heading
+  // would split one project's bullet list whenever another bullet follows.
+  if (isProjectBulletLine(value)) {
+    return false;
+  }
+
+  const cleaned = cleanLine(value);
+
+  if (
+    !cleaned ||
+    cleaned.length > 72 ||
+    /^https?:\/\//i.test(cleaned) ||
+    /[.!?;:]$/.test(cleaned)
+  ) {
+    return false;
+  }
+
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 8) {
+    return false;
+  }
+
+  // Unbulleted detail prose usually starts with a delivery verb. Keeping
+  // those lines out of the heading candidates lets a later title followed by
+  // bullets become a new project without relying on project names.
+  return !/^(?:added|built|created|delivered|designed|developed|documented|fixed|implemented|improved|led|managed|maintained|reduced|wrote|supported|tested|used|worked|contributed|collaborated)\b/i.test(
+    cleaned,
+  );
+}
+
+function isProjectHeadingStart(
+  lines: readonly string[],
+  index: number,
+): boolean {
+  const line = lines[index] ?? "";
+  const nextLine = lines[index + 1] ?? "";
+
+  if (!isLikelyProjectHeadingLine(line)) {
+    return false;
+  }
+
+  return (
+    isProjectBulletLine(nextLine) ||
+    isProjectRoleLine(nextLine) ||
+    /^https?:\/\//i.test(cleanLine(nextLine))
+  );
+}
+
 export function inferProjects(resumeText: string) {
-  const lines = findSectionBodyLinesByAliases(splitLines(resumeText), [
-    "PROJECT EXPERIENCE",
-    "PROJECTS",
-  ] as const);
+  const lines = findSectionBodyLinesByAliases(
+    splitLines(resumeText),
+    projectSectionAliases,
+  ).flatMap((line) => splitInlineBulletLine(line));
   const projects: Array<{
     name: string | null;
     projectType: string | null;
@@ -424,7 +481,7 @@ export function inferProjects(resumeText: string) {
 
   let index = 0;
   while (index < lines.length) {
-    const name = cleanLine(lines[index] ?? "").replace(/^[•*-]\s*/, "");
+    const name = stripBulletPrefix(cleanLine(lines[index] ?? ""));
     if (!name || /^https?:\/\//i.test(name)) {
       index += 1;
       continue;
@@ -445,14 +502,11 @@ export function inferProjects(resumeText: string) {
         break;
       }
 
-      if (
-        detailLines.length > 0 &&
-        isProjectRoleLine(lines[cursor + 1] ?? "")
-      ) {
+      if (detailLines.length > 0 && isProjectHeadingStart(lines, cursor)) {
         break;
       }
 
-      detailLines.push(line.replace(/^[•*-]\s*/, ""));
+      detailLines.push(stripBulletPrefix(line));
       cursor += 1;
     }
 
@@ -497,7 +551,7 @@ export function inferCertifications(resumeText: string) {
   let index = 0;
 
   while (index < lines.length) {
-    const name = cleanLine(lines[index] ?? "").replace(/^[•*-]\s*/, "");
+    const name = stripBulletPrefix(cleanLine(lines[index] ?? ""));
     if (!name || /^(?:issued|expires?|credential)\b/i.test(name)) {
       index += 1;
       continue;

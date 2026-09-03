@@ -426,8 +426,14 @@ describe("resume assistant proposal provenance", () => {
 
     const latest = findCurrentClaimAssessment({
       claimAssessments: [
-        buildAssessment({ status: "unsupported", assessedAt: "2026-04-27T00:30:00.000Z" }),
-        buildAssessment({ status: "exact", assessedAt: "2026-04-27T02:00:00.000Z" }),
+        buildAssessment({
+          status: "unsupported",
+          assessedAt: "2026-04-27T00:30:00.000Z",
+        }),
+        buildAssessment({
+          status: "exact",
+          assessedAt: "2026-04-27T02:00:00.000Z",
+        }),
       ],
       patch,
       target: findProposalPatchTarget(draft, patch),
@@ -533,7 +539,10 @@ describe("resume assistant proposal provenance", () => {
     const provenance = resolveProposalProvenance({
       claimAssessments: [buildAssessment()],
       draft: buildDraft(),
-      patch: buildPatch({ targetSectionId: "sec removed", targetEntryId: null }),
+      patch: buildPatch({
+        targetSectionId: "sec removed",
+        targetEntryId: null,
+      }),
     });
 
     expect(provenance.targetFound).toBe(false);

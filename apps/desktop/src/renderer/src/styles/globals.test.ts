@@ -23,6 +23,19 @@ const shellSource = readFileSync(
   "utf8",
 );
 
+const labelSource = readFileSync(
+  new URL("../components/ui/label.tsx", import.meta.url),
+  "utf8",
+);
+const chipSource = readFileSync(
+  new URL("../components/ui/chip.tsx", import.meta.url),
+  "utf8",
+);
+const textLinkSource = readFileSync(
+  new URL("../components/ui/text-link.tsx", import.meta.url),
+  "utf8",
+);
+
 function readToken(scope: string, token: string): string {
   const value = scope.match(
     new RegExp(`${token}\\s*:\\s*(#[0-9a-f]{6})`, "i"),
@@ -141,16 +154,16 @@ const ROOT_SCOPE = themeScope(":root {");
 
 // Interior surfaces where status text, badges, and chips actually render.
 const LIGHT_SURFACES = {
-  canvas: "#d4d7da",
-  toolbar: "#d5d9dc",
-  muted: "#d8dbde",
-  accent: "#c8d4e0",
-  panel: "#e0e2e3",
-  popover: "#e4e5e5",
+  canvas: "#e6e8eb",
+  toolbar: "#e2e5e9",
+  muted: "#e8eaed",
+  accent: "#d3dde9",
+  panel: "#f6f7f8",
+  popover: "#fbfbfc",
 };
 
 // Surfaces a focus indicator can sit against, including outer chrome.
-const RING_ADJACENT_LIGHT = ["#c9cdd1", ...Object.values(LIGHT_SURFACES)];
+const RING_ADJACENT_LIGHT = ["#dfe2e6", ...Object.values(LIGHT_SURFACES)];
 const RING_ADJACENT_DARK = [
   "#111315",
   "#151719",
@@ -218,11 +231,79 @@ describe("global color tokens", () => {
     }
   });
 
+  it("keeps dark solid-fill foregrounds at AA contrast, including /90 hovers", () => {
+    const fills: Array<[string, string]> = [
+      ["--primary", "--primary-foreground"],
+      ["--active", "--active-foreground"],
+      ["--positive", "--positive-foreground"],
+      ["--destructive", "--destructive-foreground"],
+      ["--critical", "--critical-foreground"],
+    ];
+
+    for (const [fillToken, foregroundToken] of fills) {
+      const fill = readToken(DARK_THEME, fillToken);
+      const foreground = readToken(DARK_THEME, foregroundToken);
+      const hovered = alphaBlend(fill, 0.9, "#1b1e21");
+
+      expect(
+        contrastRatio(foreground, fill),
+        `dark ${foregroundToken} on ${fillToken}`,
+      ).toBeGreaterThanOrEqual(4.5);
+      expect(
+        contrastRatio(foreground, hovered),
+        `dark ${foregroundToken} on ${fillToken}/90 over card`,
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("keeps the dark filled primary readable as a filled control, not a disabled chip", () => {
+    // Dogfood round two: the dark "primary" CTA sat close enough to the
+    // panels and to --secondary that reviewers read Approve resume /
+    // Prepare application / Finish in the open browser as disabled.
+    // The fill itself must therefore clear the AA text floor against the
+    // surfaces it renders on, and stay clearly separated from the
+    // secondary chip that sits beside it.
+    const primary = readToken(DARK_THEME, "--primary");
+    const secondary = readToken(DARK_THEME, "--secondary");
+    const carrierSurfaces = [
+      "#1b1e21", // --card / --surface-panel
+      "#151719", // --surface
+      "#202429", // --popover
+      "#22262b", // --secondary
+      "#242a31", // --surface-strong (studio next-step bar)
+    ];
+
+    for (const background of carrierSurfaces) {
+      expect(
+        contrastRatio(primary, background),
+        `dark --primary fill on ${background}`,
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+
+    expect(
+      contrastRatio(primary, secondary),
+      "dark --primary must not read as the secondary chip",
+    ).toBeGreaterThanOrEqual(4.5);
+
+    // Restrained steel family: keep the blue channel leading without
+    // drifting into a saturated neon accent.
+    const [red, green, blue] = [1, 3, 5].map((offset) =>
+      Number.parseInt(primary.slice(offset, offset + 2), 16),
+    ) as [number, number, number];
+
+    expect(blue, "primary stays blue-led").toBeGreaterThan(green);
+    expect(green, "primary stays blue-led").toBeGreaterThan(red);
+    expect(
+      blue - red,
+      "primary stays a restrained steel, not neon",
+    ).toBeLessThanOrEqual(70);
+  });
+
   it("keeps light status text tokens at AA contrast on interior surfaces and tinted chips", () => {
     const statusTokens: Array<[string, number | null]> = [
-      ["--primary", 0.1], // default badge fill is bg-primary/10
-      ["--destructive", 0.1],
-      ["--critical", 0.1],
+      ["--primary", 0.15], // default badge fill is bg-primary/15
+      ["--destructive", 0.15],
+      ["--critical", 0.15],
       ["--warning-text", 0.09],
       ["--success-text", 0.1],
       ["--info-text", 0.1],
@@ -263,6 +344,37 @@ describe("global color tokens", () => {
           ).toBeGreaterThanOrEqual(4.5);
         }
       }
+    }
+  });
+
+  it("keeps the selected sidebar destination distinguishable from the rail in both themes", () => {
+    // Round-three review measured the light active row at rgb(227,229,233)
+    // against a rgb(230,233,235) rail: a ~1% delta, so only a 2px bar told the
+    // user which page they were on. The selected fill now owns the state.
+    for (const [themeName, scope, canvas] of [
+      ["light", LIGHT_THEME, "#e6e8eb"],
+      ["dark", DARK_THEME, "#111315"],
+    ] as const) {
+      const rail = composite(
+        readColorToken(scope, "--shell-header-bg"),
+        canvas,
+      );
+      const surface = readColorToken(scope, "--nav-active-surface");
+      const foreground = readColorToken(scope, "--nav-active-foreground");
+      const bar = readColorToken(scope, "--nav-active-bar");
+
+      expect(
+        contrastRatio(surface, rail),
+        `${themeName} --nav-active-surface against the sidebar rail`,
+      ).toBeGreaterThanOrEqual(3);
+      expect(
+        contrastRatio(foreground, surface),
+        `${themeName} --nav-active-foreground on the selected fill`,
+      ).toBeGreaterThanOrEqual(4.5);
+      expect(
+        contrastRatio(bar, surface),
+        `${themeName} --nav-active-bar against the selected fill`,
+      ).toBeGreaterThanOrEqual(3);
     }
   });
 
@@ -521,8 +633,10 @@ describe("semantic status token separation", () => {
         readToken(scope, "--destructive"),
         readToken(scope, "--critical"),
       ]) {
-        expect(fill, `${themeName} --positive must not duplicate ${other}`).not
-          .toBe(other);
+        expect(
+          fill,
+          `${themeName} --positive must not duplicate ${other}`,
+        ).not.toBe(other);
       }
 
       expect(
@@ -576,19 +690,19 @@ describe("editable field versus read-only well tokens", () => {
   it("preserves the read-only well colors exactly in both themes", () => {
     expect(readToken(DARK_THEME, "--surface-well")).toBe("#171a1d");
     expect(readToken(DARK_THEME, "--surface-well-border")).toBe("#3a4148");
-    expect(readToken(LIGHT_THEME, "--surface-well")).toBe("#d9dcde");
-    expect(readToken(LIGHT_THEME, "--surface-well-border")).toBe("#afb6bc");
+    expect(readToken(LIGHT_THEME, "--surface-well")).toBe("#eef0f2");
+    expect(readToken(LIGHT_THEME, "--surface-well-border")).toBe("#b1b8bf");
   });
 
   it("keeps the editable field fill while raising its resting boundary", () => {
     expect(readToken(DARK_THEME, "--field")).toBe("#171a1d");
-    expect(readToken(LIGHT_THEME, "--field")).toBe("#d9dcde");
-    expect(readToken(DARK_THEME, "--field-border")).toBe("#515a64");
-    expect(readToken(LIGHT_THEME, "--field-border")).toBe("#8b939c");
+    expect(readToken(LIGHT_THEME, "--field")).toBe("#fcfcfd");
+    expect(readToken(DARK_THEME, "--field-border")).toBe("#677480");
+    expect(readToken(LIGHT_THEME, "--field-border")).toBe("#8a939c");
 
     // The stronger resting boundary must stay quieter than the focus
     // indicator so focus remains the strongest field state.
-    expect(readToken(DARK_THEME, "--field-focus-border")).toBe("#7d91ad");
+    expect(readToken(DARK_THEME, "--field-focus-border")).toBe("#8aa0bf");
     expect(readToken(LIGHT_THEME, "--field-focus-border")).toBe("#3a5274");
   });
 
@@ -604,7 +718,7 @@ describe("editable field versus read-only well tokens", () => {
     }
 
     expect(readToken(DARK_THEME, "--field-strong")).toBe("#242a31");
-    expect(readToken(LIGHT_THEME, "--field-strong")).toBe("#e9ebec");
+    expect(readToken(LIGHT_THEME, "--field-strong")).toBe("#ffffff");
   });
 });
 
@@ -730,5 +844,496 @@ describe("shell grid breakpoint contract", () => {
 
   it("never resurrects the stale 1120/1119px shell-grid bounds", () => {
     expect(globalsCss).not.toMatch(/(?:min-width|max-width):\s*11(?:20|19)px/);
+  });
+});
+
+describe("cascade layer discipline", () => {
+  // An unlayered rule beats every layered rule regardless of specificity, so a
+  // bare `h1 { font-size: … }` written outside a layer outranks the
+  // `text-(length:--text-page-title-compact)` utility a page title carries.
+  // That is what forced an `!` important modifier onto the Resume Studio
+  // title. Element defaults must stay inside `@layer base`.
+  function stripCssComments(css: string): string {
+    return css.replace(/\/\*[\s\S]*?\*\//g, "");
+  }
+
+  interface CssBlock {
+    prelude: string;
+    body: string;
+  }
+
+  function readBlocks(source: string): CssBlock[] {
+    const blocks: CssBlock[] = [];
+    let prelude = "";
+    let index = 0;
+
+    while (index < source.length) {
+      const character = source[index];
+
+      if (character === ";") {
+        prelude = "";
+        index += 1;
+        continue;
+      }
+
+      if (character !== "{") {
+        prelude += character;
+        index += 1;
+        continue;
+      }
+
+      let depth = 1;
+      let cursor = index + 1;
+
+      while (cursor < source.length && depth > 0) {
+        if (source[cursor] === "{") {
+          depth += 1;
+        } else if (source[cursor] === "}") {
+          depth -= 1;
+        }
+        cursor += 1;
+      }
+
+      blocks.push({
+        prelude: prelude.trim(),
+        body: source.slice(index + 1, cursor - 1),
+      });
+      prelude = "";
+      index = cursor;
+    }
+
+    return blocks;
+  }
+
+  const skippedAtRules = new Set(["@layer", "@keyframes", "@theme"]);
+
+  function collectUnlayeredSelectors(source: string): string[] {
+    const selectors: string[] = [];
+
+    for (const block of readBlocks(source)) {
+      if (block.prelude.startsWith("@")) {
+        const atRule = block.prelude.split(/[\s(]/)[0] ?? "";
+
+        if (!skippedAtRules.has(atRule)) {
+          selectors.push(...collectUnlayeredSelectors(block.body));
+        }
+
+        continue;
+      }
+
+      if (block.prelude.length === 0) {
+        continue;
+      }
+
+      selectors.push(
+        ...block.prelude
+          .split(",")
+          .map((selector) => selector.trim())
+          .filter((selector) => selector.length > 0),
+      );
+    }
+
+    return selectors;
+  }
+
+  function readBaseLayerBody(source: string): string {
+    return readBlocks(source)
+      .filter((block) => block.prelude === "@layer base")
+      .map((block) => block.body)
+      .join("\n");
+  }
+
+  it("keeps every bare element rule inside a cascade layer", () => {
+    const unlayeredElementSelectors = collectUnlayeredSelectors(
+      stripCssComments(globalsCss),
+    ).filter((selector) => /^[a-zA-Z]/.test(selector));
+
+    expect(
+      unlayeredElementSelectors,
+      "element rules outside a layer beat every Tailwind utility; move them into @layer base",
+    ).toEqual([]);
+  });
+
+  it("keeps the heading and document defaults in @layer base", () => {
+    const baseLayer = readBaseLayerBody(stripCssComments(globalsCss));
+
+    for (const selector of ["html,", "body {", "h1 {", "h2 {", "strong {"]) {
+      expect(baseLayer, `${selector} must live in @layer base`).toContain(
+        selector,
+      );
+    }
+  });
+
+  it("keeps the page-title utilities free of important modifiers", () => {
+    const resumeWorkspaceHeaderSource = readFileSync(
+      new URL(
+        "../features/job-finder/screens/review-queue/resume-workspace-header.tsx",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(resumeWorkspaceHeaderSource).toContain(
+      "text-(length:--text-page-title-compact)",
+    );
+    expect(
+      resumeWorkspaceHeaderSource,
+      "the studio title must not need an important modifier to beat the base layer",
+    ).not.toContain("text-(length:--text-page-title-compact)!");
+  });
+});
+
+/**
+ * The published type scale.
+ *
+ * Before this contract existed only h1 and h2 carried a size, so h3-h6 fell
+ * through Tailwind preflight's `font-size: inherit` and rendered at whatever
+ * their container happened to be: H2 appeared at 12 distinct sizes and H3 at
+ * 9, with confirmed level inversions on Settings, Studio, Safeguards,
+ * Shortlisted, Find jobs, Applications and Profile. Fields inherited the same
+ * way and rendered at 17-19px against 11px labels.
+ */
+describe("published type scale", () => {
+  function readRem(token: string): number {
+    const value = readDeclaration(DARK_THEME, token);
+    const rem = value.match(/^([\d.]+)rem$/)?.[1];
+    const px = value.match(/^([\d.]+)px$/)?.[1];
+
+    if (rem !== undefined) {
+      return Number(rem) * 16;
+    }
+
+    if (px !== undefined) {
+      return Number(px);
+    }
+
+    throw new Error(`${token} is not a plain rem/px length: ${value}`);
+  }
+
+  it("keeps the heading levels strictly monotonic", () => {
+    const h1 = readRem("--text-heading-1");
+    const h2 = readRem("--text-heading-2");
+    const h3 = readRem("--text-heading-3");
+    const h4 = readRem("--text-heading-4");
+
+    expect(h1).toBeGreaterThan(h2);
+    expect(h2).toBeGreaterThan(h3);
+    expect(h3).toBeGreaterThan(h4);
+    expect([h1, h2, h3, h4]).toEqual([24, 19, 16, 14]);
+  });
+
+  it("renders field content at body size", () => {
+    expect(readDeclaration(DARK_THEME, "--text-field")).toBe(
+      "var(--text-body)",
+    );
+    expect(readRem("--text-body")).toBeCloseTo(14.72, 5);
+  });
+
+  it("gives every heading level an explicit size and weight in @layer base", () => {
+    const baseLayer = globalsCss
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("@layer base {")
+      .slice(1)
+      .join("\n");
+
+    for (const [selector, token] of [
+      ["h1", "--text-heading-1"],
+      ["h2", "--text-heading-2"],
+      ["h3", "--text-heading-3"],
+      ["h4,\n  h5,\n  h6", "--text-heading-4"],
+    ] as const) {
+      const rule = baseLayer.match(
+        new RegExp(`(?:^|\\n)  ${selector} \\{([^}]*)\\}`),
+      )?.[1];
+
+      expect(rule, `${selector} must be declared in @layer base`).toBeTruthy();
+      expect(rule).toContain(`font-size: var(${token})`);
+      expect(rule).toContain("font-weight: 600");
+    }
+
+    const paragraphRules = [
+      ...baseLayer.matchAll(/(?:^|\n) {2}p \{([^}]*)\}/g),
+    ].map((match) => match[1] ?? "");
+
+    expect(
+      paragraphRules.some((rule) =>
+        rule.includes("font-size: var(--text-body)"),
+      ),
+      "p must carry the body size in @layer base",
+    ).toBe(true);
+  });
+
+  it("pins field size instead of letting `font: inherit` pull the parent size", () => {
+    const fieldRule = globalsCss.match(
+      /\n {2}input,\n {2}select,\n {2}textarea \{([^}]*)\}/,
+    )?.[1];
+
+    expect(fieldRule, "fields need their own base rule").toBeTruthy();
+    expect(fieldRule).toContain("font-size: var(--text-field)");
+    expect(
+      globalsCss,
+      "fields must no longer take their size from the parent",
+    ).not.toContain("  input,\n  select,\n  textarea {\n    font: inherit;");
+  });
+
+  it("keeps the page title fixed rather than viewport-derived", () => {
+    // A vw-derived clamp made the title land on a different size per route
+    // (24 vs 24.5), so it visibly shifted while navigating.
+    const pageTitle = readDeclaration(DARK_THEME, "--text-page-title-compact");
+
+    expect(pageTitle).toBe("var(--text-heading-1)");
+    expect(pageTitle).not.toContain("vw");
+  });
+
+  it("holds every label-family token at the 11px floor", () => {
+    for (const token of [
+      "--text-eyebrow",
+      "--text-field-label",
+      "--text-label",
+      "--text-tiny",
+      "--text-label-mono-xs",
+      "--text-card-heading-sm",
+      "--text-count",
+    ]) {
+      expect(readRem(token), token).toBeGreaterThanOrEqual(11);
+    }
+  });
+
+  it("keeps owned primitives off literal font sizes", () => {
+    for (const [name, source] of [
+      ["label", labelSource],
+      ["badge", badgeSource],
+      ["chip", chipSource],
+    ] as const) {
+      expect(source, `${name} must use a scale token`).not.toMatch(
+        /text-\[\d+px\]/,
+      );
+    }
+
+    expect(labelSource).toContain("text-(length:--text-field-label)");
+  });
+
+  it("never lets an unlayered rule set a font size", () => {
+    // An unlayered rule beats every Tailwind utility, so a bare font-size
+    // outside a layer cannot be overridden by the component that owns the
+    // element.
+    const withoutLayers = globalsCss
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/@layer\s+\w+\s*\{[\s\S]*?\n\}/g, "");
+
+    expect(withoutLayers).not.toContain("font-size:");
+  });
+});
+
+/**
+ * Secondary and outline controls have no fill difference from the surface they
+ * sit on, so their border is the entire boundary and has to clear the WCAG
+ * 2.4.11 3:1 non-text floor. It previously sat at 2.48:1 on a light panel,
+ * 2.15:1 on the light canvas and 2.90:1 in dark.
+ */
+describe("control boundary contrast", () => {
+  const DARK_INTERIOR = ["#1b1e21", "#111315", "#22262b", "#202429", "#151719"];
+  const LIGHT_INTERIOR = [
+    "#f6f7f8",
+    "#e6e8eb",
+    "#e2e5e9",
+    "#fbfbfc",
+    "#eceef1",
+  ];
+
+  it("clears 3:1 for the control boundary on every interior surface", () => {
+    for (const [theme, surfaces] of [
+      [DARK_THEME, DARK_INTERIOR],
+      [LIGHT_THEME, LIGHT_INTERIOR],
+    ] as const) {
+      const border = readToken(theme, "--border-strong");
+
+      for (const surface of surfaces) {
+        expect(contrastRatio(border, surface), surface).toBeGreaterThanOrEqual(
+          3,
+        );
+      }
+    }
+  });
+
+  it("publishes the control token as the single alias of that boundary", () => {
+    for (const theme of [DARK_THEME, LIGHT_THEME]) {
+      expect(readDeclaration(theme, "--control-border")).toBe(
+        "var(--border-strong)",
+      );
+    }
+  });
+
+  it("routes outline and secondary buttons through the control token", () => {
+    expect(buttonSource).toContain("outline:");
+    expect(buttonSource).toMatch(
+      /outline:\s*\n?\s*"border border-\(--control-border\)/,
+    );
+    expect(buttonSource).toMatch(
+      /secondary:\s*\n?\s*"border border-\(--control-border\)/,
+    );
+    expect(
+      buttonSource,
+      "panel chrome is not a control boundary",
+    ).not.toContain("border-(--surface-panel-border)");
+  });
+
+  it("keeps inert chrome quieter than the control boundary", () => {
+    for (const [theme, surface] of [
+      [DARK_THEME, "#1b1e21"],
+      [LIGHT_THEME, "#f6f7f8"],
+    ] as const) {
+      const control = contrastRatio(
+        readToken(theme, "--border-strong"),
+        surface,
+      );
+
+      for (const token of [
+        "--surface-panel-border",
+        "--surface-well-border",
+        "--border-subtle",
+      ]) {
+        expect(
+          contrastRatio(readToken(theme, token), surface),
+          token,
+        ).toBeLessThan(control);
+      }
+    }
+  });
+});
+
+/**
+ * A disabled control used to keep the enabled `secondary` fill and differ only
+ * by a label colour step to `--muted-foreground` - the app's ordinary
+ * secondary text colour - so disabled `Add note` was pixel identical to an
+ * enabled `Save` beside it.
+ */
+describe("disabled control state", () => {
+  it("drops the fill instead of reusing an enabled surface", () => {
+    for (const theme of [DARK_THEME, LIGHT_THEME]) {
+      expect(readDeclaration(theme, "--disabled-surface")).toBe("transparent");
+    }
+  });
+
+  it("never marks disabled with a body-text colour", () => {
+    for (const theme of [DARK_THEME, LIGHT_THEME]) {
+      const disabled = readToken(theme, "--disabled-foreground");
+
+      expect(disabled).not.toBe(readToken(theme, "--muted-foreground"));
+      expect(disabled).not.toBe(readToken(theme, "--foreground"));
+      expect(disabled).not.toBe(readToken(theme, "--foreground-soft"));
+    }
+  });
+
+  it("keeps the disabled label legible on the surfaces it renders on", () => {
+    for (const [theme, surfaces] of [
+      [DARK_THEME, ["#1b1e21", "#111315", "#202429"]],
+      [LIGHT_THEME, ["#f6f7f8", "#e6e8eb", "#fbfbfc"]],
+    ] as const) {
+      const disabled = readToken(theme, "--disabled-foreground");
+
+      for (const surface of surfaces) {
+        expect(
+          contrastRatio(disabled, surface),
+          `${disabled} on ${surface}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  it("binds the button disabled treatment to the disabled tokens", () => {
+    for (const state of ["disabled", "aria-disabled"]) {
+      expect(buttonSource).toContain(`${state}:bg-(--disabled-surface)`);
+      expect(buttonSource).toContain(`${state}:text-(--disabled-foreground)`);
+      expect(buttonSource).toContain(`${state}:border-(--disabled-border)`);
+    }
+
+    expect(buttonSource).not.toContain("disabled:bg-secondary");
+    expect(buttonSource).not.toContain("disabled:text-muted-foreground");
+  });
+});
+
+/**
+ * Text-only controls were links by hue alone at 1.94:1 (light) and 1.32:1
+ * (dark) against adjacent body text, and two link idioms coexisted. Hue can
+ * never be the sole carrier at those ratios, so the underline is always
+ * painted.
+ */
+describe("link affordance", () => {
+  it("always paints the underline rather than revealing it on hover", () => {
+    const linkVariant = buttonSource.match(/link: "([^"]*)"/)?.[1];
+
+    expect(linkVariant).toBeTruthy();
+    expect(linkVariant).toContain("underline");
+    expect(linkVariant).not.toContain("hover:underline");
+    expect(textLinkSource).toContain("underline decoration-from-font");
+    expect(textLinkSource).not.toContain("hover:underline");
+  });
+
+  it("gives links their own token in both themes", () => {
+    for (const theme of [DARK_THEME, LIGHT_THEME]) {
+      expect(readToken(theme, "--link")).toBeTruthy();
+      expect(readToken(theme, "--link-hover")).toBeTruthy();
+    }
+  });
+
+  it("keeps link text at AA on the surfaces it renders on", () => {
+    for (const [theme, surfaces] of [
+      [DARK_THEME, ["#1b1e21", "#111315", "#202429"]],
+      [LIGHT_THEME, ["#f6f7f8", "#e6e8eb", "#fbfbfc"]],
+    ] as const) {
+      for (const token of ["--link", "--link-hover"]) {
+        const link = readToken(theme, token);
+
+        for (const surface of surfaces) {
+          expect(
+            contrastRatio(link, surface),
+            `${token} ${link} on ${surface}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+});
+
+/**
+ * Scrollbar thumbs were the only "there is more" cue on the screens that clip
+ * content, and rendered at 1.61-1.66:1 in dark and 1.24-1.47:1 in light.
+ */
+describe("scrollbar visibility", () => {
+  it("keeps the thumb at 3:1 against the surfaces it scrolls over", () => {
+    for (const [theme, surfaces] of [
+      [DARK_THEME, ["#111315", "#1b1e21", "#202429"]],
+      [LIGHT_THEME, ["#e6e8eb", "#f6f7f8", "#fbfbfc"]],
+    ] as const) {
+      const thumb = readColorToken(theme, "--scrollbar-thumb");
+
+      for (const surface of surfaces) {
+        expect(
+          contrastRatio(composite(thumb, surface), surface),
+          `${thumb} on ${surface}`,
+        ).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+});
+
+/**
+ * Section dividers were invisible at 1x (light 1.42:1, dark 1.35:1) and are
+ * the only separation between named sections.
+ */
+describe("divider visibility", () => {
+  it("raises the divider tokens above the level they were invisible at", () => {
+    for (const [theme, surface] of [
+      [DARK_THEME, "#1b1e21"],
+      [LIGHT_THEME, "#f6f7f8"],
+    ] as const) {
+      for (const token of ["--border-subtle", "--border"]) {
+        expect(
+          contrastRatio(readToken(theme, token), surface),
+          `${token} on ${surface}`,
+        ).toBeGreaterThanOrEqual(1.7);
+      }
+    }
   });
 });

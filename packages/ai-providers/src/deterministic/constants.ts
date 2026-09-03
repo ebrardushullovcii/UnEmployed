@@ -60,36 +60,6 @@ export const knownSoftSkillPhrases = [
   "Facilitation",
 ] as const;
 
-export const resumeSectionHeadings = new Set([
-  "ABOUT ME",
-  "ABOUT MYSELF",
-  "ABOUT",
-  "SUMMARY",
-  "PROFILE",
-  "PERSONAL PROFILE",
-  "PROFESSIONAL SUMMARY",
-  "SKILLS",
-  "TECHNICAL SKILLS",
-  "CORE SKILLS",
-  "KEY SKILLS",
-  "WORK EXPERIENCE",
-  "EXPERIENCE",
-  "PROJECTS",
-  "PROJECT EXPERIENCE",
-  "EDUCATION AND TRAINING",
-  "EDUCATION",
-  "LANGUAGE SKILLS",
-  "LANGUAGES",
-  "CERTIFICATIONS",
-  "CERTIFICATES",
-]);
-
-export const contactOrMetaPattern =
-  /date of birth|nationality|phone|email|website|address|skills|experience|education|frameworks|languages|databases|tools|soft skills/i;
-
-export const headlineKeywordPattern =
-  /\b(software|full-stack|frontend|backend|web|react|node|\.net|chief)?\s*(engineer|developer|designer|manager|lead|architect|specialist|consultant|analyst|officer)\b/i;
-
 export const skillSectionAliases = [
   "SKILLS",
   "TECHNICAL SKILLS",
@@ -105,13 +75,66 @@ export const summarySectionAliases = [
   "PROFILE",
   "PERSONAL PROFILE",
   "PROFESSIONAL SUMMARY",
+  "PROFESSIONAL PROFILE",
 ] as const;
 
 export const experienceSectionAliases = [
   "WORK EXPERIENCE",
   "PROFESSIONAL EXPERIENCE",
+  "RELEVANT WORK EXPERIENCE",
+  "RELEVANT EXPERIENCE",
   "EXPERIENCE",
+  "WORK HISTORY",
+  "EMPLOYMENT HISTORY",
+  "EMPLOYMENT",
+  "CAREER HISTORY",
+  "CAREER EXPERIENCE",
+  "PROFESSIONAL BACKGROUND",
+  "BACKGROUND",
+  "INTERNSHIP",
+  "INTERNSHIPS",
+  "INTERNSHIP EXPERIENCE",
+  "INTERN EXPERIENCE",
 ] as const;
+
+export const projectSectionAliases = [
+  "PROJECTS",
+  "PROJECT EXPERIENCE",
+] as const;
+
+export const educationSectionAliases = [
+  "EDUCATION AND TRAINING",
+  "EDUCATION",
+] as const;
+
+export const languageSectionAliases = ["LANGUAGE SKILLS", "LANGUAGES"] as const;
+
+export const certificationSectionAliases = [
+  "CERTIFICATIONS",
+  "CERTIFICATES",
+] as const;
+
+export const resumeSectionHeadings = new Set<string>([
+  ...summarySectionAliases,
+  ...skillSectionAliases,
+  ...experienceSectionAliases,
+  ...projectSectionAliases,
+  ...educationSectionAliases,
+  ...languageSectionAliases,
+  ...certificationSectionAliases,
+]);
+
+export const contactOrMetaPattern =
+  /date of birth|nationality|phone|email|website|address|skills|experience|education|frameworks|languages|databases|tools|soft skills/i;
+
+export const headlineKeywordPattern =
+  /\b(software|full-stack|frontend|backend|web|react|node|\.net|chief)?\s*(engineer|developer|designer|manager|lead|architect|specialist|consultant|analyst|officer)\b/i;
+
+export const experienceSectionHeadingPattern =
+  /^(?:(?:(?:relevant|professional|full[- ]?time|work|employment|career|industry)(?:\s+(?:work|professional))?\s+(?:experience|history|background))|(?:internships?|intern)\s+experience|(?:relevant\s+)?experience|employment|background|internships?)\s*[:\-–—]?\s*$/i;
+
+export const nonExperienceSectionHeadingPattern =
+  /^(?:about(?:\s+myself|\s+me)?|summary|profile|professional\s+profile|(?:technical|core|key|additional)?\s*skills?|projects?|project\s+experience|education(?:\s+(?:and|&)\s+training)?|language(?:\s+skills?)?|languages?|certifications?|certificates?|publications?|awards?|honors?)\s*[:\-–—]?\s*$/i;
 
 export const skillCategoryHeadingPattern =
   /^(frameworks|programming languages|languages|databases|tools|security(?:\s*&\s*authentication)?|soft skills)$/i;

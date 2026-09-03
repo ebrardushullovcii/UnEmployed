@@ -1,4 +1,6 @@
 import {
+  ApplicationAuthorityEnvelopeSchema,
+  ApprovedApplicationAnswerSnapshotSchema,
   ProfileCopilotMessageSchema,
   ProfileRevisionSchema,
   ResumeAssistantMessageSchema,
@@ -10,6 +12,11 @@ import {
   ResumeImportRunSchema,
   ResumeResearchArtifactSchema,
   ResumeValidationResultSchema,
+  SubmissionArmedMarkerSchema,
+  SubmissionExecutionGrantSchema,
+  SubmissionIdempotencyRecordSchema,
+  SubmissionOutcomeRecordSchema,
+  SubmissionPreflightRecordSchema,
 } from "@unemployed/contracts";
 import type { DatabaseSync } from "node:sqlite";
 
@@ -83,6 +90,133 @@ export function resolveApprovedExportId(
 export const INDEXED_COLLECTION_CONFIGS = {
   ...APPLY_INDEXED_COLLECTION_CONFIGS,
   ...USER_ACTION_INDEXED_COLLECTION_CONFIGS,
+  application_answer_snapshots: {
+    columnNames: [
+      "profile_id",
+      "revision",
+      "digest",
+      "source_profile_revision",
+      "approved_at",
+    ],
+    getColumns: (value: unknown) => {
+      const snapshot = ApprovedApplicationAnswerSnapshotSchema.parse(
+        cloneValue(value),
+      );
+      return [
+        snapshot.profileId,
+        snapshot.revision,
+        snapshot.digest,
+        snapshot.sourceProfileRevision,
+        snapshot.approvedAt,
+      ];
+    },
+  },
+  application_authority_envelopes: {
+    columnNames: ["revision", "status"],
+    getColumns: (value: unknown) => {
+      const envelope = ApplicationAuthorityEnvelopeSchema.parse(
+        cloneValue(value),
+      );
+      return [envelope.revision, envelope.status];
+    },
+  },
+  submission_preflights: {
+    columnNames: [
+      "idempotency_key",
+      "run_id",
+      "job_id",
+      "result_id",
+      "application_record_id",
+      "authority_envelope_id",
+      "authority_revision",
+      "created_at",
+    ],
+    getColumns: (value: unknown) => {
+      const preflight = SubmissionPreflightRecordSchema.parse(
+        cloneValue(value),
+      );
+      return [
+        preflight.idempotencyKey,
+        preflight.runId,
+        preflight.jobId,
+        preflight.resultId,
+        preflight.applicationRecordId,
+        preflight.authorityEnvelopeId,
+        preflight.authorityRevision,
+        preflight.createdAt,
+      ];
+    },
+  },
+  submission_execution_grants: {
+    columnNames: [
+      "preflight_id",
+      "idempotency_key",
+      "status",
+      "granted_at",
+      "expires_at",
+    ],
+    getColumns: (value: unknown) => {
+      const grant = SubmissionExecutionGrantSchema.parse(cloneValue(value));
+      return [
+        grant.preflightId,
+        grant.idempotencyKey,
+        grant.status,
+        grant.grantedAt,
+        grant.expiresAt,
+      ];
+    },
+  },
+  submission_idempotency_records: {
+    columnNames: [
+      "idempotency_key",
+      "preflight_id",
+      "revision",
+      "status",
+      "updated_at",
+    ],
+    getColumns: (value: unknown) => {
+      const record = SubmissionIdempotencyRecordSchema.parse(cloneValue(value));
+      return [
+        record.idempotencyKey,
+        record.preflightId,
+        record.revision,
+        record.status,
+        record.updatedAt,
+      ];
+    },
+  },
+  submission_armed_markers: {
+    columnNames: ["idempotency_key", "preflight_id", "armed_at"],
+    getColumns: (value: unknown) => {
+      const marker = SubmissionArmedMarkerSchema.parse(cloneValue(value));
+      return [marker.idempotencyKey, marker.preflightId, marker.armedAt];
+    },
+  },
+  submission_outcome_records: {
+    columnNames: [
+      "preflight_id",
+      "idempotency_key",
+      "run_id",
+      "job_id",
+      "result_id",
+      "application_record_id",
+      "attempted_at",
+      "outcome",
+    ],
+    getColumns: (value: unknown) => {
+      const outcome = SubmissionOutcomeRecordSchema.parse(cloneValue(value));
+      return [
+        outcome.preflightId,
+        outcome.idempotencyKey,
+        outcome.runId,
+        outcome.jobId,
+        outcome.resultId,
+        outcome.applicationRecordId,
+        outcome.attemptedAt,
+        outcome.outcome,
+      ];
+    },
+  },
   profile_copilot_messages: {
     columnNames: ["created_at"],
     getColumns: (value: unknown) => {
@@ -170,6 +304,8 @@ export const INDEXED_COLLECTION_CONFIGS = {
 } as const;
 
 export type PersistedTableName =
+  | "application_answer_snapshots"
+  | "application_authority_envelopes"
   | "apply_runs"
   | "apply_job_results"
   | "apply_submit_approvals"
@@ -192,6 +328,11 @@ export type PersistedTableName =
   | "profile_revisions"
   | "application_records"
   | "application_attempts"
+  | "submission_armed_markers"
+  | "submission_execution_grants"
+  | "submission_idempotency_records"
+  | "submission_outcome_records"
+  | "submission_preflights"
   | "source_debug_runs"
   | "source_debug_attempts"
   | "source_instruction_artifacts"

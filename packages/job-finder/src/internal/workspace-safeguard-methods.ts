@@ -327,10 +327,10 @@ export function createWorkspaceSafeguardMethods(input: {
   }
 
   /**
-   * Evaluates the global pipeline gates for a discovery run (abnormal failure
-   * pause and pending sample review). Discovery feeds the application
-   * pipeline, so those gates apply regardless of the target; job-scoped gates
-   * (caps, conflicts, signals) are enforced later at application preparation.
+   * Evaluates the global pipeline gates for a discovery run. Only pending batch
+   * sample review blocks search; abnormal failure pause applies to application
+   * preparation so users can keep discovering jobs while they recover prep
+   * failures from Safeguards.
    */
   async function evaluateGlobalDiscoveryBlockers(): Promise<
     SafeguardBlocker[]
@@ -342,11 +342,7 @@ export function createWorkspaceSafeguardMethods(input: {
       jobIds: [],
       companyIds: [],
       applicationRecordJobIds: new Map(),
-    }).filter(
-      (blocker) =>
-        blocker.kind === "abnormal_failure_pause" ||
-        blocker.kind === "batch_sample_review_pending",
-    );
+    }).filter((blocker) => blocker.kind === "batch_sample_review_pending");
   }
 
   function requireNoBlockers(blockers: readonly SafeguardBlocker[]): void {

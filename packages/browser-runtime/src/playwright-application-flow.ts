@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
-import type { BrowserContext, Frame, Page, Route } from "playwright";
+import type { BrowserContext, Frame, Page, Request, Route } from "playwright";
 import {
   ApplyExecutionResultSchema,
   type ApplyExecutionResult,
@@ -11,6 +11,13 @@ import {
   type ApplicationAttemptQuestion,
   type CandidateProfile,
 } from "@unemployed/contracts";
+import {
+  classifyIntermediateMutationRequest,
+  INTERMEDIATE_MUTATION_WINDOW_DURATION_MS,
+  INTERMEDIATE_MUTATION_WINDOW_MAX_REQUESTS,
+  type IntermediateMutationResourceKind,
+  type IntermediateMutationWindowSnapshot,
+} from "./application-intermediate-mutation-policy";
 import type { ExecuteApplicationFlowInput } from "./runtime-types";
 import {
   bringPageToFrontBestEffort,
@@ -124,9 +131,14 @@ const prepareOnlyNetworkGuardStates = new WeakMap<
   Page,
   {
     blockedAttempts: PrepareOnlyBlockedAttempt[];
+    allowedIntermediateRequests: WeakSet<Request>;
+    verifiedIntermediateWriteCount: number;
     intermediateMutationsAuthorized: boolean;
+    intermediateMutationAllowedOrigins: string[];
+    intermediateMutationWindow: IntermediateMutationWindowSnapshot | null;
     initScriptInstalled: boolean;
     serviceWorkerInitScriptInstalled: boolean;
+    responseListenerInstalled: boolean;
     webSocketListenerInstalled: boolean;
   }
 >();
@@ -140,6 +152,7 @@ export function installPrepareOnlyMutationGuardInPage(
 ): void {
   interface InternalGuardState extends PrepareOnlyGuardSnapshot {
     intermediateMutationsAuthorized: boolean;
+    intermediateMutationWindow: IntermediateMutationWindowSnapshot | null;
     submitListenerInstalled: boolean;
     formSubmitWrapper: typeof HTMLFormElement.prototype.submit | null;
     formRequestSubmitWrapper:
@@ -164,6 +177,7 @@ export function installPrepareOnlyMutationGuardInPage(
     installed: true,
     blockedAttempts: [],
     intermediateMutationsAuthorized,
+    intermediateMutationWindow: null,
     submitListenerInstalled: false,
     formSubmitWrapper: null,
     formRequestSubmitWrapper: null,
@@ -207,6 +221,51 @@ export function installPrepareOnlyMutationGuardInPage(
       at: new Date().toISOString(),
     });
     state.blockedAttempts = state.blockedAttempts.slice(-32);
+  };
+  const canAllowIntermediateRequest = (input: {
+    bodyText?: string | null;
+    kind: IntermediateMutationResourceKind;
+    method: string;
+    url: string | null;
+  }): boolean => {
+    const mutationWindow = state.intermediateMutationWindow;
+    if (
+      !state.intermediateMutationsAuthorized ||
+      !mutationWindow ||
+      Date.now() > mutationWindow.expiresAtMs ||
+      mutationWindow.remainingRequests <= 0 ||
+      !["fetch", "xhr"].includes(input.kind) ||
+      !["POST", "PUT", "PATCH"].includes(normalizeMethod(input.method))
+    ) {
+      return false;
+    }
+    let parsedUrl: URL;
+    try {
+      if (!input.url) {
+        return false;
+      }
+      parsedUrl = new URL(input.url);
+    } catch {
+      return false;
+    }
+    if (parsedUrl.origin !== mutationWindow.expectedOrigin) {
+      return false;
+    }
+    const signal = `${parsedUrl.pathname} ${parsedUrl.search} ${
+      input.bodyText?.slice(0, 8_192) ?? ""
+    }`.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+    const finalActionSignal =
+      /(?:^|[^a-z0-9])(?:submit|submission|finali[sz]e|complete[-_\s]*(?:the[-_\s]*)?application|send[-_\s]*application|apply[-_\s]*(?:now|job)|create[-_\s]*account|register)(?:[^a-z0-9]|$)/iu;
+    const intermediateActionSignal =
+      /(?:^|[^a-z0-9])(?:autosave|auto[-_\s]*save|draft|save[-_\s]*(?:field|answer|progress|draft)?|update[-_\s]*(?:field|answer|progress|draft|application|form)?|field|answer|attachment|upload|progress)(?:[^a-z0-9]|$)/iu;
+    if (
+      finalActionSignal.test(signal) ||
+      !intermediateActionSignal.test(signal)
+    ) {
+      return false;
+    }
+    mutationWindow.remainingRequests -= 1;
+    return true;
   };
 
   if (!state.submitListenerInstalled) {
@@ -260,11 +319,8 @@ export function installPrepareOnlyMutationGuardInPage(
     typeof navigator.sendBeacon === "function" &&
     navigator.sendBeacon !== state.sendBeaconWrapper
   ) {
-    const originalSendBeacon = navigator.sendBeacon.bind(navigator);
     const guardedSendBeacon: typeof navigator.sendBeacon = (url, data) => {
-      if (state.intermediateMutationsAuthorized) {
-        return originalSendBeacon(url, data);
-      }
+      void data;
       recordBlockedAttempt("send_beacon", "POST", normalizeUrl(url));
       return false;
     };
@@ -288,8 +344,23 @@ export function installPrepareOnlyMutationGuardInPage(
             ? resource.method
             : "GET"),
       );
-      if (!state.intermediateMutationsAuthorized) {
-        recordBlockedAttempt("fetch", method, normalizeUrl(resource));
+      const url = normalizeUrl(resource);
+      const bodyText =
+        typeof init?.body === "string"
+          ? init.body
+          : typeof URLSearchParams !== "undefined" &&
+              init?.body instanceof URLSearchParams
+            ? init.body.toString()
+            : null;
+      if (
+        !canAllowIntermediateRequest({
+          bodyText,
+          kind: "fetch",
+          method,
+          url,
+        })
+      ) {
+        recordBlockedAttempt("fetch", method, url);
         return Promise.reject(
           new DOMException(
             "Prepare-only mode blocked a new network request while field mutations were unauthorized.",
@@ -340,7 +411,21 @@ export function installPrepareOnlyMutationGuardInPage(
           method: "GET",
           url: null,
         };
-        if (!state.intermediateMutationsAuthorized) {
+        const bodyText =
+          typeof body === "string"
+            ? body
+            : typeof URLSearchParams !== "undefined" &&
+                body instanceof URLSearchParams
+              ? body.toString()
+              : null;
+        if (
+          !canAllowIntermediateRequest({
+            bodyText,
+            kind: "xhr",
+            method: request.method,
+            url: request.url,
+          })
+        ) {
           recordBlockedAttempt("xhr", request.method, request.url);
           throw new DOMException(
             "Prepare-only mode blocked a new XMLHttpRequest while field mutations were unauthorized.",
@@ -361,14 +446,12 @@ export function installPrepareOnlyMutationGuardInPage(
       url: string | URL,
       protocols?: string | string[],
     ): WebSocket {
-      if (!state.intermediateMutationsAuthorized) {
-        recordBlockedAttempt("websocket", "GET", normalizeUrl(url));
-        throw new DOMException(
-          "Prepare-only mode blocked a new WebSocket connection.",
-          "AbortError",
-        );
-      }
-      return new OriginalWebSocket(url, protocols);
+      void protocols;
+      recordBlockedAttempt("websocket", "GET", normalizeUrl(url));
+      throw new DOMException(
+        "Prepare-only mode blocked a new WebSocket connection.",
+        "AbortError",
+      );
     } as unknown as typeof WebSocket;
     Object.defineProperty(GuardedWebSocket, "prototype", {
       value: OriginalWebSocket.prototype,
@@ -396,14 +479,12 @@ export function installPrepareOnlyMutationGuardInPage(
       url: string | URL,
       eventSourceInit?: EventSourceInit,
     ): EventSource {
-      if (!state.intermediateMutationsAuthorized) {
-        recordBlockedAttempt("eventsource", "GET", normalizeUrl(url));
-        throw new DOMException(
-          "Prepare-only mode blocked a new EventSource stream.",
-          "AbortError",
-        );
-      }
-      return new OriginalEventSource(url, eventSourceInit);
+      void eventSourceInit;
+      recordBlockedAttempt("eventsource", "GET", normalizeUrl(url));
+      throw new DOMException(
+        "Prepare-only mode blocked a new EventSource stream.",
+        "AbortError",
+      );
     } as unknown as typeof EventSource;
     Object.defineProperty(GuardedEventSource, "prototype", {
       value: OriginalEventSource.prototype,
@@ -426,14 +507,11 @@ export function installPrepareOnlyMutationGuardInPage(
     const GuardedWebTransport = function GuardedWebTransport(
       url: string | URL,
     ): unknown {
-      if (!state.intermediateMutationsAuthorized) {
-        recordBlockedAttempt("webtransport", "GET", normalizeUrl(url));
-        throw new DOMException(
-          "Prepare-only mode blocked a new WebTransport session.",
-          "AbortError",
-        );
-      }
-      return new OriginalWebTransport(url);
+      recordBlockedAttempt("webtransport", "GET", normalizeUrl(url));
+      throw new DOMException(
+        "Prepare-only mode blocked a new WebTransport session.",
+        "AbortError",
+      );
     } as unknown as WebTransportPageConstructor;
     Object.defineProperty(GuardedWebTransport, "prototype", {
       value: (OriginalWebTransport as unknown as { prototype: unknown })
@@ -451,23 +529,21 @@ export function installPrepareOnlyMutationGuardInPage(
     typeof window.open === "function" &&
     window.open !== state.windowOpenWrapper
   ) {
-    const originalWindowOpen = window.open.bind(window);
     const guardedWindowOpen: typeof window.open = (
       url?,
       target?,
       features?,
     ) => {
-      if (!state.intermediateMutationsAuthorized) {
-        recordBlockedAttempt(
-          "window_open",
-          "GET",
-          url === undefined || String(url).trim() === ""
-            ? normalizeUrl(window.location.href)
-            : normalizeUrl(url),
-        );
-        return null;
-      }
-      return originalWindowOpen(url, target, features);
+      void target;
+      void features;
+      recordBlockedAttempt(
+        "window_open",
+        "GET",
+        url === undefined || String(url).trim() === ""
+          ? normalizeUrl(window.location.href)
+          : normalizeUrl(url),
+      );
+      return null;
     };
     Object.defineProperty(window, "open", {
       configurable: true,
@@ -476,6 +552,24 @@ export function installPrepareOnlyMutationGuardInPage(
     });
     state.windowOpenWrapper = guardedWindowOpen;
   }
+}
+
+/** Runs inside the application page to open or close one bounded field window. */
+export function setPrepareOnlyIntermediateMutationWindowInPage(
+  mutationWindow: IntermediateMutationWindowSnapshot | null,
+): void {
+  const pageWindow = window as unknown as Record<string, unknown>;
+  const state = pageWindow["__unemployedPrepareOnlyMutationGuardV1"] as
+    | {
+        intermediateMutationWindow: IntermediateMutationWindowSnapshot | null;
+      }
+    | undefined;
+  if (!state) {
+    throw new Error("Prepare-only mutation guard is not installed.");
+  }
+  state.intermediateMutationWindow = mutationWindow
+    ? { ...mutationWindow }
+    : null;
 }
 
 /** Runs inside the application page and returns only serializable guard data. */
@@ -799,24 +893,29 @@ async function ensureFramePrepareOnlyMutationGuard(
 export async function ensurePrepareOnlyMutationGuard(
   page: Page,
   intermediateMutationsAuthorized: boolean,
+  intermediateMutationAllowedOrigins: readonly string[] = [],
 ): Promise<PrepareOnlyGuardSnapshot> {
   let networkGuardState = prepareOnlyNetworkGuardStates.get(page);
   if (!networkGuardState) {
     networkGuardState = {
       blockedAttempts: [],
+      allowedIntermediateRequests: new WeakSet<Request>(),
+      verifiedIntermediateWriteCount: 0,
       intermediateMutationsAuthorized,
+      intermediateMutationAllowedOrigins: [
+        ...new Set(intermediateMutationAllowedOrigins),
+      ],
+      intermediateMutationWindow: null,
       initScriptInstalled: false,
       serviceWorkerInitScriptInstalled: false,
+      responseListenerInstalled: false,
       webSocketListenerInstalled: false,
     };
     prepareOnlyNetworkGuardStates.set(page, networkGuardState);
     await page.route("**/*", async (route) => {
       const request = route.request();
       const method = request.method().trim().toUpperCase();
-      if (networkGuardState!.intermediateMutationsAuthorized) {
-        await route.continue();
-        return;
-      }
+      const resourceType = request.resourceType();
 
       const denyRequest = async (): Promise<void> => {
         networkGuardState!.blockedAttempts.push({
@@ -832,30 +931,46 @@ export async function ensurePrepareOnlyMutationGuard(
         await route.abort("blockedbyclient");
       };
 
-      if (!PREPARE_ONLY_SAFE_METHODS.has(method)) {
-        await denyRequest();
-        return;
-      }
-
-      const resourceType = request.resourceType();
-      if (PREPARE_ONLY_DENIED_RESOURCE_TYPES.has(resourceType)) {
-        await denyRequest();
-        return;
-      }
-
       if (
-        PREPARE_ONLY_QUERY_GUARDED_RESOURCE_TYPES.has(resourceType) &&
-        request.url().includes("?")
+        PREPARE_ONLY_SAFE_METHODS.has(method) &&
+        !PREPARE_ONLY_DENIED_RESOURCE_TYPES.has(resourceType) &&
+        !(
+          PREPARE_ONLY_QUERY_GUARDED_RESOURCE_TYPES.has(resourceType) &&
+          request.url().includes("?")
+        )
       ) {
-        await denyRequest();
+        await route.continue();
         return;
       }
 
-      await route.continue();
+      const resourceKind: IntermediateMutationResourceKind =
+        resourceType === "fetch" || resourceType === "xhr"
+          ? resourceType
+          : "other";
+      const decision = classifyIntermediateMutationRequest({
+        authorized: networkGuardState!.intermediateMutationsAuthorized,
+        bodyText: request.postData(),
+        method,
+        nowMs: Date.now(),
+        resourceKind,
+        url: request.url(),
+        window: networkGuardState!.intermediateMutationWindow,
+      });
+      if (decision.allowed) {
+        networkGuardState!.intermediateMutationWindow!.remainingRequests -= 1;
+        networkGuardState!.allowedIntermediateRequests.add(request);
+        await route.continue();
+        return;
+      }
+
+      await denyRequest();
     });
   }
   networkGuardState.intermediateMutationsAuthorized =
     intermediateMutationsAuthorized;
+  networkGuardState.intermediateMutationAllowedOrigins = [
+    ...new Set(intermediateMutationAllowedOrigins),
+  ];
 
   if (!networkGuardState.initScriptInstalled) {
     await page.addInitScript(installPrepareOnlyMutationGuardInPage, false);
@@ -865,11 +980,22 @@ export async function ensurePrepareOnlyMutationGuard(
     await page.addInitScript(installServiceWorkerRegisterGuardInPage);
     networkGuardState.serviceWorkerInitScriptInstalled = true;
   }
+  if (!networkGuardState.responseListenerInstalled) {
+    page.on("response", (response) => {
+      const request = response.request();
+      if (
+        networkGuardState.allowedIntermediateRequests.has(request) &&
+        response.status() >= 200 &&
+        response.status() < 400
+      ) {
+        networkGuardState.allowedIntermediateRequests.delete(request);
+        networkGuardState.verifiedIntermediateWriteCount += 1;
+      }
+    });
+    networkGuardState.responseListenerInstalled = true;
+  }
   if (!networkGuardState.webSocketListenerInstalled) {
     page.on("websocket", (webSocket) => {
-      if (networkGuardState.intermediateMutationsAuthorized) {
-        return;
-      }
       networkGuardState.blockedAttempts.push({
         kind: "websocket",
         method: "GET",
@@ -910,6 +1036,71 @@ export async function ensurePrepareOnlyMutationGuard(
   };
 }
 
+async function setPrepareOnlyIntermediateMutationWindow(
+  page: Page,
+  mutationWindow: IntermediateMutationWindowSnapshot | null,
+): Promise<void> {
+  const networkGuardState = prepareOnlyNetworkGuardStates.get(page);
+  if (!networkGuardState) {
+    throw new Error("Prepare-only network guard is not installed.");
+  }
+  networkGuardState.intermediateMutationWindow = mutationWindow
+    ? { ...mutationWindow }
+    : null;
+  try {
+    for (const frame of page.frames()) {
+      await frame.evaluate(
+        setPrepareOnlyIntermediateMutationWindowInPage,
+        mutationWindow,
+      );
+    }
+  } catch (error) {
+    networkGuardState.intermediateMutationWindow = null;
+    throw error;
+  }
+}
+
+export async function openPrepareOnlyIntermediateMutationWindow(
+  page: Page,
+): Promise<void> {
+  let expectedOrigin: string;
+  try {
+    expectedOrigin = new URL(page.url()).origin;
+  } catch {
+    throw new Error(
+      "Application origin is unavailable for a field-save window.",
+    );
+  }
+  const networkGuardState = prepareOnlyNetworkGuardStates.get(page);
+  if (
+    !networkGuardState?.intermediateMutationsAuthorized ||
+    !networkGuardState.intermediateMutationAllowedOrigins.includes(
+      expectedOrigin,
+    )
+  ) {
+    throw new Error(
+      "The current application origin is outside the explicit intermediate-mutation authority.",
+    );
+  }
+  await setPrepareOnlyIntermediateMutationWindow(page, {
+    expectedOrigin,
+    expiresAtMs: Date.now() + INTERMEDIATE_MUTATION_WINDOW_DURATION_MS,
+    remainingRequests: INTERMEDIATE_MUTATION_WINDOW_MAX_REQUESTS,
+  });
+}
+
+export async function closePrepareOnlyIntermediateMutationWindow(
+  page: Page,
+): Promise<void> {
+  await setPrepareOnlyIntermediateMutationWindow(page, null);
+}
+
+function getVerifiedIntermediateWriteCount(page: Page): number {
+  return (
+    prepareOnlyNetworkGuardStates.get(page)?.verifiedIntermediateWriteCount ?? 0
+  );
+}
+
 export async function getLatestBlockedPrepareOnlyAttempt(
   page: Page,
 ): Promise<PrepareOnlyBlockedAttempt | null> {
@@ -934,14 +1125,20 @@ export function recordPrepareOnlyRunInterruption(
 ): void {
   let ledgerState = prepareOnlyNetworkGuardStates.get(page);
   if (!ledgerState) {
-    ledgerState = {
+    const createdState = {
       blockedAttempts: [],
+      allowedIntermediateRequests: new WeakSet<Request>(),
+      verifiedIntermediateWriteCount: 0,
       intermediateMutationsAuthorized: false,
+      intermediateMutationAllowedOrigins: [],
+      intermediateMutationWindow: null,
       initScriptInstalled: false,
       serviceWorkerInitScriptInstalled: false,
+      responseListenerInstalled: false,
       webSocketListenerInstalled: false,
     };
-    prepareOnlyNetworkGuardStates.set(page, ledgerState);
+    prepareOnlyNetworkGuardStates.set(page, createdState);
+    ledgerState = createdState;
   }
   ledgerState.blockedAttempts.push(attempt);
   ledgerState.blockedAttempts.splice(
@@ -3541,6 +3738,49 @@ async function fillGroundedControl(input: {
   return "filled";
 }
 
+async function fillGroundedControlWithinPolicy(input: {
+  page: Page;
+  control: InspectedFormControl;
+  answer: GroundedControlAnswer;
+  intermediateMutationsAuthorized: boolean;
+  recheckIntermediateMutationAuthority?: (
+    observedOrigin: string,
+  ) => Promise<boolean>;
+}): Promise<GroundedControlFillResult> {
+  if (!input.intermediateMutationsAuthorized) {
+    return fillGroundedControl(input);
+  }
+
+  let observedOrigin: string;
+  try {
+    observedOrigin = new URL(input.page.url()).origin;
+  } catch {
+    throw new Error(
+      "Application origin is unavailable for the authority recheck.",
+    );
+  }
+  if (
+    !input.recheckIntermediateMutationAuthority ||
+    !(await input.recheckIntermediateMutationAuthority(observedOrigin))
+  ) {
+    throw new Error(
+      "Intermediate-mutation authority changed before the field action.",
+    );
+  }
+
+  await openPrepareOnlyIntermediateMutationWindow(input.page);
+  try {
+    const result = await fillGroundedControl(input);
+    // Keep the exact field window open only long enough for the synchronous or
+    // immediately queued autosave caused by this mutation. Later traffic is
+    // ambiguous and is blocked by the normal guard.
+    await input.page.waitForTimeout(750);
+    return result;
+  } finally {
+    await closePrepareOnlyIntermediateMutationWindow(input.page);
+  }
+}
+
 function groundedAnswerPersisted(
   control: InspectedFormControl,
   answer: GroundedControlAnswer,
@@ -4032,6 +4272,7 @@ export async function runGenericApplicationPreparation(input: {
       const guard = await ensurePrepareOnlyMutationGuard(
         currentPage,
         executionInput.intermediateMutationsAuthorized === true,
+        executionInput.intermediateMutationAllowedOrigins ?? [],
       );
       const existingBlockedAttempt = guard.blockedAttempts.at(-1) ?? null;
       if (existingBlockedAttempt) {
@@ -4242,6 +4483,7 @@ export async function runGenericApplicationPreparation(input: {
         const guard = await ensurePrepareOnlyMutationGuard(
           currentPage,
           executionInput.intermediateMutationsAuthorized === true,
+          executionInput.intermediateMutationAllowedOrigins ?? [],
         );
         const blockedAttempt = guard.blockedAttempts.at(-1) ?? null;
         if (blockedAttempt) {
@@ -4302,11 +4544,21 @@ export async function runGenericApplicationPreparation(input: {
       }
 
       let fillResult: GroundedControlFillResult | null = null;
+      const verifiedExternalWritesBefore =
+        getVerifiedIntermediateWriteCount(currentPage);
       try {
-        fillResult = await fillGroundedControl({
+        fillResult = await fillGroundedControlWithinPolicy({
           page: currentPage,
           control,
           answer,
+          intermediateMutationsAuthorized:
+            executionInput.intermediateMutationsAuthorized === true,
+          ...(executionInput.recheckIntermediateMutationAuthority
+            ? {
+                recheckIntermediateMutationAuthority:
+                  executionInput.recheckIntermediateMutationAuthority,
+              }
+            : {}),
         });
       } catch {
         // A required field that could not be filled is captured immediately
@@ -4362,7 +4614,11 @@ export async function runGenericApplicationPreparation(input: {
         });
         const questionKey = `${question.kind}:${normalizeControlSignal(question.prompt)}`;
         questions.set(questionKey, question);
-        if (fillResult === "filled") {
+        if (
+          fillResult === "filled" &&
+          getVerifiedIntermediateWriteCount(currentPage) >
+            verifiedExternalWritesBefore
+        ) {
           const category =
             question.kind === "resume"
               ? ("resume_attachment" as const)
@@ -4398,6 +4654,7 @@ export async function runGenericApplicationPreparation(input: {
       const guard = await ensurePrepareOnlyMutationGuard(
         currentPage,
         executionInput.intermediateMutationsAuthorized === true,
+        executionInput.intermediateMutationAllowedOrigins ?? [],
       );
       const blockedAttempt = guard.blockedAttempts.at(-1) ?? null;
       if (blockedAttempt) {
@@ -4449,12 +4706,20 @@ export async function runGenericApplicationPreparation(input: {
             valueAfterRemovingSelectedCode !== inspectedControl.value &&
             normalizeControlSignal(valueAfterRemovingSelectedCode) ===
               normalizeControlSignal(answer.value);
-          await fillGroundedControl({
+          await fillGroundedControlWithinPolicy({
             page: currentPage,
             control: canCorrectDuplicatedPhoneCode
               ? { ...inspectedControl, value: "" }
               : inspectedControl,
             answer,
+            intermediateMutationsAuthorized:
+              executionInput.intermediateMutationsAuthorized === true,
+            ...(executionInput.recheckIntermediateMutationAuthority
+              ? {
+                  recheckIntermediateMutationAuthority:
+                    executionInput.recheckIntermediateMutationAuthority,
+                }
+              : {}),
           });
         } catch {
           // The persisted-value verification below turns this into a visible

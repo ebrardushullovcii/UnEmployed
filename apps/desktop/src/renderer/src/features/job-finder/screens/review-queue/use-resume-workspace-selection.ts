@@ -1,110 +1,127 @@
-import { useCallback, useEffect, useState } from 'react'
-import type { ResumeDraft } from '@unemployed/contracts'
-import { getResumePreviewTargetContext } from '@unemployed/contracts'
+import { useCallback, useEffect, useState } from "react";
+import type { ResumeDraft } from "@unemployed/contracts";
+import { getResumePreviewTargetContext } from "@unemployed/contracts";
 
 export function useResumeWorkspaceSelection(input: {
-  draft: ResumeDraft | null
+  draft: ResumeDraft | null;
 }) {
-  const { draft } = input
-  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null)
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null)
-  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
-  const [selectionScrollKey, setSelectionScrollKey] = useState(0)
+  const { draft } = input;
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(
+    null,
+  );
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const [selectionScrollKey, setSelectionScrollKey] = useState(0);
 
   useEffect(() => {
     if (!draft) {
-      setSelectedSectionId(null)
-      setSelectedEntryId(null)
-      setSelectedTargetId(null)
-      setSelectionScrollKey(0)
-      return
+      setSelectedSectionId(null);
+      setSelectedEntryId(null);
+      setSelectedTargetId(null);
+      setSelectionScrollKey(0);
+      return;
     }
 
     setSelectedSectionId((current) => {
       if (current && draft.sections.some((section) => section.id === current)) {
-        return current
+        return current;
       }
 
       if (selectedTargetId) {
-        const targetContext = getResumePreviewTargetContext(selectedTargetId)
+        const targetContext = getResumePreviewTargetContext(selectedTargetId);
         if (targetContext.sectionId === null) {
-          return current ?? null
+          return current ?? null;
         }
         const targetSectionAvailable =
           targetContext.sectionId !== null &&
-          draft.sections.some((section) => section.id === targetContext.sectionId)
+          draft.sections.some(
+            (section) => section.id === targetContext.sectionId,
+          );
 
-        return targetSectionAvailable ? targetContext.sectionId : draft.sections[0]?.id ?? null
+        return targetSectionAvailable
+          ? targetContext.sectionId
+          : (draft.sections[0]?.id ?? null);
       }
 
-      return draft.sections[0]?.id ?? null
-    })
-  }, [draft, selectedTargetId])
+      return draft.sections[0]?.id ?? null;
+    });
+  }, [draft, selectedTargetId]);
 
   useEffect(() => {
     if (!draft) {
-      return
+      return;
     }
 
     if (!selectedSectionId) {
-      setSelectedEntryId(null)
-      return
+      setSelectedEntryId(null);
+      return;
     }
 
-    const selectedSection = draft.sections.find((section) => section.id === selectedSectionId) ?? null
+    const selectedSection =
+      draft.sections.find((section) => section.id === selectedSectionId) ??
+      null;
 
     if (!selectedSection) {
-      setSelectedEntryId(null)
-      return
+      setSelectedEntryId(null);
+      return;
     }
 
     setSelectedEntryId((current) => {
-      if (current && selectedSection.entries.some((entry) => entry.id === current)) {
-        return current
+      if (
+        current &&
+        selectedSection.entries.some((entry) => entry.id === current)
+      ) {
+        return current;
       }
 
-      return null
-    })
-  }, [draft, selectedSectionId])
+      return null;
+    });
+  }, [draft, selectedSectionId]);
 
   useEffect(() => {
     if (!selectedTargetId) {
-      return
+      return;
     }
 
-    const context = getResumePreviewTargetContext(selectedTargetId)
+    const context = getResumePreviewTargetContext(selectedTargetId);
 
     if (context.sectionId) {
-      setSelectedSectionId(context.sectionId)
+      setSelectedSectionId(context.sectionId);
     }
 
-    setSelectedEntryId(context.entryId)
-  }, [selectedTargetId])
+    setSelectedEntryId(context.entryId);
+  }, [selectedTargetId]);
 
-  const handlePreviewTargetSelect = useCallback((selection: {
-    sectionId: string | null
-    entryId: string | null
-    targetId: string | null
-  }) => {
-    setSelectionScrollKey((current) => current + 1)
-    setSelectedTargetId(selection.targetId)
-    setSelectedSectionId(selection.sectionId)
-    setSelectedEntryId(selection.entryId)
-  }, [])
+  const handlePreviewTargetSelect = useCallback(
+    (selection: {
+      sectionId: string | null;
+      entryId: string | null;
+      targetId: string | null;
+    }) => {
+      setSelectionScrollKey((current) => current + 1);
+      setSelectedTargetId(selection.targetId);
+      setSelectedSectionId(selection.sectionId);
+      setSelectedEntryId(selection.entryId);
+    },
+    [],
+  );
 
   const handleSelectSection = useCallback((sectionId: string) => {
-    setSelectionScrollKey((current) => current + 1)
-    setSelectedSectionId(sectionId)
-    setSelectedEntryId(null)
-    setSelectedTargetId(null)
-  }, [])
+    setSelectionScrollKey((current) => current + 1);
+    setSelectedSectionId(sectionId);
+    setSelectedEntryId(null);
+    setSelectedTargetId(null);
+  }, []);
 
-  const handleSelectEntry = useCallback((sectionId: string, entryId: string) => {
-    setSelectionScrollKey((current) => current + 1)
-    setSelectedSectionId(sectionId)
-    setSelectedEntryId(entryId)
-    setSelectedTargetId(null)
-  }, [])
+  const handleSelectEntry = useCallback(
+    (sectionId: string, entryId: string) => {
+      setSelectionScrollKey((current) => current + 1);
+      setSelectedSectionId(sectionId);
+      setSelectedEntryId(entryId);
+      setSelectedTargetId(null);
+    },
+    [],
+  );
 
   return {
     handlePreviewTargetSelect,
@@ -114,5 +131,5 @@ export function useResumeWorkspaceSelection(input: {
     selectedSectionId,
     selectedTargetId,
     selectionScrollKey,
-  }
+  };
 }

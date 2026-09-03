@@ -22,6 +22,93 @@ for correctness or performance evidence. The repeated-source discovery check
 must satisfy both CPU and wall-clock budgets below 2,000 ms; the 10,000-entry
 ledger check retains its hard wall-clock budget below 2,000 ms.
 
+## Current settled visual/safety evidence (2026-08-31)
+
+- Focused import CAS/identity gates pass, but live reproduction of the late
+  native file-picker case remains pending. This is a focused pre-freeze result,
+  not sealed Electron evidence.
+- Applications recovery actions are fixed. Current-build 1440/1280 captures
+  show valid actions at natural width with start alignment. Focused uncertainty
+  coverage proves that retrying a `null`-receipt result fails closed.
+- The current-build 1280 Resume Studio capture keeps preview and tools visible
+  with 20 notes and 4 blockers; Open editor reaches the exact focus target and
+  announces it. The AI suggestion flow is connected to an explicit proposal
+  Accept/Reject decision, but no live AI proposal has been exercised and the
+  targeted allowlist remains a P2 follow-up.
+- The collapsed wordmark is painted and visible in current-build 1440/1280
+  captures. Profile Copilot's compact-footer capture is
+  `/var/folders/nh/pj6dg1rj2kvdgrh75f7b5krr0000gn/T/copilot-footer-current-1280x720.png`:
+  Send is top `589.95`, bottom `629.95`, and height `40`; the long textarea
+  scrolls internally. Native 125% remains unestablished.
+- The prior sealed acceptance and persona wave are invalid after these source
+  changes. Keep the goal **ACTIVE** and the hard-freeze chain pending; once the
+  tree is settled, rerun `pnpm verify`, `pnpm test:evidence`, and the immutable
+  production-acceptance chain before any new seal, ATS binding, or persona wave.
+
+Authority changes require the strict contract/repository suites plus the real
+Desktop startup, main-route, service, and preload boundaries. Current focused
+files are `application-authority-contracts.test.ts`,
+`application-authority-management.test.ts`,
+`application-authority-repository.test.ts`,
+`application-authority-migration.test.ts`,
+`application-submission-policy.test.ts`,
+`application-submission-orchestrator.test.ts`,
+`create-workspace-service.startup-recovery.test.ts`,
+`application-authority-service.test.ts`, `job-finder-authority.test.ts`, and
+`preload/index.test.ts`. The renderer boundary is covered by
+`settings-application-authority-section.test.tsx` plus the Settings navigation
+suite; repository coverage includes atomic replacement, one-active uniqueness,
+child revocation, concurrency, SQLite reopen parity, and full reset with
+persisted lifecycle children. The Settings suite also covers local-time expiry
+round-trip and revocation of an existing elevated envelope without enabling its
+editing. Automated checks must never expose or invoke a grant, arm, browser
+final action, or real employer submission channel.
+
+Uncertain-outcome recovery coverage must prove strict renderer DTO rejection,
+main-owned evidence/timestamps/current-revision binding, preservation of the
+original uncertainty, atomic exact-lineage result/receipt/ApplicationRecord
+projection, stale and duplicate no-mutation behavior, and SQLite reopen parity.
+Applications must require a second explicit confirmation, suppress retry and
+final-submit controls while uncertain, route Task Center to manual verification,
+and prefer the durable tri-state receipt over stale legacy run state. The
+isolated production-Electron replay is
+`apps/desktop/scripts/run-job-finder-authority-outcome-wave.mjs`; it uses only
+synthetic state and must prove restart persistence, both operator resolutions,
+and that Settings remains prepare-only. Its output is diagnostic pre-freeze
+evidence, never real ATS, sealed, accessibility, or autonomous-submit acceptance.
+
+Approved-answer snapshot coverage must prove canonical order-independent SHA-256,
+duplicate-entry rejection, append-only revision CAS, stale/conflict no-mutation,
+in-memory/file parity, SQLite reopen, migration, and reset behavior. Desktop
+coverage must prove zero-answer blocked readiness, only work-authorization and
+sponsorship as mandatory baseline kinds, custom-kind counting, unchanged digest
+surviving unrelated Profile revisions, content edits becoming stale, strict IPC
+output parsing, and a two-step Settings approval with no grant/arm/submit control.
+The isolated built-Electron replay is
+`apps/desktop/scripts/run-job-finder-authority-readiness-wave.mjs`; at 1440x920
+and 1029x860 it must prove not-approved -> current -> restart -> answer edit ->
+stale -> revision 2 -> restart, while final submission remains unavailable.
+Its output is ignored diagnostic pre-freeze evidence, not autonomous, ATS,
+accessibility, persona, sealed, or release acceptance.
+
+Decision-policy coverage must prove canonical digest recomputation, distinct
+policy versus answer-snapshot drift, exact campaign/canonical-origin binding,
+scope/resume/capacity rejection before mutation, active-grant preservation on
+every rejected compound transition, every finite mandatory stop, autonomous
+grant rejection, post-arm drift recovery to permanent uncertainty, and absence
+of any public low-level consume-or-arm repository primitive. These suites use
+only synthetic records and never connect a browser final-action hand.
+
+The wave9o authority Settings replay uses a fresh isolated Electron user-data
+directory with the test API only for synthetic workspace setup. Captures at
+1440×920 and 1029×860 must show prepare-only as the sole available mode,
+elevated modes unavailable, explicit policy fields, no body-width overflow, and
+the authority heading below both the compact shell navigation and sticky
+Settings subnav after anchor navigation. Current ignored evidence is under
+`apps/desktop/test-artifacts/ui/authority-wave9o-*`; the final 1029×860 replay
+records `sectionTop=176`, visible-heading top `193`, compact-shell bottom `109`,
+and exact body width `1029/1029`.
+
 ## Release Evidence Manifests
 
 - `pnpm test:evidence` runs the canonical `test:correctness` then
@@ -235,7 +322,8 @@ test:job-finder-production-acceptance:static`.
   authority false, isolation cleanup of the temporary user-data directory, and
   an accepted per-ATS outcome (Greenhouse/Ashby final checkpoint without submit
   or a classified strict intermediate-write blocker; anonymous Workday
-  `site_login_required`). Cite the command plus the manifest `runId` and
+  `site_login_required` or the same fully classified strict intermediate-write
+  guard when that guard stops the flow first). Cite the command plus the manifest `runId` and
   `manifestSha256`; never pin a volatile artifact path as the evidence anchor.
 - Automated evidence must never include credentials, CAPTCHA solving, MFA,
   legal consent, account creation, or final submission; these remain per-job,
@@ -268,10 +356,11 @@ test:job-finder-production-acceptance:static`.
 - Expected strict outcomes stay distinct: Greenhouse and Ashby may end at
   `passed_final_checkpoint_without_submit` or at the truthful classified
   intermediate-write guard `passed_safe_blocker_without_submit`; the latter is
-  never relabeled as reaching the final checkpoint. Anonymous Workday must end
+  never relabeled as reaching the final checkpoint. Anonymous Workday may end
   at the `site_login_required` human handoff
-  (`passed_expected_human_handoff_without_submit`). Any other outcome fails the
-  run.
+  (`passed_expected_human_handoff_without_submit`) or at that same classified
+  intermediate-write guard when the guard is reached first. Any other outcome
+  fails the run.
 - These wrappers select current public vacancies over the network, so they are
   supporting external-network evidence about the sealed app. They complement,
   and never deterministically replace, the internal immutable-snapshot
@@ -467,7 +556,15 @@ Common package aliases:
 ### Normal-screen interaction closeout (2026-08-13)
 
 - The final production build was exercised at 1440x920 against an isolated synthetic workspace. The pointer-owned scroll probe records the outer header at `0 -> 177`, center results at `0 -> 600`, right details at `0 -> 600`, a successful left-pane advance, and upward boundary handoff back to outer `0`. Evidence: `apps/desktop/test-artifacts/ui/normal-screen-final-20260813/nested-scroll-report.json` and `nested-scroll-owners.png`.
-- Profile Copilot production geometry must keep both its wrapper and panel at left `16`, right `1424`, and width `1408` in a 1440 px window, then restore to the ordinary 480 px width. Evidence: `apps/desktop/test-artifacts/ui/normal-screen-final-20260813/copilot-maximized.png`.
+- Profile Copilot production geometry must preserve the Profile title, tabs,
+  editor width, and scroll regions exactly when the chat opens. The default is
+  a modeless floating chat, not a reserved side rail or split pane: at 1175 px
+  it is at most 360 px wide, and at 1280/1440 px it is at most 384 px wide.
+  It stays below the Profile tabs, introduces no horizontal overflow, and can
+  be minimized to reveal any lower-right control it temporarily covers. A
+  technically fixed overlay that visually hides most of Profile is a failure.
+  Current focused evidence:
+  `/tmp/unemployed-product-loop-20260901/copilot-compact-final/geometry.json`.
 - Profile Copilot command coverage is union-exhaustive rather than example-specific. The AI-provider harness must cover every `ProfileCopilotPatchOperation` discriminant, runtime-owned review metadata, grouped operations, invalid-operation repair, every deterministic replacement-field descriptor, safe multi-field parsing, explicit clears, and specialist ownership. The Job Finder service harness must send each operation through proposal, explicit Apply, repository reload, and revision-backed Undo; adding a new operation or descriptor without a matching case must fail typecheck or the coverage test.
 - Final production journey evidence covers Profile setup/import/Copilot, Resume Studio editing/export/approval, apply queue consent/cancel/recovery, and Interview Helper setup/chat/popups/review/export. Run folders: `profile-setup-20260813-final-closeout`, `resume-workspace-20260813-final-closeout`, `apply-queue-controls-20260813-final-closeout`, `applications-queue-recovery-20260813-final-closeout`, and `interview-helper-basic-20260813-final-closeout` under `apps/desktop/test-artifacts/ui/`. Every harness uses isolated synthetic state and leaves final submission untouched.
 - Apply cancellation/restart coverage must prove active browser work observes abort, late results cannot overwrite cancelled state, application page preparation closes prior app-owned tabs, graceful shutdown waits for the active promise, and a hard-restart snapshot converts an orphaned `running` run to `failed` with `completedAt` and explicit no-submit wording, settles every planned result of that run to terminal failed with truthful preparation-stopped-before-review and no-final-submit copy, keeps genuinely begun results' start marks and day-capacity counting while never-begun or legacy rows normalize absent marks to explicit null without becoming legacy-uncertain capacity, leaves `awaiting_review` and already-terminal results untouched, and stays idempotent across repeated recovery.
@@ -477,10 +574,47 @@ Common package aliases:
 
 - Focused component coverage loads 507 typed discovery targets and requires catalog-wide search/filtering, exactly 25 compact rows per page, quick enablement, one mounted detailed editor, source-specific action names, and enabled/total tab progress. Provider coverage requires EU-hosted Lever boards to use `api.eu.lever.co` while ordinary boards continue to use the default Lever API.
 - Production-Electron acceptance uses an isolated workspace, 1440×920 at 100% zoom, browser-agent/live-AI/final-submit authority off, and the reviewed 507-source catalog with every source disabled. It must preserve all five Profile tabs, show zero document/inner horizontal overflow, paginate and search without mounting the full catalog, open exactly one editor, and record zero renderer errors.
-- Pointer-owned scrolling is a release assertion: after the outer Profile header has yielded to its body, a wheel positioned over `#profile-section-scroll-area` must advance only that inner pane. The locked-layout handoff uses a native non-passive capture listener so a single wheel delta cannot move both nested scroll owners. Current evidence: `apps/desktop/test-artifacts/ui/job-sources-library-507-20260811/capture-report.json`.
+- Pointer-owned scrolling is a release assertion, and its rule is **native first**: with the pointer over a pane that still has scroll range in the wheel's direction, the layout must not call `preventDefault` and must not write a `scrollTop` — the browser scrolls that pane on the compositor with its own momentum, at full delta. Custom arbitration is permitted only at a true boundary, where the pointed-at chain is exhausted in that direction; a single wheel delta must still never move two nested scroll owners. Verify by dispatching a burst of identical wheel events over a pane and requiring a flat per-event `scrollTop` delta from the first event, with the outer route scroller unmoved. Current evidence: `apps/desktop/test-artifacts/ui/job-sources-library-507-20260811/capture-report.json`.
 
 ### Production Electron journeys
 
+- Current public Ashby discovery and shortlist (wave9x):
+  `apps/desktop/test-artifacts/persona-wave-20260828/live-public-current/run-20260828T041757595Z/`
+  must bind one rebuilt Electron bundle to the timestamped public Umbrel
+  inventory, visible source opt-in, completed source-generic Search, Results,
+  exact current-listing inspection, and a durable Shortlisted row. The accepted
+  report requires 11 public/app jobs, the selected public Senior Frontend
+  listing with Umbrel / Remote labels, one original-resume-ready queue item,
+  zero renderer errors, and all no-account/no-application/no-submit assertions.
+  Discovery-only acceptance must additionally prove campaign retention includes
+  staged candidates without prematurely saving them, then moves only the chosen
+  candidate from staged storage into a reviewable saved status.
+- Current-build Priya/native-accessibility wave (wave9w):
+  `apps/desktop/test-artifacts/persona-wave-20260828/priya-single-build-current/`
+  must pass every import-to-Applications leg plus `noEmployerSubmit`, persist one
+  exact ApplicationRecord, retain both final-submit flags as false, and include a
+  visually reviewed one-page PDF. The companion
+  `native-dialog-accessibility-probe/` is production mode with the test API
+  absent: screenshots and the chosen-path PDF prove genuine macOS Open and Save
+  selection; `keyboard-accessibility-report.json` proves reduced-motion matching,
+  settled visible focus styling, keyboard Enter navigation to the exact resume
+  route, named landmarks, one H1/main, and no unlabeled images. Do not infer
+  native Cancel behavior from selection evidence: the separate
+  `native-save-cancel-report.json` records a genuine macOS Save Cancel click and
+  unchanged export count, while `native-open-cancel-report.json` records a
+  genuine Open Cancel click and unchanged imported filename, digest, and ready
+  extraction state.
+- Current-build Sam prepare-only funnel (wave9v):
+  `apps/desktop/test-artifacts/persona-wave-20260828/sam-single-build-current/`
+  starts from empty isolated userdata and drives the visible UI from test-only
+  resume-path import through guided setup, local source opt-in, compact-first
+  discovery, shortlist, tailored PDF export/approval, Prepare, and Applications.
+  Its accepted report requires every leg plus `noEmployerSubmit` to pass. Review
+  the exported PDF by rendering it, not only by trusting the export action. The
+  companion native-125% replay under
+  `test-artifacts/persona-wave-20260828/sam-current-compact-125/` must show that
+  selecting a stacked Applications row reveals the detail panel and **Next
+  step** rather than leaving the user at the list.
 - Greenhouse original CV: post-seal release evidence uses the four-variable
   bound environment and
   `pnpm --filter @unemployed/desktop test:job-finder-complete-flow:built`.
@@ -500,19 +634,94 @@ Common package aliases:
 - Action Inbox: `apps/desktop/test-artifacts/ui/action-inbox/capture-report.json` covers 1440 px, 900 px, and native 200% zoom. All contextual controls and shell destinations must be visible with zero horizontal overflow; credentials stay browser-only and both authorization flags stay false.
 - Limited Interview Helper regression: `node apps/desktop/scripts/capture-interview-helper-basic.mjs` against the built app. `apps/desktop/test-artifacts/ui/interview-helper-basic/report.json` must prove two visible popup windows, typed send, temporary image attachment, copy, hide/reopen, resize, exact bounds restoration, renderer-reload persistence, configured local STT readiness, and no retained raw image bytes. This harness does not replace a live microphone/system-audio hardware pass.
 
+### Active product-iteration loop
+
+Use this loop while Job Finder is still changing:
+
+1. Use one current desktop build and one serialized Electron owner with isolated
+   user data. That owner walks the visible Profile import -> setup -> discovery
+   -> shortlist -> tailored resume -> approval/preparation -> Applications
+   journey and captures every meaningful before/after state. Do not launch
+   competing Electron copies or spend the round rebuilding fixture machinery.
+   Time-box the capture to 15 minutes. If fixture or launcher work prevents a
+   useful app screenshot or a reproducible product finding in that time, stop
+   the round and report the blocker instead of repairing the harness.
+2. Capture both a normal desktop viewport and the supported compact viewport.
+   Include first-load, populated, empty, loading, disabled, pending, success,
+   validation, error/retry, long-copy, scrolled, minimized/reopened, and
+   navigation-return states where the flow exposes them. A route, tab, button,
+   dialog, toast, or editor action is not considered checked merely because it
+   exists in source or a unit test.
+3. Give the shared screenshots and path to independent product/UX, visual, and
+   functional reviewers in parallel. Reviewers should be candid and may reject
+   technically correct UI. They must check first-viewport usefulness; whether a
+   click visibly changed the page; fixed-header/title collisions; brand and
+   active-navigation persistence; margins, padding, alignment, density, action
+   hierarchy, button grouping, contrast, clipping, overflow, scroll ownership,
+   long text, empty space, overlays, toasts, chat readability, and whether the
+   next action is obvious without scrolling or guessing. Time-box each review
+   to 10 minutes; parallelize reviewers over the same evidence, not Electron
+   instances or persona workspaces.
+4. Record only concrete findings with a screenshot/state, user impact, expected
+   behavior, and likely source owner. Consolidate duplicates by root cause and
+   rank the user-blocking or trust-breaking issues first. An agent that produces
+   no requested capture or finding within its bound should stop and report the
+   blocker; do not turn fixture debugging into the product task.
+5. Assign non-overlapping implementation ownership and fix the accepted findings
+   as one batch. Prefer direct product changes over new harness, architecture,
+   evidence, or documentation work unless the visible defect genuinely requires
+   it. Do not run validation after each small edit.
+6. Run focused tests and static checks once for the touched behavior, then make
+   one desktop build for the whole batch. Reopen one Electron session and
+   recapture only the changed states plus the adjacent end-to-end path. Repeat
+   from step 1 until no high-impact internal flow defect remains. Deliver a
+   small before/after screenshot set for every batch so the visible improvement
+   can be judged directly instead of inferred from tests or a change list.
+
+After a major batch, use at most two or three distinct personas to expose
+different user needs. Do not run a 14-persona wave during product iteration.
+Do not start architecture, authority, persistence, custody, or release work
+unless a reproduced product defect requires it or the user explicitly changes
+the active priority. Eventual autonomous submission remains a separate product
+track; it must not displace finishing the visible prepare-only journey.
+
+This loop does not require a fingerprint, evidence manifest, immutable
+snapshot, external seal custody, broad `pnpm verify`, `pnpm test:evidence`, or
+a canonical 14-persona workspace. Those controls remain available only for a
+settled release candidate explicitly declared by the user. Product safety
+boundaries remain mandatory throughout iteration: no tester or automation may
+use credentials, solve challenges, create accounts, accept legal consent, or
+perform a final employer submission.
+
+### Iterative persona-wave verification (diagnostic polish only; non-acceptance)
+
+Use this lighter rhythm after each **big fix batch** on the Job Finder funnel as diagnostic feedback only. It is non-acceptance evidence and does not replace, shorten, or override the sealed blind-persona rounds below. The canonical visual-criticism prompt and evidence contract apply only to the sealed wave.
+
+1. Finish the polish/quality batch and rebuild desktop if renderer or main changed.
+2. **Do not self-verify alone** — launch **three parallel persona testers** against `apps/desktop/test-artifacts/persona-wave-20260826/`:
+   - **Jordan** — `jordan-from-scratch/userdata`; Partiful/LinkedIn prepare path; skip resume import when an approved export already exists.
+   - **Priya** — `priya-from-scratch/userdata`; Wellfound encoded-resume path; shortlist title/quality checks.
+   - **Maya** — `from-scratch-full/userdata`; discovery volume and shortlist quality.
+3. Each tester drives the **built Electron app** through the visible UI (Playwright/CDP or existing persona scripts). Save screenshots as `polish-*` or `wave-*` under the persona directory. Default env: `UNEMPLOYED_ENABLE_TEST_API=1`, `UNEMPLOYED_TEST_API_USE_LIVE_AI=0` (conserve OpenCode Go unless explicitly testing AI quality). Never perform employer final submit.
+4. Each report may include structured feedback: **UX clarity 1–5**, **quality 1–5**, **blockers**, **next fixes** (plain language, first person where helpful). Do not treat these polish reports as canonical visual-review evidence.
+5. Synthesize all three reports, implement accepted root-cause fixes, rebuild, and repeat until the funnel is simple and obvious for non-technical users—or document acceptable external limits (for example LinkedIn service-worker pause requiring a Safeguards reset).
+
+Canonical harness entry points: `jordan-from-scratch/run-jordan-retest-prepare.mjs`, `priya-from-scratch/run-priya-retest-bonus.mjs`, and persona launch helpers under the same wave directory.
+
 ### Blind persona usability rounds
 
 - Run blind persona testing only after the current fix wave is integrated, the source is stable, and one passing immutable-snapshot production acceptance run owns the accepted app and evidence. Do not use a stale build or let persona sessions rebuild it independently. The final full acceptance run and its externally held seal are pending for the current candidate.
 - Execution-day order is fixed: one passing sealed acceptance run owns the accepted app; the expected seal SHA-256 is custodied outside the repository; one single sequential prepare invocation (`--persona all`) seeds every workspace into a fresh empty destination root plus a fresh custody root; read-only `--verify-all` re-checks the sealed wave; only then may tester launches begin.
-- The canonical version-1 corpus contains 14 fixed personas, `P01` through `P14`, in `apps/desktop/test-fixtures/job-finder/blind-personas/manifest.json`, with referenced resume and job-corpus assets. It covers first-job, junior and experienced technical, career-change/logistics, laid-off management, returning-parent/time-limited, older low-confidence, non-native-English, privacy-cautious, employment-gap, keyboard/low-vision, high-volume returning, marketing-management, and service-management contexts. The final canonical manifest digest is `a8cb5836e830272eea96894a80d2ed4e795d31e0a1d97dea7f05ecd092fd7b7d`; P01–P12 start from fresh empty workspaces and P13–P14 return to persisted workspaces, and an independent tri-model clean-room review returned GO on this framing. The fixtures and seed pipeline are prepared; no workspace is prepared and no persona session has launched or completed.
+- The canonical version-1 corpus contains 14 fixed personas, `P01` through `P14`, in `apps/desktop/test-fixtures/job-finder/blind-personas/manifest.json`, with referenced resume and job-corpus assets. It covers first-job, junior and experienced technical, career-change/logistics, laid-off management, returning-parent/time-limited, older low-confidence, non-native-English, privacy-cautious, employment-gap, keyboard/low-vision, high-volume returning, marketing-management, and service-management contexts. The final canonical manifest digest is `8b8f95b8d06b178062d5c542ecd7f927172c715a7e9a66148d4987b3fd8f1e14`; P01–P12 start from fresh empty workspaces and P13–P14 return to persisted workspaces, and an independent tri-model clean-room review returned GO on this framing. The fixtures and seed pipeline are prepared; no workspace is prepared and no persona session has launched or completed.
+- The manifest's `visualReviewTemplate` is the one canonical, versioned visual-criticism prompt. Preparation copies it into each sealed persona seed manifest, and every tester launch emits an inspectable `testerBrief` in both the immutable launch intent/record and launcher stdout, with the same bound checklist and an explicit `POST-JOURNEY OPTIONAL CHECKPOINT` for Profile Copilot. It asks for criticism of repeated chrome, useful above-fold content, intentional padding/margins/gutters and width use, action-group alignment and accidental full-width controls, consistent heights/gaps/wrapping, disabled-action explanations, focus/DOM order, loading alignment, top-left brand and native macOS traffic lights, active navigation, toast/action overlap, painted clipping, overflow, and every click/state change, without naming a prescribed route.
 - Persona testers receive only: their situation, the visible product promise, a realistic job-search goal, and the authority boundary that credentials, CAPTCHA/MFA, consent, account creation, and final submit remain theirs. They must not read repository source, tests, product docs, route maps, audit findings, or implementation vocabulary before the session.
 - Prepare all sealed workspaces from the accepted run with `node apps/desktop/scripts/prepare-blind-persona-workspaces-cli.mjs --acceptance-run-dir <production-acceptance-run> --expected-seal-sha256 <externally-held-sha256> --destination-root <empty-parent> --custody-root <separate-directory> --persona all`. The command independently verifies the sealed acceptance report, build manifest, source/artifact/evidence inventories, accepted app, runtime probe, and Electron identity; performs exactly one test-only reset per persona; proves normal production restart durability; seals every workspace; and writes a custody index outside all persona roots. Each preparation invocation needs a fresh empty destination root and a fresh custody root: the custody index is written exclusively, so rerunning into a used custody root fails with `EEXIST` instead of overwriting — use a new empty custody directory per preparation. Partial waves remain explicitly incomplete (`waveComplete: false`) and cannot launch testers.
-- Custody is tamper-evident for the seeded state and tolerant of runtime churn: each seed manifest seals a payload inventory (path, byte count, and SHA-256 for every file in the persona root), the external custody index binds that manifest digest plus the sealed-only workspace digest, and verification runs in two modes. Before any tester launch, mode is `strict`: every sealed entry must remain byte-for-byte identical and any post-seal mutation fails as contamination; files Electron creates at runtime are listed as unhashed volatile entries rather than failures. Once an archived launch record exists for a persona, later verification of that root runs in `consumed` mode: sealed entries must still exist as regular files (deletion or replacement stays fail-closed) while byte drift from legitimate use is expected user-owned state evolution, so interrupted sessions and retests relaunch through `--attempt` against the same wave without reseeding. The launcher re-verifies custody, workspace inventory in the correct mode, accepted-build binding, app identity, and test-API absence before every launch, and refuses an attempt claim with no archived evidence.
+- Custody is tamper-evident for the seeded state and tolerant of runtime churn: each seed manifest seals a payload inventory (path, byte count, and SHA-256 for every file in the persona root), the external custody index binds that manifest digest plus the sealed-only workspace digest, and verification runs in two modes. Before any tester launch, mode is `strict`: every sealed entry must remain byte-for-byte identical and any post-seal mutation fails as contamination; files Electron creates at runtime are listed as unhashed volatile entries rather than failures. Browser-managed top-level Chromium sidecars `DIPS-shm` and `DIPS-wal` present before sealing are classified as volatile and excluded from the sealed payload inventory; the durable `DIPS` file and all other files remain sealed. Once an archived launch record exists for a persona, later verification of that root runs in `consumed` mode: sealed entries must still exist as regular files (deletion or replacement stays fail-closed) while byte drift from legitimate use is expected user-owned state evolution, so interrupted sessions and retests relaunch through `--attempt` against the same wave without reseeding. The launcher re-verifies custody, workspace inventory in the correct mode, accepted-build binding, app identity, and test-API absence before every launch, and refuses an attempt claim with no archived evidence.
 - Re-check an already-sealed wave read-only with `node apps/desktop/scripts/prepare-blind-persona-workspaces-cli.mjs --verify-all --custody-index <blind-persona-wave-custody-index.json>`: it verifies the index self-digest, then runs the exact per-persona verification path (seed-manifest digest, payload-inventory byte equality, external custody binding), prints one ok/FAIL line per persona plus a JSON summary, and exits nonzero when any entry fails. Nothing is launched and no state is mutated; sealed-build re-verification is intentionally outside this pass, an empty index refuses, and an incomplete wave reports `waveComplete: false` while launches stay refused.
 - Launch one tester only through `node apps/desktop/scripts/launch-blind-persona-tester-cli.mjs --custody-index <blind-persona-wave-custody-index.json> --persona <P01..P14>`. The launcher rejects incomplete custody, changed app/workspace/manifest identity, test API exposure, and cross-persona data. `--attempt <n>` (integer >= 1, default 1) suffixes the launch record for relaunches and retests: attempt 1 keeps `P##-blind-persona-tester-launch-record.json`, higher attempts write `P##-...-launch-record-attempt-<n>.json`, so retries never hit `EEXIST` and every prior attempt stays archived evidence. `--driver-cdp` is the opt-in parent-only automation channel: the sealed app gets `--remote-debugging-address=127.0.0.1` plus ephemeral `--remote-debugging-port=0` resolved from the workspace `DevToolsActivePort` file (one verified fixed-high-random-port fallback exists, otherwise the launch fails closed), the resolved URL/port and flag provenance are recorded in the launch record, and the zero-network arguments (`--host-resolver-rules=MAP * 0.0.0.0,EXCLUDE localhost`, `--proxy-server=127.0.0.1:9`) stay intact. Tester shells use a minimal allowlisted environment; `UNEMPLOYED_ENABLE_TEST_API` must be absent there (the launcher fails closed if the test preload/API appears), browser agent, live AI, intermediate writes, and network are blocked, and the recorded environment lands in the launch record. The launcher process owns the app lifecycle: stop a session by sending SIGTERM to the launcher process and let it close its owned process tree; never kill the Electron app directly. Drive the accepted app through the visible UI with `agent-browser` or equivalent Electron UI automation; do not call internal IPC or mutate fixture state after launch to bypass a confusing step.
 - Prompts state outcomes rather than procedures, for example: "Set up this app to find suitable local or remote work, save a promising job, prepare a truthful resume for it, and get the application ready for me to review. Do not submit it." Never tell a tester which route, tab, button, or internal feature to use.
 - The viewport/zoom/input matrix comes from the canonical manifest and is applied by the external driver layer, never through tester instructions: `P11` runs keyboard-only, `P12` runs native `webContents` zoom factor 1.25 at a normal desktop window (not CSS zoom or a device-scale flag), and `P06` carries a 25-minute session with one interruption during active work — the supervisor SIGTERMs the launcher process and relaunches the same persona root as attempt 2. Tester isolation rules are unchanged: life context and outcome goal only. Because Chromium persists per-origin zoom inside each persona root, relaunches (including P06 attempt 2 and any zoomed session on a reused root) rely on the desktop shell's post-load zoom reassertion: requested native 1.0/1.25 wins after load, and launches without an explicit request deterministically start at native 100% instead of inheriting a previous session's host zoom.
-- Each tester records: completion or blocker; path taken; time and interaction count by journey stage; first point of confusion; misunderstood terms; backtracking; inaccessible or hidden controls; trust concern; expected next action; screenshots at every blocker; and a concise first-person verdict. Capture renderer errors and horizontal overflow separately from user feedback.
+- Each tester records: completion or blocker; path taken; time and interaction count by journey stage; first point of confusion; misunderstood terms; backtracking; inaccessible or hidden controls; trust concern; expected next action; screenshots at every blocker; and a concise first-person verdict. Testers are explicitly product critics, not script followers: they have full liberty to report non-blocking visual discomfort and must assess the first stable viewport, hierarchy/density and whether tabs or actions produce a visually obvious state change, loading-state alignment, brand/navigation persistence, and clipping/overlap. For each visual lens they record `clear|issue|not_observed` plus a concrete note; a visual `issue` must list at least one screenshot also present in top-level `screenshotPaths` and triage `P0|P1|P2`; `not_observed` is honest evidence, not a pass. One first-stable-viewport screenshot is enough when it supports several lenses; do not inflate the screenshot set with unchanged frames. Capture renderer errors and horizontal overflow separately from user feedback.
 - The north-star scenario is one uninterrupted `Profile -> Find jobs -> Shortlisted -> resume review/approval -> Prepare application -> user-owned final checkpoint -> Tracker` journey. Also cover returning-user discovery, follow-up, interrupted-work recovery, original-CV choice, and a no-results or blocked-source recovery.
 - Synthesis is independent from the persona testers. Deduplicate findings by root cause, rank P0 core-flow blockers before P1 repeated confusion and P2 polish, and reject suggestions that weaken evidence grounding, recovery truth, source-generic behavior, or user authority.
 - Fix only accepted root causes. An accepted fix rebuilds once, restarts the
@@ -537,8 +746,8 @@ Common package aliases:
 - Complete canonical wave only: `init` and `aggregate` fail closed when custody `waveComplete` is not `true`, and both refuse any persona set that is not exactly `P01` through `P14` once each. Incompleteness is reported before canonical-set diagnostics so real partial waves read clearly. `init` requires a fresh non-existing evidence root and rolls back created directories if scaffolding fails midway.
 - Wave binding: aggregation is authoritative. Each record's `waveCustodyPath` must resolve (canonical realpath) to the verified custody index, so wave-A evidence cannot be aggregated under wave B. The `record` command validates shape only.
 - Output containment: the synthesis input is written as a direct child of the evidence root (default `blind-persona-evidence-synthesis-input.json` there); a provided `--out` must also be that direct child and may never target custody data, persona subpaths, an evidence record, or an existing symlink. Missing/invalid records write no synthesis and remove a stale default synthesis so old output cannot masquerade as current.
-- Record schema highlights: verdicts are `complete|blocked|partial`; severity levels are `P0|P1|P2` with free-form supplementary `evidenceRefs` (not filesystem-validated). Structured `blockers[]` entries carry non-empty `summary`, `stage`, and at least one screenshot: a blocked verdict requires at least one blocker and one severity, a complete verdict requires no blockers, and every blocker screenshot must also appear in the top-level `screenshotPaths`. Horizontal overflow is recorded as structured `horizontalOverflowFindings[]` (`surface`, `summary`, `screenshotPath`) instead of a bare boolean; the synthesis derives `horizontalOverflow` per persona from finding count while preserving every occurrence. All screenshot paths are relative to the persona record directory, may nest subdirectories, must exist as regular files, and must not traverse upward or escape through symlinks.
-- Exit codes: aggregate exits nonzero when any record is missing/invalid or any P0 finding exists, so a parent session cannot silently proceed past a blocked wave. Aggregation produces the INPUT to independent synthesis (deduplicate by root cause, rank P0 before P1/P2); it is not final acceptance.
+- Record schema highlights: version 2 verdicts are `complete|blocked|partial`; severity levels are `P0|P1|P2` with free-form supplementary `evidenceRefs` (not filesystem-validated). Structured `blockers[]` entries carry non-empty `summary`, `stage`, and at least one screenshot: a blocked verdict requires at least one blocker and one severity, a complete verdict requires no blockers, and every blocker screenshot must also appear in the top-level `screenshotPaths`. `visualReview` requires the five visual lenses above, each with `clear|issue|not_observed`, a non-empty note, `screenshotPaths`, and nullable severity; an `issue` requires at least one path in the top-level screenshot list plus a `P0|P1|P2` triage, and a `clear` claim requires at least one top-level screenshot or an inspectable contained `observationSource` (`kind` plus regular-file `path`). Horizontal overflow is recorded as structured `horizontalOverflowFindings[]` (`surface`, `summary`, `screenshotPath`) instead of a bare boolean; the synthesis derives `horizontalOverflow` per persona from finding count while preserving every occurrence. All screenshot and observation-source paths are relative to the persona record directory, may nest subdirectories, must exist as regular files, and must not traverse upward or escape through symlinks.
+- Exit codes: aggregate exits nonzero when any record is missing/invalid, any visual lens is `issue` or `not_observed`, or any P0 finding exists, so a parent session cannot silently proceed past an incomplete wave. Visual issue severity is counted in the synthesis without upgrading every visual incompleteness to P0. Aggregation produces the INPUT to independent synthesis (deduplicate by root cause, rank P0 before P1/P2); it is not final acceptance.
 
 ### Blind original-vs-generated resume comparison (2026-08-25)
 
@@ -554,6 +763,10 @@ Common package aliases:
 - Compare providers on identical synthetic cases/templates and report latency, accepted/rejected AI contributions, grounding, role coverage, ATS rendering, and fallback separately. Do not treat deterministic fallback success as accepted model contribution.
 - Current sparse-generation sample: Luna high `technical_matrix` 17.222 s (0 accepted / 1 rejected) and `classic_ats` 23.126 s (1 / 0); Felidae 9.098 s (0 / 5) and 9.821 s (0 / 4). All quality gates were 1.0 because deterministic fallback owns safety. The correct conclusion is that Felidae was faster in this sample while Luna produced one accepted grounded rewrite and avoided its earlier timeout.
 - Final Luna-high recheck: `apps/desktop/test-artifacts/ui/luna-high-final/2026-08-09-luna-high-final/resume-quality-benchmark-report.json` completed `frontend_platform`/classic ATS in 11.207 s; `apps/desktop/test-artifacts/ui/luna-high-final/2026-08-09-luna-high-grounded/resume-quality-benchmark-report.json` completed `grounded_baseline`/classic ATS in 19.819 s. All gates were 1.0 and both sparse-generation calls abstained safely. The real configured Guided Edits journey completed successfully in 28.9 s.
+- Current temporary-route recheck (2026-08-28): the public full-funnel proof under `apps/desktop/test-artifacts/persona-wave-20260828/public-fallback-current-v5/` is provider-free and passes through Applications. The configured Muse-xhigh diagnostic under `live-ai-public-current-v3/` timed out at 60 s and produced a disclosed deterministic fallback; it is not live-AI quality evidence. Identical `frontend_platform`/classic ATS configured benchmarks record DeepSeek max timeout at 60.1 s, DeepSeek low response at 41.9 s with 0/3 accepted rewrites, and Muse low response at 25.9 s with 0/6 accepted rewrites. Reports are under `apps/desktop/test-artifacts/ui/provider-drift-{deepseek,deepseek-low,muse-low}-20260828/focused-current/`. Grounding/ATS/keyword gates remained 1.0 because deterministic safety owns the final artifact; the configured quality gate remains failed until at least one current frozen synthetic case records a timely, verifier-accepted model contribution. Do not increase the provider timeout or lower verifier rules merely to turn this gate green.
+- Prepare acceptance must use durable truth, not a clicked control or generic Applications row. Bind the latest ApplyJobResult to the exact ApplicationRecord and job, verify the approved artifact lineage and no-submit receipt, then report one of `READY_FOR_REVIEW`, `SAFE_STOP`, or `MISSING_OR_AMBIGUOUS`. A legitimate prepare-only pause on an ATS autosave is a safe-stop/manual-handoff result and makes the full funnel partial; it is not a preparation PASS. Poll terminal durable state instead of static route copy, and capture only meaningful state changes.
+- Intermediate-write safety requires a real-browser matrix in addition to pure classification: prove a same-origin request with explicit autosave/draft/update semantics passes only during the exact grounded-field window, while a final-action operation on the same origin remains blocked. Also cover absent authority, closed/expired/exhausted windows, cross-origin, ambiguous GraphQL, GET/DELETE, beacon, WebSocket/EventSource/WebTransport, DOM submit/requestSubmit, and delayed traffic. Never test this automated boundary against a real employer; use local synthetic fixtures until the user has explicitly selected an inspectable production policy.
+- Production-wiring coverage must additionally prove the exact one-job/one-origin/one-resume/current-answer/future-expiry envelope activates all prepare entry points only through the shared resolver, and that revocation or revision/answer/origin/resume drift makes the next per-field callback return false. Receipt coverage must keep local fills and blocked autosaves out of `externalWrites` and record a write only after a successful authorized synthetic response.
 
 ### Integrated gate state
 
@@ -601,8 +814,8 @@ Finder exact-build production acceptance").
 - resume-integrity/versioning coverage must prove saved-private-copy SHA-256, exact rendered HTML/PDF digest and format, malformed/missing legacy digest handling, tailored approval-time tamper or missing-file rejection, original/tailored pre-apply tamper or missing-digest rejection before an application attempt, digest/format propagation into privacy receipts, legacy revision compatibility, exact pre-mutation snapshots, no-op suppression, stale-save and slow-generation CAS rejection, atomic failure, 100-per-draft retention without cross-draft deletion, SQLite close/reopen chain integrity, exact restore across restart, approval/export invalidation including synchronized SQLite JSON/index state, original-profile preservation, bounded history UI, and save-before-restore behavior; the current focused cross-layer batch proves these behaviors with 150 tests
 - fit-truth coverage must prove legacy scorer compatibility, explicit compensation states, same-currency interval normalization across hourly/monthly/yearly wording, unknown and cross-currency neutrality without exchange-rate guesses, bounded above-minimum preference, below-minimum score/recommendation protection, ordering counterexamples, and Easy Apply isolation from suitability; catalog-agent and catalog-runtime helpers must retain unknown or cross-currency listings while excluding only explicit same-currency floors below the saved minimum
 - match-dimension coverage must prove typed safe defaults plus cited role suitability, preference alignment, application effort, and evidence-confidence outcomes; preference fixtures must cover location, work mode, seniority, employment type, and preferred company only when comparable evidence exists; unknown evidence must remain neutral, Easy Apply must affect effort only, and evidence confidence must measure supportability rather than hiring odds
-- dimension and calibration fixtures must prove scorer/session version 4 keeps unknown evidence neutral and effort outside fit, orders conservative recommendation before aggregate score, blocks hard geography/clearance/required-evidence conflicts, and produces a deterministic ranking-change audit against the labeled 52-case/four-cohort baseline
-- single-assessment coverage must prove one full calculation per unique scorer/context/posting input across budget and merge, persisted reuse only for exact version 4 fingerprints, safe legacy/profile/preference/material-posting invalidation, cross-target dedupe, and a 500-posting replay with stable output/order and measured before/after CPU; the current five-run in-process smoke measured `507.36 ms` full versus `275.38 ms` session median (`45.7%` reduction), exactly 500 calculations per run, and no measured regression from the prior version 2 session median of `278.27 ms`
+- dimension and calibration fixtures must prove scorer/session version 8 (logic revision 7) keeps unknown evidence neutral and effort outside fit, orders conservative recommendation before aggregate score, blocks hard geography/clearance/required-evidence conflicts, and produces a deterministic ranking-change audit against the labeled 52-case/four-cohort baseline
+- single-assessment coverage must prove one full calculation per unique scorer/context/posting input across budget and merge, persisted reuse only for exact version 8 fingerprints, safe legacy/profile/preference/material-posting invalidation, cross-target dedupe, and a 500-posting replay with stable output/order and measured before/after CPU; the current five-run in-process smoke measured `507.36 ms` full versus `275.38 ms` session median (`45.7%` reduction), exactly 500 calculations per run, and no measured regression from the prior version 2 session median of `278.27 ms`
 - Fit breakdown UI coverage must prove one compact five-row single-column list, the overall recommendation on result and detail surfaces, a visible required-gap callout, requirements behind a native disclosure, keyboard disclosure operation, recommendation-badge containment at wide/narrow/200% scale, and separate zero-overflow shell navigation acceptance at 200% device scale
 
 ## Resume Integrity And Versioning Performance
@@ -677,7 +890,7 @@ Finder exact-build production acceptance").
 
 - do not run live-site submit flows or final-submit QA unless the user explicitly re-authorizes it
 - validate apply work with deterministic contracts, service tests, and desktop harnesses by default
-- The live prepare-only harness must use a temporary user-data directory and fake profile, approve a current deterministic resume before apply, and fail if any attempt, job, or application record reaches `submitted`. Source URL, label, roles, exact-job enforcement, and intermediate-write authorization are configurable through `JOB_FINDER_PREPARE_ONLY_*` environment variables. Intermediate writes require the dedicated flag and desktop test API; final submit remains false and DOM submission stays guarded.
+- The live prepare-only harness must use a temporary user-data directory and fake profile, approve a current deterministic resume before apply, and fail if any attempt, job, or application record reaches `submitted`. Source URL, label, roles, and exact-job enforcement are configurable through `JOB_FINDER_PREPARE_ONLY_*` environment variables. The legacy intermediate-write test flag is restricted to loopback synthetic destinations; public ATS preparation requires the same explicit one-job Settings/main authority as production. Final submit remains false and DOM submission stays guarded.
 - Privacy-receipt coverage must prove query/fragment and local-path redaction, exact resume identity, typed runtime write evidence, empty model-use truth when no model participates, false account-creation/final-submit authority, and `finalSubmitOccurred: false`; Applications UI coverage must render Stayed local, Sent to a model, Written to the site, and Safety boundary groups without showing an empty receipt for legacy results. Application-packet coverage must additionally prove local-path stripping, destination query/fragment removal, exact answer provenance/checkpoints, and rejection of false submitted status; the desktop export control must remain an explicit local save action.
 - `test:job-finder-complete-flow` is the Greenhouse live acceptance gate for the original-CV journey. It queries the configured public board for a current matching vacancy, imports `test-fixtures/job-finder/resume-import-sample.txt` through the real extraction boundary, rediscovers the exact listing, shortlists it, verifies the imported CV remains unchanged, fills the application, and requires the final pre-submit checkpoint.
 - `test:job-finder-ashby-flow` runs the same original-CV safety journey against a dynamically selected current Ashby vacancy. `test:job-finder-workday-flow` uses an exact Workday candidate-experience listing and, when run anonymously, requires the expected `site_login_required` human handoff instead of treating sign-in as a failure or attempting credentials.
@@ -698,7 +911,12 @@ Finder exact-build production acceptance").
 - Application-flow performance tests must keep complete body/action/frame scans constant through form-stability sampling, including the full bounded failure window; controls-only inspection may optimize revalidation but must preserve mutation guards, persisted-value checks, late-widget recovery, and the final no-submit inspection.
 - The original-CV desktop harness persists the setting through the real UI, verifies Review Queue shows the imported filename and extracted text without a tailored-generation action, requires the visible primary `Start apply copilot` action, and writes screenshots plus `summary.json` under `apps/desktop/test-artifacts/ui/original-cv-flow/`.
 - For an isolated production import without a native file-picker handoff, run `node apps/desktop/scripts/seed-product-quality-audit.mjs --user-data-dir <isolated-dir> --resume <synthetic-resume>`. The seeder requires the test API, disables the browser agent, never performs application work, and writes `product-quality-audit-seed.json`; independently compare its recorded SHA-256 with the exact copied file bytes before accepting integrity evidence.
-- Guided Setup visual acceptance must prove the collapsed Profile Copilot stays in normal flow without covering review controls; opening may use the existing fixed panel only while the layout reserves its right rail. Check desktop, narrow, and 200% zoom.
+- Guided Setup and Profile visual acceptance must prove the collapsed Copilot
+  launcher does not cover review or save controls. Opening Copilot must not
+  reserve a right rail, shrink the profile editor, narrow its tabs, or transfer
+  scroll ownership. Check the closed and open states at desktop and compact
+  widths, compare their Profile geometry, and reject excessive visual
+  occlusion even when DOM geometry technically remains unchanged.
 - capture artifacts under `apps/desktop/test-artifacts/ui/`; they are QA output, not source files
 - The default Interview Helper harness must prove that starting an interview opens two visible popup windows (answer and transcript), while the main-window conversation, popup typed sends, temporary pasted/selected image attachments, explicit screen-context capture, copy controls, no retained raw image bytes, source-labeled transcript, and configured local STT readiness continue to work. Visible popup acceptance also requires real pointer drags, native edge resizing, hide/reopen from both popup and main controls, preservation of an in-progress draft during a workspace event, and an end/restart cycle restoring the exact saved bounds. `ui:interview-helper-popups` is the automated visual/interaction gate; Computer Use supplies native-window acceptance.
 - `test:interview-helper-audio:built` must exercise renderer recording, typed IPC, FFmpeg, and local Whisper for both microphone and Windows meeting/system-audio sources. The standalone local-command smoke test should use synthesized speech when diagnosing machine configuration.

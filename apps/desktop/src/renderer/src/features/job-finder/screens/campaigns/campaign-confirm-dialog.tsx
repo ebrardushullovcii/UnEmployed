@@ -78,10 +78,7 @@ export function CampaignConfirmDialog(props: {
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-destructive">
             {props.eyebrow}
           </p>
-          <h2
-            className="text-xl font-semibold text-(--text-headline)"
-            id={titleId}
-          >
+          <h2 className="font-semibold text-(--text-headline)" id={titleId}>
             {props.title}
           </h2>
           <p

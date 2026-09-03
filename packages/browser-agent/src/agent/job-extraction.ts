@@ -1,4 +1,8 @@
-import type { JobPosting } from "@unemployed/contracts";
+import {
+  formatEmployerLabelFromSlug,
+  sanitizeObservedEmployerLabel,
+  type JobPosting,
+} from "@unemployed/contracts";
 
 export type ExtractedJobInput = Pick<
   JobPosting,
@@ -68,6 +72,8 @@ export interface SearchResultCardCandidate {
   headingText: string | null;
   lines: string[];
   companyText?: string | null;
+  /** Absolute `/company/{slug}` (or company job) href observed on the card. */
+  companyHref?: string | null;
   locationText?: string | null;
   sourceJobIdHint?: string | null;
   captureMeta?: SearchResultCardCaptureMeta | null;
@@ -249,6 +255,61 @@ const GENERIC_JOB_PATH_SEGMENTS = new Set([
   "karriere",
   "karrier",
 ]);
+const SITE_UTILITY_PATH_SEGMENTS = new Set([
+  "about",
+  "about-us",
+  "blog",
+  "blogs",
+  "browse",
+  "candidates",
+  "contact",
+  "contact-us",
+  "faq",
+  "help",
+  "hire",
+  "hiring-data",
+  "support",
+  "privacy",
+  "privacy-policy",
+  "cookie-policy",
+  "politika-e-privatesise",
+  "politike-e-privatesise",
+  "politike-privatesise",
+  "politika-privatesise",
+  "mbrojtja-e-te-dhenave",
+  "mbrojtja-e-te-dhenave-personale",
+  "terms",
+  "terms-of-service",
+  "legal",
+  "login",
+  "log-in",
+  "signin",
+  "sign-in",
+  "signup",
+  "sign-up",
+  "register",
+  "account",
+  "kontakt",
+  "krijo-cv",
+  "create-cv",
+  "create-resume",
+  "llogaritja-e-pages",
+  "location",
+  "news",
+  "press",
+  "publiko",
+  "role",
+  "careers-home",
+]);
+const SITE_UTILITY_TITLE_PATTERN =
+  /^(blog|blogs|news|about|about us|contact|contact us|kontakt|faq|help|support|privacy|privacy policy|cookie policy|politik[eë]\s+e\s+privat[eë]sis[eë]|politika\s+e\s+privat[eë]sis[eë]|terms|sign in|log in|login|register|sign up|create cv|krijo cv|create resume|home|homepage|view all jobs|view all .+ jobs|overview|locations|pricing|jobs|remote jobs|remote|trust|curated|wellfound|wellfound:ai|why wellfound|previous|next|platform status|privacy & cookies|terms & risks|salaries|for companies|get discovered|hire developers|create profile|recruit pro|try errgo|web3 jobs|tech startups|sign up with google|produktet|publiko konkurs|llogarite pag[eë]n|llogaritja e pages|www\.fb\.com\/kosovajob|fb\.com\/kosovajob)$/i;
+// Albanian privacy titles often continue after "Privatësisë". Avoid `\b` after
+// diacritics — JS word boundaries treat `ë` as non-word, so `\b` fails before space.
+const SITE_UTILITY_ALBANIAN_PRIVACY_TITLE_PATTERN =
+  /^politik[aeë]\s+e\s+privat[eë]sis[eë]/i;
+const SITE_UTILITY_TITLE_PREFIX_PATTERN =
+  /^(sign up with|view all|create profile|get discovered|for companies|hire developers|platform status|privacy|privacy policy|cookie policy|terms|remote jobs|web3 jobs|tech startups|recruit pro|try errgo|why wellfound|publiko|llogarite|llogaritja|www\.fb\.com\/|fb\.com\/)\b/i;
+const SITE_UTILITY_OPEN_POSITIONS_TITLE_PATTERN = /^\d+\s+open positions$/i;
 const TWO_PANE_RESULTS_LIST_CLASS_HINTS = [
   "jobs-search-results",
   "jobs-search-results-list",
@@ -2719,7 +2780,103 @@ function inferCompany(
   return null;
 }
 
+/**
+ * Employer name from an explicit employer profile or employer-job href.
+ * Accepts hubs (`/company/{slug}`, `/employer/{slug}`, …) because those
+ * links name the employer on job cards — unlike treating a hub page itself
+ * as a job listing.
+ */
+export function inferEmployerFromCompanyProfileHref(
+  url: string | null | undefined,
+): string | null {
+  const canonicalUrl = cleanLine(url ?? "");
+  if (!canonicalUrl) {
+    return null;
+  }
+
+  const employerProfilePathMarkers = new Set(["company", "employer"]);
+
+  try {
+    const parsed = new URL(canonicalUrl);
+    const pathSegments = parsed.pathname
+      .split("/")
+      .map((segment) => cleanLine(decodeURIComponent(segment)))
+      .filter(Boolean);
+    const profileIndex = pathSegments.findIndex((segment) =>
+      employerProfilePathMarkers.has(segment.toLowerCase()),
+    );
+    if (profileIndex < 0) {
+      return null;
+    }
+
+    const slug = pathSegments[profileIndex + 1];
+    if (
+      !slug ||
+      GENERIC_JOB_PATH_SEGMENTS.has(slug.toLowerCase()) ||
+      SITE_UTILITY_PATH_SEGMENTS.has(slug.toLowerCase()) ||
+      !/[a-z\p{L}]/iu.test(slug)
+    ) {
+      return null;
+    }
+
+    // Some boards append numeric disambiguators to profile slugs.
+    const displaySlug = slug.replace(/-\d+$/u, "");
+    return formatEmployerLabelFromSlug(displaySlug);
+  } catch {
+    return null;
+  }
+}
+
+function inferCompanySlugFromCanonicalUrl(url: string): string | null {
+  const canonicalUrl = cleanLine(url);
+  if (!canonicalUrl) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(canonicalUrl);
+    const pathSegments = parsed.pathname
+      .split("/")
+      .map((segment) => cleanLine(decodeURIComponent(segment)))
+      .filter(Boolean);
+    const companyMarkerIndex = pathSegments.findIndex(
+      (segment) => segment.toLowerCase() === "company",
+    );
+    if (companyMarkerIndex < 0) {
+      return null;
+    }
+
+    const slug = pathSegments[companyMarkerIndex + 1];
+    if (
+      !slug ||
+      GENERIC_JOB_PATH_SEGMENTS.has(slug.toLowerCase()) ||
+      !/[a-z\p{L}]/iu.test(slug)
+    ) {
+      return null;
+    }
+
+    // Job listing URLs must include a role segment after `/company/{slug}`
+    // (or `/company/{slug}/jobs/{id}-…`). Pure hubs stay non-employers here.
+    const rest = pathSegments.slice(companyMarkerIndex + 2);
+    if (
+      rest.length === 0 ||
+      (rest.length === 1 && rest[0]?.toLowerCase() === "jobs")
+    ) {
+      return null;
+    }
+
+    return formatEmployerLabelFromSlug(slug);
+  } catch {
+    return null;
+  }
+}
+
 function inferCompanyFromCanonicalUrl(url: string): string | null {
+  const slugCompany = inferCompanySlugFromCanonicalUrl(url);
+  if (slugCompany) {
+    return slugCompany;
+  }
+
   const canonicalUrl = cleanLine(url);
   if (!canonicalUrl) {
     return null;
@@ -3031,6 +3188,92 @@ function mergeJob(
   };
 }
 
+/**
+ * True for bare job-board index URLs such as `/jobs` that are not concrete
+ * posting detail routes (no id-shaped segment after the jobs marker).
+ */
+export function isLikelyJobListingHubUrl(canonicalUrl: string): boolean {
+  const raw = cleanLine(canonicalUrl);
+  if (!raw) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => cleanLine(decodeURIComponent(segment)).toLowerCase())
+      .filter(Boolean);
+    return segments.length === 1 && segments[0] === "jobs";
+  } catch {
+    return false;
+  }
+}
+
+export function isLikelySiteUtilityJob(input: {
+  canonicalUrl: string;
+  title?: string | null;
+  captureMeta?: SearchResultCardCaptureMeta | null;
+}): boolean {
+  if (input.captureMeta?.inNavigation || input.captureMeta?.inHeader) {
+    return true;
+  }
+
+  const title = cleanLine(input.title ?? "");
+  if (
+    title &&
+    (SITE_UTILITY_TITLE_PATTERN.test(title) ||
+      SITE_UTILITY_ALBANIAN_PRIVACY_TITLE_PATTERN.test(title) ||
+      SITE_UTILITY_TITLE_PREFIX_PATTERN.test(title) ||
+      SITE_UTILITY_OPEN_POSITIONS_TITLE_PATTERN.test(title))
+  ) {
+    return true;
+  }
+
+  if (isLikelyJobListingHubUrl(input.canonicalUrl)) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(input.canonicalUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === "fb.com" ||
+      host === "www.fb.com" ||
+      host === "facebook.com" ||
+      host === "www.facebook.com" ||
+      host.endsWith(".facebook.com") ||
+      host.startsWith("help.")
+    ) {
+      return true;
+    }
+
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => cleanLine(decodeURIComponent(segment)).toLowerCase())
+      .filter(Boolean);
+    if (segments.some((segment) => SITE_UTILITY_PATH_SEGMENTS.has(segment))) {
+      return true;
+    }
+
+    const companyIndex = segments.indexOf("company");
+    if (companyIndex >= 0) {
+      const rest = segments.slice(companyIndex + 2);
+      // `/company/{slug}` hubs and `/company/{slug}/jobs` indexes are chrome.
+      if (
+        segments[companyIndex + 1] &&
+        (rest.length === 0 || (rest.length === 1 && rest[0] === "jobs"))
+      ) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
 function isCompleteJob(
   job: ExtractedJobInput | undefined,
 ): job is ExtractedJobInput {
@@ -3041,7 +3284,11 @@ function isCompleteJob(
     job.title &&
     job.company &&
     job.location &&
-    job.description,
+    job.description &&
+    !isLikelySiteUtilityJob({
+      canonicalUrl: job.canonicalUrl,
+      title: job.title,
+    }),
   );
 }
 
@@ -3070,6 +3317,15 @@ function buildJobFromStructuredData(
   const location = cleanLine(candidate.location) || inferLocation([], workMode);
   const description =
     cleanLine(candidate.description) || cleanLine(candidate.summary);
+
+  if (
+    isLikelySiteUtilityJob({
+      canonicalUrl,
+      title,
+    })
+  ) {
+    return null;
+  }
 
   return {
     sourceJobId:
@@ -3138,6 +3394,16 @@ function buildJobFromCardCandidate(
       ].join(" "),
       evidence,
     }) ?? canonicalizeUrl(candidate.canonicalUrl, pageUrl);
+  if (
+    isLikelySiteUtilityJob({
+      canonicalUrl,
+      title: candidate.anchorText ?? candidate.headingText,
+      captureMeta: candidate.captureMeta ?? null,
+    })
+  ) {
+    return null;
+  }
+
   const candidateFingerprint = buildSearchResultCardFingerprint(candidate);
   const lines = uniqueStrings(candidate.lines);
   const rawHeadingOrAnchor = selectBestRawCardTitle(candidate);
@@ -3209,9 +3475,15 @@ function buildJobFromCardCandidate(
     }) ??
     compositeTitle.location;
   const urlCompany = inferCompanyFromCanonicalUrl(canonicalUrl);
+  const urlCompanySlug = inferCompanySlugFromCanonicalUrl(canonicalUrl);
+  const companyHrefEmployer = inferEmployerFromCompanyProfileHref(
+    candidate.companyHref,
+  );
   const initialCompany =
-    trimToNull(candidate.companyText) ??
-    compositeMetadata?.company ??
+    sanitizeObservedEmployerLabel(trimToNull(candidate.companyText)) ??
+    sanitizeObservedEmployerLabel(compositeMetadata?.company) ??
+    companyHrefEmployer ??
+    urlCompanySlug ??
     inferCompany(
       metadataLines.filter(
         (line) =>
@@ -3235,17 +3507,19 @@ function buildJobFromCardCandidate(
     ) ??
     verificationMetadata?.location;
   const company =
-    initialCompany ??
-    inferCompany(
-      metadataLines.filter(
-        (line) =>
-          cleanLine(line).toLowerCase() !== (location?.toLowerCase() ?? ""),
-      ),
-      title,
-      location ?? null,
-    ) ??
-    pollutedTitleCompanySplit.company ??
-    urlCompany;
+    sanitizeObservedEmployerLabel(
+      initialCompany ??
+        inferCompany(
+          metadataLines.filter(
+            (line) =>
+              cleanLine(line).toLowerCase() !== (location?.toLowerCase() ?? ""),
+          ),
+          title,
+          location ?? null,
+        ) ??
+        pollutedTitleCompanySplit.company ??
+        urlCompany,
+    ) ?? null;
   const canonicalTitle = normalizeExtractedJobTitle({
     value: title,
     company,

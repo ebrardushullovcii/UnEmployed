@@ -35,7 +35,24 @@ const viewports = [
   { slug: "native-125", width: 1440, height: 920, zoomFactor: 1.25 },
   { slug: "minimum", width: 1024, height: 768, zoomFactor: 1 },
 ];
-const PLANNING_SETTINGS_MENU_LABEL = "Planning and settings";
+const PLANNING_SETTINGS_MENU_LABEL = "More";
+// The expanded 17rem sidebar lists everything inline; only the compact top
+// navigation keeps a More menu.
+const WIDE_SIDEBAR_DESTINATIONS = Object.freeze([
+  "Home",
+  "Profile",
+  "Find jobs",
+  "Shortlisted",
+  "Applications",
+  "Documents",
+  "Companies",
+  "Outcomes",
+  "Search plans",
+  "Resume approaches",
+  "Safeguards",
+  "Settings",
+  "Keyboard shortcuts",
+]);
 const PLANNING_SETTINGS_MENU_DESTINATIONS = Object.freeze([
   "Search plans",
   "Resume approaches",
@@ -135,6 +152,10 @@ const report = {
   requiredScenarioCompletionIds: [
     "home-zero-desktop",
     "home-zero-minimum",
+    "profile-basics-populated-first-viewport",
+    "profile-experience-populated-first-viewport",
+    "collapsed-shell-wordmark-minimum",
+    "opening-workspace-desktop",
     "guided-setup-empty-desktop",
     "guided-setup-empty-native125",
     "wide-sidebar-1440",
@@ -289,8 +310,32 @@ async function resetScroll(page) {
     }
   });
 }
+async function ensureLocatorText(page, text) {
+  await page.getByText(text, { exact: true }).first().waitFor({
+    state: "visible",
+    timeout: 10000,
+  });
+}
+async function clickNavigationControl(page, name) {
+  const roleControl = page.getByRole("button", { name }).first();
+  if (await roleControl.count()) {
+    await roleControl.click({ force: true });
+    return;
+  }
+
+  const control = page
+    .locator('button:visible, [role="tab"]:visible')
+    .filter({ hasText: name })
+    .first();
+  if (await control.count()) {
+    await control.click();
+    return;
+  }
+
+  await page.getByRole("tab", { name }).click({ force: true });
+}
 async function scanLayout(page) {
-  return page.evaluate(() => {
+  return page.evaluate((wideSidebarDestinations) => {
     const rendered = (el) => {
       const closedDetails = el.closest("details:not([open])");
       if (closedDetails && !el.matches("summary")) return false;
@@ -509,10 +554,29 @@ async function scanLayout(page) {
           ? ["hidden", "clip"].includes(getComputedStyle(sidebar).overflowX)
           : false,
       labels: sidebarLabels,
-      requiredLabels: ["Search plans", "Resume approaches"],
-      requiredDestinationsVisible: ["Search plans", "Resume approaches"].every(
-        (requiredLabel) => sidebarLabels.includes(requiredLabel),
+      // At >=1440 CSS px every destination is an inline sidebar row: the
+      // journey, both "Everything else" groups, and the shortcuts entry. No
+      // dropdown lives inside a navigation column that is already on screen.
+      requiredLabels: wideSidebarDestinations,
+      requiredDestinationsVisible: wideSidebarDestinations.every(
+        (requiredLabel) =>
+          sidebarLabels.some((sidebarLabel) =>
+            sidebarLabel.startsWith(requiredLabel),
+          ),
       ),
+      moreTriggerCount: sidebarNavigation
+        ? sidebarNavigation.querySelectorAll(
+            '[data-job-finder-sidebar-more], button[aria-label^="More"]',
+          ).length
+        : null,
+      scrollOwnerOverflowY: (() => {
+        const region = sidebar?.querySelector(
+          "[data-job-finder-sidebar-scroll-region]",
+        );
+        return region instanceof HTMLElement
+          ? getComputedStyle(region).overflowY
+          : null;
+      })(),
       pass: Boolean(sidebarVisible && sidebarInsideViewport),
       rect: sidebarRect
         ? {
@@ -523,14 +587,15 @@ async function scanLayout(page) {
           }
         : null,
     };
-    wideSidebarInfo.pass =
+    wideSidebarInfo.pass = Boolean(
       wideSidebarInfo.pass &&
       wideSidebarInfo.horizontalOverflowSuppressed &&
-      wideSidebarInfo.requiredDestinationsVisible;
-
-    const planningButton = document.querySelector(
-      'button[aria-label^="Planning and settings"]',
+      wideSidebarInfo.requiredDestinationsVisible &&
+      wideSidebarInfo.moreTriggerCount === 0 &&
+      /(auto|scroll)/.test(wideSidebarInfo.scrollOwnerOverflowY ?? ""),
     );
+
+    const planningButton = document.querySelector('button[aria-label^="More"]');
     const compactNavigation = document.querySelector(
       'nav[aria-label="Job Finder sections"]',
     );
@@ -548,7 +613,7 @@ async function scanLayout(page) {
       compactPlanningInfo.sidebarHidden;
 
     const planningMenu = document.querySelector(
-      '[role="navigation"][aria-label="Planning and settings"]',
+      '[role="navigation"][aria-label="More"]',
     );
     const planningMenuInfo = planningMenu
       ? (() => {
@@ -558,28 +623,28 @@ async function scanLayout(page) {
           const menuScrollable =
             planningMenu.scrollHeight > planningMenu.clientHeight + 2 ||
             /(auto|scroll)/.test(style.overflowY);
-          const items = Array.from(
-            planningMenu.querySelectorAll("button"),
-          ).map((item) => {
-            const itemRect = item.getBoundingClientRect();
-            const itemVisible = rendered(item);
-            const withinViewport =
-              itemRect.left >= -1 &&
-              itemRect.right <= window.innerWidth + 1 &&
-              itemRect.top >= -1 &&
-              itemRect.bottom <= window.innerHeight + 1;
-            return {
-              label: (
-                item.getAttribute("aria-label") ??
-                item.textContent?.replace(/\s+/g, " ").trim() ??
-                ""
-              ).slice(0, 80),
-              visible: itemVisible,
-              withinViewport,
-              reachable: itemVisible && (withinViewport || menuScrollable),
-              tabIndex: item.getAttribute("tabindex"),
-            };
-          });
+          const items = Array.from(planningMenu.querySelectorAll("button")).map(
+            (item) => {
+              const itemRect = item.getBoundingClientRect();
+              const itemVisible = rendered(item);
+              const withinViewport =
+                itemRect.left >= -1 &&
+                itemRect.right <= window.innerWidth + 1 &&
+                itemRect.top >= -1 &&
+                itemRect.bottom <= window.innerHeight + 1;
+              return {
+                label: (
+                  item.getAttribute("aria-label") ??
+                  item.textContent?.replace(/\s+/g, " ").trim() ??
+                  ""
+                ).slice(0, 80),
+                visible: itemVisible,
+                withinViewport,
+                reachable: itemVisible && (withinViewport || menuScrollable),
+                tabIndex: item.getAttribute("tabindex"),
+              };
+            },
+          );
           const horizontallyInside =
             rect.left >= -1 && rect.right <= window.innerWidth + 1;
           const verticallyInside =
@@ -685,6 +750,346 @@ async function scanLayout(page) {
           clientHeight: el.clientHeight,
         })),
     };
+  }, WIDE_SIDEBAR_DESTINATIONS);
+}
+
+async function collectWordmarkEvidence(page) {
+  return page.evaluate(() => {
+    const wordmark = document.querySelector("[data-desktop-brand-wordmark]");
+    const shell = document.querySelector("[data-job-finder-shell]");
+    if (!(wordmark instanceof HTMLElement)) {
+      return { pass: false, failures: ["wordmark marker is missing"] };
+    }
+    const rect = wordmark.getBoundingClientRect();
+    const style = getComputedStyle(wordmark);
+    const visible =
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      Number.parseFloat(style.opacity || "1") > 0 &&
+      rect.width > 0 &&
+      rect.height > 0;
+    const insideViewport =
+      rect.left >= -1 &&
+      rect.top >= -1 &&
+      rect.right <= window.innerWidth + 1 &&
+      rect.bottom <= window.innerHeight + 1;
+    const text = wordmark.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    const collapsed = shell?.getAttribute("data-sidebar-collapsed") === "true";
+    const failures = [];
+    if (!visible) failures.push("wordmark is not visibly rendered");
+    if (!insideViewport)
+      failures.push("wordmark is clipped outside the viewport");
+    if (text !== "UNEMPLOYED")
+      failures.push(`unexpected wordmark text: ${text}`);
+    return {
+      collapsed,
+      failures,
+      insideViewport,
+      pass: failures.length === 0,
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+      },
+      text,
+      visible,
+    };
+  });
+}
+
+async function collectGuidedSetupPrimaryActionEvidence(page) {
+  return page.evaluate(() => {
+    const normalize = (value) => (value ?? "").replace(/\s+/g, " ").trim();
+    const clippingValues = new Set([
+      "auto",
+      "clip",
+      "hidden",
+      "overlay",
+      "scroll",
+    ]);
+    const describe = (element) =>
+      element instanceof Element
+        ? `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}`
+        : null;
+    const rendered = (element) => {
+      if (!(element instanceof HTMLElement)) return false;
+      const closedDetails = element.closest("details:not([open])");
+      if (closedDetails && !element.matches("summary")) return false;
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return (
+        element.getClientRects().length > 0 &&
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        Number.parseFloat(style.opacity || "1") > 0 &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+    const geometry = (element) => {
+      if (!(element instanceof HTMLElement)) return null;
+      const rect = element.getBoundingClientRect();
+      const visibleRect = {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+      };
+      const clippingAncestors = [];
+      for (
+        let ancestor = element.parentElement;
+        ancestor;
+        ancestor = ancestor.parentElement
+      ) {
+        const style = getComputedStyle(ancestor);
+        const ancestorRect = ancestor.getBoundingClientRect();
+        const clipsX = clippingValues.has(style.overflowX);
+        const clipsY = clippingValues.has(style.overflowY);
+        if (clipsX || clipsY) clippingAncestors.push(describe(ancestor));
+        if (clipsX) {
+          visibleRect.left = Math.max(visibleRect.left, ancestorRect.left);
+          visibleRect.right = Math.min(visibleRect.right, ancestorRect.right);
+        }
+        if (clipsY) {
+          visibleRect.top = Math.max(visibleRect.top, ancestorRect.top);
+          visibleRect.bottom = Math.min(
+            visibleRect.bottom,
+            ancestorRect.bottom,
+          );
+        }
+      }
+      visibleRect.left = Math.max(visibleRect.left, 0);
+      visibleRect.top = Math.max(visibleRect.top, 0);
+      visibleRect.right = Math.min(visibleRect.right, window.innerWidth);
+      visibleRect.bottom = Math.min(visibleRect.bottom, window.innerHeight);
+      const visibleWidth = Math.max(0, visibleRect.right - visibleRect.left);
+      const visibleHeight = Math.max(0, visibleRect.bottom - visibleRect.top);
+      const fullyInsideViewport =
+        rect.left >= -1 &&
+        rect.top >= -1 &&
+        rect.right <= window.innerWidth + 1 &&
+        rect.bottom <= window.innerHeight + 1;
+      const fullyUnclipped =
+        visibleWidth >= rect.width - 1 && visibleHeight >= rect.height - 1;
+      const centerInsideViewport =
+        rect.left >= 0 &&
+        rect.top >= 0 &&
+        rect.right <= window.innerWidth &&
+        rect.bottom <= window.innerHeight;
+      const hit = centerInsideViewport
+        ? document.elementFromPoint(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2,
+          )
+        : null;
+      const hitTestInsideTarget =
+        hit instanceof Node && (hit === element || element.contains(hit));
+      return {
+        clippingAncestors,
+        fullyInsideViewport,
+        fullyUnclipped,
+        hitTestInsideTarget,
+        rect: {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        },
+        visibleRect: {
+          left: visibleRect.left,
+          top: visibleRect.top,
+          right: visibleRect.right,
+          bottom: visibleRect.bottom,
+          width: visibleWidth,
+          height: visibleHeight,
+        },
+      };
+    };
+    const heading = Array.from(document.querySelectorAll("h1")).find(
+      (candidate) => normalize(candidate.textContent) === "Guided setup",
+    );
+    const actionSpecs = [
+      { id: "choose-resume", label: "Choose my resume file…" },
+      { id: "enter-manually", label: "Enter details manually" },
+    ];
+    const actions = actionSpecs.map(({ id, label }) => {
+      const matches = Array.from(document.querySelectorAll("button")).filter(
+        (candidate) => normalize(candidate.textContent).includes(label),
+      );
+      const renderedMatches = matches.filter(rendered);
+      const element = renderedMatches[0] ?? matches[0] ?? null;
+      const measured = geometry(element);
+      const visible = rendered(element);
+      const enabled =
+        element instanceof HTMLButtonElement &&
+        !element.disabled &&
+        element.getAttribute("aria-disabled") !== "true";
+      return {
+        enabled,
+        found: renderedMatches.length === 1,
+        id,
+        label,
+        matchCount: matches.length,
+        renderedMatchCount: renderedMatches.length,
+        text: element ? normalize(element.textContent) : null,
+        visible,
+        ...(measured ?? {}),
+      };
+    });
+    const failures = [];
+    const headingVisible = rendered(heading);
+    if (!headingVisible) failures.push("Guided setup heading is not visible");
+    if (window.location.hash !== "#/job-finder/profile/setup")
+      failures.push(
+        `expected pristine Guided setup route, observed ${window.location.hash}`,
+      );
+    for (const action of actions) {
+      if (!action.found)
+        failures.push(
+          `${action.label} did not resolve to exactly one rendered button`,
+        );
+      if (!action.visible) failures.push(`${action.label} is not visible`);
+      if (!action.fullyInsideViewport)
+        failures.push(`${action.label} is outside the CSS viewport`);
+      if (!action.fullyUnclipped)
+        failures.push(`${action.label} is clipped by an ancestor or viewport`);
+      if (!action.hitTestInsideTarget)
+        failures.push(
+          `${action.label} is not the visible element at its center`,
+        );
+      if (!action.enabled) failures.push(`${action.label} is disabled`);
+    }
+    return {
+      actions,
+      failures,
+      heading: {
+        text: heading ? normalize(heading.textContent) : null,
+        visible: headingVisible,
+      },
+      pass: failures.length === 0,
+      route: window.location.hash,
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    };
+  });
+}
+
+async function collectOpeningHeaderEvidence(page) {
+  return page.evaluate(() => {
+    const shell = document.querySelector("[data-job-finder-opening-shell]");
+    const header = document.querySelector("[data-job-finder-shell-header]");
+    const brand = document.querySelector("[data-desktop-brand]");
+    const wordmark = document.querySelector("[data-desktop-brand-wordmark]");
+    const navigation = document.querySelector(
+      "[data-desktop-module-navigation]",
+    );
+    const isMac = shell?.classList.contains("platform-darwin") === true;
+    if (
+      !(shell instanceof HTMLElement) ||
+      !(header instanceof HTMLElement) ||
+      !(brand instanceof HTMLElement) ||
+      !(wordmark instanceof HTMLElement) ||
+      !(navigation instanceof HTMLElement)
+    ) {
+      return {
+        pass: false,
+        failures: ["opening-shell header markers are missing"],
+      };
+    }
+    const headerRect = header.getBoundingClientRect();
+    const brandRect = brand.getBoundingClientRect();
+    const wordmarkRect = wordmark.getBoundingClientRect();
+    const navigationRect = navigation.getBoundingClientRect();
+    const macControlClearancePx = wordmarkRect.left;
+    const navigationCenterDelta = Math.abs(
+      navigationRect.left +
+        navigationRect.width / 2 -
+        (headerRect.left + headerRect.width / 2),
+    );
+    const failures = [];
+    if (wordmark.textContent?.trim() !== "UNEMPLOYED")
+      failures.push("opening-shell wordmark is not the production wordmark");
+    if (headerRect.height !== 56)
+      failures.push(`opening-shell header height is ${headerRect.height}px`);
+    if (isMac && macControlClearancePx < 88)
+      failures.push(
+        `opening-shell wordmark starts inside the macOS controls area (${macControlClearancePx}px)`,
+      );
+    if (navigationCenterDelta > 2)
+      failures.push(
+        `opening-shell module navigation center delta ${navigationCenterDelta}px`,
+      );
+    if (brandRect.bottom > headerRect.bottom + 1)
+      failures.push("opening-shell brand escapes the header bounds");
+    return {
+      failures,
+      headerHeight: headerRect.height,
+      isMac,
+      macControlClearancePx,
+      navigationCenterDelta,
+      pass: failures.length === 0,
+      wordmark: wordmark.textContent?.trim() ?? "",
+    };
+  });
+}
+
+async function collectWorkspaceStateGeometry(page) {
+  return page.evaluate(() => {
+    const card = document.querySelector("[data-workspace-state-screen]");
+    const title = document.querySelector("[data-workspace-state-title]");
+    const message = document.querySelector("[data-workspace-state-message]");
+    const main = card?.closest("main");
+    if (
+      !(card instanceof HTMLElement) ||
+      !(title instanceof HTMLElement) ||
+      !(message instanceof HTMLElement) ||
+      !(main instanceof HTMLElement)
+    ) {
+      return {
+        pass: false,
+        failures: ["workspace-state geometry markers are missing"],
+      };
+    }
+    const mainRect = main.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const titleRect = title.getBoundingClientRect();
+    const messageRect = message.getBoundingClientRect();
+    const centerDeltaX = Math.abs(
+      cardRect.left + cardRect.width / 2 - (mainRect.left + mainRect.width / 2),
+    );
+    const centerDeltaY = Math.abs(
+      cardRect.top + cardRect.height / 2 - (mainRect.top + mainRect.height / 2),
+    );
+    const textCentered = [title, message].every(
+      (element) => getComputedStyle(element).textAlign === "center",
+    );
+    const childrenCentered = getComputedStyle(card).justifyItems === "center";
+    const failures = [];
+    if (centerDeltaX > 2)
+      failures.push(`card horizontal center delta ${centerDeltaX}`);
+    if (centerDeltaY > 2)
+      failures.push(`card vertical center delta ${centerDeltaY}`);
+    if (!textCentered) failures.push("title/message text is not centered");
+    if (!childrenCentered)
+      failures.push("workspace-state card children are not centered");
+    return {
+      centerDeltaX,
+      centerDeltaY,
+      childrenCentered,
+      failures,
+      pass: failures.length === 0,
+      textCentered,
+      title: title.textContent?.replace(/\s+/g, " ").trim() ?? "",
+      message: message.textContent?.replace(/\s+/g, " ").trim() ?? "",
+      rects: {
+        main: mainRect.toJSON(),
+        card: cardRect.toJSON(),
+        title: titleRect.toJSON(),
+        message: messageRect.toJSON(),
+      },
+    };
   });
 }
 async function probeNestedScroll(page) {
@@ -703,7 +1108,7 @@ async function probeNestedScroll(page) {
           b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight,
       );
     const openMenu = document.querySelector(
-      '[role="navigation"][aria-label="Planning and settings"]',
+      '[role="navigation"][aria-label="More"]',
     );
     if (openMenu instanceof HTMLElement && !candidates.includes(openMenu)) {
       return { available: false };
@@ -865,6 +1270,11 @@ async function probeNestedScroll(page) {
 }
 async function capture(page, label, metadata = {}) {
   await resetScroll(page);
+  const {
+    profileFirstViewport: profileFirstViewportOptions,
+    guidedSetupPrimaryActionEvidence: guidedSetupPrimaryActionEvidenceMetadata,
+    ...reportMetadata
+  } = metadata;
   let contentTargetScroll = null;
   let contentTargetEvidence = null;
   let preScreenshotGeometry = null;
@@ -879,6 +1289,16 @@ async function capture(page, label, metadata = {}) {
     await scrollTarget.waitFor({ state: "visible", timeout: 10000 });
     await scrollTarget.scrollIntoViewIfNeeded();
   }
+  const profileFirstViewportEvidence = profileFirstViewportOptions
+    ? await collectProfileFirstViewportEvidence(
+        page,
+        profileFirstViewportOptions,
+      )
+    : (metadata.profileFirstViewportEvidence ?? null);
+  const guidedSetupPrimaryActionEvidence =
+    metadata.expectGuidedSetupPrimaryActions
+      ? await collectGuidedSetupPrimaryActionEvidence(page)
+      : (guidedSetupPrimaryActionEvidenceMetadata ?? null);
   const fileName = `${String(report.captures.length + 1).padStart(3, "0")}-${slugify(label)}.png`;
   const fullPath = path.join(outputDir, fileName);
   // Gating evidence must describe the exact pre-screenshot state, so it is
@@ -921,6 +1341,7 @@ async function capture(page, label, metadata = {}) {
     activeBrowserWindow,
     fullPath,
     {
+      clickablePointScopeSelector: metadata.clickablePointScopeSelector ?? null,
       viewport: metadata.viewport ?? null,
       seedDigest: acceptance.seedDigest,
       route: metadata.route,
@@ -980,6 +1401,25 @@ async function capture(page, label, metadata = {}) {
       navigationPass &&
       metadata.profileDeepLinkVisibilityEvidence?.pass === true;
   }
+  if (metadata.expectProfileFirstViewport) {
+    navigationPass =
+      navigationPass && profileFirstViewportEvidence?.pass === true;
+  }
+  if (metadata.expectGuidedSetupPrimaryActions) {
+    navigationPass =
+      navigationPass && guidedSetupPrimaryActionEvidence?.pass === true;
+  }
+  if (metadata.expectWordmark) {
+    navigationPass = navigationPass && metadata.wordmarkEvidence?.pass === true;
+  }
+  if (metadata.expectWorkspaceStateGeometry) {
+    navigationPass =
+      navigationPass && metadata.workspaceStateGeometry?.pass === true;
+  }
+  if (metadata.expectOpeningHeader) {
+    navigationPass =
+      navigationPass && metadata.openingHeaderEvidence?.pass === true;
+  }
   if (metadata.contentTarget) {
     navigationPass = navigationPass && contentTargetEvidence?.pass === true;
   }
@@ -1011,7 +1451,11 @@ async function capture(page, label, metadata = {}) {
     },
     layout,
     nestedScroll,
-    ...metadata,
+    ...reportMetadata,
+    ...(profileFirstViewportEvidence ? { profileFirstViewportEvidence } : {}),
+    ...(guidedSetupPrimaryActionEvidence
+      ? { guidedSetupPrimaryActionEvidence }
+      : {}),
   };
   // Attach pass/fail logic
   const failures = [];
@@ -1045,22 +1489,22 @@ async function capture(page, label, metadata = {}) {
     failures.push(`pillsClipped ${JSON.stringify(layout.pillsClipped)}`);
   if (metadata.expectWideSidebar && !layout.wideSidebarInfo.pass)
     failures.push(
-      `1440 sidebar is not visible with Search plans and Resume approaches ${JSON.stringify(layout.wideSidebarInfo)}`,
+      `1440 sidebar does not list every destination inline with its own scroll owner ${JSON.stringify(layout.wideSidebarInfo)}`,
     );
   if (metadata.expectCompactPlanningButton && !layout.compactPlanningInfo.pass)
     failures.push(
-      `Compact Planning and settings navigation is not visible below 1440 ${JSON.stringify(layout.compactPlanningInfo)}`,
+      `Compact More navigation is not visible below 1440 ${JSON.stringify(layout.compactPlanningInfo)}`,
     );
   if (metadata.expectPlanningMenu && !layout.planningMenuInfo.pass)
     failures.push(
-      `Planning and settings menu is not inside the viewport with required destinations ${JSON.stringify(layout.planningMenuInfo)}`,
+      `More menu is not inside the viewport with required destinations ${JSON.stringify(layout.planningMenuInfo)}`,
     );
   if (
     metadata.expectPlanningMenuKeyboard &&
     metadata.planningMenuKeyboard?.pass !== true
   )
     failures.push(
-      `Planning and settings menu is not keyboard reachable ${JSON.stringify(metadata.planningMenuKeyboard)}`,
+      `More menu is not keyboard reachable ${JSON.stringify(metadata.planningMenuKeyboard)}`,
     );
   if (
     metadata.expectLongLabelScenario &&
@@ -1080,12 +1524,44 @@ async function capture(page, label, metadata = {}) {
     failures.push(
       `content-target visible-content evidence failed for ${metadata.contentTarget.selector}: ${JSON.stringify(contentTargetEvidence?.failures ?? [])}`,
     );
+  if (metadata.expectWordmark && metadata.wordmarkEvidence?.pass !== true)
+    failures.push(
+      `visible UNEMPLOYED wordmark evidence failed: ${JSON.stringify(metadata.wordmarkEvidence?.failures ?? [])}`,
+    );
+  if (
+    metadata.expectWorkspaceStateGeometry &&
+    metadata.workspaceStateGeometry?.pass !== true
+  )
+    failures.push(
+      `workspace-state center geometry failed: ${JSON.stringify(metadata.workspaceStateGeometry?.failures ?? [])}`,
+    );
+  if (
+    metadata.expectOpeningHeader &&
+    metadata.openingHeaderEvidence?.pass !== true
+  )
+    failures.push(
+      `opening-shell header geometry failed: ${JSON.stringify(metadata.openingHeaderEvidence?.failures ?? [])}`,
+    );
   if (
     metadata.expectProfileDeepLinkEvidence &&
     metadata.profileDeepLinkVisibilityEvidence?.pass !== true
   )
     failures.push(
       `profile deep-link visibility evidence failed: ${JSON.stringify(metadata.profileDeepLinkVisibilityEvidence?.failures ?? [])}`,
+    );
+  if (
+    metadata.expectProfileFirstViewport &&
+    profileFirstViewportEvidence?.pass !== true
+  )
+    failures.push(
+      `profile first-viewport evidence failed: ${JSON.stringify(profileFirstViewportEvidence?.failures ?? [])}`,
+    );
+  if (
+    metadata.expectGuidedSetupPrimaryActions &&
+    guidedSetupPrimaryActionEvidence?.pass !== true
+  )
+    failures.push(
+      `Guided setup primary-action visibility evidence failed: ${JSON.stringify(guidedSetupPrimaryActionEvidence?.failures ?? [])}`,
     );
   if (screenshot.clickablePointEvidence.pass !== true)
     failures.push(
@@ -1113,7 +1589,7 @@ async function exercisePlanningSettingsKeyboard(page, menu) {
   const count = await menuItems.count();
   if (count < PLANNING_SETTINGS_MENU_DESTINATIONS.length)
     throw new Error(
-      `Planning and settings menu exposed ${count} items; expected at least ${PLANNING_SETTINGS_MENU_DESTINATIONS.length}.`,
+      `More menu exposed ${count} items; expected at least ${PLANNING_SETTINGS_MENU_DESTINATIONS.length}.`,
     );
   const labels = await menuItems.evaluateAll((items) =>
     items.map(
@@ -1126,15 +1602,15 @@ async function exercisePlanningSettingsKeyboard(page, menu) {
   for (const requiredLabel of PLANNING_SETTINGS_MENU_DESTINATIONS) {
     if (!labels.some((label) => label.trim() === requiredLabel))
       throw new Error(
-        `Planning and settings menu did not expose ${requiredLabel}. Labels: ${JSON.stringify(labels)}`,
+        `More menu did not expose ${requiredLabel}. Labels: ${JSON.stringify(labels)}`,
       );
   }
   await page.waitForFunction(
     () =>
       document.activeElement instanceof HTMLButtonElement &&
-      document.activeElement
-        .closest('[role="navigation"][aria-label="Planning and settings"]') !==
-        null,
+      document.activeElement.closest(
+        '[role="navigation"][aria-label="More"]',
+      ) !== null,
     undefined,
     { timeout: 10_000 },
   );
@@ -1148,9 +1624,7 @@ async function exercisePlanningSettingsKeyboard(page, menu) {
         null,
       isPlanningDestination:
         active instanceof HTMLButtonElement &&
-        active.closest(
-          '[role="navigation"][aria-label="Planning and settings"]',
-        ) !== null,
+        active.closest('[role="navigation"][aria-label="More"]') !== null,
     };
   });
   await page.keyboard.press("End");
@@ -1163,9 +1637,7 @@ async function exercisePlanningSettingsKeyboard(page, menu) {
         null,
       isPlanningDestination:
         active instanceof HTMLButtonElement &&
-        active.closest(
-          '[role="navigation"][aria-label="Planning and settings"]',
-        ) !== null,
+        active.closest('[role="navigation"][aria-label="More"]') !== null,
     };
   });
   const pass =
@@ -1175,7 +1647,7 @@ async function exercisePlanningSettingsKeyboard(page, menu) {
     last.label === labels[labels.length - 1].trim();
   if (!pass)
     throw new Error(
-      `Planning and settings keyboard traversal did not reach first and last menu items: ${JSON.stringify({ first, last, labels })}`,
+      `More keyboard traversal did not reach first and last menu items: ${JSON.stringify({ first, last, labels })}`,
     );
   return {
     pass,
@@ -1482,7 +1954,7 @@ async function collectLongLabelEvidence(page, expectations) {
     ];
     const shortlistButtons = Array.from(
       document.querySelectorAll(
-        '[data-testid="discovery-detail-actions"] button',
+        '[data-testid="discovery-detail-primary-action"] button',
       ),
     ).filter(
       (el) =>
@@ -1841,6 +2313,158 @@ async function collectProfileDeepLinkVisibilityEvidence(page) {
       pass: failures.length === 0,
     };
   });
+}
+
+async function collectProfileFirstViewportEvidence(
+  page,
+  { activeSection, expectedHeading, expectedResumeFileName, expectCompact },
+) {
+  return page.evaluate(
+    ({
+      activeSection,
+      expectedHeading,
+      expectedResumeFileName,
+      expectCompact,
+    }) => {
+      const normalize = (value) => (value ?? "").replace(/\s+/g, " ").trim();
+      const rendered = (element) => {
+        if (!(element instanceof HTMLElement)) return false;
+        const style = getComputedStyle(element);
+        const rect = element.getBoundingClientRect();
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          Number.parseFloat(style.opacity || "1") > 0 &&
+          rect.width > 0 &&
+          rect.height > 0
+        );
+      };
+      const geometry = (element) => {
+        if (!(element instanceof HTMLElement)) return null;
+        const rect = element.getBoundingClientRect();
+        const intersectionHeight = Math.max(
+          0,
+          Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0),
+        );
+        const coverageRatio =
+          rect.height > 0 ? intersectionHeight / rect.height : 0;
+        return {
+          rect: {
+            left: rect.left,
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+          },
+          intersectionHeight,
+          coverageRatio,
+          visible: rendered(element),
+          horizontallyContained:
+            rect.left >= -1 && rect.right <= window.innerWidth + 1,
+        };
+      };
+      const failures = [];
+      const scrollRegion = document.querySelector(
+        "[data-locked-pane-scroll-region]",
+      );
+      const tab = document.querySelector(`#${activeSection}-tab`);
+      const tabPanel = document.querySelector(
+        `#profile-section-panel[aria-labelledby="${activeSection}-tab"]`,
+      );
+      const resumeSummary = document.querySelector(
+        "[data-profile-resume-summary]",
+      );
+      const resumeHost = tabPanel?.previousElementSibling;
+      const fullResumePanel =
+        resumeHost instanceof HTMLElement
+          ? resumeHost.querySelector(":scope > section")
+          : null;
+      const resumePanel = expectCompact ? resumeSummary : fullResumePanel;
+      const activeHeading = tabPanel?.querySelector("h2, h3, [role=heading]");
+      const scrollTop =
+        scrollRegion instanceof HTMLElement ? scrollRegion.scrollTop : null;
+      const resumeGeometry = geometry(resumePanel);
+      const activeHeadingGeometry = geometry(activeHeading);
+      const resumeText = normalize(resumePanel?.textContent);
+      const activeText = normalize(tabPanel?.textContent);
+      const compactObserved = resumeSummary instanceof HTMLElement;
+      const tabSelected =
+        tab instanceof HTMLElement &&
+        tab.getAttribute("aria-selected") === "true";
+      const activeHeadingMatches =
+        activeHeading?.textContent?.replace(/\s+/g, " ").trim() ===
+        expectedHeading;
+      const resumePopulated =
+        resumeText.includes(expectedResumeFileName) &&
+        (expectCompact || resumeText.includes("Imported details"));
+      const activeFields = Array.from(
+        tabPanel?.querySelectorAll("input, textarea, select") ?? [],
+      );
+      const activeContentPopulated =
+        activeText.includes(expectedHeading) &&
+        (activeFields.length > 0 || activeText.length > expectedHeading.length);
+      const resumeVisible =
+        resumeGeometry?.visible === true &&
+        resumeGeometry.intersectionHeight >= (expectCompact ? 24 : 64) &&
+        resumeGeometry.coverageRatio >= 0.25 &&
+        resumeGeometry.horizontallyContained;
+      const activeHeadingAboveFold =
+        activeHeadingGeometry?.visible === true &&
+        activeHeadingGeometry.intersectionHeight >= 16 &&
+        activeHeadingGeometry.coverageRatio >= 0.6 &&
+        activeHeadingGeometry.horizontallyContained;
+
+      if (scrollTop === null) failures.push("profile scroll region is missing");
+      else if (scrollTop > 1)
+        failures.push(`first viewport scrollTop is ${scrollTop}`);
+      if (!tabSelected)
+        failures.push(`active ${activeSection} tab is not selected`);
+      if (!activeHeadingMatches)
+        failures.push(
+          `active ${activeSection} heading ${JSON.stringify(activeHeading?.textContent?.trim() ?? null)} does not match ${JSON.stringify(expectedHeading)}`,
+        );
+      if (!resumePopulated)
+        failures.push(
+          `resume panel is not populated with ${expectedResumeFileName}`,
+        );
+      if (compactObserved !== expectCompact)
+        failures.push(
+          `expected ${expectCompact ? "compact" : "full"} resume panel, observed ${compactObserved ? "compact" : "full"}`,
+        );
+      if (!resumeVisible)
+        failures.push(
+          "resume panel is not meaningfully visible in the first viewport",
+        );
+      if (!activeContentPopulated)
+        failures.push(`active ${activeSection} content is not populated`);
+      if (expectCompact && !activeHeadingAboveFold)
+        failures.push(
+          `active ${activeSection} content heading is not meaningfully above the fold`,
+        );
+
+      return {
+        activeSection,
+        activeContentPopulated,
+        activeHeading:
+          activeHeading?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+        activeHeadingAboveFold,
+        activeHeadingGeometry,
+        compactObserved,
+        expectedHeading,
+        expectedResumeFileName,
+        firstViewport: true,
+        failures,
+        pass: failures.length === 0,
+        resumeGeometry,
+        resumePopulated,
+        resumeText: resumeText.slice(0, 240),
+        scrollTop,
+        tabSelected,
+      };
+    },
+    { activeSection, expectedHeading, expectedResumeFileName, expectCompact },
+  );
 }
 
 function sameIdentityList(left, right) {
@@ -2414,6 +3038,7 @@ async function run() {
       cwd: desktopDir,
       env: acceptanceEnvironment({
         UNEMPLOYED_USER_DATA_DIR: userDataDirectory,
+        UNEMPLOYED_TEST_WORKSPACE_OPENING_HOLD_MS: "750",
       }),
     });
     processOutputState = attachProcessOutput(app, report);
@@ -2444,12 +3069,112 @@ async function run() {
     );
     await setViewport(page, browserWindow, viewports[0]);
 
+    const openingState = page.locator("[data-workspace-state-screen]");
+    if ((await openingState.count()) > 0 && (await openingState.isVisible())) {
+      const workspaceStateGeometry = await collectWorkspaceStateGeometry(page);
+      const openingHeaderEvidence = await collectOpeningHeaderEvidence(page);
+      await capture(page, "opening-workspace-centered-desktop", {
+        viewport: viewports[0],
+        scenario: "opening-workspace",
+        scenarioId: "opening-workspace-desktop",
+        expectWorkspaceStateGeometry: true,
+        expectOpeningHeader: true,
+        openingHeaderEvidence,
+        workspaceStateGeometry,
+      });
+    } else {
+      throw new Error(
+        "Opening workspace state completed before acceptance could capture it; expose a narrow test-only bootstrap hold instead of silently omitting loading-state evidence.",
+      );
+    }
+
     const baseApplySnapshot = await page.evaluate(() =>
       window.unemployed.jobFinder.test.loadApplyQueueDemo(),
     );
     const baseResumeSnapshot = await page.evaluate(() =>
       window.unemployed.jobFinder.test.loadResumeWorkspaceDemo(),
     );
+
+    console.log(
+      "=== Populated Profile Basics and non-Basics first viewports ===",
+    );
+    const populatedProfileSnapshot = structuredClone(baseResumeSnapshot);
+    populatedProfileSnapshot.profileSetupState = {
+      status: "completed",
+      currentStep: "ready_check",
+      completedAt: "2026-03-20T10:05:00.000Z",
+      reviewItems: [],
+      lastResumedAt: "2026-03-20T10:05:00.000Z",
+    };
+    await page.evaluate(
+      (state) => window.unemployed.jobFinder.test.resetWorkspaceState(state),
+      populatedProfileSnapshot,
+    );
+    await page.reload();
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForFunction(
+      () => Boolean(window.unemployed?.jobFinder?.getWorkspace),
+      undefined,
+      { timeout: 15000 },
+    );
+    await waitForWorkspaceHydrated(page, 20000);
+    const hydratedProfileWorkspace = await getWorkspace(page);
+    assert(
+      hydratedProfileWorkspace?.profile?.fullName ===
+        populatedProfileSnapshot.profile.fullName &&
+        hydratedProfileWorkspace?.profile?.baseResume?.fileName ===
+          populatedProfileSnapshot.profile.baseResume.fileName &&
+        hydratedProfileWorkspace?.profile?.experiences?.length > 0,
+      "Populated Profile viewport fixture did not hydrate profile, resume, and experience data.",
+    );
+    await page.evaluate(() => {
+      window.location.hash = "#/job-finder/profile";
+    });
+    await page
+      .getByRole("heading", { level: 1, name: "Your profile" })
+      .waitFor({ state: "visible", timeout: 10000 });
+    await clickNavigationControl(page, "Basics");
+    await ensureLocatorText(page, "Personal details");
+    const profileBasicsFirstViewport = await capture(
+      page,
+      "profile-basics-populated-first-viewport",
+      {
+        viewport: viewports[0],
+        scenario: "profile-basics-populated-first-viewport",
+        scenarioId: "profile-basics-populated-first-viewport",
+        expectProfileFirstViewport: true,
+        profileFirstViewport: {
+          activeSection: "basics",
+          expectedHeading: "Personal details",
+          expectedResumeFileName:
+            populatedProfileSnapshot.profile.baseResume.fileName,
+          expectCompact: false,
+        },
+      },
+    );
+    await clickNavigationControl(page, "Work history");
+    await ensureLocatorText(page, "Work history");
+    const profileExperienceFirstViewport = await capture(
+      page,
+      "profile-experience-populated-first-viewport",
+      {
+        viewport: viewports[0],
+        scenario: "profile-experience-populated-first-viewport",
+        scenarioId: "profile-experience-populated-first-viewport",
+        expectProfileFirstViewport: true,
+        profileFirstViewport: {
+          activeSection: "experience",
+          expectedHeading: "Work history",
+          expectedResumeFileName:
+            populatedProfileSnapshot.profile.baseResume.fileName,
+          expectCompact: true,
+        },
+      },
+    );
+    report.scenarios.profileFirstViewports = {
+      basics: profileBasicsFirstViewport.profileFirstViewportEvidence,
+      experience: profileExperienceFirstViewport.profileFirstViewportEvidence,
+    };
 
     console.log("=== Fresh Home 0 metrics with guidance ===");
     await createEmptyStateInRenderer(page);
@@ -2481,10 +3206,13 @@ async function run() {
         scenario: "fresh-home-minimum-width",
         scenarioId: "home-zero-minimum",
         expectCompactPlanningButton: true,
+        expectWordmark: true,
+        wordmarkEvidence: await collectWordmarkEvidence(page),
       },
     );
     completeScenario("wide-sidebar-1440", freshHomeDesktop);
     completeScenario("compact-planning-settings-minimum", freshHomeMinimum);
+    completeScenario("collapsed-shell-wordmark-minimum", freshHomeMinimum);
     await setViewport(page, browserWindow, viewports[0]);
     report.scenarios.freshHome = {
       metricsZero: Object.values(freshHomeMetrics).every(
@@ -2516,6 +3244,7 @@ async function run() {
       viewport: viewports[1],
       scenario: "guided-setup-empty-native125",
       scenarioId: "guided-setup-empty-native125",
+      expectGuidedSetupPrimaryActions: true,
     });
     await setViewport(page, browserWindow, viewports[0]);
     report.scenarios.guidedSetup = { empty: true };
@@ -3018,7 +3747,11 @@ async function run() {
         longLabelEvidence,
         contentTarget: {
           selector: "[data-job-result-id]",
-          block: "center",
+          // The loop has already clicked the first rendered result, so it is
+          // visible before capture. `nearest` keeps the evidence target
+          // stable while avoiding a synthetic outer-page scroll caused by
+          // centering a tall long-label card under the fixed app header.
+          block: "nearest",
           textSelector: "strong",
           requiredTexts: LONG_LABEL_JOB_TITLES,
         },
@@ -3119,9 +3852,7 @@ async function run() {
       scenarioIds: ["long-label-sources-native125"],
     };
 
-    console.log(
-      "=== Planning and settings menu at native 125% inside viewport + keyboard ===",
-    );
+    console.log("=== More menu at native 125% inside viewport + keyboard ===");
     await setViewport(page, browserWindow, viewports[1]);
     await page.evaluate(() => {
       window.location.hash = "#/job-finder/home";
@@ -3131,7 +3862,7 @@ async function run() {
       .first()
       .waitFor({ state: "visible", timeout: 10000 });
     const planningSettingsButton = page.getByRole("button", {
-      name: /^Planning and settings/,
+      name: /^More/,
       exact: false,
     });
     await planningSettingsButton.waitFor({ state: "visible", timeout: 8000 });
@@ -3154,6 +3885,7 @@ async function run() {
         scenarioId: "planning-settings-menu-native125",
         expectPlanningMenu: true,
         expectPlanningMenuKeyboard: true,
+        clickablePointScopeSelector: '[role="navigation"][aria-label="More"]',
         planningMenuKeyboard,
       },
     );
@@ -3163,7 +3895,7 @@ async function run() {
       !planningMenuLayout.labels?.includes("Settings")
     )
       throw new Error(
-        `Planning and settings menu did not retain Settings at native 125%: ${JSON.stringify(planningMenuLayout)}`,
+        `More menu did not retain Settings at native 125%: ${JSON.stringify(planningMenuLayout)}`,
       );
     completeScenario(
       "planning-settings-menu-native125",

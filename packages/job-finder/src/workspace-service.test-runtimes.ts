@@ -223,7 +223,7 @@ export function createAgentBrowserRuntime(
       {
         source: "target_site",
         status: runtimeOptions?.sessionStatus ?? "ready",
-        driver: "catalog_seed",
+        driver: "chrome_profile_agent",
         label: "Browser session ready",
         detail: runtimeOptions?.sessionDetail ?? "Validated recently.",
         lastCheckedAt: "2026-03-20T10:04:00.000Z",

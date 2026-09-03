@@ -1,6 +1,12 @@
 import type { ReviewQueueItem, TailoredAsset } from "@unemployed/contracts";
+import { ChevronRight } from "lucide-react";
 import { Checkbox } from "@renderer/components/ui/checkbox";
-import { Badge, Button, ProgressBar } from "@renderer/components/ui";
+import {
+  Button,
+  ProgressBar,
+  SelectableRow,
+  SelectableRowLine,
+} from "@renderer/components/ui";
 import { cn } from "@renderer/lib/cn";
 import {
   useCallback,
@@ -18,18 +24,17 @@ import {
 } from "../../components/collection-pagination";
 import {
   CollectionNoMatches,
-  CollectionSavedViews,
   CollectionSearchToolbar,
   matchesCollectionSearch,
 } from "../../components/collection-search-toolbar";
 import { EmptyState } from "../../components/empty-state";
+import { formatJobEmployerLocationLine } from "../../lib/job-employer-location-display";
 import { StatusBadge } from "../../components/status-badge";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 import {
   focusCollectionItem,
   getAdjacentCollectionItemId,
 } from "../../lib/collection-keyboard-navigation";
-import { formatCountLabel } from "../../lib/job-finder-utils";
 import { Link } from "react-router-dom";
 import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigation";
 import { getDisplayedResumeProgress } from "./review-queue-progress";
@@ -38,6 +43,7 @@ import {
   TAILORED_DRAFT_PREPARATION_LIMIT,
   countQueueStageReady,
   countTailoredDraftPreparationEligible,
+  getReviewQueueResumePolicyCaption,
   getReviewQueueWorkflowStatus,
   getTailoredDraftPreparationResultMessage,
   isQueueStageReady,
@@ -95,10 +101,8 @@ export function ReviewQueueListPanel({
           item.company,
           item.location,
           item.resumeApplicationMode,
-          getReviewQueueWorkflowStatus(
-            item,
-            assetsByJobId.get(item.jobId),
-          ).label,
+          getReviewQueueWorkflowStatus(item, assetsByJobId.get(item.jobId))
+            .label,
         ]),
       ),
     [assetsByJobId, deferredQuery, queue],
@@ -191,13 +195,12 @@ export function ReviewQueueListPanel({
     : null;
   const draftPreparationResultMessage =
     getTailoredDraftPreparationResultMessage(draftPreparation);
-  const draftBacklogCue = isDraftPreparationRunning
-    ? null
-    : draftEligibleCount === 1
-      ? "1 job still needs its first tailored draft"
-      : draftEligibleCount > 1
-        ? `${draftEligibleCount} jobs still need their first tailored draft`
-        : null;
+  // With a single job the row already says "Needs a tailored resume", so the
+  // header count would only repeat it; the cue earns its place from two.
+  const draftBacklogCue =
+    isDraftPreparationRunning || draftEligibleCount < 2
+      ? null
+      : `${draftEligibleCount} jobs still need their first tailored draft`;
   const handleListKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>, jobId: string) => {
       const nextId = getAdjacentCollectionItemId(
@@ -217,17 +220,11 @@ export function ReviewQueueListPanel({
     },
     [currentQueuePage, onSelectItem, visibleQueue],
   );
-  const densityClasses =
-    view.density === "compact"
-      ? "gap-2 px-3 py-2"
-      : view.density === "detailed"
-        ? "gap-4 px-4 py-5"
-        : "gap-3 px-3 py-4";
 
   return (
-    <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
+    <section className="surface-panel-shell relative flex min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full xl:min-h-0">
       <div className="flex flex-wrap items-start justify-between gap-3 px-5 pb-2 pt-5">
-        <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-foreground">
+        <p className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-muted-foreground">
           Jobs
         </p>
         <div className="flex min-w-0 items-center gap-2">
@@ -236,46 +233,49 @@ export function ReviewQueueListPanel({
               {draftBacklogCue}
             </p>
           ) : null}
-          <Badge variant="section">
-            {formatCountLabel(queue.length, "job")}
-          </Badge>
+          {/* The search toolbar directly below owns the live count (and the
+              filtered "x of y" form), so a second static chip here only
+              repeats it. */}
         </div>
       </div>
-      {queue.length > 0 ? (
+      {/* A search field, a density switch and named views are list
+          management for a list that usually holds one to eight rows. Only the
+          search survives, and only once there is more than one row to search. */}
+      {queue.length > 1 ? (
         <CollectionSearchToolbar
           compact
-          density={view.density}
           label="Find a shortlisted job"
-          onDensityChange={view.setDensity}
           onQueryChange={view.setQuery}
-          placeholder="Search role or company"
+          placeholder="Search jobs"
           query={view.query}
           totalCount={queue.length}
-          viewActions={
-            <CollectionSavedViews
-              onApply={view.applySavedView}
-              onDelete={view.deleteSavedView}
-              onSave={view.saveCurrentView}
-              views={view.savedViews}
-            />
-          }
           visibleCount={visibleQueue.length}
         />
       ) : null}
-      {queue.length > 0 ? (
+      {queue.length > 1 ? (
         <details
           className="group mx-5 border-b border-(--surface-panel-border) py-2"
           data-testid="batch-actions"
           open={batchActionsOpen}
         >
+          {/* Same disclosure grammar as the workspace panel: chevron plus a
+              sentence-case label. */}
           <summary
             aria-expanded={batchActionsOpen}
-            className="cursor-pointer select-none text-sm font-medium text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            className="flex cursor-pointer select-none list-none items-center gap-1.5 text-sm font-medium text-foreground outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-[3px] focus-visible:ring-ring/40"
+            data-testid="batch-actions-summary"
             onClick={(event) => {
               event.preventDefault();
               setBatchActionsOpen((open) => !open);
             }}
           >
+            <ChevronRight
+              aria-hidden="true"
+              className={cn(
+                "size-4 shrink-0 transition-transform",
+                batchActionsOpen ? "rotate-90" : null,
+              )}
+            />
             Batch actions
           </summary>
           {batchActionsOpen ? (
@@ -310,7 +310,7 @@ export function ReviewQueueListPanel({
                       {draftPreparation.totalCount}
                     </p>
                     <Button
-                      className="h-7 px-2 text-xs font-medium tracking-normal normal-case"
+                      className="h-7 border-(--border-strong) px-2 text-xs font-medium tracking-normal normal-case"
                       onClick={onStopTailoredDraftPreparation}
                       size="compact"
                       type="button"
@@ -397,7 +397,9 @@ export function ReviewQueueListPanel({
               description="Shortlist a job from Find jobs to start resume review."
             />
             <Button asChild size="lg">
-              <Link to={buildJobFinderContextRoute("/job-finder/discovery", {})}>
+              <Link
+                to={buildJobFinderContextRoute("/job-finder/discovery", {})}
+              >
                 Go to Find jobs
               </Link>
             </Button>
@@ -435,22 +437,22 @@ export function ReviewQueueListPanel({
             const queueDisabledReasonId = `${queueCheckboxId}-disabled-reason`;
 
             return (
-              <div
+              // Selection is a tint plus an inset accent bar owned by the
+              // shared primitive. The row's padding, margin and border-width
+              // are identical in both states, so selecting a row can no longer
+              // resize it or move every row below it.
+              <SelectableRow
+                as="div"
                 key={item.jobId}
-                className={cn(
-                  "grid min-w-0 w-full rounded-(--radius-panel) border border-(--surface-panel-border) text-left text-foreground transition-colors",
-                  densityClasses,
-                  selectedItem?.jobId === item.jobId
-                    ? "border-(--field-border) bg-(--field)"
-                    : "surface-card-tint",
-                )}
+                className="grid gap-3 text-foreground"
+                selected={selectedItem?.jobId === item.jobId}
               >
                 <div className="flex w-full items-start justify-between gap-3">
                   {batchActionsOpen ? (
                     <label
                       htmlFor={queueCheckboxId}
                       className={cn(
-                        "inline-flex items-center gap-2 text-[0.72rem] uppercase tracking-(--tracking-badge)",
+                        "inline-flex items-center gap-2 text-(length:--text-tiny) uppercase tracking-(--tracking-badge)",
                         !queueSelectionDisabled
                           ? "text-foreground-soft"
                           : "text-muted-foreground",
@@ -482,37 +484,57 @@ export function ReviewQueueListPanel({
                   ) : (
                     <span />
                   )}
-                  <StatusBadge tone={workflowStatus.tone}>
-                    {workflowStatus.label}
-                  </StatusBadge>
+                  {/* The badge line always occupies its slot. Rendering it
+                      only for unselected rows made the whole list jump on every
+                      selection change. */}
+                  <SelectableRowLine className="flex shrink-0 justify-end">
+                    {selectedItem?.jobId === item.jobId ? null : (
+                      <StatusBadge tone={workflowStatus.tone}>
+                        {workflowStatus.label}
+                      </StatusBadge>
+                    )}
+                  </SelectableRowLine>
                 </div>
                 <button
                   aria-current={
                     selectedItem?.jobId === item.jobId ? "true" : undefined
                   }
                   aria-keyshortcuts="ArrowUp ArrowDown Home End"
-                  className="grid min-w-0 w-full gap-3 text-left outline-none transition-colors hover:bg-transparent focus-visible:ring-[3px] focus-visible:ring-ring/30"
+                  className="grid min-w-0 w-full gap-3 text-left outline-none transition-colors hover:bg-transparent focus-visible:ring-[3px] focus-visible:ring-ring/40"
                   data-collection-item-id={item.jobId}
                   onClick={() => onSelectItem(item.jobId)}
                   onKeyDown={(event) => handleListKeyDown(event, item.jobId)}
                   type="button"
                 >
                   <div className="min-w-0 w-full">
-                    <strong className="block break-words font-display text-[1rem] font-semibold tracking-(--tracking-normal) text-foreground">
+                    <strong className="block break-words font-display font-semibold tracking-(--tracking-normal) text-foreground">
                       {item.title}
                     </strong>
                   </div>
-                  <span className="block w-full text-[0.8rem] text-foreground-muted">
-                    {item.company} • {item.location}
-                  </span>
-                  <span className="label-mono-xs text-foreground-muted">
-                    {item.resumeApplicationMode === "original_resume"
-                      ? "Original resume will be used unchanged"
-                      : "A tailored resume will be created for this job"}
-                  </span>
+                  {(() => {
+                    const employerLocationLine = formatJobEmployerLocationLine({
+                      company: item.company,
+                      location: item.location,
+                      separator: " • ",
+                    });
+                    return employerLocationLine ? (
+                      <span className="block w-full text-(length:--text-small) text-foreground-soft">
+                        {employerLocationLine}
+                      </span>
+                    ) : null;
+                  })()}
+                  {/* Same rule as the state chip above, and the same reserved
+                      slot: the detail header already states the selected job's
+                      resume state, so the selected row does not restate it —
+                      but the line still holds its height. */}
+                  <SelectableRowLine className="text-(length:--text-small) font-medium text-foreground-soft">
+                    {selectedItem?.jobId === item.jobId
+                      ? null
+                      : getReviewQueueResumePolicyCaption(item)}
+                  </SelectableRowLine>
                   {batchActionsOpen && queueSelectionDisabled ? (
                     <span
-                      className="block w-full text-[0.76rem] leading-5 text-muted-foreground"
+                      className="block w-full text-(length:--text-small) leading-5 text-muted-foreground"
                       id={queueDisabledReasonId}
                     >
                       {!queueReady
@@ -529,7 +551,7 @@ export function ReviewQueueListPanel({
                     </div>
                   ) : null}
                 </button>
-              </div>
+              </SelectableRow>
             );
           })}
         </div>

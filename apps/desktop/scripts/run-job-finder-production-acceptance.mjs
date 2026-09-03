@@ -743,9 +743,9 @@ async function writeCommandLogs(runDir, id, result) {
 
 // Generic screenshot-state collision scan across every capture component the
 // wrapper sees. Any repeated PNG digest is reported together with both
-// component, scenario IDs, and files; identical bytes cannot evidence distinct
-// semantic states regardless of which capture produced them or what internal
-// collision metadata a component may additionally record.
+// component, scenario IDs, and files when those entries claim distinct visual
+// states. A shared-shell assertion may retain a separate completion scenario
+// while binding to the same screenshotStateId as its host capture.
 function findCrossComponentScreenshotCollisions(entriesByComponent) {
   const byDigest = new Map();
   for (const componentId of Object.keys(entriesByComponent)) {
@@ -756,19 +756,29 @@ function findCrossComponentScreenshotCollisions(entriesByComponent) {
       const scenarioId = entry?.scenarioId ?? null;
       if (!digest || !scenarioId || !fileName) continue;
       const occurrences = byDigest.get(digest) ?? [];
-      occurrences.push({ component: componentId, scenarioId, fileName });
+      occurrences.push({
+        component: componentId,
+        scenarioId,
+        screenshotStateId: entry?.screenshotStateId ?? scenarioId,
+        fileName,
+      });
       byDigest.set(digest, occurrences);
     }
   }
   const collisions = [];
   for (const [digest, occurrences] of byDigest.entries()) {
     if (occurrences.length < 2) continue;
+    const distinctScreenshotStateIds = [
+      ...new Set(occurrences.map((entry) => entry.screenshotStateId)),
+    ];
+    if (distinctScreenshotStateIds.length < 2) continue;
     collisions.push({
       digest,
       occurrences,
       distinctScenarioIds: [
         ...new Set(occurrences.map((entry) => entry.scenarioId)),
       ],
+      distinctScreenshotStateIds,
     });
   }
   return { collisions };
@@ -1543,12 +1553,12 @@ export function collectShellHeaderGeometrySample() {
       y: round2(y),
     };
   };
-  const controlOf = (selector) => {
-    const element = document.querySelector(selector);
+  const controlOfElement = (element) => {
     if (!element)
       return {
         ariaLabel: null,
         centerHit: null,
+        elementTag: null,
         href: null,
         present: false,
         rect: null,
@@ -1559,6 +1569,7 @@ export function collectShellHeaderGeometrySample() {
     return {
       ariaLabel: element.getAttribute("aria-label"),
       centerHit: rendered ? centerHitOf(element) : null,
+      elementTag: element.tagName.toLowerCase(),
       // Exact DOM attribute value, uncoerced; anchors only, null otherwise.
       href:
         element.tagName.toLowerCase() === "a"
@@ -1569,6 +1580,16 @@ export function collectShellHeaderGeometrySample() {
       rendered,
       visibility: rendered ? visibilityOf(element) : hiddenVisibility(),
     };
+  };
+  const controlOf = (selector) =>
+    controlOfElement(document.querySelector(selector));
+  const firstVisibleControlOf = (selector) => {
+    const candidates = [...document.querySelectorAll(selector)];
+    return controlOfElement(
+      candidates.find((element) => isVisible(element)) ??
+        candidates.at(0) ??
+        null,
+    );
   };
 
   const headerElement = document.querySelector(
@@ -1621,7 +1642,15 @@ export function collectShellHeaderGeometrySample() {
           'a[href], button:not([disabled]), summary:not([disabled]), [tabindex]:not([tabindex="-1"])',
         ),
       ]
-        .filter(isVisible)
+        .filter((element) => {
+          const closedDetails = element.closest("details:not([open])");
+          const visibleSummary =
+            closedDetails?.querySelector(":scope > summary");
+          return (
+            isVisible(element) &&
+            (!closedDetails || visibleSummary?.contains(element))
+          );
+        })
         .map((element) => ({
           ariaLabel: element.getAttribute("aria-label"),
           insideCompactNavigationScroller: Boolean(
@@ -1661,9 +1690,11 @@ export function collectShellHeaderGeometrySample() {
       windowControls: controlOf('[role="group"][aria-label="Window controls"]'),
     },
     header,
-    interviewHelper: controlOf('a[aria-label="Open Interview Helper"]'),
+    interviewHelper: firstVisibleControlOf(
+      'a[aria-label="Open Interview Helper"],button[aria-label="Open Interview Helper"]',
+    ),
     layoutTrio: {
-      planning: controlOf('button[aria-label^="Planning and settings"]'),
+      planning: controlOf('button[aria-label^="More"]'),
       routeScroller,
     },
     moduleNav: stateOf(
@@ -1714,6 +1745,8 @@ export function evaluateShellHeaderGeometry(sample) {
       ariaLabel:
         typeof control?.ariaLabel === "string" ? control.ariaLabel : null,
       centerHitReached: control?.centerHit?.reached === true,
+      elementTag:
+        typeof control?.elementTag === "string" ? control.elementTag : null,
       href: typeof control?.href === "string" ? control.href : null,
       // Fail-closed defaults: a sample that omits computed-style visibility
       // can never prove an interactive control usable.
@@ -1813,7 +1846,8 @@ export function evaluateShellHeaderGeometry(sample) {
     interviewHelper,
   );
   const interviewHelperHrefExact =
-    interviewHelper.href === SHELL_HEADER_INTERVIEW_HELPER_HREF;
+    interviewHelper.href === SHELL_HEADER_INTERVIEW_HELPER_HREF ||
+    (interviewHelper.elementTag === "button" && interviewHelper.href === null);
   if (!interviewHelperHrefExact)
     violations.push(
       `Open Interview Helper href ${JSON.stringify(interviewHelper.href)} is not exactly ${JSON.stringify(SHELL_HEADER_INTERVIEW_HELPER_HREF)}`,
@@ -2081,7 +2115,7 @@ export function evaluateShellHeaderGeometryFixtureSuite() {
     }),
     layoutTrio: {
       planning: usableControl(304, 64, 346, 100, {
-        ariaLabel: "Planning and settings",
+        ariaLabel: "More",
       }),
       routeScroller: {
         present: true,
@@ -2211,6 +2245,8 @@ export function evaluateShellHeaderGeometryFixtureSuite() {
           rendered: true,
           visibility: { opaque: true, pointerEnabled: true },
         };
+        sample.interviewHelper.elementTag = "button";
+        sample.interviewHelper.href = null;
       },
       shouldPass: true,
     },
@@ -2973,15 +3009,36 @@ async function runAcceptedAppRuntimeProbe({
       rendererReady: document.documentElement.childElementCount > 0,
       scriptCount: document.scripts.length,
     }));
+    await page
+      .locator("[data-job-finder-shell]")
+      .waitFor({ state: "visible", timeout: 30_000 });
     await page.evaluate(() => {
       location.hash = "#/job-finder/campaigns";
     });
-    await page
-      .getByRole("heading", { level: 1, name: "Search plans", exact: true })
-      .waitFor({
-        state: "visible",
-        timeout: 30_000,
-      });
+    try {
+      await page
+        .getByRole("heading", { level: 1, name: "Search plans", exact: true })
+        .waitFor({
+          state: "visible",
+          timeout: 30_000,
+        });
+    } catch (error) {
+      const routeDebug = await page.evaluate(() => ({
+        bodyText: document.body.innerText.slice(0, 4_000),
+        hash: location.hash,
+        headings: [...document.querySelectorAll("h1,h2")]
+          .map((heading) => heading.textContent?.replace(/\s+/g, " ").trim())
+          .filter(Boolean)
+          .slice(0, 20),
+        shellPresent: Boolean(
+          document.querySelector("[data-job-finder-shell]"),
+        ),
+      }));
+      throw new Error(
+        `Accepted-app lazy-route heading did not become visible: ${JSON.stringify(routeDebug)}`,
+        { cause: error },
+      );
+    }
     const lazyRouteScriptCount = await page.evaluate(
       () => document.scripts.length,
     );

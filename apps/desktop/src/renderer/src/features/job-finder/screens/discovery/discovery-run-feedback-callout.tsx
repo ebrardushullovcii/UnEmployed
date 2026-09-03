@@ -23,9 +23,25 @@ export function DiscoveryRunFeedbackCallout(props: {
   feedback: DiscoveryRunFeedback;
   isRecoveryPending?: boolean;
   onOpenBrowserSession?: () => void;
+  suppressBrowserRecovery?: boolean;
 }) {
-  const { feedback, isRecoveryPending = false, onOpenBrowserSession } = props;
+  const {
+    feedback,
+    isRecoveryPending = false,
+    onOpenBrowserSession,
+    suppressBrowserRecovery = false,
+  } = props;
   const recovery = feedback.recovery;
+  const isBrowserRecoverySuppressed =
+    suppressBrowserRecovery && recovery?.kind === "browser_session";
+  // Interrupted feedback already owns the stopped headline; never reprint the
+  // same sentence from recovery.headline (Priya WAVE 3 double-banner).
+  const recoveryHeadline =
+    recovery &&
+    !isBrowserRecoverySuppressed &&
+    recovery.headline !== feedback.headline
+      ? recovery.headline
+      : null;
 
   return (
     <div
@@ -36,8 +52,10 @@ export function DiscoveryRunFeedbackCallout(props: {
       role={feedback.status === "failed" ? "alert" : "status"}
     >
       <p className="font-medium">{feedback.headline}</p>
-      {recovery ? <p className="opacity-90">{recovery.headline}</p> : null}
-      {recovery ? (
+      {recoveryHeadline ? (
+        <p className="opacity-90">{recoveryHeadline}</p>
+      ) : null}
+      {recovery && !isBrowserRecoverySuppressed ? (
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
           {recovery.kind === "browser_session" && onOpenBrowserSession ? (
             <Button

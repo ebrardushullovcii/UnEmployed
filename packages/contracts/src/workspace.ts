@@ -32,6 +32,15 @@ import {
   ApplicationReplayCheckpointSchema,
 } from "./apply";
 import {
+  ApplicationAuthorityEnvelopeSchema,
+  SubmissionArmedMarkerSchema,
+  SubmissionExecutionGrantSchema,
+  SubmissionIdempotencyRecordSchema,
+  SubmissionOutcomeRecordSchema,
+  SubmissionPreflightRecordSchema,
+} from "./application-authority";
+import { ApprovedApplicationAnswerSnapshotSchema } from "./application-answer-snapshot";
+import {
   ApplicationAttemptSchema,
   ApplicationRecordSchema,
   DiscoveryLedgerEntrySchema,
@@ -112,6 +121,17 @@ export const JobFinderJobActionInputSchema = z.object({
 });
 export type JobFinderJobActionInput = z.infer<
   typeof JobFinderJobActionInputSchema
+>;
+
+export const ResumePdfExportIntentSchema = z.enum(["approval", "download"]);
+export type ResumePdfExportIntent = z.infer<typeof ResumePdfExportIntentSchema>;
+
+export const JobFinderExportResumePdfInputSchema =
+  JobFinderJobActionInputSchema.extend({
+    intent: ResumePdfExportIntentSchema.default("download"),
+  });
+export type JobFinderExportResumePdfInput = z.infer<
+  typeof JobFinderExportResumePdfInputSchema
 >;
 
 export const JobFinderJobResumeApplicationModeInputSchema =
@@ -693,6 +713,21 @@ const JobFinderRepositoryStateShape = {
   applicationConsentRequests: z
     .array(ApplicationConsentRequestSchema)
     .default([]),
+  applicationAnswerSnapshots: z
+    .array(ApprovedApplicationAnswerSnapshotSchema)
+    .default([]),
+  applicationAuthorityEnvelopes: z
+    .array(ApplicationAuthorityEnvelopeSchema)
+    .default([]),
+  submissionPreflights: z.array(SubmissionPreflightRecordSchema).default([]),
+  submissionExecutionGrants: z
+    .array(SubmissionExecutionGrantSchema)
+    .default([]),
+  submissionIdempotencyRecords: z
+    .array(SubmissionIdempotencyRecordSchema)
+    .default([]),
+  submissionArmedMarkers: z.array(SubmissionArmedMarkerSchema).default([]),
+  submissionOutcomeRecords: z.array(SubmissionOutcomeRecordSchema).default([]),
   userActionRequests: z.array(UserActionRequestSchema).default([]),
   userActionEvents: z.array(UserActionEventSchema).default([]),
   applicationRecords: z.array(ApplicationRecordSchema).default([]),
@@ -756,9 +791,21 @@ export const JobFinderRepositoryStateSchema: z.ZodEffects<
     });
   }
 });
-export type JobFinderRepositoryState = z.infer<
+type JobFinderRepositoryStateOutput = z.infer<
   typeof JobFinderRepositoryStateSchema
 >;
+/**
+ * New state collections remain optional to callers that construct a complete
+ * workspace snapshot. The parser still defaults the persisted collection to
+ * an empty array, so older seeds and benchmark fixtures remain compatible
+ * while repository implementations normalize the value before use.
+ */
+export type JobFinderRepositoryState = Omit<
+  JobFinderRepositoryStateOutput,
+  "applicationAnswerSnapshots"
+> & {
+  applicationAnswerSnapshots?: JobFinderRepositoryStateOutput["applicationAnswerSnapshots"];
+};
 export type JobFinderRepositoryStateInput = z.input<
   typeof JobFinderRepositoryStateSchema
 >;
@@ -1420,6 +1467,7 @@ export type DesktopWindowCloseResolution = z.infer<
 >;
 
 export const DesktopWindowControlsStateSchema = z.object({
+  isFullScreen: z.boolean(),
   isMaximized: z.boolean(),
   isMinimizable: z.boolean(),
   isClosable: z.boolean(),

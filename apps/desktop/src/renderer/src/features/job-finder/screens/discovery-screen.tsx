@@ -1,1 +1,1 @@
-export { DiscoveryScreen } from './discovery/discovery-screen'
+export { DiscoveryScreen } from "./discovery/discovery-screen";

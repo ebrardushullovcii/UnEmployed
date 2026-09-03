@@ -12,6 +12,8 @@ import type {
 } from "@unemployed/contracts";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { cn } from "@renderer/lib/cn";
+import { APPLICATION_DETAIL_FACT_LABEL_CLASS } from "./applications-detail-fact-strip";
 import { Button } from "@renderer/components/ui";
 import {
   formatTimestamp,
@@ -25,6 +27,9 @@ import {
   getConsentTone,
 } from "./applications-detail-panel-helpers";
 import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigation";
+import { getJobFinderDateInputLocale } from "../../lib/job-finder-date-input-locale";
+
+const jobFinderDateInputLocale = getJobFinderDateInputLocale();
 
 export function ApplicationsDetailPanelReviewDataSection(props: {
   applyRunDetailsError: string | null;
@@ -65,6 +70,32 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
         0,
       )
     : 0;
+  // Every replay checkpoint is also mirrored into the artifact refs with the
+  // same label, so the disclosure printed the identical two entries twice
+  // with the same URL under two different headings.
+  const retainedArtifacts = (
+    selectedApplyRunDetails?.artifactRefs ?? []
+  ).filter((artifact) => artifact.kind !== "checkpoint");
+
+  const recordedMetrics = (
+    [
+      {
+        label: "Questions",
+        value: selectedApplyRunDetails?.questionRecords.length ?? 0,
+      },
+      {
+        label: "Grounded answers",
+        value: selectedApplyRunDetails?.answerRecords.length ?? 0,
+      },
+      { label: "Artifacts", value: retainedArtifacts.length },
+      {
+        label: "Checkpoints",
+        value: selectedApplyRunDetails?.checkpoints.length ?? 0,
+      },
+      { label: "Visual checkpoints", value: resultVisualCheckpointCount },
+      { label: "Visual evidence", value: retainedVisualEvidenceCount },
+    ] as const
+  ).filter((metric) => metric.value > 0);
 
   if (!visibleApplyResult) {
     return null;
@@ -75,7 +106,9 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
   return (
     <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="label-mono-xs text-primary">Apply run review data</h3>
+        <h3 className={cn(APPLICATION_DETAIL_FACT_LABEL_CLASS, "text-primary")}>
+          What this run recorded
+        </h3>
         <StatusBadge tone={applyDetailsStatusBadge.tone}>
           {applyDetailsStatusBadge.label}
         </StatusBadge>
@@ -93,32 +126,27 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
       ) : null}
       {selectedApplyRunDetails ? (
         <>
-          <div className="grid gap-3 2xl:grid-cols-2">
-            <MetricCard
-              label="Questions"
-              value={selectedApplyRunDetails.questionRecords.length}
-            />
-            <MetricCard
-              label="Grounded answers"
-              value={selectedApplyRunDetails.answerRecords.length}
-            />
-            <MetricCard
-              label="Artifacts"
-              value={selectedApplyRunDetails.artifactRefs.length}
-            />
-            <MetricCard
-              label="Checkpoints"
-              value={selectedApplyRunDetails.checkpoints.length}
-            />
-            <MetricCard
-              label="Visual checkpoints"
-              value={resultVisualCheckpointCount}
-            />
-            <MetricCard
-              label="Visual evidence"
-              value={retainedVisualEvidenceCount}
-            />
-          </div>
+          {/* Six counters, five of them zero, and a "0 artifacts" beside an
+              approval banner that had just promised a created and verified
+              PDF. A run that recorded nothing says so in one sentence; only
+              counts that stand for something the user can open are shown. */}
+          {recordedMetrics.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {recordedMetrics.map((metric) => (
+                <MetricCard
+                  key={metric.label}
+                  label={metric.label}
+                  value={metric.value}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="text-(length:--text-body) leading-7 text-foreground-soft">
+              This run stopped before it recorded any questions, answers, or
+              artifacts. Your approved resume PDF is unaffected and stays in
+              Resume Studio.
+            </p>
+          )}
           {selectedApplyRunDetails.result?.visualCheckpoints.length ? (
             <div className="grid gap-2">
               <p className="label-mono-xs">Visual apply checkpoints</p>
@@ -268,10 +296,10 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
               ))}
             </div>
           ) : null}
-          {selectedApplyRunDetails.artifactRefs.length ? (
+          {retainedArtifacts.length ? (
             <div className="grid gap-2">
               <p className="label-mono-xs">Retained artifacts</p>
-              {selectedApplyRunDetails.artifactRefs.map((artifact) => (
+              {retainedArtifacts.map((artifact) => (
                 <div
                   key={artifact.id}
                   className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3 text-(length:--text-small) leading-6 text-foreground-soft"
@@ -323,7 +351,10 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                   <p className="mt-2">
                     {formatTimestamp(checkpoint.createdAt)}
                   </p>
-                  {checkpoint.url ? (
+                  {/* The checkpoint detail already quotes the exact target,
+                      so a bare repeat printed the same long URL twice. */}
+                  {checkpoint.url &&
+                  !(checkpoint.detail ?? "").includes(checkpoint.url) ? (
                     <p className="mt-2 break-all">{checkpoint.url}</p>
                   ) : null}
                   {checkpoint.visualEvidence.length ? (
@@ -761,6 +792,7 @@ function ApplicationQuestionAnswerEditor(props: {
           className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
           disabled={isPending}
           onChange={(event) => setValue(event.target.value)}
+          lang={jobFinderDateInputLocale}
           type="date"
           value={value}
         />
@@ -813,7 +845,7 @@ function ApplicationQuestionAnswerEditor(props: {
           >
             {question.kind === "resume"
               ? "Open this job in Shortlisted"
-              : "Open Documents & assets in Settings"}
+              : "Open Documents"}
           </Link>
         </div>
       ) : (
@@ -908,15 +940,21 @@ function VisualEvidenceSummary(props: {
   );
 }
 
+/**
+ * Six counts, most of them zero, previously took a full-width ~80px card
+ * each inside a disclosure that exists to hold small facts. One wrapping
+ * row of value/label pairs carries the same numbers in a fraction of the
+ * height.
+ */
 function MetricCard(props: { label: string; value: number }) {
   const { label, value } = props;
 
   return (
-    <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
-      <p className="label-mono-xs">{label}</p>
-      <strong className="mt-2 block text-(length:--text-field) font-semibold text-foreground">
+    <div className="flex min-w-0 items-baseline gap-1.5 rounded-(--radius-chip) border border-(--surface-panel-border) bg-background/40 px-2.5 py-1">
+      <strong className="text-(length:--text-field) font-semibold text-foreground">
         {value}
       </strong>
+      <span className="label-mono-xs">{label}</span>
     </div>
   );
 }

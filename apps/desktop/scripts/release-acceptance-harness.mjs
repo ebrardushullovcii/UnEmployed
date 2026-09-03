@@ -36,7 +36,8 @@ export const artifactRoot = path.resolve(
 const SOURCE_EXCLUDES = [
   /^node_modules(?:[\\/]|$)/,
   /^(?:out|dist|build|release|coverage|\.tmp|\.turbo)(?:[\\/]|$)/,
-  /^test-artifacts(?:[\\/]|$)/,
+  /(?:^|[\\/])test-artifacts(?:[\\/]|$)/,
+  /\.tsbuildinfo$/,
   /^(?:\.git)(?:[\\/]|$)/,
   // Generated evidence mirrors are collector output, not product input: they
   // become durable only through an authorized Git commit. Including them would
@@ -595,9 +596,7 @@ async function dependencyRootsFingerprint(sourceRoot, relativeRoots) {
   }
   // One canonical inventory over ALL collected roots: full-path code-unit
   // order, matching dependencyIdentity in prepare-blind-persona-workspaces.ts.
-  files.sort((left, right) =>
-    comparePathsCodeUnit(left.path, right.path),
-  );
+  files.sort((left, right) => comparePathsCodeUnit(left.path, right.path));
   return {
     algorithm: "sha256",
     digest: inventoryDigest(files),
@@ -2023,12 +2022,7 @@ export function installPrepareOnlySafetyProbe() {
     if (!(control instanceof HTMLElement)) return false;
     if (control.closest('[data-acceptance-safe-control="true"]')) return true;
     if (control.closest('nav[aria-label="Job Finder sections"]')) return true;
-    if (
-      control.closest(
-        '[role="navigation"][aria-label="Planning and settings"]',
-      )
-    )
-      return true;
+    if (control.closest('[role="navigation"][aria-label="More"]')) return true;
     return control.getAttribute("aria-label") === "Notifications and actions";
   };
   const describe = (control) => {
@@ -2225,10 +2219,21 @@ export async function screenshotMetadata(
     ? await browserWindow.evaluate((win) => win.webContents.getZoomFactor())
     : null;
   const image = await pngInfo(screenshotPath);
-  const clickablePointItems = await page.evaluate(() => {
+  const clickablePointScopeSelector =
+    typeof metadata.clickablePointScopeSelector === "string"
+      ? metadata.clickablePointScopeSelector
+      : null;
+  const clickablePointItems = await page.evaluate((scopeSelector) => {
     const selector =
       'button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[role="button"]:not([aria-disabled="true"]),[role="menuitem"]:not([aria-disabled="true"])';
-    return Array.from(document.querySelectorAll(selector)).flatMap(
+    const scope = scopeSelector
+      ? document.querySelector(scopeSelector)
+      : document;
+    if (!scope)
+      throw new Error(
+        `Clickable-point evidence scope was not found: ${String(scopeSelector)}`,
+      );
+    return Array.from(scope.querySelectorAll(selector)).flatMap(
       (element, index) => {
         if (!(element instanceof HTMLElement)) return [];
         const closedDetails = element.closest("details:not([open])");
@@ -2305,9 +2310,10 @@ export async function screenshotMetadata(
         ];
       },
     );
-  });
+  }, clickablePointScopeSelector);
   const clickablePointEvidence =
     evaluateClickablePointEvidence(clickablePointItems);
+  clickablePointEvidence.scopeSelector = clickablePointScopeSelector;
   return {
     route: metadata.route ?? (await page.evaluate(() => window.location.hash)),
     seedDigest: metadata.seedDigest ?? SYNTHETIC_SEED_DIGEST,

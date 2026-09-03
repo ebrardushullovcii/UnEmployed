@@ -1,7 +1,8 @@
-import { lazy, useCallback, useEffect, useState } from "react";
+import { lazy, useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { jobFinderPendingActions } from "./job-finder-pending-actions";
 import { Button } from "@renderer/components/ui/button";
+import { cn } from "@renderer/lib/cn";
 import { JobFinderRouteErrorBoundary } from "./job-finder-route-error-boundary";
 import { getDefaultProfileRoute } from "@renderer/features/job-finder/lib/job-finder-utils";
 import {
@@ -11,9 +12,15 @@ import {
   useOutletContext,
   useParams,
 } from "react-router-dom";
+import { isProfileSetupJustFinished } from "./use-job-finder-page-controller-actions";
+import {
+  markGuidedSetupAutoOpenSpent,
+  shouldAutoOpenGuidedSetup,
+} from "@renderer/features/job-finder/components/profile/setup/guided-setup-auto-open";
 import type { JobFinderPageContext } from "./job-finder-page-context";
 import type { JobFinderGlobalSearchEntry } from "@renderer/features/job-finder/lib/job-finder-global-search";
 import type {
+  ApplicationCrmSettings,
   CampaignRuleFunnelProjection,
   JobFinderWorkspaceSnapshot,
   JobSearchCampaign,
@@ -24,8 +31,10 @@ import type {
   SetJobFinderActivityControlInput,
 } from "@unemployed/contracts";
 import { ApplicationCrmSettingsSchema } from "@unemployed/contracts";
+import { isListableCompanyName } from "@unemployed/contracts";
 import { countActiveSafeguardBlockers } from "@renderer/features/job-finder/lib/safeguards-blocker-count";
 import { ApplicationsScreen } from "@renderer/features/job-finder/screens/applications/applications-screen";
+import type { ConfirmFinishedInBrowserStatus } from "@renderer/features/job-finder/screens/applications/applications-detail-panel-recovery-actions-section";
 import { DiscoveryScreen } from "@renderer/features/job-finder/screens/discovery/discovery-screen";
 import { ProfileScreen } from "@renderer/features/job-finder/screens/profile-screen";
 import { ReviewQueueScreen } from "@renderer/features/job-finder/screens/review-queue/review-queue-screen";
@@ -137,6 +146,17 @@ const SettingsScreen = lazy(loadSettingsScreen);
 const DocumentsScreen = lazy(loadDocumentsScreen);
 const SafeguardsScreen = lazy(loadSafeguardsScreen);
 
+// The empty-input parse is a constant, so it belongs outside the render path
+// instead of re-running a schema parse on every Applications render.
+let cachedDefaultApplicationCrmSettings: ApplicationCrmSettings | null = null;
+
+function defaultApplicationCrmSettings(): ApplicationCrmSettings {
+  cachedDefaultApplicationCrmSettings ??= ApplicationCrmSettingsSchema.parse(
+    {},
+  );
+  return cachedDefaultApplicationCrmSettings;
+}
+
 function useJobFinderPageContext() {
   return useOutletContext<JobFinderPageContext>();
 }
@@ -161,14 +181,37 @@ export function selectRapidReviewScope(workspace: JobFinderWorkspaceSnapshot): {
   return { campaign, jobs, log };
 }
 
-function resolveCampaignForJobs(
+type CampaignJobIndex = ReadonlyArray<{
+  readonly id: string;
+  readonly jobIds: ReadonlySet<string>;
+}>;
+
+/**
+ * One membership index per campaign, built once per scope calculation.
+ * `resolveCampaignForJobs` runs once per apply run and once per application
+ * record, so a linear `Array.includes` per (campaign, job) pair turned an
+ * ordinary Applications render into quadratic work at the sizes this product
+ * targets (5,000 discovered jobs / 1,001 application records).
+ */
+function indexCampaignJobIds(
   campaigns: JobFinderWorkspaceSnapshot["campaigns"],
+): CampaignJobIndex {
+  return campaigns.map((campaign) => ({
+    id: campaign.id,
+    jobIds: new Set(campaign.jobIds),
+  }));
+}
+
+// Campaign order and the "exactly one campaign owns every job" rule are
+// unchanged: the first match wins only while it stays the sole match.
+function resolveCampaignForJobs(
+  campaignIndex: CampaignJobIndex,
   jobIds: readonly string[],
 ): string | null {
   if (jobIds.length === 0) return null;
   let campaignId: string | null = null;
-  for (const campaign of campaigns) {
-    if (!jobIds.every((jobId) => campaign.jobIds.includes(jobId))) continue;
+  for (const campaign of campaignIndex) {
+    if (!jobIds.every((jobId) => campaign.jobIds.has(jobId))) continue;
     if (campaignId !== null) return null;
     campaignId = campaign.id;
   }
@@ -199,10 +242,11 @@ export function selectCampaignApplicationsScope(
     };
   }
 
+  const campaignIndex = indexCampaignJobIds(workspace.campaigns);
   const runCampaignById = new Map(
     workspace.applyRuns.map((run) => [
       run.id,
-      run.campaignId ?? resolveCampaignForJobs(workspace.campaigns, run.jobIds),
+      run.campaignId ?? resolveCampaignForJobs(campaignIndex, run.jobIds),
     ]),
   );
   const resultsByApplicationRecordId = new Map<
@@ -229,7 +273,7 @@ export function selectCampaignApplicationsScope(
       record.id,
       linkedResults.length > 0
         ? onlyValue(linkedCampaignIds)
-        : resolveCampaignForJobs(workspace.campaigns, [record.jobId]),
+        : resolveCampaignForJobs(campaignIndex, [record.jobId]),
     );
   }
 
@@ -283,28 +327,48 @@ export function selectCampaignApplicationsScope(
 
 export function WorkspaceStateScreen(props: {
   action?: { label: string; onClick: () => void };
+  fillAvailableViewport?: boolean;
   kicker: string;
   message: string;
   title: string;
   tone?: "default" | "error";
 }) {
   return (
-    <main className="grid min-h-full place-items-center bg-canvas px-6 py-10">
+    <main
+      // A route-level state is not a crash: dead-centring a small card in a
+      // full empty viewport read like one. Only the viewport-filling startup
+      // screens stay centred; in-route states sit near the top of the content.
+      className={
+        props.fillAvailableViewport
+          ? "grid min-h-[calc(100dvh-7.25rem)] flex-1 place-items-center bg-canvas px-6 py-10 text-center min-[1440px]:min-h-[calc(100dvh-3.5rem)]"
+          : "grid min-h-full flex-1 content-start justify-items-center bg-canvas px-6 pb-10 pt-12 text-center"
+      }
+      data-workspace-state-viewport-fill={
+        props.fillAvailableViewport ? "true" : undefined
+      }
+    >
       <div
         aria-atomic="true"
         aria-live={props.tone === "error" ? "assertive" : "polite"}
-        className={
+        className={cn(
+          "grid w-full max-w-(--workspace-state-card-max-width) justify-items-center gap-3 rounded-(--workspace-state-card-radius) p-8 shadow-(--workspace-state-card-shadow)",
           props.tone === "error"
-            ? "grid max-w-(--workspace-state-card-max-width) gap-3 rounded-(--workspace-state-card-radius) border border-critical/35 bg-(--workspace-state-card-bg-error) p-8 shadow-(--workspace-state-card-shadow)"
-            : "grid max-w-(--workspace-state-card-max-width) gap-3 rounded-(--workspace-state-card-radius) border border-border-subtle bg-(--workspace-state-card-bg-default) p-8 shadow-(--workspace-state-card-shadow)"
-        }
+            ? "border border-critical/35 bg-(--workspace-state-card-bg-error)"
+            : "border border-border-subtle bg-(--workspace-state-card-bg-default)",
+          // An in-route card at the shared 34rem cap wrapped its own heading
+          // mid-phrase; the startup screens keep the narrower measure.
+          props.fillAvailableViewport ? null : "sm:max-w-[42rem]",
+        )}
+        data-workspace-state-screen
         role={props.tone === "error" ? "alert" : "status"}
       >
         <p className="text-(length:--text-tiny) uppercase tracking-[0.24em] text-foreground-muted">
           {props.kicker}
         </p>
-        <h1>{props.title}</h1>
-        <p>{props.message}</p>
+        <h1 className="text-balance" data-workspace-state-title>
+          {props.title}
+        </h1>
+        <p data-workspace-state-message>{props.message}</p>
         {props.action ? (
           <Button
             className="mt-2 w-fit"
@@ -410,7 +474,8 @@ export function JobFinderCompanyDetailRoute() {
 
   const company =
     context.workspace.intelligence.companies.find(
-      (entry) => entry.id === companyId,
+      (entry) =>
+        entry.id === companyId && isListableCompanyName(entry.canonicalName),
     ) ?? null;
 
   return (
@@ -483,6 +548,17 @@ export function JobFinderCompanyDetailRoute() {
 export function JobFinderHomeRoute() {
   const context = useJobFinderPageContext();
   const [activityPending, setActivityPending] = useState(false);
+  // A workspace that has not started setup opens guided setup directly; Home
+  // is one screen of hallway before it. The redirect is spent immediately so
+  // the sidebar's Home destination still works.
+  const autoOpenGuidedSetup = shouldAutoOpenGuidedSetup(
+    context.workspace.profileSetupState,
+  );
+
+  if (autoOpenGuidedSetup) {
+    markGuidedSetupAutoOpenSpent();
+    return <Navigate replace to="/job-finder/profile/setup" />;
+  }
 
   const handleActivityControl = (input: SetJobFinderActivityControlInput) => {
     setActivityPending(true);
@@ -778,6 +854,8 @@ export function JobFinderProfileRoute() {
       profileCopilotMessages={context.workspace.profileCopilotMessages}
       profileRevisions={context.workspace.profileRevisions}
       profileSetupState={context.workspace.profileSetupState}
+      activeDiscoveryRun={context.workspace.activeDiscoveryRun}
+      discoveryRuns={context.workspace.recentDiscoveryRuns}
       recentSourceDebugRuns={context.workspace.recentSourceDebugRuns}
       searchPreferences={context.workspace.searchPreferences}
       sourceAccessPrompts={context.workspace.sourceAccessPrompts}
@@ -790,7 +868,18 @@ export function JobFinderProfileSetupRoute() {
   const context = useJobFinderPageContext();
 
   if (context.workspace.profileSetupState.status === "completed") {
-    return <Navigate replace to="/job-finder/profile" />;
+    // A setup finished in this session hands off to Find jobs; a completed
+    // setup revisited later goes back to the full Profile editor.
+    return (
+      <Navigate
+        replace
+        to={
+          isProfileSetupJustFinished()
+            ? "/job-finder/discovery"
+            : "/job-finder/profile"
+        }
+      />
+    );
   }
 
   return (
@@ -809,14 +898,19 @@ export function JobFinderProfileSetupRoute() {
         )
       }
       profileCopilotBusy={context.profileCopilotBusy}
+      profileMutationPending={context.isPending(
+        jobFinderPendingActions.profileMutation(),
+      )}
       latestResumeImportReviewCandidates={
         context.workspace.latestResumeImportReviewCandidates
       }
+      latestResumeImportRun={context.workspace.latestResumeImportRun}
       resumeImportProgress={context.resumeImportProgress}
       onApplyProfileCopilotPatchGroup={context.onApplyProfileCopilotPatchGroup}
       onApplyProfileSetupReviewAction={context.onApplyProfileSetupReviewAction}
       onContinueToProfile={context.onOpenProfile}
       onImportResume={context.onImportResume}
+      onCancelImportResume={context.onCancelImportResume}
       onProfileSurfaceDirtyChange={context.onProfileSurfaceDirtyChange}
       onProfileSurfaceDraftEdited={context.onProfileSurfaceDraftEdited}
       profileCopilotPendingContextKey={context.profileCopilotPendingContextKey}
@@ -831,6 +925,12 @@ export function JobFinderProfileSetupRoute() {
       profileCopilotMessages={context.workspace.profileCopilotMessages}
       profileRevisions={context.workspace.profileRevisions}
       profileSetupState={context.workspace.profileSetupState}
+      {...(context.workspace.settings.resumeApplicationMode
+        ? {
+            resumeApplicationMode:
+              context.workspace.settings.resumeApplicationMode,
+          }
+        : {})}
       searchPreferences={context.workspace.searchPreferences}
     />
   );
@@ -1026,7 +1126,10 @@ export function JobFinderDiscoveryRoute() {
 
 export function JobFinderRapidReviewRoute() {
   const context = useJobFinderPageContext();
-  const { campaign, jobs, log } = selectRapidReviewScope(context.workspace);
+  const { campaign, jobs, log } = useMemo(
+    () => selectRapidReviewScope(context.workspace),
+    [context.workspace],
+  );
 
   if (!campaign) {
     return <Navigate replace to="/job-finder/campaigns" />;
@@ -1272,12 +1375,17 @@ export function JobFinderResumeWorkspaceRoute() {
         assistantMessages={context.resumeAssistantMessages}
         availableResumeTemplates={context.workspace.availableResumeTemplates}
         assistantPending={context.resumeAssistantPending}
+        isExportPending={context.isPending(
+          jobFinderPendingActions.resumeExport(jobId),
+        )}
         isWorkspacePending={context.isPending(
           jobFinderPendingActions.resumeJob(jobId),
         )}
         jobId={jobId}
+        onApproveCurrentResume={context.onApproveCurrentResume}
         onApproveResume={context.onApproveResume}
         onBack={() => context.onEditResumeWorkspace("")}
+        onPrepareApplication={() => context.onStartApplyCopilot({ jobId })}
         onClearResumeApproval={context.onClearResumeApproval}
         onSetWorkHistoryReviewAcknowledgment={
           context.onSetWorkHistoryReviewAcknowledgment
@@ -1290,7 +1398,6 @@ export function JobFinderResumeWorkspaceRoute() {
         onPreviewDraft={context.onPreviewResumeDraft}
         onRefresh={() => context.onRefreshResumeWorkspace(jobId)}
         onRegenerateDraft={context.onRegenerateResumeDraft}
-        onRegenerateSection={context.onRegenerateResumeSection}
         onRestoreRevision={context.onRestoreResumeDraftRevision}
         onSaveDraft={context.onSaveResumeDraft}
         onSaveDraftAndThen={context.onSaveResumeDraftAndThen}
@@ -1302,9 +1409,39 @@ export function JobFinderResumeWorkspaceRoute() {
   );
 }
 
+/**
+ * The stage tracker is a separate destination on the same route, so opening it
+ * is a link with a URL instead of a peer tab that renders a full CRM beside a
+ * single application. The pathname is unchanged, so shell navigation keeps
+ * Applications highlighted and the deep link survives a reload.
+ */
+const APPLICATIONS_VIEW_QUERY_KEY = "view";
+
+function findPendingBrowserStepRequest(
+  requests: JobFinderWorkspaceSnapshot["userActionRequests"],
+  selectedRecord: { id: string; jobId: string } | null,
+) {
+  if (!selectedRecord) {
+    return null;
+  }
+
+  return (
+    (requests ?? []).find(
+      (candidate) =>
+        candidate.state !== "resolved" &&
+        candidate.scope.type === "application" &&
+        candidate.scope.jobId === selectedRecord.jobId,
+    ) ?? null
+  );
+}
+
 export function JobFinderApplicationsRoute() {
   const context = useJobFinderPageContext();
   const [searchParams, setSearchParams] = useSearchParams();
+  const trackerView =
+    searchParams.get(APPLICATIONS_VIEW_QUERY_KEY) === "tracker"
+      ? ("crm" as const)
+      : ("workflow" as const);
   const navigationContext = readJobFinderNavigationContext(searchParams);
   const {
     activeCampaign,
@@ -1314,7 +1451,10 @@ export function JobFinderApplicationsRoute() {
     applyRuns,
     discoveryJobs,
     selectedApplyRunId,
-  } = selectCampaignApplicationsScope(context.workspace);
+  } = useMemo(
+    () => selectCampaignApplicationsScope(context.workspace),
+    [context.workspace],
+  );
   const requestedApplicationRecord = (() => {
     if (navigationContext.applicationRecordId) {
       const record = applicationRecords.find(
@@ -1429,6 +1569,30 @@ export function JobFinderApplicationsRoute() {
         )[0] ??
       null)
     : null;
+  // "I finished this step" starts a background verification. Its resolution
+  // lives on the request itself — `verifying` while the check runs and
+  // `still_blocked` when the page still shows the step — so Applications reads
+  // that request instead of only reporting that the command was sent.
+  const pendingBrowserStepRequest = findPendingBrowserStepRequest(
+    context.workspace.userActionRequests ?? [],
+    selectedRecord,
+  );
+  const isBrowserStepCheckPending =
+    pendingBrowserStepRequest !== null &&
+    (context.isPending(
+      jobFinderPendingActions.userAction(pendingBrowserStepRequest.id),
+    ) ||
+      pendingBrowserStepRequest.state === "verifying");
+  const confirmFinishedInBrowserStatus: ConfirmFinishedInBrowserStatus =
+    isBrowserStepCheckPending
+      ? "checking"
+      : pendingBrowserStepRequest?.state === "still_blocked"
+        ? "still_blocked"
+        : "idle";
+  const confirmFinishedInBrowserBlockerText =
+    confirmFinishedInBrowserStatus === "still_blocked"
+      ? (pendingBrowserStepRequest?.summary ?? null)
+      : null;
 
   return (
     <JobFinderHydrationGate
@@ -1448,7 +1612,7 @@ export function JobFinderApplicationsRoute() {
         }
         crmSettings={
           context.workspace.settings.applicationCrm ??
-          ApplicationCrmSettingsSchema.parse({})
+          defaultApplicationCrmSettings()
         }
         discoveryJobs={discoveryJobs}
         isApplyPending={context.isPending(jobFinderPendingActions.apply())}
@@ -1469,6 +1633,7 @@ export function JobFinderApplicationsRoute() {
           context.onNavigateSafely(`/job-finder/companies/${companyId}`)
         }
         onExportApplicationPacket={context.onExportApplicationPacket}
+        onResolveSubmissionOutcome={context.onResolveSubmissionOutcome}
         onExportApplicationCrm={context.onExportApplicationCrm}
         onMutateApplicationCrm={context.onMutateApplicationCrm}
         onMutateApplicationCrmBulkStage={
@@ -1506,6 +1671,79 @@ export function JobFinderApplicationsRoute() {
         onOpenSafeguards={() =>
           context.onNavigateSafely("/job-finder/safeguards")
         }
+        onFinishInBrowser={(input) => {
+          // Reuse the exact Needs-you "Open browser step" command for the
+          // pending request tied to this paused run, so the managed browser
+          // opens the recorded destination under the same browser-only
+          // credentials policy and no-submit authority.
+          const request = (context.workspace.userActionRequests ?? []).find(
+            (candidate) =>
+              candidate.state !== "resolved" &&
+              candidate.scope.type === "application" &&
+              candidate.scope.runId === input.runId &&
+              candidate.scope.jobId === input.jobId,
+          );
+          if (request) {
+            context.onPerformUserAction({
+              requestId: request.id,
+              commandId: `user_action_open_page_${globalThis.crypto.randomUUID()}`,
+              expectedRevision: request.revision,
+              action: "open_page",
+              credentialsPolicy: "browser_only",
+              submitAuthorized: false,
+              accountCreationAuthorized: false,
+            });
+            return;
+          }
+          context.onOpenBrowserSession();
+        }}
+        canConfirmFinishedInBrowser={Boolean(pendingBrowserStepRequest)}
+        confirmFinishedInBrowserStatus={confirmFinishedInBrowserStatus}
+        confirmFinishedInBrowserBlockerText={
+          confirmFinishedInBrowserBlockerText
+        }
+        onConfirmFinishedInBrowser={(input) => {
+          // The exact "Step is complete" command Needs you sends, for the
+          // pending request tied to this paused run. The page that sent the
+          // user to the browser is the page that verifies the return, under
+          // the same browser-only credentials policy and no-submit authority.
+          const request = (context.workspace.userActionRequests ?? []).find(
+            (candidate) =>
+              candidate.state !== "resolved" &&
+              candidate.scope.type === "application" &&
+              candidate.scope.runId === input.runId &&
+              candidate.scope.jobId === input.jobId,
+          );
+
+          if (!request) {
+            return;
+          }
+
+          context.onPerformUserAction({
+            requestId: request.id,
+            commandId: `user_action_confirm_done_${globalThis.crypto.randomUUID()}`,
+            expectedRevision: request.revision,
+            action: "confirm_done",
+            credentialsPolicy: "browser_only",
+            submitAuthorized: false,
+            accountCreationAuthorized: false,
+          });
+        }}
+        {...(trackerView ? { workspaceView: trackerView } : {})}
+        onWorkspaceViewChange={(view) =>
+          setSearchParams(
+            (current) => {
+              const next = new URLSearchParams(current);
+              if (view === "crm") {
+                next.set(APPLICATIONS_VIEW_QUERY_KEY, "tracker");
+              } else {
+                next.delete(APPLICATIONS_VIEW_QUERY_KEY);
+              }
+              return next;
+            },
+            { replace: true },
+          )
+        }
       />
     </JobFinderHydrationGate>
   );
@@ -1534,7 +1772,19 @@ export function selectJobFinderActionsScope(context: JobFinderPageContext) {
 
 export function JobFinderActionsRoute() {
   const context = useJobFinderPageContext();
-  const scope = selectJobFinderActionsScope(context);
+  const scope = useMemo(
+    () => selectJobFinderActionsScope(context),
+    // Only the fields selectJobFinderActionsScope reads: the outlet context
+    // object identity changes on every parent render, so depending on it
+    // would defeat the memo.
+    [
+      context.workspace.intelligence.groupedDecisions,
+      context.isPending,
+      context.onApplyGroupedManualAnswer,
+      context.onProjectGroupedManualAnswer,
+      context.onSnoozeGroupedDecision,
+    ],
+  );
 
   return (
     <JobFinderHydrationGate
@@ -1581,7 +1831,10 @@ export function selectOutcomeAnalyticsScope(
 
 export function JobFinderAnalyticsRoute() {
   const context = useJobFinderPageContext();
-  const scope = selectOutcomeAnalyticsScope(context.workspace);
+  const scope = useMemo(
+    () => selectOutcomeAnalyticsScope(context.workspace),
+    [context.workspace],
+  );
   return (
     <JobFinderHydrationGate
       collections={["applications", "intelligence"]}

@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CollectionNoMatches,
@@ -65,9 +71,7 @@ describe("CollectionSavedViews dialog semantics", () => {
   }
 
   function openMenu() {
-    fireEvent.click(
-      screen.getByRole("button", { name: /^Saved views/ }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /^Saved views/ }));
   }
 
   it("announces a dialog and receives focus in its naming field when opened", () => {
@@ -117,16 +121,16 @@ describe("CollectionSavedViews dialog semantics", () => {
     const deleteButton = screen.getByRole("button", {
       name: "Delete saved view Remote",
     });
-    const afterButton = screen.getByRole("button", { name: "After saved views" });
+    const afterButton = screen.getByRole("button", {
+      name: "After saved views",
+    });
     deleteButton.focus();
 
     // Native Tab traversal lands outside; no preventDefault, no focus steal.
     fireEvent.blur(deleteButton, { relatedTarget: afterButton });
 
     await waitFor(() =>
-      expect(
-        screen.queryByRole("dialog", { name: "Saved views" }),
-      ).toBeNull(),
+      expect(screen.queryByRole("dialog", { name: "Saved views" })).toBeNull(),
     );
     // Closing on focusout must not yank focus back to the trigger.
     expect(document.activeElement).not.toBe(
@@ -282,7 +286,7 @@ describe("CollectionSearchToolbar", () => {
     expect(screen.getByRole("searchbox").className).toContain("h-9");
     expect(
       screen.getByRole("button", { name: "Comfortable" }).textContent,
-    ).toBe("Comfort");
+    ).toBe("Comfortable");
     expect(screen.queryByText("510 results")).toBeNull();
     expect(
       document.querySelector("[data-collection-toolbar-compact]"),

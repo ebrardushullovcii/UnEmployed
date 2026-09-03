@@ -351,12 +351,14 @@ describe("ActionsScreen workspace scale", () => {
     const card = screen.getByText("Scale action 0045").closest("article");
     expect(card).toBeTruthy();
     fireEvent.click(
-      within(card as HTMLElement).getByRole("button", { name: "Skip" }),
+      within(card as HTMLElement).getByRole("button", {
+        name: "Cancel this step",
+      }),
     );
 
     expect(onCommand).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: "skip",
+        action: "cancel",
         requestId: "scale_action_0045",
       }),
     );

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
 import {
   JobFinderHydrationGate,
@@ -18,6 +18,10 @@ function workspace(
     },
   } as unknown as JobFinderWorkspaceSnapshot;
 }
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("WorkspaceStateScreen", () => {
   it("offers an explicit retry after the initial workspace load fails", () => {
@@ -36,6 +40,40 @@ describe("WorkspaceStateScreen", () => {
       screen.getByRole("button", { name: "Retry opening Job Finder" }),
     );
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("centers the shared state card and its contents in the available shell", () => {
+    render(
+      <WorkspaceStateScreen
+        fillAvailableViewport
+        kicker="Job Finder"
+        message="We’re opening this workspace surface."
+        title="Loading screen"
+      />,
+    );
+
+    const card = document.querySelector<HTMLElement>(
+      "[data-workspace-state-screen]",
+    );
+    const outer = card?.parentElement;
+    const status = screen.getByRole("status");
+
+    expect(outer?.className).toContain("flex-1");
+    expect(outer?.className).toContain("place-items-center");
+    expect(outer?.className).toContain("text-center");
+    expect(outer?.className).toContain("min-h-[calc(100dvh-7.25rem)]");
+    expect(outer?.className).toContain(
+      "min-[1440px]:min-h-[calc(100dvh-3.5rem)]",
+    );
+    expect(outer?.dataset.workspaceStateViewportFill).toBe("true");
+    expect(status.className).toContain("w-full");
+    expect(status.className).toContain("justify-items-center");
+    expect(
+      card?.querySelector("[data-workspace-state-title]")?.textContent,
+    ).toBe("Loading screen");
+    expect(
+      card?.querySelector("[data-workspace-state-message]")?.textContent,
+    ).toBe("We’re opening this workspace surface.");
   });
 
   it("keeps deferred routes honest until the bootstrap becomes complete", () => {

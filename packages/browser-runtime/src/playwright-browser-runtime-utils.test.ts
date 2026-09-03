@@ -17,7 +17,10 @@ import {
   selectLiveHttpPage,
   validateJobPostings,
 } from "./playwright-browser-runtime-utils";
-import { createAgentChatWithToolsBridge } from "./playwright-browser-runtime";
+import {
+  createAgentChatWithToolsBridge,
+  resolveAgentDiscoveryChatWithTools,
+} from "./playwright-browser-runtime";
 
 type StalePageLike = Pick<
   Parameters<typeof isLikelyStalePage>[0],
@@ -343,5 +346,17 @@ describe("playwright browser runtime utils", () => {
     await bridge.chatWithTools(messages, tools, options);
 
     expect(chatWithTools).toHaveBeenCalledWith(messages, tools, options);
+  });
+
+  test("keeps a rejecting tool-calling stub when the client cannot escalate", async () => {
+    type ChatWithTools = NonNullable<JobFinderAiClient["chatWithTools"]>;
+    const real = vi.fn<ChatWithTools>(() =>
+      Promise.resolve({ content: "ok", toolCalls: [] }),
+    );
+
+    expect(resolveAgentDiscoveryChatWithTools(real)).toBe(real);
+
+    const stub = resolveAgentDiscoveryChatWithTools(undefined);
+    await expect(stub([], [])).rejects.toThrow(/does not support tool calling/);
   });
 });

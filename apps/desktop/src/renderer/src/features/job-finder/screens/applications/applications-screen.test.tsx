@@ -176,13 +176,18 @@ describe("ApplicationsScreen", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("Start your first application")).toBeTruthy();
+    expect(screen.getByText("No application started yet")).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Shortlisting a job or tailoring its resume does not create an application record.*choose Prepare application/i,
+      ),
+    ).toBeTruthy();
     expect(
       screen.queryByText("Application details will appear here"),
     ).toBeNull();
 
     const shortlistedLinks = screen.getAllByRole("link", {
-      name: "Go to Shortlisted",
+      name: "Open Shortlisted",
     });
     expect(shortlistedLinks).toHaveLength(2);
     for (const link of shortlistedLinks) {
@@ -193,9 +198,8 @@ describe("ApplicationsScreen", () => {
     ).toBe("/job-finder/discovery");
     expect(screen.queryByRole("button", { name: /needs action/i })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Stages" }));
-    expect(screen.getByText("Application tracker")).toBeTruthy();
-    expect(screen.getByText("No applications yet")).toBeTruthy();
+    // With nothing to track, the tracker is not offered at all.
+    expect(screen.queryByRole("button", { name: "Open tracker" })).toBeNull();
   });
 
   it("keeps workspace modes directly under the title and renders notices below them", () => {
@@ -248,32 +252,30 @@ describe("ApplicationsScreen", () => {
     const dividers = view.container.querySelectorAll(
       "[data-page-header-divider]",
     );
-    const group = screen.getByRole("group", {
-      name: "Applications workspace view",
-    });
     const safeguards = screen.getByRole("region", {
       name: "Active safeguards",
     });
+    expect(safeguards.textContent).toContain(
+      "2 active safeguard blockers need attention. Affected work is paused; job discovery may still be available.",
+    );
 
     expect(dividers).toHaveLength(1);
     expect(stack?.className).toContain("mb-(--gap-page-header-body)");
-    expect(subnav?.contains(group)).toBe(true);
-    expect(
-      group.compareDocumentPosition(safeguards) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
 
-    for (const name of ["Preparation", "Stages"]) {
-      expect(
-        screen.getByRole("button", { name }).getAttribute("aria-controls"),
-      ).toBe("applications-workspace-content");
-    }
+    // Preparation is the product: there is no Preparation/Stages tab pair,
+    // and with no applications yet there is nothing to track either.
+    expect(subnav).toBeNull();
+    expect(
+      screen.queryByRole("group", { name: "Applications workspace view" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stages" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open tracker" })).toBeNull();
     expect(
       document.getElementById("applications-workspace-content"),
     ).toBeTruthy();
   });
 
-  it("labels a finished automatic run without unusual cases in human words instead of the raw state", () => {
+  it("shows the latest-run banner only while it still needs attention, and never leaks a raw state", () => {
     class ResizeObserverMock {
       observe() {}
       disconnect() {}
@@ -333,24 +335,61 @@ describe("ApplicationsScreen", () => {
       selectedRecord: null,
     });
 
-    // With zero results there are no attention cases, so the badge must fall
-    // back to the run's state in human words instead of the raw enum value.
-    for (const [rawState, humanState] of [
-      ["failed", "Failed"],
-      ["cancelled", "Cancelled"],
-    ] as const) {
+    // With zero results there are no attention cases, so the run is history:
+    // the banner is not page furniture and does not reappear as a fresh event
+    // every time the user comes back from the tracker. The run stays visible
+    // in the record's own run history.
+    for (const rawState of ["failed", "cancelled"] as const) {
       render(
         <MemoryRouter>
           <ApplicationsScreen {...buildProps(rawState)} />
         </MemoryRouter>,
       );
 
-      expect(screen.getByText("Latest automatic run")).toBeTruthy();
-      expect(screen.getByText(humanState)).toBeTruthy();
+      expect(screen.queryByText("Latest automatic run")).toBeNull();
       expect(screen.queryByText(rawState)).toBeNull();
 
       cleanup();
     }
+
+    // When it does need attention it says so, and it counts the cases rather
+    // than naming a run state.
+    render(
+      <MemoryRouter>
+        <ApplicationsScreen
+          {...buildProps("failed")}
+          applyJobResults={[
+            {
+              id: "apply_result_attention",
+              runId: "apply_run_finished",
+              jobId: "job_finished",
+              applicationRecordId: null,
+              queuePosition: 0,
+              state: "blocked",
+              summary: "Blocked before review.",
+              detail: "The run stopped before the job was prepared.",
+              startedAt: "2026-08-20T09:56:00.000Z",
+              updatedAt: "2026-08-20T10:00:00.000Z",
+              completedAt: "2026-08-20T10:00:00.000Z",
+              blockerReason: "required_human_input",
+              blockerSummary: "The job site needs you to finish a step.",
+              listingSignalEvidence: null,
+              visualObservationSets: [],
+              visualCheckpoints: [],
+              latestQuestionCount: 0,
+              latestAnswerCount: 0,
+              pendingConsentRequestCount: 0,
+              artifactCount: 0,
+              latestCheckpointId: null,
+              privacyReceipt: null,
+            },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Latest automatic run")).toBeTruthy();
+    expect(screen.getByText("1 unusual case")).toBeTruthy();
+    expect(screen.queryByText("failed")).toBeNull();
   });
 
   it("does not show the pause banner for a contradictory answer advisory", () => {
@@ -773,8 +812,10 @@ describe("ApplicationsScreen", () => {
     );
 
     expect(screen.getByText("1 application")).toBeTruthy();
-    expect(screen.getByText("1 run saved")).toBeTruthy();
+    // Association is proven by the run entry itself; the recovery section no
+    // longer repeats a saved-run count above its one action.
     expect(screen.getAllByTitle("apply_run_legacy").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/runs? saved/i)).toBeNull();
     expect(
       screen.getByText("Legacy attempt prepared every required answer."),
     ).toBeTruthy();
@@ -898,7 +939,7 @@ describe("ApplicationsScreen", () => {
     );
 
     expect(screen.getByText("2 applications")).toBeTruthy();
-    expect(screen.getByText("0 runs saved")).toBeTruthy();
+    expect(screen.queryByText(/runs? saved/i)).toBeNull();
     expect(screen.queryByTitle("apply_run_shared")).toBeNull();
     expect(
       screen.getByText(/Unassigned legacy preparation history/i),
@@ -1210,7 +1251,7 @@ describe("ApplicationsScreen", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Stages" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open tracker" }));
     expect(await screen.findByRole("combobox", { name: "Stage" })).toBeTruthy();
     expect(screen.getByText("Backend Engineer · Beta")).toBeTruthy();
 
@@ -1256,7 +1297,7 @@ describe("ApplicationsScreen", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Stages" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open tracker" }));
     expect(await screen.findByRole("combobox", { name: "Stage" })).toBeTruthy();
 
     fireEvent.change(screen.getByRole("combobox", { name: "Lifecycle view" }), {
@@ -1303,7 +1344,7 @@ describe("ApplicationsScreen", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Stages" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open tracker" }));
     expect(await screen.findByRole("combobox", { name: "Stage" })).toBeTruthy();
     expect(screen.getByText("Backend Engineer 110 · Beta")).toBeTruthy();
     expect(screen.getByText("Page 3 of 3")).toBeTruthy();
@@ -1318,6 +1359,51 @@ describe("ApplicationsScreen", () => {
     expect(onSelectRecord).not.toHaveBeenCalled();
   });
 
+  it("keeps the stage tracker off the primary Applications surface", () => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    stubCandidateAssetsBridge();
+    const tracked = createTrackedApplication({});
+    const onWorkspaceViewChange = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <ApplicationsScreen
+          dailyPreparationCapacity={null}
+          onWorkspaceViewChange={onWorkspaceViewChange}
+          {...buildCrmScreenProps({
+            applicationRecords: [tracked],
+            onSelectRecord: vi.fn(),
+            selectedRecord: tracked,
+          })}
+        />
+      </MemoryRouter>,
+    );
+
+    // One list, one state per application: no peer Preparation/Stages tabs,
+    // no view switcher, and no export controls beside a single record.
+    for (const name of [
+      "Preparation",
+      "Stages",
+      "Table",
+      "Kanban",
+      "Calendar",
+    ]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(screen.queryByRole("button", { name: "Export CSV" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Export JSON" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Saved views" })).toBeNull();
+
+    // The tracker is a named destination reached explicitly, and the route
+    // owns the mode so it keeps a link.
+    fireEvent.click(screen.getByRole("button", { name: "Open tracker" }));
+    expect(onWorkspaceViewChange).toHaveBeenCalledWith("crm");
+    expect(screen.getByRole("heading", { name: "Tracker" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Back to Applications" }),
+    ).toBeTruthy();
+  });
+
   it("shows a truthful zero-record right pane in the Stages view without claiming a filtered selection", () => {
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
     stubCandidateAssetsBridge();
@@ -1327,6 +1413,7 @@ describe("ApplicationsScreen", () => {
       <MemoryRouter>
         <ApplicationsScreen
           dailyPreparationCapacity={null}
+          workspaceView="crm"
           {...buildCrmScreenProps({
             applicationRecords: [],
             onSelectRecord,
@@ -1336,7 +1423,6 @@ describe("ApplicationsScreen", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Stages" }));
     expect(screen.getByText("No applications to track yet")).toBeTruthy();
     expect(
       screen.queryByText("No application selected in this view"),
@@ -1363,7 +1449,7 @@ describe("ApplicationsScreen", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Stages" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open tracker" }));
     expect(screen.getByText("Tracking tools unavailable")).toBeTruthy();
     expect(
       screen.queryByText(/Show all applications will bring it back/),
@@ -1390,13 +1476,15 @@ describe("ApplicationsScreen", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Stages" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open tracker" }));
     expect(screen.getByRole("combobox", { name: "Stage" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Preparation" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Back to Applications" }),
+    );
     expect(screen.queryByRole("combobox", { name: "Stage" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Stages" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open tracker" }));
     expect(screen.getByRole("combobox", { name: "Stage" })).toBeTruthy();
     expect(screen.getByText("Backend Engineer · Beta")).toBeTruthy();
     expect(onSelectRecord).not.toHaveBeenCalled();
@@ -1442,6 +1530,63 @@ describe("ApplicationsScreen", () => {
         region.querySelectorAll("[data-locked-pane-scroll-region]"),
       ).toHaveLength(0);
     }
+
+    // The list column stays pinned to the top of its column instead of riding
+    // away with the detail scroll and leaving a dead half-screen behind it.
+    const listPanel = screen
+      .getByRole("list", { name: "Applications" })
+      .closest("section");
+    expect(listPanel?.className).toContain("xl:sticky");
+    expect(listPanel?.className).toContain("xl:top-0");
+    expect(listPanel?.className).toContain("xl:self-start");
+    expect(listPanel?.className).not.toContain("xl:h-full");
+  });
+
+  it("reveals the stacked detail panel after selecting an application at compact width", () => {
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({ matches: false })),
+    );
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        callback(0);
+        return 1;
+      }),
+    );
+    const tracked = createTrackedApplication({});
+    const onSelectRecord = vi.fn();
+
+    render(
+      <MemoryRouter>
+        <ApplicationsScreen
+          dailyPreparationCapacity={null}
+          {...buildCrmScreenProps({
+            applicationRecords: [tracked],
+            onSelectRecord,
+            selectedRecord: tracked,
+          })}
+        />
+      </MemoryRouter>,
+    );
+
+    const detail = document.getElementById("applications-detail-content");
+    expect(detail).toBeTruthy();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(detail, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "View details for Backend Engineer at Beta",
+      }),
+    );
+
+    expect(onSelectRecord).toHaveBeenCalledWith(tracked.id);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
   });
 
   it("marks the tracker table scroller plus the CRM detail wrapper in Stages mode without nesting markers", async () => {
@@ -1462,7 +1607,7 @@ describe("ApplicationsScreen", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Stages" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open tracker" }));
     expect(await screen.findByRole("combobox", { name: "Stage" })).toBeTruthy();
 
     // Stages mode: the leaf table body and the screen-level CRM detail
@@ -1589,9 +1734,7 @@ describe("ApplicationsScreen", () => {
     // successes; the surface stays a polite status region either way.
     expect(status.getAttribute("role")).toBe("status");
     expect(status.getAttribute("aria-live")).toBe("polite");
-    expect(status.textContent).toBe(
-      "The requested Job Finder action failed.",
-    );
+    expect(status.textContent).toBe("The requested Job Finder action failed.");
 
     cleanup();
     render(
@@ -1607,9 +1750,9 @@ describe("ApplicationsScreen", () => {
         />
       </MemoryRouter>,
     );
-    expect(screen.getByTestId("applications-route-action-status").textContent).toBe(
-      "No jobs selected for auto-apply queue.",
-    );
+    expect(
+      screen.getByTestId("applications-route-action-status").textContent,
+    ).toBe("No jobs selected for auto-apply queue.");
   });
 
   it("never duplicates the static daily-capacity reached alert at the route level", () => {
@@ -1642,8 +1785,6 @@ describe("ApplicationsScreen", () => {
 
     // The Recovery section's dedicated alert owns this exact sentence; the
     // route surface suppresses only that duplicate.
-    expect(
-      screen.queryByTestId("applications-route-action-status"),
-    ).toBeNull();
+    expect(screen.queryByTestId("applications-route-action-status")).toBeNull();
   });
 });

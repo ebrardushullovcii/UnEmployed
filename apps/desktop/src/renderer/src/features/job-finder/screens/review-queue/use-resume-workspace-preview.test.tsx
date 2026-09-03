@@ -148,8 +148,7 @@ describe("useResumeWorkspacePreview", () => {
   }
 
   it("retains the previous preview while the same draft revalidates", async () => {
-    const { onPreviewDraft, rerender, result } =
-      await renderWithReadyPreview();
+    const { onPreviewDraft, rerender, result } = await renderWithReadyPreview();
 
     // Same job/draft lineage, new revision: nothing may blank mid-typing.
     rerender({
@@ -179,8 +178,7 @@ describe("useResumeWorkspacePreview", () => {
   });
 
   it("clears a foreign preview immediately on job/draft switch and fences the in-flight stale response", async () => {
-    const { onPreviewDraft, rerender, result } =
-      await renderWithReadyPreview();
+    const { onPreviewDraft, rerender, result } = await renderWithReadyPreview();
 
     rerender({
       draft: buildDraft({
@@ -228,8 +226,7 @@ describe("useResumeWorkspacePreview", () => {
   });
 
   it("applies responses in order so a slower older render cannot overwrite the newest", async () => {
-    const { onPreviewDraft, rerender, result } =
-      await renderWithReadyPreview();
+    const { onPreviewDraft, rerender, result } = await renderWithReadyPreview();
 
     rerender({
       draft: buildDraft({
@@ -275,8 +272,7 @@ describe("useResumeWorkspacePreview", () => {
   });
 
   it("drops the retained frame and reports failure honestly, then recovers on retry", async () => {
-    const { onPreviewDraft, rerender, result } =
-      await renderWithReadyPreview();
+    const { onPreviewDraft, rerender, result } = await renderWithReadyPreview();
 
     rerender({
       draft: buildDraft({
@@ -389,8 +385,7 @@ describe("useResumeWorkspacePreview", () => {
   });
 
   it("resetPreview clears state immediately and fences late responses", async () => {
-    const { onPreviewDraft, rerender, result } =
-      await renderWithReadyPreview();
+    const { onPreviewDraft, rerender, result } = await renderWithReadyPreview();
 
     rerender(toHookProps(null, false, onPreviewDraft));
     expect(result.current.previewStatus).toBe("idle");

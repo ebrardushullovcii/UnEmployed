@@ -6,7 +6,9 @@ describe("parseLocationParts", () => {
   test.each([
     ["Portland, Oregon", "Portland", "Oregon", "United States"],
     ["New York, NY", "New York", "NY", "United States"],
-    ["Cedar Park, TX 78613", "Cedar Park", "TX 78613", "United States"],
+    ["Cedar Park, TX 78613", "Cedar Park", "TX", "United States"],
+    ["Austin, Texas 78701-1234", "Austin", "Texas", "United States"],
+    ["Toronto, ON M5V 3L9", "Toronto", "ON", "Canada"],
     ["San Juan, Puerto Rico", "San Juan", "Puerto Rico", "United States"],
     ["Hagatna, Guam", "Hagatna", "Guam", "United States"],
     ["Toronto, Ontario", "Toronto", "Ontario", "Canada"],

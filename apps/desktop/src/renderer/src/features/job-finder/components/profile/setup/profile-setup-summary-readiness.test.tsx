@@ -1,13 +1,21 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CandidateProfileSchema,
   JobSearchPreferencesSchema,
   createFreshStartCandidateProfile,
+  evaluateProfileSetupReadiness,
   type JobSearchPreferences,
 } from "@unemployed/contracts";
-import { buildProfileSetupSummaryCards } from "./profile-setup-screen-helpers";
+import {
+  buildProfileSetupReadinessPresentation,
+  getProfileSetupReadinessBlockerLabel,
+} from "./profile-setup-screen-helpers";
+import {
+  formatProfileSetupFinishReadiness,
+  getProfileSetupStepFooterPrimary,
+} from "./profile-setup-step-footer";
 
 type SearchPreferencesInput = (typeof JobSearchPreferencesSchema)["_input"];
 
@@ -43,23 +51,50 @@ function buildSearchPreferences(
   });
 }
 
-describe("profile setup summary readiness cards", () => {
-  it("reports a canonical fresh-start workspace as not provided yet", () => {
-    const cards = buildProfileSetupSummaryCards({
-      draftProfile: createFreshStartCandidateProfile(),
-      draftSearchPreferences: buildSearchPreferences(),
-      hasImportedResume: false,
-      profileSetupStateStatus: "not_started",
+describe("guided setup readiness, stated once", () => {
+  function buildReadinessLine(input: {
+    draftProfile: Parameters<typeof evaluateProfileSetupReadiness>[0];
+    draftSearchPreferences: JobSearchPreferences;
+  }) {
+    const readiness = evaluateProfileSetupReadiness(
+      input.draftProfile,
+      input.draftSearchPreferences,
+    );
+    const presentation = buildProfileSetupReadinessPresentation({
+      readiness,
+      reviewItems: [],
     });
 
-    expect(cards.map((card) => card.value)).toEqual([
-      "Not provided yet",
-      "Not analyzed yet",
-      "Not provided yet",
+    return {
+      presentation,
+      text: formatProfileSetupFinishReadiness({
+        canFinishSetup: presentation.remainingBlockerCount === 0,
+        remainingBlockerLabels: presentation.blockers.map((blocker) =>
+          getProfileSetupReadinessBlockerLabel(blocker.id),
+        ),
+      }),
+    };
+  }
+
+  it("names every blocker on a canonical fresh-start workspace", () => {
+    const { presentation, text } = buildReadinessLine({
+      draftProfile: createFreshStartCandidateProfile(),
+      draftSearchPreferences: buildSearchPreferences(),
+    });
+
+    expect(presentation.blockers.map((blocker) => blocker.id)).toEqual([
+      "identity_contact",
+      "background",
+      "eligibility_preferences",
+      "work_mode_preference",
+      "discovery_source",
     ]);
+    expect(text).toBe(
+      "Still needed to finish: Complete your essentials · Add work history · Add a preferred location · Pick a work mode (remote, hybrid, or onsite) · Enable a job source.",
+    );
   });
 
-  it("never claims ready to search while the work mode is missing", () => {
+  it("never claims setup can finish while the work mode is missing", () => {
     // Regression for first-run QA: target role + runnable source used to read
     // "Ready to search" while the ready check still required a work mode.
     const profile = CandidateProfileSchema.parse({
@@ -115,29 +150,81 @@ describe("profile setup summary readiness cards", () => {
       },
     });
 
-    const blockedCards = buildProfileSetupSummaryCards({
+    const blocked = buildReadinessLine({
       draftProfile: profile,
       draftSearchPreferences: searchPreferencesWithoutWorkMode,
-      hasImportedResume: true,
-      profileSetupStateStatus: "in_progress",
     });
-    expect(blockedCards[0]).toEqual({
-      label: "Discovery",
-      value: "Needs a work mode",
-    });
+    expect(blocked.text).toBe(
+      "Still needed to finish: Pick a work mode (remote, hybrid, or onsite).",
+    );
 
-    const readyCards = buildProfileSetupSummaryCards({
+    const ready = buildReadinessLine({
       draftProfile: profile,
       draftSearchPreferences: {
         ...searchPreferencesWithoutWorkMode,
         workModes: ["remote"],
       },
-      hasImportedResume: true,
-      profileSetupStateStatus: "completed",
     });
-    expect(readyCards[0]).toEqual({
-      label: "Discovery",
-      value: "Ready to search",
+    expect(ready.text).toBe("Everything required is in. You can finish setup.");
+    expect(
+      getProfileSetupStepFooterPrimary({
+        canFinishSetup: ready.presentation.remainingBlockerCount === 0,
+        currentStep: "targeting",
+        onSaveAndFinish: vi.fn(),
+        onSaveAndGoToStep: vi.fn(),
+      }).label,
+    ).toBe("Finish setup and find jobs");
+  });
+
+  it("keeps the Mina-style readiness line aligned with the sticky footer gate", () => {
+    const profile = CandidateProfileSchema.parse({
+      ...createFreshStartCandidateProfile(),
+      firstName: "Mina",
+      lastName: "Rivera",
+      fullName: "Mina Rivera",
+      headline: "Customer support specialist",
+      currentLocation: "Prishtina, Kosovo",
+      yearsExperience: 0,
+      email: "mina@example.com",
+      experiences: [
+        {
+          id: "mina_experience",
+          companyName: "Signal Systems",
+          title: "Customer Support Specialist",
+          startDate: "2024-01",
+          isCurrent: true,
+        },
+      ],
     });
+    const searchPreferences = buildSearchPreferences({
+      targetRoles: ["Customer support specialist"],
+      locations: ["Prishtina, Kosovo"],
+      workModes: [],
+      discovery: { historyLimit: 5, targets: [] },
+    });
+
+    const { presentation, text } = buildReadinessLine({
+      draftProfile: profile,
+      draftSearchPreferences: searchPreferences,
+    });
+
+    expect(presentation.blockers.map((blocker) => blocker.id)).toEqual([
+      "identity_contact",
+      "work_mode_preference",
+      "discovery_source",
+    ]);
+    expect(text).toBe(
+      "Still needed to finish: Complete your essentials · Pick a work mode (remote, hybrid, or onsite) · Enable a job source.",
+    );
+    // One readiness system: the footer primary is gated by the same
+    // presentation the line above is written from.
+    expect(
+      getProfileSetupStepFooterPrimary({
+        canFinishSetup: presentation.remainingBlockerCount === 0,
+        currentStep: "targeting",
+        onSaveAndFinish: vi.fn(),
+        onSaveAndGoToStep: vi.fn(),
+      }).label,
+    ).toBe("Save and continue to Extras");
   });
 });

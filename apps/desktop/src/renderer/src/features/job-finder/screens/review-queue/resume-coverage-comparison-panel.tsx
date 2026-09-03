@@ -7,16 +7,50 @@ import type {
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 
-const roleStatusLabel: Record<
-  ResumeCoverageRoleComparison["status"],
-  string
-> = {
-  unchanged: "Kept",
-  rewritten: "Reworded",
-  compacted: "Compacted",
-  hidden: "Hidden",
-  missing: "Missing",
-};
+const roleStatusLabel: Record<ResumeCoverageRoleComparison["status"], string> =
+  {
+    unchanged: "Kept",
+    rewritten: "Reworded",
+    compacted: "Shortened",
+    hidden: "Hidden",
+    missing: "Missing",
+  };
+
+/**
+ * "18 REMOVED CLAIMS", "1/2 PAGES", and "3/3 ROLES" are scorer vocabulary.
+ * "1/2 pages" in particular is unreadable — one of two, or one half? — beside
+ * an export that is one page.
+ */
+function describePageFit(input: {
+  pageCount: number | null;
+  targetPageCount: number;
+}): string | null {
+  if (input.pageCount === null) {
+    return null;
+  }
+
+  if (input.pageCount <= input.targetPageCount) {
+    return input.pageCount === 1
+      ? "Fits on one page"
+      : `Fits on ${input.pageCount} pages`;
+  }
+
+  return `${input.pageCount} pages — ${input.targetPageCount} planned`;
+}
+
+function describeRoleCoverage(input: {
+  visibleRoleCount: number;
+  originalRoleCount: number;
+}): string {
+  if (
+    input.visibleRoleCount === input.originalRoleCount &&
+    input.originalRoleCount > 0
+  ) {
+    return `All ${input.originalRoleCount} roles shown`;
+  }
+
+  return `${input.visibleRoleCount} of ${input.originalRoleCount} roles shown`;
+}
 
 export function ResumeCoverageComparisonPanel(props: {
   comparison: ResumeCoverageComparison | null;
@@ -42,6 +76,7 @@ export function ResumeCoverageComparisonPanel(props: {
   return (
     <details
       className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-fill-soft)"
+      data-resume-coverage-comparison
       open={hasReviewItems}
     >
       <summary className="cursor-pointer list-none px-3 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -57,15 +92,21 @@ export function ResumeCoverageComparisonPanel(props: {
           </div>
           <div className="flex flex-wrap gap-1.5">
             <Badge variant="outline">
-              {comparison.visibleRoleCount}/{comparison.originalRoleCount} roles
+              {describeRoleCoverage({
+                originalRoleCount: comparison.originalRoleCount,
+                visibleRoleCount: comparison.visibleRoleCount,
+              })}
             </Badge>
             {comparison.removedClaimCount > 0 ? (
               <Badge variant="default">
-                {comparison.removedClaimCount} removed claim
-                {comparison.removedClaimCount === 1 ? "" : "s"}
+                {comparison.removedClaimCount} line
+                {comparison.removedClaimCount === 1 ? "" : "s"} removed
               </Badge>
             ) : null}
-            {comparison.pageCount !== null ? (
+            {describePageFit({
+              pageCount: comparison.pageCount,
+              targetPageCount: comparison.targetPageCount,
+            }) ? (
               <Badge
                 variant={
                   comparison.pageImpact === "over_target"
@@ -73,7 +114,10 @@ export function ResumeCoverageComparisonPanel(props: {
                     : "section"
                 }
               >
-                {comparison.pageCount}/{comparison.targetPageCount} pages
+                {describePageFit({
+                  pageCount: comparison.pageCount,
+                  targetPageCount: comparison.targetPageCount,
+                })}
               </Badge>
             ) : null}
           </div>
@@ -81,23 +125,17 @@ export function ResumeCoverageComparisonPanel(props: {
       </summary>
 
       <div className="grid gap-3 border-t border-(--surface-panel-border) p-3">
-        {(comparison.addedKeywords.length > 0 ||
-          comparison.removedKeywords.length > 0) && (
+        {/* The dropped skills used to end this panel as an inert grey
+            paragraph. They are now actionable "Add" chips beside the skills
+            editor, so they are not repeated here as a list you cannot use. */}
+        {comparison.addedKeywords.length > 0 ? (
           <div className="grid gap-1.5 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 p-2.5 text-(length:--text-small)">
-            {comparison.addedKeywords.length > 0 ? (
-              <p className="leading-5 text-foreground-soft">
-                <strong className="text-foreground">Keywords added:</strong>{" "}
-                {comparison.addedKeywords.join(", ")}
-              </p>
-            ) : null}
-            {comparison.removedKeywords.length > 0 ? (
-              <p className="leading-5 text-foreground-soft">
-                <strong className="text-foreground">Skills not shown:</strong>{" "}
-                {comparison.removedKeywords.join(", ")}
-              </p>
-            ) : null}
+            <p className="leading-5 text-foreground-soft">
+              <strong className="text-foreground">Keywords added:</strong>{" "}
+              {comparison.addedKeywords.join(", ")}
+            </p>
           </div>
-        )}
+        ) : null}
 
         <div className="grid gap-2">
           {comparison.roles.map((role) => (
@@ -167,26 +205,34 @@ export function ResumeCoverageComparisonPanel(props: {
               {role.removedClaims.length > 0 ? (
                 <div className="grid gap-1.5">
                   <span className="font-display text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                    Original content not shown verbatim
+                    Lines from your original resume that are not on the page
                   </span>
+                  {/* Restore used to sit inline at the end of the sentence, so
+                      it read as the last word of the line instead of an
+                      action. Each line now owns a labelled control on its own
+                      row, right-aligned against the paragraph it restores. */}
                   {role.removedClaims.map((claim, index) => (
                     <div
-                      className="flex items-start justify-between gap-2"
+                      className="grid min-w-0 gap-1"
                       key={`${role.profileRecordId}_removed_${index}`}
                     >
                       <p className="min-w-0 text-(length:--text-small) leading-5 text-foreground-soft">
                         − {claim.text}
                       </p>
                       {claim.restorable && role.entryId && role.sectionId ? (
-                        <Button
-                          disabled={props.disabled}
-                          onClick={() => props.onRestoreClaim(role, claim)}
-                          size="compact"
-                          type="button"
-                          variant="ghost"
-                        >
-                          Restore
-                        </Button>
+                        <div className="flex justify-end">
+                          <Button
+                            aria-label={`Restore this line: ${claim.text}`}
+                            disabled={props.disabled}
+                            onClick={() => props.onRestoreClaim(role, claim)}
+                            size="compact"
+                            type="button"
+                            variant="secondary"
+                          >
+                            <RotateCcw className="size-3.5" />
+                            Restore
+                          </Button>
+                        </div>
                       ) : null}
                     </div>
                   ))}

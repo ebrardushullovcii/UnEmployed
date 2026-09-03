@@ -416,6 +416,50 @@ describe("useProfileScreenForms background-snapshot durability", () => {
     expect(result.current.backgroundMergeNotice).toBeNull();
   });
 
+  it("rebases a resume-text save echo when persistence refreshes resume metadata", () => {
+    const { result, rerender } = renderProfileScreenForms(createInput());
+    const recoveredResumeText = `${profile.baseResume.textContent}\nRecovered detail`;
+
+    act(() => {
+      result.current.profileForm.setValue(
+        "identity.resumeText",
+        recoveredResumeText,
+        { shouldDirty: true },
+      );
+    });
+
+    const savedProfile = buildProfilePayload(
+      profile,
+      result.current.profileForm.getValues(),
+    ).payload;
+    if (!savedProfile) {
+      throw new Error(
+        "Expected the resume-text draft to build a valid payload.",
+      );
+    }
+
+    rerender(
+      createInput({
+        profile: {
+          ...savedProfile,
+          baseResume: {
+            ...savedProfile.baseResume,
+            textUpdatedAt: "2026-08-28T10:05:00.000Z",
+            extractionStatus: "not_started",
+            lastAnalyzedAt: null,
+            analysisWarnings: [],
+          },
+        },
+      }),
+    );
+
+    expect(result.current.hasUserDraftChanges).toBe(false);
+    expect(result.current.profileForm.getValues("identity.resumeText")).toBe(
+      recoveredResumeText,
+    );
+    expect(result.current.backgroundMergeNotice).toBeNull();
+  });
+
   it("adopts a save echo whose committed content matches the prior baseline so the form lands clean", () => {
     const { result, rerender } = renderProfileScreenForms(createInput());
 
@@ -586,8 +630,9 @@ describe("useProfileScreenForms background-snapshot durability", () => {
 describe("useProfileScreenForms draft-edit revision signals", () => {
   it("reports each genuine edit while already dirty and stays silent when snapshots commit unchanged content", () => {
     const onDraftEdited = vi.fn();
-    const { result, rerender } =
-      renderProfileScreenForms(createInput({ onDraftEdited }));
+    const { result, rerender } = renderProfileScreenForms(
+      createInput({ onDraftEdited }),
+    );
 
     act(() => {
       result.current.profileForm.setValue(
@@ -625,8 +670,9 @@ describe("useProfileScreenForms draft-edit revision signals", () => {
 
   it("does not report hydration, background merges, own-save echoes, or discard-and-reload as revisions", () => {
     const onDraftEdited = vi.fn();
-    const { result, rerender } =
-      renderProfileScreenForms(createInput({ onDraftEdited }));
+    const { result, rerender } = renderProfileScreenForms(
+      createInput({ onDraftEdited }),
+    );
 
     // Canonical hydration seeds both forms silently.
     expect(onDraftEdited).not.toHaveBeenCalled();
@@ -695,8 +741,7 @@ describe("useProfileScreenForms draft-edit revision signals", () => {
 
   it("signals structural row edits exactly once via wrapped mutators while reseeds stay silent", () => {
     const onDraftEdited = vi.fn();
-    const { result } =
-      renderProfileScreenForms(createInput({ onDraftEdited }));
+    const { result } = renderProfileScreenForms(createInput({ onDraftEdited }));
 
     // Array-resync events on mount remain filtered.
     expect(onDraftEdited).not.toHaveBeenCalled();
@@ -742,5 +787,45 @@ describe("useProfileScreenForms draft-edit revision signals", () => {
     });
     expect(result.current.hasUserDraftChanges).toBe(false);
     expect(onDraftEdited).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("useProfileScreenForms save-state truth on load", () => {
+  // An imported location line can carry detail the split parts do not. The
+  // editor derives `currentLocation` from those parts, so recomposing it
+  // unconditionally made a freshly loaded Profile differ from its own saved
+  // record forever: the footer read "Unsaved changes on this page." and Save
+  // was enabled before the user typed anything.
+  const importedLocationProfile = CandidateProfileSchema.parse({
+    ...profile,
+    currentLocation: "Cedar Park, TX 78613",
+    currentCity: "Cedar Park",
+    currentRegion: "TX",
+    currentCountry: "United States",
+  });
+
+  it("reports no unsaved changes for an untouched imported profile", () => {
+    const { result } = renderProfileScreenForms(
+      createInput({ profile: importedLocationProfile }),
+    );
+
+    expect(result.current.hasUnsavedChanges).toBe(false);
+    expect(result.current.hasUserDraftChanges).toBe(false);
+  });
+
+  it("reports unsaved changes as soon as a field is edited", () => {
+    const { result } = renderProfileScreenForms(
+      createInput({ profile: importedLocationProfile }),
+    );
+
+    act(() => {
+      result.current.profileForm.setValue(
+        "identity.headline",
+        "Staff systems designer",
+        { shouldDirty: true },
+      );
+    });
+
+    expect(result.current.hasUnsavedChanges).toBe(true);
   });
 });

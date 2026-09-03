@@ -548,6 +548,9 @@ function createFakeApplicationPage(
       if (callback.name === "installServiceWorkerRegisterGuardInPage") {
         return Promise.resolve(undefined);
       }
+      if (callback.name === "setPrepareOnlyIntermediateMutationWindowInPage") {
+        return Promise.resolve(undefined);
+      }
       if (callback.name === "readServiceWorkerRegisterGuardInPage") {
         return Promise.resolve({
           supported: true,
@@ -936,6 +939,15 @@ async function runApplicationScenario(input: {
         ? {
             intermediateMutationsAuthorized:
               input.intermediateMutationsAuthorized,
+            intermediateMutationAllowedOrigins:
+              input.intermediateMutationsAuthorized
+                ? ["https://apply.example.com"]
+                : [],
+            recheckIntermediateMutationAuthority: (observedOrigin: string) =>
+              Promise.resolve(
+                input.intermediateMutationsAuthorized === true &&
+                  observedOrigin === "https://apply.example.com",
+              ),
           }
         : {}),
       ...(input.submitAuthorized !== undefined
@@ -1082,6 +1094,7 @@ describe("Playwright prepare-only application flow", () => {
     const {
       installPrepareOnlyMutationGuardInPage,
       readPrepareOnlyMutationGuardInPage,
+      setPrepareOnlyIntermediateMutationWindowInPage,
     } = await import("./playwright-application-flow");
     installPrepareOnlyMutationGuardInPage();
 
@@ -1167,6 +1180,11 @@ describe("Playwright prepare-only application flow", () => {
     );
 
     installPrepareOnlyMutationGuardInPage(true);
+    setPrepareOnlyIntermediateMutationWindowInPage({
+      expectedOrigin: "https://apply.example.com",
+      expiresAtMs: Date.now() + 30_000,
+      remainingRequests: 8,
+    });
     await expect(
       fakeWindow.fetch(
         "https://apply.example.com/jobs/job_prepare_runtime/autosave",
@@ -1177,13 +1195,13 @@ describe("Playwright prepare-only application flow", () => {
       fakeWindow.fetch("https://apply.example.com/jobs/job_prepare_runtime", {
         method: "GET",
       }),
-    ).resolves.toBeInstanceOf(Response);
+    ).rejects.toMatchObject({ name: "AbortError" });
     expect(
       fakeNavigator.sendBeacon(
         "https://apply.example.com/jobs/job_prepare_runtime/progress",
         "payload",
       ),
-    ).toBe(true);
+    ).toBe(false);
     const authorizedXhr = new FakeXmlHttpRequest();
     authorizedXhr.open(
       "PATCH",
@@ -1191,22 +1209,24 @@ describe("Playwright prepare-only application flow", () => {
     );
     expect(() => authorizedXhr.send("payload")).not.toThrow();
 
-    const authorizedWebSocket = new (fakeWindow.WebSocket as typeof WebSocket)(
-      "wss://apply.example.com/live",
-    );
-    expect(authorizedWebSocket).toBeInstanceOf(FakeWebSocket);
+    expect(
+      () =>
+        new (fakeWindow.WebSocket as typeof WebSocket)(
+          "wss://apply.example.com/live",
+        ),
+    ).toThrow(/Prepare-only mode blocked a new WebSocket/u);
     expect(
       fakeWindow.open("https://apply.example.com/next-step", "_blank"),
-    ).toBe(popupTarget);
+    ).toBeNull();
 
     form.submit();
     form.requestSubmit();
     expect(originalFormSubmitCalls).toBe(0);
     expect(originalRequestSubmitCalls).toBe(0);
-    expect(originalFetch).toHaveBeenCalledTimes(2);
-    expect(originalSendBeacon).toHaveBeenCalledOnce();
+    expect(originalFetch).toHaveBeenCalledTimes(1);
+    expect(originalSendBeacon).not.toHaveBeenCalled();
     expect(originalXhrSendCalls).toBe(1);
-    expect(originalWindowOpen).toHaveBeenCalledTimes(1);
+    expect(originalWindowOpen).not.toHaveBeenCalled();
   });
 
   test("fills exact grounded fields, uploads the approved resume, advances non-final steps, and never clicks final submit", async () => {
@@ -1275,20 +1295,8 @@ describe("Playwright prepare-only application flow", () => {
     expect(state.clickedLabels).not.toContain("Submit application");
     expect(result.state).toBe("paused");
     expect(result.summary).toContain("final pre-submit checkpoint");
-    expect(result.externalWrites).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          category: "profile_field",
-          fieldLabel: "First name",
-          verified: true,
-        }),
-        expect.objectContaining({
-          category: "resume_attachment",
-          fieldLabel: "Resume / CV",
-          verified: true,
-        }),
-      ]),
-    );
+    // Local DOM fills and file selection are not external persistence proof.
+    expect(result.externalWrites).toEqual([]);
     expect(result.submittedAt).toBeNull();
     expect(result.outcome).toBeNull();
     expect(result.blocker).toBeNull();
@@ -1403,15 +1411,7 @@ describe("Playwright prepare-only application flow", () => {
     expect(state.clickedLabels).toEqual(["Review application"]);
     expect(state.clickedLabels).not.toContain("Submit application");
     expect(result.state).toBe("paused");
-    expect(result.externalWrites).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          category: "application_answer",
-          fieldLabel: "Portfolio upload",
-          verified: true,
-        }),
-      ]),
-    );
+    expect(result.externalWrites).toEqual([]);
     expect(result.questions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -2555,7 +2555,9 @@ describe("Playwright prepare-only application flow", () => {
       ],
     });
 
-    expect(state.waitCount).toBe(13);
+    // The bounded recovery samples are preceded by one short field-mutation
+    // window settle for each authorized grounded control.
+    expect(state.waitCount).toBe(18);
     expect(state.bodyInspectionCount).toBe(2);
     expect(state.actionInspectionCount).toBe(2);
     expect(state.frameInspectionCount).toBe(2);

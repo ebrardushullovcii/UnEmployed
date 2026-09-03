@@ -2,6 +2,8 @@ import {
   ApplyJobResultSchema,
   ApplyRunSchema,
   ApplySubmitApprovalSchema,
+  ApprovedApplicationAnswerSnapshotSchema,
+  ApplicationAuthorityEnvelopeSchema,
   ApplicationAttemptSchema,
   ApplicationAnswerRecordSchema,
   ApplicationArtifactRefSchema,
@@ -9,6 +11,11 @@ import {
   ApplicationRecordSchema,
   ApplicationQuestionRecordSchema,
   ApplicationReplayCheckpointSchema,
+  SubmissionArmedMarkerSchema,
+  SubmissionExecutionGrantSchema,
+  SubmissionIdempotencyRecordSchema,
+  SubmissionOutcomeRecordSchema,
+  SubmissionPreflightRecordSchema,
   CandidateProfileSchema,
   JobFinderActivityControlSchema,
   JobFinderIntelligenceStateSchema,
@@ -56,6 +63,8 @@ import type {
 } from "../repository-types";
 
 export const stateTableNames = {
+  application_authority_envelopes: "application_authority_envelopes",
+  application_answer_snapshots: "application_answer_snapshots",
   application_answer_records: "application_answer_records",
   application_artifact_refs: "application_artifact_refs",
   application_attempts: "application_attempts",
@@ -63,6 +72,11 @@ export const stateTableNames = {
   application_question_records: "application_question_records",
   application_replay_checkpoints: "application_replay_checkpoints",
   application_records: "application_records",
+  submission_armed_markers: "submission_armed_markers",
+  submission_execution_grants: "submission_execution_grants",
+  submission_idempotency_records: "submission_idempotency_records",
+  submission_outcome_records: "submission_outcome_records",
+  submission_preflights: "submission_preflights",
   apply_job_results: "apply_job_results",
   apply_runs: "apply_runs",
   apply_submit_approvals: "apply_submit_approvals",
@@ -86,6 +100,26 @@ export const stateTableNames = {
   tailored_assets: "tailored_assets",
   user_action_events: "user_action_events",
   user_action_requests: "user_action_requests",
+} as const;
+
+const APPLICATION_ANSWER_SNAPSHOT_INDEXED_COLLECTION_CONFIG = {
+  columnNames: [
+    "profile_id",
+    "revision",
+    "digest",
+    "source_profile_revision",
+    "approved_at",
+  ],
+  getColumns: (value: { id: string }) => {
+    const snapshot = ApprovedApplicationAnswerSnapshotSchema.parse(value);
+    return [
+      snapshot.profileId,
+      snapshot.revision,
+      snapshot.digest,
+      snapshot.sourceProfileRevision,
+      snapshot.approvedAt,
+    ];
+  },
 } as const;
 
 export type StateCollectionTable = Exclude<
@@ -400,6 +434,18 @@ export function replaceIndexedCollection(
   },
 ): void {
   database.exec(`DELETE FROM ${stateTableNames[tableName]}`);
+  insertIndexedCollection(database, tableName, values, options);
+}
+
+function insertIndexedCollection(
+  database: DatabaseSync,
+  tableName: StateCollectionTable,
+  values: readonly { id: string }[],
+  options: {
+    columnNames: readonly string[];
+    getColumns: (value: { id: string }) => readonly SQLInputValue[];
+  },
+): void {
   const columnSql = ["id", ...options.columnNames, "value"].join(", ");
   const placeholders = Array.from({
     length: options.columnNames.length + 2,
@@ -485,6 +531,14 @@ export function writeState(
   state: JobFinderRepositoryState,
 ): void {
   assertPersistableCampaignPointer(state);
+  const activeAuthorityCount = state.applicationAuthorityEnvelopes.filter(
+    (envelope) => envelope.status === "active",
+  ).length;
+  if (activeAuthorityCount > 1) {
+    throw new Error(
+      "Refusing to persist workspace state: more than one active application authority envelope is not allowed.",
+    );
+  }
   database.exec("BEGIN IMMEDIATE");
 
   try {
@@ -559,6 +613,12 @@ export function writeState(
       "application_consent_requests",
       state.applicationConsentRequests,
       APPLY_INDEXED_COLLECTION_CONFIGS.application_consent_requests,
+    );
+    replaceIndexedCollection(
+      database,
+      "application_answer_snapshots",
+      state.applicationAnswerSnapshots ?? [],
+      APPLICATION_ANSWER_SNAPSHOT_INDEXED_COLLECTION_CONFIG,
     );
     replaceIndexedCollection(
       database,
@@ -714,6 +774,151 @@ export function writeState(
       database,
       "application_records",
       state.applicationRecords,
+    );
+    // Authority collections carry non-cascading foreign keys to preflights.
+    // Delete children before parents, then insert parents before children so
+    // reset and full-state replacement remain valid in both directions.
+    for (const tableName of [
+      "submission_outcome_records",
+      "submission_armed_markers",
+      "submission_idempotency_records",
+      "submission_execution_grants",
+      "submission_preflights",
+      "application_authority_envelopes",
+    ] as const) {
+      database.exec(`DELETE FROM ${stateTableNames[tableName]}`);
+    }
+    insertIndexedCollection(
+      database,
+      "application_authority_envelopes",
+      state.applicationAuthorityEnvelopes,
+      {
+        columnNames: ["revision", "status"],
+        getColumns: (value) => {
+          const envelope = ApplicationAuthorityEnvelopeSchema.parse(value);
+          return [envelope.revision, envelope.status];
+        },
+      },
+    );
+    insertIndexedCollection(
+      database,
+      "submission_preflights",
+      state.submissionPreflights,
+      {
+        columnNames: [
+          "idempotency_key",
+          "run_id",
+          "job_id",
+          "result_id",
+          "application_record_id",
+          "authority_envelope_id",
+          "authority_revision",
+          "created_at",
+        ],
+        getColumns: (value) => {
+          const preflight = SubmissionPreflightRecordSchema.parse(value);
+          return [
+            preflight.idempotencyKey,
+            preflight.runId,
+            preflight.jobId,
+            preflight.resultId,
+            preflight.applicationRecordId,
+            preflight.authorityEnvelopeId,
+            preflight.authorityRevision,
+            preflight.createdAt,
+          ];
+        },
+      },
+    );
+    insertIndexedCollection(
+      database,
+      "submission_execution_grants",
+      state.submissionExecutionGrants,
+      {
+        columnNames: [
+          "preflight_id",
+          "idempotency_key",
+          "status",
+          "granted_at",
+          "expires_at",
+        ],
+        getColumns: (value) => {
+          const grant = SubmissionExecutionGrantSchema.parse(value);
+          return [
+            grant.preflightId,
+            grant.idempotencyKey,
+            grant.status,
+            grant.grantedAt,
+            grant.expiresAt,
+          ];
+        },
+      },
+    );
+    insertIndexedCollection(
+      database,
+      "submission_idempotency_records",
+      state.submissionIdempotencyRecords,
+      {
+        columnNames: [
+          "idempotency_key",
+          "preflight_id",
+          "revision",
+          "status",
+          "updated_at",
+        ],
+        getColumns: (value) => {
+          const record = SubmissionIdempotencyRecordSchema.parse(value);
+          return [
+            record.idempotencyKey,
+            record.preflightId,
+            record.revision,
+            record.status,
+            record.updatedAt,
+          ];
+        },
+      },
+    );
+    insertIndexedCollection(
+      database,
+      "submission_armed_markers",
+      state.submissionArmedMarkers,
+      {
+        columnNames: ["idempotency_key", "preflight_id", "armed_at"],
+        getColumns: (value) => {
+          const marker = SubmissionArmedMarkerSchema.parse(value);
+          return [marker.idempotencyKey, marker.preflightId, marker.armedAt];
+        },
+      },
+    );
+    insertIndexedCollection(
+      database,
+      "submission_outcome_records",
+      state.submissionOutcomeRecords,
+      {
+        columnNames: [
+          "preflight_id",
+          "idempotency_key",
+          "run_id",
+          "job_id",
+          "result_id",
+          "application_record_id",
+          "attempted_at",
+          "outcome",
+        ],
+        getColumns: (value) => {
+          const outcome = SubmissionOutcomeRecordSchema.parse(value);
+          return [
+            outcome.preflightId,
+            outcome.idempotencyKey,
+            outcome.runId,
+            outcome.jobId,
+            outcome.resultId,
+            outcome.applicationRecordId,
+            outcome.attemptedAt,
+            outcome.outcome,
+          ];
+        },
+      },
     );
     replaceIndexedCollection(
       database,
@@ -967,6 +1172,12 @@ export function readState(
         orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.application_consent_requests,
       },
     ),
+    applicationAnswerSnapshots: listCollectionValues(
+      database,
+      "application_answer_snapshots",
+      ApprovedApplicationAnswerSnapshotSchema,
+      { orderBySql: "profile_id ASC, revision DESC, id ASC" },
+    ),
     userActionRequests: listCollectionValues(
       database,
       "user_action_requests",
@@ -983,6 +1194,42 @@ export function readState(
       database,
       "application_records",
       ApplicationRecordSchema,
+    ),
+    applicationAuthorityEnvelopes: listCollectionValues(
+      database,
+      "application_authority_envelopes",
+      ApplicationAuthorityEnvelopeSchema,
+      { orderBySql: "revision DESC, id ASC" },
+    ),
+    submissionPreflights: listCollectionValues(
+      database,
+      "submission_preflights",
+      SubmissionPreflightRecordSchema,
+      { orderBySql: "created_at ASC, id ASC" },
+    ),
+    submissionExecutionGrants: listCollectionValues(
+      database,
+      "submission_execution_grants",
+      SubmissionExecutionGrantSchema,
+      { orderBySql: "granted_at DESC, id ASC" },
+    ),
+    submissionIdempotencyRecords: listCollectionValues(
+      database,
+      "submission_idempotency_records",
+      SubmissionIdempotencyRecordSchema,
+      { orderBySql: "updated_at DESC, id ASC" },
+    ),
+    submissionArmedMarkers: listCollectionValues(
+      database,
+      "submission_armed_markers",
+      SubmissionArmedMarkerSchema,
+      { orderBySql: "armed_at ASC, id ASC" },
+    ),
+    submissionOutcomeRecords: listCollectionValues(
+      database,
+      "submission_outcome_records",
+      SubmissionOutcomeRecordSchema,
+      { orderBySql: "attempted_at ASC, id ASC" },
     ),
     applicationAttempts: listValues(
       database,

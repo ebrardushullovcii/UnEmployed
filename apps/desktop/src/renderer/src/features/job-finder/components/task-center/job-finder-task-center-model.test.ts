@@ -5,6 +5,7 @@ import type {
   JobFinderWorkspaceSnapshot,
   ResumeImportRun,
 } from "@unemployed/contracts";
+import { JobFinderIntelligenceStateSchema } from "@unemployed/contracts";
 import { describe, expect, test } from "vitest";
 import { buildJobFinderTaskCenterModel } from "./job-finder-task-center-model";
 import type { TailoredDraftPreparationViewState } from "../../screens/review-queue/review-queue-status";
@@ -74,7 +75,12 @@ function createApplyRun(
 
 function findTask(
   model: ReturnType<typeof buildJobFinderTaskCenterModel>,
-  kind: "discovery" | "resume_import" | "apply" | "tailored_drafts",
+  kind:
+    | "discovery"
+    | "resume_import"
+    | "apply"
+    | "safeguards"
+    | "tailored_drafts",
 ) {
   const task = model.items.find((item) => item.kind === kind);
   expect(task).toBeDefined();
@@ -97,6 +103,44 @@ function createTailoredDraftPreparation(
 }
 
 describe("buildJobFinderTaskCenterModel", () => {
+  test("does not claim an application-only safeguard also pauses discovery", () => {
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        intelligence: JobFinderIntelligenceStateSchema.parse({
+          safeguards: {
+            companyApplicationCaps: [],
+            simultaneousApplicationConflicts: [],
+            listingSignals: [],
+            abnormalFailurePauses: [
+              {
+                id: "pause_1",
+                windowStartedAt: "2026-08-15T10:00:00.000Z",
+                failuresInWindow: 4,
+                sampleSize: 5,
+                failureRatePercent: 80,
+                failureRateThresholdPercent: 40,
+                minimumSample: 5,
+                paused: true,
+                explanation: "Elevated application failure rate.",
+                recoveryGuidance: "Inspect the latest failure evidence.",
+              },
+            ],
+            preparedBatchSampleReviews: [],
+            contradictoryAnswerDetections: [],
+            safeguardDismissals: [],
+            updatedAt: "2026-08-15T10:00:00.000Z",
+          },
+        }),
+      }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+    });
+
+    expect(findTask(model, "safeguards").sourceLabel).toBe(
+      "Affected work is waiting; some safeguards pause application preparation only, while others also pause job discovery.",
+    );
+  });
+
   test("projects active discovery lifecycle, source counts, cancellation, and history-only ETA", () => {
     const currentRun = createDiscoveryRun();
     const historicalRun = createDiscoveryRun({
@@ -137,7 +181,7 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(task.sourceLabel).toBe("Mercury careers and Aircall careers");
     // Scoring-stage candidates are not merged yet, so they never drive the
     // count; the label keeps reporting persisted run evidence.
-    expect(task.countLabel).toBe("1 of 2 sources finished · 3 new jobs kept");
+    expect(task.countLabel).toBe("1 of 2 sources finished · 3 new jobs saved");
     expect(task.canCancel).toBe(true);
     expect(task.historyEstimateLabel).toBe(
       "about 10s from 1 similar completed search",
@@ -182,7 +226,7 @@ describe("buildJobFinderTaskCenterModel", () => {
     // The unmerged candidate total (50) never reaches the label, and the
     // summary's distinct total is shown as-is instead of losing duplicates.
     expect(task.countLabel).toBe(
-      "1 of 2 sources finished · 6 new jobs kept · 6 duplicates merged",
+      "1 of 2 sources finished · 6 new jobs saved · 6 duplicates merged",
     );
     expect(task.countLabel).not.toContain("50");
     expect(task.countLabel).not.toMatch(/\bfound\b/i);
@@ -223,7 +267,7 @@ describe("buildJobFinderTaskCenterModel", () => {
     // The event's jobsFound is review volume, so its own duplicate counter
     // turns 100 reviewed listings into 67 distinct retained.
     expect(task.countLabel).toBe(
-      "0 of 2 sources finished · 67 new jobs kept · 33 duplicates merged",
+      "0 of 2 sources finished · 67 new jobs saved · 33 duplicates merged",
     );
   });
 
@@ -261,7 +305,7 @@ describe("buildJobFinderTaskCenterModel", () => {
     // The per-target event must never be maxed into the cumulative summary:
     // no "56 found", no "44 unique", only the settled distinct total.
     expect(task.countLabel).toBe(
-      "1 of 2 sources finished · 6 new jobs kept · 6 duplicates merged",
+      "1 of 2 sources finished · 6 new jobs saved · 6 duplicates merged",
     );
     expect(task.countLabel).not.toMatch(/\bfound\b/i);
     expect(task.countLabel).not.toContain("44");
@@ -297,7 +341,7 @@ describe("buildJobFinderTaskCenterModel", () => {
     // 67-style regression guard: the distinct total displays as-is; the old
     // label subtracted duplicates again and claimed a smaller unique count.
     expect(task.countLabel).toBe(
-      "2 of 2 sources finished · 20 new jobs kept · 5 duplicates merged",
+      "2 of 2 sources finished · 20 new jobs saved · 5 duplicates merged",
     );
     expect(task.countLabel).not.toContain("15");
     expect(task.countLabel).not.toMatch(/\bfound\b/i);
@@ -329,7 +373,7 @@ describe("buildJobFinderTaskCenterModel", () => {
       "discovery",
     );
 
-    expect(task.countLabel).toBe("1 of 1 sources finished · 20 new jobs kept");
+    expect(task.countLabel).toBe("1 of 1 sources finished · 20 new jobs saved");
     expect(task.countLabel).not.toContain("duplicates");
     expect(task.countLabel).not.toContain("unique retained");
   });
@@ -362,7 +406,7 @@ describe("buildJobFinderTaskCenterModel", () => {
     );
 
     expect(task.countLabel).toBe(
-      "2 of 2 sources finished · 0 new jobs kept · 15 duplicates merged",
+      "2 of 2 sources finished · 0 new jobs saved · 15 duplicates merged",
     );
     expect(task.countLabel).not.toMatch(/\bfound\b/i);
   });
@@ -448,7 +492,9 @@ describe("buildJobFinderTaskCenterModel", () => {
       targetCount: targetIds.length,
     });
 
-    expect(task.countLabel).toBe("0 of 511 sources finished · 0 new jobs kept");
+    expect(task.countLabel).toBe(
+      "0 of 511 sources finished · 0 new jobs saved",
+    );
     expect(task.sourceLabel).toBe("Source 0 and 510 more sources");
     expect(task.historyEstimateLabel).toBe(
       "about 12s from 32 similar completed searches",
@@ -717,5 +763,45 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(task.countLabel).toBe("2 of 5 prepared · 1 failed");
     expect(task.stageLabel).not.toMatch(/complete|finished/i);
     expect(task.resumeRoute).toBe("/job-finder/review-queue");
+  });
+
+  test("routes an uncertain outcome to non-cancellable employer-site verification", () => {
+    const task = findTask(
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace({
+          applyRuns: [
+            createApplyRun({
+              state: "completed",
+              completedAt: "2026-08-28T10:01:00.000Z",
+            }),
+          ],
+          applyJobResults: [
+            {
+              id: "result_uncertain",
+              runId: "apply_current",
+              jobId: "job_1",
+              updatedAt: "2026-08-28T10:01:00.000Z",
+              privacyReceipt: {
+                submissionOutcome: { outcome: "outcome_uncertain" },
+              },
+            } as JobFinderWorkspaceSnapshot["applyJobResults"][number],
+          ],
+        }),
+        isDiscoveryPending: false,
+        isResumeImportPending: false,
+      }),
+      "apply",
+    );
+
+    expect(task).toMatchObject({
+      title: "Manual verification required",
+      status: "paused",
+      stageLabel: "Verify on the employer site",
+      canCancel: false,
+      cancelKind: null,
+      resumeRoute: "/job-finder/applications",
+      resumeActionLabel: "Verify outcome",
+    });
+    expect(task.countLabel).toMatch(/automatic retry is blocked/i);
   });
 });

@@ -274,12 +274,14 @@ describe("contracts base schemas", () => {
 
   test("parses desktop window controls state", () => {
     const controlsState = DesktopWindowControlsStateSchema.parse({
+      isFullScreen: false,
       isMaximized: false,
       isMinimizable: true,
       isClosable: true,
     });
 
     expect(controlsState.isClosable).toBe(true);
+    expect(controlsState.isFullScreen).toBe(false);
   });
 
   test("normalizes legacy onsite work mode spellings", () => {

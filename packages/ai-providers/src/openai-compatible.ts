@@ -763,6 +763,17 @@ export function createOpenAiCompatibleJobFinderAiClient(
   };
 }
 
+function buildProviderFailureProvenance(error: unknown) {
+  const detail = summarizeError(error);
+  return {
+    method: "deterministic" as const,
+    reason: /timed out after \d+s/i.test(detail)
+      ? ("provider_timeout" as const)
+      : ("provider_failed" as const),
+    detail,
+  };
+}
+
 export function createJobFinderAiClientFromEnvironment(
   env: StringMap = process.env,
 ): JobFinderAiClient {
@@ -778,7 +789,10 @@ export function createJobFinderAiClientFromEnvironment(
     createBrowserVisualAnalysisProviderFromEnvironment(env);
 
   if (!apiKey) {
-    const deterministicClient = createDeterministicJobFinderAiClient();
+    const deterministicClient = createDeterministicJobFinderAiClient(
+      undefined,
+      { generationReason: "no_provider_configured" },
+    );
 
     return {
       ...deterministicClient,
@@ -914,16 +928,22 @@ export function createJobFinderAiClientFromEnvironment(
         );
         logFallbackError("extractResumeImportStage", error);
         const fallback = await fallbackPromise;
+        // A timed-out model call used to return here with no note at all, so a
+        // stage that never reached the model was indistinguishable from one
+        // that did. A timeout is the most common way this degrades, so it is
+        // the case that most needs to be recorded, not the one to suppress.
         return {
           ...fallback,
+          fallback: {
+            kind: primaryTimedOut
+              ? ("timeout" as const)
+              : ("provider_error" as const),
+            reason: primaryErrorSummary,
+          },
           notes: uniqueStrings([
             ...fallback.notes,
-            ...(primaryTimedOut
-              ? []
-              : [
-                  "Fell back to the deterministic staged resume importer after the model call failed.",
-                  `Primary AI import stage failed: ${primaryErrorSummary}`,
-                ]),
+            "Fell back to the deterministic staged resume importer after the model call failed.",
+            `Primary AI import stage failed: ${primaryErrorSummary}`,
           ]),
           timing: {
             durationMs: Math.max(
@@ -978,6 +998,7 @@ export function createJobFinderAiClientFromEnvironment(
         const fallback = await fallbackClient.createResumeDraft(input);
         return {
           ...fallback,
+          generationProvenance: buildProviderFailureProvenance(error),
           notes: uniqueStrings([
             ...fallback.notes,
             "Fell back to the deterministic resume draft creator after the model call failed.",
@@ -1088,6 +1109,7 @@ export function createJobFinderAiClientFromEnvironment(
         const fallback = await fallbackClient.tailorResume(input);
         return {
           ...fallback,
+          generationProvenance: buildProviderFailureProvenance(error),
           notes: uniqueStrings([
             ...fallback.notes,
             "Fell back to the deterministic resume tailorer after the model call failed.",

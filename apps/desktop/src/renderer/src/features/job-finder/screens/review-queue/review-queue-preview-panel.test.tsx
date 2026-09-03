@@ -229,7 +229,7 @@ describe("ReviewQueuePreviewPanel locked pane scroll regions", () => {
       .closest<HTMLElement>("[data-locked-pane-scroll-region]");
     expect(resumeScroller).toBeTruthy();
     expect(resumeScroller?.className).toContain(
-      "min-h-0 flex-1 overflow-y-auto px-5 pb-5",
+      "px-5 pb-5 min-h-0 flex-1 overflow-y-auto",
     );
     // The extracted raw-text preview scrolls natively inside the card; it must
     // not carry a second nested locked-pane marker.
@@ -298,7 +298,7 @@ describe("ReviewQueuePreviewPanel locked pane scroll regions", () => {
       .closest<HTMLElement>("[data-locked-pane-scroll-region]");
     expect(previewScroller).toBeTruthy();
     expect(previewScroller?.className).toContain(
-      "min-h-0 flex-1 overflow-y-auto px-5 pb-5",
+      "px-5 pb-5 min-h-0 flex-1 overflow-y-auto",
     );
   });
 

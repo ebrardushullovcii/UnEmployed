@@ -222,8 +222,17 @@ describe("ai provider config and fallback behavior", () => {
       const result = await resultPromise;
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       expect(result.analysisProviderKind).toBe("deterministic");
-      expect(result.notes).not.toContain(
-        expect.stringContaining("Model request timed out"),
+      // A timed-out stage used to return with no note and no reason, which made
+      // it indistinguishable from a stage the model actually answered.
+      expect(result.fallback).toEqual({
+        kind: "timeout",
+        reason: "Model request timed out after 25s",
+      });
+      expect(result.notes).toContain(
+        "Fell back to the deterministic staged resume importer after the model call failed.",
+      );
+      expect(result.notes).toContain(
+        "Primary AI import stage failed: Model request timed out after 25s",
       );
       expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("25s"));
       expect(
@@ -240,6 +249,50 @@ describe("ai provider config and fallback behavior", () => {
       errorSpy.mockRestore();
       vi.useRealTimers();
     }
+  });
+
+  test("records a provider-error fallback reason when a core stage call fails", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const restoreFetch = mockRejectedFetch(new Error("upstream stage failure"));
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+      const result = await client.extractResumeImportStage({
+        stage: "experience",
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        documentBundle: createFastPathResumeBundle(),
+      });
+
+      expect(result.analysisProviderKind).toBe("deterministic");
+      expect(result.fallback).toEqual({
+        kind: "provider_error",
+        reason: "upstream stage failure",
+      });
+      expect(result.notes).toContain(
+        "Primary AI import stage failed: upstream stage failure",
+      );
+    } finally {
+      restoreFetch();
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("leaves the fallback reason unset when a core stage reaches the model", async () => {
+    const client = createJobFinderAiClientFromEnvironment(createEnvironment());
+    const result = await client.extractResumeImportStage({
+      stage: "shared_memory",
+      existingProfile: createProfile(),
+      existingSearchPreferences: createPreferences(),
+      documentBundle: createFastPathResumeBundle(),
+    });
+
+    // `shared_memory` is deterministic by design, so it never lost a model
+    // call and must not be reported as a degraded stage.
+    expect(result.fallback ?? null).toBeNull();
   });
 
   test("marks the OpenAI-compatible client as not ready when config is invalid", () => {
@@ -327,6 +380,57 @@ describe("ai provider config and fallback behavior", () => {
     }
   });
 
+  test("records a timeout reason when the primary draft call times out", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const restoreFetch = mockRejectedFetch(
+      new Error("Model request timed out after 60s"),
+    );
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+
+      const result = await client.createResumeDraft({
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Resume text",
+      });
+
+      expect(result.generationProvenance).toEqual({
+        method: "deterministic",
+        reason: "provider_timeout",
+        detail: "Model request timed out after 60s",
+      });
+      expect(result.notes).toContain(
+        "Primary AI draft creation failed: Model request timed out after 60s",
+      );
+    } finally {
+      restoreFetch();
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("records no_provider_configured when no API key is present", async () => {
+    const client = createJobFinderAiClientFromEnvironment({});
+
+    const result = await client.createResumeDraft({
+      profile: createProfile(),
+      searchPreferences: createPreferences(),
+      settings: createSettings(),
+      job: createJobPosting(),
+      resumeText: "Resume text",
+    });
+
+    expect(result.generationProvenance).toMatchObject({
+      method: "deterministic",
+      reason: "no_provider_configured",
+    });
+  });
+
   test("falls back from tailoring with logged error details and merged notes", async () => {
     const errorSpy = vi
       .spyOn(console, "error")
@@ -353,6 +457,11 @@ describe("ai provider config and fallback behavior", () => {
       expect(result.notes).toContain(
         "Primary AI tailoring failed: upstream tailoring failure",
       );
+      expect(result.generationProvenance).toEqual({
+        method: "deterministic",
+        reason: "provider_failed",
+        detail: "upstream tailoring failure",
+      });
       expect(errorSpy).toHaveBeenCalledWith(
         "[AI Provider] tailorResume failed; falling back to deterministic client. upstream tailoring failure",
       );

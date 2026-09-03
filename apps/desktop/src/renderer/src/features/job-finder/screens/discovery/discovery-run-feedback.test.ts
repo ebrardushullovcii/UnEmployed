@@ -4,11 +4,13 @@ import {
   createDiscoveryRunFailedFeedback,
   createDiscoveryRunInterruptedFeedback,
   createDiscoveryRunRefreshIncompleteFeedback,
+  createDiscoveryRunRepeatedFeedback,
   createDiscoveryRunStartedFeedback,
   createDiscoveryRunSucceededFeedback,
   getDiscoveryCancelledSavedJobCount,
   getDiscoveryLatestRunVerdict,
   getDiscoveryRunFailureRecovery,
+  shouldPresentRepeatedDiscoveryFeedback,
 } from "./discovery-run-feedback";
 
 describe("discovery run failure recovery classification", () => {
@@ -52,6 +54,18 @@ describe("discovery run failure recovery classification", () => {
     }
   });
 
+  it("maps missing AI tool calling to a distinct retry recovery", () => {
+    const recovery = getDiscoveryRunFailureRecovery(
+      "AI client does not support tool calling. Cannot run agent discovery.",
+    );
+
+    expect(recovery.kind).toBe("retry");
+    expect(recovery.headline).toContain("AI provider that can use tools");
+    expect(recovery.headline).not.toBe(
+      "The search stopped before it could finish.",
+    );
+  });
+
   it("keeps unknown failures retryable without inventing a cause", () => {
     const recovery = getDiscoveryRunFailureRecovery(
       "Discovery failed for Example Board: unexpected extraction shape",
@@ -59,6 +73,7 @@ describe("discovery run failure recovery classification", () => {
 
     expect(recovery.kind).toBe("retry");
     expect(recovery.actionLabel).toBeNull();
+    expect(recovery.headline).toBe("Something unexpected stopped this search.");
   });
 });
 
@@ -88,6 +103,29 @@ describe("discovery run interrupted feedback", () => {
     );
     expect(feedback.recovery).toBeNull();
   });
+
+  it("never duplicates the stopped headline inside recovery copy", () => {
+    const feedback = createDiscoveryRunInterruptedFeedback({
+      detail: "Discovery failed for Example Board: unexpected extraction shape",
+      targetLabel: null,
+    });
+
+    expect(feedback.headline).toBe(
+      "The search stopped before it could finish.",
+    );
+    expect(feedback.recovery?.headline).not.toBe(feedback.headline);
+  });
+
+  it("names tool-calling gaps without the generic stopped recovery line", () => {
+    const feedback = createDiscoveryRunInterruptedFeedback({
+      detail:
+        "AI client does not support tool calling. Cannot run agent discovery.",
+      targetLabel: null,
+    });
+
+    expect(feedback.recovery?.headline).toContain("AI provider");
+    expect(feedback.recovery?.headline).not.toBe(feedback.headline);
+  });
 });
 
 describe("discovery run feedback factories", () => {
@@ -116,6 +154,39 @@ describe("discovery run feedback factories", () => {
     expect(singleSource.headline).toBe(
       "Search finished for Circle and results were saved on this device.",
     );
+  });
+
+  it("explains when every reviewed listing was already saved", () => {
+    const feedback = createDiscoveryRunRepeatedFeedback({
+      duplicatesMerged: 15,
+      targetLabel: "Wellfound",
+    });
+
+    expect(feedback.status).toBe("succeeded");
+    expect(feedback.headline).toContain("Wellfound");
+    expect(feedback.headline).toContain("15 listings were already saved");
+    expect(feedback.headline).toContain("unchanged");
+  });
+
+  it("only treats zero-new duplicate merges as repeated-search feedback", () => {
+    expect(
+      shouldPresentRepeatedDiscoveryFeedback({
+        duplicatesMerged: 9,
+        validJobsFound: 0,
+      }),
+    ).toBe(true);
+    expect(
+      shouldPresentRepeatedDiscoveryFeedback({
+        duplicatesMerged: 9,
+        validJobsFound: 2,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPresentRepeatedDiscoveryFeedback({
+        duplicatesMerged: 0,
+        validJobsFound: 0,
+      }),
+    ).toBe(false);
   });
 
   it("keeps the classified service detail verbatim on failure", () => {
@@ -211,9 +282,9 @@ describe("getDiscoveryCancelledSavedJobCount", () => {
   });
 
   it("counts only when the newest run is itself the cancelled run", () => {
-    expect(getDiscoveryCancelledSavedJobCount([runWithSummary("cancelled", 4)])).toBe(
-      4,
-    );
+    expect(
+      getDiscoveryCancelledSavedJobCount([runWithSummary("cancelled", 4)]),
+    ).toBe(4);
     expect(
       getDiscoveryCancelledSavedJobCount([
         runWithSummary("completed", 9),
@@ -242,9 +313,9 @@ describe("getDiscoveryLatestRunVerdict", () => {
 
   it("reports none for empty or idle-only history", () => {
     expect(getDiscoveryLatestRunVerdict([])).toEqual({ kind: "none" });
-    expect(getDiscoveryLatestRunVerdict([run("a", "idle", "2026-08-01")])).toEqual(
-      { kind: "none" },
-    );
+    expect(
+      getDiscoveryLatestRunVerdict([run("a", "idle", "2026-08-01")]),
+    ).toEqual({ kind: "none" });
   });
 
   it("reports running when the newest attempt is still in flight", () => {
@@ -351,16 +422,30 @@ describe("getDiscoveryLatestRunVerdict", () => {
     const completedRun = (
       startedAt: string,
       summary: {
+        duplicatesMerged?: number;
         validJobsFound: number;
         sourceHealth: ReturnType<typeof sourceHealthEntry>[];
       },
-    ) => ({
+    ): {
+      id: string;
+      state: "completed";
+      startedAt: string;
+      summary: {
+        duplicatesMerged: number;
+        validJobsFound: number;
+        sourceHealth: ReturnType<typeof sourceHealthEntry>[];
+      };
+    } => ({
       id: `run_${startedAt}`,
       state: "completed" as const,
       startedAt,
-      summary,
+      summary: {
+        duplicatesMerged: 0,
+        ...summary,
+      },
     });
     const mixedZeroResultSummary = {
+      duplicatesMerged: 0,
       validJobsFound: 0,
       sourceHealth: [
         sourceHealthEntry("target_healthy", "healthy"),
@@ -379,9 +464,7 @@ describe("getDiscoveryLatestRunVerdict", () => {
         interruptState: "sources_failed",
         kind: "interrupted",
       });
-      expect(
-        getDiscoveryLatestRunVerdict([degradedRun].reverse()),
-      ).toEqual({
+      expect(getDiscoveryLatestRunVerdict([degradedRun].reverse())).toEqual({
         hasEarlierCompleted: false,
         interruptState: "sources_failed",
         kind: "interrupted",
@@ -407,6 +490,17 @@ describe("getDiscoveryLatestRunVerdict", () => {
           completedRun("2026-08-25T10:00:00.000Z", {
             ...mixedZeroResultSummary,
             validJobsFound: 3,
+          }),
+        ]),
+      ).toEqual({ kind: "completed" });
+    });
+
+    it("keeps the completed verdict when zero new jobs were all already-saved duplicates", () => {
+      expect(
+        getDiscoveryLatestRunVerdict([
+          completedRun("2026-08-25T10:00:00.000Z", {
+            ...mixedZeroResultSummary,
+            duplicatesMerged: 12,
           }),
         ]),
       ).toEqual({ kind: "completed" });

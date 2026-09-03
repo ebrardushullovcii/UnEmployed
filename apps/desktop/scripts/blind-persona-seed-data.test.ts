@@ -3,10 +3,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  DiscoveryJobViewSchema,
   JobFinderRepositoryStateSchema,
   SavedJobDiscoveryProvenanceSchema,
   type JobFinderRepositoryState,
 } from "@unemployed/contracts";
+import { deriveSourceAccessPrompts } from "../../../packages/job-finder/src/internal/workspace-source-access-prompts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -108,6 +110,57 @@ const CANONICAL_MATRIX = [
   },
 ] as const;
 
+const EXPECTED_CORPUS_BINDINGS = {
+  P01: {
+    matchJobId: "blind_p01_store_assistant",
+    weakerJobId: "blind_p01_library_page",
+  },
+  P02: {
+    matchJobId: "blind_p02_junior_web",
+    weakerJobId: "blind_p02_qa_automation",
+  },
+  P03: {
+    matchJobId: "blind_p03_frontend",
+    weakerJobId: "blind_p03_design_system",
+  },
+  P04: {
+    matchJobId: "blind_p04_logistics_admin",
+    weakerJobId: "blind_p04_dispatch_admin",
+  },
+  P05: {
+    matchJobId: "blind_p05_ops_manager",
+    weakerJobId: "blind_p05_program",
+  },
+  P06: {
+    matchJobId: "blind_p06_part_time_admin",
+    weakerJobId: "blind_p06_remote_scheduler",
+  },
+  P07: {
+    matchJobId: "blind_p07_part_time_lead",
+    weakerJobId: "blind_p07_sales_associate",
+  },
+  P08: {
+    matchJobId: "blind_p08_support",
+    weakerJobId: "blind_p08_bilingual",
+  },
+  P09: {
+    matchJobId: "blind_p09_healthcare_admin",
+    weakerJobId: "blind_p09_records_coordinator",
+  },
+  P10: {
+    matchJobId: "blind_p10_bookkeeping",
+    weakerJobId: "blind_p10_office_admin",
+  },
+  P11: {
+    matchJobId: "blind_p11_remote_qa",
+    weakerJobId: "blind_p11_remote_support",
+  },
+  P12: {
+    matchJobId: "blind_p12_payroll",
+    weakerJobId: "blind_p12_office_admin",
+  },
+} as const;
+
 function collectStrings(value: unknown): string[] {
   if (typeof value === "string") return [value];
   if (Array.isArray(value)) return value.flatMap(collectStrings);
@@ -115,6 +168,13 @@ function collectStrings(value: unknown): string[] {
     return Object.values(value).flatMap(collectStrings);
   }
   return [];
+}
+
+function includesKeyword(values: string[], keywords: string[]): boolean {
+  const normalized = values.join(" ").toLowerCase();
+  return keywords.some((keyword) =>
+    normalized.includes(keyword.toLowerCase().trim()),
+  );
 }
 
 function collectEntries(
@@ -181,7 +241,8 @@ describe("blind persona deterministic seed data", () => {
     }> = [
       { pattern: /\btest(?:s|ing|ed|er|ers)?\b/iu, reason: "test activity" },
       {
-        pattern: /\bfixtures?\b|\bcorpus\b|\bcorpora\b|\b(?:re)?seeds?(?:ed|ing)?\b|\bmanifest\b|\bharness\b/iu,
+        pattern:
+          /\bfixtures?\b|\bcorpus\b|\bcorpora\b|\b(?:re)?seeds?(?:ed|ing)?\b|\bmanifest\b|\bharness\b/iu,
         reason: "fixture and harness vocabulary",
       },
       {
@@ -198,7 +259,8 @@ describe("blind persona deterministic seed data", () => {
         reason: "zoom/viewport driver metadata",
       },
       {
-        pattern: /\bdeterministic\b|\bpersist(?:ed|ence|ent)\b|\bmaterializ|\boverlay\b|\bdeclarative\b/iu,
+        pattern:
+          /\bdeterministic\b|\bpersist(?:ed|ence|ent)\b|\bmaterializ|\boverlay\b|\bdeclarative\b/iu,
         reason: "workspace state internals",
       },
       {
@@ -206,15 +268,18 @@ describe("blind persona deterministic seed data", () => {
         reason: "bulk-review safeguard vocabulary",
       },
       {
-        pattern: /\bunannounced\b|\binterruption\b|\binterrupt(?:ed|s|ing)?\b|\brecover(?:y|ies|ed|ing|s|able)?\b|\bresumable\b|\bcheckpoint\b/iu,
+        pattern:
+          /\bunannounced\b|\binterruption\b|\binterrupt(?:ed|s|ing)?\b|\brecover(?:y|ies|ed|ing|s|able)?\b|\bresumable\b|\bcheckpoint\b/iu,
         reason: "session-protocol mechanics",
       },
       {
-        pattern: /\bfacilitator\b|\broute\s+hints?\b|\bprocedure\s+hints?\b|\bpointer\s+input\b/iu,
+        pattern:
+          /\bfacilitator\b|\broute\s+hints?\b|\bprocedure\s+hints?\b|\bpointer\s+input\b/iu,
         reason: "facilitation/driver input vocabulary",
       },
       {
-        pattern: /\bsessionProtocol\b|\bexpectedAuthority\b|\bjobState\b|\bresumeInput\b|\bviewport\b/iu,
+        pattern:
+          /\bsessionProtocol\b|\bexpectedAuthority\b|\bjobState\b|\bresumeInput\b|\bviewport\b/iu,
         reason: "manifest field names",
       },
       {
@@ -236,12 +301,7 @@ describe("blind persona deterministic seed data", () => {
     ];
 
     const { manifest } = await loadBlindPersonaSeedData();
-    const testerFacingFields = [
-      "brief",
-      "context",
-      "goal",
-      "outcome",
-    ] as const;
+    const testerFacingFields = ["brief", "context", "goal", "outcome"] as const;
 
     for (const session of manifest.sessions) {
       for (const field of testerFacingFields) {
@@ -392,6 +452,93 @@ describe("blind persona deterministic seed data", () => {
     }
   });
 
+  it("binds each fresh persona to one two-job corpus with relevance dimensions and a weaker example", async () => {
+    const { corpusBindings, jobsByCorpus, jobsByPersona, manifest } =
+      await loadBlindPersonaSeedData();
+    const expectedCorpusKeys = Object.keys(EXPECTED_CORPUS_BINDINGS);
+    const freshSessions = manifest.sessions.filter(
+      (session) => session.workspace.kind === "fresh",
+    );
+    const boundCorpusKeys = freshSessions.map(
+      (session) => session.workspace.jobState.corpusKey,
+    );
+
+    expect(boundCorpusKeys).toEqual(expectedCorpusKeys);
+    expect(new Set(boundCorpusKeys).size).toBe(expectedCorpusKeys.length);
+    expect(Object.keys(corpusBindings).sort()).toEqual(
+      [...expectedCorpusKeys].sort(),
+    );
+
+    for (const corpusKey of expectedCorpusKeys) {
+      const expected =
+        EXPECTED_CORPUS_BINDINGS[
+          corpusKey as keyof typeof EXPECTED_CORPUS_BINDINGS
+        ];
+      const binding = corpusBindings[corpusKey];
+      const jobs = jobsByCorpus[corpusKey];
+      expect(binding).toMatchObject(expected);
+      expect(jobs).toHaveLength(2);
+      if (!binding || !jobs) continue;
+
+      const match = jobs.find((job) => job.id === binding.matchJobId);
+      const weaker = jobs.find((job) => job.id === binding.weakerJobId);
+      expect(match).toBeDefined();
+      expect(weaker).toBeDefined();
+      if (!match || !weaker) continue;
+
+      expect(
+        includesKeyword(
+          [match.title, match.description, ...match.keySkills],
+          binding.matchCriteria.roleKeywords,
+        ),
+      ).toBe(true);
+      expect(
+        includesKeyword(
+          [match.location],
+          binding.matchCriteria.locationKeywords,
+        ),
+      ).toBe(true);
+      expect(
+        match.workMode.some((mode) =>
+          binding.matchCriteria.workModes.includes(mode),
+        ),
+      ).toBe(true);
+      expect(weaker.matchAssessment.gaps.length).toBeGreaterThan(0);
+      expect(weaker.matchAssessment.score).toBeLessThan(
+        match.matchAssessment.score,
+      );
+    }
+
+    expect(Object.values(jobsByPersona).flat()).toHaveLength(24);
+  });
+
+  it("keeps fixed corpora offline, activity-unknown, provisional, and unbound", async () => {
+    const { jobsByCorpus } = await loadBlindPersonaSeedData();
+
+    for (const job of Object.values(jobsByCorpus).flat()) {
+      expect(job.status).toBe("discovered");
+      expect(job.discoveryMethod).toBe("catalog_seed");
+      expect(job.provenance).toEqual([]);
+      expect(job.firstSeenAt).toBeNull();
+      expect(job.lastSeenAt).toBeNull();
+      expect(job.lastVerifiedActiveAt).toBeNull();
+      expect(job.providerUpdatedAt).toBeNull();
+      expect(job.matchAssessment.contextFingerprint).toBeNull();
+      expect(job.matchAssessment.postingFingerprint).toBeNull();
+      expect(job.discoveryFeedback).toBeNull();
+      expect(job.resumeApplicationMode).toBeNull();
+      expect(job.latestMatchAssessmentAudit).toBeNull();
+      expect(job.sourceIntelligence).toBeNull();
+      expect(job.providerKey).toBeNull();
+      expect(job.providerBoardToken).toBeNull();
+      expect(job.providerIdentifier).toBeNull();
+      expect("listingActivity" in job).toBe(false);
+      expect(DiscoveryJobViewSchema.parse(job).listingActivity).toEqual({
+        status: "unknown",
+      });
+    }
+  });
+
   it("contains no live URL or email domains in any referenced asset", async () => {
     const { assetPaths, manifest } = await loadBlindPersonaSeedData();
     for (const assetPath of assetPaths) {
@@ -437,6 +584,49 @@ describe("blind persona deterministic seed data", () => {
     expect(first.digestSha256).toMatch(/^[a-f0-9]{64}$/u);
     expect(second.digestSha256).toBe(first.digestSha256);
     expect(first.manifest.digestSha256).toBe(first.digestSha256);
+  });
+
+  it("binds the final persona prompt while excluding the manifest self-digest", async () => {
+    const { manifest, digestSha256 } = await loadBlindPersonaSeedData();
+    const selfDigestChanged = await calculateBlindPersonaDigest({
+      ...manifest,
+      digestSha256: "0".repeat(64),
+    });
+    const promptChanged = await calculateBlindPersonaDigest({
+      ...manifest,
+      visualReviewTemplate: {
+        ...manifest.visualReviewTemplate,
+        prompt: `${manifest.visualReviewTemplate.prompt} Additional note.`,
+      },
+    });
+
+    expect(selfDigestChanged.digestSha256).toBe(digestSha256);
+    expect(promptChanged.digestSha256).not.toBe(digestSha256);
+  });
+
+  it("keeps visual criticism explicit about action geometry and painted layout defects", async () => {
+    const { manifest } = await loadBlindPersonaSeedData();
+    const prompt = manifest.visualReviewTemplate.prompt;
+    const lenses = manifest.visualReviewTemplate.lenses;
+
+    for (const phrase of [
+      "action group",
+      "accidental full-width",
+      "consistent heights and gaps",
+      "disabled reasons",
+      "padding, margins, gutters",
+      "keyboard/focus order",
+      "painted clipping",
+      "bottom or right-side actions",
+      "POST-JOURNEY OPTIONAL CHECKPOINT",
+    ]) {
+      expect(prompt).toContain(phrase);
+    }
+    expect(lenses.firstStableViewport).toContain("above the fold");
+    expect(lenses.hierarchyDensityAndStateChange).toContain("natural widths");
+    expect(lenses.loadingState).toContain("waiting region");
+    expect(lenses.brandAndNavigation).toContain("active state");
+    expect(lenses.clippingAndOverlap).toContain("accidental overflow");
   });
 
   it("materializes P13 with exact scale counts, varied local CRM facts, and follow-up scenarios", async () => {
@@ -606,6 +796,42 @@ describe("blind persona deterministic seed data", () => {
     });
   });
 
+  it("links P14's blocked source run to the persisted sign-in prompt lineage", async () => {
+    const { P14 } = await buildBlindPersonaRepositoryStates();
+    const target = P14.searchPreferences.discovery.targets.find(
+      (entry) => entry.id === "blind_p14_blocked_source",
+    );
+    const sourceDebugRun = P14.sourceDebugRuns.find(
+      (run) => run.id === "blind_p14_source_debug_run",
+    );
+
+    if (!target || !sourceDebugRun) {
+      throw new Error("Expected the P14 blocked source target and debug run.");
+    }
+
+    expect(target.lastDebugRunId).toBe(sourceDebugRun.id);
+    expect(P14.discovery.activeSourceDebugRun).toEqual(sourceDebugRun);
+    expect(P14.discovery.recentSourceDebugRuns).toEqual([sourceDebugRun]);
+
+    const prompts = deriveSourceAccessPrompts({
+      targets: P14.searchPreferences.discovery.targets,
+      recentSourceDebugRuns: P14.discovery.recentSourceDebugRuns,
+      activeSourceDebugRun: P14.discovery.activeSourceDebugRun,
+      sourceDebugAttempts: P14.sourceDebugAttempts,
+      sourceInstructionArtifacts: P14.sourceInstructionArtifacts,
+      searchPreferences: P14.searchPreferences,
+      generatedAt: "2026-08-28T00:00:00.000Z",
+    });
+
+    expect(prompts).toEqual([
+      expect.objectContaining({
+        targetId: target.id,
+        state: "prompt_login_required",
+        detail: sourceDebugRun.manualPrerequisiteSummary,
+      }),
+    ]);
+  });
+
   it("resolves every seeded job's provenance to a configured discovery target", async () => {
     const { manifest } = await loadBlindPersonaSeedData();
     const states = await buildBlindPersonaRepositoryStates();
@@ -734,10 +960,10 @@ describe("blind persona deterministic seed data", () => {
       100_000,
     );
     expect(calculateBlindPersonaStateDigest(first.P13)).toBe(
-      "0b1e1b548e1f94e95949092ade4e8e0dcc7c029c1769c048938a44acaebe9bae",
+      "2742db7f36a9676485cd68a92da7387a9197149cbf9205f3bf93d179534aac22",
     );
     expect(calculateBlindPersonaStateDigest(first.P14)).toBe(
-      "13f7ca83f248b84f0f851c428d7936fd516e8796c3820b6b509bfc1c5e3d5c0a",
+      "0fa005e08744a46e8578f083f3d15dd9d40dcac1fb18713be22a14bf1f229b28",
     );
     expect(calculateBlindPersonaStateDigest(first.P13)).toBe(
       calculateBlindPersonaStateDigest(second.P13),

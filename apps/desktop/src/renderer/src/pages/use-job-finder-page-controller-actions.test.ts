@@ -25,6 +25,8 @@ import {
 import { createJobFinderSaveCoordinator } from "./job-finder-save-state";
 import {
   type PendingActionState,
+  clearPendingActionScopes,
+  invalidatePendingActionScope,
   jobFinderPendingActions,
 } from "./job-finder-pending-actions";
 
@@ -109,6 +111,45 @@ describe("createActionRunners", () => {
     expect(pendingActionState).toEqual({});
   });
 
+  it("does not let a stale finally clear a newer operation after navigation cleanup", async () => {
+    let actionState: ActionState = { message: null };
+    let pendingActionState: PendingActionState = {};
+    let resolveOlder!: () => void;
+    const applyActionState = (next: SetStateAction<ActionState>) => {
+      actionState = typeof next === "function" ? next(actionState) : next;
+    };
+    const applyPendingActionState = (
+      next: SetStateAction<PendingActionState>,
+    ) => {
+      pendingActionState =
+        typeof next === "function" ? next(pendingActionState) : next;
+    };
+    const scope = jobFinderPendingActions.resumeExport("job-1");
+    const { withPendingScope } = createActionRunners({
+      setActionState: applyActionState,
+      setPendingActionState: applyPendingActionState,
+    });
+
+    const older = withPendingScope(
+      scope,
+      () =>
+        new Promise<void>((resolve) => {
+          resolveOlder = resolve;
+        }),
+    );
+    expect(pendingActionState).toEqual({ [scope]: 1 });
+
+    invalidatePendingActionScope(scope);
+    pendingActionState = clearPendingActionScopes(pendingActionState, [scope]);
+
+    await withPendingScope(scope, () => Promise.resolve(undefined));
+    expect(pendingActionState).toEqual({});
+
+    resolveOlder();
+    await older;
+    expect(pendingActionState).toEqual({});
+  });
+
   it("shows the actionable message from Electron IPC failures", async () => {
     let actionState: ActionState = { message: null };
     let pendingActionState: PendingActionState = {};
@@ -143,6 +184,61 @@ describe("createActionRunners", () => {
     );
     expect(pendingActionState).toEqual({});
     expect(succeeded).toBe(false);
+  });
+  it("reports a toast-only save through the coordinator without a lingering route copy", async () => {
+    let actionState: ActionState = { message: "Previous route message" };
+    let pendingActionState: PendingActionState = {};
+    const saveStates: string[] = [];
+    const applyActionState = (next: SetStateAction<ActionState>) => {
+      actionState = typeof next === "function" ? next(actionState) : next;
+    };
+    const applyPendingActionState = (
+      next: SetStateAction<PendingActionState>,
+    ) => {
+      pendingActionState =
+        typeof next === "function" ? next(pendingActionState) : next;
+    };
+    const coordinator = createJobFinderSaveCoordinator({
+      onStateChange: (state) => saveStates.push(state.state),
+    });
+    const { runSaveAction } = createActionRunners({
+      saveCoordinator: coordinator,
+      setActionState: applyActionState,
+      setPendingActionState: applyPendingActionState,
+    });
+
+    const saved = await runSaveAction({
+      action: () => Promise.resolve("saved"),
+      dedupeKey: "profile:toast-only",
+      failedFallback: "This setup step was not saved.",
+      label: "Profile setup",
+      onSuccess: () => undefined,
+      routeSuccessMessage: "toast_only",
+      savedMessage: "Saved. Next: Work history.",
+      scope: jobFinderPendingActions.profileSetup(),
+      surface: "profile",
+    });
+
+    // The shared toast owns the confirmation (coordinator reached "saved");
+    // the route message is cleared instead of receiving a second copy.
+    expect(saved).toBe(true);
+    expect(saveStates).toEqual(["saving", "saved"]);
+    expect(actionState.message).toBeNull();
+
+    const failed = await runSaveAction({
+      action: () => Promise.reject(new Error("offline")),
+      dedupeKey: "profile:toast-only-failure",
+      failedFallback: "This setup step was not saved.",
+      label: "Profile setup",
+      onSuccess: () => undefined,
+      routeSuccessMessage: "toast_only",
+      savedMessage: "Saved. Next: Work history.",
+      scope: jobFinderPendingActions.profileSetup(),
+      surface: "profile",
+    });
+
+    expect(failed).toBe(false);
+    expect(actionState.message).toBe("offline");
   });
   it("keeps a failed save retryable and updates the action message after retry", async () => {
     let actionState: ActionState = { message: null };
@@ -424,16 +520,145 @@ describe("createPrimaryPageActions", () => {
         saveProfileSetupState,
         saveWorkspaceInputs: vi.fn().mockResolvedValue(snapshot),
       } as unknown as JobFinderShellActions,
-      locationPathname:
-        input.locationPathname ?? "/job-finder/profile/setup",
+      locationPathname: input.locationPathname ?? "/job-finder/profile/setup",
       navigate,
       runAction,
       runSaveAction,
       workspace: snapshot,
     } as unknown as PrimaryPageActionArgs);
 
-    return { navigate, pageActions, saveProfileSetupState };
+    return { navigate, pageActions, runSaveAction, saveProfileSetupState };
   }
+
+  it("persists draft-resolved suggestions with the step and finishes despite a recommended pending suggestion", async () => {
+    const recommendedLocationItem = {
+      id: "review_locations",
+      step: "targeting" as const,
+      target: {
+        domain: "search_preferences" as const,
+        key: "locations",
+        recordId: null,
+      },
+      label: "Preferred locations",
+      reason: "Confirm the imported location.",
+      severity: "recommended" as const,
+      status: "pending" as const,
+      proposedValue: "Cedar Park, TX 78613",
+      sourceSnippet: null,
+      sourceCandidateId: "candidate_locations",
+      sourceRunId: "run_1",
+      createdAt: "2026-07-16T10:00:00.000Z",
+      resolvedAt: null,
+    };
+    const setup = createSetupActions({
+      reviewItems: [recommendedLocationItem],
+    });
+
+    setup.pageActions.onSaveSetupStep(
+      completeSetupProfile,
+      completeSetupPreferences,
+      "narrative",
+      { resolvedReviewItems: [{ id: "review_locations", status: "edited" }] },
+    );
+    await vi.waitFor(() =>
+      expect(setup.saveProfileSetupState).toHaveBeenCalledOnce(),
+    );
+    const persisted = setup.saveProfileSetupState.mock.calls[0]?.[0];
+    expect(persisted?.reviewItems[0]).toMatchObject({
+      id: "review_locations",
+      status: "edited",
+    });
+    expect(typeof persisted?.reviewItems[0]?.resolvedAt).toBe("string");
+
+    // A still-pending recommended suggestion must not block finishing.
+    const finish = createSetupActions({
+      reviewItems: [recommendedLocationItem],
+    });
+    finish.pageActions.onSaveSetupStep(
+      completeSetupProfile,
+      completeSetupPreferences,
+      "ready_check",
+      { finishSetup: true, openProfile: true },
+    );
+    await vi.waitFor(() =>
+      expect(finish.saveProfileSetupState).toHaveBeenCalledOnce(),
+    );
+    expect(finish.saveProfileSetupState.mock.calls[0]?.[0]).toMatchObject({
+      status: "completed",
+    });
+    expect(finish.navigate).toHaveBeenCalledWith("/job-finder/discovery", {
+      replace: true,
+    });
+    expect(finish.navigate).not.toHaveBeenCalledWith("/job-finder/profile");
+  });
+
+  it("hands off to Find jobs before the completed setup state is persisted", async () => {
+    let releaseSave!: () => void;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const snapshot = {
+      profile: completeSetupProfile,
+      searchPreferences: completeSetupPreferences,
+      profileSetupState: {
+        status: "in_progress",
+        currentStep: "ready_check",
+        completedAt: null,
+        lastResumedAt: null,
+        reviewItems: [],
+      },
+    } as unknown as JobFinderWorkspaceSnapshot;
+    const saveProfileSetupState = vi.fn(
+      async (nextState: JobFinderWorkspaceSnapshot["profileSetupState"]) => {
+        await saveGate;
+        return { ...snapshot, profileSetupState: nextState };
+      },
+    );
+    const navigate = vi.fn();
+    type PrimaryPageActionArgs = Parameters<typeof createPrimaryPageActions>[0];
+    const pageActions = createPrimaryPageActions({
+      actions: {
+        saveProfileSetupState,
+        saveWorkspaceInputs: vi.fn().mockResolvedValue(snapshot),
+      } as unknown as JobFinderShellActions,
+      locationPathname: "/job-finder/profile/setup",
+      navigate,
+      runAction: vi.fn(),
+      runSaveAction: vi.fn(
+        async (saveInput: {
+          action: () => Promise<JobFinderWorkspaceSnapshot>;
+          onSuccess: (
+            result: JobFinderWorkspaceSnapshot,
+          ) => void | Promise<void>;
+        }) => {
+          const result = await saveInput.action();
+          await saveInput.onSuccess(result);
+          return true;
+        },
+      ),
+      workspace: snapshot,
+    } as unknown as PrimaryPageActionArgs);
+
+    pageActions.onSaveSetupStep(
+      completeSetupProfile,
+      completeSetupPreferences,
+      "ready_check",
+      { finishSetup: true, openProfile: true },
+    );
+
+    await vi.waitFor(() =>
+      expect(saveProfileSetupState).toHaveBeenCalledOnce(),
+    );
+    // No navigation while the completed state is still saving: the route
+    // blocker would park and drop it. The hand-off happens once the whole
+    // save settles, replacing the setup route's own Profile redirect.
+    expect(navigate).not.toHaveBeenCalled();
+    releaseSave();
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledOnce());
+    expect(navigate).toHaveBeenCalledWith("/job-finder/discovery", {
+      replace: true,
+    });
+  });
 
   it("changes setup steps without re-navigating the mounted setup route", async () => {
     const setup = createSetupActions();
@@ -462,6 +687,44 @@ describe("createPrimaryPageActions", () => {
     );
     expect(setup.navigate).toHaveBeenCalledOnce();
     expect(setup.navigate).toHaveBeenCalledWith("/job-finder/profile/setup");
+  });
+
+  it("keeps the save confirmation short and toast-only", async () => {
+    const setup = createSetupActions();
+
+    setup.pageActions.onSaveSetupStep(
+      completeSetupProfile,
+      completeSetupPreferences,
+      "background",
+    );
+
+    await vi.waitFor(() =>
+      expect(setup.saveProfileSetupState).toHaveBeenCalledOnce(),
+    );
+    const runSaveActionMock = setup.pageActions as unknown as {
+      __unused?: never;
+    };
+    void runSaveActionMock;
+    expect(setup.runSaveAction).toHaveBeenCalledOnce();
+    // "Next: <step>" was stale the moment the next step rendered — the toast
+    // then described where the user already was.
+    expect(setup.runSaveAction.mock.calls[0]?.[0]).toMatchObject({
+      routeSuccessMessage: "toast_only",
+      savedMessage: "Saved.",
+    });
+
+    setup.pageActions.onSaveSetupStep(
+      completeSetupProfile,
+      completeSetupPreferences,
+      "ready_check",
+      { finishSetup: true, openProfile: true },
+    );
+    await vi.waitFor(() =>
+      expect(setup.runSaveAction).toHaveBeenCalledTimes(2),
+    );
+    expect(setup.runSaveAction.mock.calls[1]?.[0]).toMatchObject({
+      savedMessage: "Setup finished. Next: find jobs.",
+    });
   });
 
   it("keeps setup in progress when Answers advances to the readiness check", async () => {
@@ -557,13 +820,108 @@ describe("createPrimaryPageActions", () => {
       expect(setup.saveProfileSetupState).toHaveBeenCalledOnce(),
     );
     expect(setup.saveProfileSetupState.mock.calls[0]?.[0]).toMatchObject({
-      currentStep: "ready_check",
+      // A completed setup parks on Job targets, the step that owns Finish.
+      currentStep: "targeting",
       status: "completed",
     });
-    expect(setup.navigate).toHaveBeenCalledWith("/job-finder/profile");
+    // Finishing setup hands off into Find jobs instead of the Profile editor.
+    expect(setup.navigate).toHaveBeenCalledWith("/job-finder/discovery", {
+      replace: true,
+    });
   });
 
-  it("blocks an explicit ready finish while a blocking review remains pending", async () => {
+  it("persists setup's unchanged-original choice through the existing application mode", async () => {
+    let persistedSnapshot = {
+      profile: completeSetupProfile,
+      searchPreferences: completeSetupPreferences,
+      profileSetupState: {
+        status: "in_progress",
+        currentStep: "targeting",
+        completedAt: null,
+        lastResumedAt: null,
+        reviewItems: [],
+      },
+      settings: {
+        resumeApplicationMode: "tailored_per_job",
+      },
+    } as unknown as JobFinderWorkspaceSnapshot;
+    const saveWorkspaceInputs = vi.fn(
+      (
+        profile: typeof completeSetupProfile,
+        searchPreferences: typeof completeSetupPreferences,
+      ) => {
+        persistedSnapshot = {
+          ...persistedSnapshot,
+          profile,
+          searchPreferences,
+        };
+        return Promise.resolve(persistedSnapshot);
+      },
+    );
+    const updateApplicationDefaults = vi.fn(
+      (input: {
+        resumeApplicationMode?: "tailored_per_job" | "original_resume";
+      }) => {
+        persistedSnapshot = {
+          ...persistedSnapshot,
+          settings: {
+            ...persistedSnapshot.settings,
+            ...input,
+          },
+        };
+        return Promise.resolve(persistedSnapshot);
+      },
+    );
+    const saveProfileSetupState = vi.fn(
+      (profileSetupState: JobFinderWorkspaceSnapshot["profileSetupState"]) => {
+        persistedSnapshot = { ...persistedSnapshot, profileSetupState };
+        return Promise.resolve(persistedSnapshot);
+      },
+    );
+    const runSaveAction = vi.fn(
+      async (saveInput: {
+        action: () => Promise<JobFinderWorkspaceSnapshot>;
+        onSuccess: (result: JobFinderWorkspaceSnapshot) => void | Promise<void>;
+      }) => {
+        await saveInput.onSuccess(await saveInput.action());
+        return true;
+      },
+    );
+    type PrimaryPageActionArgs = Parameters<typeof createPrimaryPageActions>[0];
+    const pageActions = createPrimaryPageActions({
+      actions: {
+        saveProfileSetupState,
+        saveWorkspaceInputs,
+        updateApplicationDefaults,
+      } as unknown as JobFinderShellActions,
+      locationPathname: "/job-finder/profile/setup",
+      navigate: vi.fn(),
+      runSaveAction,
+      workspace: persistedSnapshot,
+    } as unknown as PrimaryPageActionArgs);
+
+    pageActions.onSaveSetupStep(
+      completeSetupProfile,
+      completeSetupPreferences,
+      "targeting",
+      { resumeApplicationMode: "original_resume" },
+    );
+
+    await vi.waitFor(() =>
+      expect(saveProfileSetupState).toHaveBeenCalledOnce(),
+    );
+    expect(updateApplicationDefaults).toHaveBeenCalledWith({
+      resumeApplicationMode: "original_resume",
+    });
+    expect(persistedSnapshot.settings.resumeApplicationMode).toBe(
+      "original_resume",
+    );
+  });
+
+  it("blocks an explicit ready finish while a required setup item remains pending", async () => {
+    // A required missing-field item (no proposal, no import source) is the
+    // kind of pending item that still gates Finish; recommended imported
+    // suggestions are covered separately as non-blocking.
     const setup = createSetupActions({
       reviewItems: [
         {
@@ -575,10 +933,10 @@ describe("createPrimaryPageActions", () => {
             recordId: null,
           },
           label: "Email",
-          reason: "Confirm the imported contact detail.",
+          reason: "Add an email address or phone number.",
           severity: "recommended",
           status: "pending",
-          proposedValue: "alex@example.com",
+          proposedValue: null,
           sourceSnippet: null,
           sourceCandidateId: null,
           sourceRunId: null,
@@ -778,13 +1136,15 @@ describe("createPrimaryPageActions", () => {
     await vi.waitFor(() => expect(persistedSetupStates).toHaveLength(5));
     expect(persistedSetupStates.at(-1)).toMatchObject({
       status: "completed",
-      currentStep: "ready_check",
+      currentStep: "targeting",
     });
     expect(persistedSetupStates.at(-1)?.completedAt).toEqual(
       expect.any(String),
     );
     expect(navigate).toHaveBeenCalledOnce();
-    expect(navigate).toHaveBeenCalledWith("/job-finder/profile");
+    expect(navigate).toHaveBeenCalledWith("/job-finder/discovery", {
+      replace: true,
+    });
   });
 
   it("keeps a cancelled or failed resume import retryable without replacing the saved profile", async () => {
@@ -1295,8 +1655,9 @@ describe("createPrimaryPageActions", () => {
         .mockResolvedValue({} as JobFinderWorkspaceSnapshot);
       const runAction = vi.fn().mockResolvedValue(true);
       const setResumeWorkspaceDirty = vi.fn();
-      type PrimaryPageActionArgs =
-        Parameters<typeof createPrimaryPageActions>[0];
+      type PrimaryPageActionArgs = Parameters<
+        typeof createPrimaryPageActions
+      >[0];
       const resolvers: Array<(mayLeave: boolean) => void> = [];
       const pageActions = createPrimaryPageActions({
         actions: { startAutoApplyRun } as unknown as JobFinderShellActions,
@@ -1451,14 +1812,15 @@ describe("createPrimaryPageActions", () => {
     const withCheckpoints = runAction.mock.calls[0]?.[2] as string;
     const withoutCheckpoints = runAction.mock.calls[1]?.[2] as string;
 
-    expect(withCheckpoints).toMatch(/with visual checkpoints\./i);
-    expect(withoutCheckpoints).toMatch(
-      /prepared the application\. Job Finder/i,
+    expect(withCheckpoints).toMatch(
+      /preparation finished with visual checkpoints\./i,
     );
+    expect(withoutCheckpoints).toMatch(/^preparation finished\./i);
     for (const message of [withCheckpoints, withoutCheckpoints]) {
-      expect(message).toMatch(/no final-submit action/i);
+      expect(message).toMatch(/check the result below/i);
+      expect(message).not.toMatch(/check applications/i);
       expect(message).toMatch(/never clicks submit/i);
-      expect(message).toMatch(/verify the outcome on the site/i);
+      expect(message).not.toMatch(/Job Finder prepared the application/i);
       expect(message).not.toMatch(submitOutcomeClaimPattern);
     }
   });
@@ -1627,7 +1989,7 @@ describe("createPrimaryPageActions", () => {
     });
   });
 
-  it("shortlists in place without navigating or resetting resume workspace state", async () => {
+  it("shortlists the exact clicked job without navigating or resetting resume workspace state", async () => {
     const queueJobForReview = vi
       .fn<JobFinderShellActions["queueJobForReview"]>()
       .mockResolvedValue({} as JobFinderWorkspaceSnapshot);
@@ -1665,7 +2027,7 @@ describe("createPrimaryPageActions", () => {
       });
     });
     expect(navigate).not.toHaveBeenCalled();
-    expect(setSelectedReviewJobId).not.toHaveBeenCalled();
+    expect(setSelectedReviewJobId).toHaveBeenCalledWith("job_find_results");
     expect(setResumeWorkspaceDirty).not.toHaveBeenCalled();
     expect(confirmLeaveDirtyResumeWorkspace).not.toHaveBeenCalled();
   });
@@ -2075,9 +2437,9 @@ describe("createPrimaryPageActions auto-apply queue outcomes", () => {
       (write: SetStateAction<ActionState>) => {
         const next =
           typeof write === "function"
-            ? (
-                write as (current: ActionState) => ActionState
-              )({ message: null })
+            ? (write as (current: ActionState) => ActionState)({
+                message: null,
+              })
             : write;
         latestMessage = next.message;
         return next;
@@ -2108,7 +2470,10 @@ describe("createPrimaryPageActions auto-apply queue outcomes", () => {
       setActionState: wrappedSetActionState,
       setResumeWorkspaceDirty,
       workspace: {
-        dashboard: input?.capacity === undefined ? {} : { globalDailyApplicationPreparationCapacity: input.capacity },
+        dashboard:
+          input?.capacity === undefined
+            ? {}
+            : { globalDailyApplicationPreparationCapacity: input.capacity },
       } as unknown as JobFinderWorkspaceSnapshot,
     } as unknown as PrimaryPageActionArgs);
 
@@ -2130,11 +2495,13 @@ describe("createPrimaryPageActions auto-apply queue outcomes", () => {
       "20 of 20 used today",
     ) as unknown as string;
 
-    await expect(harness.startQueue(["job_a", "job_b"])).resolves.toMatchObject({
-      status: "refused",
-      reason: "daily_capacity_exhausted",
-      message: refusalMessage,
-    });
+    await expect(harness.startQueue(["job_a", "job_b"])).resolves.toMatchObject(
+      {
+        status: "refused",
+        reason: "daily_capacity_exhausted",
+        message: refusalMessage,
+      },
+    );
     expect(harness.startAutoApplyQueueRun).not.toHaveBeenCalled();
     expect(harness.confirmLeaveDirtyResumeWorkspace).not.toHaveBeenCalled();
     expect(harness.navigate).not.toHaveBeenCalled();
@@ -2144,9 +2511,9 @@ describe("createPrimaryPageActions auto-apply queue outcomes", () => {
   it("reports confirmed only after the run stages, then hands off to Applications", async () => {
     const harness = createQueueHarness({ capacity: null });
 
-    await expect(
-      harness.startQueue(["job_a"]),
-    ).resolves.toMatchObject({ status: "confirmed" });
+    await expect(harness.startQueue(["job_a"])).resolves.toMatchObject({
+      status: "confirmed",
+    });
     expect(harness.startAutoApplyQueueRun).toHaveBeenCalledWith(["job_a"]);
     expect(harness.setResumeWorkspaceDirty).toHaveBeenCalledWith(false);
     expect(harness.navigate).toHaveBeenCalledWith("/job-finder/applications");

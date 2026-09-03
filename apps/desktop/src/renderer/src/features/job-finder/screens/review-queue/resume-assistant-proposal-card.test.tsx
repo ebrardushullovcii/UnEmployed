@@ -14,7 +14,8 @@ import { ResumeAssistantProposalCard } from "./resume-assistant-proposal-card";
 
 const savedSummaryText =
   "Systems-focused product designer with deep workflow automation experience.";
-const savedBulletText = "Led design-system rollout across core workflow surfaces.";
+const savedBulletText =
+  "Led design-system rollout across core workflow surfaces.";
 const proposedBulletText = "Proposed replacement bullet wording.";
 const profileSnippet = "Ran the rollout playbook across teams.";
 
@@ -112,9 +113,7 @@ function buildDraft(): ResumeDraft {
   };
 }
 
-function buildPatch(
-  overrides?: Partial<ResumeDraftPatch>,
-): ResumeDraftPatch {
+function buildPatch(overrides?: Partial<ResumeDraftPatch>): ResumeDraftPatch {
   return {
     id: "patch one",
     draftId: "draft demo",
@@ -207,57 +206,110 @@ function renderCard(props?: {
   );
 }
 
-function openGroundingDisclosure() {
-  fireEvent.click(screen.getByText("Why this edit is grounded"));
-}
-
 afterEach(() => {
   cleanup();
 });
 
 describe("ResumeAssistantProposalCard grounding", () => {
-  it("shows matched saved-text evidence behind a collapsed disclosure", () => {
+  it("prints one verdict heading with its reason always attached", () => {
     const renderResult = renderCard({
       validation: buildValidation([buildAssessment({ status: "exact" })]),
     });
 
-    // Collapsed by default: the disclosure starts closed.
-    const details = renderResult.container.querySelector("details");
-    expect(details?.open).toBe(false);
+    // The verdict used to be a collapsed `<details>` summary, so the panel
+    // showed a bare uppercase label with no body directly above Accept.
+    expect(renderResult.container.querySelector("details")).toBeNull();
 
-    openGroundingDisclosure();
-    expect(details?.open).toBe(true);
-
-    expect(screen.getByText("Current saved text: Exact evidence.")).toBeTruthy();
+    const grounding = renderResult.container.querySelector(
+      "[data-resume-proposal-grounding]",
+    );
+    expect(grounding).toBeTruthy();
+    expect(grounding?.textContent).toContain(
+      "Checked against your saved evidence",
+    );
+    expect(
+      grounding?.querySelector("[data-resume-proposal-grounding-outcome]")
+        ?.textContent,
+    ).toBe("Adds no new wording that would block approval.");
+    expect(
+      screen.getByText("Current saved text: Exact evidence."),
+    ).toBeTruthy();
     expect(screen.getByText("Profile")).toBeTruthy();
     expect(screen.getByText(profileSnippet)).toBeTruthy();
     expect(
       screen.getByText("New wording is checked after you accept and save."),
     ).toBeTruthy();
     expect(screen.getByText(proposedBulletText)).toBeTruthy();
-    expect(screen.getByText("Experience · Senior Systems Designer · Bullet 1")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Lands on Experience · Senior Systems Designer · Bullet 1.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("uses one vocabulary for the blocked and the clear outcome", () => {
+    const clear = renderCard({
+      validation: buildValidation([buildAssessment({ status: "exact" })]),
+    });
+    expect(
+      clear.container.querySelectorAll("[data-resume-proposal-grounding]")
+        .length,
+    ).toBe(1);
+    expect(clear.container.textContent).toContain(
+      "Checked against your saved evidence",
+    );
+    expect(clear.container.textContent).not.toContain(
+      "Why this edit is grounded",
+    );
+    clear.unmount();
+
+    const blocked = renderCard({
+      message: buildMessage({
+        approvalBlockers: [
+          {
+            patchId: "patch one",
+            sectionId: "sec experience",
+            entryId: "ent design",
+            bulletId: "bul one",
+            flaggedText: proposedBulletText,
+            message: "Not supported by saved evidence.",
+          },
+        ],
+      }),
+    });
+    expect(blocked.container.textContent).toContain(
+      "Checked against your saved evidence",
+    );
+    expect(blocked.container.textContent).not.toContain(
+      "Why this edit would block approval",
+    );
+    expect(
+      blocked.container.querySelector(
+        "[data-resume-proposal-grounding-outcome]",
+      )?.textContent,
+    ).toBe(
+      "Blocks approval: the new wording is not supported by your saved evidence.",
+    );
   });
 
   it("reports not-checked saved text when validation is absent, mismatched, or stale", () => {
-    // No validation at all.
     const absent = renderCard();
-    openGroundingDisclosure();
     expect(
       screen.getByText("Current saved text: Not checked yet."),
     ).toBeTruthy();
     absent.unmount();
 
-    // Validation exists but describes different text than the draft holds.
     renderCard({
       validation: buildValidation([
         buildAssessment({ claimText: "Older saved bullet wording." }),
       ]),
     });
-    openGroundingDisclosure();
     expect(
       screen.getByText("Current saved text: Not checked yet."),
     ).toBeTruthy();
-    expect(screen.queryByText("Current saved text: Exact evidence.")).toBeNull();
+    expect(
+      screen.queryByText("Current saved text: Exact evidence."),
+    ).toBeNull();
     expect(
       screen.getByText("New wording is checked after you accept and save."),
     ).toBeTruthy();
@@ -267,20 +319,29 @@ describe("ResumeAssistantProposalCard grounding", () => {
     renderCard({
       validation: buildValidation([buildAssessment({ status: "exact" })]),
     });
-    openGroundingDisclosure();
 
-    // Only one status line exists, and it names the saved text, not the proposal.
     const statusLines = screen.getAllByText(/Current saved text:/);
     expect(statusLines.length).toBe(1);
+    expect(
+      screen.getByText("New wording is checked after you accept and save."),
+    ).toBeTruthy();
+  });
 
-    const disclosureRegion = screen.getByText(
-      "New wording is checked after you accept and save.",
-    );
-    expect(disclosureRegion).toBeTruthy();
+  it("describes a deletion of existing wording as a removal, never as grounded", () => {
+    renderCard({
+      message: buildMessage({
+        patches: [buildPatch({ operation: "remove_bullet", newText: null })],
+      }),
+    });
+
+    expect(
+      screen.getByText(
+        "Removes wording you already have. Your saved evidence is unchanged, so nothing new is claimed.",
+      ),
+    ).toBeTruthy();
   });
 
   it("keeps grounded provenance on accepted and rejected historical cards", () => {
-    // Accepted and applied, revalidated after saving.
     const accepted = renderCard({
       message: buildMessage({
         proposalStatus: "accepted",
@@ -290,12 +351,12 @@ describe("ResumeAssistantProposalCard grounding", () => {
       validation: buildValidation([buildAssessment({ status: "exact" })]),
     });
     expect(screen.getByText("Applied")).toBeTruthy();
-    openGroundingDisclosure();
-    expect(screen.getByText("Current saved text: Exact evidence.")).toBeTruthy();
+    expect(
+      screen.getByText("Current saved text: Exact evidence."),
+    ).toBeTruthy();
     expect(document.querySelectorAll("input[type=checkbox]").length).toBe(0);
     accepted.unmount();
 
-    // Rejected, nothing saved changed, no validation available.
     renderCard({
       message: buildMessage({
         proposalStatus: "rejected",
@@ -303,14 +364,13 @@ describe("ResumeAssistantProposalCard grounding", () => {
       }),
     });
     expect(screen.getByText("Rejected")).toBeTruthy();
-    openGroundingDisclosure();
     expect(
       screen.getByText("Current saved text: Not checked yet."),
     ).toBeTruthy();
     expect(document.querySelectorAll("input[type=checkbox]").length).toBe(0);
   });
 
-  it("toggles the disclosure without changing proposal selection", () => {
+  it("leaves proposal selection alone while the verdict is visible", () => {
     const renderResult = renderCard({
       validation: buildValidation([buildAssessment()]),
     });
@@ -321,12 +381,8 @@ describe("ResumeAssistantProposalCard grounding", () => {
       throw new Error("Expected checkbox input element");
     }
     expect(checkbox.checked).toBe(true);
-
-    fireEvent.click(screen.getByText("Why this edit is grounded"));
-    expect(checkbox.checked).toBe(true);
     expect(screen.getByText(profileSnippet)).toBeTruthy();
 
-    // Positive control: direct selection still works.
     fireEvent.click(checkbox);
     expect(checkbox.checked).toBe(false);
     expect(renderResult.container.textContent).not.toContain("_");
@@ -348,8 +404,6 @@ describe("ResumeAssistantProposalCard grounding", () => {
     expect(
       screen.getByText("Original target is no longer in the draft"),
     ).toBeTruthy();
-
-    openGroundingDisclosure();
     expect(
       screen.getByText(
         "This edit points at a target that is no longer in the draft.",
@@ -374,12 +428,194 @@ describe("ResumeAssistantProposalCard grounding", () => {
       }),
     });
 
-    openGroundingDisclosure();
     expect(screen.queryByText(/Current saved text:/)).toBeNull();
     expect(
       screen.queryByText("New wording is checked after you accept and save."),
     ).toBeNull();
-    // Nearest linked evidence still renders.
     expect(screen.getByText("Profile")).toBeTruthy();
+  });
+});
+
+describe("ResumeAssistantProposalCard export-gate warnings", () => {
+  const liveUngroundedSummary =
+    "Senior Software Engineer with 10+ years building secure, scalable healthcare SaaS platforms with C#, .NET, ASP.NET Core, REST APIs, MongoDB, SQL Server, and Azure/AWS. Delivered microservices and EHR-adjacent integrations for scheduling and billing, with resilient third-party integrations, CI/CD, and observability for reliable Agile delivery.";
+
+  function buildBlockedMessage(): ResumeAssistantMessage {
+    return buildMessage({
+      content:
+        "I prepared 1 resume edit, but 1 of them would block approval: the new wording is not supported by your saved evidence.",
+      patches: [
+        buildPatch({
+          id: "patch summary",
+          operation: "replace_section_text",
+          targetSectionId: "sec summary",
+          targetEntryId: null,
+          targetBulletId: null,
+          newText: liveUngroundedSummary,
+        }),
+      ],
+      approvalBlockers: [
+        {
+          patchId: "patch summary",
+          sectionId: "sec summary",
+          entryId: null,
+          bulletId: null,
+          flaggedText: liveUngroundedSummary,
+          message:
+            "This generated claim lacks strong candidate-only evidence and must be rewritten or explicitly user-edited before export.",
+        },
+      ],
+    });
+  }
+
+  it("warns that the proposal would block approval and never calls it grounded", () => {
+    const renderResult = renderCard({ message: buildBlockedMessage() });
+
+    expect(
+      renderResult.container.querySelector(
+        "[data-resume-proposal-approval-warning]",
+      )?.textContent,
+    ).toContain(
+      "1 proposed change would block approval because its new wording is not supported by your saved evidence.",
+    );
+    expect(
+      renderResult.container.querySelector(
+        '[data-resume-proposal-approval-blocker="patch summary"]',
+      )?.textContent,
+    ).toContain(liveUngroundedSummary);
+    expect(
+      renderResult.container.querySelector(
+        "[data-resume-proposal-grounding-outcome]",
+      )?.textContent,
+    ).toBe(
+      "Blocks approval: the new wording is not supported by your saved evidence.",
+    );
+  });
+
+  it("counts approval blockers the resume already carries so the panel cannot promise approval", () => {
+    const draft = buildDraft();
+    const renderResult = renderCard({
+      draft,
+      message: buildMessage({ approvalBlockers: [] }),
+      validation: {
+        ...buildValidation([]),
+        issues: [
+          {
+            id: "issue blocking",
+            severity: "error",
+            category: "unsupported_claim",
+            message: "An existing claim is unsupported.",
+            sectionId: "sec summary",
+            entryId: null,
+            bulletId: null,
+            flaggedText: null,
+          },
+        ],
+      },
+    });
+
+    expect(
+      renderResult.container.querySelector(
+        "[data-resume-proposal-approval-warning]",
+      )?.textContent,
+    ).toContain(
+      "The resume already has 1 approval blocker, and accepting this proposal does not clear it.",
+    );
+  });
+
+  it("demotes accept-anyway and offers the edit route the block text asks for", () => {
+    const onEditWording = vi.fn();
+    render(
+      <ResumeAssistantProposalCard
+        draft={buildDraft()}
+        isPending={false}
+        message={buildBlockedMessage()}
+        onEditWording={onEditWording}
+        onResolve={vi.fn()}
+        validation={null}
+      />,
+    );
+
+    const editButton = screen.getByRole("button", {
+      name: "Edit this wording myself",
+    });
+    fireEvent.click(editButton);
+    expect(onEditWording).toHaveBeenCalledWith("section:sec%20summary:text");
+
+    // The accept path stays available but stops presenting itself as a peer
+    // of Reject: it drops to the quietest variant and says what it costs.
+    const acceptButton = screen.getByRole("button", {
+      name: "Accept anyway (1)",
+    });
+    expect(acceptButton.className).not.toContain("border-primary");
+    // Quieter than Reject, but still a control: a bare ghost button had no
+    // boundary at all here and read as plain text beside the bordered
+    // "Reject proposal".
+    expect(acceptButton.className).toContain("border-(--control-border)");
+    const rejectButton = screen.getByRole("button", {
+      name: "Reject proposal",
+    });
+    expect(rejectButton.className).not.toBe(acceptButton.className);
+    expect(
+      screen.getByText(
+        "Accepting a blocked change keeps approval disabled until you rewrite the flagged wording.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Accept selected/ }),
+    ).toBeNull();
+  });
+
+  it("keeps the decision row pinned so it is painted at short panel heights", () => {
+    const renderResult = renderCard({ message: buildMessage() });
+    const decisionRow = renderResult.container.querySelector(
+      "[data-resume-proposal-decision-row]",
+    );
+
+    expect(decisionRow).toBeTruthy();
+    expect(decisionRow?.className).toContain("sticky");
+    expect(decisionRow?.className).toContain("bottom-0");
+    expect(decisionRow?.querySelector("button")?.textContent).toBeTruthy();
+  });
+
+  it("leaves a persistent result line for every resolved proposal", () => {
+    const refused = renderCard({
+      message: buildMessage({
+        proposalStatus: "accepted",
+        resolvedPatchIds: [],
+        resolvedAt: "2026-04-27T02:00:00.000Z",
+      }),
+    });
+    expect(
+      refused.container.querySelector("[data-resume-proposal-result]")
+        ?.textContent,
+    ).toBe(
+      "Not applied — none of the selected changes passed the grounding check, so your draft is unchanged.",
+    );
+    refused.unmount();
+
+    const rejected = renderCard({
+      message: buildMessage({
+        proposalStatus: "rejected",
+        resolvedAt: "2026-04-27T02:00:00.000Z",
+      }),
+    });
+    expect(
+      rejected.container.querySelector("[data-resume-proposal-result]")
+        ?.textContent,
+    ).toBe(
+      "Not applied — this proposal was rejected and your draft is unchanged.",
+    );
+  });
+
+  it("keeps the clear wording when the export gate reported no blockers", () => {
+    renderCard({ message: buildMessage({ approvalBlockers: [] }) });
+
+    expect(
+      screen.getByText("Adds no new wording that would block approval."),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Accept selected (1)" }),
+    ).toBeTruthy();
   });
 });

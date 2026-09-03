@@ -54,31 +54,31 @@ describe("formatDailyPreparationCapacitySummaryText", () => {
   it("falls back to the safeguard maximum when no derived capacity exists", () => {
     expect(FALLBACK_DAILY_APPLICATION_PREPARATION_LIMIT).toBe(20);
     expect(formatDailyPreparationCapacitySummaryText(null)).toBe(
-      "Daily safeguard: up to 20 begun employer applications per local day.",
+      "Applications today: up to 20 per day",
     );
   });
 
   it("names exact usage, the limit, and remaining slots with reset timing", () => {
     const text = formatDailyPreparationCapacitySummaryText(createCapacity());
 
-    expect(text).toContain("12 exact begun of 20 / 8 remaining.");
-    expect(text).toMatch(/Resets at local midnight \(/u);
-    expect(text).not.toContain("available after local midnight");
+    expect(text).toBe("Applications today: 12 of 20 used · resets at midnight");
+    expect(text).not.toContain("exact begun");
+    expect(text).not.toContain("available after midnight");
   });
 
   it("keeps legacy-uncertain records singular and plural", () => {
     const singular = formatDailyPreparationCapacitySummaryText(
       createCapacity({ used: 19, legacyUncertain: 1, remaining: 0 }),
     );
-    expect(singular).toContain(
-      "19 exact begun / 1 older record may also have begun of 20 / 0 remaining.",
+    expect(singular).toBe(
+      "Applications today: 19 of 20 used (1 older record may also count) · more available after midnight",
     );
 
     const plural = formatDailyPreparationCapacitySummaryText(
       createCapacity({ used: 18, legacyUncertain: 2, remaining: 0 }),
     );
-    expect(plural).toContain(
-      "18 exact begun / 2 older records may also have begun of 20 / 0 remaining.",
+    expect(plural).toBe(
+      "Applications today: 18 of 20 used (2 older records may also count) · more available after midnight",
     );
   });
 
@@ -87,10 +87,8 @@ describe("formatDailyPreparationCapacitySummaryText", () => {
       createCapacity({ used: 20, remaining: 0 }),
     );
 
-    expect(text.endsWith(
-      "More application preparation is available after local midnight.",
-    )).toBe(true);
-    expect(text).not.toContain("Resets at local midnight");
+    expect(text.endsWith("· more available after midnight")).toBe(true);
+    expect(text).not.toContain("resets at midnight");
   });
 });
 

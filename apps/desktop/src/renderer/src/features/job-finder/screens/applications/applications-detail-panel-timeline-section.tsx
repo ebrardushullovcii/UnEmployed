@@ -11,10 +11,16 @@ export function ApplicationsDetailPanelTimelineSection(props: {
 }) {
   const { events } = props;
 
+  if (!events.length) {
+    return null;
+  }
+
   return (
-    <div className="grid gap-2">
-      <p className="label-mono-xs">Timeline</p>
-      <div className="grid gap-0">
+    <details className="group min-w-0">
+      <summary className="cursor-pointer list-none text-(length:--text-small) font-semibold text-primary outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-2 focus-visible:ring-ring">
+        Activity history ({events.length})
+      </summary>
+      <div className="mt-2 grid gap-0">
         {events.map((event) => {
           const tone = getEventTone(event);
 
@@ -59,6 +65,6 @@ export function ApplicationsDetailPanelTimelineSection(props: {
           );
         })}
       </div>
-    </div>
+    </details>
   );
 }

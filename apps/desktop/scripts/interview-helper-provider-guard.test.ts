@@ -84,7 +84,9 @@ describe("release acceptance environment", () => {
       "utf8",
     );
 
-    expect(source).toContain('ACCEPTANCE_INTERVIEW_CREDENTIAL_PREFIX = "UNEMPLOYED_INTERVIEW_"');
+    expect(source).toContain(
+      'ACCEPTANCE_INTERVIEW_CREDENTIAL_PREFIX = "UNEMPLOYED_INTERVIEW_"',
+    );
     expect(source).toContain('ACCEPTANCE_CREDENTIAL_SUFFIX = "_API_KEY"');
     for (const name of SHARED_CREDENTIAL_NAMES) {
       expect(
@@ -97,6 +99,17 @@ describe("release acceptance environment", () => {
 });
 
 describe("Interview Helper capture harness provider defaults", () => {
+  it("uses the typed apply-copilot preload action object", async () => {
+    const source = await readRepositoryFile(
+      path.posix.join("apps", "desktop", "scripts", captureScriptName),
+    );
+
+    expect(source).toContain(
+      'startApplyCopilotRun({\n        jobId: "job_ready",\n        visualCheckpointsEnabled: false,',
+    );
+    expect(source).not.toContain('startApplyCopilotRun("job_ready")');
+  });
+
   it("defaults to deterministic providers instead of configured", async () => {
     const source = await readRepositoryFile(
       path.posix.join("apps", "desktop", "scripts", captureScriptName),
@@ -128,9 +141,9 @@ describe("Interview Helper capture harness provider defaults", () => {
         `deterministic mode must blank ${name}`,
       ).toBe(true);
     }
-    expect(blankList.includes('UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND: ""')).toBe(
-      true,
-    );
+    expect(
+      blankList.includes('UNEMPLOYED_INTERVIEW_LOCAL_STT_COMMAND: ""'),
+    ).toBe(true);
   });
 
   it("enables the narrow live-AI opt-in only for explicitly requested configured mode and announces both modes", async () => {
@@ -160,9 +173,7 @@ describe("Interview Helper capture harness provider defaults", () => {
     const envSpreadOrder = source
       .slice(launchIndex)
       .indexOf("...providerModeAppEnv,");
-    const ambientIndex = source
-      .slice(launchIndex)
-      .indexOf("...process.env,");
+    const ambientIndex = source.slice(launchIndex).indexOf("...process.env,");
     expect(ambientIndex).toBeGreaterThan(-1);
     expect(envSpreadOrder).toBeGreaterThan(ambientIndex);
   });

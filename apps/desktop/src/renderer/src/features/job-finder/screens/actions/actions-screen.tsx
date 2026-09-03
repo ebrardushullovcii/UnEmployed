@@ -1,3 +1,8 @@
+import {
+  CONFIRM_STEP_DONE_ACTION,
+  JOB_FINDER_BROWSER_NAME,
+  OPEN_JOB_FINDER_BROWSER_ACTION,
+} from "../../lib/job-finder-browser-handoff-copy";
 import type {
   ApplicationAttemptQuestion,
   ApplyGroupedManualAnswerInput,
@@ -9,14 +14,7 @@ import type {
   UserActionCommandInput,
   UserActionRequest,
 } from "@unemployed/contracts";
-import {
-  ArrowUpRight,
-  Ban,
-  BellOff,
-  Check,
-  ExternalLink,
-  SkipForward,
-} from "lucide-react";
+import { ArrowUpRight, Ban, BellOff, Check, ExternalLink } from "lucide-react";
 
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
@@ -89,19 +87,19 @@ export const userActionKindPresentations: Record<
     label: "Sign in",
     openLabel: "Open sign-in",
     doneLabel: "I'm signed in",
-    guidance: "Complete sign-in in the browser.",
+    guidance: `Complete sign-in in ${JOB_FINDER_BROWSER_NAME}.`,
   },
   signup: {
     label: "Sign up",
     openLabel: "Open sign-up",
     doneLabel: "Account is ready",
-    guidance: "Create the account yourself in the browser.",
+    guidance: `Create the account yourself in ${JOB_FINDER_BROWSER_NAME}.`,
   },
   mfa: {
     label: "MFA",
     openLabel: "Open MFA",
     doneLabel: "MFA is complete",
-    guidance: "Complete the security-code challenge in the browser.",
+    guidance: `Complete the security-code challenge in ${JOB_FINDER_BROWSER_NAME}.`,
   },
   email_verification: {
     label: "Email verification",
@@ -125,7 +123,7 @@ export const userActionKindPresentations: Record<
     label: "Manual answer",
     openLabel: "Open question",
     doneLabel: "Answer is complete",
-    guidance: "Review and answer the question in the browser.",
+    guidance: `Review and answer the question in ${JOB_FINDER_BROWSER_NAME}.`,
   },
   legal_consent: {
     label: "Legal consent",
@@ -143,12 +141,12 @@ export const userActionKindPresentations: Record<
     label: "Manual upload",
     openLabel: "Open upload",
     doneLabel: "File is attached",
-    guidance: "Attach the requested file yourself in the browser.",
+    guidance: `Attach the requested file yourself in ${JOB_FINDER_BROWSER_NAME}.`,
   },
   other: {
     label: "Other",
-    openLabel: "Open browser step",
-    doneLabel: "Step is complete",
+    openLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+    doneLabel: CONFIRM_STEP_DONE_ACTION,
     guidance: "Complete the described browser-owned step yourself.",
   },
 };
@@ -168,6 +166,44 @@ export function buildJobIndexById(
 ): Map<string, DiscoveryJob> {
   return new Map(jobs.map((job) => [job.id, job]));
 }
+
+/**
+ * A whole instruction that only restates the safety boundary — the runtime
+ * writes one per request ("…and stops before final submission").
+ */
+const SAFETY_ONLY_INSTRUCTION =
+  /^(?:after (?:access verification|confirmation)|job finder)\b[^.]*\b(?:stops? before final submission|never (?:receives|handles|stores))/i;
+
+/**
+ * A trailing safety clause appended to an otherwise actionable step, e.g.
+ * "Complete sign-in in the Job Finder browser. Job Finder never receives or
+ * stores your credentials."
+ */
+const TRAILING_SAFETY_CLAUSE =
+  /(?:\s|^)(?:job finder (?:never|cannot)[^.]*\.|do not enter (?:credentials|passwords)[^.]*\.)\s*$/i;
+
+/**
+ * The card already ends with one safety sentence and the page header owns the
+ * credentials boundary, so the numbered steps stay purely about what the user
+ * does: open the page, finish the step, come back and confirm.
+ */
+export function toActionableInstructions(
+  instructions: readonly string[],
+): readonly string[] {
+  return instructions
+    .map((instruction) => instruction.trim())
+    .filter(
+      (instruction) =>
+        instruction.length > 0 && !SAFETY_ONLY_INSTRUCTION.test(instruction),
+    )
+    .map((instruction) =>
+      instruction.replace(TRAILING_SAFETY_CLAUSE, "").trim(),
+    )
+    .filter((instruction) => instruction.length > 0);
+}
+
+/** Below this many open actions the list is scannable without a search field. */
+const ACTION_SEARCH_MIN_ITEMS = 5;
 
 function createCommand(
   request: UserActionRequest,
@@ -217,25 +253,30 @@ function ActionCard(props: {
   const scopeLabel =
     request.scope.type === "application" ? "application" : "job source";
   const missingBrowserLinkDescriptionId = `${request.id}-missing-browser-link`;
+  const cancelConsequenceId = `${request.id}-cancel-consequence`;
+  const actionableInstructions = toActionableInstructions(request.instructions);
 
   return (
     <article className="grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="grid min-w-0 gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge
-              variant={
-                request.requirement === "required" ? "default" : "section"
-              }
-            >
-              {request.requirement}
-            </Badge>
-            <Badge variant="status">{presentation.label}</Badge>
+            {/* Everything in a queue called "Needs you" is required, so a
+                REQUIRED chip on every card carried no information. Only the
+                exception — a step you may skip — is worth a chip. */}
+            {request.requirement === "required" ? null : (
+              <Badge variant="section">Optional</Badge>
+            )}
+            {/* "Other" names nothing; the request summary already says what
+            the step is, so only classified kinds earn a category badge. */}
+            {request.kind === "other" ? null : (
+              <Badge variant="status">{presentation.label}</Badge>
+            )}
             <Badge variant="outline">
               {request.state.replaceAll("_", " ")}
             </Badge>
           </div>
-          <h3 className="text-lg font-semibold text-(--text-headline)">
+          <h3 className="font-semibold text-(--text-headline)">
             {request.title}
           </h3>
           <p className="max-w-3xl text-sm leading-6 text-foreground-soft">
@@ -256,14 +297,17 @@ function ActionCard(props: {
       {jobLabel ? (
         <p className="text-sm font-medium text-foreground">{jobLabel}</p>
       ) : null}
-      {request.displayOrigin ? (
+      {/* The verification origin is deliberately path-stripped, so showing
+          it alone told the user only "wellfound.com". The exact page the
+          action opens is the useful fact; the bare origin is the fallback. */}
+      {(request.actionUrl ?? request.displayOrigin) ? (
         <p className="break-all text-xs text-muted-foreground">
-          Browser: {request.displayOrigin}
+          Page: {request.actionUrl ?? request.displayOrigin}
         </p>
       ) : null}
-      {request.instructions.length > 0 ? (
+      {actionableInstructions.length > 0 ? (
         <ol className="grid list-decimal gap-1 pl-5 text-sm leading-6 text-foreground-soft">
-          {request.instructions.map((instruction) => (
+          {actionableInstructions.map((instruction) => (
             <li key={instruction}>{instruction}</li>
           ))}
         </ol>
@@ -289,13 +333,15 @@ function ActionCard(props: {
           request={request}
         />
       ) : null}
-      <p className="rounded-md border border-border/60 bg-background/35 px-3 py-2 text-xs leading-5 text-muted-foreground">
+      {/* The boxed treatment framed the boundary as fine print and repeated
+          the steps above it inside a grey rectangle. The per-kind sentence
+          and the one no-submit sentence stay; the box does not. */}
+      <p className="text-xs leading-5 text-muted-foreground">
         {presentation.guidance}{" "}
         {request.kind === "manual_answer"
-          ? "A one-use answer stays scoped to this application; future reuse requires the explicit save action."
-          : "Credentials and security answers stay in the browser."}{" "}
-        This action cannot authorize account creation or a final application
-        submission.
+          ? "A one-use answer stays scoped to this application; future reuse requires the explicit save action. "
+          : ""}
+        Confirming here cannot create an account or submit an application.
       </p>
 
       <div
@@ -340,25 +386,30 @@ function ActionCard(props: {
                 : presentation.doneLabel}
           </Button>
         ) : null}
+        {/* "Skip" and "Cancel" were peers with no stated difference and the
+            same outcome: both close the request without doing the step. One
+            dismissal, named for what it does. */}
+        {/* The label said nothing about the consequence, so cancelling read
+            as "put this aside" rather than "this application stops here". */}
         <Button
-          onClick={() => onCommand(createCommand(request, "skip"))}
+          aria-describedby={cancelConsequenceId}
+          onClick={() => onCommand(createCommand(request, "cancel"))}
           pending={isPending}
           size="compact"
           type="button"
           variant="ghost"
         >
-          <SkipForward aria-hidden="true" /> Skip
-        </Button>
-        <Button
-          onClick={() => onCommand(createCommand(request, "cancel"))}
-          pending={isPending}
-          size="compact"
-          type="button"
-          variant="outline"
-        >
-          <Ban aria-hidden="true" /> Cancel
+          <Ban aria-hidden="true" /> Cancel this step
         </Button>
       </div>
+      <p
+        className="text-xs leading-5 text-muted-foreground"
+        id={cancelConsequenceId}
+      >
+        Cancelling closes this step without doing it. Job Finder stops working
+        on it and nothing is sent; you can still finish it yourself on the job
+        site.
+      </p>
 
       {!request.actionUrl ? (
         <p
@@ -374,15 +425,15 @@ function ActionCard(props: {
 
       {isPending ? (
         <p className="text-xs leading-5 text-muted-foreground" role="status">
-          Working in the dedicated browser. This step is time-limited and the
-          controls will re-enable automatically.
+          {`Working in ${JOB_FINDER_BROWSER_NAME}. This step is time-limited and the controls will re-enable automatically.`}
         </p>
       ) : null}
 
       {attemptsExhausted ? (
         <p className="text-xs leading-5 text-muted-foreground" role="status">
           Automatic checks paused after {request.maxAttempts} attempts. You can
-          reopen the browser step, then skip or cancel this request.
+          reopen the step in {JOB_FINDER_BROWSER_NAME}, then skip or cancel this
+          request.
         </p>
       ) : null}
     </article>
@@ -459,7 +510,7 @@ function GroupedDecisionCard(props: {
               <Badge variant="outline">Conflict detected</Badge>
             ) : null}
           </div>
-          <h3 className="text-lg font-semibold text-(--text-headline)">
+          <h3 className="font-semibold text-(--text-headline)">
             {compact
               ? `Snoozed reusable answer for ${uniqueJobCount} ${jobNoun}`
               : `Reuse one answer across ${uniqueJobCount} ${jobNoun}`}
@@ -703,11 +754,18 @@ export function ActionsScreen(props: {
   return (
     <section className="grid gap-5 pb-8">
       <PageHeaderStack
-        description="Complete browser steps, then ask Job Finder to verify. Passwords, security codes, and final submit stay with you."
+        // Each card already carries the exact no-submit boundary for the
+        // action it offers; the page header owns the credential boundary
+        // only, so the promise is stated once per card instead of three
+        // times on the same screen.
+        description={`Finish each step in ${JOB_FINDER_BROWSER_NAME}, a separate window outside this app, then come back and confirm. Passwords and security codes stay with you.`}
         title="Needs you"
       />
 
-      {unresolved.length > 0 ? (
+      {/* A search field plus a "1 result" counter above a single card is
+          dead chrome in the first viewport. Search appears once the list is
+          long enough to need it, or while a query is already narrowing it. */}
+      {unresolved.length >= ACTION_SEARCH_MIN_ITEMS || view.query.length > 0 ? (
         <CollectionSearchToolbar
           label="Find an action"
           onQueryChange={view.setQuery}
@@ -726,7 +784,7 @@ export function ActionsScreen(props: {
         >
           <div className="flex items-center gap-2">
             <h2
-              className="text-xl font-semibold text-(--text-headline)"
+              className="font-semibold text-(--text-headline)"
               id="reusable-answers-heading"
             >
               Reusable answers
@@ -757,7 +815,7 @@ export function ActionsScreen(props: {
         <section aria-labelledby="snoozed-heading" className="grid gap-3">
           <div className="flex items-center gap-2">
             <h2
-              className="text-xl font-semibold text-(--text-headline)"
+              className="font-semibold text-(--text-headline)"
               id="snoozed-heading"
             >
               Snoozed
@@ -788,7 +846,7 @@ export function ActionsScreen(props: {
       {unresolved.length === 0 && !hasPendingDecisionCards ? (
         <div className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5">
           <div className="grid gap-2" role="status">
-            <h2 className="text-lg font-semibold text-(--text-headline)">
+            <h2 className="font-semibold text-(--text-headline)">
               Nothing needs you right now
             </h2>
             <p className="text-sm text-foreground-soft">
@@ -830,7 +888,7 @@ export function ActionsScreen(props: {
               >
                 <div className="flex items-center gap-2">
                   <h2
-                    className="text-xl font-semibold text-(--text-headline)"
+                    className="font-semibold text-(--text-headline)"
                     id={`action-group-${group.id}`}
                   >
                     {group.title}

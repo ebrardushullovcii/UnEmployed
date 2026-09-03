@@ -10,11 +10,21 @@ import {
   type CandidateProfile,
 } from "@unemployed/contracts";
 import { chromium, type Browser, type BrowserContext } from "playwright";
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+  vi,
+} from "vitest";
+import {
+  closePrepareOnlyIntermediateMutationWindow,
   createApplicationRunServiceWorkerSentinel,
   ensurePrepareOnlyMutationGuard,
   getLatestBlockedPrepareOnlyAttempt,
+  openPrepareOnlyIntermediateMutationWindow,
   readServiceWorkerRegisterGuardInPage,
   runGenericApplicationPreparation,
 } from "./playwright-application-flow";
@@ -228,6 +238,70 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
         method: "POST",
       });
       expect(latestAttempt?.url ?? "").toContain("/autosave-post");
+    },
+  );
+
+  test(
+    "allows one bounded same-origin autosave but still blocks final-submit traffic",
+    { timeout: 60_000 },
+    async () => {
+      const app = await startTrackedServer();
+      app.registerHtml(
+        "/bounded-autosave",
+        `<label for="email">Email address</label><input id="email">
+         <button id="submit" type="button">Submit application</button>
+         <script>
+         document.getElementById('email').addEventListener('change', function () {
+           fetch('/api/application/autosave-field', {
+             method: 'PATCH',
+             body: JSON.stringify({ operationName: 'UpdateApplicationFormAnswer' })
+           });
+         });
+         document.getElementById('submit').addEventListener('click', function () {
+           fetch('/api/application/submit', {
+             method: 'POST',
+             body: JSON.stringify({ operationName: 'SubmitApplication' })
+           });
+         });
+         </script>`,
+      );
+      const { page } = await newGuardedPage();
+      await page.goto(`${app.baseUrl}/bounded-autosave`);
+      await ensurePrepareOnlyMutationGuard(page, true, [
+        "https://outside-authority.example",
+      ]);
+      await expect(
+        openPrepareOnlyIntermediateMutationWindow(page),
+      ).rejects.toThrow(
+        /outside the explicit intermediate-mutation authority/i,
+      );
+      await ensurePrepareOnlyMutationGuard(page, true, [
+        new URL(app.baseUrl).origin,
+      ]);
+
+      await openPrepareOnlyIntermediateMutationWindow(page);
+      await page.fill("#email", "synthetic@example.com");
+      await page.locator("#email").blur();
+      await page.waitForTimeout(400);
+      await closePrepareOnlyIntermediateMutationWindow(page);
+
+      expect(
+        requestHitsFor(app.hits, "/api/application/autosave-field"),
+      ).toHaveLength(1);
+
+      await openPrepareOnlyIntermediateMutationWindow(page);
+      await page.click("#submit");
+      await page.waitForTimeout(400);
+      await closePrepareOnlyIntermediateMutationWindow(page);
+
+      expect(requestHitsFor(app.hits, "/api/application/submit")).toHaveLength(
+        0,
+      );
+      const latestAttempt = await getLatestBlockedPrepareOnlyAttempt(page);
+      expect(latestAttempt).toMatchObject({
+        method: "POST",
+      });
+      expect(latestAttempt?.url ?? "").toContain("/api/application/submit");
     },
   );
 
@@ -524,14 +598,9 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
         expect(pausedResult.checkpoints.at(-1)?.label).toBe(
           "Paused before the application field could be saved",
         );
-        // The email fill itself was a verified profile-field write; the
-        // blocked attempt is the site's own autosave that fired on blur.
-        expect(pausedResult.externalWrites).toEqual([
-          expect.objectContaining({
-            category: "profile_field",
-            fieldLabel: "Email address",
-          }),
-        ]);
+        // The local email fill is not external persistence proof; the site's
+        // autosave was blocked and therefore no verified external write exists.
+        expect(pausedResult.externalWrites).toEqual([]);
 
         expect(requestHitsFor(app.hits, "/autosave-e2e")).toHaveLength(0);
         expect(app.hits.filter((hit) => hit.method !== "GET")).toHaveLength(0);
@@ -609,6 +678,71 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
         expect(
           result.questions.some((question) => question.status === "answered"),
         ).toBe(false);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test(
+    "runGenericApplicationPreparation records only a successful authorized autosave as an external write",
+    { timeout: 90_000 },
+    async () => {
+      const app = await startTrackedServer();
+      app.registerHtml(
+        "/e2e-authorized-autosave",
+        `<form><label for="email">Email address</label>
+         <input id="email" autocomplete="email"></form>
+         <button type="submit">Submit application</button>
+         <script>
+         document.getElementById('email').addEventListener('input', function () {
+           fetch('/api/application/autosave-field', {
+             method: 'PATCH',
+             body: JSON.stringify({ operationName: 'UpdateApplicationFormAnswer' })
+           });
+         });
+         </script>`,
+      );
+      const { directory, filePath } = await writeApprovedResume();
+      try {
+        if (!browser) {
+          throw new Error("The fixture browser is not running.");
+        }
+        const context = await browser.newContext();
+        activeContexts.push(context);
+        const page = await context.newPage();
+        const applicationUrl = `${app.baseUrl}/e2e-authorized-autosave`;
+        await page.goto(applicationUrl);
+        const origin = new URL(applicationUrl).origin;
+        const recheck = vi.fn((observedOrigin: string) =>
+          Promise.resolve(observedOrigin === origin),
+        );
+        const result = await runGenericApplicationPreparation({
+          context,
+          page,
+          executionInput: {
+            ...createPreparationExecutionInput(applicationUrl, filePath),
+            intermediateMutationsAuthorized: true,
+            intermediateMutationAllowedOrigins: [origin],
+            recheckIntermediateMutationAuthority: recheck,
+          },
+          startedAt: new Date().toISOString(),
+        });
+
+        expect(
+          requestHitsFor(app.hits, "/api/application/autosave-field"),
+        ).toHaveLength(1);
+        expect(recheck).toHaveBeenCalledWith(origin);
+        expect(result.externalWrites).toEqual([
+          expect.objectContaining({
+            category: "profile_field",
+            fieldLabel: "Email address",
+            verified: true,
+          }),
+        ]);
+        expect(result.submittedAt).toBeNull();
+        expect(result.outcome).toBeNull();
+        expect(result.checkpoints.at(-1)?.label).toMatch(/final control/i);
       } finally {
         await rm(directory, { recursive: true, force: true });
       }

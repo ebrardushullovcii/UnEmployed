@@ -1,7 +1,15 @@
-import { useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { AppearanceTheme, JobFinderSettings } from "@unemployed/contracts";
-import { Button } from "@renderer/components/ui/button";
-import { useSettingsSectionSave } from "./settings-section-save";
+import {
+  applyAppearancePreference,
+  getSystemPrefersDark,
+} from "@renderer/lib/theme";
+import { useRegisterSettingsDirtySection } from "./settings-dirty-sections";
+import { SettingsSectionSaveControl } from "./settings-section-save-control";
+import {
+  hasOutstandingSectionChanges,
+  useSettingsSectionSave,
+} from "./settings-section-save";
 
 const appearanceThemeOptions: ReadonlyArray<{
   label: string;
@@ -30,7 +38,8 @@ export function SettingsAppDeviceSection({
   const [selectedTheme, setSelectedTheme] = useState<AppearanceTheme>(
     settings.appearanceTheme,
   );
-  const { runSectionSave, saveState } = useSettingsSectionSave();
+  const { resetSectionSave, runSectionSave, saveState } =
+    useSettingsSectionSave();
 
   useEffect(() => {
     setSelectedTheme(settings.appearanceTheme);
@@ -38,19 +47,41 @@ export function SettingsAppDeviceSection({
 
   const isSavePending = saveState.status === "saving";
   const hasUnsavedChanges = selectedTheme !== settings.appearanceTheme;
-  const saveButtonLabel =
-    saveState.status === "saving"
-      ? "Saving appearance"
-      : saveState.status === "failed"
-        ? "Retry appearance"
-        : saveState.status === "saved" && !hasUnsavedChanges
-          ? "Appearance saved"
-          : "Save appearance";
+
+  // Picking a theme used to change nothing on screen until the user found and
+  // pressed Save and an IPC round trip finished, so the interval between the
+  // click and any evidence of it read as a dead control. The preview is
+  // applied on click and Save stays the persistence commit.
+  const savedThemeRef = useRef(settings.appearanceTheme);
+  savedThemeRef.current = settings.appearanceTheme;
+  const selectedThemeRef = useRef(selectedTheme);
+  selectedThemeRef.current = selectedTheme;
+
+  const revertThemePreview = useCallback(() => {
+    applyAppearancePreference(savedThemeRef.current, getSystemPrefersDark());
+  }, []);
+
+  // Leaving Settings without saving must not leave the app wearing a theme
+  // that was never persisted.
+  useEffect(
+    () => () => {
+      if (selectedThemeRef.current !== savedThemeRef.current) {
+        applyAppearancePreference(
+          savedThemeRef.current,
+          getSystemPrefersDark(),
+        );
+      }
+    },
+    [],
+  );
+
   const updateSelectedTheme = (theme: AppearanceTheme) => {
     if (isSavePending) {
       return;
     }
     setSelectedTheme(theme);
+    applyAppearancePreference(theme, getSystemPrefersDark());
+    resetSectionSave();
     onSettingsDraftEdited?.();
   };
   const saveAppearanceTheme = () => {
@@ -58,19 +89,42 @@ export function SettingsAppDeviceSection({
       return;
     }
     void runSectionSave({
-      execute: () => onUpdateAppearanceTheme(selectedTheme),
+      execute: async () => {
+        try {
+          const saved = await onUpdateAppearanceTheme(selectedTheme);
+          if (saved === false) {
+            // The persisted theme is still the old one; showing the new one
+            // would be the app lying about what it stored.
+            revertThemePreview();
+          }
+          return saved;
+        } catch (error) {
+          revertThemePreview();
+          throw error;
+        }
+      },
       failedMessage:
         "Appearance was not saved. Retry before leaving this page.",
       savedMessage: "Appearance saved. Job Finder now uses this theme.",
     });
   };
 
+  useRegisterSettingsDirtySection({
+    anchorId: "settings-app-device",
+    isDirty: hasOutstandingSectionChanges(hasUnsavedChanges, saveState),
+    isSaving: isSavePending,
+    label: "App & device",
+    onSave: saveAppearanceTheme,
+    order: 0,
+    saveLabel: "Save appearance",
+  });
+
   return (
     <section className="surface-panel-shell grid min-w-0 content-start gap-3 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="grid min-w-0 max-w-[72ch] flex-1 gap-1">
           <h3
-            className="min-w-0 text-[1.02rem] font-semibold text-(--text-headline)"
+            className="min-w-0 font-semibold text-(--text-headline)"
             id={appearanceHeadingId}
           >
             Appearance
@@ -80,47 +134,35 @@ export function SettingsAppDeviceSection({
             when you want a stable visual working environment.
           </p>
         </div>
-        <div className="grid min-w-0 max-w-full justify-items-end gap-1.5">
-          <Button
-            disabled={!hasUnsavedChanges || isSavePending}
-            onClick={saveAppearanceTheme}
-            pending={isSavePending}
-            type="button"
-            variant="primary"
-          >
-            {saveButtonLabel}
-          </Button>
-          {saveState.status === "idle" ? null : (
-            <p
-              className={
-                saveState.status === "failed"
-                  ? "min-w-0 max-w-80 break-words text-right text-xs leading-4 text-destructive"
-                  : "min-w-0 max-w-80 break-words text-right text-xs leading-4 text-foreground-soft"
-              }
-              data-settings-save-state={saveState.status}
-              role="status"
-            >
-              {saveState.message}
-            </p>
-          )}
-        </div>
+        <SettingsSectionSaveControl
+          hasUnsavedChanges={hasUnsavedChanges}
+          onSave={saveAppearanceTheme}
+          saveState={saveState}
+          subject="appearance"
+        />
       </div>
 
+      {/* One segmented control instead of three separate radio-shaped
+          buttons. Each segment stays an ordinary button with `aria-pressed`,
+          so assistive technology and UI automation both address it by its
+          visible name and pressed state. Nothing is layered over this row:
+          the sticky Settings subnav keeps its own flow space above the first
+          section, and every section clears it with `scroll-mt`. */}
       <div
         aria-labelledby={appearanceHeadingId}
-        className="flex min-w-0 flex-wrap gap-2"
-        role="radiogroup"
+        className="relative flex w-fit min-w-0 max-w-full flex-wrap items-center gap-0.5 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 p-0.5"
+        data-settings-appearance-theme-group
+        role="group"
       >
         {appearanceThemeOptions.map((option) => {
           const isSelected = selectedTheme === option.value;
           return (
             <button
-              aria-checked={isSelected}
-              className={`inline-flex min-h-10 items-center justify-center rounded-(--radius-field) border px-3.5 text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 ${isSelected ? "border-primary/70 bg-primary/8 text-foreground" : "border-(--surface-panel-border) bg-background/45 text-foreground-soft hover:border-primary/35 hover:text-foreground"}`}
+              aria-pressed={isSelected}
+              className={`inline-flex min-h-9 items-center justify-center rounded-(--radius-small) px-3.5 text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-60 ${isSelected ? "bg-primary/10 text-foreground ring-1 ring-primary/70" : "text-foreground-soft hover:bg-secondary hover:text-foreground"}`}
               disabled={isSavePending}
               key={option.value}
               onClick={() => updateSelectedTheme(option.value)}
-              role="radio"
               type="button"
             >
               {option.label}

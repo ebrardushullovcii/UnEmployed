@@ -279,6 +279,7 @@ export function InterviewHelperPage() {
   const [windowControlsState, setWindowControlsState] =
     useState<DesktopWindowControlsState>({
       isClosable: true,
+      isFullScreen: false,
       isMaximized: false,
       isMinimizable: true,
     });
@@ -761,7 +762,10 @@ export function InterviewHelperPage() {
             data-desktop-brand
             style={{
               ...dragRegionStyle,
-              paddingInlineStart: isMac ? "5.5rem" : undefined,
+              paddingInlineStart:
+                isMac && !windowControlsState.isFullScreen
+                  ? "5.5rem"
+                  : undefined,
             }}
           >
             <div className="flex min-w-0 flex-col">

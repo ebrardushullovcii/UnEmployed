@@ -423,7 +423,9 @@ describe("JobFinderGlobalSearch", () => {
   });
 
   it("brings the keyboard-highlighted option into view with nearest scrolling", () => {
-    render(<JobFinderGlobalSearch entries={sampleEntries} onNavigate={vi.fn()} />);
+    render(
+      <JobFinderGlobalSearch entries={sampleEntries} onNavigate={vi.fn()} />,
+    );
 
     typeQuery("engineer");
     fireEvent.keyDown(

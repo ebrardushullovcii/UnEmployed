@@ -359,8 +359,10 @@ async function runCapture() {
       }
 
       await window.unemployed.jobFinder.test.loadApplyQueueDemo();
-      const snapshot =
-        await window.unemployed.jobFinder.startApplyCopilotRun("job_ready");
+      const snapshot = await window.unemployed.jobFinder.startApplyCopilotRun({
+        jobId: "job_ready",
+        visualCheckpointsEnabled: false,
+      });
       const record = snapshot.applicationRecords.find(
         (entry) => entry.jobId === "job_ready",
       );

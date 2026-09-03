@@ -45,6 +45,25 @@ export type {
   SearchPreferencesEditorValues,
 } from "./profile-editor-types";
 
+const PROFILE_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
+/**
+ * Profile contact fields are optional, but a value that is present must be a
+ * usable email address. The canonical profile contract intentionally accepts
+ * non-empty text for backwards compatibility, so the editor owns this
+ * user-facing validation before a save request is created.
+ */
+export function getProfileEmailValidationMessage(
+  value: string,
+  label = "Email",
+): string | null {
+  const normalizedValue = value.trim();
+
+  return normalizedValue === "" || PROFILE_EMAIL_PATTERN.test(normalizedValue)
+    ? null
+    : `${label} must be a valid email address.`;
+}
+
 function shouldPersistReviewCandidateEntry(input: {
   sourceCandidateId?: string | null | undefined;
   sourceCandidateFingerprint?: string | null | undefined;
@@ -395,6 +414,29 @@ export function buildProfilePayload(
   profile: CandidateProfile,
   values: ProfileEditorValues,
 ): { payload?: CandidateProfile; validationMessage?: string } {
+  const emailValidationMessage = getProfileEmailValidationMessage(
+    values.identity.email,
+  );
+  if (emailValidationMessage) {
+    return { validationMessage: emailValidationMessage };
+  }
+
+  const secondaryEmailValidationMessage = getProfileEmailValidationMessage(
+    values.identity.secondaryEmail,
+    "Secondary email",
+  );
+  if (secondaryEmailValidationMessage) {
+    return { validationMessage: secondaryEmailValidationMessage };
+  }
+
+  const preferredEmailValidationMessage = getProfileEmailValidationMessage(
+    values.applicationIdentity.preferredEmail,
+    "Preferred application email",
+  );
+  if (preferredEmailValidationMessage) {
+    return { validationMessage: preferredEmailValidationMessage };
+  }
+
   const incompleteRowMessage =
     findIncompleteRowMessage(
       values.projects,
@@ -486,17 +528,36 @@ export function buildProfilePayload(
     };
   }
 
-  const builtLocation =
-    uniqueList([
-      [
-        values.identity.currentCity,
-        values.identity.currentRegion,
-        values.identity.currentCountry,
-      ]
-        .filter(Boolean)
-        .join(", "),
-      values.identity.currentLocation,
-    ])[0] ?? values.identity.currentLocation.trim();
+  // `currentLocation` is a derived line, not an editable field: only city,
+  // region and country are registered inputs. Recomposing it unconditionally
+  // made an untouched profile differ from its own saved record forever
+  // whenever the stored line carried detail the parts do not - an imported
+  // "Cedar Park, TX 78613" recomposed to "Cedar Park, TX, United States" - so
+  // Profile opened permanently dirty, "Unsaved changes on this page." was
+  // always shown and Save was never disabled. The stored line therefore stays
+  // authoritative until the user actually edits one of the parts it is built
+  // from; the moment a part changes, the line is rebuilt exactly as before.
+  const storedCurrentLocation = profile.currentLocation ?? "";
+  const preservesStoredCurrentLocation =
+    values.identity.currentCity.trim() === (profile.currentCity ?? "").trim() &&
+    values.identity.currentRegion.trim() ===
+      (profile.currentRegion ?? "").trim() &&
+    values.identity.currentCountry.trim() ===
+      (profile.currentCountry ?? "").trim() &&
+    values.identity.currentLocation === storedCurrentLocation;
+
+  const builtLocation = preservesStoredCurrentLocation
+    ? storedCurrentLocation
+    : (uniqueList([
+        [
+          values.identity.currentCity,
+          values.identity.currentRegion,
+          values.identity.currentCountry,
+        ]
+          .filter(Boolean)
+          .join(", "),
+        values.identity.currentLocation,
+      ])[0] ?? values.identity.currentLocation.trim());
   // Main skills stay independently authoritative: the editor must never
   // resurrect a skill the user deleted from this field just because it also
   // appears in a skill group. Downstream consumers that need the full skill

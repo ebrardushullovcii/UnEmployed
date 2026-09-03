@@ -133,7 +133,7 @@ export function ProfileImportSuggestionList(props: {
           >
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="grid min-w-0 gap-1">
-                <h3 className="text-sm font-semibold text-(--text-headline)">
+                <h3 className="font-semibold text-(--text-headline)">
                   {getSuggestionTitle(candidate, value)}
                 </h3>
                 <p className="text-sm leading-6 text-foreground-soft">

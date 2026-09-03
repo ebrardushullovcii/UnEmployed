@@ -8,9 +8,9 @@ describe("formatPersistedStrategyReason", () => {
         'User chose strategy "Backend engineering" for this job.',
       ),
     ).toBe('User chose approach "Backend engineering" for this job.');
-    expect(formatPersistedStrategyReason("accepted the recommended strategy")).toBe(
-      "accepted the recommended approach",
-    );
+    expect(
+      formatPersistedStrategyReason("accepted the recommended strategy"),
+    ).toBe("accepted the recommended approach");
   });
 
   it("handles plural and capitalized legacy wording", () => {

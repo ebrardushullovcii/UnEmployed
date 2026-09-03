@@ -11,6 +11,7 @@ import type {
   BrowserSessionState,
   ReviewQueueItem,
   SavedJob,
+  TailoredAsset,
 } from "@unemployed/contracts";
 import {
   ApplicationRecordSchema,
@@ -165,7 +166,7 @@ describe("ReviewQueueMissionPanel", () => {
       screen.getByRole("button", { name: "Prepare application" }),
     ).toBeTruthy();
     expect(
-      screen.getByText(/0 exact begun of 20 \/ 20 remaining/),
+      screen.getByText("Applications today: 0 of 20 used · resets at midnight"),
     ).toBeTruthy();
     expect(
       screen.getByRole("radio", {
@@ -188,9 +189,8 @@ describe("ReviewQueueMissionPanel", () => {
         name: /queue selected applications/i,
       }),
     ).toBeNull();
-    const heading = screen.getByRole("heading", {
-      name: "Preparation readiness",
-    });
+    // An eyebrow is a label, not a heading, so it is queried as text.
+    const heading = screen.getByText("Preparation readiness");
     const evidence = screen.getByRole("heading", {
       name: "Application readiness",
     }).parentElement?.parentElement;
@@ -226,7 +226,7 @@ describe("ReviewQueueMissionPanel", () => {
     });
 
     const originalResumeOption = screen.getByRole("radio", {
-      name: "Original resume unchanged",
+      name: "Use my original resume",
     });
     const tailoredResumeOption = screen.getByRole("radio", {
       name: "Tailor for this job",
@@ -350,7 +350,7 @@ describe("ReviewQueueMissionPanel", () => {
     );
 
     const batchAction = screen.getByRole("button", {
-      name: "Queue selected applications (2)",
+      name: "Prepare selected jobs (2)",
     });
     expect(batchAction.closest("details")).toBeNull();
     expect(batchAction.closest('[data-testid="apply-copilot-footer"]')).toBe(
@@ -358,7 +358,7 @@ describe("ReviewQueueMissionPanel", () => {
     );
     expect(
       screen.getAllByRole("button", {
-        name: "Queue selected applications (2)",
+        name: "Prepare selected jobs (2)",
       }),
     ).toHaveLength(1);
 
@@ -370,7 +370,7 @@ describe("ReviewQueueMissionPanel", () => {
     expect(screen.getByText("2 of 10 selected for this run")).toBeTruthy();
     expect(
       screen.getByText(
-        /7 exact begun \/ 2 older records may also have begun of 20 \/ 11 remaining/,
+        "Applications today: 7 of 20 used (2 older records may also count) · resets at midnight",
       ),
     ).toBeTruthy();
     expect(
@@ -485,7 +485,7 @@ describe("ReviewQueueMissionPanel", () => {
       /up to 10 jobs\. The selection limit is reached; deselect a job before choosing another\./,
     );
     const batchAction = screen.getByRole("button", {
-      name: "Queue selected applications (10)",
+      name: "Prepare selected jobs (10)",
     });
     expect(batchAction.getAttribute("aria-describedby")).toBe(limitNote?.id);
     expect(
@@ -495,7 +495,7 @@ describe("ReviewQueueMissionPanel", () => {
     ).not.toBeNull();
 
     expect((batchAction as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/available after local midnight/i)).toBeTruthy();
+    expect(screen.getByText(/more available after midnight/i)).toBeTruthy();
     fireEvent.click(batchAction);
     expect(onStartAutoApplyQueue).not.toHaveBeenCalled();
   });
@@ -603,11 +603,6 @@ describe("ReviewQueueMissionPanel", () => {
 
     const footer = screen.getByTestId("apply-copilot-footer");
     expect(footer.className).toContain("py-3");
-    expect(
-      within(footer).getByText(
-        "Daily safeguard: up to 20 begun employer applications per local day.",
-      ),
-    ).toBeTruthy();
 
     const recoveryButton = screen.getByRole("button", {
       name: "Fix browser connection",
@@ -617,8 +612,10 @@ describe("ReviewQueueMissionPanel", () => {
     });
     expect(recoveryButton.parentElement).toBe(workspaceButton.parentElement);
     expect(workspaceButton.parentElement?.className).toContain("flex-wrap");
+    // Secondary actions keep their natural width so they never read as a
+    // second primary of identical weight.
     for (const button of [recoveryButton, workspaceButton]) {
-      expect(button.className).toContain("flex-1");
+      expect(button.className).not.toContain("flex-1");
       expect(button.className).not.toContain("w-full");
     }
   });
@@ -724,6 +721,163 @@ describe("ReviewQueueMissionPanel", () => {
       screen.getByRole("button", { name: "Remove from shortlisted" }),
     );
     expect(onRemoveReviewJob).toHaveBeenCalledWith("job_unselected");
+  });
+
+  it("keeps Review and approve as the only footer primary when Prepare is blocked", () => {
+    const selectedItem = {
+      jobId: "job_needs_approval",
+      title: "Senior Product Designer",
+      company: "Signal Systems",
+      location: "Remote",
+      matchScore: 94,
+      applicationStatus: "ready_for_review",
+      resumeApplicationMode: "tailored_per_job",
+      assetStatus: "ready",
+      progressPercent: 100,
+      resumeAssetId: "asset_tailored",
+      resumeReview: { status: "needs_review" },
+    } as unknown as ReviewQueueItem;
+    const selectedAsset = {
+      id: "asset_tailored",
+      jobId: "job_needs_approval",
+      kind: "resume",
+      status: "ready",
+      label: "Tailored resume",
+      version: "1",
+      templateName: "default",
+      compatibilityScore: 80,
+      progressPercent: 100,
+      updatedAt: "2026-07-30T10:00:00.000Z",
+      storagePath: "/tmp/tailored.pdf",
+      contentText: null,
+      previewSections: [],
+      generationMethod: "deterministic",
+      notes: [],
+      failureMessage: null,
+      failedAt: null,
+    } as unknown as TailoredAsset;
+    const selectedJob = {
+      id: selectedItem.jobId,
+      title: selectedItem.title,
+      company: selectedItem.company,
+      summary: "Design resilient workflow products.",
+      description: "Design resilient workflow products.",
+      employerWebsiteUrl: null,
+      canonicalUrl: "https://signal.example/jobs/senior-product-designer",
+      applicationUrl:
+        "https://signal.example/jobs/senior-product-designer/apply",
+      atsProvider: "Signal Careers",
+      screeningHints: { requiresConsentInterrupt: false },
+      applyPath: "easy_apply",
+      easyApplyEligible: true,
+      matchAssessment: {
+        score: 94,
+        reasons: ["Relevant product design experience"],
+        gaps: [],
+        recommendation: "review_before_applying",
+        recommendationRationale: "Review the live form before continuing.",
+        requirements: [],
+      },
+    } as unknown as SavedJob;
+    const browserSession = {
+      source: "target_site",
+      status: "ready",
+      driver: "chrome_profile_agent",
+      label: "Browser ready",
+      detail: "Ready when needed.",
+      lastCheckedAt: "2026-08-10T10:00:00.000Z",
+    } as BrowserSessionState;
+
+    render(
+      <ReviewQueueMissionPanel
+        applicationRecords={[]}
+        actionMessage={null}
+        browserSession={browserSession}
+        campaignId="campaign_1"
+        displayedProgress={100}
+        isApplyPending={false}
+        isJobPending={() => false}
+        isResumeStrategyPending={() => false}
+        onClearQueueSelection={vi.fn()}
+        onEditResumeWorkspace={vi.fn()}
+        onGenerateResume={vi.fn()}
+        onOpenBrowserSession={vi.fn()}
+        onOpenJobDetails={vi.fn()}
+        onOpenProfile={vi.fn()}
+        onRecommendResumeStrategy={vi.fn().mockResolvedValue(null)}
+        onRemoveReviewJob={vi.fn()}
+        onSelectResumeStrategy={vi.fn()}
+        onSetJobResumeApplicationMode={vi.fn()}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        queue={[selectedItem]}
+        queueSelection={[]}
+        resumeStrategies={[]}
+        resumeStrategySelections={[]}
+        selectedAsset={selectedAsset}
+        selectedItem={selectedItem}
+        selectedJob={selectedJob}
+      />,
+    );
+
+    const footer = screen.getByTestId("apply-copilot-footer");
+    expect(
+      within(footer).getByRole("button", { name: "Review and approve resume" }),
+    ).toBeTruthy();
+    expect(
+      within(footer).queryByRole("button", { name: "Prepare application" }),
+    ).toBeNull();
+    expect(within(footer).getAllByRole("button")).toHaveLength(1);
+    expect(screen.getByText(/^Next:/)).toBeTruthy();
+
+    // The ordinary "not approved yet" state is said once, by Current state,
+    // and never repeated in the footer as a second status box or an alert.
+    expect(within(footer).queryByText(/Prepare stays disabled/i)).toBeNull();
+    expect(within(footer).queryByRole("status")).toBeNull();
+    expect(within(footer).queryByRole("alert")).toBeNull();
+    expect(
+      screen.getByText(
+        "This resume is ready for your review. Approving it unlocks Prepare application.",
+      ),
+    ).toBeTruthy();
+
+    // Before a resume is ready, the preparation contract collapses behind
+    // one summary and the job summary/fit breakdown live on Job details.
+    const details = screen.getByTestId("shortlisted-preparation-details");
+    expect(details.tagName).toBe("DETAILS");
+    expect(details.hasAttribute("open")).toBe(false);
+    const disclosureSummary = within(details).getByText(
+      "What happens when you prepare",
+    );
+    expect(disclosureSummary).toBeTruthy();
+    // The summary must read as an operable disclosure, not a plain heading.
+    expect(disclosureSummary.tagName).toBe("SUMMARY");
+    expect(disclosureSummary.className).toContain("text-primary");
+    expect(disclosureSummary.className).toContain("cursor-pointer");
+    expect(disclosureSummary.querySelector("svg")).not.toBeNull();
+    expect(
+      screen.getByText("Applies to this job only.", { exact: true }),
+    ).toBeTruthy();
+    expect(
+      within(details).getByTestId("shortlisted-application-readiness"),
+    ).toBeTruthy();
+    expect(
+      within(details).getByTestId("shortlisted-readiness-checklist"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Job summary")).toBeNull();
+    expect(screen.queryByText("Why it fits")).toBeNull();
+    expect(screen.queryByText("Fit breakdown")).toBeNull();
+    expect(screen.getByText("Resume for this job")).toBeTruthy();
+    expect(
+      screen.getByRole("radio", { name: "Use my original resume" }),
+    ).toBeTruthy();
+
+    // The daily application quota is withheld until it can change a
+    // decision: while the resume still needs approval, no application can be
+    // started anyway.
+    expect(
+      within(footer).queryByTestId("daily-application-preparation-capacity"),
+    ).toBeNull();
   });
 
   it("does not surface batch staging when no shortlisted job is selected", () => {
@@ -1006,13 +1160,15 @@ describe("ReviewQueueMissionPanel", () => {
       ".peer-focus-visible\\:ring-2",
     );
     // Fallback: query by the peer pair class directly from rendered toggle
-    const peerRing = container.querySelector('[class*="peer-focus-visible:ring-ring"]');
+    const peerRing = container.querySelector(
+      '[class*="peer-focus-visible:ring-ring"]',
+    );
     expect(peerRing).toBeTruthy();
     expect(peerRing?.className).toContain("peer-focus-visible:ring-2");
     expect(peerRing?.className).toContain("peer-focus-visible:ring-ring");
     expect(peerRing?.className).not.toMatch(/ring-primary\/\d/);
     // Non-focus decoration stays diluted by design.
-    expect(container.innerHTML).toContain("border-primary/70");
+    expect(container.innerHTML).toContain("border-primary");
     expect(container.innerHTML).toContain("hover:border-primary/35");
     expect(toggleOption ?? peerRing).toBeTruthy();
   });
@@ -1128,21 +1284,23 @@ describe("ReviewQueueMissionPanel", () => {
     expect(exceedanceNote.textContent).toMatch(/local midnight \(/u);
 
     const batchAction = screen.getByRole("button", {
-      name: "Queue selected applications (4)",
+      name: "Prepare selected jobs (4)",
     });
     expect((batchAction as HTMLButtonElement).disabled).toBe(true);
     const describedBy = batchAction.getAttribute("aria-describedby") ?? "";
     expect(describedBy.split(" ")).toContain(
       "employer-application-daily-capacity-limit",
     );
-    expect(describedBy.split(" ")).toContain("employer-application-batch-limit");
+    expect(describedBy.split(" ")).toContain(
+      "employer-application-batch-limit",
+    );
 
     fireEvent.click(batchAction);
     expect(onStartAutoApplyQueue).not.toHaveBeenCalled();
 
     // A partial exceedance stays distinct from full exhaustion: the summary
     // keeps a reset time (no exhausted copy) and single-job start stays open.
-    expect(screen.queryByText(/available after local midnight/iu)).toBeNull();
+    expect(screen.queryByText(/more available after midnight/iu)).toBeNull();
     expect(screen.getByText(/Resets at local midnight \(/u)).toBeTruthy();
     const prepareButton = screen.getByRole("button", {
       name: "Prepare application",
@@ -1150,5 +1308,145 @@ describe("ReviewQueueMissionPanel", () => {
     expect((prepareButton as HTMLButtonElement).disabled).toBe(false);
     // And it never borrows the per-run cap wording.
     expect(exceedanceNote.textContent).not.toContain("selection limit");
+  });
+
+  it("collapses Current state and checklist noise when already ready to prepare", () => {
+    const selectedItem = {
+      jobId: "job_ready",
+      title: "Data Engineer for Social Good",
+      company: "Give Lively",
+      location: "Remote",
+      matchScore: 88,
+      applicationStatus: "ready_for_review",
+      resumeApplicationMode: "original_resume",
+      assetStatus: "ready",
+      progressPercent: 100,
+      resumeAssetId: "resume_ready",
+      resumeReview: {
+        status: "original_resume",
+        sourceDocumentId: "resume_ready",
+        fileName: "Alex.pdf",
+        filePath: "/tmp/Alex.pdf",
+      },
+      updatedAt: "2026-08-27T10:00:00.000Z",
+    } as ReviewQueueItem;
+    const selectedJob = {
+      id: selectedItem.jobId,
+      title: selectedItem.title,
+      company: selectedItem.company,
+      summary: "Build trustworthy data products for nonprofits.",
+      description: "Build trustworthy data products for nonprofits.",
+      employerWebsiteUrl: null,
+      canonicalUrl: "https://givelively.org/jobs/data-engineer",
+      applicationUrl: "https://givelively.org/jobs/data-engineer/apply",
+      atsProvider: "Greenhouse",
+      screeningHints: { requiresConsentInterrupt: false },
+      applyPath: "easy_apply",
+      easyApplyEligible: true,
+      matchAssessment: {
+        score: 88,
+        reasons: ["Relevant data engineering experience"],
+        gaps: [],
+        recommendation: "review_before_applying",
+        recommendationRationale: "Mission fit still needs confirmation.",
+        requirements: [],
+      },
+    } as unknown as SavedJob;
+    const browserSession = {
+      source: "target_site",
+      status: "ready",
+      driver: "chrome_profile_agent",
+      label: "Browser ready",
+      detail: "Ready when needed.",
+      lastCheckedAt: "2026-08-27T10:00:00.000Z",
+    } as BrowserSessionState;
+
+    render(
+      <ReviewQueueMissionPanel
+        applicationRecords={[]}
+        actionMessage={null}
+        browserSession={browserSession}
+        campaignId="campaign_1"
+        displayedProgress={100}
+        isApplyPending={false}
+        isJobPending={() => false}
+        isResumeStrategyPending={() => false}
+        onClearQueueSelection={vi.fn()}
+        onEditResumeWorkspace={vi.fn()}
+        onGenerateResume={vi.fn()}
+        onOpenBrowserSession={vi.fn()}
+        onOpenJobDetails={vi.fn()}
+        onOpenProfile={vi.fn()}
+        onRecommendResumeStrategy={vi.fn().mockResolvedValue(null)}
+        onRemoveReviewJob={vi.fn()}
+        onSelectResumeStrategy={vi.fn()}
+        onSetJobResumeApplicationMode={vi.fn()}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        originalResume={{
+          id: "resume_ready",
+          fileName: "Alex.pdf",
+          uploadedAt: "2026-08-27T09:00:00.000Z",
+          storagePath: "/tmp/Alex.pdf",
+          textContent: null,
+          textUpdatedAt: null,
+          extractionStatus: "ready",
+          lastAnalyzedAt: null,
+          analysisProviderKind: null,
+          analysisProviderLabel: null,
+          analysisWarnings: [],
+        }}
+        queue={[selectedItem]}
+        queueSelection={[]}
+        resumeStrategies={[]}
+        resumeStrategySelections={[]}
+        selectedAsset={null}
+        selectedItem={selectedItem}
+        selectedJob={selectedJob}
+      />,
+    );
+
+    expect(screen.queryByText("Current state")).toBeNull();
+    expect(screen.queryByText("Original resume ready")).toBeNull();
+    expect(screen.queryByText("Browser handoff")).toBeNull();
+    const readiness = screen.getByTestId("shortlisted-application-readiness");
+    expect(readiness.getAttribute("data-compact")).toBe("true");
+    expect(within(readiness).getByText("Alex.pdf")).toBeTruthy();
+    expect(within(readiness).getByText("givelively.org")).toBeTruthy();
+    expect(within(readiness).getByText("Disabled for this run")).toBeTruthy();
+    expect(within(readiness).getByText(/Prepare application/i)).toBeTruthy();
+    const boundaries = within(readiness).getByText(
+      "More preparation boundaries",
+    );
+    expect(boundaries).toBeTruthy();
+    const details = boundaries.closest("details");
+    expect(details).toBeTruthy();
+    expect(
+      within(details as HTMLElement).getByText("Checked on the live form"),
+    ).toBeTruthy();
+    expect(
+      within(details as HTMLElement).getByText("Authorized for preparation"),
+    ).toBeTruthy();
+    const primaryGrid = readiness.querySelector("dl");
+    expect(primaryGrid).toBeTruthy();
+    expect(
+      within(primaryGrid as HTMLElement).queryByText(
+        "Checked on the live form",
+      ),
+    ).toBeNull();
+    expect(
+      within(primaryGrid as HTMLElement).queryByText(
+        "Authorized for preparation",
+      ),
+    ).toBeNull();
+    const checklist = screen.getByTestId("shortlisted-readiness-checklist");
+    expect(checklist.getAttribute("data-ready-to-prepare")).toBe("true");
+    // The workspace header and the list row already say this state; the
+    // checklist card does not print a third identical chip.
+    expect(within(checklist).queryByText("Ready to prepare")).toBeNull();
+    expect(within(checklist).getByText(/Prepare application/i)).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Prepare application" }),
+    ).toBeTruthy();
   });
 });

@@ -35,8 +35,19 @@ export interface PrimaryApplicationRecovery {
 }
 export interface PrimaryApplicationAction {
   blocker: string | null;
+  /**
+   * `info` marks a blocker that is an ordinary next step (approve the
+   * resume) rather than a problem; the panel renders it as status, not as a
+   * destructive alert. Absent means the blocker needs attention.
+   */
+  blockerTone?: "info";
   enabled: boolean;
-  kind: "blocked" | "generate_resume" | "start_apply" | "waiting";
+  kind:
+    | "approve_resume"
+    | "blocked"
+    | "generate_resume"
+    | "start_apply"
+    | "waiting";
   label: string;
   recovery: PrimaryApplicationRecovery | null;
 }
@@ -113,6 +124,13 @@ function getAccountExpectation(
       "The live application may still request sign-in, an account choice, or manual verification.",
   };
 }
+/** Labels kept visible when the job is already ready to prepare. */
+export const READY_APPLICATION_READINESS_PRIMARY_LABELS = [
+  "Resume file",
+  "Destination",
+  "Final submit",
+] as const;
+
 export function getApplicationReadinessFacts(input: {
   browserSession: BrowserSessionState;
   selectedAsset: TailoredAsset | null;
@@ -156,6 +174,30 @@ export function getApplicationReadinessFacts(input: {
         "Job Finder will stop at the final safe review checkpoint without clicking submit. Verify the outcome on the site afterwards; treat an unexpected completed state as site behavior and report it.",
     },
   ];
+}
+
+/** Split readiness facts for the ready-to-prepare compact strip. */
+export function partitionApplicationReadinessFacts(
+  facts: ApplicationReadinessFact[],
+): {
+  primary: ApplicationReadinessFact[];
+  secondary: ApplicationReadinessFact[];
+} {
+  const primaryLabels = new Set<string>(
+    READY_APPLICATION_READINESS_PRIMARY_LABELS,
+  );
+  const primary: ApplicationReadinessFact[] = [];
+  const secondary: ApplicationReadinessFact[] = [];
+
+  for (const fact of facts) {
+    if (primaryLabels.has(fact.label)) {
+      primary.push(fact);
+    } else {
+      secondary.push(fact);
+    }
+  }
+
+  return { primary, secondary };
 }
 
 function assertChecklistStateUnreachable(value: never): never {
@@ -290,21 +332,22 @@ export function getPrimaryApplicationAction(input: {
       };
     }
 
+    // One status sentence for one artifact: the ordinary "not approved yet"
+    // case is already stated once by Current state and by this action's own
+    // label, so it does not also get a blocker box that names the same file
+    // a second time with a different noun.
     const blocker =
       resumeReviewStatus === "stale"
-        ? "The approved tailored resume is out of date."
+        ? "The approved resume is out of date."
         : resumeReviewStatus === "approved"
-          ? "The approved resume no longer matches the ready export."
-          : "Approve the tailored resume you want to use for this job.";
+          ? "The approved resume no longer matches the current version."
+          : null;
     return {
       blocker,
-      enabled: false,
-      kind: "blocked",
-      label: "Prepare application",
-      recovery: {
-        kind: "open_resume_workspace",
-        label: "Review and approve resume",
-      },
+      enabled: !isSelectedJobPending,
+      kind: "approve_resume",
+      label: "Review and approve resume",
+      recovery: null,
     };
   }
 
@@ -379,6 +422,7 @@ export function getReadinessDescription(input: {
   resumeReviewStatus: ReviewQueueItem["resumeReview"]["status"] | "not_started";
   applySupportState: ApplySupportState;
   browserActionMessage: string | null;
+  isSelectedJobPendingTooLong?: boolean;
 }) {
   const {
     selectedItem,
@@ -390,6 +434,7 @@ export function getReadinessDescription(input: {
     resumeReviewStatus,
     applySupportState,
     browserActionMessage,
+    isSelectedJobPendingTooLong = false,
   } = input;
 
   if (!selectedItem) {
@@ -405,7 +450,9 @@ export function getReadinessDescription(input: {
   }
 
   if (isGenerating) {
-    return "Job Finder is still preparing the latest resume for this job.";
+    return isSelectedJobPendingTooLong
+      ? "This resume is taking longer than expected. The request is still running. Open Resume Studio and use Reload workspace to check for a saved result; do not start another request yet."
+      : "Job Finder is still preparing the latest resume for this job.";
   }
 
   if (needsGeneration) {
@@ -414,10 +461,12 @@ export function getReadinessDescription(input: {
 
   if (!hasReadyApprovedAsset) {
     return resumeReviewStatus === "stale"
-      ? "The last approved tailored PDF is out of date and needs a fresh approval."
+      ? "The approved resume is out of date and needs a fresh approval."
       : selectedItem.resumeApplicationMode === "original_resume"
         ? "The unchanged original resume is not ready for this job. Import or verify it in Profile before applying."
-        : "Open the resume workspace to export a tailored PDF and approve it before applying.";
+        : resumeReviewStatus === "not_started"
+          ? "Open the resume workspace to review this resume and approve it. Approving unlocks Prepare application."
+          : "This resume is ready for your review. Approving it unlocks Prepare application.";
   }
 
   if (applySupportState === "incomplete") {
@@ -446,6 +495,7 @@ export function buildMissionPanelState(input: {
   selectedAsset: TailoredAsset | null;
   selectedItem: ReviewQueueItem | null;
   selectedJob: SavedJob | null;
+  isSelectedJobPendingTooLong?: boolean;
 }) {
   const {
     browserSession,
@@ -456,6 +506,7 @@ export function buildMissionPanelState(input: {
     selectedAsset,
     selectedItem,
     selectedJob,
+    isSelectedJobPendingTooLong = false,
   } = input;
   const needsGeneration = needsResumeGeneration(selectedItem);
   const hasGenerationFailure = hasResumeGenerationFailure(
@@ -520,7 +571,9 @@ export function buildMissionPanelState(input: {
       : [];
   const checklist: ApplyChecklistItem[] = [
     {
-      label: usesOriginalResume ? "Original resume ready" : "Tailored resume ready",
+      label: usesOriginalResume
+        ? "Original resume ready"
+        : "Tailored resume ready",
       state: hasGenerationFailure
         ? "blocked"
         : isGenerating
@@ -543,15 +596,26 @@ export function buildMissionPanelState(input: {
         ? "Original file selected"
         : "Approved tailored PDF ready",
       state: hasReadyApprovedAsset ? "complete" : "blocked",
-      description: hasReadyApprovedAsset
-        ? usesOriginalResume
-          ? "Job Finder will attach the original file shown in Review Queue."
-          : "The current approved tailored PDF will be used when you start."
-        : resumeReviewStatus === "approved"
-          ? "The approved tailored PDF could not be matched to the latest ready export. Reopen the workspace and approve again."
-          : resumeReviewStatus === "stale"
-            ? "Your last approved tailored PDF is out of date. Export and approve a fresh version."
-            : "Open the workspace to export a PDF and approve the version you want to use.",
+      description: (() => {
+        if (hasReadyApprovedAsset) {
+          return usesOriginalResume
+            ? "Job Finder will attach the original file shown in Review Queue."
+            : "The current approved tailored PDF will be used when you start.";
+        }
+        if (resumeReviewStatus === "approved") {
+          return "The approved resume no longer matches the current version. Reopen the workspace and approve again.";
+        }
+        if (resumeReviewStatus === "stale") {
+          return "Your approved resume is out of date. Reopen it and approve the current version.";
+        }
+        if (
+          resumeReviewStatus === "needs_review" ||
+          resumeReviewStatus === "draft"
+        ) {
+          return "Approve this resume to unlock Prepare application.";
+        }
+        return "Open the workspace, review the resume, and approve it.";
+      })(),
     },
     {
       label: "Apply path",
@@ -584,6 +648,9 @@ export function buildMissionPanelState(input: {
     },
   ];
   const nextBlockedChecklistItem = getNextChecklistItem(checklist);
+  // Fully ready: resume approved, no checklist blockers, Prepare is enabled.
+  // Mission UI collapses Current state / checklist noise in this state.
+  const isReadyToPrepare = canApproveApply && nextBlockedChecklistItem === null;
   const readinessDescription = getReadinessDescription({
     selectedItem,
     selectedJob,
@@ -594,6 +661,7 @@ export function buildMissionPanelState(input: {
     resumeReviewStatus,
     applySupportState,
     browserActionMessage,
+    isSelectedJobPendingTooLong,
   });
   const selectionSet = new Set(queueSelection);
   const selectedQueueItems: ReviewQueueItem[] = [];
@@ -645,6 +713,7 @@ export function buildMissionPanelState(input: {
     isGenerating,
     isGenerationAction,
     isPrimaryApplyPending,
+    isReadyToPrepare,
     isSelectedJobPending,
     isSelectedQueuePending,
     needsGeneration,

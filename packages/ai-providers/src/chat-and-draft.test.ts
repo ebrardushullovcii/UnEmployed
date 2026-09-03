@@ -139,7 +139,15 @@ describe("openai-compatible chat and draft behavior", () => {
       expect(result.compatibilityScore).toBe(
         deterministicFallback.compatibilityScore,
       );
-      expect(result.notes).toEqual(deterministicFallback.notes);
+      expect(result.notes).toEqual([
+        ...deterministicFallback.notes,
+        "The configured AI model returned no usable rewrite proposals.",
+      ]);
+      expect(result.generationProvenance).toEqual({
+        method: "deterministic",
+        reason: "provider_output_unverified",
+        detail: "The configured AI model returned no usable rewrite proposals.",
+      });
       expect(result.fullText).not.toContain("Model draft partial");
     } finally {
       restoreFetch();
@@ -292,7 +300,14 @@ describe("openai-compatible chat and draft behavior", () => {
         educationEntries: deterministicFallback.educationEntries,
         certificationEntries: deterministicFallback.certificationEntries,
         languages: deterministicFallback.languages,
-        notes: deterministicFallback.notes,
+        notes: [
+          ...deterministicFallback.notes,
+          "The configured AI model proposed 2 rewrites, but none could be verified against saved evidence.",
+        ],
+        generationProvenance: {
+          method: "deterministic",
+          reason: "provider_output_unverified",
+        },
         compatibilityScore: 91,
       });
       expect(result.coreSkills).toContain("React");

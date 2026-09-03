@@ -163,7 +163,11 @@ describe("resume claim confirmation helpers", () => {
         },
         { ...confirmNeededBullet, id: "claim_review", status: "review" },
         { ...confirmNeededBullet, id: "claim_exact", status: "exact" },
-        { ...confirmNeededBullet, id: "claim_paraphrase", status: "paraphrase" },
+        {
+          ...confirmNeededBullet,
+          id: "claim_paraphrase",
+          status: "paraphrase",
+        },
       ]).map((assessment) => assessment.id),
     ).toEqual(["claim_assessment_bullet"]);
   });
@@ -411,9 +415,11 @@ describe("ResumeClaimConfirmationPanel", () => {
   });
 
   it("derives the confirmed state from the returned snapshot and undoes by confirmation id", async () => {
-    const onSetResumeClaimConfirmation = vi.fn<
-      (input: JobFinderSetResumeClaimConfirmationInput) => Promise<unknown>
-    >().mockResolvedValue({});
+    const onSetResumeClaimConfirmation = vi
+      .fn<
+        (input: JobFinderSetResumeClaimConfirmationInput) => Promise<unknown>
+      >()
+      .mockResolvedValue({});
     const savedDraftId = buildWorkspace().draft.id;
     const confirmation = buildConfirmation({ draftId: savedDraftId });
     const { rerender } = renderPanel({ onSetResumeClaimConfirmation });
@@ -460,9 +466,10 @@ describe("ResumeClaimConfirmationPanel", () => {
   });
 
   it("keeps stale rejections visible with truthful retry copy and allows retrying", async () => {
-    const onSetResumeClaimConfirmation = vi.fn<
-      (input: JobFinderSetResumeClaimConfirmationInput) => Promise<unknown>
-    >()
+    const onSetResumeClaimConfirmation = vi
+      .fn<
+        (input: JobFinderSetResumeClaimConfirmationInput) => Promise<unknown>
+      >()
       .mockRejectedValueOnce(
         new Error(
           "Resume draft changed before this claim confirmation could be saved. Reload the workspace and try again.",

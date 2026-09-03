@@ -1,0 +1,452 @@
+// @vitest-environment jsdom
+
+import { act } from "react";
+import type {
+  AppearanceTheme,
+  ApplicationCrmSettings,
+  BrowserSessionState,
+  JobFinderSettings,
+  UpdateApplicationDefaultsInput,
+  UpdateWorkspaceBehaviorInput,
+} from "@unemployed/contracts";
+import { JobFinderSettingsSchema } from "@unemployed/contracts";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { SettingsScreen } from "./settings-screen";
+
+const globalActScope = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT?: boolean;
+};
+
+beforeAll(() => {
+  globalActScope.IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+const WORKSPACE_BEHAVIOR_LABEL = "Browser & saved jobs";
+const APPLICATION_AUTHORITY_LABEL =
+  "What Job Finder may do on application sites";
+
+const browserSession = {
+  source: "target_site",
+  status: "idle",
+  driver: "catalog_seed",
+  label: "Idle",
+  detail: null,
+  lastCheckedAt: "2026-08-01T00:00:00.000Z",
+} as unknown as BrowserSessionState;
+
+function parseSettings(
+  overrides: Partial<JobFinderSettings> = {},
+): JobFinderSettings {
+  return JobFinderSettingsSchema.parse({
+    allowAutoSubmitOverride: false,
+    appearanceTheme: "dark",
+    fontPreset: "inter_requisite",
+    humanReviewRequired: true,
+    keepSessionAlive: false,
+    resumeFormat: "pdf",
+    resumeTemplateId: "classic_ats",
+    ...overrides,
+  });
+}
+
+function createCallbacks() {
+  return {
+    onResetWorkspace: vi.fn(),
+    onSettingsDraftEdited: vi.fn(),
+    onUpdateAppearanceTheme: vi.fn<
+      (theme: AppearanceTheme) => Promise<boolean>
+    >(() => Promise.resolve(true)),
+    onUpdateApplicationDefaults: vi.fn<
+      (input: UpdateApplicationDefaultsInput) => Promise<boolean>
+    >(() => Promise.resolve(true)),
+    onUpdateTrackerCrm: vi.fn<
+      (crm: ApplicationCrmSettings) => Promise<boolean>
+    >(() => Promise.resolve(true)),
+    onUpdateWorkspaceBehavior: vi.fn<
+      (input: UpdateWorkspaceBehaviorInput) => Promise<boolean>
+    >(() => Promise.resolve(true)),
+  };
+}
+
+type Callbacks = ReturnType<typeof createCallbacks>;
+
+function renderScreen(settings: JobFinderSettings, callbacks: Callbacks) {
+  return render(
+    <MemoryRouter>
+      <SettingsScreen
+        availableResumeTemplates={[]}
+        browserSession={browserSession}
+        isWorkspaceResetPending={false}
+        onResetWorkspace={callbacks.onResetWorkspace}
+        onSettingsDraftEdited={callbacks.onSettingsDraftEdited}
+        onUpdateAppearanceTheme={(theme) =>
+          callbacks.onUpdateAppearanceTheme(theme)
+        }
+        onUpdateApplicationDefaults={(input) =>
+          callbacks.onUpdateApplicationDefaults(input)
+        }
+        onUpdateTrackerCrm={(crm) => callbacks.onUpdateTrackerCrm(crm)}
+        onUpdateWorkspaceBehavior={(input) =>
+          callbacks.onUpdateWorkspaceBehavior(input)
+        }
+        settings={settings}
+      />
+    </MemoryRouter>,
+  );
+}
+
+const unsavedBar = () =>
+  document.querySelector<HTMLElement>("[data-settings-unsaved-bar]");
+
+describe("Settings section nav is real navigation", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("marks exactly one current section and moves the marker on activation", () => {
+    renderScreen(parseSettings(), createCallbacks());
+
+    const nav = screen.getByRole("navigation", { name: "Settings sections" });
+    const links = within(nav).getAllByRole("link");
+
+    const currentLinks = () =>
+      links.filter((link) => link.getAttribute("aria-current") === "location");
+
+    // A nav with no current item is a list, not navigation.
+    expect(currentLinks()).toHaveLength(1);
+    expect(currentLinks()[0]?.textContent).toBe("App & device");
+
+    fireEvent.click(within(nav).getByRole("link", { name: "Tracker" }));
+
+    expect(currentLinks()).toHaveLength(1);
+    expect(currentLinks()[0]?.textContent).toBe("Tracker");
+  });
+
+  it("gives the current item a fill and bar, and only the danger zone a destructive tint", () => {
+    renderScreen(parseSettings(), createCallbacks());
+
+    const nav = screen.getByRole("navigation", { name: "Settings sections" });
+    const current = within(nav).getByRole("link", { name: "App & device" });
+    const inactive = within(nav).getByRole("link", { name: "Tracker" });
+    const dangerZone = within(nav).getByRole("link", { name: "Danger zone" });
+
+    // Colour alone never carries the current item: it has a fill and an
+    // inset bar as well.
+    expect(current.className).toContain("bg-(--nav-active-surface)");
+    expect(current.className).toContain(
+      "shadow-[inset_0_-2px_0_0_var(--nav-active-bar)]",
+    );
+    expect(inactive.className).not.toContain("bg-(--nav-active-surface)");
+
+    expect(dangerZone.className).toContain("text-(--destructive)");
+    expect(inactive.className).not.toContain("text-(--destructive)");
+
+    // Every item keeps a border so the current item cannot nudge its
+    // neighbours when the marker appears.
+    for (const link of within(nav).getAllByRole("link")) {
+      expect(link.className).toContain("border");
+    }
+  });
+
+  it("names the sections in plain language without changing the prepare-only boundary", () => {
+    renderScreen(parseSettings(), createCallbacks());
+
+    const nav = screen.getByRole("navigation", { name: "Settings sections" });
+    expect(
+      within(nav).getByRole("link", { name: APPLICATION_AUTHORITY_LABEL }),
+    ).toBeTruthy();
+    expect(
+      within(nav).getByRole("link", { name: WORKSPACE_BEHAVIOR_LABEL }),
+    ).toBeTruthy();
+
+    const authority = screen.getByRole("region", {
+      name: APPLICATION_AUTHORITY_LABEL,
+    });
+    // The renamed tab still describes exactly the same boundary.
+    expect(
+      within(authority).getByText(/never sends an application/i),
+    ).toBeTruthy();
+    expect(
+      within(authority).queryByRole("button", { name: /submit/i }),
+    ).toBeNull();
+  });
+});
+
+describe("Settings save ownership", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("says whether every section is saved, not just one of them", () => {
+    renderScreen(parseSettings(), createCallbacks());
+
+    for (const label of [
+      "App & device",
+      "Application defaults",
+      WORKSPACE_BEHAVIOR_LABEL,
+    ]) {
+      const region = screen.getByRole("region", { name: label });
+      const state = region.querySelector("[data-settings-save-state]");
+      expect(state?.getAttribute("data-settings-save-state")).toBe("clean");
+      expect(state?.textContent).toBe("No unsaved changes.");
+    }
+  });
+
+  it("describes each disabled save with the reason it is disabled", () => {
+    renderScreen(parseSettings(), createCallbacks());
+
+    const region = screen.getByRole("region", {
+      name: WORKSPACE_BEHAVIOR_LABEL,
+    });
+    const save = within(region).getByRole<HTMLButtonElement>("button", {
+      name: "Save workspace behavior",
+    });
+
+    expect(save.disabled).toBe(true);
+    const reasonId = save.getAttribute("aria-describedby");
+    expect(reasonId).toBeTruthy();
+    expect(document.getElementById(reasonId ?? "")?.textContent).toBe(
+      "No unsaved changes.",
+    );
+  });
+
+  it("keeps a clean save bar until a section is dirty, then names that section and commits only it", async () => {
+    const callbacks = createCallbacks();
+    renderScreen(parseSettings(), callbacks);
+
+    // Save ownership is persistent, like the Profile footer: a clean page
+    // still states that nothing is outstanding rather than going silent.
+    const cleanBar = unsavedBar();
+    expect(cleanBar).not.toBeNull();
+    expect(cleanBar?.getAttribute("data-settings-save-state")).toBe("clean");
+    expect(cleanBar?.getAttribute("data-settings-unsaved-count")).toBe("0");
+    expect(cleanBar?.textContent).toContain("No unsaved changes in Settings.");
+    expect(
+      within(cleanBar as HTMLElement).queryAllByRole("button"),
+    ).toHaveLength(0);
+
+    const workspace = screen.getByRole("region", {
+      name: WORKSPACE_BEHAVIOR_LABEL,
+    });
+    fireEvent.click(within(workspace).getAllByRole("switch")[0]!);
+
+    const bar = unsavedBar();
+    expect(bar).not.toBeNull();
+    expect(bar?.getAttribute("data-settings-unsaved-count")).toBe("1");
+    expect(bar?.textContent).toContain(
+      `Unsaved changes in ${WORKSPACE_BEHAVIOR_LABEL}.`,
+    );
+
+    // The bar is pinned inside the viewport, so the commit never drifts
+    // thousands of pixels away from the control it commits.
+    expect(bar?.className).toContain("sticky");
+    expect(bar?.className).toContain("bottom-0");
+
+    fireEvent.click(
+      within(bar as HTMLElement).getByRole("button", {
+        name: "Save workspace behavior",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(callbacks.onUpdateWorkspaceBehavior).toHaveBeenCalledWith({
+        discoveryOnly: false,
+        keepSessionAlive: true,
+      }),
+    );
+    expect(callbacks.onUpdateAppearanceTheme).not.toHaveBeenCalled();
+    expect(callbacks.onUpdateApplicationDefaults).not.toHaveBeenCalled();
+
+    // A committed section stops being outstanding, and the bar says so
+    // instead of disappearing.
+    await waitFor(() =>
+      expect(unsavedBar()?.getAttribute("data-settings-save-state")).toBe(
+        "clean",
+      ),
+    );
+    expect(unsavedBar()?.getAttribute("data-settings-unsaved-count")).toBe("0");
+
+    // The section that committed reports its own confirmation, so "saved"
+    // and "never touched" are no longer the same quiet state.
+    expect(
+      within(workspace).getByText("Workspace behavior saved."),
+    ).toBeTruthy();
+  });
+
+  it("links the Tracker section into the same save ownership as every other section", async () => {
+    const callbacks = createCallbacks();
+    renderScreen(parseSettings(), callbacks);
+
+    // Tracker was the fourth save on this page and used to publish nothing,
+    // so the page-level bar could not name it and a Tracker edit could be
+    // scrolled away from with no outstanding-change signal anywhere.
+    const tracker = screen.getByRole("region", { name: "Tracker" });
+    fireEvent.click(
+      within(tracker).getByRole("checkbox", {
+        name: /Mark applications for follow-up/,
+      }),
+    );
+
+    const bar = unsavedBar();
+    expect(bar?.getAttribute("data-settings-save-state")).toBe("dirty");
+    expect(bar?.getAttribute("data-settings-unsaved-count")).toBe("1");
+    expect(bar?.textContent).toContain("Unsaved changes in Tracker.");
+
+    fireEvent.click(
+      within(bar as HTMLElement).getByRole("button", {
+        name: "Save tracker settings",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(callbacks.onUpdateTrackerCrm).toHaveBeenCalledTimes(1),
+    );
+    expect(callbacks.onUpdateWorkspaceBehavior).not.toHaveBeenCalled();
+    expect(callbacks.onUpdateAppearanceTheme).not.toHaveBeenCalled();
+
+    await waitFor(() =>
+      expect(unsavedBar()?.getAttribute("data-settings-save-state")).toBe(
+        "clean",
+      ),
+    );
+    expect(within(tracker).getByText("Tracker settings saved.")).toBeTruthy();
+  });
+
+  it("names every dirty section and offers no save when more than one is outstanding", () => {
+    const callbacks = createCallbacks();
+    renderScreen(parseSettings(), callbacks);
+
+    const appDevice = screen.getByRole("region", { name: "App & device" });
+    fireEvent.click(within(appDevice).getByRole("button", { name: "Light" }));
+
+    const workspace = screen.getByRole("region", {
+      name: WORKSPACE_BEHAVIOR_LABEL,
+    });
+    fireEvent.click(within(workspace).getAllByRole("switch")[0]!);
+
+    const bar = unsavedBar() as HTMLElement;
+    expect(bar.getAttribute("data-settings-unsaved-count")).toBe("2");
+    expect(bar.textContent).toContain("Unsaved changes in 2 sections");
+    expect(bar.textContent).toContain("App & device");
+    expect(bar.textContent).toContain(WORKSPACE_BEHAVIOR_LABEL);
+
+    // One button cannot honestly say what it would write, so the bar only
+    // navigates while two sections are outstanding.
+    const barButtons = within(bar).getAllByRole("button");
+    expect(barButtons.map((button) => button.textContent)).toEqual([
+      "Go to App & device",
+      `Go to ${WORKSPACE_BEHAVIOR_LABEL}`,
+    ]);
+    fireEvent.click(barButtons[0]!);
+    expect(callbacks.onUpdateAppearanceTheme).not.toHaveBeenCalled();
+    expect(callbacks.onUpdateWorkspaceBehavior).not.toHaveBeenCalled();
+  });
+
+  it("keeps the bar up while a failed section is still unsaved", async () => {
+    const callbacks = createCallbacks();
+    callbacks.onUpdateWorkspaceBehavior.mockResolvedValueOnce(false);
+    renderScreen(parseSettings(), callbacks);
+
+    const workspace = screen.getByRole("region", {
+      name: WORKSPACE_BEHAVIOR_LABEL,
+    });
+    fireEvent.click(within(workspace).getAllByRole("switch")[0]!);
+    fireEvent.click(
+      within(workspace).getByRole("button", {
+        name: "Save workspace behavior",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        within(workspace).getByText(
+          "Workspace behavior was not saved. Retry before leaving this page.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(unsavedBar()).not.toBeNull();
+  });
+});
+
+describe("Settings appearance preview", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    delete document.documentElement.dataset.theme;
+  });
+
+  it("applies the theme on click and keeps Save as the persistence commit", async () => {
+    const callbacks = createCallbacks();
+    renderScreen(parseSettings({ appearanceTheme: "dark" }), callbacks);
+
+    const appDevice = screen.getByRole("region", { name: "App & device" });
+    fireEvent.click(within(appDevice).getByRole("button", { name: "Light" }));
+
+    // The click itself is the preview: no IPC round trip stands between the
+    // user and any evidence that the control worked.
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(callbacks.onUpdateAppearanceTheme).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      within(appDevice).getByRole("button", { name: "Save appearance" }),
+    );
+    await waitFor(() =>
+      expect(callbacks.onUpdateAppearanceTheme).toHaveBeenCalledWith("light"),
+    );
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  it("reverts the preview when the save does not commit", async () => {
+    const callbacks = createCallbacks();
+    callbacks.onUpdateAppearanceTheme.mockResolvedValueOnce(false);
+    renderScreen(parseSettings({ appearanceTheme: "dark" }), callbacks);
+
+    const appDevice = screen.getByRole("region", { name: "App & device" });
+    fireEvent.click(within(appDevice).getByRole("button", { name: "Light" }));
+    expect(document.documentElement.dataset.theme).toBe("light");
+
+    fireEvent.click(
+      within(appDevice).getByRole("button", { name: "Save appearance" }),
+    );
+
+    // A failed save leaves the app wearing what is actually persisted.
+    await waitFor(() =>
+      expect(document.documentElement.dataset.theme).toBe("dark"),
+    );
+    expect(
+      within(appDevice).getByRole<HTMLButtonElement>("button", {
+        name: "Retry appearance",
+      }).disabled,
+    ).toBe(false);
+  });
+
+  it("reverts the preview when the screen is left without saving", () => {
+    const callbacks = createCallbacks();
+    const view = renderScreen(
+      parseSettings({ appearanceTheme: "dark" }),
+      callbacks,
+    );
+
+    const appDevice = screen.getByRole("region", { name: "App & device" });
+    fireEvent.click(within(appDevice).getByRole("button", { name: "Light" }));
+    expect(document.documentElement.dataset.theme).toBe("light");
+
+    act(() => {
+      view.unmount();
+    });
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(callbacks.onUpdateAppearanceTheme).not.toHaveBeenCalled();
+  });
+});

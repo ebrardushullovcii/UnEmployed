@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   createExtractionAiClient,
+  createFreshStartSeedProfile,
   createResumeExtraction,
   createSeed,
   createWorkspaceServiceHarness,
@@ -12,11 +13,8 @@ describe("createJobFinderWorkspaceService", () => {
       seed: {
         ...createSeed(),
         profile: {
-          ...createSeed().profile,
-          fullName: "Candidate",
+          ...createFreshStartSeedProfile(),
           headline: "Placeholder headline",
-          email: null,
-          phone: null,
           portfolioUrl: null,
           linkedinUrl: null,
           baseResume: {
@@ -74,7 +72,7 @@ describe("createJobFinderWorkspaceService", () => {
       seed: {
         ...seed,
         profile: {
-          ...seed.profile,
+          ...createFreshStartSeedProfile(),
           baseResume: {
             ...seed.profile.baseResume,
             extractionStatus: "not_started",
@@ -171,7 +169,7 @@ describe("createJobFinderWorkspaceService", () => {
       seed: {
         ...createSeed(),
         profile: {
-          ...createSeed().profile,
+          ...createFreshStartSeedProfile(),
           baseResume: {
             ...createSeed().profile.baseResume,
             extractionStatus: "not_started",
@@ -275,7 +273,7 @@ describe("createJobFinderWorkspaceService", () => {
       seed: {
         ...seed,
         profile: {
-          ...seed.profile,
+          ...createFreshStartSeedProfile(),
           baseResume: {
             ...seed.profile.baseResume,
             extractionStatus: "not_started",
@@ -461,7 +459,8 @@ describe("createJobFinderWorkspaceService", () => {
       (item) => item.label === "Email",
     );
 
-    expect(snapshot.profileSetupState.currentStep).toBe("answers");
+    // Retired step ids migrate onto the visible step that owns them.
+    expect(snapshot.profileSetupState.currentStep).toBe("extras");
     expect(emailReviewItem?.status).toBe("pending");
   });
 });

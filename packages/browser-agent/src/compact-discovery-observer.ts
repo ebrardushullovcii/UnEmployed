@@ -10,10 +10,14 @@ import {
   DISCOVERY_OBSERVATION_UNCERTAINTY_NOTES_MAX,
   DiscoveryCompactObservationSchema,
   JobPostingSchema,
+  formatEmployerLabelFromSlug,
+  sanitizeObservedEmployerLabel,
   type DiscoveryCompactObservation,
   type DiscoveryCompactObservationUnsupportedReason,
   type JobPosting,
 } from "@unemployed/contracts";
+
+import { isLikelySiteUtilityJob } from "./agent/job-extraction";
 
 // ---------------------------------------------------------------------------
 // Deterministic compact-snapshot discovery observer (ADR 0013, tier two)
@@ -25,8 +29,8 @@ import {
 // selectors or policy, no raw HTML/selectors/handles cross the boundary, and
 // nothing assumes a listing line shape or a minimum content-length gate.
 //
-// This module is intentionally isolated from the production run loop; wiring
-// ownership stays with the orchestration layer.
+// The production run loop invokes this as its deterministic first observation;
+// budgets, persistence, fallback, and follow-up ownership stay with orchestration.
 // ---------------------------------------------------------------------------
 
 /** Hard scan ceiling for list-item/card containers read from one page. */
@@ -46,9 +50,6 @@ const MAX_SCAN_LINE_CHARS = 200;
 
 /** Character cap applied to extracted posting descriptions. */
 const POSTING_DESCRIPTION_MAX_CHARS = 800;
-
-/** Number of JSON-LD records walked per script payload (graph fan-out guard). */
-const MAX_JSON_LD_QUEUE_NODES = 40;
 
 /**
  * Input for one deterministic capture. The caller owns observation identity:
@@ -99,6 +100,14 @@ export interface ScannedInteractiveElement {
   containerKey: string | null;
   /** Generic job-id attribute hint (`data-job-id` family) when present. */
   jobIdHint: string | null;
+  /**
+   * Absolute `/company/{slug}` href recovered from the element or a unique
+   * company-scoped ancestor. Used when boards render job rows as plain divs
+   * without semantic listitem/article containers.
+   */
+  companyHref: string | null;
+  /** Visible company name from the bound profile anchor when present. */
+  companyLabel: string | null;
 }
 
 /** Text evidence collected once per scanned card container. */
@@ -107,6 +116,10 @@ export interface ScannedCardContainer {
   headingText: string | null;
   lines: string[];
   easyApplyHint: boolean;
+  /** Absolute `/company/{slug}` href observed inside the container, when present. */
+  companyHref: string | null;
+  /** Visible company name from the bound profile anchor when present. */
+  companyLabel: string | null;
 }
 
 /** Normalized JSON-LD JobPosting record as read from the page. */
@@ -146,9 +159,13 @@ interface CompactDiscoveryScanArg {
 // adapter-side in the pure functions below.
 // ---------------------------------------------------------------------------
 
-function compactDiscoveryInPageScan(
+/** Exported for Playwright/HTML fixture tests that exercise live DOM binding. */
+export function compactDiscoveryInPageScan(
   arg: CompactDiscoveryScanArg,
 ): CompactDiscoveryScanPayload {
+  // Keep evaluate-time bounds local: Playwright serializes this function
+  // without module-scope constants.
+  const maxJsonLdQueueNodes = 40;
   const payload: CompactDiscoveryScanPayload = {
     structuredPostings: [],
     cardContainers: [],
@@ -334,8 +351,142 @@ function compactDiscoveryInPageScan(
     return key;
   };
 
+  // Job boards often put employer profile links (`/company/…`, `/employer/…`)
+  // on a parent card while nested rows only have job-title links. Accept only
+  // when exactly one employer profile is in scope (multi-job same-employer OK;
+  // results lists with many employers are not).
+  const EMPLOYER_PROFILE_PATH_MARKERS = new Set(["company", "employer"]);
+  const readCompanyAnchorLabel = (anchor: HTMLAnchorElement): string | null => {
+    const label = collapse(
+      anchor.innerText ||
+        anchor.textContent ||
+        anchor.getAttribute("aria-label") ||
+        anchor.getAttribute("title") ||
+        "",
+    );
+    if (
+      !label ||
+      label.length > 120 ||
+      /^(?:https?|ftp):\/\//i.test(label) ||
+      /^www\./i.test(label) ||
+      /^(?:Https?|Http|Www|Ftp)\s+/i.test(label) ||
+      /^(view|see|about|company|profile|jobs?|careers?)\b/i.test(label)
+    ) {
+      return null;
+    }
+    return label;
+  };
+
+  const inferCompanyLabelFromSlug = (slug: string): string | null => {
+    const displaySlug = slug.replace(/-\d+$/u, "");
+    if (!/[-_]/.test(displaySlug) && displaySlug.length >= 10) {
+      return null;
+    }
+    if (/-(?:usd|eur|gbp|cad|aud|chf|jpy|cny|inr)$/i.test(displaySlug)) {
+      return null;
+    }
+    return displaySlug
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  };
+
+  const preferCompanyAnchorLabel = (
+    next: string,
+    current: string | null,
+    slug: string,
+  ): string => {
+    if (!current) {
+      return next;
+    }
+
+    const slugInferred = inferCompanyLabelFromSlug(slug);
+    const currentLooksSlugInferred =
+      slugInferred !== null &&
+      current.toLowerCase() === slugInferred.toLowerCase();
+    const nextLooksSlugInferred =
+      slugInferred !== null &&
+      next.toLowerCase() === slugInferred.toLowerCase();
+    if (currentLooksSlugInferred && !nextLooksSlugInferred) {
+      return next;
+    }
+    if (!currentLooksSlugInferred && nextLooksSlugInferred) {
+      return current;
+    }
+    return next.length < current.length ? next : current;
+  };
+
+  const collectUniqueCompanyBindings = (
+    root: Element,
+  ): Array<{ href: string; label: string | null }> => {
+    const bindingsBySlug = new Map<
+      string,
+      { href: string; label: string | null }
+    >();
+    for (const anchor of Array.from(
+      root.querySelectorAll<HTMLAnchorElement>("a[href]"),
+    )) {
+      const resolved = resolveAbsoluteHref(anchor);
+      if (!resolved) {
+        continue;
+      }
+      try {
+        const segments = new URL(resolved).pathname
+          .split("/")
+          .map((segment) => collapse(decodeURIComponent(segment)))
+          .filter(Boolean);
+        const profileIndex = segments.findIndex((segment) =>
+          EMPLOYER_PROFILE_PATH_MARKERS.has(segment.toLowerCase()),
+        );
+        const slug = profileIndex >= 0 ? segments[profileIndex + 1] : null;
+        if (!slug || /^(jobs|job|careers|career|search|apply)$/i.test(slug)) {
+          continue;
+        }
+        const slugKey = slug.toLowerCase();
+        const label = readCompanyAnchorLabel(anchor);
+        const existing = bindingsBySlug.get(slugKey);
+        if (!existing) {
+          bindingsBySlug.set(slugKey, {
+            href: resolved.slice(0, 2048),
+            label,
+          });
+          continue;
+        }
+        if (label) {
+          existing.label = preferCompanyAnchorLabel(
+            label,
+            existing.label,
+            slug,
+          );
+        }
+      } catch {
+        // Ignore malformed company hrefs.
+      }
+    }
+    return [...bindingsBySlug.values()];
+  };
+
+  const resolveUniqueCompanyBinding = (
+    start: Element,
+  ): { href: string; label: string | null } | null => {
+    const direct = collectUniqueCompanyBindings(start);
+    if (direct.length === 1) {
+      return direct[0] ?? null;
+    }
+    let ancestor: Element | null = start.parentElement;
+    for (let depth = 0; depth < 8 && ancestor; depth += 1) {
+      const ancestorBindings = collectUniqueCompanyBindings(ancestor);
+      if (ancestorBindings.length === 1) {
+        return ancestorBindings[0] ?? null;
+      }
+      ancestor = ancestor.parentElement;
+    }
+    return null;
+  };
+
   const interactiveElements = Array.from(
-    document.querySelectorAll('a[href], button, [role="button"], [role="link"]'),
+    document.querySelectorAll(
+      'a[href], button, [role="button"], [role="link"]',
+    ),
   ).filter(isVisible);
 
   for (const element of interactiveElements) {
@@ -348,11 +499,15 @@ function compactDiscoveryInPageScan(
       arg.maxLineChars,
     );
     const containerKey = resolveContainerKey(element);
+    const href = resolveAbsoluteHref(element);
+    // Recover employer for job-title links even when the board uses plain
+    // divs (no semantic listitem/article container).
+    const companyBinding = href ? resolveUniqueCompanyBinding(element) : null;
 
     payload.elements.push({
       role: resolveRole(element),
       accessibleName,
-      href: resolveAbsoluteHref(element),
+      href,
       containerKey,
       jobIdHint: readGenericJobIdHint(
         element,
@@ -360,6 +515,8 @@ function compactDiscoveryInPageScan(
           ? null
           : (containerByKey.get(containerKey)?.node ?? null),
       ),
+      companyHref: companyBinding?.href ?? null,
+      companyLabel: companyBinding?.label ?? null,
     });
   }
 
@@ -383,6 +540,8 @@ function compactDiscoveryInPageScan(
       .filter((line) => line.length > 0)
       .slice(0, arg.maxLinesPerContainer);
 
+    const companyBinding = resolveUniqueCompanyBinding(container);
+
     payload.cardContainers.push({
       key,
       headingText: headingText || null,
@@ -391,6 +550,8 @@ function compactDiscoveryInPageScan(
         /\b(easy apply|quick apply|one[- ]click apply|apply instantly)\b/i.test(
           collapse(containerText),
         ),
+      companyHref: companyBinding?.href ?? null,
+      companyLabel: companyBinding?.label ?? null,
     });
   }
 
@@ -400,9 +561,7 @@ function compactDiscoveryInPageScan(
   );
 
   const asRecord = (value: unknown): Record<string, unknown> | null =>
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value)
+    value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
 
@@ -426,7 +585,9 @@ function compactDiscoveryInPageScan(
     const identifierRecord = asRecord(identifier);
     if (identifierRecord) {
       const value =
-        identifierRecord.value ?? identifierRecord.name ?? identifierRecord["@id"];
+        identifierRecord.value ??
+        identifierRecord.name ??
+        identifierRecord["@id"];
       if (value !== null && value !== undefined && String(value).trim()) {
         return collapse(String(value)).slice(0, 160);
       }
@@ -440,9 +601,7 @@ function compactDiscoveryInPageScan(
     return null;
   };
 
-  const readLocationText = (
-    record: Record<string, unknown>,
-  ): string | null => {
+  const readLocationText = (record: Record<string, unknown>): string | null => {
     const locations = asArray(record.jobLocation);
     const primary = locations.length > 0 ? locations[0] : record.jobLocation;
     const place = asRecord(primary);
@@ -494,7 +653,14 @@ function compactDiscoveryInPageScan(
       return null;
     }
 
-    const symbol = currency === "USD" || currency === "" ? "$" : currency === "EUR" ? "€" : currency === "GBP" ? "£" : `${currency} `;
+    const symbol =
+      currency === "USD" || currency === ""
+        ? "$"
+        : currency === "EUR"
+          ? "€"
+          : currency === "GBP"
+            ? "£"
+            : `${currency} `;
     const range = amountParts.join(" - ");
     return collapse(`${symbol}${range} ${unit}`).slice(0, 120);
   };
@@ -513,7 +679,7 @@ function compactDiscoveryInPageScan(
 
     const queue: unknown[] = [parsed];
     let visited = 0;
-    while (queue.length > 0 && visited < MAX_JSON_LD_QUEUE_NODES) {
+    while (queue.length > 0 && visited < maxJsonLdQueueNodes) {
       visited += 1;
       const current = queue.shift();
       const currentArray = asArray(current);
@@ -528,6 +694,18 @@ function compactDiscoveryInPageScan(
       }
 
       queue.push(...asArray(record["@graph"]));
+      const itemListElements = asArray(record.itemListElement);
+      if (itemListElements.length > 0) {
+        queue.push(...itemListElements);
+      } else if (record.itemListElement != null) {
+        queue.push(record.itemListElement);
+      }
+      const nestedItems = asArray(record.item);
+      if (nestedItems.length > 0) {
+        queue.push(...nestedItems);
+      } else if (record.item != null) {
+        queue.push(record.item);
+      }
 
       if (
         payload.structuredPostings.length >= arg.maxStructuredPostings ||
@@ -552,8 +730,7 @@ function compactDiscoveryInPageScan(
         description:
           stripMarkup(record.description).slice(0, arg.maxLineChars * 4) ||
           null,
-        postedAtText:
-          collapse(record.datePosted).slice(0, 120) || null,
+        postedAtText: collapse(record.datePosted).slice(0, 120) || null,
         salaryText: readSalaryText(record),
         employmentType:
           collapse(
@@ -648,9 +825,11 @@ export interface ClassifiedPaginationControl {
 const NUMBERED_PAGE_EXACT_PATTERN = /^(?:page\s*)?(\d{1,4})$/i;
 const LOAD_MORE_PATTERN =
   /\b(?:load|show|see|view)\s+more\b|^more\s+(?:jobs|results|listings|roles|positions)$/i;
-const NEXT_PAGE_STRONG_PATTERN = /^(?:next(?:\s*page)?|»|›|>|forward|older(?:\s*(?:jobs|postings|results))?)$/i;
+const NEXT_PAGE_STRONG_PATTERN =
+  /^(?:next(?:\s*page)?|»|›|>|forward|older(?:\s*(?:jobs|postings|results))?)$/i;
 const NEXT_PAGE_LOOSE_PATTERN = /\bnext\b/i;
-const PREVIOUS_PAGE_STRONG_PATTERN = /^(?:prev(?:ious)?(?:\s*page)?|«|‹|<|back|newer(?:\s*(?:jobs|results))?)$/i;
+const PREVIOUS_PAGE_STRONG_PATTERN =
+  /^(?:prev(?:ious)?(?:\s*page)?|«|‹|<|back|newer(?:\s*(?:jobs|results))?)$/i;
 const PREVIOUS_PAGE_LOOSE_PATTERN = /\b(?:prev|previous)\b/i;
 
 /**
@@ -706,7 +885,9 @@ export function classifyOverlayCloseControl(
   role: string,
   accessibleName: string,
 ): boolean {
-  const normalizedRole = String(role ?? "").trim().toLowerCase();
+  const normalizedRole = String(role ?? "")
+    .trim()
+    .toLowerCase();
   return (
     (normalizedRole === "button" || normalizedRole === "link") &&
     OVERLAY_CLOSE_NAME_PATTERN.test(String(accessibleName ?? "").trim())
@@ -770,6 +951,13 @@ export function deriveSourceJobIdFromUrl(url: string): string | null {
     return lastSegment.slice(0, 160);
   }
 
+  if (lastSegment) {
+    const numericPrefix = lastSegment.match(/^(\d{4,})/u);
+    if (numericPrefix?.[1]) {
+      return numericPrefix[1].slice(0, 160);
+    }
+  }
+
   const paramValues = [...parsed.searchParams.entries()]
     .filter(([key]) => isJobIdShapedParamKeyLocal(key))
     .map(([, value]) => value.trim())
@@ -780,6 +968,99 @@ export function deriveSourceJobIdFromUrl(url: string): string | null {
   }
 
   return null;
+}
+
+function looksLikeJobPostingHref(href: string): boolean {
+  try {
+    const parsed = new URL(href);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const lastSegment = segments.at(-1);
+    if (!lastSegment) {
+      return false;
+    }
+    if (ID_SHAPED_URL_SEGMENT_PATTERN.test(lastSegment)) {
+      return true;
+    }
+    return /^\d{4,}-/u.test(lastSegment);
+  } catch {
+    return false;
+  }
+}
+
+function inferCompanyFromCompanyPathUrl(canonicalUrl: string): string | null {
+  try {
+    const parsed = new URL(canonicalUrl);
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => cleanText(decodeURIComponent(segment)))
+      .filter(Boolean);
+    const companyIndex = segments.findIndex(
+      (segment) => segment.toLowerCase() === "company",
+    );
+    if (companyIndex < 0) {
+      return null;
+    }
+
+    const slug = segments[companyIndex + 1];
+    if (!slug || !/[a-z\p{L}]/iu.test(slug)) {
+      return null;
+    }
+
+    const rest = segments.slice(companyIndex + 2);
+    if (
+      rest.length === 0 ||
+      (rest.length === 1 && rest[0]?.toLowerCase() === "jobs")
+    ) {
+      return null;
+    }
+
+    return formatEmployerLabelFromSlug(slug);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Employer from an explicit company profile href on a job card.
+ * Accepts hubs (`/company/{slug}`) — those name the employer without implying
+ * the hub page itself is a job.
+ */
+function inferEmployerFromCompanyProfileHref(
+  companyHref: string | null | undefined,
+): string | null {
+  const raw = cleanText(companyHref ?? "");
+  if (!raw) {
+    return null;
+  }
+
+  const employerProfilePathMarkers = new Set(["company", "employer"]);
+
+  try {
+    const parsed = new URL(raw);
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => cleanText(decodeURIComponent(segment)))
+      .filter(Boolean);
+    const profileIndex = segments.findIndex((segment) =>
+      employerProfilePathMarkers.has(segment.toLowerCase()),
+    );
+    if (profileIndex < 0) {
+      return null;
+    }
+
+    const slug = segments[profileIndex + 1];
+    if (
+      !slug ||
+      !/[a-z\p{L}]/iu.test(slug) ||
+      /^(jobs|job|careers|career|search|apply)$/i.test(slug)
+    ) {
+      return null;
+    }
+
+    return formatEmployerLabelFromSlug(slug);
+  } catch {
+    return null;
+  }
 }
 
 function buildCanonicalCandidateUrl(
@@ -859,7 +1140,9 @@ function toIsoDateTimeOrNull(value: string | null | undefined): string | null {
 }
 
 function cleanText(value: string | null | undefined): string {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function sliceToLabel(value: string): string {
@@ -892,7 +1175,10 @@ function buildStructuredPostingCandidates(
   const candidates: RawPostingCandidate[] = [];
 
   for (const posting of structuredPostings) {
-    const title = cleanText(posting.title).slice(0, DISCOVERY_OBSERVATION_LABEL_MAX);
+    const title = cleanText(posting.title).slice(
+      0,
+      DISCOVERY_OBSERVATION_LABEL_MAX,
+    );
     if (!title) {
       continue;
     }
@@ -913,20 +1199,24 @@ function buildStructuredPostingCandidates(
       canonicalUrl,
       applicationUrl: canonicalUrl,
       title,
-      company: cleanText(posting.company).slice(0, DISCOVERY_OBSERVATION_LABEL_MAX) || null,
-      location: cleanText(posting.location).slice(0, DISCOVERY_OBSERVATION_LABEL_MAX) || null,
-      description: cleanText(posting.description).slice(0, POSTING_DESCRIPTION_MAX_CHARS) || null,
+      company: sanitizeObservedEmployerLabel(
+        cleanText(posting.company).slice(0, DISCOVERY_OBSERVATION_LABEL_MAX),
+      ),
+      location:
+        cleanText(posting.location).slice(0, DISCOVERY_OBSERVATION_LABEL_MAX) ||
+        null,
+      description:
+        cleanText(posting.description).slice(
+          0,
+          POSTING_DESCRIPTION_MAX_CHARS,
+        ) || null,
       salaryText: cleanText(posting.salaryText).slice(0, 120) || null,
       postedAtText: cleanText(posting.postedAtText).slice(0, 120) || null,
       postedAtIso: toIsoDateTimeOrNull(posting.postedAtText),
       employmentType: cleanText(posting.employmentType).slice(0, 80) || null,
       workModeHints: [
         ...detectWorkModeHints(
-          [
-            posting.location,
-            posting.description,
-            posting.employmentType,
-          ]
+          [posting.location, posting.description, posting.employmentType]
             .map((value) => cleanText(value))
             .join(" "),
         ),
@@ -947,15 +1237,18 @@ function buildStructuredPostingCandidates(
 export function buildDomCardPostingCandidate(input: {
   container: Pick<
     ScannedCardContainer,
-    "headingText" | "lines" | "easyApplyHint"
+    "headingText" | "lines" | "easyApplyHint" | "companyHref" | "companyLabel"
   > | null;
   element: Pick<
     ScannedInteractiveElement,
-    "href" | "accessibleName" | "jobIdHint"
+    "href" | "accessibleName" | "jobIdHint" | "companyHref" | "companyLabel"
   >;
   pageUrl: string;
 }): RawPostingCandidate | null {
-  const canonicalUrl = buildCanonicalCandidateUrl(input.element.href, input.pageUrl);
+  const canonicalUrl = buildCanonicalCandidateUrl(
+    input.element.href,
+    input.pageUrl,
+  );
   if (!canonicalUrl) {
     return null;
   }
@@ -1045,6 +1338,22 @@ export function buildDomCardPostingCandidate(input: {
     consumeLine(line);
   }
 
+  const companyHrefEmployer = inferEmployerFromCompanyProfileHref(
+    input.container?.companyHref ?? input.element.companyHref,
+  );
+  const companyLabel = sanitizeObservedEmployerLabel(
+    cleanText(
+      input.container?.companyLabel ?? input.element.companyLabel,
+    ).slice(0, DISCOVERY_OBSERVATION_LABEL_MAX),
+  );
+  if (companyLabel) {
+    company = companyLabel;
+  } else if (companyHrefEmployer) {
+    company = companyHrefEmployer;
+  } else {
+    company = sanitizeObservedEmployerLabel(company);
+  }
+
   const description = cleanText(descriptionPool.join(" ")).slice(
     0,
     POSTING_DESCRIPTION_MAX_CHARS,
@@ -1083,13 +1392,13 @@ interface DeduplicatedCandidatesResult {
 
 /**
  * Deduplicates candidates by the canonical source URL/sourceJobId composite.
- * JSON-LD candidates come first and win against later DOM rows with the same
- * composite; duplicates beyond the first are merged, never silently dropped.
+ * The first candidate keeps precedence for conflicting authoritative values,
+ * while later observations fill missing fields and contribute additive hints.
  */
 export function deduplicatePostingCandidates(
   candidates: readonly RawPostingCandidate[],
 ): DeduplicatedCandidatesResult {
-  const seenComposites = new Set<string>();
+  const indexByComposite = new Map<string, number>();
   const uniqueCandidates: RawPostingCandidate[] = [];
   let duplicatesMergedCount = 0;
 
@@ -1098,12 +1407,34 @@ export function deduplicatePostingCandidates(
       candidate.canonicalUrl,
       candidate.sourceJobId,
     );
-    if (seenComposites.has(composite)) {
+    const existingIndex = indexByComposite.get(composite);
+    if (existingIndex !== undefined) {
+      const existing = uniqueCandidates[existingIndex];
+      if (!existing) {
+        throw new Error("Compact discovery candidate index is invalid.");
+      }
+      uniqueCandidates[existingIndex] = {
+        ...existing,
+        rawHref: existing.rawHref ?? candidate.rawHref ?? null,
+        applicationUrl: existing.applicationUrl ?? candidate.applicationUrl,
+        company: existing.company ?? candidate.company,
+        location: existing.location ?? candidate.location,
+        description: existing.description ?? candidate.description,
+        salaryText: existing.salaryText ?? candidate.salaryText,
+        postedAtText: existing.postedAtText ?? candidate.postedAtText,
+        postedAtIso: existing.postedAtIso ?? candidate.postedAtIso,
+        employmentType: existing.employmentType ?? candidate.employmentType,
+        workModeHints: [
+          ...new Set([...existing.workModeHints, ...candidate.workModeHints]),
+        ],
+        easyApplyEligible:
+          existing.easyApplyEligible || candidate.easyApplyEligible,
+      };
       duplicatesMergedCount += 1;
       continue;
     }
 
-    seenComposites.add(composite);
+    indexByComposite.set(composite, uniqueCandidates.length);
     uniqueCandidates.push(candidate);
   }
 
@@ -1125,10 +1456,13 @@ function toJobPostingInput(
     canonicalUrl: candidate.canonicalUrl,
     applicationUrl: candidate.applicationUrl,
     title: candidate.title,
-    // Preserve usable inventory without turning missing card metadata into a
-    // material claim. Downstream enrichment can replace these explicit
-    // absence labels once employer/location evidence is observed.
-    company: candidate.company ?? "Employer not stated",
+    // Prefer observed employer text, then `/company/{slug}/…` URL inference,
+    // then an explicit absence label so downstream UI can hide placeholders
+    // without inventing an employer.
+    company:
+      candidate.company ??
+      inferCompanyFromCompanyPathUrl(candidate.canonicalUrl) ??
+      "Employer not stated",
     location: candidate.location ?? "Location not stated",
     workMode: candidate.workModeHints,
     applyPath: candidate.easyApplyEligible ? "easy_apply" : "unknown",
@@ -1229,7 +1563,10 @@ export interface BuiltControlCandidates {
  */
 export function buildControlCandidatesFromScan(input: {
   routed: RoutedScannedElements;
-  openPostingTargets: ReadonlyMap<string, { label: string; stablePart: string }>;
+  openPostingTargets: ReadonlyMap<
+    string,
+    { label: string; stablePart: string }
+  >;
   paginationMax: number;
   actionMax: number;
 }): BuiltControlCandidates {
@@ -1277,7 +1614,10 @@ export function buildControlCandidatesFromScan(input: {
   }
 
   const allocator = createDiscoveryRefIdAllocator();
-  const boundedPagination = paginationRaw.slice(0, Math.max(0, input.paginationMax));
+  const boundedPagination = paginationRaw.slice(
+    0,
+    Math.max(0, input.paginationMax),
+  );
   const boundedActions = actionRaw.slice(0, Math.max(0, input.actionMax));
 
   return {
@@ -1332,7 +1672,10 @@ const UNSUPPORTED_SIGNALS: readonly UnsupportedSignal[] = [
 export function classifyUnsupportedSignal(
   pageTitle: string | null,
   bodyText: string | null,
-): { reason: DiscoveryCompactObservationUnsupportedReason; detail: string } | null {
+): {
+  reason: DiscoveryCompactObservationUnsupportedReason;
+  detail: string;
+} | null {
   const haystack = `${pageTitle ?? ""}\n${bodyText ?? ""}`
     .replace(/\s+/g, " ")
     .trim();
@@ -1514,7 +1857,11 @@ async function readScanPayload(
   };
 
   const evaluated = await page.evaluate(compactDiscoveryInPageScan, scanArg);
-  if (evaluated === null || evaluated === undefined || typeof evaluated !== "object") {
+  if (
+    evaluated === null ||
+    evaluated === undefined ||
+    typeof evaluated !== "object"
+  ) {
     return null;
   }
 
@@ -1524,9 +1871,42 @@ async function readScanPayload(
       ? candidate.structuredPostings
       : [],
     cardContainers: Array.isArray(candidate.cardContainers)
-      ? candidate.cardContainers
+      ? candidate.cardContainers.map((container) => ({
+          key: String(container.key ?? ""),
+          headingText: container.headingText ?? null,
+          lines: Array.isArray(container.lines) ? container.lines : [],
+          easyApplyHint: Boolean(container.easyApplyHint),
+          companyHref:
+            typeof container.companyHref === "string"
+              ? container.companyHref
+              : null,
+          companyLabel:
+            typeof container.companyLabel === "string"
+              ? container.companyLabel
+              : null,
+        }))
       : [],
-    elements: Array.isArray(candidate.elements) ? candidate.elements : [],
+    elements: Array.isArray(candidate.elements)
+      ? candidate.elements.map((element) => ({
+          role: String(element.role ?? ""),
+          accessibleName: String(element.accessibleName ?? ""),
+          href: typeof element.href === "string" ? element.href : null,
+          containerKey:
+            typeof element.containerKey === "string"
+              ? element.containerKey
+              : null,
+          jobIdHint:
+            typeof element.jobIdHint === "string" ? element.jobIdHint : null,
+          companyHref:
+            typeof element.companyHref === "string"
+              ? element.companyHref
+              : null,
+          companyLabel:
+            typeof element.companyLabel === "string"
+              ? element.companyLabel
+              : null,
+        }))
+      : [],
   };
 }
 
@@ -1600,8 +1980,9 @@ function buildUnsupportedObservation(input: {
  * references, or `unsupported` with one explicit terminal reason. Page-side
  * failures never throw; only invalid caller-owned identity inputs throw.
  *
- * Not yet wired into the production discovery run loop (ADR 0013 tier two);
- * orchestration owns invocation, budgets, and follow-up actions.
+ * The production discovery run loop invokes this once before legacy tool or
+ * model work (ADR 0013 tier two). Orchestration still owns budgets, persistence,
+ * fallback, and follow-up actions.
  */
 export async function captureCompactDiscoveryObservation(
   input: CaptureCompactDiscoveryObservationInput,
@@ -1670,7 +2051,9 @@ export async function captureCompactDiscoveryObservation(
     (scanPayload?.elements ?? []).some(
       (element) =>
         element.href !== null &&
-        (element.containerKey !== null || element.jobIdHint !== null),
+        (element.containerKey !== null ||
+          element.jobIdHint !== null ||
+          looksLikeJobPostingHref(element.href)),
     );
   const unsupportedSignal = hasObservedPostingInventory
     ? null
@@ -1696,17 +2079,32 @@ export async function captureCompactDiscoveryObservation(
           scanPayload.structuredPostings,
           pageUrl,
         ),
-        ...buildDomCardCandidates(routedElements.openableElements, scanPayload, pageUrl),
+        ...buildDomCardCandidates(
+          routedElements.openableElements,
+          scanPayload,
+          pageUrl,
+        ),
       ]
     : [];
 
   const { uniqueCandidates, duplicatesMergedCount } =
     deduplicatePostingCandidates(rawPostingCandidates);
 
-  const keptCandidates = uniqueCandidates.slice(0, options.postingCandidatesMax);
+  const listingCandidates = uniqueCandidates.filter(
+    (candidate) =>
+      !isLikelySiteUtilityJob({
+        canonicalUrl: candidate.canonicalUrl,
+        title: candidate.title,
+      }),
+  );
+
+  const keptCandidates = listingCandidates.slice(
+    0,
+    options.postingCandidatesMax,
+  );
   const omittedPostingCandidateCount = Math.max(
     0,
-    uniqueCandidates.length - keptCandidates.length,
+    listingCandidates.length - keptCandidates.length,
   );
 
   const parsedPostings: JobPosting[] = [];
@@ -1733,7 +2131,10 @@ export async function captureCompactDiscoveryObservation(
 
     // Bind by both the raw scanned href and the canonical URL so hash-only
     // differences cannot orphan a click target.
-    const target = { label: candidate.title, stablePart: candidate.sourceJobId };
+    const target = {
+      label: candidate.title,
+      stablePart: candidate.sourceJobId,
+    };
     if (candidate.rawHref) {
       openPostingTargets.set(candidate.rawHref, target);
     }
@@ -1784,7 +2185,9 @@ export async function captureCompactDiscoveryObservation(
     pageUrl,
     pageTitle: pageTitle === null ? null : sliceToLabel(pageTitle),
     sourceKind:
-      accessibilitySummary.value === null ? "visible_text" : "accessibility_snapshot",
+      accessibilitySummary.value === null
+        ? "visible_text"
+        : "accessibility_snapshot",
     content,
     postingCandidates: parsedPostings,
     paginationCandidates: controls.paginationCandidates,
@@ -1808,7 +2211,10 @@ function buildDomCardCandidates(
   // then the longest accessible name, preserving scan order as tie-breaker.
   // Only pre-routed open-posting elements reach this stage, so pagination and
   // overlay-close controls can never become posting candidates.
-  const primaryElementByContainer = new Map<string, ScannedInteractiveElement>();
+  const primaryElementByContainer = new Map<
+    string,
+    ScannedInteractiveElement
+  >();
   const standaloneElementsByHref = new Map<string, ScannedInteractiveElement>();
 
   for (const element of openableElements) {

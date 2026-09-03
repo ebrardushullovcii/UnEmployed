@@ -1,4 +1,4 @@
-import { Lock, LockOpen, MoveDown, MoveUp } from "lucide-react";
+import { Eye, EyeOff, Lock, LockOpen, MoveDown, MoveUp } from "lucide-react";
 import type {
   ResumeDraftBullet,
   ResumeDraftSection,
@@ -22,6 +22,14 @@ import { isGeneratedResumeOrigin } from "./resume-workspace-utils";
 interface ResumeBulletListEditorProps {
   bulletRows: readonly ResumeDraftBullet[];
   controlIdPrefix: string;
+  /**
+   * Skills and keywords are one short token per row. Rendering them with the
+   * prose row height (a 3.9rem textarea stacked under its own 32px action
+   * row) cost ~90px per word and was most of why the tools pane ran to
+   * thousands of pixels. Compact puts the single-line field and its actions
+   * on one row.
+   */
+  density?: "comfortable" | "compact";
   disabled: boolean;
   emptyState?: { description: string; title: string };
   entryId?: string | null;
@@ -35,11 +43,18 @@ interface ResumeBulletListEditorProps {
 }
 
 const bulletTextareaClassName = "min-h-[3.9rem] [field-sizing:content]";
+// A skill is one short token, so its field is one line beside its actions.
+const compactBulletTextareaClassName =
+  "min-h-8 w-full min-w-0 flex-1 resize-none py-1 leading-6 [field-sizing:content]";
+// One 32px icon row per bullet keeps the editor dense; every control keeps
+// its exact accessible name through aria-label and shows it as a tooltip.
+const bulletActionClassName = "text-foreground-soft";
 
 export function ResumeBulletListEditor(props: ResumeBulletListEditorProps) {
   const {
     bulletRows,
     controlIdPrefix,
+    density = "comfortable",
     disabled,
     emptyState,
     entryId = null,
@@ -49,6 +64,7 @@ export function ResumeBulletListEditor(props: ResumeBulletListEditorProps) {
     onPatch,
   } = props;
   const sectionLocked = section.locked;
+  const isCompact = density === "compact";
 
   if (bulletRows.length === 0 && emptyState) {
     return (
@@ -75,12 +91,25 @@ export function ResumeBulletListEditor(props: ResumeBulletListEditorProps) {
         const moveDownDisabled =
           rowLocked || bulletIndex >= bulletRows.length - 1;
         const textDisabled = rowLocked || bullet.locked;
+        const bulletScope = isEntryBullet ? "entry " : "";
+        const includeLabel = `${bullet.included ? "Hide" : "Show"} ${bulletScope}bullet ${bulletNumber}`;
+        const lockLabel = bullet.locked ? "Unlock" : "Lock";
+        const moveUpLabel = `Move ${bulletScope}bullet ${bulletNumber} up`;
+        const moveDownLabel = `Move ${bulletScope}bullet ${bulletNumber} down`;
 
         return (
-          <div className="grid min-w-0 gap-1" key={bullet.id}>
-            <div className="flex flex-wrap items-center gap-1.5">
+          <div
+            className={cn(
+              "min-w-0 gap-1",
+              isCompact ? "flex items-center" : "grid",
+            )}
+            data-resume-bullet-row-density={density}
+            key={bullet.id}
+          >
+            <div className="flex h-8 min-w-0 shrink-0 items-center gap-1">
               <Button
-                className="h-8"
+                aria-label={includeLabel}
+                className={bulletActionClassName}
                 disabled={rowLocked}
                 onClick={() =>
                   onPatch(
@@ -97,18 +126,20 @@ export function ResumeBulletListEditor(props: ResumeBulletListEditorProps) {
                     `${bullet.included ? "Hidden" : "Shown"} bullet`,
                   )
                 }
-                aria-label={
-                  bullet.included
-                    ? `Hide ${isEntryBullet ? "entry " : ""}bullet ${bulletNumber}`
-                    : `Show ${isEntryBullet ? "entry " : ""}bullet ${bulletNumber}`
-                }
+                size="icon-sm"
+                title={includeLabel}
                 type="button"
-                variant="secondary"
+                variant="ghost"
               >
-                {bullet.included ? "Hide" : "Show"}
+                {bullet.included ? (
+                  <EyeOff className="size-4" />
+                ) : (
+                  <Eye className="size-4" />
+                )}
               </Button>
               <Button
-                className="h-8"
+                aria-label={lockLabel}
+                className={bulletActionClassName}
                 disabled={rowLocked}
                 onClick={() =>
                   onPatch(
@@ -126,19 +157,20 @@ export function ResumeBulletListEditor(props: ResumeBulletListEditorProps) {
                   )
                 }
                 aria-pressed={bullet.locked}
+                size="icon-sm"
+                title={`${lockLabel} ${bulletScope}bullet ${bulletNumber}`}
                 type="button"
-                variant="secondary"
+                variant="ghost"
               >
                 {bullet.locked ? (
                   <LockOpen className="size-4" />
                 ) : (
                   <Lock className="size-4" />
                 )}
-                {bullet.locked ? "Unlock" : "Lock"}
               </Button>
               <Button
-                aria-label={`Move ${isEntryBullet ? "entry " : ""}bullet ${bulletNumber} up`}
-                className="h-8"
+                aria-label={moveUpLabel}
+                className={bulletActionClassName}
                 disabled={moveUpDisabled}
                 onClick={() => {
                   const anchor =
@@ -162,14 +194,16 @@ export function ResumeBulletListEditor(props: ResumeBulletListEditorProps) {
                     "Moved bullet up",
                   );
                 }}
+                size="icon-sm"
+                title={moveUpLabel}
                 type="button"
-                variant="secondary"
+                variant="ghost"
               >
                 <MoveUp className="size-4" />
               </Button>
               <Button
-                aria-label={`Move ${isEntryBullet ? "entry " : ""}bullet ${bulletNumber} down`}
-                className="h-8"
+                aria-label={moveDownLabel}
+                className={bulletActionClassName}
                 disabled={moveDownDisabled}
                 onClick={() => {
                   const anchor = bulletRows[bulletIndex + 1] ?? null;
@@ -192,23 +226,31 @@ export function ResumeBulletListEditor(props: ResumeBulletListEditorProps) {
                     "Moved bullet down",
                   );
                 }}
+                size="icon-sm"
+                title={moveDownLabel}
                 type="button"
-                variant="secondary"
+                variant="ghost"
               >
                 <MoveDown className="size-4" />
               </Button>
               {showGeneratedMarkers &&
               isGeneratedResumeOrigin(bullet.origin) ? (
-                <StatusBadge tone="muted">AI-generated</StatusBadge>
+                <StatusBadge className="ml-1" tone="muted">
+                  AI-generated
+                </StatusBadge>
               ) : null}
             </div>
             <Textarea
-              className={cn(bulletTextareaClassName)}
+              className={cn(
+                isCompact
+                  ? compactBulletTextareaClassName
+                  : bulletTextareaClassName,
+              )}
               aria-label={`${isEntryBullet ? "Entry" : "Section"} bullet ${bulletNumber}${bullet.included ? "" : " (hidden)"}`}
               data-resume-editor-target={targetId}
               id={bulletId}
               disabled={textDisabled}
-              rows={2}
+              rows={isCompact ? 1 : 2}
               value={bullet.text}
               onChange={(event) =>
                 onChange(

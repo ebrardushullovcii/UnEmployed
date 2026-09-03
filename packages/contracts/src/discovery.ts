@@ -6,6 +6,7 @@ import {
   ApplicationStatusSchema,
   ApprovalModeSchema,
   AssetGenerationMethodSchema,
+  AssetGenerationReasonSchema,
   AssetStatusSchema,
   BrowserRunCloseoutSchema,
   BrowserRunWaitReasonSchema,
@@ -1103,6 +1104,10 @@ export const TailoredAssetSchema = z.object({
   contentText: NonEmptyStringSchema.nullable().default(null),
   previewSections: z.array(TailoredAssetPreviewSectionSchema).default([]),
   generationMethod: AssetGenerationMethodSchema.default("deterministic"),
+  // Optional so assets saved before the structured reason existed, and the
+  // many typed fixtures built from this shape, stay valid without churn.
+  generationReason: AssetGenerationReasonSchema.nullable().optional(),
+  generationDetail: NonEmptyStringSchema.nullable().optional(),
   notes: z.array(NonEmptyStringSchema).default([]),
   failureMessage: NonEmptyStringSchema.nullable().default(null),
   failedAt: IsoDateTimeSchema.nullable().default(null),
@@ -2005,13 +2010,12 @@ const DiscoveryCompactObservationIdentitySchema = z.object({
  */
 export const DiscoveryCompactObservationContentSchema = z
   .object({
-    textSample: NonEmptyStringSchema.max(
-      DISCOVERY_OBSERVATION_TEXT_SAMPLE_MAX,
-    )
+    textSample: NonEmptyStringSchema.max(DISCOVERY_OBSERVATION_TEXT_SAMPLE_MAX)
       .nullable()
       .default(null),
-    accessibilitySummary: NonEmptyStringSchema
-      .max(DISCOVERY_OBSERVATION_ACCESSIBILITY_SUMMARY_MAX)
+    accessibilitySummary: NonEmptyStringSchema.max(
+      DISCOVERY_OBSERVATION_ACCESSIBILITY_SUMMARY_MAX,
+    )
       .nullable()
       .default(null),
     textTruncated: z.boolean().default(false),
@@ -2098,10 +2102,7 @@ export type DiscoveryCompactObservationControlRef = z.infer<
 
 /** Binds a candidate ref id to the observation identity that scoped it. */
 export function getDiscoveryCompactObservationControlRef(
-  observation: Pick<
-    DiscoveryCompactObservation,
-    "observationId" | "revision"
-  >,
+  observation: Pick<DiscoveryCompactObservation, "observationId" | "revision">,
   refId: string,
 ): DiscoveryCompactObservationControlRef {
   return {
@@ -2114,10 +2115,7 @@ export function getDiscoveryCompactObservationControlRef(
 /** True only when the reference belongs to the exact current observation. */
 export function isCurrentDiscoveryCompactObservationRef(
   ref: DiscoveryCompactObservationControlRef,
-  observation: Pick<
-    DiscoveryCompactObservation,
-    "observationId" | "revision"
-  >,
+  observation: Pick<DiscoveryCompactObservation, "observationId" | "revision">,
 ): boolean {
   return (
     ref.observationId === observation.observationId &&

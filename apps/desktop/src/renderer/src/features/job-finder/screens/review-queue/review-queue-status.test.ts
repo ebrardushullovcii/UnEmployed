@@ -6,6 +6,7 @@ import type {
 import { describe, expect, it, vi } from "vitest";
 import {
   getApplyReadinessStatus,
+  getReviewQueueResumePolicyCaption,
   getReviewQueueWorkflowStatus,
   getTailoredDraftPreparationCandidates,
   getTailoredDraftPreparationResultMessage,
@@ -265,9 +266,7 @@ describe("restored resume states stay distinct from generation failures", () => 
   };
 
   it("treats a failed marker without failure detail as review-pending, never a generation failure", () => {
-    expect(hasResumeGenerationFailure(restoredItem, restoredAsset)).toBe(
-      false,
-    );
+    expect(hasResumeGenerationFailure(restoredItem, restoredAsset)).toBe(false);
     expect(hasResumeGenerationFailure(restoredItem)).toBe(true);
   });
 
@@ -352,6 +351,21 @@ describe("safe application presentation labels", () => {
 
     expect(status).toEqual({ label: "Ready to prepare", tone: "positive" });
     expect(status.label).not.toMatch(/ready to apply/i);
+  });
+
+  it("captions an approved tailored PDF as ready, never future-tense creation", () => {
+    expect(getReviewQueueResumePolicyCaption(createReadyApprovedItem())).toBe(
+      "Approved resume ready",
+    );
+    expect(
+      getReviewQueueResumePolicyCaption(
+        createItem("needs-draft", {
+          resumeApplicationMode: "tailored_per_job",
+          assetStatus: "not_started",
+          resumeReview: { status: "not_started" },
+        }),
+      ),
+    ).toBe("Needs a tailored resume");
   });
 
   it("presents an unchanged original resume job without submission claims", () => {

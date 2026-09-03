@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import type {
   BrowserSessionState,
   ResumeSourceDocument,
@@ -102,19 +108,21 @@ function renderScreen(props: {
 }) {
   return render(
     <MemoryRouter>
-        <ReviewQueueScreen
+      <ReviewQueueScreen
         applicationRecords={[]}
         actionState={{ message: null }}
         browserSession={props.browserSession ?? createBrowserSession()}
         campaignId={props.campaignId ?? "campaign_1"}
-        draftPreparation={props.draftPreparation ?? createIdleDraftPreparation()}
+        draftPreparation={
+          props.draftPreparation ?? createIdleDraftPreparation()
+        }
         globalDailyApplicationPreparationCapacity={null}
         isApplyPending={false}
         isJobPending={() => false}
         isResumeStrategyPending={() => false}
         onPrepareTailoredDrafts={props.onPrepareTailoredDrafts ?? vi.fn()}
         onStopTailoredDraftPreparation={
-        props.onStopTailoredDraftPreparation ?? vi.fn()
+          props.onStopTailoredDraftPreparation ?? vi.fn()
         }
         onStartAutoApplyQueue={
           props.onStartAutoApplyQueue ??
@@ -127,13 +135,13 @@ function renderScreen(props: {
         onStartApplyCopilot={vi.fn()}
         onEditResumeWorkspace={vi.fn()}
         onGenerateResume={
-        props.onGenerateResume ??
-        vi.fn<
-          (
-            jobId: string,
-            options?: { selectAfter?: boolean },
-          ) => Promise<boolean>
-        >(() => Promise.resolve(true))
+          props.onGenerateResume ??
+          vi.fn<
+            (
+              jobId: string,
+              options?: { selectAfter?: boolean },
+            ) => Promise<boolean>
+          >(() => Promise.resolve(true))
         }
         onOpenBrowserSession={vi.fn()}
         onOpenJobDetails={vi.fn()}
@@ -150,7 +158,7 @@ function renderScreen(props: {
         selectedAsset={props.selectedAsset ?? null}
         selectedItem={props.selectedItem ?? null}
         selectedJob={props.selectedJob ?? null}
-        />
+      />
     </MemoryRouter>,
   );
 }
@@ -171,9 +179,9 @@ describe("ReviewQueueScreen tailored draft preparation (controlled)", () => {
 
     renderScreen({ queue: [selectedItem], selectedItem });
 
-    expect(screen.getAllByText("Needs approval").length).toBeGreaterThanOrEqual(
-      2,
-    );
+    // The detail header owns the selected job's state; the selected list row
+    // no longer prints the same chip beside it, so exactly one appears.
+    expect(screen.getAllByText("Needs approval").length).toBe(1);
     expect(screen.queryByText("Ready to prepare")).toBeNull();
   });
 
@@ -287,80 +295,77 @@ describe("ReviewQueueScreen tailored draft preparation (controlled)", () => {
   });
 });
 
-describe("ReviewQueueScreen workspace tabs", () => {
-  it("connects one tabbable active tab to the labelled panel", () => {
-    renderScreen({ queue: [] });
+describe("ReviewQueueScreen single-column workspace", () => {
+  function createSelectedJob(jobId: string): SavedJob {
+    return {
+      id: jobId,
+      title: `Role ${jobId}`,
+      company: "Acme",
+      location: "Remote",
+      summary: "Build dependable hiring tooling.",
+      description: "Build dependable hiring tooling.",
+      matchAssessment: {
+        score: 82,
+        reasons: ["Relevant experience"],
+        gaps: [],
+        recommendation: "review_before_applying",
+        recommendationRationale: null,
+        requirements: [],
+      },
+    } as unknown as SavedJob;
+  }
 
-    const tabs = screen.getAllByRole("tab");
-    const readinessTab = screen.getByRole("tab", { name: "Readiness" });
-    const panel = screen.getByRole("tabpanel");
+  it("has no tab strip: the shortlisted job is one linear column", () => {
+    const selectedItem = createEligibleItem("job_column");
+    renderScreen({
+      queue: [selectedItem],
+      selectedItem,
+      selectedJob: createSelectedJob(selectedItem.jobId),
+    });
 
-    expect(tabs.filter((tab) => tab.tabIndex === 0)).toEqual([readinessTab]);
-    expect(tabs.filter((tab) => tab.tabIndex === -1)).toHaveLength(2);
-    expect(tabs.map((tab) => tab.getAttribute("aria-controls"))).toEqual([
-      panel.id,
-      panel.id,
-      panel.id,
-    ]);
-    expect(new Set(tabs.map((tab) => tab.id)).size).toBe(tabs.length);
-    expect(readinessTab.getAttribute("aria-selected")).toBe("true");
-    expect(panel.getAttribute("aria-labelledby")).toBe(readinessTab.id);
+    // Readiness / Resume / Job details split one strictly ordered job across
+    // three destinations, two of which were nearly empty.
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.queryByRole("tabpanel")).toBeNull();
+
+    const column = screen.getByTestId("review-queue-workspace-column");
+    // State and next action first, the job facts under them, one job title in
+    // the detail header.
+    expect(column.textContent).toContain("Open full job details");
+    expect(column.textContent).toContain("About this job");
+    expect(
+      screen.getAllByRole("heading", { name: `Role ${selectedItem.jobId}` }),
+    ).toHaveLength(1);
   });
 
-  it("keeps click activation and updates the panel label", () => {
-    renderScreen({ queue: [] });
+  it("holds the scoring breakdown behind one disclosure", () => {
+    const selectedItem = createEligibleItem("job_scored");
+    renderScreen({
+      queue: [selectedItem],
+      selectedItem,
+      selectedJob: createSelectedJob(selectedItem.jobId),
+    });
 
-    const resumeTab = screen.getByRole("tab", { name: "Resume" });
-    fireEvent.click(resumeTab);
-
-    expect(resumeTab.getAttribute("aria-selected")).toBe("true");
-    expect(resumeTab.getAttribute("tabindex")).toBe("0");
-    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
-      resumeTab.id,
-    );
+    const disclosure = screen
+      .getByText("How this was scored")
+      .closest("details");
+    expect(disclosure).toBeInstanceOf(HTMLDetailsElement);
+    expect((disclosure as HTMLDetailsElement).open).toBe(false);
   });
 
-  it("automatically selects and focuses tabs with wrapping arrow keys", () => {
-    renderScreen({ queue: [] });
+  it("shows no resume section until a resume exists", () => {
+    const selectedItem = createEligibleItem("job_no_resume");
+    renderScreen({
+      queue: [selectedItem],
+      selectedItem,
+      selectedJob: createSelectedJob(selectedItem.jobId),
+    });
 
-    const readinessTab = screen.getByRole("tab", { name: "Readiness" });
-    const resumeTab = screen.getByRole("tab", { name: "Resume" });
-    const jobDetailsTab = screen.getByRole("tab", { name: "Job details" });
-
-    readinessTab.focus();
-    fireEvent.keyDown(readinessTab, { key: "ArrowLeft" });
-    expect(document.activeElement).toBe(jobDetailsTab);
-    expect(jobDetailsTab.getAttribute("aria-selected")).toBe("true");
-
-    fireEvent.keyDown(jobDetailsTab, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(readinessTab);
-    expect(readinessTab.getAttribute("aria-selected")).toBe("true");
-
-    fireEvent.keyDown(readinessTab, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(resumeTab);
-    expect(resumeTab.getAttribute("aria-selected")).toBe("true");
-  });
-
-  it("moves to the first and last tabs with Home and End", () => {
-    renderScreen({ queue: [] });
-
-    const readinessTab = screen.getByRole("tab", { name: "Readiness" });
-    const resumeTab = screen.getByRole("tab", { name: "Resume" });
-    const jobDetailsTab = screen.getByRole("tab", { name: "Job details" });
-
-    fireEvent.click(resumeTab);
-    resumeTab.focus();
-    fireEvent.keyDown(resumeTab, { key: "End" });
-    expect(document.activeElement).toBe(jobDetailsTab);
-    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
-      jobDetailsTab.id,
-    );
-
-    fireEvent.keyDown(jobDetailsTab, { key: "Home" });
-    expect(document.activeElement).toBe(readinessTab);
-    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
-      readinessTab.id,
-    );
+    // The Resume tab was a ~600px empty box duplicating the primary above it.
+    expect(
+      screen.queryByRole("heading", { level: 2, name: "Resume" }),
+    ).toBeNull();
   });
 });
 
@@ -384,16 +389,7 @@ describe("ReviewQueueScreen locked pane scroll regions", () => {
     } as unknown as SavedJob;
   }
 
-  function expectMarkedScrollPane(scope: ParentNode): HTMLElement {
-    const region = scope.querySelector<HTMLElement>(
-      "[data-locked-pane-scroll-region]",
-    );
-    expect(region).not.toBeNull();
-    expect(region?.className).toContain("overflow-y-auto");
-    return region!;
-  }
-
-  it("marks the shortlist list scroller and each workspace pane as locked scroll regions", () => {
+  it("owns exactly one scroller per column", () => {
     const selectedItem = createEligibleItem("job_region");
     renderScreen({
       queue: [selectedItem],
@@ -401,75 +397,28 @@ describe("ReviewQueueScreen locked pane scroll regions", () => {
       selectedJob: createSelectedJob(selectedItem.jobId),
     });
 
-    // The shortlist column and the default readiness pane are both bounded
-    // primary scroll panes.
-    expect(
-      document.querySelectorAll("[data-locked-pane-scroll-region]"),
-    ).toHaveLength(2);
-    const readinessPanel = screen.getByRole("tabpanel");
-    expectMarkedScrollPane(readinessPanel);
-
-    fireEvent.click(screen.getByRole("tab", { name: "Job details" }));
-
-    expect(
-      document.querySelectorAll("[data-locked-pane-scroll-region]"),
-    ).toHaveLength(2);
-    const jobDetailsRegion = expectMarkedScrollPane(
-      screen.getByRole("tabpanel"),
-    );
-    expect(jobDetailsRegion.textContent).toContain("Open full job details");
-
-    fireEvent.click(screen.getByRole("tab", { name: "Resume" }));
-    // The centered resume-generation state is a non-scrolling wrapper: the
-    // shortlist list stays the only marked region on this tab.
-    expect(
-      screen
-        .getByRole("tabpanel")
-        .querySelector("[data-locked-pane-scroll-region]"),
-    ).toBeNull();
-    expect(
-      document.querySelectorAll("[data-locked-pane-scroll-region]"),
-    ).toHaveLength(1);
-  });
-
-  it("marks the original resume preview scroller as the Resume tab's single locked region", () => {
-    const selectedItem: ReviewQueueItem = {
-      ...createEligibleItem("job_original_cv"),
-      resumeApplicationMode: "original_resume",
-      resumeReview: {
-        status: "original_resume",
-        sourceDocumentId: "resume_base",
-        fileName: "base-resume.pdf",
-        filePath: "/tmp/base-resume.pdf",
-      },
-    };
-
-    renderScreen({ queue: [selectedItem], selectedItem });
-
-    fireEvent.click(screen.getByRole("tab", { name: "Resume" }));
-
-    // Shortlist list + the resume card scroller, and nothing nested inside either.
+    // The shortlist column and the workspace column: the stacked panels
+    // inside the workspace never add a second nested scroll owner.
     const regions = Array.from(
       document.querySelectorAll<HTMLElement>(
         "[data-locked-pane-scroll-region]",
       ),
     );
     expect(regions).toHaveLength(2);
-    const resumeRegion = screen
-      .getByText("Original resume · unchanged")
-      .closest<HTMLElement>("[data-locked-pane-scroll-region]");
-    expect(resumeRegion).toBeTruthy();
-    expect(resumeRegion?.className).toContain(
-      "min-h-0 flex-1 overflow-y-auto px-5 pb-5",
-    );
     for (const region of regions) {
+      expect(region.className).toContain("overflow-y-auto");
       expect(
         region.querySelectorAll("[data-locked-pane-scroll-region]"),
       ).toHaveLength(0);
     }
+    expect(
+      screen
+        .getByTestId("review-queue-workspace-column")
+        .getAttribute("data-locked-pane-scroll-region"),
+    ).not.toBeNull();
   });
 
-  it("marks the tailored resume preview scroller as the Resume tab's single locked region", () => {
+  it("keeps the resume preview inside the one workspace scroller", () => {
     const selectedItem: ReviewQueueItem = {
       ...createEligibleItem("job_tailored_preview"),
       assetStatus: "ready",
@@ -506,37 +455,22 @@ describe("ReviewQueueScreen locked pane scroll regions", () => {
       selectedJob: createSelectedJob(selectedItem.jobId),
     });
 
-    fireEvent.click(screen.getByRole("tab", { name: "Resume" }));
-
-    // Shortlist list + the preview scroller; the raw section text stays inside
-    // the one bounded region instead of nesting another marker.
-    const regions = Array.from(
-      document.querySelectorAll<HTMLElement>(
-        "[data-locked-pane-scroll-region]",
-      ),
-    );
-    expect(regions).toHaveLength(2);
-    const previewRegion = screen
-      .getByText("Tailored resume v1")
-      .closest<HTMLElement>("[data-locked-pane-scroll-region]");
-    expect(previewRegion).toBeTruthy();
-    expect(previewRegion?.className).toContain(
-      "min-h-0 flex-1 overflow-y-auto px-5 pb-5",
-    );
-    for (const region of regions) {
-      expect(
-        region.querySelectorAll("[data-locked-pane-scroll-region]"),
-      ).toHaveLength(0);
-    }
+    const column = screen.getByTestId("review-queue-workspace-column");
+    expect(
+      within(column).getAllByText("Tailored resume v1").length,
+    ).toBeGreaterThan(0);
+    expect(
+      column.querySelectorAll("[data-locked-pane-scroll-region]"),
+    ).toHaveLength(0);
   });
 
   it("leaves empty shortlist states unmarked", () => {
     renderScreen({ queue: [] });
 
+    // No selected job: only the workspace column is a scroll owner.
     expect(
       document.querySelectorAll("[data-locked-pane-scroll-region]"),
     ).toHaveLength(1);
-    expectMarkedScrollPane(screen.getByRole("tabpanel"));
   });
 });
 
@@ -586,7 +520,9 @@ describe("ReviewQueueScreen batch selection persistence", () => {
   it("restores the curated ready selection after a remount and reopens batch actions", () => {
     seedStoredSelection("campaign_1", ["job_a", "job_b"]);
 
-    renderScreen({ queue: [createReadyItem("job_a"), createReadyItem("job_b")] });
+    renderScreen({
+      queue: [createReadyItem("job_a"), createReadyItem("job_b")],
+    });
 
     // The persisted curation reopens the batch panel without a manual click.
     expect(screen.getByText("2 selected for batch preparation")).toBeTruthy();
@@ -623,18 +559,16 @@ describe("ReviewQueueScreen batch selection persistence", () => {
 
     renderScreen({
       campaignId: "campaign_1",
-      queue: [createReadyItem("job_shared")],
+      queue: [createReadyItem("job_shared"), createReadyItem("job_other")],
     });
 
     // Another campaign's curation never leaks into this one.
-    expect(
-      screen.queryByText(/selected for batch preparation/),
-    ).toBeNull();
+    expect(screen.queryByText(/selected for batch preparation/)).toBeNull();
 
     cleanup();
     renderScreen({
       campaignId: "campaign_2",
-      queue: [createReadyItem("job_shared")],
+      queue: [createReadyItem("job_shared"), createReadyItem("job_other")],
     });
 
     expect(screen.getByText("1 selected for batch preparation")).toBeTruthy();
@@ -664,19 +598,15 @@ describe("ReviewQueueScreen batch selection persistence", () => {
     // A remount does not resurrect an explicitly cleared selection.
     renderScreen({ queue });
 
-    expect(
-      screen.queryByText(/selected for batch preparation/),
-    ).toBeNull();
+    expect(screen.queryByText(/selected for batch preparation/)).toBeNull();
   });
 
   it("removes staged jobs from the curation when queuing selected applications", async () => {
-    const onStartAutoApplyQueue =
-      vi.fn<
-        NonNullable<
-          Parameters<typeof renderScreen>[0]["onStartAutoApplyQueue"]
-        >
+    const onStartAutoApplyQueue = vi
+      .fn<
+        NonNullable<Parameters<typeof renderScreen>[0]["onStartAutoApplyQueue"]>
       >()
-        .mockResolvedValue({ status: "confirmed" });
+      .mockResolvedValue({ status: "confirmed" });
     seedStoredSelection("campaign_1", ["job_stage", "job_keep"]);
     const selectedItem = createReadyItem("job_stage");
 
@@ -704,7 +634,7 @@ describe("ReviewQueueScreen batch selection persistence", () => {
     // The restored curation keeps batch actions open; the workspace shows the
     // staged run affordance for the selected ready job.
     fireEvent.click(
-      screen.getByRole("button", { name: "Queue selected applications (2)" }),
+      screen.getByRole("button", { name: "Prepare selected jobs (2)" }),
     );
 
     expect(onStartAutoApplyQueue).toHaveBeenCalledTimes(1);
@@ -714,19 +644,15 @@ describe("ReviewQueueScreen batch selection persistence", () => {
     ]);
     // Staging consumes its curation; nothing implies the run resumes here.
     await vi.waitFor(() =>
-      expect(
-        screen.getByText("0 selected for batch preparation"),
-      ).toBeTruthy(),
+      expect(screen.getByText("0 selected for batch preparation")).toBeTruthy(),
     );
     expect(readStoredSelection("campaign_1")).toEqual([]);
   });
 
   it("preserves the staged curation when the daily capacity refuses the queue start", async () => {
-    const onStartAutoApplyQueue =
-      vi.fn<
-        NonNullable<
-          Parameters<typeof renderScreen>[0]["onStartAutoApplyQueue"]
-        >
+    const onStartAutoApplyQueue = vi
+      .fn<
+        NonNullable<Parameters<typeof renderScreen>[0]["onStartAutoApplyQueue"]>
       >()
       .mockResolvedValue({
         status: "refused",
@@ -759,7 +685,7 @@ describe("ReviewQueueScreen batch selection persistence", () => {
       } as unknown as SavedJob,
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Queue selected applications (2)" }),
+      screen.getByRole("button", { name: "Prepare selected jobs (2)" }),
     );
 
     await vi.waitFor(() =>
@@ -774,11 +700,9 @@ describe("ReviewQueueScreen batch selection persistence", () => {
   });
 
   it("preserves the staged curation when staging reports a handled failure", async () => {
-    const onStartAutoApplyQueue =
-      vi.fn<
-        NonNullable<
-          Parameters<typeof renderScreen>[0]["onStartAutoApplyQueue"]
-        >
+    const onStartAutoApplyQueue = vi
+      .fn<
+        NonNullable<Parameters<typeof renderScreen>[0]["onStartAutoApplyQueue"]>
       >()
       .mockResolvedValue({ status: "failed", message: null });
     seedStoredSelection("campaign_1", ["job_stage"]);
@@ -806,7 +730,7 @@ describe("ReviewQueueScreen batch selection persistence", () => {
       } as unknown as SavedJob,
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Queue selected applications (1)" }),
+      screen.getByRole("button", { name: "Prepare selected jobs (1)" }),
     );
 
     await vi.waitFor(() =>
@@ -817,11 +741,9 @@ describe("ReviewQueueScreen batch selection persistence", () => {
   });
 
   it("preserves the staged curation on an unknown ending instead of guessing", async () => {
-    const onStartAutoApplyQueue =
-      vi.fn<
-        NonNullable<
-          Parameters<typeof renderScreen>[0]["onStartAutoApplyQueue"]
-        >
+    const onStartAutoApplyQueue = vi
+      .fn<
+        NonNullable<Parameters<typeof renderScreen>[0]["onStartAutoApplyQueue"]>
       >()
       .mockResolvedValue({ status: "unknown" });
     seedStoredSelection("campaign_1", ["job_stage"]);
@@ -829,7 +751,7 @@ describe("ReviewQueueScreen batch selection persistence", () => {
 
     renderScreen({
       onStartAutoApplyQueue,
-      queue: [createReadyItem("job_stage")],
+      queue: [createReadyItem("job_stage"), createReadyItem("job_stage_two")],
       selectedItem,
       selectedJob: {
         id: selectedItem.jobId,
@@ -849,12 +771,180 @@ describe("ReviewQueueScreen batch selection persistence", () => {
       } as unknown as SavedJob,
     });
     fireEvent.click(
-      screen.getByRole("button", { name: "Queue selected applications (1)" }),
+      screen.getByRole("button", { name: "Prepare selected jobs (1)" }),
     );
 
     await vi.waitFor(() =>
       expect(onStartAutoApplyQueue).toHaveBeenCalledTimes(1),
     );
     expect(screen.getByText("1 selected for batch preparation")).toBeTruthy();
+  });
+});
+
+describe("ReviewQueueScreen job details honesty", () => {
+  function buildJob(input: {
+    jobId: string;
+    summary: string;
+    title: string;
+  }): SavedJob {
+    return {
+      id: input.jobId,
+      title: input.title,
+      company: "Acme",
+      location: "Remote",
+      summary: input.summary,
+      description: input.summary,
+      discoveryMethod: "browser_agent",
+      matchAssessment: {
+        score: 64,
+        reasons: ["Role title aligns with the current target roles."],
+        gaps: [],
+        recommendation: "review_before_applying",
+        recommendationRationale: null,
+        requirements: [],
+        contextFingerprint: "context_v1",
+        postingFingerprint: "posting_v1",
+      },
+    } as unknown as SavedJob;
+  }
+
+  it("presents an unverified score provisionally and drops an echoed summary", () => {
+    const selectedItem = createEligibleItem("job_title_only");
+    renderScreen({
+      queue: [selectedItem],
+      selectedItem,
+      selectedJob: buildJob({
+        jobId: selectedItem.jobId,
+        // The only "summary" the listing carried is its own title.
+        summary: selectedItem.title,
+        title: selectedItem.title,
+      }),
+    });
+
+    // The withheld rule now names what was actually checked instead of
+    // printing a percentage the app has not earned.
+    expect(screen.getByTestId("review-queue-fit-score").textContent).toBe(
+      "Title match only",
+    );
+    // Once beside the score, once inside the breakdown that would otherwise
+    // read as five contradictions of it.
+    expect(
+      screen.getAllByText(
+        "Only the listing title could be checked — no pay, location, or requirements were captured. Copy the listing link to check the rest.",
+      ),
+    ).toHaveLength(2);
+    expect(
+      screen.getByText(
+        "The listing text was not captured. Open the full job details to read it.",
+      ),
+    ).toBeTruthy();
+
+    // The route to the real posting sits with the job, not below the
+    // evidence cards.
+    const openListing = screen.getByRole("button", {
+      name: "Open full job details",
+    });
+    const breakdown = screen.getByRole("region", {
+      name: /score and evidence/iu,
+    });
+    expect(
+      openListing.compareDocumentPosition(breakdown) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("withholds the score for the shape the real scorer emits for a card-only listing", () => {
+    // Regression guard: the bare fixture above passed while the shape the
+    // matching engine actually produces — an "adjacent" role verdict plus a
+    // saved-preference location requirement that stayed unknown — printed a
+    // bare percentage on this screen and on Find jobs.
+    const selectedItem = createEligibleItem("job_real_title_only");
+    const job = buildJob({
+      jobId: selectedItem.jobId,
+      summary: selectedItem.title,
+      title: selectedItem.title,
+    });
+    renderScreen({
+      queue: [selectedItem],
+      selectedItem,
+      selectedJob: {
+        ...job,
+        matchAssessment: {
+          ...job.matchAssessment,
+          score: 54,
+          compensationFit: { state: "unknown" },
+          dimensions: {
+            roleSuitability: {
+              state: "adjacent",
+              explanation:
+                "The title matches, but the listing text was not captured, so nothing beyond the title could be checked.",
+              evidence: [],
+            },
+            preferenceAlignment: { state: "unknown", evidence: [] },
+            applicationEffort: { level: "unknown", evidence: [] },
+            evidenceConfidence: { level: "unavailable", evidence: [] },
+          },
+          requirements: [
+            {
+              id: "location_not_stated",
+              category: "location",
+              label: "Location (not stated in listing)",
+              importance: "required",
+              status: "unknown",
+              jobEvidence: "The listing does not state a location.",
+              resumeEvidence: [],
+              explanation:
+                "The listing does not state a location, so it could not be compared with the saved search areas.",
+            },
+          ],
+        },
+      } as unknown as SavedJob,
+    });
+
+    expect(screen.getByTestId("review-queue-fit-score").textContent).toBe(
+      "Title match only",
+    );
+    expect(screen.queryByText(/54% fit/)).toBeNull();
+    // The number is not destroyed: it stays inside the breakdown, qualified.
+    expect(screen.getByText("Title-only estimate: 54%")).toBeTruthy();
+  });
+
+  it("keeps real listing text and a plain score when evidence was checked", () => {
+    const selectedItem = createEligibleItem("job_verified");
+    const job = buildJob({
+      jobId: selectedItem.jobId,
+      summary: "Own the deployment pipeline for the payments platform.",
+      title: selectedItem.title,
+    });
+    renderScreen({
+      queue: [selectedItem],
+      selectedItem,
+      selectedJob: {
+        ...job,
+        matchAssessment: {
+          ...job.matchAssessment,
+          requirements: [
+            {
+              id: "req_1",
+              label: "Backend services",
+              importance: "required",
+              status: "supported",
+              explanation: "Matches saved backend experience.",
+              jobEvidence: "Own backend services.",
+              resumeEvidence: [],
+            },
+          ],
+        },
+      } as unknown as SavedJob,
+    });
+
+    expect(screen.getByTestId("review-queue-fit-score").textContent).toBe(
+      "64% fit",
+    );
+    expect(
+      screen.getByText(
+        "Own the deployment pipeline for the payments platform.",
+      ),
+    ).toBeTruthy();
   });
 });

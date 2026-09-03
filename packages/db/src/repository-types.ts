@@ -68,6 +68,8 @@ import type {
   WorkspaceRecoverySqliteErrorCode,
   WorkspaceRecoveryValidationOverrides,
 } from "./file-repository-recovery";
+import type { ApplicationAuthorityRepository } from "./application-authority-repository-types";
+import type { ApplicationAnswerSnapshotRepository } from "./application-answer-snapshot-repository-types";
 
 export type JobFinderRepositorySeed = JobFinderRepositoryState;
 
@@ -80,6 +82,24 @@ export type JobFinderRepositorySeed = JobFinderRepositoryState;
 export type ProfileCommitOutcome =
   | { status: "applied"; profile: CandidateProfile; revision: number }
   | { status: "stale"; profile: CandidateProfile; revision: number };
+
+/**
+ * Outcome of the import finalization compare-and-swap. A stale finalization
+ * never writes the supplied profile, preferences, or import artifacts.
+ */
+export type ResumeImportFinalizationOutcome =
+  | {
+      status: "applied";
+      profile: CandidateProfile;
+      searchPreferences: JobSearchPreferences;
+      revision: number;
+    }
+  | {
+      status: "stale";
+      profile: CandidateProfile;
+      searchPreferences: JobSearchPreferences;
+      revision: number;
+    };
 
 /**
  * A transaction-current patch-group flag flip for one persisted copilot
@@ -146,7 +166,8 @@ export interface CompanyIntelligenceCommitCurrent {
   applicationRecord: ApplicationRecord | null;
 }
 
-export interface JobFinderRepository {
+export interface JobFinderRepository
+  extends ApplicationAuthorityRepository, ApplicationAnswerSnapshotRepository {
   close(): Promise<void>;
   reset(seed: JobFinderRepositorySeed): Promise<void>;
   getProfile(): Promise<CandidateProfile>;
@@ -343,7 +364,8 @@ export interface JobFinderRepository {
     run: ResumeImportRun;
     documentBundles: readonly ResumeDocumentBundle[];
     fieldCandidates: readonly ResumeImportFieldCandidate[];
-  }): Promise<void>;
+    expectedProfileRevision?: number;
+  }): Promise<ResumeImportFinalizationOutcome>;
   listResumeValidationResults(
     draftId?: string,
   ): Promise<readonly ResumeValidationResult[]>;

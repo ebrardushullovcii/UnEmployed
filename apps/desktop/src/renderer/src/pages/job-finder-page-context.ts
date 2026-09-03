@@ -125,6 +125,7 @@ export interface JobFinderPageContext {
   onRemoveReviewJob: (jobId: string) => void;
   onMutateRapidReview: (input: RapidReviewMutationInput) => Promise<void>;
   onMutateSafeguards: (input: SafeguardMutationInput) => Promise<boolean>;
+  onApproveCurrentResume: (jobId: string) => void;
   onApproveResume: (jobId: string, exportId: string) => void;
   onClearResumeApproval: (jobId: string) => void;
   onSetWorkHistoryReviewAcknowledgment: (
@@ -155,6 +156,10 @@ export interface JobFinderPageContext {
   onExportApplicationPacket: (
     input: JobFinderApplyRunDetailsQuery,
   ) => Promise<void>;
+  onResolveSubmissionOutcome: (
+    uncertainOutcomeId: string,
+    resolution: "submitted" | "not_submitted",
+  ) => Promise<void>;
   onExportApplicationCrm: (
     format: ApplicationCrmExportFormat,
     recordId: string,
@@ -180,6 +185,7 @@ export interface JobFinderPageContext {
   }) => Promise<void>;
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
   onImportResume: () => void;
+  onCancelImportResume: () => void;
   onOpenBrowserSession: (input?: JobFinderOpenBrowserSessionInput) => void;
   onOpenProfile: () => void;
   onNavigateSafely: (path: string) => void;
@@ -246,7 +252,7 @@ export interface JobFinderPageContext {
   onSendProfileCopilotMessage: (
     content: string,
     context?: ProfileCopilotContext,
-  ) => void;
+  ) => void | Promise<boolean>;
   onSendResumeAssistantMessage: (jobId: string, content: string) => void;
   onResolveResumeAssistantProposal: (
     jobId: string,

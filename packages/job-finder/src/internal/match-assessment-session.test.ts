@@ -156,8 +156,8 @@ describe("match assessment session", () => {
       scorerVersion: MATCH_ASSESSMENT_SCORER_VERSION,
       contextFingerprint: session.contextFingerprint,
     });
-    expect(first.postingFingerprint).toMatch(/^match_posting_v4_logic5_/u);
-    expect(session.contextFingerprint).toMatch(/^match_context_v4_logic5_/u);
+    expect(first.postingFingerprint).toMatch(/^match_posting_v4_logic7_/u);
+    expect(session.contextFingerprint).toMatch(/^match_context_v4_logic7_/u);
   });
 
   test.each(

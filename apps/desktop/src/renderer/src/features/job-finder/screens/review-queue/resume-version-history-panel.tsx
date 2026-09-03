@@ -143,7 +143,7 @@ export function ResumeVersionHistoryPanel(props: {
               </p>
               <Badge variant="section">{sortedRevisions.length} saved</Badge>
             </div>
-            <h2 className="font-display text-(length:--text-description) font-semibold text-(--text-headline)">
+            <h2 className="font-display text-(--text-headline)">
               Return to an earlier saved draft.
             </h2>
           </div>
@@ -198,10 +198,10 @@ export function ResumeVersionHistoryPanel(props: {
                         <Badge variant="outline">Legacy snapshot</Badge>
                       ) : null}
                     </div>
-                    <h3 className="text-sm font-semibold text-(--text-headline)">
+                    <h4 className="text-(--text-headline)">
                       {revision.reason?.trim() ||
                         mutationLabels[revision.mutationKind]}
-                    </h3>
+                    </h4>
                     <time
                       className="text-(length:--text-small) text-foreground-muted"
                       dateTime={revision.createdAt}

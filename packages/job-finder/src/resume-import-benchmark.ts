@@ -319,6 +319,12 @@ export function buildBenchmarkRepositoryState(input: {
     applicationArtifactRefs: [],
     applicationReplayCheckpoints: [],
     applicationConsentRequests: [],
+    applicationAuthorityEnvelopes: [],
+    submissionPreflights: [],
+    submissionExecutionGrants: [],
+    submissionIdempotencyRecords: [],
+    submissionArmedMarkers: [],
+    submissionOutcomeRecords: [],
     applicationRecords: [],
     applicationAttempts: [],
     userActionRequests: [],
@@ -1189,11 +1195,15 @@ export async function runResumeImportBenchmark(input: {
           }
         : {}),
     });
+    const expectedProfileRevision = (
+      await ctx.repository.getProfileWithRevision()
+    ).revision;
     const workflowResult = await runResumeImportWorkflow(ctx, {
       profile: harness.profile,
       searchPreferences: harness.searchPreferences,
       documentBundle: harness.documentBundle,
       trigger: "import",
+      expectedProfileRevision,
       importWarnings: harness.documentBundle.warnings,
       ...(request.useVision && harness.visionArtifact
         ? { visionArtifact: harness.visionArtifact }

@@ -103,9 +103,12 @@ describe("ResumeStrategyJobPanel", () => {
     });
     expect(screen.getByText(/Exact enabled role family match/)).toBeTruthy();
 
-    fireEvent.change(screen.getByLabelText("Choose a resume approach for this job"), {
-      target: { value: "strategy_1" },
-    });
+    fireEvent.change(
+      screen.getByLabelText("Choose a resume approach for this job"),
+      {
+        target: { value: "strategy_1" },
+      },
+    );
     expect(onSelect).toHaveBeenCalledWith(
       expect.objectContaining({
         jobId: "job_1",
@@ -153,9 +156,12 @@ describe("ResumeStrategyJobPanel", () => {
     await waitFor(() => {
       expect(screen.getByText(/Recommended: Backend engineering/)).toBeTruthy();
     });
-    fireEvent.change(screen.getByLabelText("Choose a resume approach for this job"), {
-      target: { value: "strategy_2" },
-    });
+    fireEvent.change(
+      screen.getByLabelText("Choose a resume approach for this job"),
+      {
+        target: { value: "strategy_2" },
+      },
+    );
     const selection = onSelect.mock.calls[0]?.[0];
     expect(selection?.strategyId).toBe("strategy_2");
     expect(selection?.reason).toContain(
@@ -203,9 +209,7 @@ describe("ResumeStrategyJobPanel", () => {
     expect(
       screen.getByText("User picked the backend approach for this posting."),
     ).toBeTruthy();
-    expect(
-      screen.queryByText(/strategy for this posting/),
-    ).toBeNull();
+    expect(screen.queryByText(/strategy for this posting/)).toBeNull();
   });
 
   it("shows an honest no-match state and never offers a disabled strategy", async () => {
@@ -252,7 +256,9 @@ describe("ResumeStrategyJobPanel", () => {
       screen.getByText(/No enabled approach matched role family/),
     ).toBeTruthy();
 
-    const select = screen.getByLabelText("Choose a resume approach for this job");
+    const select = screen.getByLabelText(
+      "Choose a resume approach for this job",
+    );
     const options = Array.from(select.querySelectorAll("option")).map(
       (option) => option.textContent,
     );
@@ -260,7 +266,7 @@ describe("ResumeStrategyJobPanel", () => {
     expect(options).not.toContain("Backend engineering");
   });
 
-  it("links to create a resume approach and preserves the shortlisted job", async () => {
+  it("offers no approach-creation entry point in the shortlisted journey", async () => {
     const onRecommend = vi
       .fn<
         (input: {
@@ -292,14 +298,17 @@ describe("ResumeStrategyJobPanel", () => {
     );
 
     await waitFor(() => {
-      expect(
-        screen
-          .getByRole("link", { name: "Create a resume approach" })
-          .getAttribute("href"),
-      ).toBe(
-        "/job-finder/resume-strategies?returnTo=%2Fjob-finder%2Freview-queue%3FjobId%3Djob_1",
-      );
+      expect(onRecommend).toHaveBeenCalledTimes(1);
     });
+    // Creating a reusable approach is optional configuration; it belongs
+    // behind More > Resume approaches, not in the middle of preparing a
+    // resume for one job.
+    expect(
+      screen.queryByRole("link", {
+        name: /Create custom resume approach/u,
+      }),
+    ).toBeNull();
+    expect(screen.queryByText(/\(optional\)/u)).toBeNull();
   });
 
   it("does not re-request when the callback identity changes, but does refresh for a new job", async () => {
@@ -532,9 +541,7 @@ describe("ResumeStrategyJobPanel", () => {
     });
     expect(screen.getByText(/Checking approaches for this job/)).toBeTruthy();
     expect(screen.queryByText("Stale job 1 failure.")).toBeNull();
-    expect(
-      screen.queryByText("Recommendation unavailable"),
-    ).toBeNull();
+    expect(screen.queryByText("Recommendation unavailable")).toBeNull();
 
     await act(async () => {
       job2Request.resolve(
@@ -609,9 +616,7 @@ describe("ResumeStrategyJobPanel", () => {
     );
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Recommendation unavailable"),
-      ).toBeTruthy();
+      expect(screen.getByText("Recommendation unavailable")).toBeTruthy();
     });
     expect(screen.getByText("The campaign is unavailable.")).toBeTruthy();
   });
@@ -641,9 +646,7 @@ describe("ResumeStrategyJobPanel", () => {
     );
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Recommendation unavailable"),
-      ).toBeTruthy();
+      expect(screen.getByText("Recommendation unavailable")).toBeTruthy();
     });
     expect(screen.getByText("The campaign is unavailable.")).toBeTruthy();
     expect(
@@ -694,9 +697,7 @@ describe("ResumeStrategyJobPanel", () => {
     );
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Recommendation unavailable"),
-      ).toBeTruthy();
+      expect(screen.getByText("Recommendation unavailable")).toBeTruthy();
     });
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => {
@@ -815,7 +816,9 @@ describe("ResumeStrategyJobPanel", () => {
         screen.getByText(/None of your enabled approaches matched this job/),
       ).toBeTruthy();
       expect(
-        screen.getByText(/Creating a new approach never applies it automatically/),
+        screen.getByText(
+          /Creating a new approach never applies it automatically/,
+        ),
       ).toBeTruthy();
 
       const select = screen.getByLabelText(
@@ -857,7 +860,9 @@ describe("ResumeStrategyJobPanel", () => {
       });
       expect(screen.getByText("Use for this job only")).toBeTruthy();
       expect(
-        screen.getByText(/Other jobs and this search plan's default stay unchanged/),
+        screen.getByText(
+          /Other jobs and this search plan's default stay unchanged/,
+        ),
       ).toBeTruthy();
 
       fireEvent.change(
@@ -1024,7 +1029,9 @@ describe("ResumeStrategyJobPanel", () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText(/Recommended: Backend engineering/)).toBeTruthy();
+        expect(
+          screen.getByText(/Recommended: Backend engineering/),
+        ).toBeTruthy();
       });
       expect(
         screen.queryByText(/None of your enabled approaches matched this job/),

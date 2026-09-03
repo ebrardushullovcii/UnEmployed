@@ -5,11 +5,17 @@ import type {
   SavedJob,
 } from "@unemployed/contracts";
 import {
+  DISCOVERY_CLEAR_MISMATCH_SCORE_FLOOR,
   getDiscoveryConfiguredFilters,
   getDiscoveryInspectedJob,
   getDiscoveryResultVisibility,
+  isDiscoveryClearMismatch,
 } from "./discovery-screen";
-import { getDiscoverySearchReadiness } from "./discovery-search-readiness";
+import {
+  DISCOVERY_BROWSER_BLOCKED_REASON,
+  DISCOVERY_OFFLINE_SEARCH_REASON,
+  getDiscoverySearchReadiness,
+} from "./discovery-search-readiness";
 
 function createSearchPreferences(
   overrides: Partial<JobSearchPreferences> = {},
@@ -154,7 +160,7 @@ describe("getDiscoveryConfiguredFilters", () => {
 });
 
 describe("getDiscoverySearchReadiness", () => {
-  it("can infer search intent from the profile but still requires an enabled source", () => {
+  it("requires both an explicit search target and an enabled source", () => {
     const noRole = getDiscoverySearchReadiness(
       createSearchPreferences({
         discovery: {
@@ -182,15 +188,166 @@ describe("getDiscoverySearchReadiness", () => {
       createSearchPreferences({ targetRoles: ["Engineer"] }),
     );
 
-    expect(noRole.ready).toBe(true);
+    expect(noRole.ready).toBe(false);
     expect(noRole.hasSearchRoles).toBe(false);
-    expect(noRole.reason).toBeNull();
+    expect(noRole.reason).toContain("target role or job family");
     expect(noSource.ready).toBe(false);
     expect(noSource.reason).toContain("job-source URL");
+  });
+
+  it("separates complete filters from an unavailable offline catalog runtime", () => {
+    const readiness = getDiscoverySearchReadiness(
+      createSearchPreferences({
+        targetRoles: ["Engineer"],
+        discovery: {
+          historyLimit: 5,
+          targets: [createDiscoveryTarget()],
+        },
+      }),
+      { driver: "catalog_seed", status: "unknown" },
+    );
+
+    expect(readiness.setupReady).toBe(true);
+    expect(readiness.sourceSearchAvailable).toBe(false);
+    expect(readiness.ready).toBe(false);
+    expect(readiness.reason).toBe(DISCOVERY_OFFLINE_SEARCH_REASON);
+  });
+
+  it("keeps a ready agent-backed runtime searchable", () => {
+    const readiness = getDiscoverySearchReadiness(
+      createSearchPreferences({
+        targetRoles: ["Engineer"],
+        discovery: {
+          historyLimit: 5,
+          targets: [createDiscoveryTarget()],
+        },
+      }),
+      { driver: "chrome_profile_agent", status: "ready" },
+    );
+
+    expect(readiness.setupReady).toBe(true);
+    expect(readiness.sourceSearchAvailable).toBe(true);
+    expect(readiness.ready).toBe(true);
+    expect(readiness.reason).toBeNull();
+    expect(readiness.blocker).toBeNull();
+  });
+
+  it("keeps a closed, starting, or sign-in-pending browser searchable because the run opens it", () => {
+    const preferences = createSearchPreferences({
+      targetRoles: ["Engineer"],
+      discovery: {
+        historyLimit: 5,
+        targets: [createDiscoveryTarget()],
+      },
+    });
+
+    for (const status of ["unknown", "login_required"] as const) {
+      const readiness = getDiscoverySearchReadiness(preferences, {
+        driver: "chrome_profile_agent",
+        status,
+      });
+
+      expect(readiness.sourceSearchAvailable, status).toBe(true);
+      expect(readiness.ready, status).toBe(true);
+      expect(readiness.reason, status).toBeNull();
+      expect(readiness.blocker, status).toBeNull();
+    }
+  });
+
+  it("blocks only a blocked browser session, names that blocker, and trusts a recent run over a stale snapshot", () => {
+    const preferences = createSearchPreferences({
+      targetRoles: ["Engineer"],
+      discovery: {
+        historyLimit: 5,
+        targets: [createDiscoveryTarget()],
+      },
+    });
+    const blocked = getDiscoverySearchReadiness(preferences, {
+      driver: "chrome_profile_agent",
+      status: "blocked",
+    });
+
+    expect(blocked.setupReady).toBe(true);
+    expect(blocked.ready).toBe(false);
+    expect(blocked.blocker).toBe("browser_blocked");
+    expect(blocked.reason).toBe(DISCOVERY_BROWSER_BLOCKED_REASON);
+    expect(blocked.reason).not.toMatch(/enable sources/i);
+
+    const trusted = getDiscoverySearchReadiness(
+      preferences,
+      { driver: "chrome_profile_agent", status: "blocked" },
+      { trustRecentRun: true },
+    );
+    expect(trusted.ready).toBe(true);
+    expect(trusted.blocker).toBeNull();
+
+    // Setup blockers still win over the browser so the action never points
+    // at the browser while a source or role is actually missing.
+    const noSources = getDiscoverySearchReadiness(
+      createSearchPreferences({ targetRoles: ["Engineer"] }),
+      { driver: "chrome_profile_agent", status: "blocked" },
+    );
+    expect(noSources.blocker).toBe("no_enabled_sources");
   });
 });
 
 describe("getDiscoveryResultVisibility", () => {
+  it("pools weaker and clearly mismatched bound assessments as also found while leaving provisional scores alone", () => {
+    const bind = (job: SavedJob): SavedJob =>
+      ({
+        ...job,
+        discoveryMethod: "provider_api",
+        matchAssessment: {
+          ...job.matchAssessment,
+          contextFingerprint: "context",
+          postingFingerprint: "posting",
+        },
+      }) as unknown as SavedJob;
+    const strong = bind(createSavedJob("strong", "strong_fit", 80));
+    const weak = bind(createSavedJob("weak", "review_before_applying", 26));
+    const atFloor = bind(
+      createSavedJob(
+        "at-floor",
+        "review_before_applying",
+        DISCOVERY_CLEAR_MISMATCH_SCORE_FLOOR,
+      ),
+    );
+    const provisionalWeak = createSavedJob(
+      "provisional",
+      "review_before_applying",
+      12,
+    );
+
+    expect(isDiscoveryClearMismatch(weak)).toBe(true);
+    expect(isDiscoveryClearMismatch(atFloor)).toBe(false);
+    expect(isDiscoveryClearMismatch(provisionalWeak)).toBe(false);
+
+    const hidden = getDiscoveryResultVisibility(
+      [strong, weak, atFloor, provisionalWeak],
+      null,
+      false,
+    );
+    expect(hidden.jobs.map((job) => job.id)).not.toContain("weak");
+    // A bound score at the mismatch floor is still well below the saved
+    // targets, so it joins the also-found pool instead of padding the
+    // headline count. A provisional score is never demoted.
+    expect(hidden.jobs.map((job) => job.id)).not.toContain("at-floor");
+    expect(hidden.jobs.map((job) => job.id)).toEqual(
+      expect.arrayContaining(["strong", "provisional"]),
+    );
+    expect(hidden.hiddenAlsoFoundCount).toBe(2);
+    expect(hidden.alsoFoundCount).toBe(2);
+
+    const revealed = getDiscoveryResultVisibility(
+      [strong, weak, atFloor, provisionalWeak],
+      null,
+      true,
+    );
+    expect(revealed.jobs.map((job) => job.id)).toContain("weak");
+    expect(revealed.jobs.map((job) => job.id)).toContain("at-floor");
+    expect(revealed.hiddenAlsoFoundCount).toBe(0);
+  });
+
   it("hides hard conflicts by default and keeps a transparent reveal path", () => {
     const strong = createSavedJob("strong", "strong_fit");
     const mismatch = createSavedJob("mismatch", "skip");
@@ -203,8 +360,8 @@ describe("getDiscoveryResultVisibility", () => {
     );
 
     expect(hidden.jobs.map((job) => job.id)).toEqual(["review", "strong"]);
-    expect(hidden.hiddenMismatchCount).toBe(1);
-    expect(hidden.mismatchCount).toBe(1);
+    expect(hidden.hiddenAlsoFoundCount).toBe(1);
+    expect(hidden.alsoFoundCount).toBe(1);
     expect(hidden.selectedJob?.id).toBe("review");
 
     const revealed = getDiscoveryResultVisibility(
@@ -218,8 +375,8 @@ describe("getDiscoveryResultVisibility", () => {
       "strong",
       "mismatch",
     ]);
-    expect(revealed.hiddenMismatchCount).toBe(0);
-    expect(revealed.mismatchCount).toBe(1);
+    expect(revealed.hiddenAlsoFoundCount).toBe(0);
+    expect(revealed.alsoFoundCount).toBe(1);
     expect(revealed.selectedJob?.id).toBe("mismatch");
   });
 
@@ -234,8 +391,8 @@ describe("getDiscoveryResultVisibility", () => {
     );
 
     expect(hidden.jobs).toEqual([]);
-    expect(hidden.hiddenMismatchCount).toBe(2);
-    expect(hidden.mismatchCount).toBe(2);
+    expect(hidden.hiddenAlsoFoundCount).toBe(2);
+    expect(hidden.alsoFoundCount).toBe(2);
     expect(hidden.selectedJob).toBeNull();
   });
 
@@ -264,8 +421,8 @@ describe("getDiscoveryResultVisibility", () => {
     );
 
     expect(visible.jobs.map((job) => job.id)).toEqual(["strong", "mismatch"]);
-    expect(visible.hiddenMismatchCount).toBe(0);
-    expect(visible.mismatchCount).toBe(1);
+    expect(visible.hiddenAlsoFoundCount).toBe(0);
+    expect(visible.alsoFoundCount).toBe(1);
     expect(visible.selectedJob?.id).toBe("mismatch");
   });
 
@@ -291,8 +448,8 @@ describe("getDiscoveryResultVisibility", () => {
     // Truthful visibility: the hidden mismatch is not on screen, the held
     // mismatch counts as shown, and the total count stays available for the
     // reveal control.
-    expect(visible.hiddenMismatchCount).toBe(1);
-    expect(visible.mismatchCount).toBe(2);
+    expect(visible.hiddenAlsoFoundCount).toBe(1);
+    expect(visible.alsoFoundCount).toBe(2);
     expect(visible.selectedJob?.id).toBe("selected-mismatch");
   });
 
@@ -309,8 +466,8 @@ describe("getDiscoveryResultVisibility", () => {
     );
 
     expect(visible.jobs.map((job) => job.id)).toEqual(["strong"]);
-    expect(visible.hiddenMismatchCount).toBe(2);
-    expect(visible.mismatchCount).toBe(2);
+    expect(visible.hiddenAlsoFoundCount).toBe(2);
+    expect(visible.alsoFoundCount).toBe(2);
     expect(visible.selectedJob?.id).toBe("strong");
   });
 
@@ -334,8 +491,8 @@ describe("getDiscoveryResultVisibility", () => {
       "other-mismatch",
       "selected-mismatch",
     ]);
-    expect(revealed.hiddenMismatchCount).toBe(0);
-    expect(revealed.mismatchCount).toBe(2);
+    expect(revealed.hiddenAlsoFoundCount).toBe(0);
+    expect(revealed.alsoFoundCount).toBe(2);
     expect(revealed.selectedJob?.id).toBe("selected-mismatch");
 
     const hiddenAgain = getDiscoveryResultVisibility(
@@ -350,8 +507,8 @@ describe("getDiscoveryResultVisibility", () => {
       "strong",
       "selected-mismatch",
     ]);
-    expect(hiddenAgain.hiddenMismatchCount).toBe(1);
-    expect(hiddenAgain.mismatchCount).toBe(2);
+    expect(hiddenAgain.hiddenAlsoFoundCount).toBe(1);
+    expect(hiddenAgain.alsoFoundCount).toBe(2);
     expect(hiddenAgain.selectedJob?.id).toBe("selected-mismatch");
   });
 

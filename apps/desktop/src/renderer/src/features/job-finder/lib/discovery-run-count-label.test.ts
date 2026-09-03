@@ -4,7 +4,9 @@ import type {
 } from "@unemployed/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  formatDiscoveryResultBandTotal,
   formatDiscoveryRunCountLabel,
+  formatLastSearchSummarySentence,
   getDiscoveryRunCountEvidence,
 } from "./discovery-run-count-label";
 
@@ -52,15 +54,15 @@ function formatLabel(distinctJobsRetained: number, duplicatesMerged: number) {
 
 describe("formatDiscoveryRunCountLabel", () => {
   it("shows zero retained without inventing volume", () => {
-    expect(formatLabel(0, 0)).toBe("0 new jobs kept");
+    expect(formatLabel(0, 0)).toBe("0 new jobs saved");
   });
 
   it("uses singular phrasing for exactly one kept job", () => {
-    expect(formatLabel(1, 0)).toBe("1 new job kept");
+    expect(formatLabel(1, 0)).toBe("1 new job saved");
   });
 
   it("uses plural phrasing for several kept jobs", () => {
-    expect(formatLabel(4, 0)).toBe("4 new jobs kept");
+    expect(formatLabel(4, 0)).toBe("4 new jobs saved");
   });
 
   it("displays the distinct count directly instead of subtracting duplicates", () => {
@@ -68,26 +70,26 @@ describe("formatDiscoveryRunCountLabel", () => {
     // counter again (the old label claimed "34 unique retained").
     const label = formatLabel(67, 33);
 
-    expect(label).toBe("67 new jobs kept · 33 duplicates merged");
+    expect(label).toBe("67 new jobs saved · 33 duplicates merged");
     expect(label).not.toContain("34");
     expect(label).not.toMatch(/\bfound\b/i);
   });
 
   it("uses singular duplicate phrasing for one merged listing", () => {
-    expect(formatLabel(2, 1)).toBe("2 new jobs kept · 1 duplicate merged");
+    expect(formatLabel(2, 1)).toBe("2 new jobs saved · 1 duplicate merged");
   });
 
   it("keeps duplicate context on a run that kept nothing new", () => {
     const label = formatLabel(0, 15);
 
-    expect(label).toBe("0 new jobs kept · 15 duplicates merged");
+    expect(label).toBe("0 new jobs saved · 15 duplicates merged");
     expect(label).not.toMatch(/\bfound\b/i);
   });
 
   it("normalizes nonsensical counts to zero without going negative", () => {
-    expect(formatLabel(-5, -3)).toBe("0 new jobs kept");
+    expect(formatLabel(-5, -3)).toBe("0 new jobs saved");
     expect(formatLabel(Number.NaN, 2.9)).toBe(
-      "0 new jobs kept · 2 duplicates merged",
+      "0 new jobs saved · 2 duplicates merged",
     );
   });
 });
@@ -190,5 +192,72 @@ describe("getDiscoveryRunCountEvidence", () => {
     );
 
     expect(evidence).toEqual({ distinctJobsRetained: 0, duplicatesMerged: 0 });
+  });
+});
+
+describe("formatLastSearchSummarySentence", () => {
+  it("does not repeat the verb the shared count label already carries", () => {
+    expect(
+      formatLastSearchSummarySentence({
+        runCountLabel: "15 new jobs saved · 35 duplicates merged",
+        savedByRun: 15,
+        keptInPlan: 15,
+      }),
+    ).toBe("Your last search: 15 new jobs saved · 35 duplicates merged.");
+  });
+
+  it("names both populations when the plan kept fewer than the run saved", () => {
+    // Home must never print a volume the screen it links to does not list.
+    expect(
+      formatLastSearchSummarySentence({
+        runCountLabel: "50 new jobs saved",
+        savedByRun: 50,
+        keptInPlan: 15,
+      }),
+    ).toBe(
+      "Your last search saved 50 new jobs on this device · 15 in your current search plan.",
+    );
+  });
+
+  it("gives the two populations different words", () => {
+    // Regression: both numbers used to be introduced as "kept" — "50 new jobs
+    // kept" beside "the 15 kept in your current search plan" — so one screen
+    // appeared to contradict itself. "Saved" is the device population and
+    // "kept" belongs to the active plan.
+    const runCountLabel = formatDiscoveryRunCountLabel({
+      distinctJobsRetained: 50,
+      duplicatesMerged: 0,
+    });
+    expect(runCountLabel).not.toContain("kept");
+
+    const sentence = formatLastSearchSummarySentence({
+      runCountLabel,
+      savedByRun: 50,
+      keptInPlan: 15,
+    });
+    expect(sentence).not.toContain("kept");
+    expect(sentence).toContain("50 new jobs on this device");
+    expect(sentence).toContain("15 in your current search plan");
+  });
+
+  it("keeps the single-run phrasing when no run volume is known", () => {
+    expect(
+      formatLastSearchSummarySentence({
+        runCountLabel: "0 new jobs saved · 4 duplicates merged",
+        savedByRun: 0,
+        keptInPlan: 12,
+      }),
+    ).toBe("Your last search: 0 new jobs saved · 4 duplicates merged.");
+  });
+});
+
+describe("formatDiscoveryResultBandTotal", () => {
+  it("describes the plan population the list actually shows", () => {
+    expect(
+      formatDiscoveryResultBandTotal({ worthOpening: 1, alsoFound: 14 }),
+    ).toBe("15 jobs kept in this search plan.");
+    expect(
+      formatDiscoveryResultBandTotal({ worthOpening: 1, alsoFound: 0 }),
+    ).toBe("1 job kept in this search plan.");
   });
 });

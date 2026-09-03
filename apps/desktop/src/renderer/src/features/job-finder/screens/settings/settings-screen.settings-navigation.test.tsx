@@ -20,6 +20,9 @@ import {
   SETTINGS_SUBNAV_BOTTOM_GAP_PX,
   SETTINGS_SUBNAV_SCROLL_OFFSET_FALLBACK_PX,
   SETTINGS_SUBNAV_OFFSET_VARIABLE,
+  SETTINGS_UNSAVED_BAR_BOTTOM_GAP_PX,
+  SETTINGS_UNSAVED_BAR_CLEARANCE_FALLBACK_PX,
+  SETTINGS_UNSAVED_BAR_CLEARANCE_VARIABLE,
   SettingsScreen,
 } from "./settings-screen";
 
@@ -32,6 +35,20 @@ vi.mock("./settings-application-defaults-section", () => ({
   SettingsApplicationDefaultsSection: () => (
     <section data-testid="panel-application-defaults">
       Application defaults panel
+    </section>
+  ),
+}));
+vi.mock("./settings-application-authority-section", () => ({
+  // This section names its own region through the heading the user can see,
+  // instead of an sr-only h2 repeating the same sentence above it.
+  SettingsApplicationAuthoritySection: ({
+    headingId,
+  }: {
+    headingId?: string;
+  }) => (
+    <section data-testid="panel-application-authority">
+      <h3 id={headingId}>What Job Finder may do on application sites</h3>
+      Application authority panel
     </section>
   ),
 }));
@@ -82,7 +99,10 @@ vi.mock("../applications/applications-crm-settings", () => ({
 const sectionLabels = [
   "App & device",
   "Application defaults",
-  "Workspace behavior",
+  // Plain-language tab names. The renames change the labels only: the
+  // prepare-only boundary and every permission it describes are unchanged.
+  "What Job Finder may do on application sites",
+  "Browser & saved jobs",
   "Tracker",
   "Diagnostics",
   "Danger zone",
@@ -118,7 +138,7 @@ describe("SettingsScreen information architecture", () => {
     vi.clearAllMocks();
   });
 
-  it("exposes exactly six sticky section anchors whose labels match named landmarks", () => {
+  it("exposes exactly seven sticky section anchors whose labels match named landmarks", () => {
     render(
       <MemoryRouter>
         <SettingsScreen {...baseProps} />
@@ -143,7 +163,7 @@ describe("SettingsScreen information architecture", () => {
       );
     }
 
-    expect(within(nav).queryAllByRole("link")).toHaveLength(6);
+    expect(within(nav).queryAllByRole("link")).toHaveLength(7);
   });
 
   it("keeps keyboard-reachable nav targets with visible focus and scroll offset", () => {
@@ -174,6 +194,12 @@ describe("SettingsScreen information architecture", () => {
       expect(region.className).toContain(
         "scroll-mt-(--settings-subnav-offset)",
       );
+      // One clearance at every width. The scroll owner already starts below
+      // the fixed shell header, so a width-specific `+7.25rem` variant would
+      // count that header height a second time.
+      expect(region.className).not.toMatch(
+        /(?:^|\s)(?:sm|md|lg|xl|min-\[)[^\s]*scroll-mt-/,
+      );
       const heading = document.getElementById(
         region.getAttribute("aria-labelledby") ?? "",
       );
@@ -202,17 +228,77 @@ describe("SettingsScreen information architecture", () => {
     const nav = screen.getByRole("navigation", {
       name: "Settings sections",
     });
-    for (const token of ["sticky", "top-0", "flex-wrap", "z-30"]) {
+    for (const token of [
+      "sticky",
+      "top-0",
+      "flex-wrap",
+      "z-30",
+      // Opaque, with an edge: content must never be visible through the
+      // sticky band or appear sliced by it.
+      "bg-(--background)",
+      "border-b",
+    ]) {
       expect(nav.className).toContain(token);
     }
+    expect(nav.className).not.toContain("bg-(--background)/95");
+    expect(nav.className).not.toContain("backdrop-blur");
 
-    // Two wrapped min-h-10 rows (40px each) + 4px row gap + 8px nav padding
+    // Regression: the sticky offset is `top-0` at every width and nothing may
+    // re-add the shell header height on top of it. The scroll owner is the
+    // shell's `<main>`, which already begins below the fixed header, so a
+    // responsive `sm:top-[7.25rem]` counted that height twice: at scroll 0 the
+    // band was pushed 33px below its own flow box and covered the first card's
+    // top border, padding and heading by 21px at both 1440x920 and 1200x640.
+    expect(nav.className).not.toMatch(
+      /(?:^|\s)(?:sm|md|lg|xl|min-\[)[^\s]*:top-/,
+    );
+    expect(nav.className).not.toContain("7.25rem");
+
+    // Two wrapped min-h-10 rows (40px each) + 4px row gap + 16px nav padding
     // + the 12px breathing gap. The old fixed scroll-mt-16 (64px) only ever
     // cleared a single-wrapped-row subnav and let a wrapped subnav cover
     // headings at native zoom levels.
     expect(SETTINGS_SUBNAV_SCROLL_OFFSET_FALLBACK_PX).toBeGreaterThan(64);
     expect(SETTINGS_SUBNAV_SCROLL_OFFSET_FALLBACK_PX).toBe(
-      40 * 2 + 4 + 8 + SETTINGS_SUBNAV_BOTTOM_GAP_PX,
+      40 * 2 + 4 + 16 + SETTINGS_SUBNAV_BOTTOM_GAP_PX,
+    );
+  });
+
+  // At 1200x640 the sticky "No unsaved changes" bar painted over the live text
+  // of the last card, and no scroll position freed it: nothing below the last
+  // section reserved the bar's own height. The bar stays sticky inside the
+  // settings scroll owner, and the last section now carries that clearance.
+  it("keeps the sticky save bar inside the scroll owner and reserves its height below the last card", () => {
+    render(
+      <MemoryRouter>
+        <SettingsScreen {...baseProps} />
+      </MemoryRouter>,
+    );
+
+    const bar = document.querySelector<HTMLElement>(
+      "[data-settings-unsaved-bar]",
+    );
+    expect(bar).not.toBeNull();
+    // Sticky, not fixed: it may only ever stick to its own scroll owner.
+    expect(bar?.className).toContain("sticky");
+    expect(bar?.className).toContain("bottom-0");
+    expect(bar?.className).not.toContain("fixed");
+
+    const lastSection = screen.getByRole("region", { name: "Danger zone" });
+    expect(lastSection.className).toContain(
+      "pb-(--settings-unsaved-bar-clearance)",
+    );
+
+    const settingsRoot = lastSection.parentElement as HTMLElement;
+    expect(bar?.parentElement).toBe(settingsRoot);
+    // Unmeasured layouts keep a wrap-aware floor rather than zero clearance.
+    expect(
+      settingsRoot.style.getPropertyValue(
+        SETTINGS_UNSAVED_BAR_CLEARANCE_VARIABLE,
+      ),
+    ).toBe(`${SETTINGS_UNSAVED_BAR_CLEARANCE_FALLBACK_PX}px`);
+    expect(SETTINGS_UNSAVED_BAR_CLEARANCE_FALLBACK_PX).toBeGreaterThan(
+      SETTINGS_UNSAVED_BAR_BOTTOM_GAP_PX,
     );
   });
 
@@ -245,14 +331,21 @@ describe("SettingsScreen information architecture", () => {
       expect(
         settingsRoot.style.getPropertyValue(SETTINGS_SUBNAV_OFFSET_VARIABLE),
       ).toBe(`${96 + SETTINGS_SUBNAV_BOTTOM_GAP_PX}px`);
-      expect(capturedCallbacks).toHaveLength(1);
+      // Two measured bands own scroll clearance on this page: the sticky
+      // subnav above and the sticky unsaved-changes bar below.
+      expect(
+        settingsRoot.style.getPropertyValue(
+          SETTINGS_UNSAVED_BAR_CLEARANCE_VARIABLE,
+        ),
+      ).toBe(`${96 + SETTINGS_UNSAVED_BAR_BOTTOM_GAP_PX}px`);
+      expect(capturedCallbacks).toHaveLength(2);
     } finally {
       vi.restoreAllMocks();
       vi.unstubAllGlobals();
     }
   });
 
-  it("anchors wrap the real settings panels in the six-label order", () => {
+  it("anchors wrap the real settings panels in the seven-label order", () => {
     render(
       <MemoryRouter>
         <SettingsScreen {...baseProps} />
@@ -268,6 +361,11 @@ describe("SettingsScreen information architecture", () => {
       document
         .getElementById("settings-application-defaults")
         ?.contains(screen.getByTestId("panel-application-defaults")),
+    ).toBe(true);
+    expect(
+      document
+        .getElementById("settings-application-authority")
+        ?.contains(screen.getByTestId("panel-application-authority")),
     ).toBe(true);
     expect(
       document
@@ -298,6 +396,7 @@ describe("SettingsScreen information architecture", () => {
     const panels = [
       "panel-app-device",
       "panel-application-defaults",
+      "panel-application-authority",
       "panel-workspace-behavior",
       "panel-tracker",
       "panel-diagnostics-runtime",
@@ -321,7 +420,10 @@ describe("SettingsScreen information architecture", () => {
       </MemoryRouter>,
     );
 
-    const documentsLink = screen.getByRole("link", { name: "Open Documents" });
+    // The standing bordered Documents notice is now one line of header meta
+    // with an inline link, so Settings does not spend a band of a short window
+    // on chrome before its first setting.
+    const documentsLink = screen.getByRole("link", { name: "Documents" });
     // The link must come from the canonical route-path contract, not a local
     // duplicate of the Documents path.
     expect(documentsLink.getAttribute("href")).toBe(
@@ -443,7 +545,7 @@ describe("SettingsScreen section anchor navigation", () => {
       name: "Settings sections",
     });
     const links = within(nav).getAllByRole("link");
-    expect(links).toHaveLength(6);
+    expect(links).toHaveLength(7);
 
     for (const label of sectionLabels) {
       const link = within(nav).getByRole("link", { name: label });

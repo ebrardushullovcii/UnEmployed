@@ -1,34 +1,250 @@
 import {
+  ArrowUp,
+  Check,
   MessageSquare,
-  PanelBottomClose,
-  PanelBottomOpen,
   RotateCcw,
   Sparkles,
-  Wand2,
+  X,
 } from "lucide-react";
-import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
-import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
+import {
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import type {
+  JobFinderWorkspaceSnapshot,
+  ProfileCopilotContext,
+} from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
-import { FieldLabel } from "@renderer/components/ui/field";
 import { ScrollArea } from "@renderer/components/ui/scroll-area";
 import { Textarea } from "@renderer/components/ui/textarea";
 import { cn } from "@renderer/lib/cn";
-import { formatTimestamp } from "../../lib/job-finder-utils";
+import { getProfileCopilotContextKey } from "../../lib/profile-copilot-context";
 import { ProfileCopilotMessageContent } from "./profile-copilot-message-content";
 import {
   describePatchOperation,
-  getProfileCopilotDisplayContent,
   getPatchGroupBadgeVariant,
+  getProfileCopilotContextLabel,
+  getUndonePatchGroupIds,
 } from "./profile-copilot-rail.shared";
 
 type ProfileCopilotMessage =
   JobFinderWorkspaceSnapshot["profileCopilotMessages"][number];
+type ProfileCopilotPatchGroup = ProfileCopilotMessage["patchGroups"][number];
 type ProfileRevision = JobFinderWorkspaceSnapshot["profileRevisions"][number];
 
-export interface ProfileCopilotRevisionEntry {
-  revision: ProfileRevision;
-  summary: string;
+export interface ProfileCopilotFailedRequest {
+  content: string;
+  context: ProfileCopilotContext;
+  message: string;
+}
+
+function getConversationContent(message: ProfileCopilotMessage): string {
+  if (message.patchGroups.length === 0) {
+    return message.content;
+  }
+
+  // The proposal card owns status and approval copy. Do not repeat the old
+  // pending-only sentence in the assistant bubble after the card is shown.
+  return message.content
+    .replace(/\s*(?:Nothing changed yet|No changes made yet)\.?/giu, "")
+    .trim();
+}
+
+function getLatestProfileRevision(
+  revisions: readonly ProfileRevision[],
+): ProfileRevision | null {
+  let latestRevision: ProfileRevision | null = null;
+
+  for (const revision of revisions) {
+    if (
+      latestRevision === null ||
+      revision.createdAt > latestRevision.createdAt
+    ) {
+      latestRevision = revision;
+    }
+  }
+
+  return latestRevision;
+}
+
+function getSafeUndoRevisionId(
+  revisions: readonly ProfileRevision[],
+  patchGroupId: string,
+): string | null {
+  const latestRevision = getLatestProfileRevision(revisions);
+
+  return latestRevision?.trigger === "assistant_patch" &&
+    latestRevision.patchGroupId === patchGroupId
+    ? latestRevision.id
+    : null;
+}
+
+function getPatchGroupStatus(
+  patchGroup: ProfileCopilotPatchGroup,
+  undonePatchGroupIds: ReadonlySet<string>,
+): "needs_review" | "applied" | "rejected" | "undone" {
+  if (
+    patchGroup.applyMode === "applied" &&
+    undonePatchGroupIds.has(patchGroup.id)
+  ) {
+    return "undone";
+  }
+
+  return patchGroup.applyMode;
+}
+
+function getPatchGroupStatusLabel(
+  status: "needs_review" | "applied" | "rejected" | "undone",
+): string {
+  switch (status) {
+    case "needs_review":
+      return "Needs review";
+    case "applied":
+      return "Applied";
+    case "rejected":
+      return "Rejected";
+    case "undone":
+      return "Undone";
+  }
+}
+
+function ProfileCopilotProposalCard(props: {
+  actionsDisabledReason?: string | null | undefined;
+  busy: boolean;
+  onApplyPatchGroup?: ((patchGroupId: string) => void) | undefined;
+  onRejectPatchGroup?: ((patchGroupId: string) => void) | undefined;
+  onUndoRevision?: ((revisionId: string) => void) | undefined;
+  patchGroup: ProfileCopilotPatchGroup;
+  revisions: readonly ProfileRevision[];
+  undonePatchGroupIds: ReadonlySet<string>;
+}) {
+  const persistenceNoteId = useId();
+  const status = getPatchGroupStatus(
+    props.patchGroup,
+    props.undonePatchGroupIds,
+  );
+  const statusLabel = getPatchGroupStatusLabel(status);
+  const actionsDisabled = props.busy || Boolean(props.actionsDisabledReason);
+  const revisionId =
+    status === "applied"
+      ? getSafeUndoRevisionId(props.revisions, props.patchGroup.id)
+      : null;
+
+  return (
+    <section
+      aria-label={`Proposed change: ${props.patchGroup.summary}`}
+      className="grid min-w-0 gap-2 overflow-hidden rounded-(--radius-field) border border-primary/30 bg-(--surface-panel-solid) p-3 shadow-[inset_0_1px_0_var(--surface-inset-highlight)]"
+      data-profile-copilot-proposal="true"
+      data-profile-copilot-proposal-status={status}
+    >
+      <div className="relative grid min-w-0 gap-1 pr-24">
+        <p
+          className="break-words text-sm font-semibold leading-5 text-foreground"
+          title={props.patchGroup.summary}
+        >
+          {props.patchGroup.summary}
+        </p>
+        <Badge
+          className="absolute right-0 top-0 max-w-24 shrink-0"
+          data-profile-copilot-proposal-status-label="true"
+          variant={
+            status === "undone" ? "outline" : getPatchGroupBadgeVariant(status)
+          }
+        >
+          {statusLabel}
+        </Badge>
+        <p className="text-(length:--text-tiny) text-muted-foreground">
+          {props.patchGroup.operations.length} change
+          {props.patchGroup.operations.length === 1 ? "" : "s"}
+        </p>
+      </div>
+
+      <ul className="grid gap-1 text-sm leading-5 text-foreground-soft">
+        {props.patchGroup.operations.map((operation, index) => (
+          <li
+            className="flex min-w-0 gap-2"
+            key={`${props.patchGroup.id}_${index}`}
+          >
+            <span aria-hidden="true" className="text-primary">
+              •
+            </span>
+            <span className="min-w-0 break-words">
+              {describePatchOperation(operation)}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {status === "needs_review" ? (
+        <div className="grid gap-2 border-t border-border/30 pt-2 sm:flex sm:items-center sm:justify-between">
+          <p
+            className="text-(length:--text-tiny) text-muted-foreground"
+            id={persistenceNoteId}
+          >
+            No changes made yet.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            <Button
+              aria-describedby={persistenceNoteId}
+              aria-label={`Apply & save: ${props.patchGroup.summary}`}
+              disabled={actionsDisabled}
+              onClick={() => props.onApplyPatchGroup?.(props.patchGroup.id)}
+              size="xs"
+              type="button"
+            >
+              <Check className="size-3.5" />
+              Apply &amp; save
+            </Button>
+            <Button
+              aria-label={`Reject: ${props.patchGroup.summary}`}
+              disabled={actionsDisabled}
+              onClick={() => props.onRejectPatchGroup?.(props.patchGroup.id)}
+              size="xs"
+              type="button"
+              variant="ghost"
+            >
+              <X className="size-3.5" />
+              Reject
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {status === "applied" && revisionId ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/30 pt-2">
+          <p className="text-(length:--text-tiny) text-muted-foreground">
+            Saved to your profile
+          </p>
+          <Button
+            aria-label={`Undo applied change: ${props.patchGroup.summary}`}
+            disabled={actionsDisabled}
+            onClick={() => props.onUndoRevision?.(revisionId)}
+            size="xs"
+            type="button"
+            variant="ghost"
+          >
+            <RotateCcw className="size-3.5" />
+            Undo
+          </Button>
+        </div>
+      ) : null}
+
+      {props.actionsDisabledReason &&
+      (status === "needs_review" || status === "applied") ? (
+        <p
+          className="text-(length:--text-tiny) text-muted-foreground"
+          role="status"
+        >
+          {props.actionsDisabledReason}
+        </p>
+      ) : null}
+    </section>
+  );
 }
 
 export function ThinkingDots(props: { label: string; className?: string }) {
@@ -48,7 +264,7 @@ export function ThinkingDots(props: { label: string; className?: string }) {
         {[0, 1, 2].map((index) => (
           <span
             key={index}
-            className="size-1.5 rounded-full bg-current animate-bounce"
+            className="size-1.5 animate-bounce rounded-full bg-current"
             style={{
               animationDelay: `${index * 120}ms`,
               animationDuration: "900ms",
@@ -61,141 +277,109 @@ export function ThinkingDots(props: { label: string; className?: string }) {
 }
 
 export function ProfileCopilotTranscript(props: {
-  busy: boolean;
   actionsDisabledReason?: string | null | undefined;
+  busy: boolean;
+  context?: ProfileCopilotContext;
   emptyStateDescription: string;
   emptyStateTitle: string;
+  failedRequest?: ProfileCopilotFailedRequest | null | undefined;
   isPendingHere: boolean;
   messages: readonly ProfileCopilotMessage[];
-  onApplyPatchGroup: (patchGroupId: string) => void;
-  onRejectPatchGroup: (patchGroupId: string) => void;
+  onApplyPatchGroup?: ((patchGroupId: string) => void) | undefined;
+  onRejectPatchGroup?: ((patchGroupId: string) => void) | undefined;
+  onRetryFailedRequest?: (() => void) | undefined;
+  onUndoRevision?: ((revisionId: string) => void) | undefined;
   onUsePrompt: (prompt: string) => void;
   suggestedPrompts?: readonly string[] | undefined;
-  starterQuestion?: string | null | undefined;
   transcriptRef: React.RefObject<HTMLDivElement | null>;
   revisions?: readonly ProfileRevision[] | undefined;
 }) {
+  const currentContext = props.context ?? { surface: "general" as const };
+  const revisions = props.revisions ?? [];
+  const undonePatchGroupIds = useMemo(
+    () => getUndonePatchGroupIds(revisions),
+    [revisions],
+  );
+
   return (
-    <ScrollArea className="min-h-0 flex-1">
+    <ScrollArea
+      className="min-h-0 min-w-0 max-w-full flex-1"
+      data-profile-copilot-transcript="true"
+      viewportClassName="min-w-0 max-w-full overflow-x-hidden"
+      viewportRef={props.transcriptRef}
+    >
       <div
         aria-live="polite"
         aria-relevant="additions text"
-        className="grid gap-3 px-4 py-4"
-        ref={props.transcriptRef}
+        className="grid min-h-full min-w-0 max-w-full content-start gap-3 overflow-x-hidden px-4 py-4"
         role="log"
       >
         {props.messages.length > 0 ? (
           props.messages.map((message) => {
             const isAssistant = message.role === "assistant";
+            const isCurrentContext =
+              getProfileCopilotContextKey(message.context) ===
+              getProfileCopilotContextKey(currentContext);
+            const content = getConversationContent(message);
 
             return (
               <article
                 className={cn(
-                  "grid max-w-full gap-2",
+                  "grid min-w-0 max-w-full gap-1.5",
                   isAssistant ? "justify-items-start" : "justify-items-end",
                 )}
+                data-profile-copilot-message-role={message.role}
                 key={message.id}
               >
                 <div
                   className={cn(
-                    "max-w-full rounded-(--radius-field) border px-3 py-3 text-sm leading-6 shadow-[inset_0_1px_0_var(--surface-inset-highlight)]",
+                    "min-w-0 max-w-[94%] break-words text-sm leading-6",
                     isAssistant
-                      ? "border-primary/25 bg-primary/10 text-foreground"
-                      : "surface-card-tint border-(--surface-panel-border) text-foreground-soft",
+                      ? "text-foreground"
+                      : "surface-card-tint max-w-[84%] rounded-2xl border border-(--surface-panel-border) px-3 py-2.5 text-foreground",
                   )}
                 >
-                  <div className="mb-2 flex items-center gap-2 text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                    {isAssistant ? <Sparkles className="size-3.5" /> : null}
-                    <span>{isAssistant ? "Copilot" : "You"}</span>
-                    <span>{formatTimestamp(message.createdAt)}</span>
-                  </div>
                   {isAssistant ? (
-                    <ProfileCopilotMessageContent
-                      content={getProfileCopilotDisplayContent(message, props.revisions)}
-                    />
-                  ) : (
-                    <p className="whitespace-pre-wrap break-words">
-                      {message.content}
-                    </p>
-                  )}
+                    <div className="mb-1 flex min-w-0 items-center gap-1.5 text-(length:--text-tiny) text-muted-foreground">
+                      <Sparkles className="size-3" />
+                      <span>Assistant</span>
+                      {!isCurrentContext ? (
+                        <span className="truncate">
+                          · {getProfileCopilotContextLabel(message.context)}
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {content ? (
+                    isAssistant ? (
+                      <ProfileCopilotMessageContent content={content} />
+                    ) : (
+                      <p className="whitespace-pre-wrap break-words">
+                        {content}
+                      </p>
+                    )
+                  ) : null}
+
                   {message.executionAttribution?.fallbackUsed ? (
                     <p className="mt-2 text-(length:--text-tiny) text-muted-foreground">
-                      AI was unavailable, so Copilot used the built-in safe
-                      fallback for this reply.
+                      Copilot used its built-in safe fallback for this reply.
                     </p>
                   ) : null}
 
-                  {message.patchGroups.length > 0 ? (
-                    <div className="mt-3 grid gap-2 border-t border-border/25 pt-3">
+                  {isAssistant && message.patchGroups.length > 0 ? (
+                    <div className="mt-2 grid min-w-0 gap-2">
                       {message.patchGroups.map((patchGroup) => (
-                        <div
-                          className="grid gap-2 rounded-(--radius-field) border border-border/35 bg-background/70 p-3"
+                        <ProfileCopilotProposalCard
+                          actionsDisabledReason={props.actionsDisabledReason}
+                          busy={props.busy}
                           key={patchGroup.id}
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold text-foreground">
-                                {patchGroup.summary}
-                              </p>
-                              <p className="text-(length:--text-tiny) uppercase tracking-[0.18em] text-muted-foreground">
-                                {patchGroup.operations.length} structured change
-                                {patchGroup.operations.length === 1 ? "" : "s"}
-                              </p>
-                            </div>
-                            <Badge
-                              variant={getPatchGroupBadgeVariant(
-                                patchGroup.applyMode,
-                              )}
-                            >
-                              {patchGroup.applyMode}
-                            </Badge>
-                          </div>
-
-                          <ul className="grid gap-1 text-sm text-foreground-soft">
-                            {patchGroup.operations.map((operation, index) => (
-                              <li key={`${patchGroup.id}_${index}`}>
-                                • {describePatchOperation(operation)}
-                              </li>
-                            ))}
-                          </ul>
-
-                          {patchGroup.applyMode === "needs_review" ? (
-                            <div className="flex flex-wrap gap-2 pt-1">
-                              <Button
-                                disabled={
-                                  props.busy ||
-                                  Boolean(props.actionsDisabledReason)
-                                }
-                                onClick={() =>
-                                  props.onApplyPatchGroup(patchGroup.id)
-                                }
-                                size="sm"
-                                type="button"
-                              >
-                                Apply changes
-                              </Button>
-                              <Button
-                                disabled={
-                                  props.busy ||
-                                  Boolean(props.actionsDisabledReason)
-                                }
-                                onClick={() =>
-                                  props.onRejectPatchGroup(patchGroup.id)
-                                }
-                                size="sm"
-                                type="button"
-                                variant="ghost"
-                              >
-                                Reject
-                              </Button>
-                            </div>
-                          ) : null}
-                          {props.actionsDisabledReason ? (
-                            <p className="text-(length:--text-tiny) text-muted-foreground">
-                              {props.actionsDisabledReason}
-                            </p>
-                          ) : null}
-                        </div>
+                          onApplyPatchGroup={props.onApplyPatchGroup}
+                          onRejectPatchGroup={props.onRejectPatchGroup}
+                          onUndoRevision={props.onUndoRevision}
+                          patchGroup={patchGroup}
+                          revisions={revisions}
+                          undonePatchGroupIds={undonePatchGroupIds}
+                        />
                       ))}
                     </div>
                   ) : null}
@@ -204,25 +388,24 @@ export function ProfileCopilotTranscript(props: {
             );
           })
         ) : (
-          <div className="flex min-h-48 items-center justify-center">
-            <div className="grid max-h-[min(24rem,calc(100vh-4rem))] w-[min(18rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] gap-3 overflow-y-auto text-center">
-              <div className="surface-card-tint mx-auto flex size-11 items-center justify-center rounded-full border border-(--surface-panel-border) text-muted-foreground">
-                <Wand2 className="size-4" />
-              </div>
-              <p className="font-display text-sm text-foreground">
-                {props.emptyStateTitle}
+          <div className="flex min-h-full items-start justify-center px-2 py-10">
+            <div className="grid w-full max-w-[22rem] gap-2 text-center">
+              <p className="font-display text-sm font-semibold text-foreground">
+                {props.emptyStateTitle === "No requests yet"
+                  ? "What would you like to improve?"
+                  : props.emptyStateTitle}
               </p>
-              <p className="text-sm leading-6 text-foreground-soft">
-                {props.emptyStateDescription}
+              <p className="text-sm leading-5 text-foreground-soft">
+                Ask a question or suggest a change.
               </p>
               {(props.suggestedPrompts?.length ?? 0) > 0 ? (
-                <div className="flex flex-wrap justify-center gap-2">
-                  {props.suggestedPrompts?.map((prompt) => (
+                <div className="mt-1 flex flex-wrap justify-center gap-1.5">
+                  {props.suggestedPrompts?.slice(0, 2).map((prompt) => (
                     <Button
-                      className="h-auto min-h-8 whitespace-normal py-1.5 text-left"
+                      className="h-auto min-w-0 max-w-full break-words whitespace-normal px-2.5 py-1.5 text-left"
                       key={prompt}
                       onClick={() => props.onUsePrompt(prompt)}
-                      size="sm"
+                      size="xs"
                       type="button"
                       variant="secondary"
                     >
@@ -235,96 +418,48 @@ export function ProfileCopilotTranscript(props: {
           </div>
         )}
 
-        {props.isPendingHere ? (
-          <article className="grid justify-items-start gap-2">
-            <div className="max-w-full rounded-(--radius-field) border border-primary/25 bg-primary/10 px-3 py-3 text-sm leading-6 text-foreground shadow-[inset_0_1px_0_var(--surface-inset-highlight)]">
-              <ThinkingDots label="Copilot thinking" className="mb-2" />
-              <p>
-                Reviewing your request. Your saved profile stays unchanged
-                unless you accept a proposed change.
+        {props.failedRequest ? (
+          <article
+            className="grid justify-items-end gap-1.5"
+            data-profile-copilot-failed-turn="true"
+          >
+            <div className="surface-card-tint max-w-[84%] rounded-2xl border border-destructive/35 px-3 py-2.5 text-sm leading-6 text-foreground">
+              <p className="whitespace-pre-wrap break-words">
+                {props.failedRequest.content}
               </p>
+            </div>
+            <div className="flex max-w-full flex-wrap items-center justify-end gap-2 text-(length:--text-tiny)">
+              <p className="text-destructive" role="alert">
+                {props.failedRequest.message}
+              </p>
+              {props.onRetryFailedRequest ? (
+                <Button
+                  aria-label="Retry failed message"
+                  disabled={props.busy || props.isPendingHere}
+                  onClick={props.onRetryFailedRequest}
+                  size="xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  Retry
+                </Button>
+              ) : null}
+            </div>
+          </article>
+        ) : null}
+
+        {props.isPendingHere ? (
+          <article
+            className="grid justify-items-start"
+            data-profile-copilot-pending="true"
+          >
+            <div className="max-w-full px-1 py-1.5 text-sm text-foreground">
+              <ThinkingDots label="Thinking" />
             </div>
           </article>
         ) : null}
       </div>
     </ScrollArea>
-  );
-}
-
-export function ProfileCopilotRevisionTray(props: {
-  busy: boolean;
-  actionsDisabledReason?: string | null | undefined;
-  recentRevisionEntries: readonly ProfileCopilotRevisionEntry[];
-  revisionCount: number;
-  showRevisionTray: boolean;
-  onToggleRevisionTray: () => void;
-  onUndoRevision: (revisionId: string) => void;
-}) {
-  return (
-    <>
-      {props.recentRevisionEntries.length > 0 ? (
-        <div className="mb-3 flex items-center justify-between gap-3 rounded-(--radius-field) border border-border/30 bg-background/70 px-3 py-2">
-          <div className="min-w-0">
-            <p className="text-(length:--text-tiny) uppercase tracking-[0.18em] text-muted-foreground">
-              Recent assistant changes
-            </p>
-            <p className="truncate text-sm text-foreground-soft">
-              {props.recentRevisionEntries[0]?.summary}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="status">{props.revisionCount}</Badge>
-            <Button
-              disabled={props.busy}
-              onClick={props.onToggleRevisionTray}
-              size="compact"
-              type="button"
-              variant="ghost"
-            >
-              {props.showRevisionTray ? (
-                <PanelBottomClose className="size-3.5" />
-              ) : (
-                <PanelBottomOpen className="size-3.5" />
-              )}
-              {props.showRevisionTray ? "Hide" : "Show"}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-
-      {props.showRevisionTray && props.recentRevisionEntries.length > 0 ? (
-        <div className="mb-4 grid max-h-48 gap-2 overflow-y-auto rounded-(--radius-field) border border-border/35 bg-background/70 p-3">
-          {props.recentRevisionEntries.map(({ revision, summary }) => (
-            <div
-              className="flex items-start justify-between gap-3 rounded-(--radius-chip) border border-border/25 bg-background/80 px-3 py-2"
-              key={revision.id}
-            >
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">{summary}</p>
-                <p className="text-(length:--text-tiny) text-muted-foreground">
-                  {formatTimestamp(revision.createdAt)}
-                </p>
-              </div>
-              <Button
-                disabled={props.busy || Boolean(props.actionsDisabledReason)}
-                onClick={() => props.onUndoRevision(revision.id)}
-                size="compact"
-                type="button"
-                variant="ghost"
-              >
-                <RotateCcw className="size-3.5" />
-                Undo
-              </Button>
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {props.showRevisionTray && props.actionsDisabledReason ? (
-        <p className="text-(length:--text-tiny) text-muted-foreground">
-          {props.actionsDisabledReason}
-        </p>
-      ) : null}
-    </>
   );
 }
 
@@ -336,46 +471,89 @@ export function ProfileCopilotComposer(props: {
   onInputChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onSend: () => void;
-  placeholder: string;
+  placeholder?: string | undefined;
   sendDisabledReason?: string | null | undefined;
-  starterQuestion?: string | null | undefined;
-  movementHint?: string | undefined;
 }) {
+  const helperTextId = `${props.composerId}-helper`;
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+
+    if (!textarea) {
+      return;
+    }
+
+    const maxHeight = 80;
+    textarea.style.height = "auto";
+    const contentHeight = Math.max(40, textarea.scrollHeight);
+    textarea.style.height = `${Math.min(contentHeight, maxHeight)}px`;
+    textarea.style.overflowY = contentHeight > maxHeight ? "auto" : "hidden";
+  }, [props.input]);
+
+  const sendDisabled =
+    props.busy ||
+    props.isPendingHere ||
+    props.input.trim().length === 0 ||
+    Boolean(props.sendDisabledReason);
+
   return (
-    <div className="grid gap-3">
-      <div className="grid min-w-0 gap-2">
-        <FieldLabel htmlFor={props.composerId}>Ask for an edit</FieldLabel>
+    <div className="grid shrink-0 gap-1.5" data-profile-copilot-composer="true">
+      <div className="flex min-w-0 items-end gap-1.5 rounded-(--radius-field) border border-(--field-border) bg-(--field) p-1.5 transition-[border-color,background-color,box-shadow] focus-within:border-(--field-focus-border) focus-within:bg-(--field-strong) focus-within:shadow-[var(--field-focus-shadow)]">
         <Textarea
-          className="min-w-0"
+          aria-describedby={helperTextId}
+          aria-keyshortcuts="Enter Shift+Enter"
+          aria-label="Message the Assistant"
+          className="min-h-10 min-w-0 flex-1 resize-none overflow-y-hidden border-0 bg-transparent px-2 py-1.5 text-sm leading-5 shadow-none focus-visible:bg-transparent focus-visible:shadow-none"
           id={props.composerId}
           onChange={(event) => props.onInputChange(event.currentTarget.value)}
           onKeyDown={props.onKeyDown}
-          placeholder={props.starterQuestion ?? props.placeholder}
-          rows={4}
+          placeholder={props.placeholder ?? "Message the Assistant…"}
+          ref={textareaRef}
+          rows={1}
+          title="Enter to send · Shift+Enter for a new line"
           value={props.input}
         />
-      </div>
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-(length:--text-tiny) text-muted-foreground">
-          {props.sendDisabledReason
-            ? props.sendDisabledReason
-            : props.isPendingHere
-              ? "Reviewing your request… You can keep editing or draft your next message."
-              : `Press Enter to send. Shift+Enter adds a new line. ${props.movementHint ?? "Drag the bubble to move it."}`}
-        </p>
         <Button
-          className="min-w-28 px-4"
-          disabled={
-            props.busy ||
-            props.isPendingHere ||
-            props.input.trim().length === 0 ||
-            Boolean(props.sendDisabledReason)
-          }
+          aria-label="Send message"
+          className="size-9 rounded-full p-0"
+          disabled={sendDisabled}
           onClick={props.onSend}
+          size="icon"
+          title="Send message"
           type="button"
         >
-          {props.isPendingHere ? "Preparing..." : "Send request"}
+          <ArrowUp className="size-4" />
         </Button>
+      </div>
+
+      <div
+        className="flex min-w-0 items-center justify-between gap-2"
+        data-profile-copilot-send-row="true"
+      >
+        <p
+          className={cn(
+            "min-w-0 flex-1 text-(length:--text-tiny) leading-4 text-muted-foreground",
+            !props.sendDisabledReason && !props.isPendingHere && "sr-only",
+          )}
+          id={helperTextId}
+        >
+          {props.sendDisabledReason ??
+            (props.isPendingHere
+              ? "Assistant is thinking…"
+              : "Enter to send · Shift+Enter for a new line")}
+        </p>
+        <details
+          className="relative shrink-0 text-(length:--text-tiny) text-muted-foreground"
+          data-profile-copilot-provider-disclosure="true"
+        >
+          <summary className="w-fit cursor-pointer list-none rounded-sm leading-4 underline decoration-from-font underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+            AI settings
+          </summary>
+          <p className="absolute bottom-full right-0 z-10 mb-1 max-w-52 rounded-(--radius-field) border border-border/40 bg-card p-2 leading-4 text-foreground-soft shadow-lg">
+            Uses your configured AI provider and data-sharing settings.
+          </p>
+        </details>
       </div>
     </div>
   );
@@ -384,6 +562,7 @@ export function ProfileCopilotComposer(props: {
 export function ProfileCopilotCollapsedBubble(props: {
   onClick: () => void;
   collapsedPreviewTitle: string;
+  hasPendingReview?: boolean;
   isDraggable?: boolean;
   isOpen: boolean;
   isPendingHere: boolean;
@@ -393,24 +572,37 @@ export function ProfileCopilotCollapsedBubble(props: {
   onPointerMove: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   onPointerUp: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   title?: string | undefined;
+  /**
+   * While a form field is focused the launcher hides so it cannot cover the
+   * text being typed. It stays mounted and focusable, and focusing it (or
+   * leaving the field) brings it straight back.
+   */
+  yieldsToFocusedField?: boolean;
 }) {
   return (
     <Button
-      aria-label={`${props.title ?? "Profile Copilot"}: ${
+      aria-label={`${props.title ?? "the Assistant"}: ${
         props.isPendingHere
           ? "Replying now"
           : props.messageCount > 0
             ? props.collapsedPreviewTitle
-            : "Ask for an edit"
+            : "Message the Assistant"
       }`}
       aria-expanded={props.isOpen}
       aria-haspopup="dialog"
       className={cn(
-        "pointer-events-auto size-12 min-h-12 touch-none select-none rounded-full p-0 shadow-[0_18px_48px_rgba(0,0,0,0.4)]",
+        "pointer-events-auto relative size-12 min-h-12 touch-none select-none rounded-full p-0 shadow-(--guided-edits-bubble-shadow) transition-opacity duration-150 sm:h-12 sm:w-auto sm:min-w-12 sm:px-3",
         props.isDraggable === false
           ? "cursor-pointer"
           : "cursor-grab active:cursor-grabbing",
+        props.yieldsToFocusedField
+          ? "pointer-events-none opacity-0 focus-visible:pointer-events-auto focus-visible:opacity-100"
+          : "opacity-100",
       )}
+      data-profile-copilot-launcher="true"
+      data-profile-copilot-launcher-yielded={
+        props.yieldsToFocusedField ? "true" : "false"
+      }
       onClick={props.onClick}
       onPointerDown={
         props.isDraggable === false ? undefined : props.onPointerDown
@@ -422,7 +614,7 @@ export function ProfileCopilotCollapsedBubble(props: {
         props.isDraggable === false ? undefined : props.onPointerCancel
       }
       onPointerUp={props.isDraggable === false ? undefined : props.onPointerUp}
-      title={`${props.title ?? "Profile Copilot"}: ${props.collapsedPreviewTitle}`}
+      title={`${props.title ?? "the Assistant"}: ${props.collapsedPreviewTitle}`}
       type="button"
       variant={
         props.messageCount > 0 || props.isPendingHere ? "primary" : "secondary"
@@ -430,6 +622,13 @@ export function ProfileCopilotCollapsedBubble(props: {
     >
       <span className="flex size-9 items-center justify-center rounded-full border border-current/15 bg-background/15">
         <MessageSquare className="size-4" />
+      </span>
+      <span className="hidden text-xs font-semibold sm:inline">
+        {props.isPendingHere
+          ? "Working"
+          : props.hasPendingReview
+            ? "Review change"
+            : "Assistant"}
       </span>
       {props.isPendingHere ? (
         <span

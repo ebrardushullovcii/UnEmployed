@@ -186,7 +186,11 @@ function hasCurrentTargetValue(
 
   if (typeof value === "number") {
     if (target.domain === "identity" && target.key === "yearsExperience") {
-      return value > 0;
+      // Zero is a valid, intentional answer for a first-job profile. The
+      // editor rejects empty/invalid values before they reach this canonical
+      // review pipeline, while the profile schema keeps the stored value a
+      // non-negative integer.
+      return value >= 0;
     }
 
     return true;
@@ -421,7 +425,7 @@ function hasPlaceholderAwareIdentityValue(
 function hasPlaceholderAwareFullNameValue(profile: CandidateProfile): boolean {
   return Boolean(
     hasMeaningfulText(profile.fullName) &&
-      !hasProfileSetupPlaceholderValue("fullName", profile.fullName),
+    !hasProfileSetupPlaceholderValue("fullName", profile.fullName),
   );
 }
 
@@ -658,7 +662,7 @@ function buildMissingFieldDrafts(
       target: { domain: "experience", key: "record", recordId: null },
       label: "Work history",
       reason:
-        "Add or confirm at least one meaningful experience record so resumes and fit scoring have grounded background to work from.",
+        "Add at least one meaningful work-history role so resumes and fit scoring have grounded background to work from.",
       severity: "critical",
       proposedValue: null,
       sourceSnippet: null,

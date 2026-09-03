@@ -18,6 +18,8 @@ import {
 import { secureDatabaseFile } from "./internal/migrations";
 import {
   cloneValue,
+  getSingletonValue,
+  getSingletonValueWithRevision,
   listCollectionValues,
   listValues,
   saveSingletonValue,
@@ -395,6 +397,7 @@ export function createFileRepositoryResumeMethods(
       run,
       documentBundles,
       fieldCandidates,
+      expectedProfileRevision,
     }) {
       const normalizedProfile = CandidateProfileSchema.parse(
         cloneValue(profile),
@@ -427,7 +430,45 @@ export function createFileRepositoryResumeMethods(
         }
       }
 
-      runImmediateTransaction(database, () => {
+      const outcome = runImmediateTransaction<
+        | {
+            status: "applied";
+            profile: typeof normalizedProfile;
+            searchPreferences: typeof normalizedSearchPreferences;
+            revision: number;
+          }
+        | {
+            status: "stale";
+            profile: typeof normalizedProfile;
+            searchPreferences: typeof normalizedSearchPreferences;
+            revision: number;
+          }
+      >(database, () => {
+        const persistedProfile = getSingletonValueWithRevision(
+          database,
+          "profile",
+          CandidateProfileSchema,
+        );
+        const currentProfile = persistedProfile.value ?? normalizedProfile;
+        const currentSearchPreferences =
+          getSingletonValue(
+            database,
+            "search_preferences",
+            JobSearchPreferencesSchema,
+          ) ?? normalizedSearchPreferences;
+
+        if (
+          expectedProfileRevision !== undefined &&
+          expectedProfileRevision !== persistedProfile.revision
+        ) {
+          return {
+            status: "stale" as const,
+            profile: currentProfile,
+            searchPreferences: currentSearchPreferences,
+            revision: persistedProfile.revision,
+          };
+        }
+
         saveSingletonValue(database, "profile", normalizedProfile);
         saveSingletonValue(
           database,
@@ -453,9 +494,20 @@ export function createFileRepositoryResumeMethods(
         for (const candidate of normalizedCandidates) {
           writePersistedValue("resume_import_field_candidates", candidate);
         }
+
+        return {
+          status: "applied" as const,
+          profile: normalizedProfile,
+          searchPreferences: normalizedSearchPreferences,
+          revision: persistedProfile.revision + 1,
+        };
       });
 
-      return secureDatabaseFile(filePath);
+      if (outcome.status === "stale") {
+        return Promise.resolve(outcome);
+      }
+
+      return secureDatabaseFile(filePath).then(() => outcome);
     },
     listResumeValidationResults(draftId) {
       return Promise.resolve(

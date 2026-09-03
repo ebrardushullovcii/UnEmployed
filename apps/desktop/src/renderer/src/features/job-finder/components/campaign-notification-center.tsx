@@ -33,6 +33,20 @@ export function CampaignNotificationCenter(props: {
   errorMessage?: string | null;
   loading?: boolean;
   notifications: readonly CampaignNotification[];
+  /**
+   * Work the rest of the app is already reporting (the sidebar badges).
+   * Notifications must never claim nothing has happened while these exist.
+   */
+  outstandingWork?: readonly {
+    id: string;
+    label: string;
+    /**
+     * What the button opens. A bare "Open" beside three different rows told
+     * the reader nothing about where any of them went.
+     */
+    openLabel: string;
+    onOpen: () => void;
+  }[];
   pendingMarkAll: boolean;
   pendingNotificationId: (notificationId: string) => boolean;
   onMarkAllRead: () => void;
@@ -44,21 +58,21 @@ export function CampaignNotificationCenter(props: {
   ).length;
   const hasUnread = unreadCount > 0;
   const hasNotifications = props.notifications.length > 0;
+  const outstandingWork = props.outstandingWork ?? [];
 
   return (
     <section
-      aria-label="Campaign notifications"
+      aria-label="Notifications"
       className="surface-panel-shell grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-            In-app notifications
-          </p>
-          <h2 className="mt-1 font-semibold text-(--text-headline)">
-            Campaign notifications
+          <h2 className="font-semibold text-(--text-headline)">
+            Notifications
           </h2>
-          <p className="mt-1 text-xs text-foreground-muted">
+          {/* Same breathing room between title and description as the other
+              sections on this page. */}
+          <p className="mt-3 text-xs text-foreground-muted">
             {hasNotifications
               ? `${props.notifications.length} total · ${unreadCount} unread`
               : "Strong matches and blocked work appear here. No external email or push is used."}
@@ -83,7 +97,7 @@ export function CampaignNotificationCenter(props: {
           aria-live="polite"
           className="rounded-(--radius-field) border border-border-subtle p-4 text-sm text-foreground-soft"
         >
-          Loading campaign notifications…
+          Loading notifications…
         </p>
       ) : props.errorMessage ? (
         <p
@@ -93,10 +107,31 @@ export function CampaignNotificationCenter(props: {
         >
           {props.errorMessage}
         </p>
+      ) : !hasNotifications && outstandingWork.length > 0 ? (
+        <ul className="grid gap-2" data-testid="notifications-outstanding-work">
+          {outstandingWork.map((entry) => (
+            <li
+              className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-accent/40 bg-accent/5 p-3"
+              key={entry.id}
+            >
+              <span className="min-w-0 break-words text-sm text-foreground-soft">
+                {entry.label}
+              </span>
+              <Button
+                onClick={entry.onOpen}
+                size="xs"
+                type="button"
+                variant="outline"
+              >
+                {entry.openLabel}
+              </Button>
+            </li>
+          ))}
+        </ul>
       ) : !hasNotifications ? (
         <p className="rounded-(--radius-field) border border-border-subtle p-4 text-sm text-foreground-soft">
-          No campaign notifications yet. After a run finishes, strong new
-          matches and blocked work are listed here.
+          Nothing here yet. After a search finishes, strong new matches and work
+          that needs you show up here.
         </p>
       ) : (
         <ul className="grid max-h-80 gap-2 overflow-y-auto pr-1">

@@ -3,26 +3,28 @@ import type {
   ResumeAssistantMessage,
   ResumeDraft,
   ResumeDraftPatch,
+  ResumeProposalApprovalBlocker,
   ResumeValidationResult,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import {
+  diffProposalWording,
+  shouldRenderProposalDiff,
+} from "./resume-assistant-proposal-diff";
+import {
   findProposalPatchTarget,
-  PROPOSED_WORDING_CHECK_NOTE,
+  getProposalPatchEditorTargetId,
   resolveProposalProvenance,
 } from "./resume-assistant-proposal-provenance";
-import type {
-  ProposalProvenance,
-  ProposalProvenanceTone,
-} from "./resume-assistant-proposal-provenance";
+import type { ProposalProvenance } from "./resume-assistant-proposal-provenance";
+import {
+  evaluateResumeProposalPatchVerdict,
+  evaluateResumeProposalVerdict,
+  PROPOSAL_GROUNDING_HEADING,
+  type ResumeProposalPatchVerdict,
+  type ResumeProposalVerdictTone,
+} from "./resume-proposal-verdict";
 import { SourceRefsList } from "./source-refs-list";
-
-const provenanceToneClassNames: Record<ProposalProvenanceTone, string> = {
-  attention: "text-destructive",
-  neutral: "text-foreground-soft",
-  positive: "text-(--success-text)",
-  warning: "text-(--warning-text)",
-};
 
 function readCurrentValue(draft: ResumeDraft, patch: ResumeDraftPatch): string {
   const target = findProposalPatchTarget(draft, patch);
@@ -41,9 +43,9 @@ function readCurrentValue(draft: ResumeDraft, patch: ResumeDraftPatch): string {
     case "remove_bullet":
       return bullet?.text ?? "Bullet is no longer available";
     case "toggle_include":
-      return `${bullet?.included ?? entry?.included ?? section?.included ?? false ? "Included" : "Excluded"}`;
+      return `${(bullet?.included ?? entry?.included ?? section?.included ?? false) ? "Included" : "Excluded"}`;
     case "set_lock":
-      return `${bullet?.locked ?? entry?.locked ?? section?.locked ?? false ? "Locked" : "Unlocked"}`;
+      return `${(bullet?.locked ?? entry?.locked ?? section?.locked ?? false) ? "Locked" : "Unlocked"}`;
     case "replace_section_bullets":
       return (entry?.bullets ?? section?.bullets ?? [])
         .map((candidate) => candidate.text)
@@ -83,44 +85,106 @@ function operationLabel(operation: ResumeDraftPatch["operation"]): string {
 }
 
 /**
- * Display-only provenance for one proposed change. Saved validation never
- * describes proposed wording, so the disclosure only reports the current saved
- * text and always points out that new wording is checked after accepting and
- * saving.
+ * The proposal rendered on the wording it changes: removed words struck out,
+ * added words highlighted, everything else left alone. Two opaque "Before" and
+ * "After" paragraphs made the user re-read a whole bullet to find the handful
+ * of words the assistant touched.
  */
-function ProposalGroundingDisclosure(props: { provenance: ProposalProvenance }) {
+function ProposalWordingDiff(props: { after: string; before: string }) {
+  const parts = diffProposalWording(props.before, props.after);
+
+  return (
+    <span
+      className="whitespace-pre-wrap break-words text-foreground"
+      data-resume-proposal-diff
+    >
+      <span className="sr-only">
+        Proposed wording, with removals and additions marked.
+      </span>
+      {parts.map((part, index) =>
+        part.kind === "removed" ? (
+          <del
+            className="rounded-[3px] bg-destructive/15 text-foreground-soft decoration-destructive/70"
+            key={`diff_${index}`}
+          >
+            {part.text}
+          </del>
+        ) : part.kind === "added" ? (
+          <ins
+            className="rounded-[3px] bg-(--success-surface) text-(--success-text) no-underline"
+            key={`diff_${index}`}
+          >
+            {part.text}
+          </ins>
+        ) : (
+          <span key={`diff_${index}`}>{part.text}</span>
+        ),
+      )}
+    </span>
+  );
+}
+
+const verdictToneClassNames: Record<ResumeProposalVerdictTone, string> = {
+  blocked: "text-destructive",
+  clear: "text-(--success-text)",
+  removal: "text-(--warning-text)",
+};
+
+/**
+ * One verdict per proposed change, from one evaluation, with its reason always
+ * attached. This used to be a collapsed `<details>` whose summary printed a
+ * verdict word ("Why this edit is grounded" / "Why this edit would block
+ * approval") with the body hidden behind a marker-less summary, so the panel
+ * read as an orphaned uppercase label directly above Accept. It is now a plain
+ * block: one heading, one outcome sentence, and the reasons behind it.
+ */
+function ProposalGroundingVerdict(props: {
+  provenance: ProposalProvenance;
+  verdict: ResumeProposalPatchVerdict;
+}) {
   const provenance = props.provenance;
 
   return (
-    <details className="min-w-0">
-      <summary className="cursor-pointer list-none select-none text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-caps) text-muted-foreground transition hover:text-foreground [&::-webkit-details-marker]:hidden">
-        Why this edit is grounded
-      </summary>
-      <div className="mt-2 grid min-w-0 gap-2 border-t border-(--surface-panel-border) pt-2 text-xs leading-5">
-        {provenance.savedTextCheck ? (
-          <p
-            className={`font-medium ${provenanceToneClassNames[provenance.savedTextCheck.tone]}`}
-          >
-            {provenance.savedTextCheck.label}
-          </p>
-        ) : null}
-        {provenance.targetFound ? (
+    <div
+      className="grid min-w-0 gap-1.5 border-t border-(--surface-panel-border) pt-2"
+      data-resume-proposal-grounding
+      data-resume-proposal-grounding-tone={props.verdict.tone}
+    >
+      <p className="text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-caps) text-muted-foreground">
+        {PROPOSAL_GROUNDING_HEADING}
+      </p>
+      <p
+        className={`text-xs font-medium leading-5 ${verdictToneClassNames[props.verdict.tone]}`}
+        data-resume-proposal-grounding-outcome
+      >
+        {props.verdict.outcome}
+      </p>
+      <div className="grid min-w-0 gap-1 text-xs leading-5 text-foreground-soft">
+        {props.verdict.reasons.map((reason, reasonIndex) => (
+          <p key={`grounding_reason_${reasonIndex}`}>{reason}</p>
+        ))}
+        {provenance.targetFound && provenance.sourceRefs.length > 0 ? (
           <SourceRefsList
             sourceRefs={provenance.sourceRefs}
             variant="compact"
           />
-        ) : (
-          <p className="text-foreground-soft">
-            This edit points at a target that is no longer in the draft.
-          </p>
-        )}
-        {provenance.savedTextCheck ? (
-          <p className="text-(length:--text-tiny) text-muted-foreground">
-            {PROPOSED_WORDING_CHECK_NOTE}
-          </p>
         ) : null}
       </div>
-    </details>
+    </div>
+  );
+}
+
+function findPatchApprovalBlockers(
+  message: ResumeAssistantMessage,
+  patch: ResumeDraftPatch,
+): ResumeProposalApprovalBlocker[] {
+  return (message.approvalBlockers ?? []).filter(
+    (blocker) =>
+      blocker.patchId === patch.id ||
+      (blocker.patchId === null &&
+        blocker.sectionId === patch.targetSectionId &&
+        (blocker.entryId ?? null) === (patch.targetEntryId ?? null) &&
+        (blocker.bulletId ?? null) === (patch.targetBulletId ?? null)),
   );
 }
 
@@ -128,6 +192,13 @@ export function ResumeAssistantProposalCard(props: {
   draft: ResumeDraft;
   isPending: boolean;
   message: ResumeAssistantMessage;
+  /**
+   * Opens the exact editor field a proposed change lands on. The blocked-state
+   * copy says the wording has to be user-edited, so the panel offers that route
+   * instead of only "reject" and an accept that the app has already said cannot
+   * be approved.
+   */
+  onEditWording?: (targetId: string) => void;
   onResolve: (
     proposalId: string,
     action: "accept" | "reject",
@@ -139,11 +210,31 @@ export function ResumeAssistantProposalCard(props: {
     () => props.message.patches.map((patch) => patch.id),
   );
   const pending = props.message.proposalStatus === "pending";
+  const blockedSelectionCount = props.message.patches.filter(
+    (patch) =>
+      selectedPatchIds.includes(patch.id) &&
+      findPatchApprovalBlockers(props.message, patch).length > 0,
+  ).length;
+  // One evaluation drives every grounding statement on this card: the
+  // per-change verdicts, this summary, and the accept control's own wording.
+  const proposalVerdict = evaluateResumeProposalVerdict({
+    draft: props.draft,
+    message: props.message,
+    validation: props.validation ?? null,
+  });
+  const firstBlockedEditableTargetId =
+    props.message.patches
+      .filter(
+        (patch) => findPatchApprovalBlockers(props.message, patch).length > 0,
+      )
+      .map(getProposalPatchEditorTargetId)
+      .find((targetId): targetId is string => targetId !== null) ?? null;
 
   return (
     <section
-      aria-label="Guided edits proposal"
+      aria-label="Assistant proposal"
       className="mt-3 grid gap-3 rounded-(--radius-field) border border-primary/25 bg-background/70 p-3"
+      data-resume-assistant-proposal={props.message.id}
     >
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-semibold uppercase tracking-(--tracking-caps) text-primary">
@@ -156,11 +247,21 @@ export function ResumeAssistantProposalCard(props: {
       <div className="grid gap-3">
         {props.message.patches.map((patch, index) => {
           const selected = selectedPatchIds.includes(patch.id);
+          const patchApprovalBlockers = findPatchApprovalBlockers(
+            props.message,
+            patch,
+          );
           const provenance = resolveProposalProvenance({
             claimAssessments: props.validation?.claimAssessments ?? [],
             draft: props.draft,
             patch,
           });
+          const currentValue = readCurrentValue(props.draft, patch);
+          const proposedValue = readProposedValue(patch);
+          const rendersDiff = shouldRenderProposalDiff(
+            currentValue,
+            proposedValue,
+          );
           const comparison = (
             <>
               <span className="flex items-center gap-2 text-xs font-semibold capitalize text-foreground">
@@ -194,20 +295,36 @@ export function ResumeAssistantProposalCard(props: {
                 {provenance.targetLabel}
               </span>
               <span className="grid gap-1 text-xs leading-5">
-                {pending ? (
+                {rendersDiff ? (
                   <>
-                    <span className="text-muted-foreground">Before</span>
-                    <span className="whitespace-pre-wrap break-words text-foreground-soft">
-                      {readCurrentValue(props.draft, patch)}
+                    <span className="text-muted-foreground">
+                      {pending ? "Proposed change" : "Proposed"}
                     </span>
-                    <span className="mt-1 text-muted-foreground">After</span>
+                    <ProposalWordingDiff
+                      after={proposedValue}
+                      before={currentValue}
+                    />
                   </>
                 ) : (
-                  <span className="text-muted-foreground">Proposed</span>
+                  <>
+                    {pending ? (
+                      <>
+                        <span className="text-muted-foreground">Before</span>
+                        <span className="whitespace-pre-wrap break-words text-foreground-soft">
+                          {currentValue}
+                        </span>
+                        <span className="mt-1 text-muted-foreground">
+                          After
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">Proposed</span>
+                    )}
+                    <span className="whitespace-pre-wrap break-words text-foreground">
+                      {proposedValue}
+                    </span>
+                  </>
                 )}
-                <span className="whitespace-pre-wrap break-words text-foreground">
-                  {readProposedValue(patch)}
-                </span>
               </span>
             </>
           );
@@ -220,53 +337,154 @@ export function ResumeAssistantProposalCard(props: {
               {pending ? (
                 // The disclosure stays outside this label so toggling it never
                 // flips the proposal selection checkbox.
-                <label className="grid cursor-pointer gap-2">{comparison}</label>
+                <label className="grid cursor-pointer gap-2">
+                  {comparison}
+                </label>
               ) : (
                 <div className="grid gap-2">{comparison}</div>
               )}
-              <ProposalGroundingDisclosure provenance={provenance} />
+              {patchApprovalBlockers.length > 0 ? (
+                <div
+                  className="grid gap-1 rounded-(--radius-field) border border-destructive/45 bg-destructive/10 px-2.5 py-2 text-(length:--text-tiny) leading-4 text-(--text-headline)"
+                  data-resume-proposal-approval-blocker={patch.id}
+                >
+                  <span className="font-semibold uppercase tracking-(--tracking-caps) text-destructive">
+                    Would block approval
+                  </span>
+                  {patchApprovalBlockers.map((blocker, blockerIndex) => (
+                    <span
+                      className="grid gap-0.5"
+                      key={`${patch.id}_blocker_${blockerIndex}`}
+                    >
+                      <span>{blocker.message}</span>
+                      {blocker.flaggedText ? (
+                        <q className="text-foreground-soft">
+                          {blocker.flaggedText}
+                        </q>
+                      ) : null}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              <ProposalGroundingVerdict
+                provenance={provenance}
+                verdict={evaluateResumeProposalPatchVerdict({
+                  blockers: patchApprovalBlockers,
+                  patch,
+                  provenance,
+                })}
+              />
             </div>
           );
         })}
       </div>
+      {pending ? (
+        <p
+          className={
+            proposalVerdict.tone === "blocked"
+              ? "rounded-(--radius-field) border border-destructive/45 bg-destructive/10 px-3 py-2 text-(length:--text-small) leading-5 text-(--text-headline)"
+              : "rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-fill-soft) px-3 py-2 text-(length:--text-small) leading-5 text-foreground-soft"
+          }
+          data-resume-proposal-approval-warning
+          role="status"
+        >
+          {proposalVerdict.summary}
+        </p>
+      ) : null}
       {props.message.proposalError ? (
         <p className="text-sm text-destructive" role="alert">
           {props.message.proposalError}
         </p>
       ) : null}
       {pending ? (
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button
-            disabled={props.isPending}
-            onClick={() => props.onResolve(props.message.id, "reject", [])}
-            size="sm"
-            type="button"
-            variant="secondary"
-          >
-            Reject proposal
-          </Button>
-          <Button
-            disabled={props.isPending || selectedPatchIds.length === 0}
-            onClick={() =>
-              props.onResolve(
-                props.message.id,
-                "accept",
-                selectedPatchIds,
-              )
-            }
-            size="sm"
-            type="button"
-          >
-            Accept selected ({selectedPatchIds.length})
-          </Button>
+        // The decision row is the reason this card exists. It sticks to the
+        // bottom of whichever scroll region holds the transcript so it stays
+        // painted at short window heights instead of being clipped below the
+        // composer.
+        <div
+          className="sticky bottom-0 z-10 -mx-3 -mb-3 grid gap-2 rounded-b-(--radius-field) border-t border-(--surface-panel-border) bg-background/95 px-3 py-2.5 backdrop-blur-sm"
+          data-resume-proposal-decision-row
+        >
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {blockedSelectionCount > 0 &&
+            firstBlockedEditableTargetId &&
+            props.onEditWording ? (
+              <Button
+                data-resume-proposal-edit-wording
+                disabled={props.isPending}
+                onClick={() =>
+                  props.onEditWording?.(firstBlockedEditableTargetId)
+                }
+                size="sm"
+                type="button"
+                variant="primary"
+              >
+                Edit this wording myself
+              </Button>
+            ) : null}
+            <Button
+              disabled={props.isPending}
+              onClick={() => props.onResolve(props.message.id, "reject", [])}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Reject proposal
+            </Button>
+            <Button
+              // A blocked selection demotes this from the primary action, but
+              // a bare ghost button had no boundary at all: "Accept anyway (1)"
+              // read as text sitting next to the bordered "Reject proposal",
+              // not as a control. The ghost fill keeps it subordinate while
+              // `--control-border` gives it the >=3:1 boundary every clickable
+              // thing on this screen has.
+              className={
+                blockedSelectionCount > 0
+                  ? "border border-(--control-border)"
+                  : undefined
+              }
+              data-resume-proposal-accept
+              disabled={props.isPending || selectedPatchIds.length === 0}
+              onClick={() =>
+                props.onResolve(props.message.id, "accept", selectedPatchIds)
+              }
+              size="sm"
+              type="button"
+              variant={blockedSelectionCount > 0 ? "ghost" : "primary"}
+            >
+              {blockedSelectionCount > 0
+                ? `Accept anyway (${selectedPatchIds.length})`
+                : `Accept selected (${selectedPatchIds.length})`}
+            </Button>
+          </div>
+          {blockedSelectionCount > 0 ? (
+            <p className="text-(length:--text-tiny) leading-4 text-foreground-soft">
+              Accepting a blocked change keeps approval disabled until you
+              rewrite the flagged wording.
+            </p>
+          ) : null}
         </div>
-      ) : props.message.proposalStatus === "accepted" ? (
-        <p className="text-xs text-foreground-soft">
-          Accepted {props.message.resolvedPatchIds.length} of{" "}
-          {props.message.patches.length} proposed changes. Undo remains available
-          in version history.
+      ) : (
+        // A click on a consequential control must never produce a zero-pixel
+        // diff. Both outcomes leave a persistent line in the thread, including
+        // the case where the grounding verifier refused every selected change.
+        <p
+          className={
+            props.message.proposalStatus === "accepted" &&
+            props.message.resolvedPatchIds.length > 0
+              ? "text-xs leading-5 text-foreground-soft"
+              : "text-xs leading-5 text-(--warning-text)"
+          }
+          data-resume-proposal-result
+          role="status"
+        >
+          {props.message.proposalStatus === "accepted"
+            ? props.message.resolvedPatchIds.length > 0
+              ? `Applied ${props.message.resolvedPatchIds.length} of ${props.message.patches.length} proposed changes. The studio shows an Undo for this edit beside the draft.`
+              : "Not applied — none of the selected changes passed the grounding check, so your draft is unchanged."
+            : "Not applied — this proposal was rejected and your draft is unchanged."}
         </p>
-      ) : null}
+      )}
     </section>
   );
 }

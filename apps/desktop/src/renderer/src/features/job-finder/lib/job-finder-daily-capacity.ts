@@ -30,40 +30,31 @@ export function formatDailyPreparationResetTime(resetsAt: string): string {
  */
 export const FALLBACK_DAILY_APPLICATION_PREPARATION_LIMIT = 20;
 
-function formatDailyPreparationUsageCounts(
-  capacity: GlobalDailyApplicationPreparationCapacity,
-): string {
-  // Preserves the established footer wording: the exact begun count first,
-  // then legacy-uncertain records only when any exist.
-  const legacySuffix =
-    capacity.legacyUncertain > 0
-      ? ` / ${capacity.legacyUncertain} older ${
-          capacity.legacyUncertain === 1
-            ? "record may also have begun"
-            : "records may also have begun"
-        }`
-      : "";
-  return `${capacity.used} exact begun${legacySuffix}`;
-}
-
 /**
- * The always-visible footer summary for the fixed local-day limit. A missing
- * capacity object stays truthful by falling back to the safeguard maximum;
- * an exhausted day says when more room arrives instead of formatting a reset
- * that has no bearing until midnight passes.
+ * The quiet footer summary for the fixed local-day limit, in plain language:
+ * "Applications today: 3 of 20 used · resets at midnight". Older records
+ * whose start could not be verified are named only when any exist, so the
+ * exact count never silently absorbs them. A missing capacity object stays
+ * truthful by naming the safeguard maximum; an exhausted day says when more
+ * room arrives instead of formatting a reset time.
  */
 export function formatDailyPreparationCapacitySummaryText(
   capacity: GlobalDailyApplicationPreparationCapacity | null | undefined,
 ): string {
   if (!capacity) {
-    return `Daily safeguard: up to ${FALLBACK_DAILY_APPLICATION_PREPARATION_LIMIT} begun employer applications per local day.`;
+    return `Applications today: up to ${FALLBACK_DAILY_APPLICATION_PREPARATION_LIMIT} per day`;
   }
 
-  return `${formatDailyPreparationUsageCounts(capacity)} of ${capacity.limit} / ${capacity.remaining} remaining. ${
-    isDailyPreparationCapacityExhausted(capacity)
-      ? "More application preparation is available after local midnight."
-      : `Resets at local midnight (${formatDailyPreparationResetTime(capacity.resetsAt)}).`
-  }`;
+  const legacySuffix =
+    capacity.legacyUncertain > 0
+      ? ` (${capacity.legacyUncertain} older ${
+          capacity.legacyUncertain === 1 ? "record" : "records"
+        } may also count)`
+      : "";
+  const tail = isDailyPreparationCapacityExhausted(capacity)
+    ? "more available after midnight"
+    : "resets at midnight";
+  return `Applications today: ${capacity.used} of ${capacity.limit} used${legacySuffix} · ${tail}`;
 }
 
 /**

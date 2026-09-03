@@ -12,6 +12,10 @@ export const profileSetupStepValues = [
   "essentials",
   "background",
   "targeting",
+  "extras",
+  // Retired step ids. They stay in the enum so an existing workspace still
+  // parses; `normalizeProfileSetupStep` maps every stored value onto one of
+  // the five visible steps above at parse time.
   "narrative",
   "answers",
   "ready_check",
@@ -19,8 +23,50 @@ export const profileSetupStepValues = [
 export const ProfileSetupStepSchema = z.enum(profileSetupStepValues);
 export type ProfileSetupStep = z.infer<typeof ProfileSetupStepSchema>;
 
+/**
+ * The five steps guided setup actually shows, in order. "Your story" and
+ * "Screener answers" merged into one optional "Extras" step, and the old
+ * "Ready check" step became the finish action on Job targets.
+ */
+export const profileSetupVisibleStepValues = [
+  "import",
+  "essentials",
+  "background",
+  "targeting",
+  "extras",
+] as const;
+export type ProfileSetupVisibleStep =
+  (typeof profileSetupVisibleStepValues)[number];
+
+/**
+ * Maps any stored step id — including the retired `narrative`, `answers`, and
+ * `ready_check` values — onto the visible step that now owns its content.
+ * This is the single migration point for persisted `currentStep` values and
+ * for review items recorded against a retired step.
+ */
+export function normalizeProfileSetupStep(
+  step: ProfileSetupStep,
+): ProfileSetupVisibleStep {
+  switch (step) {
+    case "narrative":
+    case "answers":
+      return "extras";
+    case "ready_check":
+      // Finishing setup now happens on Job targets, so a workspace parked on
+      // the old summary screen resumes at the step that owns the finish
+      // action instead of a step that no longer exists.
+      return "targeting";
+    default:
+      return step;
+  }
+}
+
+const CanonicalProfileSetupStepSchema = ProfileSetupStepSchema.transform(
+  (step): ProfileSetupStep => normalizeProfileSetupStep(step),
+);
+
 const profileSetupStepOrder = new Map(
-  profileSetupStepValues.map((step, index) => [step, index]),
+  profileSetupVisibleStepValues.map((step, index) => [step, index]),
 );
 
 export const ProfileSetupStatusSchema = z.enum([
@@ -81,7 +127,7 @@ export type ProfileReviewTarget = z.infer<typeof ProfileReviewTargetSchema>;
 
 export const ProfileReviewItemSchema = z.object({
   id: NonEmptyStringSchema,
-  step: ProfileSetupStepSchema,
+  step: CanonicalProfileSetupStepSchema,
   target: ProfileReviewTargetSchema,
   label: NonEmptyStringSchema,
   reason: NonEmptyStringSchema,
@@ -119,7 +165,7 @@ export type ProfileSetupReviewActionOptions = z.infer<
 
 export const ProfileSetupStateSchema = z.object({
   status: ProfileSetupStatusSchema.default("not_started"),
-  currentStep: ProfileSetupStepSchema.default("import"),
+  currentStep: CanonicalProfileSetupStepSchema.default("import"),
   completedAt: IsoDateTimeSchema.nullable().default(null),
   reviewItems: z.array(ProfileReviewItemSchema).default([]),
   lastResumedAt: IsoDateTimeSchema.nullable().default(null),
@@ -305,9 +351,11 @@ function getHighestPriorityPendingStep(
     .filter((item) => item.status === "pending")
     .sort((left, right) => {
       const leftIndex =
-        profileSetupStepOrder.get(left.step) ?? Number.MAX_SAFE_INTEGER;
+        profileSetupStepOrder.get(normalizeProfileSetupStep(left.step)) ??
+        Number.MAX_SAFE_INTEGER;
       const rightIndex =
-        profileSetupStepOrder.get(right.step) ?? Number.MAX_SAFE_INTEGER;
+        profileSetupStepOrder.get(normalizeProfileSetupStep(right.step)) ??
+        Number.MAX_SAFE_INTEGER;
 
       return leftIndex - rightIndex;
     });
@@ -315,12 +363,35 @@ function getHighestPriorityPendingStep(
   return pendingItems[0]?.step ?? null;
 }
 
+/**
+ * Only critical items and required missing-field items gate completion.
+ * Recommended imported suggestions (they carry a proposal or a source
+ * candidate) stay optional to review, so a user is never forced to confirm
+ * or dismiss an import suggestion before finishing setup.
+ */
+export function isProfileSetupFinishBlockingReviewItem(
+  item: ProfileReviewItem,
+): boolean {
+  if (item.status !== "pending") {
+    return false;
+  }
+  if (item.severity === "critical") {
+    return true;
+  }
+  return (
+    item.severity !== "optional" &&
+    item.target.recordId === null &&
+    item.proposedValue === null &&
+    item.sourceCandidateId === null &&
+    item.sourceRunId === null &&
+    item.sourceSnippet === null
+  );
+}
+
 function hasBlockingPendingReviewItems(
   reviewItems: readonly ProfileReviewItem[],
 ): boolean {
-  return reviewItems.some(
-    (item) => item.status === "pending" && item.severity !== "optional",
-  );
+  return reviewItems.some(isProfileSetupFinishBlockingReviewItem);
 }
 
 function hasMeaningfulText(value: string | null | undefined): boolean {
@@ -503,7 +574,9 @@ export function evaluateProfileSetupReadiness(
     hasAnswerBank,
   );
 
-  let recommendedStep: ProfileSetupStep = "ready_check";
+  // Job targets owns the finish action, so a materially complete profile
+  // resumes there rather than on a summary screen that no longer exists.
+  let recommendedStep: ProfileSetupStep = "targeting";
   if (!hasResumeText) {
     recommendedStep = "import";
   } else if (!hasCoreIdentity || !hasContactPath) {
@@ -516,10 +589,8 @@ export function evaluateProfileSetupReadiness(
     !hasDiscoverySource
   ) {
     recommendedStep = "targeting";
-  } else if (!hasNarrative) {
-    recommendedStep = "narrative";
-  } else if (!hasAnswerBank) {
-    recommendedStep = "answers";
+  } else if (!hasNarrative || !hasAnswerBank) {
+    recommendedStep = "extras";
   }
 
   return {
@@ -570,7 +641,7 @@ export function deriveProfileSetupState(
 
   const currentStep =
     status === "completed"
-      ? "ready_check"
+      ? "targeting"
       : status === "not_started"
         ? "import"
         : currentState?.status === "in_progress"

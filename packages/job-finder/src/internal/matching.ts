@@ -39,7 +39,12 @@ export {
   buildDiscoveryJobs,
   buildReviewQueue,
 } from "./matching-review-queue";
-import { normalizeText, tokenize, uniqueStrings } from "./shared";
+import {
+  isAbsentFieldText,
+  normalizeText,
+  tokenize,
+  uniqueStrings,
+} from "./shared";
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1283,6 +1288,12 @@ export function assessLocationCompatibility(
     return "compatible";
   }
 
+  // An absence placeholder is not a place. Comparing it against a saved city
+  // can only ever produce a conflict the app never actually observed.
+  if (isAbsentFieldText(candidate)) {
+    return "unknown";
+  }
+
   const candidateSignal = readLocationGeographySignal(candidate);
   const desiredSignals = desiredValues.map(readLocationGeographySignal);
 
@@ -1329,6 +1340,55 @@ export function assessLocationCompatibility(
   return hasGeographicDesired ? "incompatible" : "unknown";
 }
 
+export interface PostingLocationCompatibility {
+  state: LocationCompatibilityState;
+  /**
+   * True when the saved places alone would have read as outside or unknown,
+   * but the listing is remote and remote is one of the preferred work modes,
+   * so the place comparison no longer decides fit.
+   */
+  remotePreferenceApplied: boolean;
+}
+
+/**
+ * Location fit for a posting, honoring the saved work modes. A user who
+ * prefers remote work has said that where the employer sits matters less than
+ * how the job is done, so a remote listing must not be scored as "outside the
+ * saved areas" merely because its stated place is not the saved city. An
+ * explicit regional restriction that excludes every saved area (for example
+ * "Remote - United States" against a European place) still needs the user's
+ * confirmation and stays unknown rather than compatible.
+ */
+export function assessPostingLocationCompatibility(
+  posting: Pick<MatchAssessmentPostingInput, "location" | "workMode">,
+  searchPreferences: Pick<JobSearchPreferences, "locations" | "workModes">,
+): PostingLocationCompatibility {
+  const state = assessLocationCompatibility(
+    posting.location,
+    searchPreferences.locations,
+  );
+  if (state === "compatible" || searchPreferences.locations.length === 0) {
+    return { state, remotePreferenceApplied: false };
+  }
+
+  const listingIsRemote =
+    posting.workMode.includes("remote") ||
+    /\bremote\b/iu.test(posting.location);
+  const prefersRemote = searchPreferences.workModes.includes("remote");
+  if (!listingIsRemote || !prefersRemote) {
+    return { state, remotePreferenceApplied: false };
+  }
+
+  const broadCompatibility = getBroadLocationCompatibility(
+    posting.location,
+    searchPreferences.locations,
+  );
+  return {
+    state: broadCompatibility === false ? "unknown" : "compatible",
+    remotePreferenceApplied: true,
+  };
+}
+
 export function matchesLocationPreference(
   candidate: string,
   desiredValues: readonly string[],
@@ -1338,10 +1398,7 @@ export function matchesLocationPreference(
   return assessLocationCompatibility(candidate, desiredValues) === "compatible";
 }
 
-export type WorkModeCompatibilityState =
-  | "compatible"
-  | "conflict"
-  | "unknown";
+export type WorkModeCompatibilityState = "compatible" | "conflict" | "unknown";
 
 /**
  * Positive preference fit only, from concrete listing evidence. A listing that
@@ -1385,6 +1442,11 @@ export function matchesExcludedLocation(
   excludedValues: readonly string[],
 ): boolean {
   if (excludedValues.length === 0) {
+    return false;
+  }
+
+  // An absence placeholder cannot be excluded: nothing was observed to exclude.
+  if (isAbsentFieldText(candidate)) {
     return false;
   }
 
@@ -1521,10 +1583,10 @@ export function createMatchAssessment<
     searchPreferences.targetRoles.some(
       (role) => collectRoleFamilies(role).size > 0,
     ) && collectRoleFamilies(posting.title).size === 0;
-  const locationCompatibility = assessLocationCompatibility(
-    posting.location,
-    searchPreferences.locations,
-  );
+  const {
+    state: locationCompatibility,
+    remotePreferenceApplied: locationRemotePreferenceApplied,
+  } = assessPostingLocationCompatibility(posting, searchPreferences);
   const workModeCompatibility = assessWorkModeCompatibility(
     posting.workMode,
     searchPreferences.workModes,
@@ -1585,9 +1647,11 @@ export function createMatchAssessment<
     profile,
     posting,
     locationCompatibility,
+    locationRemotePreferenceApplied,
     workModeCompatibility,
     hasLocationPreferences: searchPreferences.locations.length > 0,
     hasWorkModePreferences: searchPreferences.workModes.length > 0,
+    targetRoles: searchPreferences.targetRoles,
   });
   const missingCoreRequirements = requirements.filter(
     (requirement) =>
@@ -1637,7 +1701,11 @@ export function createMatchAssessment<
     // matches a location the user explicitly chose.
   } else if (locationCompatibility === "compatible") {
     score += 10;
-    reasons.push("Location fits the saved search preferences.");
+    reasons.push(
+      locationRemotePreferenceApplied
+        ? "Remote listing; remote is one of your preferred work modes."
+        : "Location fits the saved search preferences.",
+    );
   } else if (locationCompatibility === "incompatible") {
     score -= 10;
     gaps.push("Location falls outside the preferred search areas.");
@@ -1778,6 +1846,7 @@ export function createMatchAssessment<
     roleFamilyMismatch,
     roleFamilyUnclear,
     locationCompatibility,
+    locationRemotePreferenceApplied,
     workModeCompatibility,
     isPreferredCompany,
   });

@@ -34,14 +34,14 @@ export function SettingsWorkspaceControls({
           <p className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
             Start over
           </p>
-          <h2 className="font-display text-lg font-semibold text-(--text-headline)">
+          <h2 className="font-display font-semibold text-(--text-headline)">
             Reset this device workspace
           </h2>
           <p className="text-sm leading-6 text-foreground-soft">
             Your workspace and resume stay on this device until you choose to
-            reset them. Reset permanently removes your profile, imported
-            resume, saved jobs, tailored resumes, application history, and
-            browser session data from this device.
+            reset them. Reset permanently removes your profile, imported resume,
+            saved jobs, tailored resumes, application history, and browser
+            session data from this device.
           </p>
         </div>
         <div className="grid justify-items-start gap-2">
@@ -85,7 +85,7 @@ export function SettingsWorkspaceControls({
                     Permanent device reset
                   </p>
                   <h2
-                    className="font-display text-xl font-semibold text-(--text-headline)"
+                    className="font-display font-semibold text-(--text-headline)"
                     id={dialogTitleId}
                   >
                     Reset this device workspace?

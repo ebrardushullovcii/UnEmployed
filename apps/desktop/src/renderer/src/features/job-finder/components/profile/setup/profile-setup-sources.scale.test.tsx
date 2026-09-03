@@ -185,8 +185,8 @@ describe("ProfileSetupTargetingStep source scale", () => {
     ).toBeTruthy();
     expect(
       screen
-        .getByRole("button", {
-          name: "Enable Source 001 in searches",
+        .getByRole("checkbox", {
+          name: "Include Source 001 in searches",
         })
         .hasAttribute("disabled"),
     ).toBe(true);

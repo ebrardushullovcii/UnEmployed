@@ -2,25 +2,1721 @@
 
 Read this only for active feature work, handoff updates, broad repo changes, or unclear current state.
 
-Updated: 2026-08-26
+Updated: 2026-09-03
 
 ## Current Truth
 
+- **Active workflow decision (2026-08-31):** the product is still being shaped,
+  so sealed acceptance, fingerprints, external seal custody, full `pnpm
+verify`, `pnpm test:evidence`, and canonical P01-P14 waves are deferred until
+  the user explicitly declares a release candidate. The active loop is now:
+  run a small number of independent current-build product testers, retain
+  inspectable screenshots and concrete feedback, synthesize findings by root
+  cause, implement one coherent fix batch, run only focused checks for touched
+  behavior, rebuild once, and repeat with fresh testers. Keep product safety
+  boundaries intact, including prepare-only behavior and user-owned
+  credentials, challenges, consent, account creation, and final submission.
+  The interrupted broad run exposed sandbox-only listener failures and stale
+  identity-gate test fixtures; those are deferred test debt unless they block a
+  touched product slice. No current release or sealed-acceptance claim is made.
+
+  **This is the only current next-action authority in this file.** Later wave
+  entries are retained as historical evidence. Their old “next”, “restart”,
+  freeze, custody, ATS, and P01-P14 instructions are superseded and must not be
+  executed during the active product-finish loop.
+
+### Current product observations
+
+- **Dogfood fix batch (2026-09-02):** one live first-user walkthrough of the
+  built app (fresh user data, `docs/resume-tests/Ryan Holstien Resume.pdf`,
+  Wellfound, live AI) produced a ranked report (2 P0, 9 P1, ~20 P2) and one
+  fix batch. Fixed and re-verified in a rebuilt app: Find jobs no longer
+  disables Search behind "browser runtime not ready" with a wrong "Enable
+  sources" CTA (the run opens the browser itself; search ran directly and
+  returned results in ~14 s with no stale banner); the Profile resume strip no
+  longer shows FAILED after a successful multi-stage import (the vision stage
+  now CASes against the current profile revision and re-reconciles once);
+  resume bullets using `●` are parsed as achievements (10/8/6 per role instead
+  of one paragraph), the tailored draft came from the live provider ("created
+  with AI assistance") and the approved PDF is one clean page with no truncated
+  or duplicated bullets; guided setup is form-first with a compact stepper and
+  human step names; save feedback is one 5 s toast; Shortlisted is ~960 px
+  instead of ~3300 px with the safety contract in a disclosure; fit hides
+  sub-35 jobs as mismatches and stops penalizing remote listings against a
+  saved city; Applications states the autosave pause truthfully, "Finish in
+  the open application" is a real action with a toast, and diagnostics sit
+  under Technical details; Home reports a working source as healthy; the light
+  theme is layered (white panels on a light canvas) and passes the token
+  contrast test. A second pass fixed what the re-walk exposed: pending
+  imported suggestions no longer block "Finish setup and find jobs" (the
+  contracts-level blocking rule now matches the renderer: only critical or
+  required missing-field items gate completion, and a later import with only
+  suggestions keeps setup completed), the route-change blocker now proceeds
+  instead of cancelling a parked navigation once its protecting save settles,
+  and the setup route's completed redirect targets Find jobs for the
+  just-finished hand-off. Focused suites pass (desktop Job Finder
+  renderer/pages/shared/preload 220 files / 2,129 tests, contracts 41 files,
+  ai-providers 31 files, job-finder matching 150 tests plus fit calibration
+  gates); desktop/job-finder/ai-providers/contracts typecheck; the desktop
+  build passes. A third pass (four parallel implementation agents, disjoint
+  ownership) then closed every remaining P2 and the deferred test debt:
+  Home first-run copy ("Set up your profile", neutral source line, no empty
+  search box), plain-language Home/plan/notification labels, a two-sentence
+  setup entry without legal disclaimers and no phantom scrollbar, step-name
+  consistency after the rename, one-line work-details helpers, a 2×2/4-col
+  tailoring-strength grid, compact auto-grow story/answer fields with plain
+  labels, one-sentence Ready-check cards, one review hint per queue,
+  requirement rationales that no longer claim resume evidence for work mode
+  or location, inspector without "Updated: Unknown", "Employer not listed ·
+  source" placeholders, meta line under the Find jobs title, real buttons
+  for Search history / Search only this source, Shortlisted hedges reduced,
+  a labelled compact "More" control, Settings theme buttons as ordinary
+  `aria-pressed` buttons (they were `role="radio"`, which is why automation
+  clicks timed out), preview highlight only on real selection, a one-month
+  date-overlap tolerance, matching "Guided edits"/"Copilot" launcher pills,
+  section headers with only non-default state chips, truthful Applications
+  list next-step, zero-count filter chips hidden, single pause sentence,
+  equal-weight consent buttons with shorter copy, action-only Needs-you
+  steps, no "Search plans 1" badge for the lone default plan, and "Rapid
+  review" → "Quick review". The six job-finder identity-fixture suites were
+  repaired by seeding fresh-start profiles (the identity gate is unchanged),
+  so job-finder is 145 files / 1,923 tests green; the preload lint error and
+  a browser-agent hook timeout were fixed. A final end-to-end live
+  walkthrough on the rebuilt app (fresh data, same PDF, Wellfound, live AI)
+  passed every stage with zero renderer errors, and the compact and light
+  passes were clean. The full `pnpm test:correctness` suite passes (579
+  files, 6,614 tests, 1 skipped) and `pnpm test:performance` passes 2/2;
+  desktop lint and typecheck are clean. Evidence: `shots-final` in the session scratchpad and
+  the published fix-batch report. No commit, no employer write or
+  submission.
+
+- **Round-two review and fix batch (2026-09-02):** three independent
+  reviewers re-audited the rebuilt app screen by screen against the round-one
+  findings (64 fixed / 30 partly / 16 not fixed) and produced 20 new P1 and 59
+  new P2 findings with 0 P0. Three implementation agents then fixed all of
+  them: provisional fit framing when nothing beyond the title was checked,
+  banded results (matches / weaker matches / clear mismatches) with a working
+  "Show mismatches (n)" toggle, one shared source-health classification for
+  Home and Profile (`deriveSourceHealthSignals` /
+  `describeEnabledSourceHealth`), ZIP codes no longer parsed as a region, one
+  canonical summary and skills list on Profile with the rest under
+  disclosures, section-tab labels that agree with their bars, the Copilot
+  launcher yielding while a form field is focused, form-first Job targets,
+  setup sources using the same "Include in searches" control as Profile,
+  dark-theme primary raised to `#8fa6c6` (AA on every dark surface), a white
+  resume preview page in both themes, one causal story per Applications
+  pause, a truthful Stages tab, a friendly "Resume no longer available" state
+  instead of a raw IPC error, `ASP.NET` / `C#, .NET` token normalisation and
+  terminal punctuation in rendered bullets, an opaque sticky Settings nav,
+  human labels for reusable-answer kinds, and a long list of copy and
+  density fixes. A final leftovers pass then docked the Copilot launcher into the
+  sticky footers, kept floating chat panels under modal scrims, set aside
+  pending guided-edit proposals on approval with a visible note, made
+  "Continue without" the recommended consent default, and gave the light
+  sidebar a visible active state. A last polish pass then reserved the Guided-edits
+  panel footprint in the Studio grid, labelled the compact header pills
+  ("Tasks", "Needs you") within the shell's single 1440px desktop bound,
+  made the Applications list column sticky beside its own scroll owner,
+  fixed the active sidebar badge contrast, and reflowed the Stages table
+  inside its column. Full `pnpm test:correctness` passes (580
+  files, 6,660 tests, 1 skipped), performance 2/2, desktop lint/typecheck
+  clean, build green; a fresh end-to-end walkthrough on the rebuilt app
+  (now also covering Shortlisted tabs, the Studio tools pane, Applications
+  Stages and Technical details, Profile scrolled, Job sources, Search plans,
+  and Settings authority) completed every stage with the live model producing
+  the tailored draft. Open after the last run: on one walkthrough the
+  accepted Guided Edits summary (reported as grounded by the proposal
+  verifier) was then rejected by the export validator as an unsupported
+  claim, so approval was correctly blocked with "Fix approval blocker"; the
+  two grounding checks should share one rule. Seventeen round-two findings
+  remain unjudged only because no capture reached their screens (Shortlisted
+  Job details tab, scrolled Home/Shortlisted, Studio skills rows); the
+  scrolled page-title clipping question (B13) was left for screenshot
+  evidence. Evidence: `shots-r3` in the
+  session scratchpad and the published round-two report. No commit.
+
+- **Round-three review and fix batch (2026-09-03):** ten independent
+  reviewers (two contrast, two UX, visual/layout, two action-visibility,
+  performance, product owner, verification) audited a 94-screenshot
+  walkthrough of the built app; a cross-checker merged 253 lane findings plus
+  9 user-reported findings into 90 deduped findings (4 P0 / 40 P1 / 46 P2)
+  across six disjoint file-ownership groups, and eleven fix agents ran in
+  three waves plus a cleanup pass, a polish pass and a final four-item pass.
+  The four P0s are fixed: Profile had no save affordance in view at any window
+  size (Save sat ~5,300-5,700 px down the page even at 1440x920 because the
+  `LockedScreenLayout` bounded path never engaged on Profile); the fit score
+  asserted a confident percentage on listings whose only checkable evidence
+  was the title; the browser hand-off used four names for the browser and
+  three for its confirm action and produced no visible state change; and the
+  Assistant was unusable at short heights (at 1200x640 the tab-owned Assistant
+  grew the route to 38,000 px, putting Accept/Reject ~37,000 px below the
+  fold). Root causes worth keeping: the fit defect was a stored "Location not
+  stated" placeholder being tokenised as geography, fabricating an
+  `incompatible` conflict and a -10 penalty, plus a bare requirement row
+  counting as verification — `MATCH_ASSESSMENT_SCORER_VERSION` went 7 -> 8 and
+  fingerprint logic revision 6 -> 7 so persisted assessments recalculate, and
+  fit calibration passes on v8 (NDCG@10 0.919, P@5 0.900, R@10 1.000, kappa
+  0.852, 0 expectation failures); Profile opened dirty on every load because
+  `buildProfilePayload` recomposed `currentLocation` from city/region/country
+  and preferred it over the stored line; nested pane scrolling was slow
+  because `handleContentWheel` offered every downward delta to the header and
+  `getLockedHeaderWheelTarget` received `maxScrollTop` undefined on every
+  locked route, so a pane moved exactly (200 - topHeight) px per event — 61 px
+  on Find jobs, 136 px on Shortlisted — with `preventDefault` on 8 of 8
+  events, and arbitration is now native-first with custom handoff only at a
+  true scroll boundary; and resume import stages fell back silently because
+  `openai-compatible.ts` emitted no notes on timeout while a fallen-back stage
+  still returned candidates, so nothing populated warning/errorMessage —
+  stage results now carry a structured fallback `{kind, reason}` that surfaces
+  as a plain-language note. Two regressions introduced during the round were
+  fixed inside it: moving `globals.css` bare element rules into `@layer base`
+  fixed oversized sidebar labels but collapsed the type scale app-wide (H2
+  across 12 sizes, inputs at 17-19 px against 13-14 px body), resolved by
+  defining h1 24 / h2 19 / h3 16 / h4-h6 14 at weight 600 with inputs at body
+  size and removing the per-component overrides that fought it; and the
+  compact-header alignment rule was applied to the sidebar layout, where the
+  module switcher wrapped and ran under the page H1. Final verification (r12)
+  passed 8 of 8 gates with no new P0/P1: Assistant route height 38,000 px ->
+  864/524 px with Accept/Reject in view and hittable at 1440x920, 1440x840,
+  1280x720 and 1200x640; scroll deltas flat 100/100 from the first event with
+  outer deltas 0 and `preventDefault` 0; a single 53 px approval row at
+  1200x640; Settings first card 12 px clear of the sticky subnav and last card
+  62 px clear of the sticky bar; exactly one Assistant transcript node across
+  a 1440 -> 1200 -> 1440 excursion; zero heading inversions across 8 routes;
+  selection deltas 0 on Shortlisted, Find jobs and Applications; console 0
+  errors; and light-theme compact captures with no overflow. On the final tree
+  `pnpm test:correctness` passes 599 files / 6,919 tests with 1 skipped (591
+  files / 6,766 tests at the round's start) and `pnpm test:performance` passes
+  2/2; desktop lint and typecheck are clean; `pnpm validate:package` passes
+  contracts 41 files / 571 tests, ai-providers 32 / 432, and job-finder 150 /
+  1,971; `pnpm source-generic:check`, `git diff --check`, and
+  `pnpm validate:docs-only` pass. AI provider: the key was invalid during the
+  r8 capture and was replaced mid-round; with the working key Assistant
+  proposals ran live (22 s), while the tailored draft still fell back to the
+  deterministic generator because the model's single proposed rewrite was
+  rejected by the grounding verifier — the safety system working, and
+  disclosed in the app. On the final run the provider timed out on all three
+  AI import text stages at 25 s; record that as an environment/provider-latency
+  finding, not a product defect. Open after this round: foreground
+  resume-import persist with background CAS finalization (not attempted — a
+  ~1,800-line CAS-critical restructure); per-patch `approvalBlockers` still
+  computed at proposal time and not recomputed if the draft moves on; the
+  sync-envelope IPC change (PERF-03 remainder) and the F59 contracts subpath;
+  persona-manifest "Profile Copilot" wording (custodied digest, deliberately
+  untouched); a vision-branch silent-fallback audit; `analysisProviderKind`
+  mis-reporting the first stage while degraded stages stay tagged `model_*`;
+  the More menu still scrolling at 1440x640 (deliberate — bounded scroll was
+  chosen over occluding its trigger); the studio height model
+  `calc(100dvh - shellChrome - 12)` ignoring the scrolling title row, so the
+  section overflows ~11-21 px at scroll 0; the studio content area still ending
+  ~41 px below the fold at scroll 0 at 1440x920 (title-row height model), and
+  the shell rendering two preview iframes (the `xl:hidden` compact copy plus
+  the desktop one); and an "Open listing" external-URL action
+  deliberately not added, since the app has no external-URL capability at all
+  and adding one is a product/security decision for the user. The round stayed
+  prepare-only throughout: no application was submitted, no credentials were
+  used, no account was created, no employer legal terms were accepted, and
+  resume claims remained evidence-grounded. Evidence: `shots-r8` (before)
+  through `shots-r9`, `shots-r10`, `shots-r11`, and `shots-r12` (after) in the
+  session scratchpad. No commit.
+  - **Post-round user follow-ups (2026-09-03):** Resume Studio's Assistant is
+    now one floating panel at every width: a `position: fixed` body portal,
+    384 px at 1280 px and wider, 360 px below that with a 320 px floor, height
+    clamped to the viewport, drag clamped inside the window, and minimize
+    folding it into the launcher pill at the panel's bottom-right corner,
+    which reopens it. The docked third grid column and the compact Assistant
+    tab were removed, so opening the Assistant changes no preview or tools
+    rect: those rects measure identical at 1440x920, 1280x720 and 1200x640,
+    Accept/Reject stay in view and unobscured at all three, and one transcript
+    node survives resizes. A P0 preview oscillation (rapid zoom in and out)
+    was fixed: the auto-fit `ResizeObserver` observed its own scroll region,
+    so a scrollbar toggle changed the measured width and flipped the scale
+    every frame; it now observes a zero-height width probe, ignores deltas of
+    1 px or less, uses 8 px hysteresis, and the scroller sets
+    `scrollbar-gutter: stable`, giving 60 identical samples over 3 s (0.7307
+    at 1440, 0.8080 at 1280). The expanded sidebar at 1440 px and wider no
+    longer has a More popover: every secondary destination renders inline
+    under "Everything else" as Your data (Documents, Companies, Outcomes) and
+    Setup and safety (Search plans, Resume approaches, Safeguards, Settings)
+    plus a Keyboard shortcuts entry; the sidebar nav is its own scroll owner
+    with the toggle pinned, so it scrolls internally at 1440x640 (616 vs
+    508); every sidebar count uses one transparent tabular treatment (the
+    Companies count previously had a per-kind badge fill); the collapsed rail
+    mirrors the same destinations icon-only; and the compact sub-1440 More
+    menu is unchanged. The group labels are eyebrow spans, not headings. The
+    header module switcher ("Job Finder | Interview Helper") is centered again
+    through a three-region grid (wordmark / switcher / utilities with equal
+    1fr side tracks) with the macOS traffic-light inset mirrored on the right
+    and, on Windows (frameless, app-painted caption buttons, no
+    `titleBarOverlay`), an 8.5rem trailing reserve so utilities never sit
+    under the caption buttons; the compact second-row nav card is centered on
+    the same axis, with a measured centre offset of 0.0 px at 1440, 1280, and
+    1152 px. This supersedes the round's docked-preview open item: no dock exists
+    any more. Evidence: `shots-r13`, `r13-assistant.json`, and
+    `r13-sidebar.json` in the session scratchpad; review-queue tests pass 37
+    files / 453 tests, shell/pages/components pass 861 tests, and desktop
+    typecheck is clean. Prepare-only behavior is unchanged; no commit.
+
+- **Resume Studio approval simplification (2026-09-01):** the current product
+  flow no longer makes users understand an Export -> Save -> Confirm sequence.
+  `Approve resume` saves current edits, creates and verifies the private
+  application PDF in the background, and approves that exact artifact without
+  opening a native Save dialog. `Download PDF` remains optional; approval then
+  exposes `Prepare application` as the primary continuation. At desktop width,
+  the preview and tools are bounded to the visible studio and scroll
+  independently, so scrolling a long editor no longer leaves a page-height
+  blank preview column. Focused contract/renderer coverage and current-build
+  screenshots are under
+  `apps/desktop/test-artifacts/ui/resume-review-hierarchy-after-20260901`.
+  Review-only suggestions no longer produce a full-width `Validation issues`
+  task; only actual blockers interrupt approval. Supporting job/evidence
+  context is now a plain optional `About this tailored resume` disclosure at
+  the bottom of the tools pane rather than a proof panel above the work. The
+  tools pane now leads with actual editable resume fields; keyword/evidence
+  comparisons come after the editor instead of before it, and preview warnings
+  are labelled as optional suggestions;
+  no employer write or final submission is part of this behavior.
+
+- **Integrated product-finish pass (2026-09-01):** the current built desktop app
+  completes the supported local synthetic journey from Shortlisted through
+  live resume editing, grounded Guided Edits proposal review, one-page PDF
+  export and exact-file approval, Prepare application, and Applications. Final
+  evidence is under
+  `apps/desktop/test-artifacts/ui/product-loop-final-after-chat-apps-r3-20260901`.
+  The durable snapshot has one ApplicationRecord, a `paused` attempt, a `null`
+  outcome, zero submitted jobs, and `finalSubmitOccurred: false`. Resume Guided
+  Edits and Profile Copilot now share the compact-chat direction: fixed
+  360x460 desktop panels, one-line composers that grow to 80px, icon send
+  actions, scrollable transcripts, minimize-only controls, and no page reflow.
+  Profile Copilot proof at
+  `apps/desktop/test-artifacts/ui/product-loop-final-profile-copilot-20260901/01-open.png`
+  keeps Profile tabs full-width, has zero document overflow, and places the
+  proposal status in the card's top-right. Applications now presents Retry and
+  optional preparation as natural-width start-aligned actions without a
+  decorative double-border group. Focused checks pass 64/64 for Profile
+  Copilot and 26/26 for the final Resume Guided Edits/Applications batch;
+  desktop typecheck, formatting, diff checks, and the final desktop build pass.
+  No broad release gate, network provider, credential, account, employer write,
+  or final submission was used.
+
+- **Current settled visual/safety evidence (2026-08-31):** native resume
+  import recovery is now verified in the rebuilt app: Guided Setup can leave a
+  still-open picker for manual entry, a later selection from that retired
+  picker is discarded without changing the profile, a second picker opens,
+  and a normal TXT import settles to Ready with populated Essentials. The
+  focused import/preload/controller/main checks pass 133/133. Applications
+  recovery actions are fixed, and current-build
+  1440/1280 screenshots show natural-width, start-aligned valid actions;
+  focused uncertainty coverage proves that a retry with a `null` receipt
+  fails closed. Resume Studio at 1280 in the current build keeps preview and
+  tools visible with 20 notes and 4 blockers, and Open editor lands on the
+  exact focus target with an announcement. Profile Copilot now opens as a
+  compact modeless chat instead of shrinking Profile: rebuilt-app 1175/1280
+  captures preserve identical Profile geometry, keep every tab visible and
+  clickable, place the panel about 16px below the tabs, and prove long input, compact proposals,
+  `Apply & save`, Reject, Undo, `No changes made yet`, and a pending `Review
+change` launcher. The default panel is now 360x460 on desktop instead of the
+  prior 480x672 second-pane footprint, with no horizontal overflow.
+  Minimize/reopen preserves the thread and restores the
+  launcher. The compact overlay can still cover the lower-right portion of a
+  form while open; minimize restores it. Native 125%, provider failure, and
+  retry remain unestablished. These are
+  focused/current-build checks, not a sealed acceptance claim: the old
+  seal/persona wave is invalid after the source changes. Goal remains
+  **ACTIVE** under the lightweight product-iteration loop above.
+
+### Historical snapshots — not an execution queue
+
+- **Current-build visual and prepare-only journey closure (wave9bb,
+  2026-08-31):** the final pre-freeze product pass is complete. Guided setup
+  now uses the shared page width while retaining one natural page scroller at
+  native 125%; populated Discovery gives every non-empty status banner a 16px
+  lower boundary and makes the Results offline notice the single warning
+  owner; successful save confirmations dismiss on route changes instead of
+  covering the next route's actions, while saving and failed states remain
+  visible. Focused evidence is 27/27 for Guided/Discovery plus 13/13 for save
+  status, with formatting/diff checks clean. A current-source desktop build
+  passed, the targeted 1440/native-125 capture passed with zero horizontal
+  overflow and exact 16px notice-to-row spacing, and the local synthetic
+  `resume-workspace-current-20260831-toast-fixed` journey completed
+  Shortlisted -> live resume editing -> one-page PDF export -> exact-file
+  approval -> Prepare application -> Applications. Its durable snapshot has
+  an approved draft and ApplicationRecord, the latest attempt is `paused`, the
+  outcome is `null`, and submitted jobs are zero; the exported PDF was rendered
+  and manually inspected with no clipping or overlap. The responsive journey
+  harness was updated to current sidebar/compact navigation, template,
+  accessible reorder, approval, and safety-gate semantics. No external ATS,
+  credential, account, or submit action ran. The earlier sealed acceptance is
+  historical after these source/docs changes. Goal remains **ACTIVE**: hard
+  freeze this settled tree, run the exact broad/evidence/immutable acceptance
+  chain once, custody the new seal, then complete strict ATS and a fresh
+  sequential P01-P14 wave.
+
+- **Scale-02 nested-scroll-owner acceptance repair (wave9ba, 2026-08-30):**
+  the frozen chain fully passed: `pnpm verify` covered 564 files (6,299 passed
+  / 1 skipped; performance 2/2), and `pnpm test:evidence` passed for release
+  `release-20260830T014219-abc8c6`, with manifest file SHA
+  `2bb90e86990673d7f1ff861519ffaad82b775e9061270b03bb0a720baeab4520` (the
+  evidence run ID is authoritative). Machine-passing
+  `production-acceptance-QoIqu1` produced 46/46 with expected seal
+  `67bb03c67ad1b9c897dd441cc20d55c378dfdc6324ed1b229712b563c0273b68`, but
+  root manual review rejected it and no custody followed: populated scale 02
+  at 1440 still hid Find Jobs H1 beneath the fixed shell. Long-label and
+  `ACTIVE`/menu/min/native screens passed. The shell reset the outer main while
+  locked routes scroll in the nested `LockedScreenLayout` owner, where scroll
+  anchoring and a dynamic header could shift the route. The product fix resets
+  that nested owner before paint, sets `overflow-anchor: none`, uses an explicit
+  data selector, and targets it during discovery settlement; the already-
+  Results first-job edge now uses a layout-phase latch/settle. Focused evidence
+  includes locked-layout 32, discovery-layout 4, and first-reveal 4 initially,
+  then 2 files/9 after the lifecycle fix; independent review is clean. No new
+  heavy run, seal, custody, ATS run, or persona preparation exists. Goal remains
+  **ACTIVE**. Restart the frozen chain and manually inspect exact scale 02,
+  including the user-reported header.
+
+- **Native-125 distinct-state scale-evidence repair (wave9az, 2026-08-30):**
+  under the freeze, `pnpm verify` passed across 564 files (6,299 passed / 1
+  skipped; performance 2/2), and `pnpm test:evidence` passed for release
+  `release-20260830T012210-325fde`, manifest
+  `6359a10194a9287990b6853acaa6af76e052ac28fd6c6f667bf299b3d17ac603`. The
+  `production-acceptance-N5YSPB` run passed fresh 17/17, including long-label
+  012/013/014, then stopped at scale because the 16 Find Jobs page-1 native125
+  capture and the 22 final native125 overview capture were byte-identical.
+  Manual inspection confirms the same valid state: the second capture only
+  returns to the same route/page-1/viewport. The harness now assigns the same
+  explicit `screenshotStateId` to both while preserving distinct
+  scenario/completion IDs and strict distinct-state collision failures. Static
+  validation, Node check, Prettier, and diff checks pass. No seal, custody, ATS
+  run, or persona preparation exists. Goal remains **ACTIVE**. Restart the
+  frozen chain and manually inspect the replacement header/`ACTIVE`,
+  long-label, and More-menu visuals.
+
+- **Native-125 More-menu scale-selector repair (wave9ay, 2026-08-30):** the
+  frozen chain fully passed: `pnpm verify` covered 564 files (6,299 passed / 1
+  skipped; performance 2/2), and `pnpm test:evidence` passed for release
+  `release-20260830T005828-5f9aa6`, manifest
+  `3408cda1bb0edccde81e35caa66031576b785d4ce10cfb43d55efc514f57c965`, with no
+  drift. Machine-passing `production-acceptance-YOxiiA` produced 46 captures
+  and expected seal
+  `5bae2b565c6c4b4b6a36dcac90c360e5cf98789ca99aa69d24b1650acdee8319`, but
+  manual inspection rejected it and it was never custodied: fresh `012`
+  clipped the Find Jobs heading because capture reset then forced an already-
+  visible tall first-card block:center, scrolling the outer route after app
+  settle. Header/`ACTIVE`/minimum-width/native125/More-menu and representative
+  flows passed. The harness now targets the inner scroll region with an
+  explicit fail-closed selector for scroll/containment while preserving outer
+  ownership/focus; the product screenshot showed the intended scrollbar/“Scroll
+  for more”, `orphanHeaderCount=0`, and a 4px header-row gap. Static acceptance
+  validation, Node check, Prettier, and diff checks pass; no product renderer
+  change. No seal, custody, ATS run, or persona preparation exists. Goal remains
+  **ACTIVE**. Restart the frozen chain and manually inspect the replacement,
+  including the user-reported header and `ACTIVE` visuals.
+
+- **Native-125 scale-acceptance selector repair (wave9ax, 2026-08-30):** the
+  frozen `pnpm verify` gate passed (564 files; 6,299 passed / 1 skipped;
+  performance 2/2), and `pnpm test:evidence` passed with release
+  `release-20260830T003924-c13bbb`, manifest
+  `70923c38929b2815c157153c47f004e32ef529f3a740600e81206e2c9c53996c`, and no
+  drift. Production acceptance `production-acceptance-N3yHL4` failed at scale
+  native125 because the harness measured the outer `overflow-hidden` More menu
+  instead of the new inner scroll region. The product screenshot showed the
+  intended scrollbar/“Scroll for more”, `orphanHeaderCount=0`, and a 4px
+  header-row gap. The harness now uses an explicit fail-closed inner selector
+  for scroll/containment while preserving outer ownership/focus; static
+  acceptance validation and Prettier pass. No seal, external custody, ATS run,
+  or persona preparation exists. Goal remains **ACTIVE**. Restart the frozen
+  chain from `pnpm verify`, then manually inspect the user-reported
+  header/`ACTIVE`, long-label, and minimum-width More visuals before continuing.
+
+- **Final acceptance/UI/persona hardening (wave9aw, 2026-08-30):** machine-passing
+  `production-acceptance-1JtwkP` (46 captures; seal
+  `99795679932117406210d233313512c598fb9111b88a26bcf326e62dc6012162`) was
+  manually rejected and never externally custodied: at 1440 the Find Jobs
+  header collapsed/overlapped, and the long-label first result was partially
+  clipped under the fixed shell. Batched UI fixes now put the readiness warning
+  full-width below title/actions, settle first-result reveal to the whole-header
+  boundary, improve minimum-width More-menu internal scrolling/affordance,
+  strengthen and pair `ACTIVE` with Listing activity, and eliminate the
+  duplicate zero-result readiness warning/CTA with correct `aria-describedby`
+  ownership. Persona/custody hardening adds intelligence to restart semantic
+  parity, recognizes `P##-uuid` workspace ownership, enforces strict CDP
+  identity/redirect checks, and uses deterministic code-unit sorting. Focused
+  evidence is UI 106 tests plus a 30-test follow-up (18+12), persona custody
+  71/71, and desktop typecheck/lint/format/diff where reported; no new
+  build/Electron/verify/evidence ran after these fixes. Goal remains **ACTIVE**.
+  Next: one final frozen `pnpm verify` -> `pnpm test:evidence` ->
+  build/immutable Electron acceptance, manual inspection of the exact
+  header/ACTIVE/long-label/min-width menu screens, then custody, ATS, and
+  P01-P14.
+
+- **Returning-persona original-CV custody repair (wave9av, 2026-08-30):**
+  `production-acceptance-sPexxQ` passed verify, source-bound evidence, 46-screen
+  Electron acceptance, manual minimum-width inspection, external custody, and
+  strict bound Greenhouse/Workday no-submit checks; Ashby had no current
+  matching vacancy and stopped before app launch. The fresh all-persona
+  preparation then sealed P01-P12 and failed closed at P13 during production
+  restart because the returning-persona seed pointed `baseResume.storagePath`
+  at its input asset with a placeholder digest. Startup correctly treated that
+  as unavailable, cleared path/SHA, and added the missing-original-CV warning.
+  P13/P14 now materialize exact resume bytes in the canonical app-owned
+  `documents/resumes` directory and seed the absolute path plus verified SHA;
+  the persona preparation suite passes 62/62. A real file-repository
+  reset/close/workspace-start/reopen integration test proves path, digest,
+  bytes, and warning absence, with a negative legacy relative-path case that
+  still fails closed; focused startup recovery passes 8/8, desktop lint and
+  typecheck pass. The partial P01-P12 custody remains historical with
+  `waveComplete=false`; no tester launched. `sPexxQ` is stale after this source
+  and test repair. Restart the frozen chain into fresh roots, then require
+  14/14 plus read-only `--verify-all` before any blind session. Goal remains
+  **ACTIVE**.
+
+- **Minimum-width discovery-header manual-acceptance repair (wave9au,
+  2026-08-30):** exact build `production-acceptance-KX6VeE` passed the complete
+  machine gate with 46 screenshots and a valid seal, but required manual PNG
+  inspection rejected it: at minimum width the action-heavy Find jobs header
+  compressed its title and description into an unreadable narrow column beside
+  the source-readiness warning. Discovery now uses the shared PageHeader
+  `stacked-until-xl` layout so the title keeps a full row through compact
+  desktop widths and the warning plus source/search actions wrap below it;
+  wide-screen hierarchy is unchanged. The focused discovery layout test,
+  desktop typecheck, formatting, and diff checks pass. `KX6VeE` is historical
+  and was not externally custodied; restart verify/evidence/build/Electron
+  acceptance, manually inspect the replacement minimum-width PNG, then proceed
+  to strict ATS binding and P01-P14 preparation. Personas remain 0/14 and the
+  Goal stays **ACTIVE**.
+
+- **Returning-persona custody and scale-evidence repair (wave9at, 2026-08-28):**
+  exact build `production-acceptance-fv2Riy` passed the broad gates and Electron
+  acceptance, then the first real all-persona preparation preserved P01-P12 but
+  failed closed at P13. P13/P14 intentionally return with materialized profile
+  data, so production derives `profileSetupState` plus pending contact/work
+  history review items during reset; the custody harness now compares stable
+  derived setup intent while retaining the complete generated state for
+  reset-to-restart durability and the sealed semantic digest. P14 now also
+  binds its paused source-debug run to the discovery target and nested discovery
+  state, producing the intended required browser sign-in prompt. A subsequent
+  acceptance diagnostic reached the full 5,000/1,001 scale state and failed
+  only because the Profile baseline and wide-sidebar assertion shared identical
+  pixels under different screenshot-state labels; shared visual-state identity
+  is now explicit while genuine cross-state collisions remain rejected. Focused
+  persona/custody tests pass 77/77, production-acceptance static validation,
+  desktop typecheck, formatting, and diff checks pass. No current seal or
+  complete persona wave exists; restart the source-bound chain once. Personas
+  remain 0/14 and the Goal stays **ACTIVE**.
+
+- **Persona seed runtime-default materialization (wave9as, 2026-08-28):**
+  after wave9ar, real P01 completed its single reset but failed semantic equality
+  because startup materialized disabled starter sources plus explicit resume and
+  CRM defaults that the seed intent left implicit. The seeder now records those
+  same defaults before reset for every persona, preserving exact equality for
+  persisted base facts; derived setup intent is handled by wave9at. Persona custody tests pass 60/60 and
+  desktop typecheck/diff checks pass. A fresh source-bound seal and real P01
+  retry remain required before `--persona all`; personas remain 0/14. Goal
+  stays **ACTIVE**.
+
+- **Persona seed startup-read serialization (wave9ar, 2026-08-28):** the
+  post-wave9aq sealed chain passed completely, then real P01 preparation
+  advanced past custody verification and failed safely because its one test-only
+  reset raced the app's startup workspace read. The production activity gate
+  rejected the reset and removed no data. The seeder now awaits one workspace
+  read and performs the single reset in the same renderer operation; it does
+  not retry a destructive reset. Persona custody tests pass 60/60 and desktop
+  typecheck/diff checks pass. The prior seal is historical after this seeder
+  fix. Restart the frozen chain, then prepare and verify P01-P14. Personas
+  remain 0/14. Goal stays **ACTIVE**.
+
+- **Persona custody source-exclusion parity (wave9aq, 2026-08-28):** after
+  `production-acceptance-IGFQeY` passed verify, evidence, 46-screen Electron
+  acceptance, external custody, and strict bound Greenhouse/Workday, `--persona
+all` failed closed before seeding because the persona verifier counted 30
+  generated evidence-manifest mirrors that the acceptance producer deliberately
+  excludes. The verifier exclusions now match the producer for nested
+  `test-artifacts`, `*.tsbuildinfo`, and
+  `docs/audits/evidence-manifests`; the producer/verifier parity fixture covers
+  all three. Persona custody tests pass 59/59 and desktop typecheck/diff checks
+  pass. The prior seal is historical after this verifier fix. Restart the
+  frozen chain once, then prepare and verify P01-P14. Personas remain 0/14.
+  Goal stays **ACTIVE**.
+
+- **Strict ATS typed-action and live-handoff repair (wave9ap, 2026-08-28):**
+  the first post-wave9ao bound Greenhouse run proved discovery, then stopped
+  before browser preparation because the smoke passed a legacy positional
+  `startApplyCopilotRun(jobId, options)` call through the object-only preload
+  contract. The shared smoke now passes the typed action object; the same stale
+  call in the Interview Helper capture harness and wrapped discovery-result
+  reads in the Job Finder benchmark are repaired. Workday now accepts either
+  its expected anonymous-login handoff or the same fully classified
+  intermediate-write guard already accepted by the strict complete-flow gate;
+  it does not relax submission, account, isolation, or custody assertions.
+  Focused harness tests pass 74/74, desktop typecheck/format/diff checks pass,
+  and unbound diagnostics pass safely for Greenhouse and Workday with zero
+  submit. Ashby's configured public board currently has no matching Software
+  Engineer vacancy and exits before app launch. The otherwise passing
+  `production-acceptance-egteAz` run (46 screenshots; seal
+  `96afc8159eecc171e63ebbad505e03095c3f00f18ec0c408127657841c954291`)
+  is historical after these source/doc repairs. Restart the frozen chain once,
+  bind Greenhouse/Workday to the new seal, record Ashby as current external
+  inventory drift, then prepare P01-P14. Personas remain 0/14. Goal stays
+  **ACTIVE**.
+
+- **Strict bound-ATS discovery-result contract repair (wave9ao, 2026-08-28):**
+  after wave9an cleared the module TDZ, the sealed Greenhouse and Workday runs
+  launched safely but both reported an impossible empty workspace immediately
+  after successful discovery. The smoke still treated the typed
+  `JobFinderAgentDiscoveryResult` envelope as a workspace even though the IPC
+  contract now returns `{ outcome, snapshot }`; it therefore read every
+  workspace field from the wrong object. The smoke now unwraps the authoritative
+  `snapshot` before selecting jobs or recording discovery evidence, and the
+  wrapper-policy suite pins run -> unwrap -> summarize ordering. Focused wrapper
+  tests pass 63/63, prepare-only report binding validation passes, and desktop
+  lint/typecheck are green. Both failed runs kept intermediate writes, account
+  creation, and final submit false, and recorded zero submitted state. Ashby's
+  independent public-board preflight currently reports no matching vacancy,
+  which remains live external drift rather than a submission attempt. The
+  passing `production-acceptance-BtOINe` seal is historical after this source
+  fix. Restart the source-bound chain once more, then rerun Greenhouse/Workday
+  and classify Ashby against current public inventory before preparing
+  P01-P14. Personas remain 0/14. Goal stays **ACTIVE**.
+
+- **Strict bound-ATS module initialization repair (wave9an, 2026-08-28):**
+  the first post-seal Greenhouse wrapper correctly passed its local custody
+  preflight, then the prepare-only smoke failed before Electron launch with
+  `Cannot access 'ACCEPTANCE_INTENT_ENV_VARS' before initialization`. Ambient
+  acceptance intent was captured above the lexical constants and error class
+  used by `resolveAcceptanceInput`; the caught temporal-dead-zone error was
+  later surfaced as an unexpected blocker. The capture now runs only after all
+  resolver dependencies initialize, and the wrapper-policy suite pins that
+  declaration order. Focused wrapper tests pass 62/62, prepare-only report
+  binding validation passes, and desktop lint/typecheck are green. Independent
+  Luna safety review found no Electron/browser launch, ATS mutation, upload,
+  account creation, or submit; only the wrapper's preceding public board GET
+  may have occurred. The otherwise passing source-bound run
+  `production-acceptance-GVdi89` and its external custody are now historical
+  because this source fix changes the fingerprint. Restart verify, evidence,
+  immutable acceptance, external custody, and strict built ATS once. P01-P14
+  remain 0/14. Goal stays **ACTIVE**.
+
+- **Complete diagnostic acceptance and final freeze entry (wave9am,
+  2026-08-28):** the packaged-app acceptance harness now passes end to end on
+  the current dirty source tree: fresh funnel, 5,000-job/1,001-record scale,
+  error recovery, accepted-app runtime route readiness, responsive shell
+  geometry, and process-output gates. The final runtime probe now waits for the
+  rendered Job Finder shell before hash navigation and emits the current hash,
+  headings, shell state, and body text on any lazy-route timeout. Diagnostic
+  run `apps/desktop/test-artifacts/ui/production-acceptance-ceP9Xz/` produced 46
+  screenshots and expected seal SHA-256
+  `efb084640affe10f83a41e3686f6064cc7748b72f03e227e43a0203efa803e6b`.
+  This run is deliberately **not** the source-bound release seal because the
+  harness changed after the preceding verify/evidence run. Freeze this source
+  now and run `pnpm verify` -> `pnpm test:evidence` -> immutable production
+  acceptance once, with no intervening source/doc changes. P01-P14 remain 0/14
+  and start only after that exact-build seal and custody check. Goal stays
+  **ACTIVE**.
+
+- **Accepted-app shell probe responsive ownership (wave9al, 2026-08-28):**
+  fresh, scale, and error-recovery acceptance completed, then the final
+  production-like runtime probe failed at 1024x576 because it selected the
+  hidden compact Interview Helper anchor instead of the visible desktop module
+  button at the 900px ownership breakpoint. Its focusable scan also counted the
+  Close control inside a closed Task center `<details>`. The runtime sampler now
+  chooses the first rendered semantic Interview Helper control across anchor
+  and button variants, accepts the exact hash target for the anchor or the
+  tested desktop button variant, and excludes only closed-details descendants
+  outside their visible summary. The fail-closed 18-case geometry fixture suite,
+  static validator, shell navigation, and Task center tests pass 69/69. The
+  diagnostic run remains inspectable at
+  `apps/desktop/test-artifacts/ui/production-acceptance-xnfhZF/` and is not a
+  seal. Continue diagnostic acceptance through the final runtime probe, then
+  restart the source-bound chain once; no P01-P14 tester session has started.
+  Goal stays **ACTIVE**.
+
+- **Shortlisted ready-resume reason acceptance (wave9ak, 2026-08-28):** the
+  diagnostic batch-action probe next proved the correct disabled row controls
+  and `aria-describedby` wiring, then failed only because its pinned reason
+  ended in retired `original CV` wording. The product and renderer tests say
+  `unchanged original resume`; the scale constant and static validator now
+  match. Static acceptance validation and the focused review-queue list suite
+  remain 31/31. The diagnostic run remains inspectable at
+  `apps/desktop/test-artifacts/ui/production-acceptance-bprjp3/` and is not a
+  seal. Continue diagnostic acceptance until the complete harness is green,
+  then restart the source-bound chain once; no P01-P14 tester session has
+  started. Goal stays **ACTIVE**.
+
+- **Shortlisted batch-action acceptance verb (wave9aj, 2026-08-28):** the
+  next diagnostic run confirmed the corrected eligibility strip, then exposed
+  the matching retired action verb: the product button is `Prepare up to 10
+drafts (review required)`, while the harness still searched for `Generate`.
+  The scale selector, evidence field names, diagnostics, and static pins now
+  use the current preparation contract. Static acceptance validation and the
+  focused review-queue list suite remain 31/31. The diagnostic run remains
+  inspectable at
+  `apps/desktop/test-artifacts/ui/production-acceptance-39EFYB/` and is not a
+  seal. Continue diagnostic acceptance until the complete harness is green,
+  then restart the source-bound chain once; no P01-P14 tester session has
+  started. Goal stays **ACTIVE**.
+
+- **Shortlisted batch-readiness acceptance copy (wave9ai, 2026-08-28):** the
+  diagnostic acceptance advanced through all scale pagination and lifecycle
+  evidence into the 1,001-record Shortlisted batch-action disclosure, then
+  failed because the probe expected retired `ready to queue` copy while the
+  current product and renderer tests use `ready to prepare`. The scale
+  expectation, boundary accounting, and static pins now follow the current
+  preparation contract. Static acceptance validation and the focused
+  review-queue list suite pass 31/31. The diagnostic run remains inspectable at
+  `apps/desktop/test-artifacts/ui/production-acceptance-wJ8JYx/` and is not a
+  seal. Continue diagnostic acceptance until the complete harness is green,
+  then restart the source-bound chain once; no P01-P14 tester session has
+  started. Goal stays **ACTIVE**.
+
+- **Applications Stages acceptance label (wave9ah, 2026-08-28):** the
+  non-claiming diagnostic acceptance passed fresh capture, scale hydration,
+  route cycles, and Find jobs/Shortlisted/Applications pagination before the
+  lifecycle-view capture timed out on the retired `Tracker` button name. The
+  current product and renderer tests expose `Preparation` and `Stages`; the
+  scale harness and its static validator now follow that contract. Static
+  acceptance validation and the focused Applications screen suite pass 21/21.
+  The diagnostic run remains inspectable at
+  `apps/desktop/test-artifacts/ui/production-acceptance-sjFyjN/` and is not a
+  seal. Continue diagnostic acceptance until the complete harness is green,
+  then restart the source-bound `pnpm verify` chain once; no P01-P14 tester
+  session has started. Goal stays **ACTIVE**.
+
+- **Applications scale row-identity repair (wave9ag, 2026-08-28):** immutable
+  acceptance now passes the complete fresh capture suite and entered the
+  5,000-job / 1,001-record scale route cycle. It failed closed on Applications
+  because the scale harness still collected mounted row identities from
+  id-less `<li>` parents, while the current tested full-row buttons own both
+  `data-collection-item-id` and `aria-current`. The Applications scale selector
+  now follows that exact row-action contract, and static acceptance validation
+  plus the focused records-panel suite pass 10/10. The failed run remains
+  inspectable at
+  `apps/desktop/test-artifacts/ui/production-acceptance-G7j6N5/` and is not a
+  seal. Because acceptance tooling changed, the hard-freeze chain restarts from
+  `pnpm verify`; no P01-P14 tester session has started. Goal stays **ACTIVE**.
+
+- **Foreground-overlay clickable evidence (wave9af, 2026-08-28):** immutable
+  acceptance advanced through all long-label desktop/minimum/native-125 and
+  source-label captures, then failed closed while the More navigation was open
+  because the global clickable-point probe required a background Home control
+  physically covered by that foreground menu to remain directly hittable. The
+  shared screenshot harness now supports an explicit fail-closed foreground
+  scope, records that scope in evidence, and the More-menu scenario uses its
+  exact navigation landmark; every other capture retains the global probe.
+  Static validation pins both the harness behavior and scenario declaration and
+  passes. The failed run remains inspectable at
+  `apps/desktop/test-artifacts/ui/production-acceptance-8CrX56/` and is not a
+  seal. Because acceptance tooling changed, the hard-freeze chain restarts from
+  `pnpm verify`; no P01-P14 tester session has started. Goal stays **ACTIVE**.
+
+- **Long-label primary-action acceptance repair (wave9ae, 2026-08-28):** the
+  next immutable production-acceptance attempt passed fresh Home, guided setup,
+  25-source, 50-result, filtered-empty, and native-125 captures, then failed
+  closed on the desktop long-label semantic probe. The screenshot and renderer
+  tests showed the visible `Shortlist job` action in its current
+  `discovery-detail-primary-action` region; the capture script still queried
+  the retired secondary `discovery-detail-actions` region. The semantic probe
+  now follows the tested primary-action ownership. Static production-acceptance
+  validation and the focused Discovery detail-panel suite pass 20/20; the
+  failed run remains inspectable at
+  `apps/desktop/test-artifacts/ui/production-acceptance-XJ9baC/` and is not a
+  seal. Because acceptance tooling changed, the hard-freeze chain restarts from
+  `pnpm verify`; no P01-P14 tester session has started. Goal stays **ACTIVE**.
+
+- **Persona custody fixed-port proof hardening (wave9ad, 2026-08-28):** the
+  restarted broad freeze gate exposed one boundary-value failure in the blind
+  persona launcher suite: when the random fixed CDP port was 65535, the test's
+  mismatched-file fixture wrote invalid port 65536, and the launcher could not
+  distinguish that malformed `DevToolsActivePort` file from a genuinely absent
+  file before using its HTTP liveness fallback. The launcher now distinguishes
+  missing, malformed/unreadable, and valid port files; only a genuinely missing
+  file may use the bounded HTTP fallback. The mismatch fixture stays within the
+  valid port range and a dedicated malformed-file case fails closed. The full
+  focused custody suite passes 59/59, desktop typecheck and `git diff --check`
+  pass. The interrupted broad run and all earlier acceptance runs are
+  historical only; the hard-freeze chain restarts from `pnpm verify`, and no
+  P01-P14 tester session has started. Goal stays **ACTIVE**.
+
+- **Compact More acceptance-contract repair (wave9ac, 2026-08-28):** the first
+  post-wave9ab immutable production-acceptance attempt failed closed at the
+  1024x768 fresh Home capture before any persona preparation. The current app
+  visibly exposed the compact **More** control, but seven acceptance/diagnostic
+  scripts still queried the retired `Planning and settings` accessible label;
+  the shared prepare-only safety probe also still allowlisted the retired menu
+  label. All executable selectors, serialized sampler fixtures, static
+  validator tokens, focus-containment checks, and diagnostic copy now follow
+  the renderer's tested **More** button/navigation contract. The production
+  acceptance static validator passes, the shell/navigation plus persona
+  custody/evidence suites pass 164/164, formatting and `git diff --check` pass,
+  and the failed run remains inspectable at
+  `apps/desktop/test-artifacts/ui/production-acceptance-nRsjQ9/`. That run is
+  historical failed evidence, not a seal. Because acceptance tooling changed,
+  the hard-freeze chain restarts from `pnpm verify`; no P01-P14 workspace or
+  tester session has started. Goal stays **ACTIVE**.
+
+- **Exact bounded ATS autosave authority (wave9ab, 2026-08-28):** production
+  prepare orchestration no longer hardcodes every intermediate write false, but
+  it remains default-off and fail-closed. Settings can now request bounded
+  autosave only after the reusable-answer snapshot is current and the user
+  supplies exactly one job, one canonical origin, one verified resume SHA-256,
+  and a future expiry; campaign scope, multiple jobs/origins/resumes, missing or
+  stale answers, expiry, revision change, revocation, and origin/resume drift
+  reject the capability. Main owns the fixed pause/stop policy and canonical
+  digest. All three prepare call sites use one repository-backed resolver, pass
+  the exact origin list, and re-read the same envelope revision immediately
+  before every field-save window. The public test override is now loopback-only.
+  Browser Runtime records a verified external write only after an authorized
+  request receives a 2xx/3xx response; local DOM fills and blocked autosaves no
+  longer masquerade as site persistence. Final submit, account creation,
+  credentials, CAPTCHA/MFA, beacon, popup, and ambiguous/final requests remain
+  blocked. Focused contracts/service/UI/resolver tests pass 155/155; Job Finder
+  core passes 136/136; Browser Runtime policy/flow/Chromium checks pass 78/78
+  after the new successful-autosave receipt case. No public employer write was
+  run in this wave. A fresh isolated Electron smoke and then exact-build persona
+  freeze remain next; Goal stays **ACTIVE**.
+
+- **Bounded intermediate ATS mutation firewall (wave9aa, 2026-08-28):** the
+  latent `intermediateMutationsAuthorized=true` path no longer opens every
+  browser transport. Browser Runtime now wraps each exact grounded field action
+  in a same-origin 3-second/8-request window and permits only classified
+  fetch/XHR `POST`/`PUT`/`PATCH` traffic with explicit
+  draft/autosave/save/update/field/answer/upload/progress semantics. Final-action
+  signals, ambiguous operations, cross-origin destinations, GET/DELETE, beacon,
+  WebSocket/EventSource/WebTransport, popup/navigation, late, and exhausted
+  traffic remain blocked and journaled; DOM submit and `requestSubmit` remain
+  unconditionally disabled. Focused pure, fake-runtime, and real-Chromium checks
+  pass 77/77, including one allowed synthetic `UpdateApplicationFormAnswer`
+  autosave and one denied `SubmitApplication` request in the same authorized
+  setup. Wave9ab supersedes the remaining production-wiring gap; wave9aa itself
+  performed no Ashby/employer write and does not convert wave9z's public
+  `SAFE_STOP` into PASS. Goal remains **ACTIVE**.
+
+- **Public ATS preparation truth + specialist P1 fixes (wave9z, 2026-08-28):**
+  the prior wave9y harness verdict was too broad: clicking Prepare and finding
+  any ApplicationRecord was reported as PASS even when the durable attempt had
+  safely paused. A fresh exact-build Umbrel/Ashby replay now proves the precise
+  boundary. Managed Chrome opens the exact public application URL with the
+  approved tailored export, but Ashby's application attempts an external field
+  save; `prepare_only` has no authority for that write, so Job Finder stops with
+  `required_human_input`, records `awaiting_review`, shows a manual handoff, and
+  keeps both final-submit facts false. Evidence:
+  `apps/desktop/test-artifacts/persona-wave-20260828/public-fallback-current-v8/`.
+  The harness now binds the latest result to the exact ApplicationRecord/job and
+  no-submit receipt and reports `READY_FOR_REVIEW`, `SAFE_STOP`, or
+  `MISSING_OR_AMBIGUOUS`; this replay is honestly **PARTIAL / SAFE_STOP**, not
+  PASS. It also polls durable terminal state, removing the four-minute static
+  text wait and duplicate progress captures. Product copy no longer claims that
+  Job Finder prepared the application before the result is known. The same
+  specialist wave moved Discovery's primary Shortlist action above its private
+  detail scroller, and a current 1440x920 public replay visibly proves it is
+  available without scrolling. Browser Runtime now suppresses Chrome component
+  background extensions while preserving the fail-closed active-service-worker
+  guard; focused checks pass 30/30, Discovery detail checks pass 20/20, route
+  action checks pass 50/50, and Desktop/Browser Runtime typechecks plus current
+  production builds pass. **Do not freeze P01-P14 yet:** the next acceptance
+  decision is whether a public autosave/manual-handoff outcome satisfies the
+  prepare-only release contract or whether an explicitly scoped intermediate
+  write capability is required. Goal remains **ACTIVE**.
+
+- **Current public full funnel + configured-provider truth correction (wave9y,
+  2026-08-28):** a fresh isolated production-Electron replay now proves the
+  anonymous public Umbrel Ashby journey from synthetic resume import through
+  explicit source opt-in, 11-job discovery, one durable shortlist, tailored PDF
+  generation, exact export approval, Prepare, and Applications. The historical
+  harness labeled every leg PASS, but wave9z supersedes that Prepare verdict:
+  the approved export is durable and the ApplyJobResult remains
+  `awaiting_review`, and `finalSubmitOccurred`, `submittedAt`, and submission
+  outcome remain null. The one-page Letter PDF was rendered separately and has
+  no clipping, overlap, broken glyphs, or unreadable hierarchy. Evidence:
+  `apps/desktop/test-artifacts/persona-wave-20260828/public-fallback-current-v5/`.
+  This wave also removed two evidence false positives: generic "tailored
+  resume" text no longer counts as readiness, and the harness now follows the
+  current **Review and approve resume** CTA before Export/Approve. A configured
+  Muse-xhigh replay reached the same public shortlist but timed out after 60 s
+  during draft creation and safely produced a deterministic fallback PDF; it is
+  diagnostic, not live-AI acceptance. Focused provider comparison confirms the
+  route and model catalog are reachable: Muse low responded in 25.9 s with 0/6
+  verifier-accepted rewrites, DeepSeek low in 41.9 s with 0/3, while Muse xhigh
+  and DeepSeek max hit the 60 s deadline. Deterministic grounding/render gates
+  stayed 1.0, and Resume Studio already discloses the built-in fallback. **The
+  configured live-AI quality gate remains open; deterministic fallback success
+  must not be reported as accepted model contribution.** Goal remains
+  **ACTIVE**.
+
+- **Current public Ashby discovery + durable Shortlisted repair (wave9x,
+  2026-08-28):** a Luna-max audit selected Umbrel's public Ashby board, and the
+  primary agent completed one bounded current-build production-Electron replay
+  from synthetic resume setup through visible source opt-in, Search, Results,
+  exact current-listing inspection, and Shortlisted. The public inventory and
+  app both observed 11 jobs; Results showed 7 relevant rows and honestly hid 4
+  clear mismatches. The selected **Senior Frontend Engineer** matched the public
+  inventory, retained the truthful Umbrel / Remote employer and location, and
+  scored 71 with grounded role/location/work-mode reasons. The replay found and
+  fixed two real discovery-only funnel defects: campaign retention previously
+  ignored staged jobs, hiding all completed-run Results, and staged-job
+  promotion wrote the non-reviewable `shortlisted` status, producing a success
+  message without a durable Shortlisted row. Campaign commits now evaluate
+  saved plus staged candidates while preserving their storage boundary, and
+  staged promotion enters `drafting` or `ready_for_review` consistently with
+  the existing review queue. Focused tests pass 35/35, the full Job Finder
+  package gate passes 141 files / 1,869 tests, typecheck passes, and the rebuilt
+  Electron proof passes with one durable original-resume-ready Shortlisted job,
+  zero renderer errors, no credentials/account creation/application action,
+  both final authorities false, and no submitted state. Evidence:
+  `apps/desktop/test-artifacts/persona-wave-20260828/live-public-current/run-20260828T041757595Z/`.
+  **Boundary:** this closes one current anonymous public-source discovery and
+  shortlist gap, not configured live-AI quality, authenticated ATS preparation,
+  private-resume quality, personal accessibility/hardware review, or sealed
+  release acceptance. Goal remains **ACTIVE**.
+
+- **Second persona + native dialogs + keyboard/reduced-motion evidence (wave9w,
+  2026-08-28):** a distinct Priya Shah / Backend Engineer persona started from
+  empty isolated userdata and completed import, guided setup, explicit local
+  source opt-in, source-generic compact-first discovery, shortlist, tailored PDF
+  export/approval, Prepare, and Applications on the current production build.
+  All legs and `noEmployerSubmit` pass; one exact ApplicationRecord persists,
+  zero submit controls appeared, both final-submit flags remain false, and the
+  rendered one-page PDF has no clipping, overlap, or broken glyphs. Evidence is
+  under
+  `apps/desktop/test-artifacts/persona-wave-20260828/priya-single-build-current/`.
+  A separate production-mode probe with the test API absent visibly exercised
+  the real macOS Open panel and exact synthetic resume selection, plus the real
+  Save panel and an exported PDF at the chosen path. A separate Computer Use
+  pass clicked the actual macOS Save **Cancel** control and proved the durable
+  export count stayed 1 -> 1 on the same resume route. A corrected keyboard-only
+  replay proves visible focus rings, Enter navigation into Shortlisted and the
+  exact resume workspace URL, one H1/main landmark, named navigation landmarks,
+  no unlabeled images, reduced-motion media matching, and automatic scrolling;
+  its report and screenshots are under
+  `apps/desktop/test-artifacts/persona-wave-20260828/native-dialog-accessibility-probe/`.
+  The initial same-event focus-style sample was a probe error and was corrected
+  with a 30 ms settle before evidence capture; no unnecessary product change was
+  retained. A follow-up genuine macOS Open **Cancel** click also preserved the
+  exact imported filename, SHA-256, and ready extraction state; see
+  `native-open-cancel-report.json`. **Boundary:** native Open/Save selection and
+  both cancel outcomes are proven, but personal screen-reader/hardware review,
+  configured live-AI quality, authenticated ATS, private-resume quality, and
+  sealed release acceptance remain open. Goal remains **ACTIVE**.
+
+- **Refocused current-build Sam funnel + compact Applications reveal (wave9v,
+  2026-08-28):** after pausing the secondary grant-issuance audit, a fresh
+  isolated production build was exercised through the original Job Finder
+  journey: resume import, guided Profile setup, explicit local source opt-in,
+  source-generic discovery, shortlist, tailored PDF export and approval,
+  Prepare, and Applications. Every leg passed, one durable Applications record
+  was present, and zero employer-submit controls appeared. The generated
+  one-page PDF was separately rendered and visually inspected with no clipping,
+  overlap, broken glyphs, or missing content. A native 125% / 1280x720 follow-up
+  found one real compact-view defect: selecting an Applications row left the
+  stacked detail panel below the visible list. Compact selection now scrolls
+  the exact detail region into view while desktop two-pane behavior is
+  unchanged; focused Applications tests pass 21/21, Desktop typecheck and the
+  production build pass, and the corrected 125% Electron replay visibly lands
+  on **Details** and **Next step**. Current evidence is under
+  `apps/desktop/test-artifacts/persona-wave-20260828/sam-single-build-current/`
+  and `test-artifacts/persona-wave-20260828/sam-current-compact-125/`.
+  **Boundary:** this is one synthetic Sam prepare-only journey; the separate
+  wave9w evidence adds a second persona and bounded native/keyboard proof, but
+  neither is live ATS, private-resume, personal-accessibility, or sealed release
+  acceptance.
+  Goal remains **ACTIVE**.
+
+- **Main-owned approved-answer snapshots + content-free readiness (wave9u,
+  2026-08-28):** reusable Profile answers can now be captured as an immutable,
+  append-only approved snapshot without letting the renderer supply answer text,
+  digest, lifecycle identity, or authority policy identity. Electron main rereads
+  the current profile, canonicalizes non-empty reusable answers, computes SHA-256,
+  and commits through revision-guarded repository APIs; unchanged content returns
+  the existing snapshot, changed content appends a new revision, and unrelated
+  Profile writes do not stale an approval when the answer digest is unchanged.
+  SQLite migration v16, in-memory/file parity, reopen, and reset coverage are
+  green. Settings now exposes a content-free **Future authority prerequisites**
+  view with counts, kinds, missing/current/stale status, explicit Profile review,
+  and a two-step approval confirmation. A fresh isolated production-Electron
+  replay passes not-approved -> approved -> restart -> answer edit -> stale ->
+  reapprove -> second restart at 1440x920 and 1029x860; ignored evidence is under
+  `apps/desktop/test-artifacts/persona-wave-20260828/authority-readiness-wave/`.
+  Focused cross-layer tests pass 49/49, the full DB suite passes 209/209, and
+  Contracts/DB/Desktop typecheck and lint plus the production build pass. The
+  broad `pnpm verify` gate also passes 562 test files / 6,257 tests (one skipped)
+  plus both discovery-ledger performance checks on the same source tree.
+  **Boundary:** this snapshot is an inspectable prerequisite, not a grant or an
+  execution capability. Production remains `prepare_only`; no grant, arm,
+  browser final action, submission IPC, or employer submission was added. The
+  next safe internal dependency is exact one-time confirm-grant issuance bound
+  to current preflight/policy/snapshot lineage. Goal remains **ACTIVE**.
+
+- **User-verified uncertain-outcome recovery (wave9t, 2026-08-28):** an exact
+  lineage-matched `outcome_uncertain` can now be resolved from Applications only
+  after the user checks the employer site and completes a two-step confirmation.
+  The renderer sends only the uncertain outcome id plus the selected terminal
+  fact; Electron main owns time, evidence identity, current idempotency revision,
+  and safe destination evidence. The repository preserves the original uncertain
+  record, appends a fresh externally verified `submitted` or `not_submitted`
+  outcome, and atomically updates idempotency, ApplyJobResult receipt/state, and
+  the exact ApplicationRecord. Stale, duplicate, non-uncertain, missing, and
+  cross-lineage requests mutate nothing. While uncertainty remains, Applications
+  and Task Center require manual verification and expose no retry or final-submit
+  control. Contracts, DB, and Desktop package validation pass (560, 206, and
+  2,689 tests respectively), as does the production Electron build. A fresh
+  isolated exact-build Electron replay passed uncertainty/restart, Task Center,
+  both two-step resolutions, verified-outcome restart, and prepare-only Settings;
+  ignored evidence is under
+  `apps/desktop/test-artifacts/persona-wave-20260828/authority-outcome-wave/`.
+  **Boundary:** this records a user-observed employer-site fact; it does not let
+  Job Finder perform or infer a submission. Production execution remains
+  prepare-only. Elevated policy/approved-answer issuance, confirmation grants,
+  user-facing activation, real ATS evidence, accessibility review, and sealed
+  acceptance remain open. Goal remains **ACTIVE**.
+
+- **Main-only authority/runtime composition + local Chromium/SQLite proof
+  (wave9s, 2026-08-28):** Browser Runtime now retains private Playwright `Page`
+  ownership while exposing optional typed observation and exact-one final-action
+  hands to main-process callers. Job Finder composes those hands with trusted
+  resume hashing, immutable preflight, the durable authority gate, last-instant
+  revocation/cancellation checks, compound authorize-and-arm, and strict
+  `not_submitted` / `outcome_uncertain` recording. The capability is available
+  only through the explicit
+  `@unemployed/job-finder/application-submission-runtime-main` subpath; it is
+  absent from the general barrel, preload, renderer, IPC, and legacy apply
+  routes. A localhost-only Desktop integration uses real headless Chromium and
+  a temporary file-backed SQLite repository: exactly one synthetic form POST is
+  observed, the result remains `outcome_uncertain`, the ApplyJobResult receipt
+  and exact ApplicationRecord project paused/manual-review truth atomically,
+  and a second call with the same idempotency key is blocked without another
+  POST. Package validation passes Browser Runtime 8 files / 145 tests, Job
+  Finder 141 / 1,867, and Desktop 282 / 2,684, including the real-browser
+  integration; docs checks, formatting, and `git diff --check` also pass.
+  Canonical `pnpm verify` passes on the current tree with 558 correctness files,
+  6,233 passing / 1 skipped, plus both strict performance tests; the
+  source-bound `pnpm test:evidence` collector also passes with an unchanged
+  fingerprint. **Boundary:** this
+  is a safe internal synthetic vertical slice, not a user-reachable submission
+  feature. Elevated envelope/policy issuance, confirmation grants, execution
+  UI/IPC, independently verified `submitted` outcomes, real ATS acceptance, and
+  serialized production Electron acceptance remain open. Production stays
+  prepare-only and no real employer submission occurred. Goal remains **ACTIVE**.
+
+- **Current-build Sam funnel + compact partial retention + exact Applications
+  projection (wave9r, 2026-08-28):** one production Electron build now has a
+  fresh isolated Sam Okafor replay from empty userdata through resume import,
+  guided setup, explicit local source opt-in, deterministic discovery,
+  shortlist, tailored draft, PDF export, exact-file approval, Prepare consent,
+  and a durable Applications record. The final evidence is **PASS** for launch,
+  import, usable profile, sources, search, shortlist, tailored resume, prepare,
+  and no-employer-submit; it records one ApplicationRecord, zero submit controls,
+  no blocker or visual issue, and Applications truthfully pauses the synthetic
+  404 destination for user review. Dark and light 1440x920 captures are under
+  `apps/desktop/test-artifacts/persona-wave-20260828/sam-single-build-current/`;
+  failed and false-positive attempts are preserved in named subdirectories.
+  The product fixes behind that proof are source-generic: Browser Runtime no
+  longer rejects a run before compact observation when no tool-capable model is
+  configured; ordinary discovery retains already-checkpointed compact jobs as
+  an explicit incomplete result when later model expansion is unavailable;
+  zero-result and source-debug failures remain fatal. The in-page scanner also
+  keeps its JSON-LD walk bound inside the Playwright-serialized function and
+  traverses schema.org `ItemList -> ListItem -> JobPosting`, fixing the real
+  page-context `ReferenceError` that previously made structured inventory fall
+  through silently. Real-browser and compact tests are green. Package validation
+  passes Browser Agent 23 files / 252 tests, Browser Runtime 8 / 145, DB 26 /
+  203, and Job Finder 140 / 1,861; the production Electron build, docs checks,
+  formatting, and `git diff --check` pass. Canonical `pnpm verify` also passes
+  on the final current tree: all workspace lint/typecheck tasks, 556 correctness
+  files with 6,226 passing / 1 skipped, and both strict discovery-ledger
+  performance tests. Separately,
+  durable `not_submitted` / `outcome_uncertain` authority commits and startup
+  recovery now atomically project into the exact lineage-matched
+  ApplicationRecord as well as the ApplyJobResult receipt; missing or
+  cross-lineage records fail without partial mutation, and deterministic outcome
+  events dedupe. A new internal, unexported Job Finder preflight coordinator also
+  derives the trusted resume SHA-256 from copied bytes, canonicalizes HTTP(S)
+  origin, deep-freezes the schema-validated immutable record, and exposes only
+  repository commit truth; it has no grant, arm, browser, IPC, UI, or production
+  caller. **Boundary:** this is a current prepare-only full-funnel proof,
+  not autonomous-submit acceptance. The local source intentionally ends at a
+  manual-review blocker; native Save/Open dialogs, authenticated ATS behavior,
+  accessibility hardware review, independent submitted verification, elevated
+  activation/grants, sealed custody, and real submission remain open. Goal
+  remains **ACTIVE**.
+
+- **Unreadable-resume recovery + atomic outcome receipts (wave9q,
+  2026-08-28):** full Profile now exposes an accessible plain-text recovery
+  field when an imported resume has no readable text. Saving persists that
+  text into the existing resume identity, clears the dirty/import guard after
+  persistence normalizes resume metadata, hides the recovery field, and enables
+  **Refresh from resume** without requiring a reload. The imported
+  `not_started` badge now truthfully says **Ready to refresh**. A fresh
+  production Electron build passed an isolated 1029x860 UI/save/restart replay:
+  recovery visible, Refresh initially disabled, Save enabled after typing,
+  exact text persisted, Refresh enabled after save and restart, recovery hidden
+  after save/restart, and no horizontal page overflow. Ignored evidence is under
+  `apps/desktop/test-artifacts/profile-resume-text-recovery-20260828/`.
+  Separately, authority outcome commit and armed-startup recovery now reconcile
+  `not_submitted` / `outcome_uncertain` into the exact lineage-matched
+  `ApplyJobResult.privacyReceipt` in the same repository transaction. Uncertain
+  outcomes also block the parent result with
+  `submission_outcome_uncertain`, retain no-submit truth, permanently block
+  retry, and show an immediate manual-verification alert in Applications.
+  Missing or cross-lineage result receipts fail closed without partial
+  authority mutation; duplicate recovery is idempotent. Focused checks pass:
+  DB authority 20/20 plus package typecheck/lint/format; Desktop profile,
+  own-save, and receipt UI 37/37 plus typecheck/lint/build. Canonical
+  `pnpm verify` also passes on the current tree: all 14 workspace lint/typecheck
+  tasks, 555 test files with 6,205 passing / 1 skipped, and both strict
+  discovery-ledger performance tests. The source-bound non-Electron
+  `pnpm test:evidence` collector also passes after this handoff update; its
+  generated manifest is excluded from the source fingerprint. **Boundary:** this
+  completes focused outcome-to-result/receipt reconciliation only. There is
+  still no independently verified submitted outcome, production executor,
+  elevated-mode activation, confirmation-grant UI/IPC, or real submission.
+  The exploratory Sam harness under
+  `apps/desktop/test-artifacts/persona-wave-20260828/` is selector-drift
+  diagnostic evidence only, not acceptance. Goal remains **ACTIVE**.
+
+- **Decision-policy-bound authority foundation (wave9p, 2026-08-28):** elevated
+  authority now has one immutable typed decision-policy document with schema
+  version, monotonic revision, canonical SHA-256 digest, exact approved-answer
+  snapshot identity, and fixed fail-closed answer/technical/outcome stops.
+  Preflights additionally bind the canonical page origin, nullable campaign,
+  and exact policy identity. The pure Job Finder gate requires explicit current
+  policy/answer facts plus a finite content-free stop-fact list, rejects every
+  credential/login/MFA/CAPTCHA/anti-bot/account-creation/unknown-answer/legal/
+  stale/ambiguous/origin/uncertain stop, and rejects confirm grants in autonomous
+  mode. The compound repository transition transaction-current verifies the
+  policy hash, approved answers, scope, origin, resume, capacity, preflight,
+  idempotency, and exact grant before any child mutation; failure preserves the
+  grant and available idempotency state. The former public low-level consume and
+  arm primitives were removed, leaving the compound transition as the sole arm
+  boundary. Synthetic orchestration rereads these facts before and after arm;
+  post-arm drift recovers to permanent uncertainty. Renderer management cannot
+  mint policy identity, and production elevated modes remain rejected. Package
+  validation is green: Contracts 39 files / 558 tests, DB 26 / 190, Job Finder
+  139 / 1,851, and Desktop 281 / 2,679 plus prepare-only report binding.
+  The same current tree also passes canonical `pnpm verify` (555 test files,
+  6,196 passed / 1 skipped, plus both discovery-ledger performance gates) and
+  a fresh production Electron build. An isolated 1029x860 replay of that build
+  confirms prepare-only is the sole available mode, both elevated modes remain
+  visibly unavailable, and the renderer exposes only the prepare-only envelope
+  action. Ignored evidence is under
+  `apps/desktop/test-artifacts/ui/authority-wave9p-current-1029x860/`.
+  **Boundary:** there is still no
+  production executor caller, elevated-mode activation, grant UI/IPC, external
+  outcome verifier, ApplicationRecord projection, or real submit. Wave9q adds
+  focused atomic outcome-to-result/privacy-receipt reconciliation only.
+  Goal remains **ACTIVE**.
+
+- **Inspectable prepare-only authority UX + atomic rotation (wave9o,
+  2026-08-27):** Settings now has a separate Application authority section
+  backed by the strict preload bridge. It shows prepare-only as the sole
+  available mode, keeps confirm-before-submit and autonomous-submit visibly
+  unavailable, requires every origin and volume value to be entered visibly,
+  inspects saved revisions, reloads stale state, and requires a second explicit
+  confirmation before revocation. It never calls a grant, arm, browser, or
+  submission API and does not reuse legacy Job Finder settings as authority.
+  The repository now also supports transaction-current CAS replacement: the
+  predecessor, its active grants, and available idempotency records are revoked
+  while the distinct replacement is inserted atomically. A SQLite partial
+  unique index and in-memory/reset guards enforce at most one active envelope
+  per workspace. DB validation passes 26 files / 182 tests; Desktop validation
+  passes 281 files / 2,679 tests plus prepare-only report binding, and the
+  production Electron build passes. Fresh isolated Electron captures at
+  1440×920 and 1029×860 prove the section, unavailable elevated modes, explicit
+  policy fields, and zero body-width overflow. The compact replay also found
+  and fixed the shared Settings anchor offset: section links now clear both the
+  116px compact shell header and the measured sticky Settings subnav. Ignored
+  evidence is under `apps/desktop/test-artifacts/ui/authority-wave9o-*`.
+  Final max-review follow-up also fixes child-before-parent reset ordering with
+  real lifecycle/reopen coverage, preserves ISO expiry across the local
+  `datetime-local` editor, uses truthful management-only copy/static mode-card
+  semantics, and keeps every active envelope revocable even when its elevated
+  mode is unavailable for editing.
+  **Boundary:** production remains prepare-only. Elevated-mode activation,
+  exact confirmation-grant UI, production browser
+  composition, receipt/application-record reconciliation, independent external
+  outcome verification, and revised live acceptance remain open. Goal remains
+  **ACTIVE**.
+
+- **Authority startup recovery + management boundary (wave9n, 2026-08-27):**
+  the Desktop production factory now runs durable armed-attempt recovery before
+  exposing the Job Finder service; an armed attempt becomes permanent
+  `outcome_uncertain`, remaining active grants are revoked, and repeated
+  launches are idempotent. A separate strict management contract, main
+  service, IPC route set, and preload bridge support inspect/get plus
+  revision-guarded prepare-only create/update/revoke. Main owns lifecycle IDs,
+  revisions, and timestamps; legacy settings fields are rejected; elevated
+  modes and intermediate external mutations fail closed because answer-policy
+  and stop-condition contracts are not complete. There is no grant, arm,
+  browser-action, or submit IPC channel. Migration 15 also verifies every
+  required authority-table column instead of accepting a partially malformed
+  schema. The complete Contracts package passes 39 files / 550 tests, Desktop
+  passes 280 files / 2,673 tests plus prepare-only report binding, and DB
+  passes 26 files / 178 tests; all three package lint/typechecks are green.
+  The production Electron build passes from this wave9n tree.
+  **Boundary at wave9n:** no renderer Settings surface, elevated authority
+  activation, receipt/application-record reconciliation, independently
+  verified submitted outcome, production executor caller, or real submission
+  existed; wave9o adds only the fail-closed prepare-only Settings surface and
+  atomic authority rotation. Goal remains **ACTIVE**.
+
+- **Authority exact-one synthetic execution foundation (wave9m, 2026-08-27):**
+  the next local-only architecture slice is implemented without widening the
+  production prepare-only path. Browser runtime now has source-generic form
+  observation and exact-one final-action hands: deterministic identities,
+  effective submitter destination including `formaction`, zero/ambiguity/stale/
+  origin vetoes, a required final immediate authorization callback, serialized
+  non-reuse, and truthful action-attempt versus action-issued facts. It can
+  return only `not_submitted` or `outcome_uncertain`; browser-local clicks,
+  URLs, and requests never prove submission. The repository now provides one
+  transaction-current compound authorize-and-arm operation that validates the
+  active exact envelope/preflight/idempotency lineage and atomically consumes a
+  confirm grant with the armed marker; concurrency, rollback, and SQLite reopen
+  parity are covered. An internal, non-barrel-exported synthetic Job Finder
+  orchestrator uses only that compound transition, rejects fabricated
+  submitted-like results, distinguishes recorded not-submitted from uncertainty,
+  and returns typed recovery-needed state. Focused checks pass: browser hands
+  11/11, repository authority 4/4, orchestrator 11/11, with package lint and
+  typechecks. **Boundary:** there is still no production caller, Desktop UI,
+  independently verified submitted outcome or receipt wiring,
+  real-site credential path, or real submission. The post-wave9m broad gate
+  passes source-generic policy, all package lint/typechecks, fit calibration,
+  550 correctness files (6,135 passed / 1 skipped), and both performance
+  files; the production Electron rebuild also passes. This result note is
+  documentation-only drift after those gates. Sealed acceptance remains
+  paused. Goal remains **ACTIVE**.
+
+- **Autonomous authority persistence foundation (wave9l, 2026-08-27):** the
+  first safe internal authority slice is implemented without enabling a real
+  submit path. Typed contracts now include durable idempotency and armed
+  records; workspace defaults expose six empty authority collections; database
+  migration v15 persists envelopes, immutable preflights, one-time grants,
+  idempotency, armed markers, and outcomes. In-memory and SQLite repositories
+  schema-validate writes, CAS-guard envelope revisions, enforce unique
+  preflights and one-shot grants, propagate revocation, atomically persist each
+  authority-state transition, and recover armed-without-outcome attempts to
+  permanent `outcome_uncertain` without retry. Focused validation passes:
+  contracts 38 files / 543 tests; database 25 files / 175 tests; Job Finder
+  typecheck after fixture propagation. **Boundary:** no production caller,
+  generic final-control executor, last-instant orchestration, Settings/IPC UI,
+  or externally verified receipt path is wired. Existing workspaces remain
+  prepare-only and no automated or real employer submission was performed.
+  After the implementation settled, `pnpm verify` passed source-generic and
+  repository policy, lint/typecheck for all 14 packages, fit calibration, 548
+  correctness files (6,111 passed / 1 skipped), and both performance files.
+  The production Electron build then passed from the documented tree. This
+  result note is documentation-only drift after those gates. Sealed acceptance
+  remains paused. Goal remains **ACTIVE**.
+
+- **Import→apply current-build Sam audit + targeted-search hardening (wave9k,
+  2026-08-27):** Luna/high rebuilt the dirty production Electron app and ran
+  synthetic, credential-free UI journeys. Fresh Sam launch/import/profile,
+  three-source enable/save, and Search setup passed; a separate copied
+  prepared workspace proved Shortlisted → approved resume → checkpoint choice
+  **Continue without** → Applications, with the Applications route and record
+  visible, no employer-submit control, and no document horizontal overflow at
+  1029×860. The first audit exposed an untargeted-search defect: with zero
+  roles/job families, three enabled sources returned a 16%-fit warehouse
+  maintenance result for a frontend persona. Search now requires at least one
+  explicit target role or job family, displays a relevance warning, routes
+  **Add target roles** to the focused Profile preference, and re-enables only
+  after a role is saved. A live follow-up proved disabled → focused editor →
+  save `Frontend Engineer` → `1 search target` → enabled. Evidence is under
+  ignored `apps/desktop/test-artifacts/persona-wave-20260827/` in
+  `sam-live-audit-run2`, `sam-applications-audit-run3`,
+  `sam-applications-audit-narrow`, and `targeted-search-readiness`.
+  Additional current-tree fixes: safeguard copy now matches blocker scope;
+  compact JSON-LD/DOM duplicates merge missing metadata; stale
+  missing-resume clearance serializes and re-reads the current Application
+  record; generated `test-artifacts` and `*.tsbuildinfo` no longer enter
+  release source custody; compact-observer architecture comments match its
+  integrated first-pass use. Focused typechecks/tests and source-generic/static
+  acceptance checks pass. **Still open:** this is split synthetic evidence,
+  not one clean no-facilitator full funnel on frozen source; the final broad
+  gate/sealed chain must run only after the active autonomous-authority slice
+  settles. Goal remains **ACTIVE**.
+
+- **Import→apply ready-strip density + primary CTA weight (wave9j, 2026-08-27):**
+  Product-only polish after wave9i PASS (no full-funnel re-run; Sam skipped).
+  **Shortlisted Application readiness** when `isReadyToPrepare`: compact
+  strip keeps Resume / Destination / Final submit with quieter labels and
+  more gap; secondary boundaries move behind “More preparation boundaries”;
+  one Prepare cue stays in strip copy + checklist + primary CTA. **Primary
+  button weight:** shared `variant="primary"` uses full `border-primary` plus
+  inset/edge token shadow (no purple glow); Safeguards site-blocked CTA
+  relies on that shared weight. Validated: `pnpm validate:package desktop`
+  (278 files / 2664 tests). Goal remains **ACTIVE**. **Still weak:** Sam
+  Applications path; no full-funnel rediscovery this wave; residual live
+  visual proof of compact ready strip on Shortlisted.
+
+- **Import→apply Safeguards live proof + Shortlisted ready density (wave9i, 2026-08-27):**
+  Desktop rebuilt; LIVE_AI=0 harness
+  `run-alex-applications-safeguards-proof.mjs` on wave9g
+  `userdata-enable-smoke` (site-blocked Give Lively / NEEDS YOU). Evidence
+  `alex-applications-safeguards-wave9i-evidence.json`, screenshot
+  `wave9i-02-applications.png`. List **Next:** shows
+  `Open Safeguards to reset the browser, then finish on the site` (not
+  “Inspect the application page manually”); detail Next step + Safeguards
+  CTA match. Verdict **PASS**. **Shortlisted ready-state density:** when
+  resume + apply path are ready (`isReadyToPrepare`), omit Current state
+  card and collapse the full checklist into one Ready / Prepare-application
+  cue (primary CTA remains Prepare application). Validated:
+  `pnpm validate:package desktop` (278 files / 2662 tests). Sam skipped
+  (optional; Enable→Search not re-run). Goal remains **ACTIVE**. Superseded
+  for ready-strip density + shared primary CTA weight by wave9j above.
+
+- **Import→apply finish-first / Safeguards + visual polish (wave9h, 2026-08-27):**
+  Product-only follow-up after wave9g PASS (no full-funnel re-run; Sam
+  LIVE_AI=0 skipped). **Applications site-blocked path:** list rows rewrite
+  persisted “Inspect the application page manually” onto
+  `Open Safeguards to reset the browser, then finish on the site`; latest
+  activity → `Automatic prep paused`; Needs you badge uses critical tone;
+  Safeguards primary CTA gains ring/weight + `data-testid`; queue recovery /
+  run-outcome chrome stays hidden on finish-yourself pauses. **Residual
+  visual:** Applications selected-row contrast (`bg-primary/10`); Shortlisted
+  collapses empty resume-approach callout when no enabled approaches;
+  Discovery empty/loading defaults `min-h-56`; EmptyState description uses
+  `text-foreground`. Validated: `pnpm validate:package desktop` (278 files /
+  2660 tests). Goal remains **ACTIVE**. Superseded for live Safeguards
+  re-screenshot + Shortlisted ready density by wave9i above.
+
+- **Import→apply shortlist→approve→Prepare continuation (wave9g, 2026-08-27):**
+  Reused wave9f `userdata-enable-smoke` (50 jobs, no wipe). LIVE_AI=0 harness
+  `run-alex-shortlist-prepare.mjs` → logs
+  `alex-shortlist-prepare-wave9g.log` /
+  `alex-shortlist-prepare-wave9g-retry2-console.log`, evidence
+  `alex-shortlist-prepare-wave9g-evidence.json`. Path: Find jobs → shortlist
+  **Data Engineer for Social Good / Give Lively** → resume workspace (already
+  approved PDF reused) → **Prepare application** → visual-checkpoint consent
+  **Continue without** (portal outside `<main>`; Escape/X cancels) →
+  Applications. Sqlite: `apply_runs=1`
+  (`apply_run_a7813200-…`, `paused_for_user_review`,
+  `visualCheckpointsEnabled:false`), `apply_job_results=1`
+  (`awaiting_review`), `application_records=1`. UI: “Job Finder prepared the
+  application” / NEEDS YOU (site blocked automatic prep → Safeguards), **no**
+  “couldn't finish opening”, no employer submit. Verdicts: shortlist /
+  tailoredResume / approve / prepare / noCrash / noEmployerSubmit **PASS**,
+  overall **PASS**. First attempt false-PASS’d on consent modal (ready regex
+  matched “checkpoint”); harness + `run-alex-funnel.mjs` prepare path fixed.
+  **Employer labels (this 50-job board):** storage **0/50** hard URL/TLD
+  garbage (`… Com`/`… IO` / Https…); **9/50** neutral `Employer not stated`;
+  **41/50** real names (Give Lively, Scale AI, Tennr, Stockx, …). Display also
+  sanitizes via `sanitizeEmployerLabel` + absence scrub + URL slug fallback —
+  for this board storage already clean of known garbage. Goal remains
+  **ACTIVE**. Superseded for Safeguards finish-first list/CTA gaps by
+  wave9h above.
+
+- **Import→apply enable→Save→Search rediscovery proof (wave9f, 2026-08-27):**
+  No rebuild (prior wave9e prove build still current). One LIVE_AI=0 run
+  (no wipe-retry loop): extended `alex-enable-crash-smoke.mjs` through
+  Enable → Save/Continue → Find jobs → Search. Log:
+  `alex-enable-search-smoke-wave9f.log` under
+  `apps/desktop/test-artifacts/persona-wave-20260826/alex-from-scratch/`.
+  Results: sqlite `sourcesEnabled=1` (Wellfound `enabled:true` after Save),
+  `SEARCH_STARTED true`, discovery run
+  `discovery_run_0c0ed531-bc2f-4a12-b5ad-7d23d6042a70` completed with
+  `validJobsFound=50` / `jobsPersisted=50` / `saved_jobs=50`, no
+  "couldn't finish opening", `ERROR_COUNT` 0, `crash:false`,
+  `searchPass:true`, EXIT 0 (~38s). Did not continue shortlist/approve/
+  prepare this wave. Goal remains **ACTIVE**. **Still weak:** full
+  shortlist→resume→prepare rediscovery not re-run post-enable-fix; Sam
+  Applications; remaining `… Com`/`… IO` label leftovers from wave 9 unit
+  tighten not re-proven on this 50-job board.
+
+- **Import→apply enable-source crash proof (wave9e prove, 2026-08-27):**
+  Desktop rebuilt (`pnpm --filter @unemployed/desktop build`). One LIVE_AI=0
+  short harness run (no wipe-retry loop): `node alex-enable-crash-smoke.mjs`
+  → log `alex-enable-crash-smoke-wave9e-prove.log` under
+  `apps/desktop/test-artifacts/persona-wave-20260826/alex-from-scratch/`.
+  Path: Targeting fills → jump CTA → DOM click **Enable Wellfound** →
+  survived (`H1_AFTER_ENABLE` Guided setup, `TECH` null, `ERROR_COUNT` 0,
+  EXIT 0; jump CTA cleared = form `enabledSourceCount >= 1`). **Crash fixed
+  on enable toggle.** Superseded for Save→Search + jobs>0 by wave9f above.
+  Goal remains **ACTIVE**.
+
+- **Import→apply enable-source crash harden (wave9e, 2026-08-27):**
+  Sequence proven in `alex-funnel-wave9e-enable-prove.log`: Targeting fills →
+  `reveal-sources: jump-cta` → `Enable Wellfound…` → Electron closed mid
+  enable (error boundary for users; harness often loses the window before
+  Technical details). Crash is on **enable toggle**, not only Targeting fill.
+  **Product harden:** null-safe `parseListInput` + `workModes` field reads;
+  single `setValue` for discoveryTargets (no dual onChange); sticky-top
+  ResizeObserver rounds + skips unchanged heights; jump CTA
+  `scrollIntoView({ behavior: "auto" })`. **Proof:** catalog enable under
+  `LockedScreenLayout` sticky footer + ResizeObserver chatter + utils
+  nullish parse tests. Superseded for live enable survival by wave9e prove
+  above. Goal remains **ACTIVE**.
+
+- **Import→apply enable-source root cause + fix (2026-08-27):**
+  Wave 9 alex rediscovery failed before Search because **sources never
+  enabled** (`sourcesEnabled: 0`). **wave9** (`…90a6e680.log`) hung mid
+  `[enable-source] Enable Wellfound…`; **wave9c/9d** finished with overall
+  **FAIL** — Targeting hit app error boundary (`Job Finder couldn't finish
+opening`) after fills, sqlite still had starter targets all `enabled:false`.
+  **Root cause (source-generic):** after wave-8 sticky
+  `LockedScreenLayout.bottomContent` footer, Job sources sit far below the
+  fold in Targeting; harness scrolled `window` (not `.screen-scroll-area`),
+  then Playwright `force` clicks on Enable hung/detached. Discovery copy
+  ("Enable a saved source" / "Enable sources") was secondary — primary path
+  never flipped a saved source on. **Fix:** harness
+  `revealJobSources` + DOM click with timeout +
+  `[data-profile-setup-source-enable]` / Profile Include checkbox fallback;
+  list-editor Enter commit; skip Strong-rewrite click; capture technical
+  details. Product: top Targeting jump CTA `Show job sources to enable`
+  (`data-profile-setup-jump-to-sources`) + stable Enable `data-*` + focusable
+  sources heading. **Proof:** catalog + discovery-filters + step-footer
+  vitest **24** passed. **wave9d outcome:** completed EXIT 0, overall FAIL,
+  crash before enable (no full funnel re-run). **Still weak:** live
+  enable→search rediscovery not re-proven; Targeting crash stack still
+  unknown (technical details now harvested next run); Sam Applications.
+
+- **Funnel polish wave 9 rediscovery attempt — harness FAIL, labels from wave 8 archive (2026-08-27):**
+  Clean restart after prior hung resumes. Desktop rebuilt; wave 8 userdata
+  archived to `userdata-pre-wave9-rediscovery-20260827-080515/`. Fresh
+  `run-alex-funnel.mjs` LIVE_AI=0 attempts: **9** early Electron close;
+  **9b** reached Find jobs but sources never enabled (sticky `data-save-state`
+  toast intercepts bottom CTAs → `Search jobs` disabled → overall **FAIL**);
+  harness patched (`dismissSaveToast` + default `force` clicks);
+  **9c/9d** hit renderer error boundary (`Job Finder couldn't finish opening`)
+  mid Targeting — overall **FAIL**, 0 jobs persisted. Logs:
+  `alex-funnel-wave9b-retry.log`, `alex-funnel-wave9d-clean-rediscovery.log`.
+  **Label measurement (wave 8 rediscovery sqlite archive, hard garbage only):**
+  **42/50 good**, **6/50 neutral** (`Employer not stated`), **2/50 garbage**
+  (`Dearhiringmanager IO`, `Scan Com`). Target URL/slug garbage still **gone**
+  on that board snapshot (`Https…`/`Strongholdpay`/`Green Usd` = 0; `Scale AI`
+  OK). **Do not** treat short brands (`Tennr`, `Stockx`, …) as garbage.
+  **Canonical full funnel PASS** remains wave 8 / wave 7b (export→approve→
+  prepare, no submit). **Still weak:** live rediscovery blocked by toast +
+  Targeting crash; remaining `… Com`/`… IO` (wave 9 unit tighten below not
+  re-proven live); Sam Applications. Goal remains **ACTIVE**.
+
+- **Funnel polish wave 9 — short-slug TLD rejection + visual contrast (2026-08-27):**
+  Product follow-up while rediscovery harness was unreliable. **Employer
+  labels:** tighten `isUrlDerivedEmployerLabel` for case-insensitive strong TLD
+  tails (`Dearhiringmanager IO`, `Scan Com` / `Scan COM`) while keeping real
+  short brands (`Tennr`, `Stockx`) and ambiguous tails (`Scale AI`, `Acme Co`);
+  reject hyphenated strong-TLD slug tails (`scan-com`, `dearhiringmanager-io`)
+  in `shouldRejectEmployerSlugInference` without a length-only 6–9 char ban.
+  Wired through existing `sanitizeEmployerLabel` /
+  `sanitizeObservedEmployerLabel` / `formatEmployerLabelFromSlug` paths.
+  **Visual:** EmptyState dashed border at full `--border-strong` + stronger
+  fill gradient (Discovery empty/loading + Applications list empties);
+  Applications fact-strip uses `--border-strong` + soft overlay; dark/light
+  `--field-border` / focus border+shadow raised for dark-panel inputs.
+  **Proof:** `pnpm validate:package contracts` (543), `desktop` (2655);
+  `pnpm source-generic:check` PASS. **Live rediscovery of TLD drops:** still
+  unverified (see rediscovery attempt above). Goal remains **ACTIVE**.
+
+- **Funnel polish wave 8 follow-up — LIVE_AI=0 rediscovery proof (2026-08-27):**
+  Desktop rebuilt (`pnpm --filter @unemployed/desktop build`). Wave 7b userdata
+  archived to
+  `.../alex-from-scratch/userdata-pre-wave8-rediscovery-20260827-071117/`;
+  fresh empty `userdata/` + `run-alex-funnel.mjs` with
+  `UNEMPLOYED_TEST_API_USE_LIVE_AI=0` (no submit). Log:
+  `alex-funnel-wave8-rediscovery.log`; evidence `alex-funnel-evidence.json`.
+  Run `discovery_run_3a78da3c-9b45-445a-8c12-0a9a42ef51ba` —
+  `validJobsFound=50`, `jobsPersisted=50`. **Sqlite `saved_jobs` labels:**
+  **42/50 good** real names (Tennr, Scale AI, Give Lively, Pomelo Care, …);
+  **6/50 neutral** stored `Employer not stated` (UI `Listing · {source}`
+  fallback); **2/50 garbage** TLD artifacts (`Dearhiringmanager IO`,
+  `Scan Com`). Target wave-7 garbage **gone:** `Https … Com` 0, `Strongholdpay`
+  0, `Green Usd` 0; `scale-ai` now **Scale AI**. **Full Alex funnel PASS**
+  (launch/import/profile/sources/search/shortlist/resume/prepare/
+  noEmployerSubmit). **Did not ship** generic 6–9 char short-slug rejection:
+  `Stockx` still appears, but a length-only reject would also drop real names
+  (`Tennr`, `Coder`, `Tulip`, `Sardine`). Sam Applications not re-run.
+  **Still weak:** remaining `… Com` / `… IO` hostname title-case; 6/50 missing
+  employer (rely on display fallback); short branded slugs without link text;
+  Sam Applications consistency. _(Wave 9 unit/sanitize targets the
+  `… Com` / `… IO` leftovers; live rediscovery still unverified.)_
+
+- **Funnel polish wave 8 — employer label sanitization + profile setup chrome (2026-08-27):**
+  Source-generic follow-up to wave 7 slug/URL garbage labels and profile
+  guided-setup below-fold clipping. **Employer labels:** shared contracts
+  helpers reject URL-derived hostname fragments (`Https … Com`), inline
+  domains, currency-slug suffixes (`green-usd`), and long concatenated
+  single-token slugs (`Strongholdpay`); `formatEmployerLabelFromSlug` title-cases
+  with acronym handling (`scale-ai` → `Scale AI`); `sanitizeEmployerLabel` for
+  storage/display fallbacks vs `sanitizeObservedEmployerLabel` for intentional
+  board placeholders (`Confidential`, `Confidential Careers`). Wired through
+  compact scan observer, `job-extraction` card merge, `matching-review-queue`
+  URL inference, and desktop `job-employer-location-display` (neutral
+  `Listing · {source}` when label drops). **Regex fix:** concatenated-slug
+  guard raised from `{10,}` to `{12,}` lowercase so `Confidential` is not
+  misclassified as slug garbage (restores LinkedIn extraction tests). **Profile
+  setup:** sticky Save/Continue footer via `LockedScreenLayout.bottomContent`;
+  capped top summary scroll on small viewports; duplicate step CTAs hidden when
+  footer owns navigation; shell `h-full min-h-0` + footer safe-area padding.
+  **Visual (residual):** stronger field/panel borders in `globals.css`; outline
+  button contrast on dark panels. **Proof:** `pnpm validate:package contracts`
+  (543), `browser-agent` (248), `job-finder` (1821), `desktop` (2655);
+  `pnpm source-generic:check` PASS. Live rediscovery: see wave 8 follow-up
+  above.
+
+- **Employer binding wave 7 — utility inventory filter + LIVE_AI=0 rediscovery proof (2026-08-27):**
+  Source-generic follow-up to wave 6 employer proof (44/50 with 6 utility
+  chrome rows). Compact scan drops browse/utility inventory before persist:
+  bare `/jobs` hub URLs (`isLikelyJobListingHubUrl`), plus `/browse/…` and
+  `/hiring-data` (synced with shortlist utility filters in `job-extraction` +
+  `matching-review-queue`). Company binding prefers visible company-link text
+  (`innerText`, `aria-label`, `title`) over slug title-case when labeled
+  anchors exist. **Harness proof (prior):** Playwright live-binding fixture +
+  unit tests; `pnpm validate:package browser-agent` + `job-finder` +
+  `pnpm source-generic:check` PASS. **Live rediscovery proof:** desktop
+  rebuilt (`pnpm --filter @unemployed/desktop build`); wave 6 userdata
+  archived to
+  `.../alex-from-scratch/userdata-pre-wave7-utility-filter-20260827-064304/`
+  (before: **50** sqlite rows, **44/50** real employers, **3** utility titles
+  `Startup Jobs` / `Industries` / `Tech Hubs` plus hub/browse URLs); fresh
+  empty `userdata/` + `run-alex-funnel.mjs` with
+  `UNEMPLOYED_TEST_API_USE_LIVE_AI=0` (no submit). Log:
+  `alex-funnel-wave7-utility-filter-rediscovery.log`; evidence:
+  `alex-funnel-evidence.json`. Run
+  `discovery_run_06ff8689-be48-4a96-a9a5-af3401a8bfcd` —
+  `validJobsFound=50`, `jobsPersisted=50`. **After sqlite `saved_jobs`:**
+  **50/50** rows carry real `company` (100% of inventory); **0** utility
+  titles and **0** hub/browse URLs (prior utility ids absent); examples:
+  `Executive Assistant` → Tennr; `Data Engineer (Staff, Principal, Lead)` →
+  Green Usd; `Machine Learning Research Scientist, Post-Training` → Scale Ai.
+  Inventory count stayed **50** (not ≤44) because discovery still fills the
+  50-job quota with real postings once chrome is filtered — net win is chrome
+  removal + **49/50** real employers vs wave 6 **44/50** (one URL-derived
+  `Https Therichmondmarketing Com`; **0** utility hub/browse rows). **Full Alex
+  funnel end-to-end PASS** after harness fix for false-positive
+  `TEMPLATE APPROVAL ELIGIBLE` (must still **Export PDF** before
+  **Approve this PDF**): log
+  `alex-funnel-wave7b-harness-fix-full.log`; evidence
+  `alex-funnel-evidence.json` — all step verdicts PASS including **prepare**;
+  no employer submit. Prior wave 7 log (`alex-funnel-wave7-utility-filter-rediscovery.log`)
+  still **FAIL** on old export gate. **Still weak:**
+  slug-only / URL-derived labels when link text is missing (`Strongholdpay`,
+  `Green Usd`, `Scale Ai`, `Https Therichmondmarketing Com`, `Stockx`);
+  labeled-link preference did not upgrade Green on this board snapshot; Sam
+  Applications label consistency not run; profile-setup clipped controls below fold.
+
+- **Funnel polish wave 6 — post-fix rebuild + LIVE_AI=0 rediscovery (2026-08-27):**
+  Confirms sqlite/UI persistence after generic ancestor-walk employer binding
+  (follow-up to chat **Generic employer binding only**). Desktop rebuilt
+  (`pnpm --filter @unemployed/desktop build`); prior Alex userdata archived to
+  `apps/desktop/test-artifacts/persona-wave-20260826/alex-from-scratch/userdata-pre-wave6-rebuild-20260827-063736/`;
+  fresh empty `userdata/` + `run-alex-funnel.mjs` with
+  `UNEMPLOYED_TEST_API_USE_LIVE_AI=0`. Log:
+  `.../alex-funnel-wave6-rebuild-rediscovery.log`; evidence:
+  `alex-funnel-evidence.json`. Discovery run
+  `discovery_run_e0eb2c4b-a39d-432e-a54a-b91a6791ceb1` completed —
+  `validJobsFound=50`, `jobsPersisted=50`. **Proof (sqlite `saved_jobs`):**
+  **44/50** real `company` (not empty, not `Employer not stated`); **6/50**
+  utility index titles (`Startup Jobs`, `Industries`, `Tech Hubs`, …) with
+  empty URLs still `Employer not stated` (UI should fall back to
+  `Listing · {source}`). Examples with binding:
+  `Executive Assistant` → Tennr; `Data Engineer (Staff, Principal, Lead)` →
+  Green Usd; `Machine Learning Research Scientist, Post-Training` → Scale Ai.
+  Prior pre-fix Alex rediscovery was **0/50** real employers; this wave is
+  **not** a regression. **Prepare root cause (harness, not product):** full
+  funnel clicked `Export PDF` inside the approve `clickAny` list, set
+  `resumeApproved=true` without approving, then `Prepare application` stayed
+  disabled (`prepareClicked=false`, alert: “Approve the exported PDF first”).
+  **Fix:** `run-alex-funnel.mjs` now exports → waits for approval eligibility
+  → clicks `Approve this PDF` only → returns to Shortlisted → clicks Prepare
+  with `force:true`; verdict uses `prepareClicked || prepareReached`.
+  **Prepare proof:** `run-alex-approve-prepare.mjs` on wave 6 userdata —
+  approve **PASS**, prepare **PASS**, no employer submit (`alex-funnel-prepare-rerun.log`,
+  `alex-funnel-prepare-evidence.json`). Full re-run with export-gate fix: **PASS** (wave 7b log above). **Still weak:**
+  wave 6 userdata had 6/50 chrome rows (utility filters landed in wave 7); slug-only link
+  text; Sam retest; full end-to-end funnel not re-run this follow-up.
+
+- **Funnel polish wave 4 — rebuild + LIVE_AI=0 rediscovery (2026-08-27):** Same
+  **44/50** employer proof on earlier clean userdata after element-level
+  binding (Give Lively shortlist; Find jobs cards e.g. “Executive Assistant
+  Tennr”). Approve→Prepare spot-check PASS (`run-alex-approve-prepare.mjs`).
+  DOM evidence under `.../wellfound-dom-evidence/` — role pages use plain divs
+  with company cards at ~depth 5; fixed by unique-company ancestor walk +
+  containers.
+
+- **Employer binding — source-generic compact scan (2026-08-27):** Root cause:
+  live compact discovery dropped employer names because the in-page scan never
+  attached observed employer-profile links (`/company/…`, `/employer/…`) to
+  job-title anchors, and `readScanPayload` did not round-trip
+  `companyHref`/`companyLabel` into posting candidates. Fix (all
+  source-generic — no board branches): walk up to 8 DOM ancestors for a
+  **unique** employer-profile anchor, prefer visible link text over slug
+  inference, accept numeric-prefix job URLs as posting inventory, and map
+  recovered fields through `buildDomCardPostingCandidate` →
+  `JobPostingSchema` → agent checkpoint merge. **Targeted harness proof:**
+  Playwright live-binding fixture (grouped-board dom-evidence shape) — 3/3
+  posting candidates persist real employers (`Sigma Computing`, `Reflow`);
+  compact-first agent path keeps 2/2 with zero LLM/extraction calls.
+  **Live rediscovery proof:** wave 6 above (44/50 real employers on fresh post-rebuild userdata).
+  `pnpm validate:package browser-agent` + `pnpm source-generic:check` PASS.
+  **Still weak:** boards with ambiguous multi-employer cards still omit
+  employer; slug-only fallback when link text is empty; utility chrome
+  listings.
+
+- **Source-generic audit (2026-08-27):** Hard constraint for import→apply work —
+  no per-board adapters, `if (source === …)` workflow branches, or board-named
+  product copy. `pnpm source-generic:check` PASS (4 ratcheted test-fixture
+  entries only). **Must refactor (done this wave):** Discovery empty-source
+  callout (removed board-named example); employer display/recovery uses
+  generic `/company/{slug}` + `Listing · source` fallbacks
+  (`job-employer-location-display.ts`, Applications/Find jobs panels); compact
+  scan employer binding (ancestor walk + `companyHref`/`companyLabel`
+  round-trip). **OK as generic heuristics (fixture-tested, not shipped
+  policy):** site-chrome title/path deny lists and hub-url filters in
+  `browser-agent`/`job-finder` matching (e.g. Albanian nav, `/company/{slug}`
+  hubs, social hosts); profile-copilot scenarios that add user-named sources;
+  test/fixture URLs. **Apply path:** prepare-only SW block copy is
+  source-neutral (“job site blocked automatic prep”); no board branches in
+  `browser-runtime`/`catalog-session-agent`.
+
+- **Funnel polish wave 3 (2026-08-27):** Shortlisted footer keeps a single primary
+  when the tailored PDF still needs approval — removed the disabled ghost
+  Prepare button under Review and approve; checklist “Next:” is quiet text
+  instead of a third StatusBadge (list + header badges stay). Guided-setup
+  readiness cards use tighter padding so the completeness strip is less likely
+  to clip below the fold under the locked top chrome. Compact scan employer
+  binding closed in wave 4 rediscovery (prior wave was 50/50
+  `Employer not stated` before element-level unique-company recovery).
+  Shortlisted approve→Prepare spot-check PASS
+  (`run-alex-approve-prepare.mjs`, no employer submit). Validated:
+  `pnpm --filter @unemployed/desktop build`; desktop vitest 2654 passed;
+  browser-agent focused extraction + observer tests; focused Shortlisted
+  mission-panel + guided-setup summary coverage included.
+  Persona-wave visual hierarchy 2026-08-27: Applications finish-first pauses
+  no longer repeat the Next step paragraph or show competing Queue controls;
+  primary Safeguards / finish CTAs are larger; status facts wrap instead of
+  truncating, use quieter label contrast, and filters sit on their own row;
+  Find jobs promotes employer meta (or Listing · source), limits comfort
+  badges, and bumps contrast; Shortlisted readiness gaps + resume-ready
+  captions are clearer; Resume Studio next-step banner and header have more
+  weight. Fresh Alex (data) + Sam (frontend) from-scratch personas exercise
+  the same import→apply funnel only.
+  **Alex + Sam funnel polish (2026-08-27):** Guided setup keeps Save/Continue
+  in a sticky footer; Profile completeness/resume strip no longer sits above
+  the Basics tabs; Shortlisted promotes Review and approve resume over Prepare
+  when the PDF is exported but unapproved; Discovery results add bottom scroll
+  padding so the last card is reachable; Essentials path cards use draft-aware
+  review counts. Sam: Search blocked without enabled sources now uses a warning
+  callout plus primary Enable sources / Add sources buttons (not gold
+  underlines); checkpoints dialog keeps Continue without first/focused while
+  Enable checkpoints is visually primary; Applications list/CRM/detail omit
+  `Employer not stated` and use slug inference or `Listing · source`; Resume
+  Studio notes and Find jobs list/inspector contrast are stronger in dark
+  theme. Comfortable-density Find jobs rows still show posting-date badges so
+  Newest ranking truth (`not date-ranked`) stays visible; compact density
+  omits them.
+  **Funnel polish wave (2026-08-27, post Alex/Sam):** Wellfound `/jobs/{id}-…`
+  cards now recover employer from an observed `/company/{slug}` href (DOM card
+  - compact discovery + structured extraction) without inventing names from
+    the job-id slug alone; Applications cover-letter lineage omits absence
+    placeholders the same way; LinkedIn SW prepare recovery rewrites
+    service-worker jargon in customer-facing copy, treats apply-result SW blocks
+    as site-blocked facts even when the CRM blocker code is generic, and keeps
+    a single `Listing · source` label (no duplicate “Listing on”); dark outline/
+    secondary/ghost controls and field/panel borders use stronger contrast.
+    **Funnel polish wave 2 (2026-08-27):** Locked extraction→display contract for
+    Wellfound `/jobs/{id}-…` + observed `/company/{slug}`: unit/integration tests
+    cover structured extraction, compact DOM cards, and Applications list when
+    `company` was stored from recovery (shows employer, not `Listing ·`). Profile→
+    Search empty Roles/Locations/Work modes use primary CTAs; Applications list
+    drops the redundant Needs follow-up badge beside Needs you; Resume validation
+    note rows use stronger borders/`items-start`/padding; ghost buttons and empty
+    states gain contrast; list keyboard focus rings align with shell tabs.
+    Validated: focused vitest (desktop employer/display + Applications + Search
+    setup + globals; browser-agent extraction + compact observer) and
+    `pnpm validate:package desktop`. Skipped Jordan LinkedIn SW live retest
+    (no Go quota burn / no employer submit). Still weak after wave 2: legacy
+    stored Wellfound rows without company-path evidence stay `Listing ·`
+    Wellfound until rediscovery; SW recovery remains external-browser constrained
+    after Safeguards reset. Wave 3 reduces Shortlisted action noise while keeping
+    list+header readiness badges.
+    Prior wave also validated `pnpm validate:package browser-agent`.
+- Persona-wave flow hardening 2026-08-27: from-scratch persona evidence drove
+  focused fixes across Profile → Find jobs → Shortlisted → tailored resume →
+  Prepare. P0: resume workspace routes now encode/decode job ids so URL-encoded
+  targets (e.g. Wellfound slugs with spaces and `&`) no longer crash Resume
+  Studio; abnormal failure safeguard pause no longer blocks new discovery (only
+  batch sample review still blocks); Applications recovery copy names LinkedIn
+  service-worker blockers and links to Safeguards profile reset. P1: KosovaJob
+  navigation pages and Wellfound-style "View all … jobs" nav links are filtered
+  during extraction and at Shortlisted display; prepare gate now matches
+  Shortlisted approved-export resolution and re-resolves stale absolute export
+  paths under current user data; stale `missing_resume` application blockers
+  reconcile on workspace snapshot when approved tailored PDF readiness matches
+  Shortlisted; Jordan retest harness skips `importResumeFromPath` when Partiful
+  approved export exists (never re-import on prepared userdata). Deterministic
+  resume fallback shows explicit warning copy; Shortlisted resume-strategy CTAs
+  are de-duplicated; Home hides the profile-setup blocker after the first
+  completed search; Find jobs nav badge spacing is fixed; discovery terminal
+  feedback no longer duplicates on the route action surface; repeated searches
+  with zero new jobs explain that existing results are unchanged; Wellfound-style
+  `/company/{slug}/` URLs infer employer names on cards. **Polish batch + persona wave 1
+  (2026-08-27):** Applications plain-language status facts, collapsed technical sections, single
+  Resume Studio export in banner; parallel Jordan/Priya/Maya retest (live AI off) — Jordan 4/4 PASS,
+  Priya 3/4 (repeat-search copy gap), Maya 2–3/5 (legacy Wellfound nav junk in discovery list;
+  expanded utility-title filter at display + extraction in wave 2). **Wave 2 quality fix
+  (2026-08-27):** strengthened utility filters for KosovaJob Albanian/nav titles, Wellfound
+  company hubs (`/company/{slug}`), and marketing chrome (Why Wellfound, fb.com); same filter
+  removes junk from Find jobs + mismatch pools; card meta hides `Employer not stated` /
+  `Location not stated` and recovers employer from company-path URLs when present; repeat-search
+  zero-new feedback now reads the refreshed run summary (not a stale discovery snapshot).
+  **Wave 3 Maya/Priya leftover fix (2026-08-27):** inspector/shortlist/fit-evidence/Companies
+  deep-links no longer render absence placeholders (omit empty meta via
+  `job-employer-location-display`); Albanian privacy-policy titles filtered at display +
+  extraction; generic company corpus rejects `employer not stated`. Omitting placeholders is
+  enough this round — real Wellfound employer names still need company-path slug or live
+  extraction. **Priya WAVE 4 Companies cleanup (2026-08-27):** legacy
+  `Employer not stated` / generic company shells are purged on reconcile, excluded from
+  workspace company lists + Companies UI/search, and no longer deep-linked from jobs or
+  applications (`isListableCompanyName`). **Wave 5 Priya privacy company shells
+  (2026-08-27):** Companies also excludes utility chrome names via shared
+  `isLikelyUtilitySiteChromeName` (same title patterns as shortlist utility
+  filter) — Albanian `Politikë e Privatësisë…`, Privacy/Cookie Policy, and other
+  nav/marketing labels are purged on reconcile and omitted from snapshot/UI;
+  evidence no longer creates those shells. **Wave 4 Maya privacy filter (2026-08-27):** live KosovaJob privacy page
+  (`Politikë e Privatësisë dhe Mbrojtjes së të Dhënave Personale` /
+  `/politika-e-privatesise`) was still listing as a job — title `\b` after `ë` failed and
+  the Albanian path slug was missing; utility filters now match the compound title prefix
+  without diacritic word-boundary and include Albanian privacy path segments.
+  **Priya WAVE 3 discovery feedback (2026-08-27):** with `LIVE_AI=0`, browser
+  discovery no longer early-exits before the compact-first page scan when the deterministic
+  client lacks `chatWithTools`; interrupted Search banners no longer duplicate “stopped before
+  it could finish”; zero-new duplicate merges keep a completed run verdict for repeated-search
+  copy. Rhythm in `docs/TESTING.md`.
+  LinkedIn service-worker
+  prepare blocking remains an external browser constraint — recovery UX only.
+  Jordan retest3 (2026-08-27): with import skipped and approved Partiful PDF on
+  disk, Applications clears the missing-resume blocker on load; Retry Prepare
+  proceeds to service-worker pause (expected), not resume_missing. Focused
+  validation: `pnpm validate:package desktop`, `pnpm validate:package job-finder`,
+  and `pnpm validate:package browser-agent` (one pre-existing fast-path merge test
+  still failing in browser-agent; unrelated persona blockers).
+  **Jordan WAVE 2 UX (2026-08-27):** Shortlisted cards say "Approved resume ready"
+  when a tailored PDF is approved (never future-tense "will be created");
+  Applications promotes recovery (Open Safeguards / finish manually) over cover-letter
+  drafting when paused/blocked; site-block pause uses plain-language next step and
+  suppresses the "Preparing safely…" spinner while manual finish is required.
+  **Jordan WAVE 3 field-conflict recovery (2026-08-27):** conflicting prefilled
+  fields and prepare-only field-save pauses use the same finish-first hierarchy —
+  Next step and recovery say finish in the open application; Retry preparation is
+  demoted to secondary ("Retry preparation later"); no preparing spinner while the
+  user must act.
 - Temporary local AI routing 2026-08-26: ignored `.env.local` currently points
-  shared text and vision-capable providers at OpenCode Zen's
-  `muse-spark-1.2-contributor-free` through the Responses API with requested
-  `xhigh` reasoning. Synthetic direct probes passed for text and image input;
-  Chat Completions returned HTTP 500 and is not used. Job Finder, Interview
-  Helper text, resume vision, browser vision, and Interview screenshot analysis
-  inherit these shared values unless a narrower override is present; audio stays
-  local or separately configured. This is a temporary dogfood override, not a
-  production routing decision or end-to-end acceptance result. The free
-  contributor route may use prompts and completions for Meta model training, so
-  private resume, credential, answer, and interview data require explicit
-  informed consent; initial testing stays synthetic. The temporary key shared in
-  conversation must be rotated and remains untracked. ADR 0010's mixed OpenCode
-  Go production recommendation remains accepted pending capability and privacy
-  review. Exact setup and follow-up: `docs/AI_PROVIDER_SETUP.md`.
+  shared text, tool-based agent work, and image-capable resume/browser/Interview
+  analysis at OpenCode Go's `muse-spark-1.2-contributor` through the Responses
+  API with requested `xhigh` reasoning. Luna is not used in this local override.
+  A synthetic `/models` plus Responses tool-loop probe returned HTTP 200 and a
+  `ping` function call; this is transport evidence only, not end-to-end
+  discovery, resume-quality, or release acceptance. The earlier Zen free override
+  (`muse-spark-1.2-contributor-free` on `https://opencode.ai/zen/v1`) is no
+  longer the local dogfood route. From-scratch persona searches previously died in
+  seconds because `UNEMPLOYED_ENABLE_TEST_API=1` forced the deterministic Job Finder
+  client (no `chatWithTools`) and discovery early-exited before the compact page
+  scan; the UI then duplicated a generic "search stopped" banner. Compact-first
+  discovery now still runs under that client; model escalation still needs
+  `UNEMPLOYED_TEST_API_USE_LIVE_AI=1`. Contributor prompts and completions may
+  be used to train future Meta models, so private resume, credential, answer,
+  and interview data still need explicit informed consent; initial testing stays
+  synthetic. Rotate any key shared through a conversation. ADR 0010's mixed
+  OpenCode Go production recommendation (DeepSeek text + Luna vision) remains
+  accepted pending capability and privacy review. Exact setup:
+  `docs/AI_PROVIDER_SETUP.md`.
 
 - Current-source dogfood and publication gate 2026-08-26: the user authorized a
   commit and push only if there is no blocker to testing the app and seeing the
@@ -167,7 +1863,7 @@ Updated: 2026-08-26
   seed-data manifest contract accepts exactly
   `native_100_percent`/`native_125_percent`, and the final canonical manifest
   digest — verified against the repo's canonical digest method — is
-  `a8cb5836e830272eea96894a80d2ed4e795d31e0a1d97dea7f05ecd092fd7b7d`; an
+  `8b8f95b8d06b178062d5c542ecd7f927172c715a7e9a66148d4987b3fd8f1e14`; an
   independent tri-model clean-room review returned GO on that final corpus
   (P01–P12 start from fresh empty workspaces, P13–P14 return to persisted
   workspaces), and no persona workspace is prepared and no session has run.
@@ -478,7 +2174,7 @@ center` descendant of a closed native `details`. Clickable-point evidence now
   Workspace behavior, Tracker, Diagnostics, and Danger zone); each save uses a
   typed, schema-validated, field-scoped IPC operation against transaction-current
   repository state. Candidate Assets moved to the dedicated Documents destination
-  under Planning & settings. Resume Studio has one primary next action, visible
+  under More. Resume Studio has one primary next action, visible
   approval blockers, collapsed secondary chrome, and denser evidence-bound editing;
   Applications uses a deduplicated fact strip and compact records/history. The
   integrated desktop suite passes 219 files / 1,477 tests, desktop typecheck and
@@ -552,7 +2248,7 @@ center` descendant of a closed native `details`. Clickable-point evidence now
   marks feed hard cold/warm acceptance budgets. The normal flow now has a
   persistent 17rem sidebar at CSS widths of at least 1440px; below that
   breakpoint the compact top navigation exposes the flow destinations and a
-  `Planning & settings` menu for secondary destinations.
+  `More` menu for secondary destinations.
 - Current acceptance is source-bound and fail-closed. The production wrapper
   creates an immutable source snapshot, builds and runs only that snapshot,
   inventories source and generated artifacts, unsets dev-server routing, retains
@@ -685,8 +2381,8 @@ per the external-acceptance constraints above.
 
 - `packages/job-finder` owns Job Finder orchestration.
 - `packages/browser-agent` owns browser workflow policy, prompts, and structured outputs; `packages/browser-runtime` stays generic.
-- Discovery and source-debug remain source-generic. Board-specific rescue logic in core product flow is debt, not a pattern.
-- Compensation matching and catalog filtering compare annualized equivalents when saved and listed currencies explicitly match, including monthly-versus-yearly wording; unknown or cross-currency evidence stays neutral, and match context/posting fingerprints use logic revision 5 (scorer version 6) so persisted assessments are recalculated safely.
+- Discovery, source-debug, and apply preparation remain source-generic: users configure sources and the product improves generically ([ADR 0007](adr/0007-source-generic-browser-workflows.md), [ARCHITECTURE.md](ARCHITECTURE.md)). Board-specific rescue logic in core product flow is debt, not a pattern.
+- Compensation matching and catalog filtering compare annualized equivalents when saved and listed currencies explicitly match, including monthly-versus-yearly wording; unknown or cross-currency evidence stays neutral, and match context/posting fingerprints use logic revision 7 (scorer version 8) so persisted assessments are recalculated safely.
 - Cross-package and Electron boundaries stay typed and schema-validated; no untyped IPC or `any`.
 - Credentials, security answers, CAPTCHA solving, MFA, legal consent, external account creation, and final submission remain user-owned.
 - Visual analysis is evidence-only. It cannot create selectors, browser actions, candidate facts, submission guidance, or saved-job policy.

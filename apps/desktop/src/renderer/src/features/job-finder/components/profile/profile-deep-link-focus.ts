@@ -1,4 +1,7 @@
-export type ProfileDeepLinkFocus = "job-sources" | "target-roles";
+export type ProfileDeepLinkFocus =
+  | "job-sources"
+  | "target-roles"
+  | "work-modes";
 
 export const PROFILE_SECTION_SCROLL_AREA_ID = "profile-section-scroll-area";
 
@@ -77,6 +80,10 @@ const profileFocusTargets: Record<
   "target-roles": {
     headingId: "profile-target-roles-heading",
     sectionId: "profile-target-roles",
+  },
+  "work-modes": {
+    headingId: "profile-work-modes-heading",
+    sectionId: "profile-work-modes",
   },
 };
 

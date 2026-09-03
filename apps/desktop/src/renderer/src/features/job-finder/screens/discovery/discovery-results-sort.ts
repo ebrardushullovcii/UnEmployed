@@ -5,6 +5,7 @@ import {
   compareDiscoveryJobs,
   getClearMismatchPenalty,
   getDiscoveryListingRecencyKey,
+  isProvisionalMatchAssessment,
 } from "@unemployed/job-finder/discovery-ordering";
 
 export type DiscoveryResultsSortField = "fit" | "recent" | "company";
@@ -165,9 +166,18 @@ export function compareDiscoveryResults(
       if (sort.direction === "desc") {
         return compareDiscoveryJobs(left, right);
       }
-      const byScore = right.matchAssessment.score - left.matchAssessment.score;
-      if (byScore !== 0) {
-        return -byScore;
+      const leftProvisional = isProvisionalMatchAssessment(left);
+      const rightProvisional = isProvisionalMatchAssessment(right);
+      const byConfidence = Number(leftProvisional) - Number(rightProvisional);
+      if (byConfidence !== 0) {
+        return byConfidence;
+      }
+      if (!leftProvisional) {
+        const byScore =
+          right.matchAssessment.score - left.matchAssessment.score;
+        if (byScore !== 0) {
+          return -byScore;
+        }
       }
       return compareDiscoveryFitTieBreaks(left, right);
     }

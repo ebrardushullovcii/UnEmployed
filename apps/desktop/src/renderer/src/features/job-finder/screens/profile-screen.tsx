@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type {
   CandidateProfile,
+  DiscoveryRunRecord,
   EditableSourceInstructionArtifact,
   JobFinderWorkspaceSnapshot,
   JobSearchPreferences,
   ProfileCopilotContext,
   ProfileSetupState,
+  ProfileSetupStep,
   ResumeImportFieldCandidateSummary,
   ResumeImportProgressEvent,
   ResumeImportRun,
@@ -48,7 +50,7 @@ import type { ProfileSection } from "../lib/profile-screen-progress";
 import { useProfileScreenForms } from "./profile-screen-hooks";
 
 const unsavedProfileCopilotMessage =
-  "Save this page before asking Profile Copilot to edit it so your current profile draft does not get overwritten.";
+  "Save this page before asking the Assistant to edit it so your current profile draft does not get overwritten.";
 const unsavedProfileCopilotActionsMessage =
   "Save this page before applying, rejecting, or undoing copilot changes so your current profile draft stays intact.";
 const unsavedProfileSourceActionMessage =
@@ -105,16 +107,7 @@ export function ProfileScreen(props: {
   onProfileSurfaceDraftEdited?: () => void;
   profileCopilotPendingContextKey: string | null;
   onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void;
-  onResumeProfileSetup: (
-    step?:
-      | "import"
-      | "essentials"
-      | "background"
-      | "targeting"
-      | "narrative"
-      | "answers"
-      | "ready_check",
-  ) => void;
+  onResumeProfileSetup: (step?: ProfileSetupStep) => void;
   onRunDiscoveryForTarget?: (targetId: string) => void;
   onRunSourceDebug: (targetId: string) => void;
   onSaveSourceInstructionArtifact: (
@@ -128,7 +121,7 @@ export function ProfileScreen(props: {
   onSendProfileCopilotMessage: (
     content: string,
     context?: ProfileCopilotContext,
-  ) => void;
+  ) => void | Promise<boolean>;
   onUndoProfileRevision: (revisionId: string) => void;
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void;
   latestResumeImportReviewCandidates: readonly ResumeImportFieldCandidateSummary[];
@@ -138,6 +131,12 @@ export function ProfileScreen(props: {
   profileCopilotMessages: readonly JobFinderWorkspaceSnapshot["profileCopilotMessages"][number][];
   profileRevisions: readonly JobFinderWorkspaceSnapshot["profileRevisions"][number][];
   profileSetupState: ProfileSetupState;
+  /**
+   * Discovery runs behind source health. The Job sources tab classifies from
+   * the same evidence as the Home badge, so both screens agree.
+   */
+  activeDiscoveryRun?: DiscoveryRunRecord | null;
+  discoveryRuns?: readonly DiscoveryRunRecord[];
   recentSourceDebugRuns: readonly SourceDebugRunRecord[];
   searchPreferences: JobSearchPreferences;
   sourceAccessPrompts: JobFinderWorkspaceSnapshot["sourceAccessPrompts"];
@@ -172,6 +171,8 @@ export function ProfileScreen(props: {
     profileCopilotMessages,
     profileRevisions,
     profileSetupState,
+    activeDiscoveryRun = null,
+    discoveryRuns = [],
     recentSourceDebugRuns,
     searchPreferences,
     sourceAccessPrompts,
@@ -211,6 +212,14 @@ export function ProfileScreen(props: {
     profile,
     searchPreferences,
   });
+
+  const profileCopilotActionsBusy =
+    pendingActions.profileCopilotBusy || pendingActions.profileMutation;
+  const profileCopilotActionsDisabledReason = pendingActions.profileMutation
+    ? "A profile update is in progress. Wait for it to finish before changing Assistant proposals."
+    : hasUserDraftChanges
+      ? unsavedProfileCopilotActionsMessage
+      : null;
 
   useEffect(() => {
     onProfileSurfaceDirtyChange(hasUserDraftChanges);
@@ -254,13 +263,16 @@ export function ProfileScreen(props: {
     }
 
     const requestedDeepLink =
-      requestedFocus === "job-sources" || requestedFocus === "target-roles"
+      requestedFocus === "job-sources" ||
+      requestedFocus === "target-roles" ||
+      requestedFocus === "work-modes"
         ? (requestedFocus as ProfileDeepLinkFocus)
         : null;
     const destinationSection =
       requestedDeepLink === "job-sources"
         ? "sources"
-        : requestedDeepLink === "target-roles"
+        : requestedDeepLink === "target-roles" ||
+            requestedDeepLink === "work-modes"
           ? "preferences"
           : parsedSection;
 
@@ -295,21 +307,22 @@ export function ProfileScreen(props: {
   const pendingSetupItems = profileSetupState.reviewItems.filter(
     (item) => item.status === "pending",
   );
+  // The renderer receives no progress event until a native picker has
+  // returned a file. Treat that picker-only phase as recoverable rather than
+  // freezing every profile field behind an unresolved local pending flag.
+  const isResumeImportProcessing =
+    pendingActions.importResume && resumeImportProgress !== null;
   const resumeAnalysisPending =
-    pendingActions.importResume || pendingActions.analyzeProfile;
+    isResumeImportProcessing || pendingActions.analyzeProfile;
   const profileCopilotContext: ProfileCopilotContext = {
     surface: "profile",
     section: activeSection === "sources" ? "preferences" : activeSection,
   };
 
+  // Keep one durable profile conversation visible while the section changes;
+  // each message carries its own context chip in the rail.
   const visibleProfileCopilotMessages = profileCopilotMessages.filter(
-    (message) => {
-      if (message.context.surface !== "profile") {
-        return false;
-      }
-
-      return message.context.section === profileCopilotContext.section;
-    },
+    (message) => message.context.surface === "profile",
   );
   const starterQuestion = buildProfileSectionStarterQuestion(
     profileSetupState.reviewItems,
@@ -432,8 +445,47 @@ export function ProfileScreen(props: {
 
   return (
     <LockedScreenLayout
+      // F01: Profile's Save lived at the end of a ~5,400px page and was never
+      // painted at any supported height, even with a dirty field. `bottomContent`
+      // is the same always-pinned footer ownership guided setup already uses:
+      // it sits outside the scroll area as a flex sibling, so the primary
+      // action is inside the viewport at 1024x720 and every larger size.
+      bottomContent={
+        <>
+          {backgroundMergeNotice ? (
+            <div
+              className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-(--surface-panel-border) bg-(--info-surface) px-4 py-2 text-sm leading-6 text-(--info-text) sm:px-5"
+              role="status"
+            >
+              <span>{backgroundMergeNotice}</span>
+              {hasBackgroundConflict ? (
+                <Button
+                  onClick={discardEditsAndReloadCanonical}
+                  size="compact"
+                  type="button"
+                  variant="outline"
+                >
+                  Discard my edits and reload
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          <ProfileSaveFooter
+            // A prior successful save is stale once this save attempt is
+            // rejected locally; keep the inline validation as the only
+            // outcome so invalid input cannot look successfully saved.
+            actionMessage={validationMessage ? null : props.actionState.message}
+            hasUnsavedChanges={hasUnsavedChanges}
+            isSavePending={
+              pendingActions.profileMutation || resumeAnalysisPending
+            }
+            onSave={handleSaveAll}
+            validationMessage={validationMessage}
+          />
+        </>
+      }
       contentClassName="grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-2 pb-1 xl:overflow-hidden"
-      topClassName="grid gap-2 pb-1 pt-1.5"
+      topClassName="grid gap-2 pb-1"
       topContent={
         <>
           <PageHeader
@@ -455,34 +507,6 @@ export function ProfileScreen(props: {
             />
           )}
 
-          <ProfileResumePanel
-            importDisabledReason={importResumeGuardMessage}
-            isProfileReady={profileSetupState.status === "completed"}
-            isAnalyzeProfilePending={pendingActions.analyzeProfile}
-            isImportResumePending={pendingActions.importResume}
-            latestResumeImportReviewCandidates={
-              latestResumeImportReviewCandidates
-            }
-            latestResumeImportRun={latestResumeImportRun}
-            resumeImportProgress={resumeImportProgress}
-            onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
-            onApplyTimelineRepairAction={(proposalId, action) => {
-              if (!latestResumeImportRun) {
-                return Promise.reject(
-                  new Error("The resume import run is no longer available."),
-                );
-              }
-              return onApplyResumeTimelineRepairAction(
-                latestResumeImportRun.id,
-                proposalId,
-                action,
-              );
-            }}
-            onImportResume={onImportResume}
-            onReviewImportSuggestion={handleReviewImportSuggestion}
-            profile={overviewProfile}
-          />
-
           {resumeAnalysisPending ? (
             <div
               className="rounded-(--radius-field) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-sm leading-6 text-(--info-text)"
@@ -498,12 +522,14 @@ export function ProfileScreen(props: {
     >
       <section className="grid min-h-124 min-w-0 gap-(--gap-content) xl:h-full xl:min-h-0">
         <div className="grid min-h-0 min-w-0 gap-2 xl:grid-rows-[auto_minmax(0,1fr)]">
-          <ProfileSectionTabs
-            activeSection={activeSection}
-            onSectionChange={handleSectionChange}
-            panelId={activeSectionPanelId}
-            sections={sections}
-          />
+          <div className="sticky top-0 z-20 bg-(--surface-canvas)">
+            <ProfileSectionTabs
+              activeSection={activeSection}
+              onSectionChange={handleSectionChange}
+              panelId={activeSectionPanelId}
+              sections={sections}
+            />
+          </div>
 
           <div className="surface-panel-shell relative flex min-h-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border-active-soft)">
             <div
@@ -511,6 +537,60 @@ export function ProfileScreen(props: {
               data-locked-pane-scroll-region
               id={PROFILE_SECTION_SCROLL_AREA_ID}
             >
+              {/* Bottom clearance for the collapsed Copilot launcher
+                  (48px pill + 24px gap) so the last control in this pane is
+                  reachable even when the launcher falls back to floating. Job
+                  sources renders no Copilot, so reserving the space there only
+                  left a ~90px empty band above the section heading. */}
+              <div
+                className={
+                  activeSection === "sources"
+                    ? "p-3 sm:px-4 sm:py-3"
+                    : "p-3 pb-[4.5rem] sm:px-4 sm:pb-[4.5rem] sm:pt-3"
+                }
+              >
+                {/* F80/F17: the strip repeated on all five tabs, including
+                    Job sources where the resume is irrelevant, and cost ~100px
+                    of the first viewport on every one of them. It belongs to
+                    the tabs whose content the resume actually fills. */}
+                {activeSection === "sources" ? null : (
+                  <ProfileResumePanel
+                    // Keep the resume source/status useful without allowing the
+                    // imported-review surface to push the selected profile
+                    // editor below the first viewport. The full review surface
+                    // stays available below Basics when that tab is active.
+                    compact
+                    importDisabledReason={importResumeGuardMessage}
+                    isProfileReady={profileSetupState.status === "completed"}
+                    isAnalyzeProfilePending={pendingActions.analyzeProfile}
+                    isImportResumePending={pendingActions.importResume}
+                    latestResumeImportReviewCandidates={
+                      latestResumeImportReviewCandidates
+                    }
+                    latestResumeImportRun={latestResumeImportRun}
+                    resumeImportProgress={resumeImportProgress}
+                    onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
+                    onApplyTimelineRepairAction={(proposalId, action) => {
+                      if (!latestResumeImportRun) {
+                        return Promise.reject(
+                          new Error(
+                            "The resume import run is no longer available.",
+                          ),
+                        );
+                      }
+                      return onApplyResumeTimelineRepairAction(
+                        latestResumeImportRun.id,
+                        proposalId,
+                        action,
+                      );
+                    }}
+                    onImportResume={onImportResume}
+                    onReviewImportSuggestion={handleReviewImportSuggestion}
+                    profileForm={profileForm}
+                    profile={overviewProfile}
+                  />
+                )}
+              </div>
               <div
                 aria-labelledby={`${activeSection}-tab`}
                 className="relative z-0 p-3 sm:px-4 sm:py-3"
@@ -536,7 +616,9 @@ export function ProfileScreen(props: {
                 >
                   <ProfileActiveSectionContent
                     activeSection={activeSection}
+                    activeDiscoveryRun={activeDiscoveryRun}
                     backgroundArrays={backgroundArrays}
+                    discoveryRuns={discoveryRuns}
                     experienceArray={experienceArray}
                     isBrowserSessionPending={pendingActions.browserSession}
                     isProfileMutationPending={
@@ -567,47 +649,49 @@ export function ProfileScreen(props: {
                     sourceInstructionArtifacts={sourceInstructionArtifacts}
                   />
                 </fieldset>
+                {activeSection === "basics" ? (
+                  <div className="mt-6" data-profile-resume-review>
+                    <ProfileResumePanel
+                      importDisabledReason={importResumeGuardMessage}
+                      isProfileReady={profileSetupState.status === "completed"}
+                      isAnalyzeProfilePending={pendingActions.analyzeProfile}
+                      isImportResumePending={pendingActions.importResume}
+                      latestResumeImportReviewCandidates={
+                        latestResumeImportReviewCandidates
+                      }
+                      latestResumeImportRun={latestResumeImportRun}
+                      resumeImportProgress={resumeImportProgress}
+                      onAnalyzeProfileFromResume={onAnalyzeProfileFromResume}
+                      onApplyTimelineRepairAction={(proposalId, action) => {
+                        if (!latestResumeImportRun) {
+                          return Promise.reject(
+                            new Error(
+                              "The resume import run is no longer available.",
+                            ),
+                          );
+                        }
+                        return onApplyResumeTimelineRepairAction(
+                          latestResumeImportRun.id,
+                          proposalId,
+                          action,
+                        );
+                      }}
+                      onImportResume={onImportResume}
+                      onReviewImportSuggestion={handleReviewImportSuggestion}
+                      profileForm={profileForm}
+                      profile={overviewProfile}
+                    />
+                  </div>
+                ) : null}
               </div>
-            </div>
-
-            <div className="[&>[data-profile-workspace-actions]]:py-3">
-              {backgroundMergeNotice ? (
-                <div
-                  className="mb-2 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-(--radius-field) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-sm leading-6 text-(--info-text)"
-                  role="status"
-                >
-                  <span>{backgroundMergeNotice}</span>
-                  {hasBackgroundConflict ? (
-                    <Button
-                      onClick={discardEditsAndReloadCanonical}
-                      size="compact"
-                      type="button"
-                      variant="outline"
-                    >
-                      Discard my edits and reload
-                    </Button>
-                  ) : null}
-                </div>
-              ) : null}
-              <ProfileSaveFooter
-                actionMessage={props.actionState.message}
-                hasUnsavedChanges={hasUnsavedChanges}
-                isSavePending={
-                  pendingActions.profileMutation || resumeAnalysisPending
-                }
-                onSave={handleSaveAll}
-                validationMessage={validationMessage}
-              />
             </div>
           </div>
         </div>
       </section>
       {activeSection !== "sources" ? (
         <ProfileCopilotRail
-          busy={pendingActions.profileCopilotBusy}
-          actionsDisabledReason={
-            hasUserDraftChanges ? unsavedProfileCopilotActionsMessage : null
-          }
+          busy={profileCopilotActionsBusy}
+          actionsDisabledReason={profileCopilotActionsDisabledReason}
           context={profileCopilotContext}
           emptyStateDescription="Ask for a tighter headline, stronger summary, or another specific change. You review every proposal before anything is applied."
           emptyStateTitle="No requests yet"
@@ -625,6 +709,7 @@ export function ProfileScreen(props: {
             hasUserDraftChanges ? unsavedProfileCopilotMessage : null
           }
           starterQuestion={starterQuestion}
+          showProactivePrompt={false}
           minBottomOffset={COPILOT_BOTTOM_OFFSET}
         />
       ) : null}

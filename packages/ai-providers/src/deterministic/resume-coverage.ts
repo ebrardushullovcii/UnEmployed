@@ -563,12 +563,12 @@ export function deriveResumeCoveragePlan(input: {
 
     if (isDetailedStrongFit) {
       classification = "detailed";
-      reasons.push("current or recent strong career-family fit");
+      reasons.push("closest to the job you want, and recent");
     } else if (entry.careerFamilyFit === "strong") {
       classification = "compact";
-      reasons.push("older strong career-family fit");
+      reasons.push("close to the job you want, but older");
     } else if (coversGap) {
-      reasons.push("gap coverage for a meaningful 6+ month work-history gap");
+      reasons.push("kept so a 6+ month gap in your dates is covered");
       classification = hasUsableWorkHistory(entry.experience)
         ? "compact"
         : "suggested_hidden";
@@ -576,14 +576,16 @@ export function deriveResumeCoveragePlan(input: {
       entry.careerFamilyFit === "weak" &&
       entry.hasGroundedTechnicalEvidence
     ) {
-      reasons.push("weak career-family fit with grounded technical evidence");
+      reasons.push(
+        "further from this job, but the technical detail is backed by your saved evidence",
+      );
       classification =
         input.searchPreferences.tailoringMode === "aggressive"
           ? "suggested_hidden"
           : "compact";
     } else if (entry.careerFamilyFit === "weak") {
       reasons.push(
-        "weak career-family fit without enough role-specific evidence",
+        "further from this job, with little role-specific detail saved",
       );
       classification = hasUsableWorkHistory(entry.experience)
         ? input.searchPreferences.tailoringMode === "aggressive"
@@ -591,7 +593,7 @@ export function deriveResumeCoveragePlan(input: {
           : "compact"
         : "omitted";
     } else {
-      reasons.push("no meaningful career-family fit or gap-coverage value");
+      reasons.push("not close to this job and not needed to cover a gap");
       classification = hasUsableWorkHistory(entry.experience)
         ? input.searchPreferences.tailoringMode === "aggressive"
           ? "suggested_hidden"

@@ -22,11 +22,36 @@ const SHA_RESUME = "a".repeat(64);
 const SHA_ANSWERS = "b".repeat(64);
 const SHA_FINAL_CONTROL = "c".repeat(64);
 const SHA_UNBOUND = "d".repeat(64);
+const SHA_POLICY = "e".repeat(64);
 
 const ORIGIN = "https://boards.example.com";
 const NOW = "2026-08-26T12:00:00.000Z";
 const CREATED_AT = "2026-08-26T10:00:00.000Z";
 const GRANTED_AT = "2026-08-26T11:45:00.000Z";
+
+const DECISION_POLICY = {
+  version: 1 as const,
+  revision: 4,
+  digest: SHA_POLICY,
+  answerPolicy: {
+    approvedAnswerSnapshot: { revision: 2, digest: SHA_ANSWERS },
+    unknownRequiredQuestion: "pause_for_user" as const,
+    unknownEligibility: "pause_for_user" as const,
+    unknownLegalRequirement: "pause_for_user" as const,
+  },
+  stopConditions: {
+    unavailableCredentials: "pause_for_user" as const,
+    loginRequired: "pause_for_user" as const,
+    mfaRequired: "pause_for_user" as const,
+    captcha: "pause_for_user" as const,
+    antiBot: "pause_for_user" as const,
+    accountCreation: "pause_for_user" as const,
+    staleObservation: "pause_for_user" as const,
+    ambiguousFinalControl: "pause_for_user" as const,
+    originDrift: "pause_for_user" as const,
+    outcomeUncertain: "stop_no_retry" as const,
+  },
+};
 
 function envelope(
   patch: Partial<ApplicationAuthorityEnvelopeInput> = {},
@@ -39,13 +64,17 @@ function envelope(
     scope: { campaignId: "campaign_1", jobIds: ["job_1"] },
     maxApplicationsPerRun: 10,
     maxApplicationsPerLocalDay: 20,
-    intermediateMutationsAuthorized: true,
+    // Final-submission policy tests do not grant the separate bounded ATS
+    // autosave capability. Keeping it off avoids coupling these fixtures to
+    // autosave's intentionally narrower single-job/no-campaign scope.
+    intermediateMutationsAuthorized: false,
     accountCreationAuthorized: false,
     allowedResumeSha256: [SHA_RESUME],
     allowedOrigins: [ORIGIN],
     createdAt: CREATED_AT,
     expiresAt: "2026-08-26T18:00:00.000Z",
     revokedAt: null,
+    decisionPolicy: DECISION_POLICY,
     ...patch,
   };
 }
@@ -60,8 +89,15 @@ function preflight(
     jobId: "job_1",
     resultId: "result_1",
     applicationRecordId: "application_record_1",
+    campaignId: "campaign_1",
+    origin: ORIGIN,
     authorityEnvelopeId: "authority_1",
     authorityRevision: 3,
+    decisionPolicy: {
+      version: DECISION_POLICY.version,
+      revision: DECISION_POLICY.revision,
+      digest: DECISION_POLICY.digest,
+    },
     formObservation: { id: "observation_1", revision: 7, digest: SHA_RESUME },
     resumeSha256: SHA_RESUME,
     answers: { revision: 2, digest: SHA_ANSWERS },
@@ -116,6 +152,15 @@ function autonomousInput(
     remainingDailyCapacity: 18,
     idempotency: "unused",
     executionGrant: null,
+    currentPolicyFacts: {
+      policy: {
+        version: DECISION_POLICY.version,
+        revision: DECISION_POLICY.revision,
+        digest: DECISION_POLICY.digest,
+      },
+      answers: { revision: 2, digest: SHA_ANSWERS },
+      mandatoryStops: [],
+    },
     ...patch,
   };
 }
@@ -182,7 +227,9 @@ function expectBlocked(
 ): void {
   expect(decision.status).toBe("blocked");
   if (decision.status !== "blocked") {
-    throw new Error(`Expected block ${reason}, got authorized ${decision.mode}.`);
+    throw new Error(
+      `Expected block ${reason}, got authorized ${decision.mode}.`,
+    );
   }
   expect(decision.reason).toBe(reason);
   expect(typeof decision.detail).toBe("string");
@@ -192,7 +239,10 @@ function expectBlocked(
 describe("application submission policy", () => {
   describe("valid authorizations", () => {
     test("authorizes one fully valid autonomous submission without any grant", () => {
-      expectAuthorized(evaluateApplicationSubmissionPolicy(autonomousInput()), "autonomous_submit");
+      expectAuthorized(
+        evaluateApplicationSubmissionPolicy(autonomousInput()),
+        "autonomous_submit",
+      );
     });
 
     test("authorizes one fully valid confirm-before-submit submission with its grant", () => {
@@ -220,6 +270,9 @@ describe("application submission policy", () => {
             envelope({ scope: { campaignId: null, jobIds: ["job_1"] } }),
           ),
           campaignId: null,
+          preflight: SubmissionPreflightRecordSchema.parse(
+            preflight({ campaignId: null }),
+          ),
         }),
       );
       expectAuthorized(decision, "autonomous_submit");
@@ -252,12 +305,18 @@ describe("application submission policy", () => {
       {
         name: "the envelope is revoked",
         reason: "authority_inactive",
-        envelopePatch: { status: "revoked", revokedAt: "2026-08-26T11:00:00.000Z" },
+        envelopePatch: {
+          status: "revoked",
+          revokedAt: "2026-08-26T11:00:00.000Z",
+        },
       },
       {
         name: "the envelope status is expired",
         reason: "authority_inactive",
-        envelopePatch: { status: "expired", expiresAt: "2026-08-26T11:00:00.000Z" },
+        envelopePatch: {
+          status: "expired",
+          expiresAt: "2026-08-26T11:00:00.000Z",
+        },
       },
       {
         name: "the preflight binds another authority revision",
@@ -281,6 +340,7 @@ describe("application submission policy", () => {
         name: "neither the job nor the campaign is in scope",
         reason: "scope_excluded",
         patch: { campaignId: "campaign_other" },
+        preflightPatch: { campaignId: "campaign_other" },
         envelopePatch: {
           scope: { campaignId: "campaign_1", jobIds: [] },
         },
@@ -289,6 +349,7 @@ describe("application submission policy", () => {
         name: "the job is out of scope and there is no current campaign",
         reason: "scope_excluded",
         patch: { campaignId: null },
+        preflightPatch: { campaignId: null },
         envelopePatch: {
           scope: { campaignId: "campaign_1", jobIds: [] },
         },
@@ -307,37 +368,59 @@ describe("application submission policy", () => {
       {
         name: "the form observation id went stale",
         reason: "observation_stale",
-        patch: { formObservation: { id: "observation_2", revision: 7, digest: SHA_RESUME } },
+        patch: {
+          formObservation: {
+            id: "observation_2",
+            revision: 7,
+            digest: SHA_RESUME,
+          },
+        },
       },
       {
         name: "the form observation revision went stale",
         reason: "observation_stale",
-        patch: { formObservation: { id: "observation_1", revision: 8, digest: SHA_RESUME } },
+        patch: {
+          formObservation: {
+            id: "observation_1",
+            revision: 8,
+            digest: SHA_RESUME,
+          },
+        },
       },
       {
         name: "the form observation digest went stale",
         reason: "observation_stale",
-        patch: { formObservation: { id: "observation_1", revision: 7, digest: SHA_UNBOUND } },
+        patch: {
+          formObservation: {
+            id: "observation_1",
+            revision: 7,
+            digest: SHA_UNBOUND,
+          },
+        },
       },
       {
         name: "the answer revision went stale",
-        reason: "observation_stale",
+        reason: "answer_policy_mismatch",
         patch: { answers: { revision: 3, digest: SHA_ANSWERS } },
       },
       {
         name: "the answer digest went stale",
-        reason: "observation_stale",
+        reason: "answer_policy_mismatch",
         patch: { answers: { revision: 2, digest: SHA_UNBOUND } },
       },
       {
         name: "the final control signature went stale",
         reason: "observation_stale",
-        patch: { finalControl: { signature: SHA_UNBOUND, ref: "submit-final-0" } },
+        patch: {
+          finalControl: { signature: SHA_UNBOUND, ref: "submit-final-0" },
+        },
       },
       {
         name: "the final control ref went stale",
         reason: "observation_stale",
-        patch: { finalControl: { signature: SHA_FINAL_CONTROL, ref: "submit-final-1" } },
+        patch: {
+          finalControl: { signature: SHA_FINAL_CONTROL, ref: "submit-final-1" },
+        },
       },
       {
         name: "remaining run capacity drifted from preflight",
@@ -553,14 +636,26 @@ describe("application submission policy", () => {
 
     const grantBlockers: GrantBlockerRow[] = [
       { name: "the grant is missing", grantPatch: null },
-      { name: "the grant binds another preflight", grantPatch: { preflightId: "preflight_other" } },
+      {
+        name: "the grant binds another preflight",
+        grantPatch: { preflightId: "preflight_other" },
+      },
       {
         name: "the grant binds another idempotency key",
         grantPatch: { idempotencyKey: "key_other" },
       },
-      { name: "the grant binds another run", grantPatch: { runId: "run_other" } },
-      { name: "the grant binds another job", grantPatch: { jobId: "job_other" } },
-      { name: "the grant binds another result", grantPatch: { resultId: "result_other" } },
+      {
+        name: "the grant binds another run",
+        grantPatch: { runId: "run_other" },
+      },
+      {
+        name: "the grant binds another job",
+        grantPatch: { jobId: "job_other" },
+      },
+      {
+        name: "the grant binds another result",
+        grantPatch: { resultId: "result_other" },
+      },
       {
         name: "the grant binds another application record",
         grantPatch: { applicationRecordId: "application_record_other" },
@@ -575,15 +670,24 @@ describe("application submission policy", () => {
       },
       {
         name: "the grant is consumed",
-        grantPatch: { status: "consumed", consumedAt: "2026-08-26T11:50:00.000Z" },
+        grantPatch: {
+          status: "consumed",
+          consumedAt: "2026-08-26T11:50:00.000Z",
+        },
       },
       {
         name: "the grant is revoked",
-        grantPatch: { status: "revoked", revokedAt: "2026-08-26T11:50:00.000Z" },
+        grantPatch: {
+          status: "revoked",
+          revokedAt: "2026-08-26T11:50:00.000Z",
+        },
       },
       {
         name: "the grant status is expired",
-        grantPatch: { status: "expired", expiresAt: "2026-08-26T11:55:00.000Z" },
+        grantPatch: {
+          status: "expired",
+          expiresAt: "2026-08-26T11:55:00.000Z",
+        },
       },
       {
         name: "the grant lapsed before the caller clock",
@@ -619,30 +723,125 @@ describe("application submission policy", () => {
   });
 
   describe("autonomous mode ignores execution grants", () => {
-    test("authorizes identically whether the grant is absent, valid, or garbage", () => {
-      const withoutGrant = evaluateApplicationSubmissionPolicy(
-        autonomousInput(),
-      );
-      const withValidGrant = evaluateApplicationSubmissionPolicy(
+    test("rejects any unexpected execution grant", () => {
+      const withoutGrant =
+        evaluateApplicationSubmissionPolicy(autonomousInput());
+      const withGrant = evaluateApplicationSubmissionPolicy(
         autonomousInput({
           executionGrant: SubmissionExecutionGrantSchema.parse(grant()),
         }),
       );
-      const withWrongBinding = evaluateApplicationSubmissionPolicy(
-        autonomousInput({
-          executionGrant: SubmissionExecutionGrantSchema.parse(
-            grant({
-              preflightId: "preflight_other",
-              status: "consumed",
-              consumedAt: GRANTED_AT,
-            }),
-          ),
-        }),
-      );
 
       expectAuthorized(withoutGrant, "autonomous_submit");
-      expect(withValidGrant).toEqual(withoutGrant);
-      expect(withWrongBinding).toEqual(withoutGrant);
+      expectBlocked(withGrant, "unexpected_execution_grant");
+    });
+  });
+
+  describe("finite mandatory stop facts", () => {
+    const stopCases = [
+      ["unavailable_credentials", "unavailable_credentials"],
+      ["login_required", "login_required"],
+      ["mfa_required", "mfa_required"],
+      ["captcha", "captcha"],
+      ["anti_bot", "anti_bot"],
+      ["account_creation", "account_creation"],
+      ["unknown_required_question", "unknown_required_question"],
+      ["unknown_eligibility", "unknown_eligibility"],
+      ["unknown_legal_requirement", "unknown_legal_requirement"],
+      ["stale_observation", "observation_stale"],
+      ["ambiguous_final_control", "ambiguous_final_control"],
+      ["origin_drift", "origin_drift"],
+      ["outcome_uncertain", "idempotency_outcome_uncertain"],
+    ] as const;
+
+    test.each(stopCases)("blocks on %s", (code, reason) => {
+      const decision = evaluateApplicationSubmissionPolicy(
+        autonomousInput({
+          currentPolicyFacts: {
+            policy: {
+              version: DECISION_POLICY.version,
+              revision: DECISION_POLICY.revision,
+              digest: DECISION_POLICY.digest,
+            },
+            answers: { revision: 2, digest: SHA_ANSWERS },
+            mandatoryStops: [{ code }],
+          },
+        }),
+      );
+      expectBlocked(decision, reason);
+    });
+
+    test("accepts only finite code facts at the type boundary", () => {
+      const decision = evaluateApplicationSubmissionPolicy(
+        autonomousInput({
+          currentPolicyFacts: {
+            mandatoryStops: [],
+            answers: { revision: 2, digest: SHA_ANSWERS },
+            policy: {
+              version: 1,
+              revision: 4,
+              digest: SHA_POLICY,
+            },
+          },
+        }),
+      );
+      expectAuthorized(decision, "autonomous_submit");
+    });
+  });
+
+  describe("policy and preflight bindings", () => {
+    test("blocks a decision-policy identity drift", () => {
+      expectBlocked(
+        evaluateApplicationSubmissionPolicy(
+          autonomousInput({
+            preflight: SubmissionPreflightRecordSchema.parse(
+              preflight({
+                decisionPolicy: {
+                  version: 1,
+                  revision: 5,
+                  digest: SHA_POLICY,
+                },
+              }),
+            ),
+          }),
+        ),
+        "decision_policy_mismatch",
+      );
+    });
+
+    test("blocks answers that are not approved by the current policy", () => {
+      expectBlocked(
+        evaluateApplicationSubmissionPolicy(
+          autonomousInput({
+            answers: { revision: 3, digest: SHA_UNBOUND },
+            preflight: SubmissionPreflightRecordSchema.parse(
+              preflight({
+                answers: { revision: 3, digest: SHA_UNBOUND },
+              }),
+            ),
+          }),
+        ),
+        "answer_policy_mismatch",
+      );
+    });
+
+    test("blocks campaign and origin drift from the immutable preflight", () => {
+      expectBlocked(
+        evaluateApplicationSubmissionPolicy(
+          autonomousInput({ campaignId: "campaign_other" }),
+        ),
+        "preflight_scope_mismatch",
+      );
+      expectBlocked(
+        evaluateApplicationSubmissionPolicy(
+          autonomousInput({
+            preflight: SubmissionPreflightRecordSchema.parse(
+              preflight({ origin: "https://other.example.com" }),
+            ),
+          }),
+        ),
+        "preflight_origin_mismatch",
+      );
     });
   });
 

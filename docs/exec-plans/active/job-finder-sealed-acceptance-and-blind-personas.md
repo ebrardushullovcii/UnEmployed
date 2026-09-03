@@ -1,9 +1,15 @@
 # Job Finder Sealed Acceptance And Blind Personas
 
-Status: active
+Status: ready
 
-This plan owns the remaining acceptance chain for the integrated Job Finder
-candidate. It is the current acceptance driver;
+This plan is retained as the final release-candidate acceptance chain. It is
+not the current product-iteration driver and must not be run until the user
+explicitly declares a settled release candidate. Ordinary iteration follows
+the lightweight tester -> batched fixes -> focused validation -> one rebuild
+loop in `docs/TESTING.md`.
+
+When activated, this plan owns the remaining acceptance chain for the
+integrated Job Finder candidate;
 `docs/exec-plans/active/job-finder-campaigns-dashboard-crm-scale.md` remains
 the implementation baseline for campaign/dashboard/CRM behavior and is not
 reopened here.
@@ -97,7 +103,7 @@ sequence below completes:
   failures.
 
 The canonical version-1 persona manifest is final at digest
-`a8cb5836e830272eea96894a80d2ed4e795d31e0a1d97dea7f05ecd092fd7b7d` (computed
+`8b8f95b8d06b178062d5c542ecd7f927172c715a7e9a66148d4987b3fd8f1e14` (computed
 with the repo's canonical digest method over the manifest plus referenced
 asset hashes): P01–P12 run fresh empty workspaces and P13–P14 return to
 persisted workspaces. An independent tri-model clean-room review returned GO
@@ -109,11 +115,26 @@ completed persona session exists for the current source.
 
 ## Current Blockers
 
-- The pre-freeze simplification pass and live current-source dogfooding are
-  outstanding. The app-wide Job Finder field pass and the Profile
-  deep-link/navigation scroll-jump repairs are code-complete and focused-test
-  green but remain unverified in live Electron; production sources carry zero
-  legacy `border-input` field chrome, enforced by a source-scan guard.
+- The settled visual/safety pass is focused-green: import CAS/identity gates
+  pass, Applications recovery actions are natural-width and start-aligned in
+  current-build 1440/1280 captures, and null-receipt retry fails closed in
+  focused coverage. Resume Studio at 1280 keeps preview/tools visible with 20
+  notes and 4 blockers, while Open editor reaches and announces the exact
+  focus target. AI suggestions use an explicit proposal Accept/Reject flow,
+  but live AI proposal coverage is absent and the targeted allowlist remains
+  P2. The collapsed wordmark is painted in 1440/1280 current-build captures;
+  the Profile Copilot compact-footer capture records Send at top `589.95`,
+  bottom `629.95`, height `40`, with internal textarea scrolling. Native 125%
+  is not established, and live late-file-picker reproduction remains pending.
+  These checks do not form a seal: the old seal/persona wave is invalid after
+  source changes. Goal remains **ACTIVE** and the hard-freeze chain is pending.
+- The pre-freeze simplification and current-source dogfood pass are complete.
+  Current-build evidence covers the user-reported header/brand/loading/Profile
+  first-viewport states, Guided setup at 1440/native-125, populated Discovery
+  spacing and warning ownership, Profile Copilot tab access, the tailored PDF
+  editor/export/approval path, Prepare application, Applications, and the
+  cross-route save-status overlap repair. The remaining internal blocker is the
+  exact frozen acceptance sequence below, not another implementation wave.
 - The accepted-app production-like probe has passed focused checks, static
   validation, and independent closure review. Its runtime result remains
   pending until the immutable run executes it against the sealed app.
@@ -156,7 +177,14 @@ Every accepted change lands before step 1 starts.
 all`) into a fresh empty destination root and a fresh custody root, then
    re-check the sealed wave read-only with `--verify-all`.
 7. Launch independent blind testers only through the custody-bound launcher;
-   interrupted sessions relaunch through `--attempt`.
+   interrupted sessions relaunch through `--attempt`. Their outcome-only
+   prompt must also say they are free and expected to critique the product as
+   a user, including non-blocking first-viewport hierarchy/density, intentional
+   padding/margins/gutters and width use, action-group alignment and accidental
+   full-width controls, consistent heights/gaps/wrapping, disabled-action
+   explanations, focus/DOM order, weak visual change after tabs/actions,
+   loading alignment, persistent brand/active navigation, painted clipping,
+   overflow, and overlap. It must not name routes, buttons, or expected defects.
 8. Collect session evidence with the harness (`init` → tester records →
    `record` → `aggregate`) and synthesize independently: deduplicate findings
    by root cause and rank P0 before P1/P2.
@@ -204,6 +232,8 @@ source:
   durability, or accessibility — even when a single persona hits one.
 - Zero repeated P1 root causes (seen by two or more personas).
 - Every P2 finding documented and triaged.
+- Every persona supplies the five structured visual-review statuses and notes;
+  `not_observed` remains a coverage gap rather than silently becoming PASS.
 - Keyboard-only and native-125% personas complete the same journey.
 - Any accepted root-cause fix rebuilds once, reruns the broad evidence gate
   and the sealed acceptance run, and starts a completely fresh wave with new

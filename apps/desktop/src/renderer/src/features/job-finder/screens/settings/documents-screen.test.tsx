@@ -75,8 +75,12 @@ describe("DocumentsScreen", () => {
     expect(listCandidateAssets).toHaveBeenCalledWith({
       includeDeleted: true,
     });
-    expect(document.body.textContent).toContain(
-      "No extra documents or assets have been imported.",
+    // Wait for the async refresh to leave the loading status, not just the
+    // preload call — under suite load the empty-state copy can lag the mock.
+    await waitFor(() =>
+      expect(document.body.textContent).toContain(
+        "No extra documents or assets have been imported.",
+      ),
     );
   });
 });

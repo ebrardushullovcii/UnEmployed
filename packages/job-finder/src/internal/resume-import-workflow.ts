@@ -1,6 +1,7 @@
 import {
   CandidateProfileSchema,
   ResumeDocumentBundleSchema,
+  ResumeImportFieldCandidateSchema,
   ResumeImportRunSchema,
   type AiProviderKind,
   type CandidateProfile,
@@ -9,6 +10,8 @@ import {
   type ResumeImportFieldCandidate,
   type ResumeImportBranchStatus,
   type ResumeImportModelRoleState,
+  type ResumeImportStageFallbackKind,
+  type ResumeImportTextStage,
   type ResumeImportTextStageTiming,
   type ResumeImportRun,
   type ResumeImportVisionArtifact,
@@ -44,7 +47,6 @@ import {
   reconcileCandidates,
 } from "./resume-import-reconciliation";
 import { createUniqueId, uniqueStrings } from "./shared";
-import { commitMergedProfileUpdateWithStaleRetry } from "./profile-commit-stale-conflict";
 import { deriveResumeTimelineRepairProposals } from "./resume-timeline-repair";
 import {
   buildResumeAnalysisCacheIdentity,
@@ -58,6 +60,149 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeInlineText(value: unknown): string {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
+/**
+ * A resume import that loses its optimistic-revision race is not a failed
+ * import: extraction and reconciliation already succeeded. "failed" stays
+ * reserved for extraction/parse failures. When a newer profile edit wins the
+ * race, the current profile is kept and every candidate that would have been
+ * applied automatically is instead held for the user's review.
+ */
+export const RESUME_IMPORT_SUPERSEDED_MESSAGE =
+  "Your profile changed while this resume import was finishing. Your edits were kept, and the imported details are waiting for your review instead of being applied automatically.";
+/**
+ * The deferred visual-scan stage finalizes after the text stage already
+ * applied its fields. Losing that later race must never rewrite the applied
+ * run as failed; it only means the visual refinements were not applied.
+ */
+export const RESUME_IMPORT_VISION_SUPERSEDED_MESSAGE =
+  "Your profile changed while the visual resume scan was finishing. The imported text details stayed applied; visual-scan refinements were not applied automatically.";
+const RESUME_IMPORT_HELD_FOR_REVIEW_REASON = "profile_changed_before_apply";
+
+/**
+ * A degraded extraction stage still returns usable fields, so nothing downstream
+ * can tell that the configured model was never consulted. These sentences are
+ * the user-facing record of that, and every one of them starts with the shared
+ * marker below so a renderer can find them without re-deriving the wording.
+ */
+export const RESUME_IMPORT_STAGE_FALLBACK_MESSAGE_PREFIX =
+  "Job Finder could not use the AI model for";
+
+const RESUME_IMPORT_STAGE_FALLBACK_SUBJECTS: Record<
+  ResumeImportTextStage,
+  string
+> = {
+  identity_summary: "your name, contact details, and summary",
+  experience: "your work history",
+  background: "your skills, education, and projects",
+  // `shared_memory` is deterministic by design and never has a model call to
+  // lose, so it can never reach this table in practice.
+  shared_memory: "the shared resume context",
+};
+
+export function describeResumeImportStageFallback(input: {
+  stage: ResumeImportTextStage;
+  kind: ResumeImportStageFallbackKind;
+}): string {
+  const cause =
+    input.kind === "timeout"
+      ? "the model did not answer in time"
+      : "the model call failed";
+
+  return `${RESUME_IMPORT_STAGE_FALLBACK_MESSAGE_PREFIX} ${RESUME_IMPORT_STAGE_FALLBACK_SUBJECTS[input.stage]} because ${cause}. It filled that part with its built-in text reader instead, so check those details before you rely on them, or import the file again to retry.`;
+}
+
+function holdResumeImportCandidatesForReview(
+  candidates: readonly ResumeImportFieldCandidate[],
+): ResumeImportFieldCandidate[] {
+  return candidates.map((candidate) =>
+    candidate.resolution === "auto_applied"
+      ? ResumeImportFieldCandidateSchema.parse({
+          ...candidate,
+          resolution: "needs_review",
+          resolutionReason: RESUME_IMPORT_HELD_FOR_REVIEW_REASON,
+          resolvedAt: null,
+        })
+      : candidate,
+  );
+}
+
+async function finalizeResumeImportRunAtRevision(input: {
+  ctx: WorkspaceServiceContext;
+  expectedProfileRevision: number;
+  profile: CandidateProfile;
+  searchPreferences: JobSearchPreferences;
+  run: ResumeImportRun;
+  documentBundles: readonly ResumeDocumentBundle[];
+  fieldCandidates: readonly ResumeImportFieldCandidate[];
+  /**
+   * `hold_for_review` (default) persists the run as review-ready with every
+   * would-be-applied candidate downgraded to needs-review. `report_only`
+   * writes nothing on a stale outcome so the caller can retry against the
+   * current revision or fall back to already-applied state.
+   */
+  staleMode?: "hold_for_review" | "report_only";
+}): Promise<{
+  status: "applied" | "stale";
+  profile: CandidateProfile;
+  searchPreferences: JobSearchPreferences;
+  revision: number;
+  run: ResumeImportRun;
+  candidates: ResumeImportFieldCandidate[];
+}> {
+  const outcome = await input.ctx.repository.finalizeResumeImportRun({
+    profile: input.profile,
+    searchPreferences: input.searchPreferences,
+    run: input.run,
+    documentBundles: input.documentBundles,
+    fieldCandidates: input.fieldCandidates,
+    expectedProfileRevision: input.expectedProfileRevision,
+  });
+
+  if (outcome.status === "applied") {
+    return {
+      ...outcome,
+      run: input.run,
+      candidates: [...input.fieldCandidates],
+    };
+  }
+
+  if (input.staleMode === "report_only") {
+    return {
+      ...outcome,
+      run: input.run,
+      candidates: [...input.fieldCandidates],
+    };
+  }
+
+  const heldCandidates = holdResumeImportCandidatesForReview(
+    input.fieldCandidates,
+  );
+  const supersededRun = ResumeImportRunSchema.parse({
+    ...input.run,
+    status: hasBlockingResumeImportCandidates(heldCandidates)
+      ? "review_ready"
+      : "applied",
+    completedAt: new Date().toISOString(),
+    warnings: uniqueStrings([
+      ...input.run.warnings,
+      RESUME_IMPORT_SUPERSEDED_MESSAGE,
+    ]),
+    errorMessage: null,
+    candidateCounts: countResumeImportCandidates(heldCandidates),
+  });
+  await input.ctx.repository.replaceResumeImportRunArtifacts({
+    run: supersededRun,
+    documentBundles: input.documentBundles,
+    fieldCandidates: heldCandidates,
+  });
+
+  return {
+    ...outcome,
+    run: supersededRun,
+    candidates: heldCandidates,
+  };
 }
 
 function promoteEducationScalarCandidates(
@@ -503,6 +648,10 @@ async function completeDeferredVisionBranch(input: {
 }): Promise<void> {
   const { ctx, promise, bundle, runId, now, textCandidates, visionTimeoutMs } =
     input;
+  // The text stage already finalized this run as applied/review-ready. Keep
+  // that persisted truth as the fallback if the visual refinements cannot be
+  // applied; the run must never regress to "failed" because of a lost race.
+  const appliedTextStageRun = input.run;
   let run = input.run;
 
   try {
@@ -516,10 +665,17 @@ async function completeDeferredVisionBranch(input: {
     );
     const currentCandidates =
       await ctx.repository.listResumeImportFieldCandidates({ runId });
-    const latestProfile = CandidateProfileSchema.parse(
-      await ctx.repository.getProfile(),
+    // Read the profile together with its current revision: the text stage
+    // finalized against an older epoch, and any ordinary profile write since
+    // then (setup save, review confirmation, copilot apply) advanced it. The
+    // visual scan merges onto this latest profile, so its compare-and-swap
+    // must target this revision, not the one the text stage produced.
+    const latestProfileState = await ctx.repository.getProfileWithRevision();
+    let latestProfile = CandidateProfileSchema.parse(
+      latestProfileState.profile,
     );
-    const latestSearchPreferences = await ctx.repository.getSearchPreferences();
+    let latestProfileRevision = latestProfileState.revision;
+    let latestSearchPreferences = await ctx.repository.getSearchPreferences();
     const currentTextCandidates = currentCandidates.filter(
       (candidate) =>
         candidate.sourceKind !== "vision_omni" &&
@@ -678,34 +834,86 @@ async function completeDeferredVisionBranch(input: {
       },
     });
 
-    const merged = applyResolvedResumeImportCandidatesToWorkspace({
-      profile: latestProfile,
-      searchPreferences: latestSearchPreferences,
-      candidates: reconciledCandidates,
-      analysisProviderKind: run.analysisProviderKind,
-      analysisProviderLabel: run.analysisProviderLabel,
-      analysisWarnings: stageNotes,
-    });
-    const committedImportProfile =
-      await commitMergedProfileUpdateWithStaleRetry(
-        ctx.repository,
-        () => (current: CandidateProfile) =>
-          applyResolvedResumeImportCandidatesToWorkspace({
-            profile: { ...current, baseResume: latestProfile.baseResume },
-            searchPreferences: latestSearchPreferences,
-            candidates: reconciledCandidates,
-            analysisProviderKind: run.analysisProviderKind,
-            analysisProviderLabel: run.analysisProviderLabel,
-            analysisWarnings: stageNotes,
-          }).profile,
+    const finalizeVisionStage = (
+      candidates: readonly ResumeImportFieldCandidate[],
+    ) => {
+      const merged = applyResolvedResumeImportCandidatesToWorkspace({
+        profile: latestProfile,
+        searchPreferences: latestSearchPreferences,
+        candidates,
+        analysisProviderKind: run.analysisProviderKind,
+        analysisProviderLabel: run.analysisProviderLabel,
+        analysisWarnings: stageNotes,
+      });
+      return finalizeResumeImportRunAtRevision({
+        ctx,
+        expectedProfileRevision: latestProfileRevision,
+        profile: merged.profile,
+        searchPreferences: merged.searchPreferences,
+        run,
+        documentBundles: [bundle],
+        fieldCandidates: candidates,
+        staleMode: "report_only",
+      });
+    };
+
+    let finalization = await finalizeVisionStage(reconciledCandidates);
+
+    if (finalization.status === "stale") {
+      // One bounded retry: a profile write landed during reconciliation.
+      // Re-read the current profile, re-reconcile the already adjudicated
+      // candidates against it (no further model calls), and try once more.
+      const retryProfileState = await ctx.repository.getProfileWithRevision();
+      latestProfile = CandidateProfileSchema.parse(retryProfileState.profile);
+      latestProfileRevision = retryProfileState.revision;
+      latestSearchPreferences = await ctx.repository.getSearchPreferences();
+      reconciledCandidates = await preserveLatestCandidateDecisions(
+        ctx,
+        runId,
+        preserveCurrentCandidateDecisions(
+          promoteGroundedSharedMemoryCandidates(
+            reconcileCandidates(
+              latestProfile,
+              latestSearchPreferences,
+              adjudicationResult.candidates,
+            ),
+          ),
+          currentCandidates,
+        ),
       );
-    await ctx.repository.finalizeResumeImportRun({
-      profile: committedImportProfile.profile,
-      searchPreferences: merged.searchPreferences,
-      run,
-      documentBundles: [bundle],
-      fieldCandidates: reconciledCandidates,
-    });
+      finalization = await finalizeVisionStage(reconciledCandidates);
+    }
+
+    if (finalization.status === "stale") {
+      // A genuine concurrent edit won twice. Restore the text stage's applied
+      // truth and its candidates, record why the visual refinements were not
+      // applied, and leave the user's edits untouched.
+      const supersededRun = ResumeImportRunSchema.parse({
+        ...appliedTextStageRun,
+        warnings: uniqueStrings([
+          ...removeVisionDeferredWarnings(appliedTextStageRun.warnings),
+          RESUME_IMPORT_VISION_SUPERSEDED_MESSAGE,
+        ]),
+        errorMessage: null,
+        modelRoles: {
+          ...modelRolesFor(run),
+          vision: {
+            ...modelRolesFor(run).vision,
+            status: "skipped",
+            completedAt: new Date().toISOString(),
+            warning: RESUME_IMPORT_VISION_SUPERSEDED_MESSAGE,
+            errorMessage: null,
+            candidateCount: 0,
+          },
+          adjudication: modelRolesFor(appliedTextStageRun).adjudication,
+        },
+      });
+      await ctx.repository.replaceResumeImportRunArtifacts({
+        run: supersededRun,
+        documentBundles: [bundle],
+        fieldCandidates: currentCandidates,
+      });
+    }
   } catch (error) {
     const message = messageFromUnknownError(
       error,
@@ -902,6 +1110,7 @@ export async function runResumeImportWorkflow(
     searchPreferences: JobSearchPreferences;
     documentBundle: ResumeDocumentBundle;
     trigger: ResumeImportTrigger;
+    expectedProfileRevision: number;
     importWarnings?: readonly string[];
     visionArtifact?: ResumeImportVisionArtifact | null;
   },
@@ -911,6 +1120,7 @@ export async function runResumeImportWorkflow(
   run: ResumeImportRun;
   candidates: ResumeImportFieldCandidate[];
 }> {
+  const expectedProfileRevision = input.expectedProfileRevision;
   const workflowStartedAtMs = performance.now();
   let literalExtractionMs = 0;
   let textBranchMs = 0;
@@ -964,19 +1174,6 @@ export async function runResumeImportWorkflow(
       analysisProviderLabel: cachedAnalysis.run.analysisProviderLabel,
       analysisWarnings,
     });
-    const committedImportProfile =
-      await commitMergedProfileUpdateWithStaleRetry(
-        ctx.repository,
-        () => (current: CandidateProfile) =>
-          applyResolvedResumeImportCandidatesToWorkspace({
-            profile: { ...current, baseResume: input.profile.baseResume },
-            searchPreferences: input.searchPreferences,
-            candidates: cachedArtifacts.candidates,
-            analysisProviderKind: cachedAnalysis.run.analysisProviderKind,
-            analysisProviderLabel: cachedAnalysis.run.analysisProviderLabel,
-            analysisWarnings,
-          }).profile,
-      );
     const candidateCounts = countResumeImportCandidates(
       cachedArtifacts.candidates,
     );
@@ -1019,13 +1216,16 @@ export async function runResumeImportWorkflow(
       errorMessage: null,
       candidateCounts,
     });
-    await ctx.repository.finalizeResumeImportRun({
-      profile: committedImportProfile.profile,
+    const finalization = await finalizeResumeImportRunAtRevision({
+      ctx,
+      expectedProfileRevision,
+      profile: merged.profile,
       searchPreferences: merged.searchPreferences,
       run: cachedRun,
       documentBundles: [cachedArtifacts.bundle],
       fieldCandidates: cachedArtifacts.candidates,
     });
+    cachedRun = finalization.run;
     cachedRun = ResumeImportRunSchema.parse({
       ...cachedRun,
       timing: {
@@ -1048,10 +1248,10 @@ export async function runResumeImportWorkflow(
     }
 
     return {
-      profile: merged.profile,
-      searchPreferences: merged.searchPreferences,
+      profile: finalization.profile,
+      searchPreferences: finalization.searchPreferences,
       run: cachedRun,
-      candidates: cachedArtifacts.candidates,
+      candidates: finalization.candidates,
     };
   }
 
@@ -1236,6 +1436,12 @@ export async function runResumeImportWorkflow(
               ? (outcome.result.timing?.deterministicFallbackMs ?? null)
               : null,
             candidateCount: outcome.ok ? outcome.result.candidates.length : 0,
+            fallbackKind: outcome.ok
+              ? (outcome.result.fallback?.kind ?? null)
+              : null,
+            fallbackReason: outcome.ok
+              ? (outcome.result.fallback?.reason ?? null)
+              : null,
           }),
         );
         const successfulStages = stageOutcomes.filter(
@@ -1301,9 +1507,22 @@ export async function runResumeImportWorkflow(
           notes: uniqueStrings(
             successfulStages.flatMap((entry) => entry.result.notes),
           ),
-          warnings: uniqueStrings(
-            failedStages.map((entry) => entry.diagnostic),
-          ),
+          warnings: uniqueStrings([
+            // A stage that fell back is not a failed stage, so it never
+            // reaches `failedStages`. Reporting it here is the only thing that
+            // stops a silent degradation from looking like a clean model run.
+            ...successfulStages.flatMap(({ stage, result }) =>
+              result.fallback
+                ? [
+                    describeResumeImportStageFallback({
+                      stage,
+                      kind: result.fallback.kind,
+                    }),
+                  ]
+                : [],
+            ),
+            ...failedStages.map((entry) => entry.diagnostic),
+          ]),
         };
       })().catch(
         (error: unknown): ResumeImportBranchResult => ({
@@ -1542,19 +1761,6 @@ export async function runResumeImportWorkflow(
       analysisProviderLabel: run.analysisProviderLabel,
       analysisWarnings,
     });
-    const committedImportProfile =
-      await commitMergedProfileUpdateWithStaleRetry(
-        ctx.repository,
-        () => (current: CandidateProfile) =>
-          applyResolvedResumeImportCandidatesToWorkspace({
-            profile: { ...current, baseResume: input.profile.baseResume },
-            searchPreferences: input.searchPreferences,
-            candidates: reconciledCandidates,
-            analysisProviderKind: run.analysisProviderKind,
-            analysisProviderLabel: run.analysisProviderLabel,
-            analysisWarnings,
-          }).profile,
-      );
     const candidateCounts = countResumeImportCandidates(reconciledCandidates);
     const hasBlockingReviewCandidates =
       hasBlockingResumeImportCandidates(reconciledCandidates);
@@ -1588,13 +1794,23 @@ export async function runResumeImportWorkflow(
     }
 
     const atomicallyFinalizedRun = run;
-    await ctx.repository.finalizeResumeImportRun({
-      profile: committedImportProfile.profile,
+    const finalization = await finalizeResumeImportRunAtRevision({
+      ctx,
+      expectedProfileRevision,
+      profile: merged.profile,
       searchPreferences: merged.searchPreferences,
       run: atomicallyFinalizedRun,
       documentBundles: [bundle],
       fieldCandidates: reconciledCandidates,
     });
+    if (finalization.status === "stale") {
+      return {
+        profile: finalization.profile,
+        searchPreferences: finalization.searchPreferences,
+        run: finalization.run,
+        candidates: finalization.candidates,
+      };
+    }
     const finalizationMs = Math.max(
       0,
       Math.round(performance.now() - finalizationStartedAtMs),
@@ -1643,8 +1859,8 @@ export async function runResumeImportWorkflow(
     }
 
     return {
-      profile: merged.profile,
-      searchPreferences: merged.searchPreferences,
+      profile: finalization.profile,
+      searchPreferences: finalization.searchPreferences,
       run,
       candidates: reconciledCandidates,
     };
@@ -1665,20 +1881,23 @@ export async function runResumeImportWorkflow(
       fieldCandidates: [],
     });
 
-    await ctx.repository.saveProfile(
-      CandidateProfileSchema.parse({
-        ...input.profile,
-        baseResume: {
-          ...input.profile.baseResume,
-          extractionStatus: bundle.fullText ? "failed" : "needs_text",
-          lastAnalyzedAt: null,
-          analysisWarnings: uniqueStrings([
-            ...(input.importWarnings ?? []),
-            ...bundle.warnings,
-            run.errorMessage ?? "Resume import failed.",
-          ]),
-        },
-      }),
+    await ctx.repository.commitProfileUpdate(
+      (current) =>
+        CandidateProfileSchema.parse({
+          ...current,
+          baseResume: {
+            ...current.baseResume,
+            ...input.profile.baseResume,
+            extractionStatus: bundle.fullText ? "failed" : "needs_text",
+            lastAnalyzedAt: null,
+            analysisWarnings: uniqueStrings([
+              ...(input.importWarnings ?? []),
+              ...bundle.warnings,
+              run.errorMessage ?? "Resume import failed.",
+            ]),
+          },
+        }),
+      { expectedRevision: expectedProfileRevision },
     );
 
     throw error;

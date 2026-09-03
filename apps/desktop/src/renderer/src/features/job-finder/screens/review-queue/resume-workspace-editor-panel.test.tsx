@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import {
   getResumeEntryFieldTargetId,
   type ResumeCoverageComparison,
@@ -55,7 +55,10 @@ describe("ResumeWorkspaceEditorPanel", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
 
-  const renderPanel = (isWorkspacePending: boolean) => {
+  const renderPanel = (
+    isWorkspacePending: boolean,
+    extraProps: Partial<ComponentProps<typeof ResumeWorkspaceEditorPanel>> = {},
+  ) => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -63,6 +66,7 @@ describe("ResumeWorkspaceEditorPanel", () => {
     act(() => {
       root?.render(
         <ResumeWorkspaceEditorPanel
+          {...extraProps}
           actionMessage={null}
           coverageComparison={null}
           draft={draft}
@@ -71,7 +75,6 @@ describe("ResumeWorkspaceEditorPanel", () => {
           jobId="job_1"
           onApplyPatch={vi.fn()}
           onDraftChange={vi.fn()}
-          onRegenerateSection={vi.fn()}
           onSectionChange={vi.fn()}
           onSelectEntry={vi.fn()}
           onSelectSection={vi.fn()}
@@ -126,7 +129,7 @@ describe("ResumeWorkspaceEditorPanel", () => {
       scrollRegion?.querySelectorAll("input, textarea, select, button") ?? [],
     );
 
-    expect(scrollRegion?.textContent).toContain("Structured edits");
+    expect(scrollRegion?.textContent).toContain("Edit resume");
     expect(scrollRegion?.textContent).toContain("Resume identity");
     expect(scrollRegion?.textContent).toContain(
       "Change the schema-safe content behind the preview",
@@ -197,7 +200,6 @@ describe("ResumeWorkspaceEditorPanel", () => {
           jobId="job_1"
           onApplyPatch={vi.fn()}
           onDraftChange={vi.fn()}
-          onRegenerateSection={vi.fn()}
           onSectionChange={vi.fn()}
           onSelectEntry={vi.fn()}
           onSelectSection={vi.fn()}
@@ -355,7 +357,6 @@ describe("ResumeWorkspaceEditorPanel", () => {
           jobId="job_1"
           onApplyPatch={vi.fn()}
           onDraftChange={vi.fn()}
-          onRegenerateSection={vi.fn()}
           onSectionChange={vi.fn()}
           onSelectEntry={vi.fn()}
           onSelectSection={vi.fn()}
@@ -453,7 +454,6 @@ describe("ResumeWorkspaceEditorPanel", () => {
           jobId="job_1"
           onApplyPatch={onApplyPatch}
           onDraftChange={vi.fn()}
-          onRegenerateSection={vi.fn()}
           onSectionChange={vi.fn()}
           onSelectEntry={vi.fn()}
           onSelectSection={vi.fn()}
@@ -594,7 +594,6 @@ describe("ResumeWorkspaceEditorPanel", () => {
           jobId="job_1"
           onApplyPatch={onApplyPatch}
           onDraftChange={vi.fn()}
-          onRegenerateSection={vi.fn()}
           onSectionChange={vi.fn()}
           onSelectEntry={vi.fn()}
           onSelectSection={vi.fn()}
@@ -630,7 +629,7 @@ describe("ResumeWorkspaceEditorPanel", () => {
     );
   });
 
-  it("renders work-history decisions after coverage comparison and before identity editing", () => {
+  it("renders actionable work-history and identity editing before coverage details", () => {
     const comparison: ResumeCoverageComparison = {
       originalRoleCount: 1,
       representedRoleCount: 1,
@@ -677,7 +676,6 @@ describe("ResumeWorkspaceEditorPanel", () => {
           onAcknowledgeWorkHistoryOmission={vi.fn()}
           onApplyPatch={vi.fn()}
           onDraftChange={vi.fn()}
-          onRegenerateSection={vi.fn()}
           onRemoveWorkHistoryOmissionAcknowledgment={vi.fn()}
           onSectionChange={vi.fn()}
           onSelectEntry={vi.fn()}
@@ -697,7 +695,9 @@ describe("ResumeWorkspaceEditorPanel", () => {
     const scrollRegion = container.querySelector(
       "[data-resume-editor-scroll-region]",
     );
-    const coverageDetails = scrollRegion?.querySelector("details");
+    const coverageDetails = scrollRegion?.querySelector(
+      "[data-resume-coverage-comparison]",
+    );
     const decisionsSection = scrollRegion?.querySelector(
       "[data-resume-work-history-decisions]",
     );
@@ -713,11 +713,11 @@ describe("ResumeWorkspaceEditorPanel", () => {
     }
 
     expect(
-      coverageDetails.compareDocumentPosition(decisionsSection) &
+      decisionsSection.compareDocumentPosition(identityHeading) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
     expect(
-      decisionsSection.compareDocumentPosition(identityHeading) &
+      identityHeading.compareDocumentPosition(coverageDetails) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).not.toBe(0);
 
@@ -776,7 +776,6 @@ describe("ResumeWorkspaceEditorPanel", () => {
             jobId="job_1"
             onApplyPatch={vi.fn()}
             onDraftChange={vi.fn()}
-            onRegenerateSection={vi.fn()}
             onSectionChange={vi.fn()}
             onSelectEntry={vi.fn()}
             onSelectSection={vi.fn()}
@@ -823,5 +822,125 @@ describe("ResumeWorkspaceEditorPanel", () => {
       markedContainer.querySelector("[data-resume-ai-assistance-disclosure]")
         ?.textContent,
     ).toContain("created with AI assistance");
+  });
+
+  it("explains a failed AI draft and routes the retry to the Assistant", () => {
+    const onOpenAssistant = vi.fn();
+    renderPanel(false, {
+      onOpenAssistant,
+      tailoredAssetGeneration: {
+        generationMethod: "deterministic",
+        generationReason: "provider_failed",
+        generationDetail: "HTTP 502 from provider",
+        notes: ["Used the built-in deterministic resume tailorer."],
+      },
+    });
+
+    const disclosure = container?.querySelector(
+      "[data-resume-deterministic-fallback-disclosure]",
+    );
+    expect(disclosure?.textContent).toContain(
+      "The first draft came from the built-in generator because the AI draft failed (HTTP 502 from provider).",
+    );
+    const retryButton = container?.querySelector<HTMLButtonElement>(
+      "[data-resume-open-assistant]",
+    );
+    expect(retryButton?.textContent).toBe("Ask the Assistant");
+
+    act(() => {
+      retryButton?.click();
+    });
+
+    expect(onOpenAssistant).toHaveBeenCalledTimes(1);
+  });
+
+  it("merges draft origin and applied assistant edits into one statement", () => {
+    // The studio used to stack "1 AI edit applied" directly above "the AI
+    // model returned no usable rewrite proposals", which reads as a
+    // contradiction. One statement now separates who wrote the first draft
+    // from what the user accepted afterwards.
+    renderPanel(false, {
+      acceptedAssistantEdits: {
+        changedTargetIds: ["section_summary"],
+        count: 1,
+        label: "1 AI edit applied",
+      },
+      onOpenAssistant: vi.fn(),
+      tailoredAssetGeneration: {
+        generationMethod: "deterministic",
+        generationReason: "provider_output_unverified",
+        generationDetail:
+          "The configured AI model returned no usable rewrite proposals",
+        notes: [],
+      },
+      undoAiEditAction: <button type="button">Undo</button>,
+    });
+
+    const provenanceNotes = container?.querySelectorAll(
+      "[data-resume-draft-provenance]",
+    );
+    expect(provenanceNotes?.length).toBe(1);
+
+    const provenance = provenanceNotes?.[0];
+    expect(provenance?.textContent).toContain(
+      "The configured AI model returned no usable rewrite proposals. The first draft came from the built-in generator instead.",
+    );
+    expect(provenance?.textContent).toContain(
+      "1 assistant edit has been applied since",
+    );
+    expect(provenance?.textContent).not.toContain("1 AI edit applied");
+    // Both facts live on the same node, so a reader never sees them as two
+    // competing claims.
+    expect(
+      provenance?.hasAttribute("data-resume-deterministic-fallback-disclosure"),
+    ).toBe(true);
+    expect(provenance?.hasAttribute("data-resume-applied-ai-edits")).toBe(true);
+    expect(provenance?.textContent).toContain("Undo");
+  });
+
+  it("keeps the applied-edit statement alone when the model wrote the first draft", () => {
+    renderPanel(false, {
+      acceptedAssistantEdits: {
+        changedTargetIds: ["section_summary"],
+        count: 2,
+        label: "2 AI edits applied",
+      },
+      tailoredAssetGeneration: {
+        generationMethod: "ai_assisted",
+        generationReason: null,
+        generationDetail: null,
+        notes: [],
+      },
+    });
+
+    const provenance = container?.querySelector(
+      "[data-resume-draft-provenance]",
+    );
+    expect(provenance?.textContent).toContain("2 AI edits applied");
+    expect(provenance?.textContent).not.toContain("built-in generator");
+    expect(
+      provenance?.hasAttribute("data-resume-deterministic-fallback-disclosure"),
+    ).toBe(false);
+  });
+
+  it("hides the AI retry when no provider is configured", () => {
+    renderPanel(false, {
+      onOpenAssistant: vi.fn(),
+      tailoredAssetGeneration: {
+        generationMethod: "deterministic",
+        generationReason: "no_provider_configured",
+        generationDetail: null,
+        notes: ["Used the built-in deterministic resume tailorer."],
+      },
+    });
+
+    expect(
+      container?.querySelector(
+        "[data-resume-deterministic-fallback-disclosure]",
+      )?.textContent,
+    ).toContain(
+      "The first draft came from the built-in generator because no AI provider is configured.",
+    );
+    expect(container?.querySelector("[data-resume-open-assistant]")).toBeNull();
   });
 });

@@ -1,4 +1,4 @@
-import type { ResumeImportFieldCandidateSummary } from '@unemployed/contracts'
+import type { ResumeImportFieldCandidateSummary } from "@unemployed/contracts";
 
 const monthIndexByName: Record<string, number> = {
   jan: 0,
@@ -25,98 +25,108 @@ const monthIndexByName: Record<string, number> = {
   november: 10,
   dec: 11,
   december: 11,
-}
+};
 
 function getPendingYearsExperience(
   candidates: readonly ResumeImportFieldCandidateSummary[],
 ): number | null {
   const yearsCandidate = candidates.find(
     (candidate) =>
-      candidate.target.section === 'identity' &&
-      candidate.target.key === 'yearsExperience' &&
-      typeof candidate.value === 'number'
-  )
+      candidate.target.section === "identity" &&
+      candidate.target.key === "yearsExperience" &&
+      typeof candidate.value === "number",
+  );
 
-  return typeof yearsCandidate?.value === 'number' ? yearsCandidate.value : null
+  return typeof yearsCandidate?.value === "number"
+    ? yearsCandidate.value
+    : null;
 }
 
 function isRecordValue(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function parseMonthStart(value: string): Date | null {
-  const trimmed = value.trim().toLowerCase()
+  const trimmed = value.trim().toLowerCase();
 
   if (!trimmed) {
-    return null
+    return null;
   }
 
-  const isoMonthMatch = trimmed.match(/^(\d{4})-(\d{2})(?:-\d{2})?$/)
+  const isoMonthMatch = trimmed.match(/^(\d{4})-(\d{2})(?:-\d{2})?$/);
   if (isoMonthMatch) {
-    const yearValue = isoMonthMatch[1]
-    const monthValue = isoMonthMatch[2]
+    const yearValue = isoMonthMatch[1];
+    const monthValue = isoMonthMatch[2];
 
     if (!yearValue || !monthValue) {
-      return null
+      return null;
     }
 
-    const year = Number.parseInt(yearValue, 10)
-    const monthIndex = Number.parseInt(monthValue, 10) - 1
+    const year = Number.parseInt(yearValue, 10);
+    const monthIndex = Number.parseInt(monthValue, 10) - 1;
 
     return Number.isFinite(year) && monthIndex >= 0 && monthIndex <= 11
       ? new Date(Date.UTC(year, monthIndex, 1))
-      : null
+      : null;
   }
 
-  const slashMonthMatch = trimmed.match(/^(\d{2})\/(\d{4})$/)
+  const slashMonthMatch = trimmed.match(/^(\d{2})\/(\d{4})$/);
   if (slashMonthMatch) {
-    const monthValue = slashMonthMatch[1]
-    const yearValue = slashMonthMatch[2]
+    const monthValue = slashMonthMatch[1];
+    const yearValue = slashMonthMatch[2];
 
     if (!monthValue || !yearValue) {
-      return null
+      return null;
     }
 
-    const monthIndex = Number.parseInt(monthValue, 10) - 1
-    const year = Number.parseInt(yearValue, 10)
+    const monthIndex = Number.parseInt(monthValue, 10) - 1;
+    const year = Number.parseInt(yearValue, 10);
 
     return Number.isFinite(year) && monthIndex >= 0 && monthIndex <= 11
       ? new Date(Date.UTC(year, monthIndex, 1))
-      : null
+      : null;
   }
 
-  const monthYearMatch = trimmed.replace(/\./g, '').match(/^([a-z]+)\s+(\d{4})$/)
+  const monthYearMatch = trimmed
+    .replace(/\./g, "")
+    .match(/^([a-z]+)\s+(\d{4})$/);
   if (monthYearMatch) {
-    const monthName = monthYearMatch[1]
-    const yearValue = monthYearMatch[2]
+    const monthName = monthYearMatch[1];
+    const yearValue = monthYearMatch[2];
 
     if (!monthName || !yearValue) {
-      return null
+      return null;
     }
 
-    const monthIndex = monthIndexByName[monthName]
-    const year = Number.parseInt(yearValue, 10)
+    const monthIndex = monthIndexByName[monthName];
+    const year = Number.parseInt(yearValue, 10);
 
     return monthIndex !== undefined && Number.isFinite(year)
       ? new Date(Date.UTC(year, monthIndex, 1))
-      : null
+      : null;
   }
 
-  const yearMatch = trimmed.match(/^(\d{4})$/)
+  const yearMatch = trimmed.match(/^(\d{4})$/);
   if (yearMatch) {
-    const yearValue = yearMatch[1]
-    return yearValue ? new Date(Date.UTC(Number.parseInt(yearValue, 10), 0, 1)) : null
+    const yearValue = yearMatch[1];
+    return yearValue
+      ? new Date(Date.UTC(Number.parseInt(yearValue, 10), 0, 1))
+      : null;
   }
 
-  return null
+  return null;
 }
 
-function parseMonthEnd(value: string, isCurrent: boolean, today = new Date()): Date | null {
+function parseMonthEnd(
+  value: string,
+  isCurrent: boolean,
+  today = new Date(),
+): Date | null {
   if (isCurrent || /^(present|current)$/i.test(value.trim())) {
-    return new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))
+    return new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
   }
 
-  return parseMonthStart(value)
+  return parseMonthStart(value);
 }
 
 function getEstimatedYearsExperienceFromRecords(
@@ -124,67 +134,80 @@ function getEstimatedYearsExperienceFromRecords(
   today = new Date(),
 ): number | null {
   const monthRanges = candidates.flatMap((candidate) => {
-    if (candidate.target.section !== 'experience' || candidate.target.key !== 'record') {
-      return []
+    if (
+      candidate.target.section !== "experience" ||
+      candidate.target.key !== "record"
+    ) {
+      return [];
     }
 
     if (!isRecordValue(candidate.value)) {
-      return []
+      return [];
     }
 
-    const startDate = typeof candidate.value.startDate === 'string' ? candidate.value.startDate : ''
-    const endDate = typeof candidate.value.endDate === 'string' ? candidate.value.endDate : ''
-    const isCurrent = candidate.value.isCurrent === true
-    const start = parseMonthStart(startDate)
-    const end = parseMonthEnd(endDate, isCurrent, today)
+    const startDate =
+      typeof candidate.value.startDate === "string"
+        ? candidate.value.startDate
+        : "";
+    const endDate =
+      typeof candidate.value.endDate === "string"
+        ? candidate.value.endDate
+        : "";
+    const isCurrent = candidate.value.isCurrent === true;
+    const start = parseMonthStart(startDate);
+    const end = parseMonthEnd(endDate, isCurrent, today);
 
     if (!start || !end || end < start) {
-      return []
+      return [];
     }
 
-    return [{ start, end }]
-  })
+    return [{ start, end }];
+  });
 
   if (monthRanges.length === 0) {
-    return null
+    return null;
   }
 
-  const coveredMonthKeys = new Set<number>()
+  const coveredMonthKeys = new Set<number>();
 
   for (const range of monthRanges) {
-    let year = range.start.getUTCFullYear()
-    let month = range.start.getUTCMonth()
-    const endYear = range.end.getUTCFullYear()
-    const endMonth = range.end.getUTCMonth()
+    let year = range.start.getUTCFullYear();
+    let month = range.start.getUTCMonth();
+    const endYear = range.end.getUTCFullYear();
+    const endMonth = range.end.getUTCMonth();
 
     while (year < endYear || (year === endYear && month <= endMonth)) {
-      coveredMonthKeys.add(year * 12 + month)
-      month += 1
+      coveredMonthKeys.add(year * 12 + month);
+      month += 1;
 
       if (month > 11) {
-        month = 0
-        year += 1
+        month = 0;
+        year += 1;
       }
     }
   }
 
-  const totalMonths = coveredMonthKeys.size
+  const totalMonths = coveredMonthKeys.size;
 
-  return Math.max(0, Math.floor(totalMonths / 12))
+  return Math.max(0, Math.floor(totalMonths / 12));
 }
 
 export function getVisibleYearsExperience(input: {
-  profileYearsExperience: number
-  reviewCandidates: readonly ResumeImportFieldCandidateSummary[]
-  today?: Date
+  profileYearsExperience: number;
+  reviewCandidates: readonly ResumeImportFieldCandidateSummary[];
+  today?: Date;
 }): number {
-  const pendingYearsExperience = getPendingYearsExperience(input.reviewCandidates)
+  const pendingYearsExperience = getPendingYearsExperience(
+    input.reviewCandidates,
+  );
   const estimatedYearsExperience = getEstimatedYearsExperienceFromRecords(
     input.reviewCandidates,
     input.today,
-  )
+  );
 
   return input.profileYearsExperience > 0
     ? input.profileYearsExperience
-    : pendingYearsExperience ?? estimatedYearsExperience ?? input.profileYearsExperience
+    : (pendingYearsExperience ??
+        estimatedYearsExperience ??
+        input.profileYearsExperience);
 }

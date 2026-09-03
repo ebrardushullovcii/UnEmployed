@@ -339,7 +339,7 @@ export function CampaignRuleBuilder(props: {
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
             Campaign rules
           </p>
-          <h2 className="mt-1 text-lg font-semibold text-(--text-headline)">
+          <h2 className="mt-1 font-semibold text-(--text-headline)">
             {props.campaign.name}
           </h2>
           <p className="mt-1 text-xs text-foreground-muted">
@@ -358,8 +358,8 @@ export function CampaignRuleBuilder(props: {
         </h3>
         {!funnel ? (
           <p className="text-sm text-foreground-soft">
-            Loading the current funnel… counts appear only after this search plan
-            retains real jobs.
+            Loading the current funnel… counts appear only after this search
+            plan retains real jobs.
           </p>
         ) : !hasSample ? (
           <p className="text-sm text-foreground-soft">

@@ -7,7 +7,11 @@ import {
 } from "@unemployed/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ActionsScreen, getUserActionContextRoute } from "./actions-screen";
+import {
+  ActionsScreen,
+  getUserActionContextRoute,
+  toActionableInstructions,
+} from "./actions-screen";
 
 afterEach(cleanup);
 
@@ -141,7 +145,11 @@ describe("ActionsScreen", () => {
         isPending={() => false}
         onCommand={vi.fn()}
         onNavigate={vi.fn()}
-        requests={[createRequest({ id: "application", scope: "application" })]}
+        // Search chrome only appears once the list is long enough to need
+        // it, so this layout check renders a searchable-size list.
+        requests={Array.from({ length: 5 }, (_, index) =>
+          createRequest({ id: `application_${index}`, scope: "application" }),
+        )}
       />,
     );
 
@@ -188,16 +196,14 @@ describe("ActionsScreen", () => {
     expect(getByText("Sign in to source")).toBeTruthy();
     expect(queryByText("resolved")).toBeNull();
     expect(
-      getAllByText(
-        /cannot authorize account creation or a final application submission/i,
-      ),
+      getAllByText(/cannot create an account or submit an application/i),
     ).toHaveLength(2);
   });
 
-  it("exposes keyboard-native Open, Done, Skip, and Cancel commands with hard safety fields", () => {
+  it("exposes keyboard-native Open, Done, and Cancel commands with hard safety fields", () => {
     const onCommand = vi.fn<(command: UserActionCommandInput) => void>();
     const request = createRequest({ id: "application", scope: "application" });
-    const { getByRole } = render(
+    const { getByRole, queryAllByRole } = render(
       <ActionsScreen
         discoveryJobs={[]}
         isPending={() => false}
@@ -207,7 +213,10 @@ describe("ActionsScreen", () => {
       />,
     );
 
-    for (const name of ["Open sign-in", "I'm signed in", "Skip", "Cancel"]) {
+    // "Skip" and "Cancel" were peers with the same outcome and no stated
+    // difference, so one named dismissal is offered.
+    expect(queryAllByRole("button", { name: /^Skip$/ })).toHaveLength(0);
+    for (const name of ["Open sign-in", "I'm signed in", "Cancel this step"]) {
       const button = getByRole("button", { name: new RegExp(name, "i") });
       expect(button.getAttribute("tabindex")).not.toBe("-1");
       fireEvent.click(button);
@@ -216,7 +225,6 @@ describe("ActionsScreen", () => {
     expect(onCommand.mock.calls.map(([command]) => command.action)).toEqual([
       "open_page",
       "confirm_done",
-      "skip",
       "cancel",
     ]);
     for (const [command] of onCommand.mock.calls) {
@@ -280,11 +288,7 @@ describe("ActionsScreen", () => {
       "disabled",
       false,
     );
-    expect(getByRole("button", { name: "Skip" })).toHaveProperty(
-      "disabled",
-      false,
-    );
-    expect(getByRole("button", { name: "Cancel" })).toHaveProperty(
+    expect(getByRole("button", { name: "Cancel this step" })).toHaveProperty(
       "disabled",
       false,
     );
@@ -379,5 +383,169 @@ describe("ActionsScreen", () => {
       "/job-finder/applications?jobId=job_1",
     );
     expect(onCommand).not.toHaveBeenCalled();
+  });
+
+  it("names the concrete blocker on an unclassified step without an Other badge or repeated credential copy", () => {
+    const blockerReason =
+      "The application page could not safely save a prepared field. The application site tried to save 'Work authorization' while it was being prepared, but this run did not have permission for that external save.";
+    const request = UserActionRequestSchema.parse({
+      id: "other-step",
+      dedupeKey: "dedupe_other-step",
+      revision: 1,
+      kind: "other",
+      state: "pending",
+      scope: {
+        type: "application",
+        runId: "run_1",
+        jobId: "job_1",
+        applicationRecordId: "record_1",
+        resultId: "result_1",
+        replayCheckpointId: "checkpoint_1",
+        source: "target_site",
+      },
+      verification: {
+        type: "page_blocker_absent",
+        blockerFingerprint: "blocker_other",
+      },
+      title: "Complete the browser step to continue the Example application",
+      summary: `${blockerReason} Complete this manual step in the managed browser, then return so Job Finder can verify the exact blocker no longer appears.`,
+      instructions: ["Finish this step yourself in the managed browser."],
+      actionUrl: "https://jobs.example.com/apply/1",
+      displayOrigin: "https://jobs.example.com/",
+      createdAt: "2026-07-30T10:00:00.000Z",
+      updatedAt: "2026-07-30T10:00:00.000Z",
+    });
+    const { container, getByText, queryByText } = render(
+      <ActionsScreen
+        discoveryJobs={[]}
+        isPending={() => false}
+        onCommand={vi.fn()}
+        onNavigate={vi.fn()}
+        requests={[request]}
+      />,
+    );
+
+    // The card says what the step is, not just that a step exists.
+    expect(getByText(new RegExp(blockerReason.slice(0, 60)))).toBeTruthy();
+    // "Other" names nothing, so it earns no category badge; requirement and
+    // state badges remain.
+    expect(queryByText("Other")).toBeNull();
+    // Every card in a queue called "Needs you" is required, so a REQUIRED
+    // chip on all of them carried no information; only "Optional" earns one.
+    expect(queryByText("required")).toBeNull();
+    expect(queryByText("Optional")).toBeNull();
+    // Cancelling now states its consequence instead of being an unexplained
+    // peer of the confirm action.
+    expect(
+      getByText(/Cancelling closes this step without doing it/i),
+    ).toBeTruthy();
+    expect(getByText("pending")).toBeTruthy();
+    // The credentials boundary is stated once, in the page header, rather
+    // than once per instruction and once more per card footer.
+    const boundaryMatches = (container.textContent ?? "").match(
+      /passwords and security codes|credentials/gi,
+    );
+    expect(boundaryMatches).toHaveLength(1);
+    expect(
+      getByText(/cannot create an account or submit an application/i),
+    ).toBeTruthy();
+  });
+
+  it("hides the search toolbar until the list is long enough to need it", () => {
+    // A search field and a "1 result" counter above a single card is dead
+    // chrome in the first viewport.
+    const { queryByRole, rerender } = render(
+      <ActionsScreen
+        discoveryJobs={[]}
+        isPending={() => false}
+        onCommand={vi.fn()}
+        onNavigate={vi.fn()}
+        requests={[createRequest({ id: "only", scope: "application" })]}
+      />,
+    );
+
+    expect(queryByRole("searchbox")).toBeNull();
+
+    rerender(
+      <ActionsScreen
+        discoveryJobs={[]}
+        isPending={() => false}
+        onCommand={vi.fn()}
+        onNavigate={vi.fn()}
+        requests={Array.from({ length: 5 }, (_, index) =>
+          createRequest({ id: `many_${index}`, scope: "application" }),
+        )}
+      />,
+    );
+
+    expect(queryByRole("searchbox")).toBeTruthy();
+  });
+
+  it("shows the exact page an action opens instead of a bare origin", () => {
+    const { getByText, queryByText } = render(
+      <ActionsScreen
+        discoveryJobs={[]}
+        isPending={() => false}
+        onCommand={vi.fn()}
+        onNavigate={vi.fn()}
+        requests={[createRequest({ id: "page", scope: "application" })]}
+      />,
+    );
+
+    expect(
+      getByText(/^Page: https:\/\/jobs\.example\.com\/login$/),
+    ).toBeTruthy();
+    expect(queryByText(/^Browser:/)).toBeNull();
+  });
+
+  it("keeps the numbered steps to what the user does, with one safety sentence", () => {
+    const request = UserActionRequestSchema.parse({
+      ...createRequest({ id: "instructions", scope: "discovery_source" }),
+      instructions: [
+        "Complete sign-in in the managed browser. Job Finder never receives or stores your credentials.",
+        "Return to the action inbox and confirm completion only after the browser step is complete.",
+        "After confirmation, Job Finder runs one exact prepare-only retry to verify the blocker and stops before final submission.",
+      ],
+    });
+
+    const { container, getAllByRole } = render(
+      <ActionsScreen
+        discoveryJobs={[]}
+        isPending={() => false}
+        onCommand={vi.fn()}
+        onNavigate={vi.fn()}
+        requests={[request]}
+      />,
+    );
+
+    const steps = getAllByRole("listitem").map((item) =>
+      item.textContent?.trim(),
+    );
+    expect(steps).toEqual([
+      "Complete sign-in in the managed browser.",
+      "Return to the action inbox and confirm completion only after the browser step is complete.",
+    ]);
+
+    // Exactly one safety sentence survives, and it is the card footer's.
+    const text = container.textContent ?? "";
+    expect(text.split("stops before final submission").length - 1).toBe(0);
+    expect(
+      text.split("cannot create an account or submit an application").length -
+        1,
+    ).toBe(1);
+  });
+
+  it("trims safety-only instructions without dropping actionable steps", () => {
+    expect(
+      toActionableInstructions([
+        "Complete the described step yourself in the managed browser. Do not enter credentials or security answers anywhere except the browser page.",
+        "  ",
+        "Return to the action inbox and choose Done only after the browser step is complete.",
+        "After access verification, Job Finder retries this exact application once and stops before final submission.",
+      ]),
+    ).toEqual([
+      "Complete the described step yourself in the managed browser.",
+      "Return to the action inbox and choose Done only after the browser step is complete.",
+    ]);
   });
 });

@@ -34,7 +34,6 @@ const PAGE_SIZE = 40;
 // runners. The per-test timeout only guards against true hangs.
 const PAGING_WALK_TIMEOUT_MS = 15_000;
 
-
 function createJobs(count: number = JOB_COUNT): SavedJob[] {
   return Array.from({ length: count }, (_, index) => {
     const ordinal = index.toString().padStart(4, "0");
@@ -219,42 +218,50 @@ describe("RapidReviewScreen workspace scale", () => {
     });
   });
 
-  it("mounts one page for a 550-job campaign and keeps paging accessible", () => {
-    const jobs = createJobs();
-    const log = createDecisionLog(550);
-    const { container } = renderRapidReview(jobs, log);
-    const list = screen.getByRole("list", { name: "Jobs to review" });
+  it(
+    "mounts one page for a 550-job campaign and keeps paging accessible",
+    () => {
+      const jobs = createJobs();
+      const log = createDecisionLog(550);
+      const { container } = renderRapidReview(jobs, log);
+      const list = screen.getByRole("list", { name: "Jobs to review" });
 
-    expect(within(list).getAllByRole("button")).toHaveLength(PAGE_SIZE);
-    expect(within(list).getAllByRole("checkbox")).toHaveLength(PAGE_SIZE);
-    expect(screen.getByText("Showing 1–40 of 550 jobs")).toBeTruthy();
-    expect(
-      screen.getByRole("navigation", { name: "jobs pagination" }),
-    ).toBeTruthy();
-    expect(container.querySelectorAll("li")).toHaveLength(PAGE_SIZE);
+      expect(within(list).getAllByRole("button")).toHaveLength(PAGE_SIZE);
+      expect(within(list).getAllByRole("checkbox")).toHaveLength(PAGE_SIZE);
+      expect(screen.getByText("Showing 1–40 of 550 jobs")).toBeTruthy();
+      expect(
+        screen.getByRole("navigation", { name: "jobs pagination" }),
+      ).toBeTruthy();
+      expect(container.querySelectorAll("li")).toHaveLength(PAGE_SIZE);
 
-    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+      fireEvent.click(screen.getByRole("button", { name: "Next page" }));
 
-    expect(within(list).getAllByRole("button")).toHaveLength(PAGE_SIZE);
-    expect(within(list).getByRole("button", { name: /0040/ })).toBeTruthy();
-    expect(within(list).queryByRole("button", { name: /0000/ })).toBeNull();
-    expect(screen.getByText("Showing 41–80 of 550 jobs")).toBeTruthy();
-  }, PAGING_WALK_TIMEOUT_MS);
+      expect(within(list).getAllByRole("button")).toHaveLength(PAGE_SIZE);
+      expect(within(list).getByRole("button", { name: /0040/ })).toBeTruthy();
+      expect(within(list).queryByRole("button", { name: /0000/ })).toBeNull();
+      expect(screen.getByText("Showing 41–80 of 550 jobs")).toBeTruthy();
+    },
+    PAGING_WALK_TIMEOUT_MS,
+  );
 
-  it("moves the active keyboard review across page boundaries", () => {
-    const jobs = createJobs();
-    const { container } = renderRapidReview(jobs, createDecisionLog(550));
-    const list = screen.getByRole("list", { name: "Jobs to review" });
+  it(
+    "moves the active keyboard review across page boundaries",
+    () => {
+      const jobs = createJobs();
+      const { container } = renderRapidReview(jobs, createDecisionLog(550));
+      const list = screen.getByRole("list", { name: "Jobs to review" });
 
-    for (let index = 0; index < PAGE_SIZE; index += 1) {
-      fireEvent.keyDown(window, { key: "ArrowDown" });
-    }
+      for (let index = 0; index < PAGE_SIZE; index += 1) {
+        fireEvent.keyDown(window, { key: "ArrowDown" });
+      }
 
-    expect(screen.getByText("Showing 41–80 of 550 jobs")).toBeTruthy();
-    expect(container.querySelector('[aria-current="true"]')).toBe(
-      within(list).getByRole("button", { name: /0040/ }),
-    );
-  }, PAGING_WALK_TIMEOUT_MS);
+      expect(screen.getByText("Showing 41–80 of 550 jobs")).toBeTruthy();
+      expect(container.querySelector('[aria-current="true"]')).toBe(
+        within(list).getByRole("button", { name: /0040/ }),
+      );
+    },
+    PAGING_WALK_TIMEOUT_MS,
+  );
 
   it("lets the intended row own arrow navigation without a second window move", () => {
     const jobs = createJobs().slice(0, 3);
@@ -339,90 +346,102 @@ describe("RapidReviewScreen pagination consistency", () => {
     }
   }
 
-  it("keeps page 6 of a 500-job campaign anchored to one active row with a matching detail", () => {
-    const { container } = renderRapidReview(createJobs(500));
-    const list = screen.getByRole("list", { name: "Jobs to review" });
+  it(
+    "keeps page 6 of a 500-job campaign anchored to one active row with a matching detail",
+    () => {
+      const { container } = renderRapidReview(createJobs(500));
+      const list = screen.getByRole("list", { name: "Jobs to review" });
 
-    clickNext(5);
+      clickNext(5);
 
-    expect(screen.getByText("Showing 201–240 of 500 jobs")).toBeTruthy();
-    // Exactly one rendered row carries the active state and it is the first
-    // row of the requested page — never a stray from page 1.
-    const firstPageSixRow = within(list).getByRole("button", {
-      name: /Senior Product Designer 0200/,
-    });
-    expect(soleCurrentRow(container)).toBe(firstPageSixRow);
-    expect(
-      screen.getByRole("article", { name: "Senior Product Designer 0200" }),
-    ).toBeTruthy();
-    expect(within(list).queryByRole("button", { name: /0000/ })).toBeNull();
-  }, PAGING_WALK_TIMEOUT_MS);
+      expect(screen.getByText("Showing 201–240 of 500 jobs")).toBeTruthy();
+      // Exactly one rendered row carries the active state and it is the first
+      // row of the requested page — never a stray from page 1.
+      const firstPageSixRow = within(list).getByRole("button", {
+        name: /Senior Product Designer 0200/,
+      });
+      expect(soleCurrentRow(container)).toBe(firstPageSixRow);
+      expect(
+        screen.getByRole("article", { name: "Senior Product Designer 0200" }),
+      ).toBeTruthy();
+      expect(within(list).queryByRole("button", { name: /0000/ })).toBeNull();
+    },
+    PAGING_WALK_TIMEOUT_MS,
+  );
 
-  it("lands Next/Previous on the exact boundary rows with matching details", () => {
-    const { container } = renderRapidReview(createJobs(500));
-    const list = screen.getByRole("list", { name: "Jobs to review" });
-    const previousButton = () =>
-      screen.getByRole("button", { name: "Previous page" });
+  it(
+    "lands Next/Previous on the exact boundary rows with matching details",
+    () => {
+      const { container } = renderRapidReview(createJobs(500));
+      const list = screen.getByRole("list", { name: "Jobs to review" });
+      const previousButton = () =>
+        screen.getByRole("button", { name: "Previous page" });
 
-    clickNext();
-    expect(screen.getByText("Showing 41–80 of 500 jobs")).toBeTruthy();
-    expect(soleCurrentRow(container)).toBe(
-      within(list).getByRole("button", {
-        name: /Senior Product Designer 0040/,
-      }),
-    );
-    expect(
-      screen.getByRole("article", { name: "Senior Product Designer 0040" }),
-    ).toBeTruthy();
+      clickNext();
+      expect(screen.getByText("Showing 41–80 of 500 jobs")).toBeTruthy();
+      expect(soleCurrentRow(container)).toBe(
+        within(list).getByRole("button", {
+          name: /Senior Product Designer 0040/,
+        }),
+      );
+      expect(
+        screen.getByRole("article", { name: "Senior Product Designer 0040" }),
+      ).toBeTruthy();
 
-    fireEvent.click(previousButton());
-    expect(screen.getByText("Showing 1–40 of 500 jobs")).toBeTruthy();
-    expect(soleCurrentRow(container)).toBe(
-      within(list).getByRole("button", {
-        name: /Senior Product Designer 0000/,
-      }),
-    );
-    expect(
-      screen.getByRole("article", { name: "Senior Product Designer 0000" }),
-    ).toBeTruthy();
-  }, PAGING_WALK_TIMEOUT_MS);
+      fireEvent.click(previousButton());
+      expect(screen.getByText("Showing 1–40 of 500 jobs")).toBeTruthy();
+      expect(soleCurrentRow(container)).toBe(
+        within(list).getByRole("button", {
+          name: /Senior Product Designer 0000/,
+        }),
+      );
+      expect(
+        screen.getByRole("article", { name: "Senior Product Designer 0000" }),
+      ).toBeTruthy();
+    },
+    PAGING_WALK_TIMEOUT_MS,
+  );
 
-  it("preserves the active row only while it stays on the requested page", () => {
-    const { container } = renderRapidReview(createJobs(500));
-    const list = screen.getByRole("list", { name: "Jobs to review" });
+  it(
+    "preserves the active row only while it stays on the requested page",
+    () => {
+      const { container } = renderRapidReview(createJobs(500));
+      const list = screen.getByRole("list", { name: "Jobs to review" });
 
-    clickNext();
-    expect(screen.getByText("Showing 41–80 of 500 jobs")).toBeTruthy();
+      clickNext();
+      expect(screen.getByText("Showing 41–80 of 500 jobs")).toBeTruthy();
 
-    // Activating a mid-page row keeps the page anchored to that row.
-    fireEvent.click(
-      within(list).getByRole("button", {
-        name: /Senior Product Designer 0045/,
-      }),
-    );
-    expect(screen.getByText("Showing 41–80 of 500 jobs")).toBeTruthy();
-    expect(soleCurrentRow(container)).toBe(
-      within(list).getByRole("button", {
-        name: /Senior Product Designer 0045/,
-      }),
-    );
+      // Activating a mid-page row keeps the page anchored to that row.
+      fireEvent.click(
+        within(list).getByRole("button", {
+          name: /Senior Product Designer 0045/,
+        }),
+      );
+      expect(screen.getByText("Showing 41–80 of 500 jobs")).toBeTruthy();
+      expect(soleCurrentRow(container)).toBe(
+        within(list).getByRole("button", {
+          name: /Senior Product Designer 0045/,
+        }),
+      );
 
-    // Leaving the page hands the anchor back to each visited page's first
-    // row; the old mid-page selection is not resurrected.
-    fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
-    expect(soleCurrentRow(container)).toBe(
-      within(list).getByRole("button", {
-        name: /Senior Product Designer 0000/,
-      }),
-    );
-    clickNext();
-    expect(screen.getByText("Showing 41–80 of 500 jobs")).toBeTruthy();
-    expect(soleCurrentRow(container)).toBe(
-      within(list).getByRole("button", {
-        name: /Senior Product Designer 0040/,
-      }),
-    );
-  }, PAGING_WALK_TIMEOUT_MS);
+      // Leaving the page hands the anchor back to each visited page's first
+      // row; the old mid-page selection is not resurrected.
+      fireEvent.click(screen.getByRole("button", { name: "Previous page" }));
+      expect(soleCurrentRow(container)).toBe(
+        within(list).getByRole("button", {
+          name: /Senior Product Designer 0000/,
+        }),
+      );
+      clickNext();
+      expect(screen.getByText("Showing 41–80 of 500 jobs")).toBeTruthy();
+      expect(soleCurrentRow(container)).toBe(
+        within(list).getByRole("button", {
+          name: /Senior Product Designer 0040/,
+        }),
+      );
+    },
+    PAGING_WALK_TIMEOUT_MS,
+  );
 
   it("keeps pointer focus on the pagination control after a page turn", () => {
     const { container } = renderRapidReview(createJobs(500));
@@ -442,40 +461,46 @@ describe("RapidReviewScreen pagination consistency", () => {
     expect(container.querySelector('[aria-current="true"]')).toBe(anchoredRow);
   });
 
-  it("anchors the filtered last partial page", () => {
-    const { container } = renderRapidReview(createJobs(500));
-    const list = screen.getByRole("list", { name: "Jobs to review" });
+  it(
+    "anchors the filtered last partial page",
+    () => {
+      const { container } = renderRapidReview(createJobs(500));
+      const list = screen.getByRole("list", { name: "Jobs to review" });
 
-    // Every other job sits in Budapest: 250 matches across 7 pages, ending
-    // in a 10-row partial page.
-    fireEvent.change(screen.getByRole("searchbox"), {
-      target: { value: "Budapest" },
-    });
+      // Every other job sits in Budapest: 250 matches across 7 pages, ending
+      // in a 10-row partial page.
+      fireEvent.change(screen.getByRole("searchbox"), {
+        target: { value: "Budapest" },
+      });
 
-    for (let turn = 0; turn < 8; turn += 1) {
-      const nextButton = screen.getByRole("button", { name: "Next page" });
-      if (nextButton.hasAttribute("disabled")) break;
-      fireEvent.click(nextButton);
-    }
+      for (let turn = 0; turn < 8; turn += 1) {
+        const nextButton = screen.getByRole("button", { name: "Next page" });
+        if (nextButton.hasAttribute("disabled")) break;
+        fireEvent.click(nextButton);
+      }
 
-    expect(screen.getByText("Showing 241–250 of 250 jobs")).toBeTruthy();
-    expect(within(list).getAllByRole("button")).toHaveLength(10);
-    const lastPartialFirstRow = within(list).getByRole("button", {
-      name: /Senior Product Designer 0481/,
-    });
-    expect(soleCurrentRow(container)).toBe(lastPartialFirstRow);
-    expect(
-      screen.getByRole("article", { name: "Senior Product Designer 0481" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Next page" }).hasAttribute("disabled"),
-    ).toBe(true);
-    expect(
-      screen
-        .getByRole("button", { name: "Previous page" })
-        .hasAttribute("disabled"),
-    ).toBe(false);
-  }, PAGING_WALK_TIMEOUT_MS);
+      expect(screen.getByText("Showing 241–250 of 250 jobs")).toBeTruthy();
+      expect(within(list).getAllByRole("button")).toHaveLength(10);
+      const lastPartialFirstRow = within(list).getByRole("button", {
+        name: /Senior Product Designer 0481/,
+      });
+      expect(soleCurrentRow(container)).toBe(lastPartialFirstRow);
+      expect(
+        screen.getByRole("article", { name: "Senior Product Designer 0481" }),
+      ).toBeTruthy();
+      expect(
+        screen
+          .getByRole("button", { name: "Next page" })
+          .hasAttribute("disabled"),
+      ).toBe(true);
+      expect(
+        screen
+          .getByRole("button", { name: "Previous page" })
+          .hasAttribute("disabled"),
+      ).toBe(false);
+    },
+    PAGING_WALK_TIMEOUT_MS,
+  );
 
   it("restarts review at the first row after a route remount (no durable active-row state exists)", () => {
     const jobs = createJobs(45);
@@ -567,132 +592,138 @@ describe("findLatestUndoableDecision", () => {
 });
 
 describe("RapidReviewScreen undo recovery", () => {
-  it("undoes the rejected decision after the rejected job leaves the list at a page boundary", async () => {
-    const jobs = createJobs();
-    const shortlistFirstPageJob = makeDecisionEntry({
-      id: "decision_0000_shortlist",
-      jobId: "rapid_review_job_0000",
-      kind: "shortlist",
-      revision: 1,
-      stamp: "2026-07-30T10:00:01.000Z",
-    });
-    const shortlistBoundaryJob = makeDecisionEntry({
-      id: "decision_0040_shortlist",
-      jobId: "rapid_review_job_0040",
-      kind: "shortlist",
-      revision: 1,
-      stamp: "2026-07-30T10:00:02.000Z",
-    });
-    const mutations: RapidReviewMutationInput[] = [];
-    const capture = (input: RapidReviewMutationInput) => {
-      mutations.push(input);
-      return Promise.resolve();
-    };
-    const view = renderRapidReview(
-      jobs,
-      parseScaleLog([shortlistFirstPageJob, shortlistBoundaryJob]),
-      capture,
-    );
-    const list = screen.getByRole("list", { name: "Jobs to review" });
-
-    // Walk the keyboard onto the first row of page 2 (a page boundary).
-    for (let index = 0; index < PAGE_SIZE; index += 1) {
-      fireEvent.keyDown(window, { key: "ArrowDown" });
-    }
-    expect(view.container.querySelector('[aria-current="true"]')).toBe(
-      within(list).getByRole("button", {
-        name: /Senior Product Designer 0040/,
-      }),
-    );
-
-    // Reject the active boundary job and let the workspace refresh commit it.
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Reject and next" }));
-      // Flush the mutation promise so decide's follow-up move commits.
-      await Promise.resolve();
-    });
-    expect(mutations[0]).toMatchObject({
-      type: "decide",
-      campaignId: "campaign_scale",
-      decision: "reject",
-      jobIds: ["rapid_review_job_0040"],
-      expectedRevisions: { rapid_review_job_0040: 1 },
-    });
-
-    // The reject archives the job, so the refreshed props no longer list it.
-    const rejectEntry = makeDecisionEntry({
-      id: "decision_0040_reject",
-      jobId: "rapid_review_job_0040",
-      kind: "reject",
-      revision: 2,
-      stamp: "2026-07-30T10:00:03.000Z",
-    });
-    const remainingJobs = jobs.filter(
-      (job) => job.id !== "rapid_review_job_0040",
-    );
-    view.rerender(
-      rapidReviewScreenElement(
-        remainingJobs,
-        parseScaleLog([
-          shortlistFirstPageJob,
-          shortlistBoundaryJob,
-          rejectEntry,
-        ]),
-        capture,
-      ),
-    );
-
-    expect(
-      within(list).queryByRole("button", {
-        name: /Senior Product Designer 0040/,
-      }),
-    ).toBeNull();
-    // The archived job has no resolvable title, so the label stays truthful
-    // without naming a row.
-    expect(
-      screen.getByRole("button", { name: "Undo last review decision" }),
-    ).toBeTruthy();
-
-    // U is pressed on whatever row currently holds focus — not on a hidden
-    // selection — and must still revert the rejected job's new decision.
-    const focusedRow = view.container.querySelector('[aria-current="true"]');
-    if (!focusedRow) throw new Error("Expected an active review row");
-    fireEvent.keyDown(focusedRow, { key: "u" });
-
-    expect(mutations[mutations.length - 1]).toEqual({
-      type: "undo",
-      campaignId: "campaign_scale",
-      jobId: "rapid_review_job_0040",
-      expectedRevision: 2,
-      reason: null,
-    });
-
-    // The undo restores the job: rerender with it back in discovery and its
-    // reject stamped as undone in the log.
-    view.rerender(
-      rapidReviewScreenElement(
+  it(
+    "undoes the rejected decision after the rejected job leaves the list at a page boundary",
+    async () => {
+      const jobs = createJobs();
+      const shortlistFirstPageJob = makeDecisionEntry({
+        id: "decision_0000_shortlist",
+        jobId: "rapid_review_job_0000",
+        kind: "shortlist",
+        revision: 1,
+        stamp: "2026-07-30T10:00:01.000Z",
+      });
+      const shortlistBoundaryJob = makeDecisionEntry({
+        id: "decision_0040_shortlist",
+        jobId: "rapid_review_job_0040",
+        kind: "shortlist",
+        revision: 1,
+        stamp: "2026-07-30T10:00:02.000Z",
+      });
+      const mutations: RapidReviewMutationInput[] = [];
+      const capture = (input: RapidReviewMutationInput) => {
+        mutations.push(input);
+        return Promise.resolve();
+      };
+      const view = renderRapidReview(
         jobs,
-        parseScaleLog([
-          shortlistFirstPageJob,
-          shortlistBoundaryJob,
-          markUndone(rejectEntry, "2026-07-30T10:00:04.000Z"),
-        ]),
+        parseScaleLog([shortlistFirstPageJob, shortlistBoundaryJob]),
         capture,
-      ),
-    );
+      );
+      const list = screen.getByRole("list", { name: "Jobs to review" });
 
-    expect(
-      within(list).getByRole("button", {
-        name: /Senior Product Designer 0040/,
-      }),
-    ).toBeTruthy();
-    // With the job listed again, the control names the next undoable decision.
-    expect(
-      screen.getByRole("button", {
-        name: "Undo shortlist: Senior Product Designer 0040",
-      }),
-    ).toBeTruthy();
-  }, PAGING_WALK_TIMEOUT_MS);
+      // Walk the keyboard onto the first row of page 2 (a page boundary).
+      for (let index = 0; index < PAGE_SIZE; index += 1) {
+        fireEvent.keyDown(window, { key: "ArrowDown" });
+      }
+      expect(view.container.querySelector('[aria-current="true"]')).toBe(
+        within(list).getByRole("button", {
+          name: /Senior Product Designer 0040/,
+        }),
+      );
+
+      // Reject the active boundary job and let the workspace refresh commit it.
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole("button", { name: "Reject and next" }),
+        );
+        // Flush the mutation promise so decide's follow-up move commits.
+        await Promise.resolve();
+      });
+      expect(mutations[0]).toMatchObject({
+        type: "decide",
+        campaignId: "campaign_scale",
+        decision: "reject",
+        jobIds: ["rapid_review_job_0040"],
+        expectedRevisions: { rapid_review_job_0040: 1 },
+      });
+
+      // The reject archives the job, so the refreshed props no longer list it.
+      const rejectEntry = makeDecisionEntry({
+        id: "decision_0040_reject",
+        jobId: "rapid_review_job_0040",
+        kind: "reject",
+        revision: 2,
+        stamp: "2026-07-30T10:00:03.000Z",
+      });
+      const remainingJobs = jobs.filter(
+        (job) => job.id !== "rapid_review_job_0040",
+      );
+      view.rerender(
+        rapidReviewScreenElement(
+          remainingJobs,
+          parseScaleLog([
+            shortlistFirstPageJob,
+            shortlistBoundaryJob,
+            rejectEntry,
+          ]),
+          capture,
+        ),
+      );
+
+      expect(
+        within(list).queryByRole("button", {
+          name: /Senior Product Designer 0040/,
+        }),
+      ).toBeNull();
+      // The archived job has no resolvable title, so the label stays truthful
+      // without naming a row.
+      expect(
+        screen.getByRole("button", { name: "Undo last review decision" }),
+      ).toBeTruthy();
+
+      // U is pressed on whatever row currently holds focus — not on a hidden
+      // selection — and must still revert the rejected job's new decision.
+      const focusedRow = view.container.querySelector('[aria-current="true"]');
+      if (!focusedRow) throw new Error("Expected an active review row");
+      fireEvent.keyDown(focusedRow, { key: "u" });
+
+      expect(mutations[mutations.length - 1]).toEqual({
+        type: "undo",
+        campaignId: "campaign_scale",
+        jobId: "rapid_review_job_0040",
+        expectedRevision: 2,
+        reason: null,
+      });
+
+      // The undo restores the job: rerender with it back in discovery and its
+      // reject stamped as undone in the log.
+      view.rerender(
+        rapidReviewScreenElement(
+          jobs,
+          parseScaleLog([
+            shortlistFirstPageJob,
+            shortlistBoundaryJob,
+            markUndone(rejectEntry, "2026-07-30T10:00:04.000Z"),
+          ]),
+          capture,
+        ),
+      );
+
+      expect(
+        within(list).getByRole("button", {
+          name: /Senior Product Designer 0040/,
+        }),
+      ).toBeTruthy();
+      // With the job listed again, the control names the next undoable decision.
+      expect(
+        screen.getByRole("button", {
+          name: "Undo shortlist: Senior Product Designer 0040",
+        }),
+      ).toBeTruthy();
+    },
+    PAGING_WALK_TIMEOUT_MS,
+  );
 
   it("keeps undo reachable when the search filter hides every job", () => {
     const jobs = createJobs().slice(0, 3);

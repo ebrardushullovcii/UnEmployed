@@ -5,7 +5,8 @@ import type { ProfileCopilotMessagePatchFlag } from "./repository-types";
  * Returns the index of the persisted copilot message owning a patch group,
  * preferring an exact message-id match and falling back to a content scan so
  * callers that captured only the group id still resolve transaction-current
- * rows.
+ * rows. A message id can disambiguate a legacy duplicate; a group-only lookup
+ * fails closed unless the id occurs exactly once across the persisted rows.
  */
 export function findProfileCopilotMessageByPatchGroup(
   messages: readonly ProfileCopilotMessage[],
@@ -15,16 +16,28 @@ export function findProfileCopilotMessageByPatchGroup(
     const byMessageId = messages.findIndex(
       (message) =>
         message.id === input.messageId &&
-        message.patchGroups.some((group) => group.id === input.patchGroupId),
+        message.patchGroups.filter((group) => group.id === input.patchGroupId)
+          .length === 1,
     );
     if (byMessageId >= 0) {
       return byMessageId;
     }
   }
 
-  return messages.findIndex((message) =>
-    message.patchGroups.some((group) => group.id === input.patchGroupId),
-  );
+  let matchCount = 0;
+  let matchingMessageIndex = -1;
+
+  messages.forEach((message, messageIndex) => {
+    const count = message.patchGroups.filter(
+      (group) => group.id === input.patchGroupId,
+    ).length;
+    if (count > 0) {
+      matchingMessageIndex = messageIndex;
+      matchCount += count;
+    }
+  });
+
+  return matchCount === 1 ? matchingMessageIndex : -1;
 }
 
 /**

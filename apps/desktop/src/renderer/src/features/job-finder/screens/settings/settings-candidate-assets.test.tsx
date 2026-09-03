@@ -293,9 +293,11 @@ describe("SettingsCandidateAssets", () => {
     ).toContain("Move to Trash");
     // Pending keeps the destructive control exposed but inert.
     expect(
-      document.querySelector<HTMLButtonElement>(
-        '[role="alertdialog"] button[data-pending="true"]',
-      )?.hasAttribute("disabled"),
+      document
+        .querySelector<HTMLButtonElement>(
+          '[role="alertdialog"] button[data-pending="true"]',
+        )
+        ?.hasAttribute("disabled"),
     ).toBe(false);
     expect(
       document

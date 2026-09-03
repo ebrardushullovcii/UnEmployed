@@ -14,6 +14,7 @@ import {
 import type {
   JobFinderResumeWorkspace,
   JobFinderWorkspaceSnapshot,
+  ResumeAssistantMessage,
 } from "@unemployed/contracts";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
@@ -31,7 +32,14 @@ import { useJobFinderPageController } from "./use-job-finder-page-controller";
 
 type ResumeWorkspaceRequest = {
   jobId: string;
+  reject: (error: unknown) => void;
   resolve: (workspace: JobFinderResumeWorkspace) => void;
+};
+
+type ResumeAssistantRequest = {
+  content: string;
+  jobId: string;
+  resolve: (messages: readonly ResumeAssistantMessage[]) => void;
 };
 
 function createReviewQueueItem(jobId: string) {
@@ -309,9 +317,9 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
-function requireController(
-  harness: { current: ReturnType<typeof useJobFinderPageController> | null },
-): ReturnType<typeof useJobFinderPageController> {
+function requireController(harness: {
+  current: ReturnType<typeof useJobFinderPageController> | null;
+}): ReturnType<typeof useJobFinderPageController> {
   const controller = harness.current;
   if (!controller) {
     throw new Error("Expected mounted Job Finder page controller.");
@@ -319,9 +327,9 @@ function requireController(
   return controller;
 }
 
-function requireControllerContext(
-  harness: { current: ReturnType<typeof useJobFinderPageController> | null },
-): NonNullable<ReturnType<typeof useJobFinderPageController>["context"]> {
+function requireControllerContext(harness: {
+  current: ReturnType<typeof useJobFinderPageController> | null;
+}): NonNullable<ReturnType<typeof useJobFinderPageController>["context"]> {
   const controller = requireController(harness);
   const context = controller.context;
   if (!context) {
@@ -343,11 +351,18 @@ describe("useJobFinderPageController resume-workspace mount loading", () => {
   function createMountHarness() {
     const workspace = createWorkspace();
     const pendingRequests: ResumeWorkspaceRequest[] = [];
+    const pendingAssistantRequests: ResumeAssistantRequest[] = [];
 
     const getResumeWorkspace = vi.fn(
       (jobId: string) =>
-        new Promise<JobFinderResumeWorkspace>((resolve) => {
-          pendingRequests.push({ jobId, resolve });
+        new Promise<JobFinderResumeWorkspace>((resolve, reject) => {
+          pendingRequests.push({ jobId, reject, resolve });
+        }),
+    );
+    const sendResumeAssistantMessage = vi.fn(
+      (jobId: string, content: string) =>
+        new Promise<readonly ResumeAssistantMessage[]>((resolve) => {
+          pendingAssistantRequests.push({ content, jobId, resolve });
         }),
     );
 
@@ -358,6 +373,7 @@ describe("useJobFinderPageController resume-workspace mount loading", () => {
         jobFinder: {
           getWorkspaceBootstrap: vi.fn(() => Promise.resolve(workspace)),
           getResumeWorkspace,
+          sendResumeAssistantMessage,
         },
       } as unknown as Window["unemployed"],
     });
@@ -380,6 +396,7 @@ describe("useJobFinderPageController resume-workspace mount loading", () => {
     return {
       router,
       getResumeWorkspace,
+      sendResumeAssistantMessage,
       get current() {
         return mounted.current;
       },
@@ -404,6 +421,23 @@ describe("useJobFinderPageController resume-workspace mount loading", () => {
         const answeredJobId = request.jobId;
         request.resolve(createResumeWorkspace(jobId, marker));
         return answeredJobId;
+      },
+      // Fails the OLDEST parked request.
+      rejectOldest(error: unknown) {
+        const request = pendingRequests.shift();
+        if (!request) {
+          throw new Error("No parked resume-workspace request to fail.");
+        }
+        request.reject(error);
+        return request.jobId;
+      },
+      respondAssistant(messages: readonly ResumeAssistantMessage[]) {
+        const request = pendingAssistantRequests.shift();
+        if (!request) {
+          throw new Error("No parked resume-assistant request to answer.");
+        }
+        request.resolve(messages);
+        return request;
       },
     };
   }
@@ -467,6 +501,81 @@ describe("useJobFinderPageController resume-workspace mount loading", () => {
     harness.unmount();
   });
 
+  it("retires a pending assistant request when reloading and ignores its late reply", async () => {
+    const harness = createMountHarness();
+
+    await waitFor(() =>
+      expect(requireController(harness).workspaceState.status).toBe("ready"),
+    );
+    expect(harness.respondOldest("job_1", "mount-v1")).toBe("job_1");
+    await waitFor(() =>
+      expect(activeResumeWorkspaceMarker(requireController(harness))).toBe(
+        "mount-v1",
+      ),
+    );
+
+    act(() => {
+      requireControllerContext(harness).onSendResumeAssistantMessage(
+        "job_1",
+        "Tighten the summary using only the evidence already present",
+      );
+    });
+    await waitFor(() =>
+      expect(harness.sendResumeAssistantMessage).toHaveBeenCalledOnce(),
+    );
+    await waitFor(() =>
+      expect(requireControllerContext(harness).resumeAssistantPending).toBe(
+        true,
+      ),
+    );
+
+    act(() => {
+      requireControllerContext(harness).onRefreshResumeWorkspace("job_1");
+    });
+    await waitFor(() =>
+      expect(harness.getResumeWorkspace).toHaveBeenCalledTimes(2),
+    );
+    expect(harness.respondLatest("job_1", "reload-v2")).toBe("job_1");
+    await waitFor(() =>
+      expect(activeResumeWorkspaceMarker(requireController(harness))).toBe(
+        "reload-v2",
+      ),
+    );
+    expect(requireControllerContext(harness).resumeAssistantPending).toBe(
+      false,
+    );
+    expect(requireControllerContext(harness).resumeAssistantMessages).toEqual(
+      [],
+    );
+
+    const lateReply: ResumeAssistantMessage = {
+      id: "assistant_late_reply",
+      jobId: "job_1",
+      role: "assistant",
+      content: "A late reply that must not replace the reloaded workspace.",
+      patches: [],
+      proposalStatus: "none",
+      baseDraftUpdatedAt: null,
+      resolvedPatchIds: [],
+      resolvedAt: null,
+      proposalError: null,
+      createdAt: "2026-08-20T00:01:00.000Z",
+    };
+    act(() => {
+      harness.respondAssistant([lateReply]);
+    });
+    await flushTurns();
+
+    expect(requireControllerContext(harness).resumeAssistantPending).toBe(
+      false,
+    );
+    expect(requireControllerContext(harness).resumeAssistantMessages).toEqual(
+      [],
+    );
+
+    harness.unmount();
+  });
+
   it("keeps a late mount response from crossing an out-and-back navigation", async () => {
     const harness = createMountHarness();
 
@@ -508,6 +617,59 @@ describe("useJobFinderPageController resume-workspace mount loading", () => {
       "v-job_1-late",
     );
 
+    harness.unmount();
+  });
+
+  it("keeps the owned unavailable state when the IPC layer wraps an unknown-job failure", async () => {
+    const harness = createMountHarness();
+
+    await waitFor(() =>
+      expect(requireController(harness).workspaceState.status).toBe("ready"),
+    );
+
+    await act(async () => {
+      harness.rejectOldest(
+        new Error(
+          "Error invoking remote method 'job-finder:get-resume-workspace': Error: Unknown Job Finder job 'job_target_site_2776321'.",
+        ),
+      );
+      await flushTurns();
+    });
+
+    // The route owns the "Resume no longer available" screen, so the
+    // controller must neither bounce nor publish a message.
+    expect(requireControllerContext(harness).actionState.message).toBeNull();
+    expect(harness.router.state.location.pathname).toBe(
+      "/job-finder/review-queue/job_1/resume",
+    );
+
+    harness.unmount();
+  });
+
+  it("never puts a raw IPC failure string on screen when the workspace cannot load", async () => {
+    const harness = createMountHarness();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await waitFor(() =>
+      expect(requireController(harness).workspaceState.status).toBe("ready"),
+    );
+
+    await act(async () => {
+      harness.rejectOldest(
+        new Error(
+          "Error invoking remote method 'job-finder:get-resume-workspace': Error: SQLITE_BUSY",
+        ),
+      );
+      await flushTurns();
+    });
+
+    const message = requireControllerContext(harness).actionState.message;
+    expect(message).toContain("We couldn’t open the resume editor");
+    expect(message).not.toContain("job-finder:get-resume-workspace");
+    expect(message).not.toContain("SQLITE_BUSY");
+    expect(logged).toHaveBeenCalled();
+
+    logged.mockRestore();
     harness.unmount();
   });
 

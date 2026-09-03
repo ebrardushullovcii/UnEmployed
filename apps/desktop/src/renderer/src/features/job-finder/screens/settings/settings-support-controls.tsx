@@ -58,7 +58,7 @@ export function SettingsSupportControls() {
           <p className="text-[10px] uppercase tracking-(--tracking-badge) text-muted-foreground">
             Support
           </p>
-          <h2 className="font-display text-lg font-semibold text-(--text-headline)">
+          <h2 className="font-display font-semibold text-(--text-headline)">
             Export diagnostic report
           </h2>
           <p className="text-sm leading-6 text-foreground-soft">

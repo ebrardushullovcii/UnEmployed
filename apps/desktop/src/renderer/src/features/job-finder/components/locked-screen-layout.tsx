@@ -7,8 +7,12 @@ import {
   type ReactNode,
 } from "react";
 import { cn } from "@renderer/lib/cn";
+import { getJobFinderScrollBehavior } from "../lib/job-finder-scroll-behavior";
 
 const LOCKED_PANE_BREAKPOINT = 1280;
+// Long enough to cover one continuous wheel or trackpad gesture, short enough
+// that the header never rests half-visible while the user reads the page.
+const HEADER_SETTLE_DELAY_MS = 140;
 const SCROLL_BOUNDARY_TOLERANCE = 1;
 const WHEEL_DELTA_LINE = 1;
 const WHEEL_DELTA_PAGE = 2;
@@ -58,29 +62,94 @@ export function getLockedScreenLayoutHeight(
   topHeight: number,
   lockTopContent: boolean,
 ): string | undefined {
-  return lockTopContent && topHeight > 0
-    ? `calc(100% + ${topHeight}px)`
-    : undefined;
+  // The grid already owns the natural content height. Adding the measured
+  // header height here creates a second, synthetic scroll range; short setup
+  // routes can then scroll onto a blank canvas below their real content.
+  void topHeight;
+  void lockTopContent;
+  return undefined;
+}
+
+/**
+ * The real scroll range of an owner. Never `undefined`: an owner that cannot
+ * scroll has a range of exactly `0`, and callers must say so. Reporting
+ * "unknown" for a non-scrollable owner let the header helpers fall back to
+ * `topHeight`, so a route whose outer owner had no range still had
+ * `topHeight` pixels subtracted from every wheel delta and written into a
+ * scroller the browser immediately clamped back — the delta was destroyed.
+ */
+function getScrollRange(element: HTMLElement): number {
+  return Math.max(0, element.scrollHeight - element.clientHeight);
 }
 
 export function getLockedHeaderWheelTarget(input: {
   deltaY: number;
+  maxScrollTop?: number | undefined;
   scrollTop: number;
   topHeight: number;
   viewportWidth: number;
 }): number | null {
+  const headerBoundary = Math.min(
+    input.topHeight,
+    Math.max(0, input.maxScrollTop ?? input.topHeight),
+  );
+
   if (
     input.viewportWidth < LOCKED_PANE_BREAKPOINT ||
     input.deltaY === 0 ||
-    input.topHeight <= 0 ||
+    headerBoundary <= 0 ||
     (input.deltaY > 0 &&
-      input.scrollTop >= input.topHeight - SCROLL_BOUNDARY_TOLERANCE) ||
+      input.scrollTop >= headerBoundary - SCROLL_BOUNDARY_TOLERANCE) ||
     (input.deltaY < 0 && input.scrollTop <= SCROLL_BOUNDARY_TOLERANCE)
   ) {
     return null;
   }
 
-  return Math.max(0, Math.min(input.topHeight, input.scrollTop + input.deltaY));
+  return Math.max(0, Math.min(headerBoundary, input.scrollTop + input.deltaY));
+}
+
+/**
+ * Where the route scroll owner must come to rest so the page header is never
+ * left half-scrolled under the fixed shell — a resting position inside the
+ * header band clips the H1 mid-glyph. Returns `null` when the current position
+ * is already fully in (top) or fully out (past the header), or when there is no
+ * header band to resolve.
+ *
+ * This only normalizes the resting position after a gesture settles: per-event
+ * wheel ownership and residual hand-off are unchanged, so a pane still receives
+ * exactly the delta the header did not consume.
+ */
+export function getLockedHeaderSettleScrollTop(input: {
+  direction?: "up" | "down" | null;
+  maxScrollTop?: number | undefined;
+  scrollTop: number;
+  topHeight: number;
+}): number | null {
+  const headerBoundary = Math.min(
+    input.topHeight,
+    Math.max(0, input.maxScrollTop ?? input.topHeight),
+  );
+
+  if (headerBoundary <= SCROLL_BOUNDARY_TOLERANCE) {
+    return null;
+  }
+
+  if (
+    input.scrollTop <= SCROLL_BOUNDARY_TOLERANCE ||
+    input.scrollTop >= headerBoundary - SCROLL_BOUNDARY_TOLERANCE
+  ) {
+    return null;
+  }
+
+  if (input.direction === "down") {
+    return headerBoundary;
+  }
+
+  if (input.direction === "up") {
+    return 0;
+  }
+
+  return input.scrollTop * 2 >= headerBoundary ? headerBoundary : 0;
 }
 
 export function canNestedPaneConsumeWheel(input: {
@@ -136,7 +205,9 @@ export function isVerticallyScrollableElement(element: HTMLElement): boolean {
     return false;
   }
 
-  return element.scrollHeight > element.clientHeight + SCROLL_BOUNDARY_TOLERANCE;
+  return (
+    element.scrollHeight > element.clientHeight + SCROLL_BOUNDARY_TOLERANCE
+  );
 }
 
 /**
@@ -173,26 +244,68 @@ export function collectLockedWheelScrollChain(input: {
 }
 
 interface LockedScreenLayoutProps {
+  /** Always-visible chrome pinned below the scroll area (primary CTAs). */
+  bottomContent?: ReactNode;
   children: ReactNode;
   contentClassName?: string;
+  /**
+   * Caps the whole layout at the route viewport from the locked-pane
+   * breakpoint up, so a two-pane route's panes own their own scrolling.
+   * Without it the grid is only `min-h-full`, its `1fr` content row resolves
+   * to max-content, and every pane grows past the fold: the page scrolls as
+   * one and a pane's own `overflow-y-auto` never activates.
+   */
+  lockContentHeight?: boolean;
   lockTopContent?: boolean;
   reserveRightRail?: boolean;
+  /** Reset the route-owned scroll containers when the locked view changes. */
+  scrollResetKey?: number | string;
   topClassName?: string;
   topContent: ReactNode;
 }
 
 export function LockedScreenLayout({
+  bottomContent,
   children,
   contentClassName,
+  lockContentHeight = false,
   lockTopContent = true,
   reserveRightRail = false,
-  topClassName = "pb-2 pt-2",
+  scrollResetKey,
+  topClassName = "pb-2",
   topContent,
 }: LockedScreenLayoutProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const topRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [topHeight, setTopHeight] = useState(0);
+
+  // `main` is intentionally overflow-hidden for locked routes, so this
+  // nested element is the route's scroll owner. Reset it before the first
+  // paint on every layout mount and when the caller changes the route/view
+  // identity; otherwise browser restoration/route reuse can leave the route
+  // header underneath the fixed shell. Disable CSS scroll anchoring on this
+  // owner as well: status rows and first-result hydration may change the
+  // header height after entry, but must not invent a partial scroll position.
+  // Explicit wheel/keyboard/first-result writes still own later scrolling.
+  useLayoutEffect(() => {
+    const scrollArea = scrollRef.current;
+    const topContentNode = topRef.current;
+    if (!scrollArea || !lockTopContent) {
+      return undefined;
+    }
+
+    scrollArea.scrollLeft = 0;
+    scrollArea.scrollTop = 0;
+    scrollArea.style.overflowAnchor = "none";
+    if (topContentNode) {
+      topContentNode.scrollLeft = 0;
+      topContentNode.scrollTop = 0;
+      topContentNode.style.overflowAnchor = "none";
+    }
+
+    return undefined;
+  }, [lockTopContent, scrollResetKey]);
 
   useLayoutEffect(() => {
     const node = topRef.current;
@@ -202,7 +315,13 @@ export function LockedScreenLayout({
     }
 
     const updateTopHeight = () => {
-      setTopHeight(node.getBoundingClientRect().height);
+      // Round to whole pixels so sub-pixel ResizeObserver chatter cannot
+      // oscillate setState and trip "Maximum update depth exceeded" while the
+      // sticky footer and locked scrolling are mounted.
+      const nextHeight = Math.round(node.getBoundingClientRect().height);
+      setTopHeight((current) =>
+        current === nextHeight ? current : nextHeight,
+      );
     };
 
     updateTopHeight();
@@ -219,6 +338,70 @@ export function LockedScreenLayout({
       window.removeEventListener("resize", updateTopHeight);
     };
   }, []);
+
+  // Snap the route header fully in or fully out once scrolling settles. Any
+  // input source can otherwise leave the header band half-scrolled under the
+  // fixed shell, which paints a title clipped through the middle of its
+  // glyphs. Per-event wheel/keyboard ownership is untouched: this only
+  // normalizes where the outer owner comes to rest.
+  useEffect(() => {
+    const scrollArea = scrollRef.current;
+
+    if (!scrollArea || !lockTopContent || topHeight <= 0) {
+      return undefined;
+    }
+
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastScrollTop = scrollArea.scrollTop;
+
+    const settleHeaderBoundary = (direction: "up" | "down" | null) => {
+      const settleTarget = getLockedHeaderSettleScrollTop({
+        direction,
+        maxScrollTop: getScrollRange(scrollArea),
+        scrollTop: scrollArea.scrollTop,
+        topHeight,
+      });
+
+      if (settleTarget === null) {
+        return;
+      }
+
+      lastScrollTop = settleTarget;
+      scrollArea.scrollTo({
+        behavior: getJobFinderScrollBehavior(),
+        top: settleTarget,
+      });
+    };
+
+    const handleScroll = () => {
+      const currentScrollTop = scrollArea.scrollTop;
+      const direction =
+        currentScrollTop === lastScrollTop
+          ? null
+          : currentScrollTop > lastScrollTop
+            ? "down"
+            : "up";
+      lastScrollTop = currentScrollTop;
+
+      if (settleTimer !== null) {
+        clearTimeout(settleTimer);
+      }
+
+      settleTimer = setTimeout(() => {
+        settleTimer = null;
+        settleHeaderBoundary(direction);
+      }, HEADER_SETTLE_DELAY_MS);
+    };
+
+    scrollArea.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      if (settleTimer !== null) {
+        clearTimeout(settleTimer);
+      }
+      scrollArea.removeEventListener("scroll", handleScroll);
+    };
+  }, [lockTopContent, topHeight]);
 
   useEffect(() => {
     const content = contentRef.current;
@@ -263,14 +446,37 @@ export function LockedScreenLayout({
         return;
       }
 
+      // Native ownership first. While any scroller under the pointer still has
+      // range in this direction, the browser scrolls it on the compositor with
+      // real momentum and we do not intervene at all — no `preventDefault`, no
+      // manual `scrollTop` write, no per-event arbitration. Custom hand-off is
+      // permitted only at a true boundary, where the pointed-at chain is
+      // exhausted in the wheel's direction and the outer route owner has to
+      // take over. Forwarding deltas by hand made every wheel event a
+      // main-thread, blocking event and silently ate `topHeight` pixels of it.
+      if (
+        scrollChain.some((scrollable) =>
+          canNestedPaneConsumeWheel({
+            clientHeight: scrollable.clientHeight,
+            deltaY: remainingDeltaY,
+            scrollHeight: scrollable.scrollHeight,
+            scrollTop: scrollable.scrollTop,
+          }),
+        )
+      ) {
+        return;
+      }
+
       const initialOuterScrollTop = scrollArea.scrollTop;
       let nextOuterScrollTop = initialOuterScrollTop;
+      const maxOuterScrollTop = getScrollRange(scrollArea);
       const paneTargets = new Map<HTMLElement, number>();
       let didManualConsumption = false;
 
       const consumeLockedHeader = () => {
         const headerTarget = getLockedHeaderWheelTarget({
           deltaY: remainingDeltaY,
+          maxScrollTop: maxOuterScrollTop,
           scrollTop: nextOuterScrollTop,
           topHeight,
           viewportWidth: window.innerWidth,
@@ -321,7 +527,10 @@ export function LockedScreenLayout({
       // scrollTop keeps the handoff deterministic while the browser still
       // clamps to the outer element's real scroll range.
       if (didManualConsumption && remainingDeltaY !== 0) {
-        nextOuterScrollTop = Math.max(0, nextOuterScrollTop + remainingDeltaY);
+        nextOuterScrollTop = Math.min(
+          maxOuterScrollTop,
+          Math.max(0, nextOuterScrollTop + remainingDeltaY),
+        );
       }
 
       const outerMoved = nextOuterScrollTop !== initialOuterScrollTop;
@@ -447,7 +656,7 @@ export function LockedScreenLayout({
             0,
             scrollArea.scrollHeight - scrollArea.clientHeight,
           );
-          const targetTop = Math.max(topHeight, maxOuter);
+          const targetTop = maxOuter;
           if (scrollArea.scrollTop < targetTop - SCROLL_BOUNDARY_TOLERANCE) {
             event.preventDefault();
             scrollArea.scrollTop = targetTop;
@@ -487,6 +696,7 @@ export function LockedScreenLayout({
       const consumeLockedHeader = () => {
         const headerTarget = getLockedHeaderWheelTarget({
           deltaY: remainingDeltaY,
+          maxScrollTop: getScrollRange(scrollArea),
           scrollTop: nextOuterScrollTop,
           topHeight,
           viewportWidth: window.innerWidth,
@@ -540,10 +750,10 @@ export function LockedScreenLayout({
           0,
           nextOuterScrollTop + remainingDeltaY,
         );
-        nextOuterScrollTop =
-          maxOuterScrollTop > 0
-            ? Math.min(maxOuterScrollTop, candidateOuterScrollTop)
-            : candidateOuterScrollTop;
+        nextOuterScrollTop = Math.min(
+          maxOuterScrollTop,
+          candidateOuterScrollTop,
+        );
       }
 
       const outerMoved = nextOuterScrollTop !== initialOuterScrollTop;
@@ -592,17 +802,38 @@ export function LockedScreenLayout({
   };
 
   return (
-    <section className="h-full min-h-0">
+    <section
+      className={cn("h-full min-h-0", bottomContent ? "flex flex-col" : null)}
+    >
       <div
-        className="screen-scroll-area h-full overflow-y-auto overflow-x-hidden pr-1"
+        className={cn(
+          "screen-scroll-area overflow-y-auto overflow-x-hidden pr-1",
+          bottomContent ? "min-h-0 flex-1" : "h-full",
+        )}
+        data-locked-screen-scroll-area
         ref={scrollRef}
       >
         <div
-          className="grid min-h-full min-w-0 grid-rows-[auto_minmax(0,1fr)] transition-[padding-right] duration-200"
+          className={cn(
+            "grid min-h-full min-w-0 grid-rows-[auto_minmax(0,1fr)] transition-[padding-right] duration-200",
+            lockContentHeight ? "xl:h-full" : null,
+          )}
+          data-locked-screen-content-height={
+            lockContentHeight ? "locked" : undefined
+          }
           ref={contentRef}
           style={layoutStyle}
         >
-          <div ref={topRef} className={cn("min-w-0", topClassName)}>
+          <div
+            data-locked-screen-top-content
+            ref={topRef}
+            // F73: one route-title offset everywhere. The shell supplies
+            // 12px above scrolling routes (`pt-3` on `main`) and `pt-0` on
+            // locked routes, where this layout owns the top edge — so it
+            // supplies the same 12px here. Routes must not add their own top
+            // padding above the header, or the offset drifts per route again.
+            className={cn("min-w-0 pt-3", topClassName)}
+          >
             {topContent}
           </div>
           <div className={cn("min-h-0 min-w-0", contentClassName)}>
@@ -610,6 +841,14 @@ export function LockedScreenLayout({
           </div>
         </div>
       </div>
+      {bottomContent ? (
+        <div
+          className="z-20 shrink-0 border-t border-(--surface-panel-border) bg-(--surface-fill-soft)/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-10px_28px_rgba(0,0,0,0.18)] backdrop-blur-sm"
+          data-locked-screen-bottom-content
+        >
+          {bottomContent}
+        </div>
+      ) : null}
     </section>
   );
 }

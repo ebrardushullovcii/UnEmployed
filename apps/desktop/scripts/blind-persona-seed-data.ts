@@ -80,6 +80,25 @@ export interface BlindPersonaSession {
   };
 }
 
+export const BLIND_PERSONA_VISUAL_REVIEW_TEMPLATE_SCHEMA_VERSION = 1 as const;
+
+export const BLIND_PERSONA_VISUAL_REVIEW_LENS_KEYS = [
+  "firstStableViewport",
+  "hierarchyDensityAndStateChange",
+  "loadingState",
+  "brandAndNavigation",
+  "clippingAndOverlap",
+] as const;
+
+export type BlindPersonaVisualReviewLens =
+  (typeof BLIND_PERSONA_VISUAL_REVIEW_LENS_KEYS)[number];
+
+export interface BlindPersonaVisualReviewTemplate {
+  schemaVersion: typeof BLIND_PERSONA_VISUAL_REVIEW_TEMPLATE_SCHEMA_VERSION;
+  prompt: string;
+  lenses: Record<BlindPersonaVisualReviewLens, string>;
+}
+
 export interface BlindPersonaManifest {
   schemaVersion: 1;
   idNamespace: "blind-persona-v1";
@@ -88,17 +107,31 @@ export interface BlindPersonaManifest {
   digestSha256: string;
   assetRoot: "apps/desktop";
   jobCorpusPath: string;
+  visualReviewTemplate: BlindPersonaVisualReviewTemplate;
   sessions: BlindPersonaSession[];
+}
+
+export interface BlindPersonaCorpusBinding {
+  matchJobId: string;
+  weakerJobId: string;
+  matchCriteria: {
+    roleKeywords: string[];
+    locationKeywords: string[];
+    workModes: Array<"onsite" | "hybrid" | "remote">;
+  };
 }
 
 interface BlindPersonaJobCorpora {
   schemaVersion: 1;
   fixedTimestamp: string;
-  corpora: Record<string, unknown[]>;
+  corpusBindings: Record<string, unknown>;
+  corpora: Record<string, unknown>;
 }
 
 export interface LoadedBlindPersonaSeedData {
   manifest: BlindPersonaManifest;
+  corpusBindings: Record<string, BlindPersonaCorpusBinding>;
+  jobsByCorpus: Record<string, SavedJob[]>;
   jobsByPersona: Record<string, SavedJob[]>;
   assetPaths: string[];
   digestSha256: string;
@@ -153,6 +186,297 @@ function parseJson<T>(content: string, label: string): T {
   }
 }
 
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireNonEmptyString(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${label} must be a non-empty string.`);
+  }
+  return value;
+}
+
+export function parseBlindPersonaVisualReviewTemplate(
+  value: unknown,
+  label = "Blind persona visualReviewTemplate",
+): BlindPersonaVisualReviewTemplate {
+  const record = requireRecord(value, label);
+  if (
+    record.schemaVersion !== BLIND_PERSONA_VISUAL_REVIEW_TEMPLATE_SCHEMA_VERSION
+  ) {
+    throw new Error(
+      `${label}.schemaVersion must be ${BLIND_PERSONA_VISUAL_REVIEW_TEMPLATE_SCHEMA_VERSION}.`,
+    );
+  }
+  const lensesRecord = requireRecord(record.lenses, `${label}.lenses`);
+  const lenses = {} as Record<BlindPersonaVisualReviewLens, string>;
+  for (const key of BLIND_PERSONA_VISUAL_REVIEW_LENS_KEYS) {
+    lenses[key] = requireNonEmptyString(
+      lensesRecord[key],
+      `${label}.lenses.${key}`,
+    );
+  }
+  const expectedKeys = new Set(BLIND_PERSONA_VISUAL_REVIEW_LENS_KEYS);
+  for (const key of Object.keys(lensesRecord)) {
+    if (!expectedKeys.has(key as BlindPersonaVisualReviewLens)) {
+      throw new Error(`${label}.lenses has unknown field: ${key}.`);
+    }
+  }
+  for (const key of Object.keys(record)) {
+    if (!["schemaVersion", "prompt", "lenses"].includes(key)) {
+      throw new Error(`${label} has unknown field: ${key}.`);
+    }
+  }
+  return {
+    lenses,
+    prompt: requireNonEmptyString(record.prompt, `${label}.prompt`),
+    schemaVersion: BLIND_PERSONA_VISUAL_REVIEW_TEMPLATE_SCHEMA_VERSION,
+  };
+}
+
+const blindPersonaIdPattern = /^P(?:0[1-9]|1[0-4])$/u;
+const fixedCorpusWorkModes = new Set(["onsite", "hybrid", "remote"]);
+
+function blindPersonaSessionId(session: BlindPersonaSession): string {
+  const personaId = session.id.split("/").at(-1);
+  if (!personaId || !blindPersonaIdPattern.test(personaId)) {
+    throw new Error(`Invalid blind persona session ID: ${session.id}`);
+  }
+  return personaId;
+}
+
+export function getBlindPersonaCorpusKey(
+  session: BlindPersonaSession,
+): string | null {
+  if (session.workspace.kind !== "fresh") return null;
+  if (session.workspace.jobState.kind !== "fixed_corpus") {
+    throw new Error(
+      `${blindPersonaSessionId(session)} fresh workspace must declare a fixed_corpus job state.`,
+    );
+  }
+  const corpusKey = session.workspace.jobState.corpusKey;
+  if (typeof corpusKey !== "string" || corpusKey.trim().length === 0) {
+    throw new Error(
+      `${blindPersonaSessionId(session)} fixed_corpus job state must declare a corpusKey.`,
+    );
+  }
+  return corpusKey;
+}
+
+function parseBlindPersonaCorpusBinding(
+  value: unknown,
+  label: string,
+): BlindPersonaCorpusBinding {
+  const record = requireRecord(value, label);
+  const criteria = requireRecord(
+    record.matchCriteria,
+    `${label}.matchCriteria`,
+  );
+  const roleKeywords = criteria.roleKeywords;
+  const locationKeywords = criteria.locationKeywords;
+  const workModes = criteria.workModes;
+  if (
+    !Array.isArray(roleKeywords) ||
+    roleKeywords.length === 0 ||
+    !roleKeywords.every(
+      (keyword): keyword is string =>
+        typeof keyword === "string" && keyword.trim().length > 0,
+    )
+  ) {
+    throw new Error(`${label}.matchCriteria.roleKeywords must be non-empty.`);
+  }
+  if (
+    !Array.isArray(locationKeywords) ||
+    locationKeywords.length === 0 ||
+    !locationKeywords.every(
+      (keyword): keyword is string =>
+        typeof keyword === "string" && keyword.trim().length > 0,
+    )
+  ) {
+    throw new Error(
+      `${label}.matchCriteria.locationKeywords must be non-empty.`,
+    );
+  }
+  if (
+    !Array.isArray(workModes) ||
+    workModes.length === 0 ||
+    !workModes.every(
+      (mode): mode is "onsite" | "hybrid" | "remote" =>
+        typeof mode === "string" && fixedCorpusWorkModes.has(mode),
+    )
+  ) {
+    throw new Error(
+      `${label}.matchCriteria.workModes must contain onsite, hybrid, or remote.`,
+    );
+  }
+  return {
+    matchJobId: requireNonEmptyString(record.matchJobId, `${label}.matchJobId`),
+    weakerJobId: requireNonEmptyString(
+      record.weakerJobId,
+      `${label}.weakerJobId`,
+    ),
+    matchCriteria: {
+      roleKeywords,
+      locationKeywords,
+      workModes,
+    },
+  };
+}
+
+function parseBlindPersonaCorpusBindings(
+  value: unknown,
+): Record<string, BlindPersonaCorpusBinding> {
+  const record = requireRecord(value, "Blind persona corpusBindings");
+  return Object.fromEntries(
+    Object.entries(record).map(([corpusKey, binding]) => [
+      corpusKey,
+      parseBlindPersonaCorpusBinding(
+        binding,
+        `Blind persona corpusBindings.${corpusKey}`,
+      ),
+    ]),
+  );
+}
+
+function hasKeyword(values: string[], keywords: string[]): boolean {
+  const normalized = values.join(" ").toLowerCase();
+  return keywords.some((keyword) =>
+    normalized.includes(keyword.toLowerCase().trim()),
+  );
+}
+
+function hasWorkMode(job: SavedJob, modes: string[]): boolean {
+  return job.workMode.some((mode) => modes.includes(mode));
+}
+
+function validateBlindPersonaCorpusBindings(
+  manifest: BlindPersonaManifest,
+  jobsByCorpus: Record<string, SavedJob[]>,
+  corpusBindings: Record<string, BlindPersonaCorpusBinding>,
+): void {
+  const freshSessions = manifest.sessions.filter(
+    (session) => session.workspace.kind === "fresh",
+  );
+  const expectedCorpusKeys = freshSessions
+    .map((session) => getBlindPersonaCorpusKey(session))
+    .filter((corpusKey): corpusKey is string => corpusKey !== null)
+    .sort();
+  const actualCorpusKeys = Object.keys(jobsByCorpus).sort();
+  const actualBindingKeys = Object.keys(corpusBindings).sort();
+  if (
+    stableBlindPersonaSerialization(expectedCorpusKeys) !==
+      stableBlindPersonaSerialization(actualCorpusKeys) ||
+    stableBlindPersonaSerialization(expectedCorpusKeys) !==
+      stableBlindPersonaSerialization(actualBindingKeys)
+  ) {
+    throw new Error(
+      `Fresh blind personas and fixed corpora must bind one-to-one: ${JSON.stringify({ expectedCorpusKeys, actualCorpusKeys, actualBindingKeys })}`,
+    );
+  }
+
+  for (const session of freshSessions) {
+    const personaId = blindPersonaSessionId(session);
+    const corpusKey = getBlindPersonaCorpusKey(session);
+    if (!corpusKey) {
+      throw new Error(`${personaId} has no fixed corpus binding.`);
+    }
+    const jobs = jobsByCorpus[corpusKey];
+    const binding = corpusBindings[corpusKey];
+    if (!jobs || !binding) {
+      throw new Error(
+        `Missing fixed corpus binding for ${personaId}: ${corpusKey}`,
+      );
+    }
+    if (jobs.length < 2) {
+      throw new Error(`${corpusKey} must contain a match and weaker example.`);
+    }
+    for (const job of jobs) {
+      if (
+        job.status !== "discovered" ||
+        job.discoveryMethod !== "catalog_seed" ||
+        job.provenance.length !== 0 ||
+        job.firstSeenAt !== null ||
+        job.lastSeenAt !== null ||
+        job.lastVerifiedActiveAt !== null ||
+        job.providerUpdatedAt !== null ||
+        job.matchAssessment.contextFingerprint !== null ||
+        job.matchAssessment.postingFingerprint !== null ||
+        job.discoveryFeedback !== null ||
+        job.resumeApplicationMode !== null ||
+        job.latestMatchAssessmentAudit !== null ||
+        job.sourceIntelligence !== null ||
+        job.providerKey !== null ||
+        job.providerBoardToken !== null ||
+        job.providerIdentifier !== null
+      ) {
+        throw new Error(
+          `${personaId} fixture ${job.id} must remain discovered, catalog_seed, provisional, unbound, unobserved, and without provenance.`,
+        );
+      }
+    }
+
+    const match = jobs.find((job) => job.id === binding.matchJobId);
+    const weaker = jobs.find((job) => job.id === binding.weakerJobId);
+    if (!match || !weaker || match.id === weaker.id) {
+      throw new Error(
+        `${corpusKey} must identify distinct matchJobId and weakerJobId entries.`,
+      );
+    }
+    const matchRole = hasKeyword(
+      [match.title, match.description, ...match.keySkills],
+      binding.matchCriteria.roleKeywords,
+    );
+    const matchLocation = hasKeyword(
+      [match.location],
+      binding.matchCriteria.locationKeywords,
+    );
+    const matchWorkMode = hasWorkMode(match, binding.matchCriteria.workModes);
+    if (!matchRole || !matchLocation || !matchWorkMode) {
+      throw new Error(
+        `${corpusKey} match ${match.id} must match its declared role, location, and work mode criteria.`,
+      );
+    }
+    const weakerRole = hasKeyword(
+      [weaker.title, weaker.description, ...weaker.keySkills],
+      binding.matchCriteria.roleKeywords,
+    );
+    const weakerLocation = hasKeyword(
+      [weaker.location],
+      binding.matchCriteria.locationKeywords,
+    );
+    const weakerWorkMode = hasWorkMode(weaker, binding.matchCriteria.workModes);
+    if (
+      weaker.matchAssessment.gaps.length === 0 &&
+      weakerRole &&
+      weakerLocation &&
+      weakerWorkMode
+    ) {
+      throw new Error(
+        `${corpusKey} weaker example ${weaker.id} needs a stated gap or a role, location, or work-mode conflict.`,
+      );
+    }
+  }
+}
+
+export function getBlindPersonaJobsForSession(
+  data: Pick<LoadedBlindPersonaSeedData, "jobsByCorpus">,
+  session: BlindPersonaSession,
+): SavedJob[] {
+  const corpusKey = getBlindPersonaCorpusKey(session);
+  if (!corpusKey) return [];
+  const jobs = data.jobsByCorpus[corpusKey];
+  if (!jobs) {
+    throw new Error(
+      `${blindPersonaSessionId(session)} references missing fixed corpus ${corpusKey}.`,
+    );
+  }
+  return jobs;
+}
+
 function resolveAssetPath(
   manifest: BlindPersonaManifest,
   assetPath: string,
@@ -182,13 +506,13 @@ export async function calculateBlindPersonaDigest(
     JsonValue
   >;
   delete manifestWithoutDigest.digestSha256;
-  const subject = canonicalize({
+  const subject = {
     assets,
     manifest: manifestWithoutDigest,
-  });
+  };
   return {
     assetPaths,
-    digestSha256: sha256(JSON.stringify(subject)),
+    digestSha256: sha256(stableBlindPersonaSerialization(subject)),
   };
 }
 
@@ -197,18 +521,39 @@ export async function loadBlindPersonaSeedData(): Promise<LoadedBlindPersonaSeed
     await readFile(manifestPath, "utf8"),
     "Blind persona manifest",
   );
+  manifest.visualReviewTemplate = parseBlindPersonaVisualReviewTemplate(
+    manifest.visualReviewTemplate,
+  );
   const jobCorpora = parseJson<BlindPersonaJobCorpora>(
     await readFile(resolveAssetPath(manifest, manifest.jobCorpusPath), "utf8"),
     "Blind persona job corpora",
   );
+  const corpusBindings = parseBlindPersonaCorpusBindings(
+    jobCorpora.corpusBindings,
+  );
+  const corpusRecords = requireRecord(
+    jobCorpora.corpora,
+    "Blind persona corpora",
+  );
+  const jobsByCorpus = Object.fromEntries(
+    Object.entries(corpusRecords).map(([corpusKey, jobs]) => {
+      if (!Array.isArray(jobs)) {
+        throw new Error(`Blind persona corpus ${corpusKey} must be an array.`);
+      }
+      return [corpusKey, jobs.map((job) => SavedJobSchema.parse(job))];
+    }),
+  );
+  validateBlindPersonaCorpusBindings(manifest, jobsByCorpus, corpusBindings);
   const jobsByPersona = Object.fromEntries(
-    Object.entries(jobCorpora.corpora).map(([personaId, jobs]) => [
-      personaId,
-      jobs.map((job) => SavedJobSchema.parse(job)),
-    ]),
+    manifest.sessions
+      .filter((session) => session.workspace.kind === "fresh")
+      .map((session) => [
+        blindPersonaSessionId(session),
+        getBlindPersonaJobsForSession({ jobsByCorpus }, session),
+      ]),
   );
   const digest = await calculateBlindPersonaDigest(manifest);
-  return { manifest, jobsByPersona, ...digest };
+  return { manifest, corpusBindings, jobsByCorpus, jobsByPersona, ...digest };
 }
 
 const P13_CAMPAIGN_ID = "blind_p13_campaign";
@@ -296,6 +641,7 @@ function createPreferences(input: {
   personaId: "P13" | "P14";
   sourceTargetId: string;
   sourceUrl: string;
+  sourceDebugRunId?: string;
 }) {
   return JobSearchPreferencesSchema.parse({
     targetRoles:
@@ -321,6 +667,9 @@ function createPreferences(input: {
               : "Blocked service management roles source",
           startingUrl: input.sourceUrl,
           enabled: false,
+          ...(input.sourceDebugRunId
+            ? { lastDebugRunId: input.sourceDebugRunId }
+            : {}),
         },
       ],
     },
@@ -748,6 +1097,7 @@ export function buildP14BlindPersonaRepositoryState(input: {
     personaId: "P14",
     sourceTargetId,
     sourceUrl: "https://blocked.jobs.example.test/openings",
+    sourceDebugRunId,
   });
   const p14SourceTarget = searchPreferences.discovery.targets[0]!;
   const job = SavedJobSchema.parse({
@@ -947,7 +1297,7 @@ export function buildP14BlindPersonaRepositoryState(input: {
     targetUrl: "https://blocked.jobs.example.test/openings",
     targetHostname: "blocked.jobs.example.test",
     manualPrerequisiteSummary:
-      "Sign in in the browser without sharing credentials with Job Finder.",
+      "Login required: sign in through the browser and do not share credentials with Job Finder.",
     finalSummary: "Source access requires a user-owned browser sign-in.",
     attemptIds: [],
     phaseSummaries: [],
@@ -1060,6 +1410,8 @@ export function buildP14BlindPersonaRepositoryState(input: {
       runState: "failed",
       activeRun: null,
       recentRuns: [discoveryRun],
+      activeSourceDebugRun: sourceDebugRun,
+      recentSourceDebugRuns: [sourceDebugRun],
     },
     campaigns: [campaign],
     activeCampaignId: campaign.id,

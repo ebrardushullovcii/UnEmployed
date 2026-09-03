@@ -874,6 +874,234 @@ export function runMigrations(database: DatabaseSync): void {
     `);
   }
 
+  /**
+   * Typed authority state is intentionally kept in dedicated collections.
+   * Legacy apply rows and settings never populate these tables, so an old
+   * workspace remains prepare-only by absence of an authority envelope.
+   */
+  function ensureApplicationAuthorityTables(): void {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS application_authority_envelopes (
+        id TEXT PRIMARY KEY,
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        status TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS application_authority_envelopes_status_idx
+        ON application_authority_envelopes(status, revision DESC, id ASC);
+
+      -- There is one user authority scope per workspace. The partial unique
+      -- index makes that invariant hold for every SQLite writer, not only the
+      -- repository methods that perform the normal preflight checks.
+      CREATE UNIQUE INDEX IF NOT EXISTS application_authority_envelopes_active_unique_idx
+        ON application_authority_envelopes(status)
+        WHERE status = 'active';
+
+      CREATE TABLE IF NOT EXISTS submission_preflights (
+        id TEXT PRIMARY KEY,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        result_id TEXT NOT NULL,
+        application_record_id TEXT NOT NULL,
+        authority_envelope_id TEXT NOT NULL,
+        authority_revision INTEGER NOT NULL CHECK (authority_revision > 0),
+        created_at TEXT NOT NULL,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS submission_preflights_lineage_idx
+        ON submission_preflights(run_id, job_id, created_at ASC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS submission_execution_grants (
+        id TEXT PRIMARY KEY,
+        preflight_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        status TEXT NOT NULL,
+        granted_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        value TEXT NOT NULL,
+        FOREIGN KEY (preflight_id) REFERENCES submission_preflights(id)
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS submission_execution_grants_preflight_unique_idx
+        ON submission_execution_grants(preflight_id);
+
+      CREATE INDEX IF NOT EXISTS submission_execution_grants_status_idx
+        ON submission_execution_grants(status, expires_at ASC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS submission_idempotency_records (
+        id TEXT PRIMARY KEY,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        preflight_id TEXT NOT NULL UNIQUE,
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        status TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        value TEXT NOT NULL,
+        FOREIGN KEY (preflight_id) REFERENCES submission_preflights(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS submission_idempotency_records_status_idx
+        ON submission_idempotency_records(status, updated_at DESC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS submission_armed_markers (
+        id TEXT PRIMARY KEY,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        preflight_id TEXT NOT NULL UNIQUE,
+        armed_at TEXT NOT NULL,
+        value TEXT NOT NULL,
+        FOREIGN KEY (preflight_id) REFERENCES submission_preflights(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS submission_armed_markers_armed_at_idx
+        ON submission_armed_markers(armed_at ASC, id ASC);
+
+      CREATE TABLE IF NOT EXISTS submission_outcome_records (
+        id TEXT PRIMARY KEY,
+        preflight_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        run_id TEXT NOT NULL,
+        job_id TEXT NOT NULL,
+        result_id TEXT NOT NULL,
+        application_record_id TEXT NOT NULL,
+        attempted_at TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        value TEXT NOT NULL,
+        FOREIGN KEY (preflight_id) REFERENCES submission_preflights(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS submission_outcome_records_key_idx
+        ON submission_outcome_records(idempotency_key, attempted_at ASC, id ASC);
+
+      CREATE INDEX IF NOT EXISTS submission_outcome_records_lineage_idx
+        ON submission_outcome_records(run_id, job_id, attempted_at ASC, id ASC);
+    `);
+  }
+
+  /**
+   * Approved answer snapshots are immutable history, separate from authority
+   * envelopes and their execution children. The repository only appends rows;
+   * reset/bootstrap is the sole full-collection replacement path.
+   */
+  function ensureApplicationAnswerSnapshotTables(): void {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS application_answer_snapshots (
+        id TEXT PRIMARY KEY,
+        profile_id TEXT NOT NULL,
+        revision INTEGER NOT NULL CHECK (revision > 0),
+        digest TEXT NOT NULL,
+        source_profile_revision INTEGER NOT NULL CHECK (source_profile_revision > 0),
+        approved_at TEXT NOT NULL,
+        value TEXT NOT NULL,
+        UNIQUE (profile_id, revision)
+      );
+
+      CREATE INDEX IF NOT EXISTS application_answer_snapshots_profile_revision_idx
+        ON application_answer_snapshots(profile_id, revision DESC, id ASC);
+    `);
+  }
+
+  function assertApplicationAuthorityTableShape(): void {
+    const requiredColumns = {
+      application_authority_envelopes: ["id", "revision", "status", "value"],
+      submission_preflights: [
+        "id",
+        "idempotency_key",
+        "run_id",
+        "job_id",
+        "result_id",
+        "application_record_id",
+        "authority_envelope_id",
+        "authority_revision",
+        "created_at",
+        "value",
+      ],
+      submission_execution_grants: [
+        "id",
+        "preflight_id",
+        "idempotency_key",
+        "status",
+        "granted_at",
+        "expires_at",
+        "value",
+      ],
+      submission_idempotency_records: [
+        "id",
+        "idempotency_key",
+        "preflight_id",
+        "revision",
+        "status",
+        "updated_at",
+        "value",
+      ],
+      submission_armed_markers: [
+        "id",
+        "idempotency_key",
+        "preflight_id",
+        "armed_at",
+        "value",
+      ],
+      submission_outcome_records: [
+        "id",
+        "preflight_id",
+        "idempotency_key",
+        "run_id",
+        "job_id",
+        "result_id",
+        "application_record_id",
+        "attempted_at",
+        "outcome",
+        "value",
+      ],
+    } as const;
+
+    for (const [tableName, columnNames] of Object.entries(requiredColumns)) {
+      for (const columnName of columnNames) {
+        if (!hasColumn(tableName, columnName)) {
+          throw new Error(
+            `Application authority migration is incomplete: ${tableName}.${columnName} is missing.`,
+          );
+        }
+      }
+    }
+  }
+
+  function assertApplicationAnswerSnapshotTableShape(): void {
+    const requiredColumns = [
+      "id",
+      "profile_id",
+      "revision",
+      "digest",
+      "source_profile_revision",
+      "approved_at",
+      "value",
+    ] as const;
+    for (const columnName of requiredColumns) {
+      if (!hasColumn("application_answer_snapshots", columnName)) {
+        throw new Error(
+          `Approved application answer snapshot migration is incomplete: application_answer_snapshots.${columnName} is missing.`,
+        );
+      }
+    }
+    if (!hasIndex("application_answer_snapshots_profile_revision_idx")) {
+      throw new Error(
+        "Approved application answer snapshot migration is incomplete: application_answer_snapshots_profile_revision_idx is missing.",
+      );
+    }
+  }
+
+  function ensureApplicationAuthorityActiveUniqueIndex(): void {
+    if (!hasTable("application_authority_envelopes")) {
+      return;
+    }
+    database.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS application_authority_envelopes_active_unique_idx
+        ON application_authority_envelopes(status)
+        WHERE status = 'active';
+    `);
+  }
+
   function ensureUserActionTables(): void {
     database.exec(`
       CREATE TABLE IF NOT EXISTS user_action_requests (
@@ -1114,6 +1342,21 @@ export function runMigrations(database: DatabaseSync): void {
     const needsApplicationPreparationStartedMigration =
       !appliedVersions.has(13);
     const needsCompanyAliasNormalizationMigration = !appliedVersions.has(14);
+    const applicationAuthorityTablesMissing =
+      !hasTable("application_authority_envelopes") ||
+      !hasTable("submission_preflights") ||
+      !hasTable("submission_execution_grants") ||
+      !hasTable("submission_idempotency_records") ||
+      !hasTable("submission_armed_markers") ||
+      !hasTable("submission_outcome_records");
+    const needsApplicationAuthorityMigration = !appliedVersions.has(15);
+    const applicationAnswerSnapshotTablesMissing = !hasTable(
+      "application_answer_snapshots",
+    );
+    const applicationAnswerSnapshotIndexMissing = !hasIndex(
+      "application_answer_snapshots_profile_revision_idx",
+    );
+    const needsApplicationAnswerSnapshotMigration = !appliedVersions.has(16);
 
     if (
       resumeImportTablesMissing ||
@@ -1134,7 +1377,12 @@ export function runMigrations(database: DatabaseSync): void {
       applicationPreparationColumnsMissing ||
       applicationPreparationIndexMissing ||
       needsApplicationPreparationStartedMigration ||
-      needsCompanyAliasNormalizationMigration
+      needsCompanyAliasNormalizationMigration ||
+      applicationAuthorityTablesMissing ||
+      needsApplicationAuthorityMigration ||
+      applicationAnswerSnapshotTablesMissing ||
+      applicationAnswerSnapshotIndexMissing ||
+      needsApplicationAnswerSnapshotMigration
     ) {
       database.exec("BEGIN IMMEDIATE");
       try {
@@ -1268,11 +1516,54 @@ export function runMigrations(database: DatabaseSync): void {
             .run(14, "repair_company_alias_normalization");
         }
 
+        if (
+          applicationAuthorityTablesMissing ||
+          needsApplicationAuthorityMigration
+        ) {
+          ensureApplicationAuthorityTables();
+        }
+
+        if (
+          applicationAnswerSnapshotTablesMissing ||
+          applicationAnswerSnapshotIndexMissing ||
+          needsApplicationAnswerSnapshotMigration
+        ) {
+          ensureApplicationAnswerSnapshotTables();
+        }
+
+        assertApplicationAuthorityTableShape();
+        assertApplicationAnswerSnapshotTableShape();
+
+        if (needsApplicationAuthorityMigration) {
+          database
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
+            .run(15, "application_authority_state");
+        }
+
+        if (needsApplicationAnswerSnapshotMigration) {
+          database
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
+            .run(16, "approved_application_answer_snapshots");
+        }
+
         database.exec("COMMIT");
       } catch (error) {
         database.exec("ROLLBACK");
         throw error;
       }
+    }
+
+    if (appliedVersions.has(15) || needsApplicationAuthorityMigration) {
+      assertApplicationAuthorityTableShape();
+      ensureApplicationAuthorityActiveUniqueIndex();
+    }
+
+    if (appliedVersions.has(16) || needsApplicationAnswerSnapshotMigration) {
+      assertApplicationAnswerSnapshotTableShape();
     }
 
     return;
@@ -1498,6 +1789,25 @@ export function runMigrations(database: DatabaseSync): void {
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(14, "repair_company_alias_normalization");
     }
+
+    if (currentVersion < 15) {
+      ensureApplicationAuthorityTables();
+
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(15, "application_authority_state");
+    }
+
+    if (currentVersion < 16) {
+      ensureApplicationAnswerSnapshotTables();
+
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(16, "approved_application_answer_snapshots");
+    }
+
+    assertApplicationAuthorityTableShape();
+    assertApplicationAnswerSnapshotTableShape();
 
     database.exec("COMMIT");
   } catch (error) {

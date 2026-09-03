@@ -26,8 +26,10 @@ vi.mock(
       topContent: ReactNode;
     }) => (
       <main>
-        {topContent}
-        {children}
+        <div data-locked-screen-scroll-area>
+          {topContent}
+          {children}
+        </div>
       </main>
     ),
   }),
@@ -169,6 +171,34 @@ describe("DiscoveryScreen first-result reveal", () => {
     expectResultsView();
   });
 
+  it("settles the route header when results arrive after Results was selected", () => {
+    const view = render(buildScreen({ jobs: [] }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Close search setup$/u }),
+    );
+    expectResultsView();
+
+    const scrollArea = document.querySelector<HTMLElement>(
+      "[data-locked-screen-scroll-area]",
+    );
+    const headerStack = document.querySelector<HTMLElement>(
+      "[data-page-header-stack]",
+    );
+    if (!scrollArea || !headerStack) {
+      throw new Error("Expected the locked route scroll area and header.");
+    }
+
+    scrollArea.scrollTop = 72;
+    const headerRect = vi
+      .spyOn(headerStack, "getBoundingClientRect")
+      .mockReturnValue({ height: 120 } as DOMRect);
+
+    view.rerender(buildScreen({ jobs: [createJob("first-results")] }));
+
+    expect(scrollArea.scrollTop).toBe(120);
+    headerRect.mockRestore();
+  });
+
   it("never yanks the user back after they navigate away again", () => {
     const view = render(buildScreen({ jobs: [] }));
     expectSetupView();
@@ -177,7 +207,11 @@ describe("DiscoveryScreen first-result reveal", () => {
     expectResultsView();
 
     // The user deliberately returns to Search setup...
-    fireEvent.click(screen.getByRole("button", { name: "Search setup" }));
+    fireEvent.click(
+      document.querySelector(
+        '[data-discovery-search-chip="roles"]',
+      ) as HTMLElement,
+    );
     expectSetupView();
 
     // ...and later empty→nonempty transitions must not repeat the reveal.
@@ -192,7 +226,11 @@ describe("DiscoveryScreen first-result reveal", () => {
 
     // No reveal effect fires for an already-populated workspace, so
     // navigating to setup stays respected immediately.
-    fireEvent.click(screen.getByRole("button", { name: "Search setup" }));
+    fireEvent.click(
+      document.querySelector(
+        '[data-discovery-search-chip="roles"]',
+      ) as HTMLElement,
+    );
     expectSetupView();
     cleanup();
 

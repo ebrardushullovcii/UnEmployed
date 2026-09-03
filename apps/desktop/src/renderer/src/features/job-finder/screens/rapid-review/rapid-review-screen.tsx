@@ -24,13 +24,10 @@ import {
   matchesCollectionSearch,
 } from "../../components/collection-search-toolbar";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
-import {
-  getAdjacentCollectionItemId,
-} from "../../lib/collection-keyboard-navigation";
+import { getAdjacentCollectionItemId } from "../../lib/collection-keyboard-navigation";
 import { getPostedDateLabel } from "../../lib/job-finder-utils";
-import {
-  hasOpenJobFinderOverlays,
-} from "../../lib/job-finder-overlay-ownership";
+import { hasOpenJobFinderOverlays } from "../../lib/job-finder-overlay-ownership";
+import { getMatchAssessmentPresentation } from "../../lib/match-assessment-presentation";
 
 const RAPID_REVIEW_DETAIL_ID = "rapid-review-job-detail";
 const RAPID_REVIEW_DETAIL_TITLE_ID = "rapid-review-detail-title";
@@ -384,7 +381,7 @@ export function RapidReviewScreen(props: {
     return (
       <section className="grid min-h-96 place-items-center p-8 text-center">
         <div className="max-w-lg space-y-2">
-          <h1 className="text-3xl font-semibold">Rapid review</h1>
+          <h1 className="font-semibold">Rapid review</h1>
           <p className="text-foreground-soft">
             {props.campaignName} has no discovered jobs to review yet. Run the
             campaign first; no browser or application work starts here.
@@ -406,7 +403,7 @@ export function RapidReviewScreen(props: {
           <p className="text-xs uppercase tracking-widest text-foreground-muted">
             {props.campaignName}
           </p>
-          <h1 className="text-3xl font-semibold">Rapid review</h1>
+          <h1 className="font-semibold">Rapid review</h1>
           <p className="text-sm text-foreground-soft">
             Review local job evidence only. Nothing here opens a browser or
             starts an application.
@@ -488,6 +485,7 @@ export function RapidReviewScreen(props: {
               {pagedVisibleJobs.map((job) => {
                 const current = latestDecisions.get(job.id);
                 const active = activeJob?.id === job.id;
+                const assessment = getMatchAssessmentPresentation(job);
                 return (
                   <li
                     key={job.id}
@@ -512,7 +510,7 @@ export function RapidReviewScreen(props: {
                         {job.company} · {job.location}
                       </span>
                       <span className="mt-1 block text-xs text-foreground-muted">
-                        {job.matchAssessment.score}% fit
+                        {assessment.headlineScoreLabel}
                         {current
                           ? ` · ${formatRecommendation(current.kind)}`
                           : " · not reviewed"}
@@ -563,10 +561,7 @@ export function RapidReviewScreen(props: {
                 <p className="text-xs uppercase tracking-widest text-foreground-muted">
                   Listing facts
                 </p>
-                <h2
-                  className="text-2xl font-semibold"
-                  id={RAPID_REVIEW_DETAIL_TITLE_ID}
-                >
+                <h2 className="font-semibold" id={RAPID_REVIEW_DETAIL_TITLE_ID}>
                   {activeJob.title}
                 </h2>
                 <p>
@@ -583,7 +578,8 @@ export function RapidReviewScreen(props: {
                   Model assessment — review, not fact
                 </p>
                 <p className="font-semibold">
-                  {activeJob.matchAssessment.score}% ·{" "}
+                  {getMatchAssessmentPresentation(activeJob).headlineScoreLabel}{" "}
+                  ·{" "}
                   {formatRecommendation(
                     activeJob.matchAssessment.recommendation,
                   )}
@@ -644,7 +640,7 @@ export function RapidReviewScreen(props: {
           aria-label="Job comparison"
           className="overflow-x-auto border border-border p-3"
         >
-          <h2 className="mb-2 text-lg font-semibold">Compare selected jobs</h2>
+          <h2 className="mb-2 font-semibold">Compare selected jobs</h2>
           <div className="grid min-w-[42rem] grid-cols-2 gap-2 lg:grid-cols-4">
             {comparedJobs.map((job) => (
               <article className="border border-border p-3" key={job.id}>
@@ -655,7 +651,7 @@ export function RapidReviewScreen(props: {
                 </p>
                 <p className="text-sm">{job.salaryText ?? "Pay unknown"}</p>
                 <p className="mt-2 font-semibold">
-                  {job.matchAssessment.score}% fit
+                  {getMatchAssessmentPresentation(job).headlineScoreLabel}
                 </p>
               </article>
             ))}

@@ -150,9 +150,8 @@ export function readInspectedSelectionId(input: {
     return null;
   }
 
-  const entry = readInspectedSelectionPrefs(storage).entries[
-    `${surface}:${campaignId}`
-  ];
+  const entry =
+    readInspectedSelectionPrefs(storage).entries[`${surface}:${campaignId}`];
   return typeof entry === "string" ? entry : null;
 }
 
@@ -201,7 +200,9 @@ export function writeInspectedSelectionId(input: {
     ) {
       // The bound is hit only by brand-new scopes; drop the oldest inserted
       // entry so recent campaigns keep their persisted picks.
-      const evicted = Object.keys(nextEntries).find((candidate) => candidate !== key);
+      const evicted = Object.keys(nextEntries).find(
+        (candidate) => candidate !== key,
+      );
       if (evicted === undefined) {
         return;
       }
@@ -215,10 +216,7 @@ export function writeInspectedSelectionId(input: {
     entries: nextEntries,
   };
   try {
-    storage.setItem(
-      INSPECTED_SELECTION_STORAGE_KEY,
-      JSON.stringify(nextPrefs),
-    );
+    storage.setItem(INSPECTED_SELECTION_STORAGE_KEY, JSON.stringify(nextPrefs));
   } catch {
     // Quota or serialization failure: keep the pick in memory only.
     return;
@@ -244,8 +242,7 @@ function resolveRetainedSelection(
     persistedSelection !== undefined &&
     persistedSelection.collectionReady &&
     validIds != null;
-  const isValidId = (id: string) =>
-    (validIds ?? NO_VALID_IDS).includes(id);
+  const isValidId = (id: string) => (validIds ?? NO_VALID_IDS).includes(id);
 
   if (retained.campaignId === activeCampaignId) {
     // A healthy hold wins over every default, whatever produced it.
@@ -276,7 +273,11 @@ function resolveRetainedSelection(
         campaignId: activeCampaignId,
       });
       if (restored !== null && isValidId(restored)) {
-        return { campaignId: activeCampaignId, value: restored, origin: "system" };
+        return {
+          campaignId: activeCampaignId,
+          value: restored,
+          origin: "system",
+        };
       }
     }
 
@@ -417,7 +418,11 @@ export function useRetainedSelection(input: {
         return current.campaignId === activeCampaignId &&
           current.value === resolvedValue
           ? current
-          : { campaignId: activeCampaignId, value: resolvedValue, origin: "user" };
+          : {
+              campaignId: activeCampaignId,
+              value: resolvedValue,
+              origin: "user",
+            };
       });
     },
     [activeCampaignId],
@@ -426,10 +431,7 @@ export function useRetainedSelection(input: {
   return [retained.value, select] as const;
 }
 
-export function getActiveResumeWorkspaceJobId(pathname: string): string | null {
-  const match = pathname.match(/\/job-finder\/review-queue\/([^/]+)\/resume$/);
-  return match?.[1] ?? null;
-}
+export { getResumeWorkspaceJobIdFromPathname as getActiveResumeWorkspaceJobId } from "@renderer/features/job-finder/lib/resume-workspace-route";
 
 export function isProfileSetupPath(pathname: string): boolean {
   return pathname === "/job-finder/profile/setup";

@@ -26,6 +26,25 @@ export async function importResumeFromSourcePath(
   const targetDirectory = getJobFinderDocumentsDirectory();
   const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
   const useVision = options.useVision ?? true;
+  // The four stages are the ones the contract names, in the order they run, so
+  // the renderer can show "step 2 of 4" instead of one label that sits frozen
+  // for the ~30s the model stages take. Expectations are stated per stage
+  // rather than only after 45s, which a 36s import never reached.
+  const stageOrder: readonly ResumeImportProgressEvent["stage"][] = [
+    "saving_file",
+    "reading_document",
+    "building_profile",
+    "saving_results",
+  ];
+  const stageExpectations: Record<
+    ResumeImportProgressEvent["stage"],
+    { max: number; min: number }
+  > = {
+    saving_file: { max: 2, min: 0 },
+    reading_document: { max: 5, min: 0 },
+    building_profile: { max: 60, min: 15 },
+    saving_results: { max: 3, min: 0 },
+  };
   const reportProgress = (
     stage: ResumeImportProgressEvent["stage"],
     message: string,
@@ -34,6 +53,10 @@ export async function importResumeFromSourcePath(
       stage,
       message,
       occurredAt: new Date().toISOString(),
+      completed: stageOrder.indexOf(stage),
+      total: stageOrder.length,
+      expectedSecondsMin: stageExpectations[stage].min,
+      expectedSecondsMax: stageExpectations[stage].max,
     });
 
   reportProgress(
@@ -114,37 +137,18 @@ export async function importResumeFromSourcePath(
             ],
   };
 
-  if (
-    !extractedResume.textContent &&
-    !generatedVisionArtifact.artifact?.pages.length
-  ) {
-    reportProgress(
-      "saving_results",
-      "Saving the import issue and recovery guidance.",
-    );
-    const currentSnapshot =
-      await jobFinderWorkspaceService.getWorkspaceSnapshot();
-    const snapshot = await jobFinderWorkspaceService.saveProfile({
-      ...currentSnapshot.profile,
-      baseResume: {
-        ...baseResume,
-        analysisWarnings: [
-          ...baseResume.analysisWarnings,
-          ...(generatedVisionArtifact.artifact?.pages.length
-            ? [
-                "Local resume page images were generated, but this import still needs readable text before profile extraction can run.",
-              ]
-            : []),
-        ],
-      },
-    });
-
-    return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
-  }
-
+  const hasReadableResumeContent = Boolean(
+    extractedResume.textContent ||
+    generatedVisionArtifact.artifact?.pages.length,
+  );
+  // Always announce this stage. It is the single longest phase of the import,
+  // and skipping it for an unreadable file left the previous stage's label
+  // frozen on screen for the whole wait.
   reportProgress(
     "building_profile",
-    "Building grounded profile suggestions for your review.",
+    hasReadableResumeContent
+      ? "Reading your resume with the model and building suggestions for your review. Nothing is applied without you."
+      : "Checking what can be recovered from this file.",
   );
   const snapshot = await jobFinderWorkspaceService.runResumeImport({
     baseResume,
@@ -155,7 +159,9 @@ export async function importResumeFromSourcePath(
 
   reportProgress(
     "saving_results",
-    "Saving the imported resume and review items.",
+    hasReadableResumeContent
+      ? "Saving the imported resume and review items."
+      : "Saving the import issue and recovery guidance.",
   );
   return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
 }

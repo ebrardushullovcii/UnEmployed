@@ -22,6 +22,7 @@ import {
   type JobFinderWorkspaceSnapshot,
   type JobSearchCampaign,
   type JobSearchPreferences,
+  isListableCompanyName,
   type ProfileSetupState,
   type ResumeApplicationMode,
   type ResumeTimelineRepairAction,
@@ -59,6 +60,7 @@ import {
   refreshTerminalizedApplyRunCounters,
 } from "./workspace-apply-run-recovery";
 import { persistAutomaticApplicationSafeguards } from "./automatic-safeguards";
+import { reconcileStaleMissingResumeBlockers } from "./workspace-application-blocker-sync";
 import { recoverInterruptedDiscoveryRun } from "./workspace-discovery-run-helpers";
 import {
   deriveSourceAccessPrompts,
@@ -74,7 +76,12 @@ import {
   normalizeResumeDraftTemplate,
   normalizeSearchPreferences,
 } from "./workspace-helpers";
+import { uniqueStrings } from "./shared";
 import { SOURCE_DEBUG_RECENT_HISTORY_LIMIT } from "./workspace-defaults";
+import {
+  resolveResumeIdentity,
+  resumeIdentityMismatchMessage,
+} from "./resume-identity";
 import { createWorkspaceProfileCopilotMethods } from "./workspace-profile-copilot-methods";
 import { createWorkspaceProfileSetupContextHelpers } from "./workspace-profile-setup-context";
 import { createWorkspaceProfileSetupReviewMethods } from "./workspace-profile-setup-review-methods";
@@ -389,9 +396,7 @@ export function createWorkspaceSnapshotProfileMethods(
       // runs were swept. The recovery summary pins provenance, so user-owned
       // cancelled/completed runs keep their parked rows and counters untouched.
       const partiallyRecoveredRunIds = new Set(
-        runs
-          .filter(isRecoveryTerminalizedApplyRun)
-          .map((run) => run.id),
+        runs.filter(isRecoveryTerminalizedApplyRun).map((run) => run.id),
       );
       const hasPartiallyRecoveredOrphans =
         partiallyRecoveredRunIds.size > 0 &&
@@ -808,7 +813,9 @@ export function createWorkspaceSnapshotProfileMethods(
       },
     );
     const companyJobIds = new Set(
-      intelligence.companies.flatMap((company) => company.jobIds),
+      intelligence.companies
+        .filter((company) => isListableCompanyName(company.canonicalName))
+        .flatMap((company) => company.jobIds),
     );
     const companyJobById = new Map<string, SavedJob>();
     for (const job of savedJobs) {
@@ -830,8 +837,17 @@ export function createWorkspaceSnapshotProfileMethods(
       setupContext.profile,
       settings,
     );
-    const orderedApplicationRecords =
-      buildApplicationRecords(applicationRecords);
+    const reconciledApplicationRecords =
+      await reconcileStaleMissingResumeBlockers(ctx.repository, {
+        applicationRecords,
+        resumeDrafts: normalizedResumeDrafts,
+        resumeExportArtifacts,
+        tailoredAssets,
+        detectedAt: generatedAt,
+      });
+    const orderedApplicationRecords = buildApplicationRecords(
+      reconciledApplicationRecords,
+    );
     // Creation and adoption reconcile rewrite the whole collection, so they
     // hold the campaign transition like every other mutating campaign
     // operation; the returned state is truthful for this snapshot.
@@ -868,9 +884,7 @@ export function createWorkspaceSnapshotProfileMethods(
       applyRuns,
       userActionRequests,
     });
-    const campaignApplyRunIds = new Set(
-      campaignApplyRuns.map((run) => run.id),
-    );
+    const campaignApplyRunIds = new Set(campaignApplyRuns.map((run) => run.id));
     const campaignUserActionRequests = campaignApplicationFacts.filter(
       (request) =>
         request.scope.type === "application" ||
@@ -1003,6 +1017,13 @@ export function createWorkspaceSnapshotProfileMethods(
         now: new Date(generatedAt),
       });
 
+    const listableIntelligence = {
+      ...intelligence,
+      companies: intelligence.companies.filter((company) =>
+        isListableCompanyName(company.canonicalName),
+      ),
+    };
+
     return JobFinderWorkspaceSnapshotSchema.parse({
       module: "job-finder",
       generatedAt,
@@ -1054,7 +1075,7 @@ export function createWorkspaceSnapshotProfileMethods(
       campaignNotifications: campaignState.notifications,
       dashboard,
       activityControl,
-      intelligence,
+      intelligence: listableIntelligence,
     });
   }
 
@@ -1233,6 +1254,7 @@ export function createWorkspaceSnapshotProfileMethods(
     },
     async resetWorkspace(seed: JobFinderRepositorySeed) {
       await ctx.repository.reset(seed);
+      lastNoResponseAutomationRunAt = null;
       return getWorkspaceSnapshot();
     },
     async openBrowserSession(input) {
@@ -1380,16 +1402,55 @@ export function createWorkspaceSnapshotProfileMethods(
         input.documentBundle,
       );
       const searchPreferences = await ctx.repository.getSearchPreferences();
-      const currentProfile = await ctx.repository.getProfile();
+      const profileAtStart = await ctx.repository.getProfileWithRevision();
+      const currentProfile = profileAtStart.profile;
       const nextProfile = normalizeProfileBeforeSave(currentProfile, {
         ...currentProfile,
         baseResume,
       });
+
+      if (!baseResume.textContent && !input.visionArtifact?.pages.length) {
+        const noTextWarnings = uniqueStrings([
+          ...baseResume.analysisWarnings,
+          ...documentBundle.warnings,
+          ...(input.importWarnings ?? []),
+          "Paste plain-text resume content below if you want the agent to extract profile details from this file.",
+        ]);
+        const noTextCommit = await ctx.repository.commitProfileUpdate(
+          (current) => {
+            const normalized = normalizeProfileBeforeSave(current, {
+              ...current,
+              baseResume,
+            });
+            return CandidateProfileSchema.parse({
+              ...normalized,
+              baseResume: {
+                ...normalized.baseResume,
+                analysisWarnings: noTextWarnings,
+              },
+            });
+          },
+          { expectedRevision: profileAtStart.revision },
+        );
+
+        if (
+          noTextCommit.status === "applied" &&
+          hasResumeAffectingProfileChange(currentProfile, noTextCommit.profile)
+        ) {
+          await ctx.staleApprovedResumeDrafts(
+            "Profile details changed after approval and the resume needs a fresh review.",
+          );
+        }
+
+        return getWorkspaceSnapshot();
+      }
+
       const workflowResult = await runResumeImportWorkflow(ctx, {
         profile: nextProfile,
         searchPreferences,
         documentBundle,
         trigger: "import",
+        expectedProfileRevision: profileAtStart.revision,
         ...(input.importWarnings
           ? { importWarnings: input.importWarnings }
           : {}),
@@ -1409,28 +1470,38 @@ export function createWorkspaceSnapshotProfileMethods(
       return getWorkspaceSnapshot();
     },
     async analyzeProfileFromResume() {
-      const [profile, searchPreferences] = await Promise.all([
-        ctx.repository.getProfile(),
+      const [profileAtStart, searchPreferences] = await Promise.all([
+        ctx.repository.getProfileWithRevision(),
         ctx.repository.getSearchPreferences(),
       ]);
+      const profile = profileAtStart.profile;
 
       if (!profile.baseResume.textContent) {
-        await ctx.repository.saveProfile(
-          CandidateProfileSchema.parse({
-            ...profile,
-            baseResume: {
-              ...profile.baseResume,
-              extractionStatus: "needs_text",
-              lastAnalyzedAt: null,
-              analysisWarnings: [
-                "Paste plain-text resume content to let the agent extract candidate details.",
-              ],
-            },
-          }),
+        await ctx.repository.commitProfileUpdate(
+          (current) =>
+            CandidateProfileSchema.parse({
+              ...current,
+              baseResume: {
+                ...current.baseResume,
+                extractionStatus: "needs_text",
+                lastAnalyzedAt: null,
+                analysisWarnings: [
+                  "Paste plain-text resume content to let the agent extract candidate details.",
+                ],
+              },
+            }),
+          { expectedRevision: profileAtStart.revision },
         );
 
         throw new Error(
           "Resume text is required before the profile agent can extract candidate details.",
+        );
+      }
+
+      const identityResolution = resolveResumeIdentity(profile);
+      if (identityResolution.mismatchReasons.length > 0) {
+        throw new Error(
+          resumeIdentityMismatchMessage(identityResolution.mismatchReasons),
         );
       }
 
@@ -1445,6 +1516,7 @@ export function createWorkspaceSnapshotProfileMethods(
         searchPreferences,
         documentBundle: latestBundle,
         trigger: "refresh",
+        expectedProfileRevision: profileAtStart.revision,
       });
 
       return getWorkspaceSnapshot();

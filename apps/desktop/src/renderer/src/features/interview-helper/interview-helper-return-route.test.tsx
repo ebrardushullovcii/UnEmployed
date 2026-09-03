@@ -73,6 +73,7 @@ function installDesktopApi(workspace: InterviewWorkspaceSnapshot) {
       window: {
         getControlsState: vi.fn().mockResolvedValue({
           isClosable: true,
+          isFullScreen: false,
           isMaximized: false,
           isMinimizable: true,
         }),

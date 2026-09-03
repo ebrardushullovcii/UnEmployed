@@ -74,6 +74,44 @@ export interface SafeguardControl {
   mutation: SafeguardMutationInput;
 }
 
+/**
+ * A recovery sentence that names an action ("inspect the failed source
+ * history") has to be followed by a control that performs it. Each row that
+ * names a place carries the route to it, so the guidance is never advice the
+ * page cannot act on.
+ */
+export interface SafeguardRecoveryLink {
+  href: string;
+  label: string;
+}
+
+const RECOVERY_LINKS: Record<
+  Exclude<SafeguardTabId, "all">,
+  SafeguardRecoveryLink | null
+> = {
+  caps: { href: "/job-finder/applications", label: "Open Applications" },
+  conflicts: { href: "/job-finder/applications", label: "Open Applications" },
+  signals: { href: "/job-finder/review-queue", label: "Open Shortlisted" },
+  pauses: { href: "/job-finder/discovery", label: "Open Find jobs" },
+  reviews: { href: "/job-finder/review-queue", label: "Open Shortlisted" },
+  // Reused answers are resolved by the row's own Resolve control, so there is
+  // no second destination to advertise.
+  contradictions: null,
+  dismissals: null,
+};
+
+/**
+ * A raw ISO instant is machine output, not a fact a job seeker can read.
+ */
+export function formatSafeguardTimestamp(value: string): string {
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return value;
+  return new Date(parsed).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 export interface SafeguardRow {
   key: string;
   kind: Exclude<SafeguardTabId, "all">;
@@ -93,6 +131,7 @@ export interface SafeguardRow {
   };
   tags: readonly string[];
   controls: readonly SafeguardControl[];
+  recoveryLink: SafeguardRecoveryLink | null;
   searchText: string;
 }
 
@@ -107,6 +146,13 @@ export interface SafeguardsPresentationModel {
     contradictions: number;
     dismissals: number;
     blockers: number;
+    /**
+     * What the `All` filter means: the number of rows the page actually
+     * renders. It is derived from the rows themselves and therefore always
+     * equals the sum of the category counts, which is exactly what the old
+     * `All 0` beside `Automatic pauses 1` did not.
+     */
+    total: number;
   };
 }
 
@@ -274,6 +320,11 @@ export function buildSafeguardsPresentationModel(
   for (const cap of safeguards.companyApplicationCaps) {
     const dismissal = findDismissal(safeguards, "company_cap_limit", cap.id);
     const active = cap.limitReached;
+    // A limit that has not been reached is a rule, not an event. Rendering a
+    // card for it told the user something had happened when nothing had.
+    if (!active && !dismissal) {
+      continue;
+    }
     const companyJobs =
       workspace.intelligence.companies.find(
         (company) => company.id === cap.companyId,
@@ -309,7 +360,7 @@ export function buildSafeguardsPresentationModel(
       key: `cap-${cap.id}`,
       kind: "caps",
       title: `${cap.currentWindowCount}/${cap.maxApplicationsPerWindow} applications`,
-      subtitle: `Company cap · ${cap.windowDays}-day window since ${cap.windowStartedAt}`,
+      subtitle: `Company cap · ${cap.windowDays}-day window since ${formatSafeguardTimestamp(cap.windowStartedAt)}`,
       explanation: cap.explanation,
       recoveryGuidance: cap.recoveryGuidance,
       statusLabel: active ? "Limit reached" : "Within limit",
@@ -320,6 +371,7 @@ export function buildSafeguardsPresentationModel(
       lineage,
       tags: [`company:${companyLabel(workspace, cap.companyId)}`],
       controls,
+      recoveryLink: RECOVERY_LINKS.caps,
       searchText: [
         cap.explanation,
         cap.recoveryGuidance,
@@ -402,6 +454,7 @@ export function buildSafeguardsPresentationModel(
       lineage: baseLineage(jobIds, []),
       tags: jobIds.map((jobId) => `job:${jobId}`),
       controls,
+      recoveryLink: RECOVERY_LINKS.conflicts,
       searchText: [
         conflict.explanation,
         conflict.recoveryGuidance,
@@ -463,6 +516,7 @@ export function buildSafeguardsPresentationModel(
       lineage: baseLineage(jobIds, []),
       tags: [`signal:${signal.signal}`],
       controls,
+      recoveryLink: RECOVERY_LINKS.signals,
       searchText: [
         signal.signal,
         signal.explanation,
@@ -482,6 +536,11 @@ export function buildSafeguardsPresentationModel(
       pause.id,
     );
     const active = pause.paused;
+    // The failure-rate threshold is a standing rule. Until it is crossed it
+    // has nothing to report, so it must not render a card at all.
+    if (!active && !dismissal) {
+      continue;
+    }
     const controls: SafeguardControl[] = [];
     if (active && !dismissal) {
       controls.push({
@@ -512,14 +571,10 @@ export function buildSafeguardsPresentationModel(
       key: `pause-${pause.id}`,
       kind: "pauses",
       title: `Abnormal failure pause (${pause.failureRatePercent.toFixed(1)}%)`,
-      subtitle: `${pause.failuresInWindow}/${pause.sampleSize} failures in window since ${pause.windowStartedAt}`,
+      subtitle: `${pause.failuresInWindow} of ${pause.sampleSize} attempts failed since ${formatSafeguardTimestamp(pause.windowStartedAt)}`,
       explanation: pause.explanation,
       recoveryGuidance: pause.recoveryGuidance,
-      statusLabel: active
-        ? dismissal
-          ? "Dismissed"
-          : "Paused"
-        : "Below threshold",
+      statusLabel: active ? (dismissal ? "Dismissed" : "Paused") : "Not paused",
       statusTone: active ? (dismissal ? "muted" : "critical") : "positive",
       active,
       blocked: active && !dismissal,
@@ -530,6 +585,7 @@ export function buildSafeguardsPresentationModel(
         `sample:${pause.minimumSample}`,
       ],
       controls,
+      recoveryLink: RECOVERY_LINKS.pauses,
       searchText: [
         pause.explanation,
         pause.recoveryGuidance,
@@ -603,6 +659,7 @@ export function buildSafeguardsPresentationModel(
       lineage: baseLineage([], []),
       tags: [`batch:${review.batchId}`],
       controls,
+      recoveryLink: RECOVERY_LINKS.reviews,
       searchText: [
         review.batchId,
         review.explanation,
@@ -672,6 +729,7 @@ export function buildSafeguardsPresentationModel(
       lineage: baseLineage([], []),
       tags: [detection.questionA, detection.questionB],
       controls,
+      recoveryLink: RECOVERY_LINKS.contradictions,
       searchText: [
         detection.questionA,
         detection.questionB,
@@ -711,6 +769,7 @@ export function buildSafeguardsPresentationModel(
           },
         },
       ],
+      recoveryLink: RECOVERY_LINKS.dismissals,
       searchText: [
         dismissal.kind,
         dismissal.referenceId,
@@ -722,18 +781,24 @@ export function buildSafeguardsPresentationModel(
     });
   }
 
-  const dismissalCount = safeguards.safeguardDismissals.length;
+  // Every count is derived from the rows that are actually rendered, so
+  // `All` can never disagree with the list beneath it or with the sum of its
+  // own sibling categories.
+  const countByKind = (kind: Exclude<SafeguardTabId, "all">) =>
+    rows.filter((row) => row.kind === kind).length;
+
   return {
     rows,
     counts: {
-      caps: safeguards.companyApplicationCaps.length,
-      conflicts: safeguards.simultaneousApplicationConflicts.length,
-      signals: safeguards.listingSignals.length,
-      pauses: safeguards.abnormalFailurePauses.length,
-      reviews: safeguards.preparedBatchSampleReviews.length,
-      contradictions: safeguards.contradictoryAnswerDetections.length,
-      dismissals: dismissalCount,
+      caps: countByKind("caps"),
+      conflicts: countByKind("conflicts"),
+      signals: countByKind("signals"),
+      pauses: countByKind("pauses"),
+      reviews: countByKind("reviews"),
+      contradictions: countByKind("contradictions"),
+      dismissals: countByKind("dismissals"),
       blockers: rows.filter((row) => row.blocked).length,
+      total: rows.length,
     },
   };
 }

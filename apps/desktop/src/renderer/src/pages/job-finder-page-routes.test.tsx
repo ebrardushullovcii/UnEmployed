@@ -189,6 +189,56 @@ describe("selectCampaignApplicationsScope", () => {
     } as unknown as JobFinderWorkspaceSnapshot;
   }
 
+  // F57. Campaign membership is resolved through a per-campaign Set index
+  // instead of a linear `jobIds.includes` inside a nested loop. The rule it
+  // encodes is unchanged: a legacy run/record belongs to a campaign only when
+  // exactly one campaign contains every one of its jobs.
+  it("keeps legacy campaign resolution unique-owner-only across multi-job runs", () => {
+    const base = {
+      activeCampaignId: "campaign_1",
+      campaigns: [
+        { id: "campaign_1", jobIds: ["job_1", "job_2", "job_3"] },
+        { id: "campaign_2", jobIds: ["job_2"] },
+        { id: "campaign_3", jobIds: ["job_1", "job_2", "job_3"] },
+      ],
+      discoveryJobs: [{ id: "job_1" }, { id: "job_2" }, { id: "job_3" }],
+      applicationRecords: [],
+      applyJobResults: [],
+      applicationAttempts: [],
+      selectedApplyRunId: null,
+    };
+
+    // campaign_1 is the only campaign containing both jobs, so the legacy run
+    // resolves to it.
+    const uniqueOwner = selectCampaignApplicationsScope({
+      ...base,
+      applyRuns: [
+        { id: "run_span", campaignId: null, jobIds: ["job_1", "job_3"] },
+      ],
+      campaigns: [base.campaigns[0], base.campaigns[1]],
+    } as unknown as JobFinderWorkspaceSnapshot);
+    expect(uniqueOwner.applyRuns.map((run) => run.id)).toEqual(["run_span"]);
+
+    // campaign_1 and campaign_3 both contain every job, so ownership is
+    // ambiguous and the run belongs to neither.
+    const ambiguousOwner = selectCampaignApplicationsScope({
+      ...base,
+      applyRuns: [
+        { id: "run_span", campaignId: null, jobIds: ["job_1", "job_3"] },
+      ],
+    } as unknown as JobFinderWorkspaceSnapshot);
+    expect(ambiguousOwner.applyRuns).toEqual([]);
+
+    // A job outside every campaign resolves to no campaign at all.
+    const unowned = selectCampaignApplicationsScope({
+      ...base,
+      applyRuns: [
+        { id: "run_outside", campaignId: null, jobIds: ["job_unknown"] },
+      ],
+    } as unknown as JobFinderWorkspaceSnapshot);
+    expect(unowned.applyRuns).toEqual([]);
+  });
+
   it("switches exact shared-job application lineage with the active campaign", () => {
     const campaignOne = selectCampaignApplicationsScope(
       applicationWorkspace("campaign_1"),

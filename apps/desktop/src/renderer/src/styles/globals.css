@@ -38,6 +38,14 @@
   --color-active-foreground: var(--active-foreground);
   --color-critical: var(--critical);
   --color-critical-foreground: var(--critical-foreground);
+  /* F44: attention states had no badge tone of their own, so the existing
+     --warning-* family was only ever reachable as raw custom properties on
+     plain elements. Mapping it here gives StatusBadge a real `warning` tone.
+     Measured against card / canvas / secondary / surface: the /65 boundary is
+     5.09-5.77:1 (dark) and 3.22-3.54:1 (light); the text on its own chip fill
+     is 6.08-9.78:1. */
+  --color-warning: var(--warning-text);
+  --color-warning-surface: var(--warning-surface);
 }
 
 :root {
@@ -75,17 +83,31 @@
   --card-foreground: #f1f2f3;
   --popover: #202429;
   --popover-foreground: #f1f2f3;
-  --primary: #7d91ad;
-  --primary-foreground: #111315;
+  /* Filled primary CTAs (Approve resume, Prepare application, Finish in the
+     open application) previously sat only ~4.5:1 above the panels they
+     render on, so the dark-theme "primary" read as a disabled chip barely
+     distinguishable from --secondary beside it. The steel family is kept
+     (no neon); the fill is lifted until it clears 4.5:1 as a fill against
+     card/panel/secondary surfaces and its own foreground text clears AA by
+     a wide margin. Pinned by styles/globals.test.ts. */
+  --primary: #8fa6c6;
+  --primary-foreground: #0e1116;
   --secondary: #22262b;
   --secondary-foreground: #e7e9eb;
   --muted: #202429;
   --muted-foreground: #a4abb3;
   --accent: #29313a;
   --accent-foreground: #f1f2f3;
+  /* Selected shell destination. The generic --accent fill sat within ~1.4:1 of
+     the sidebar rail (--shell-header-bg), so "which page am I on" rested on a
+     2px bar alone. These stay >=3:1 non-text against the rail in both themes
+     and carry AA label text; globals.test.ts pins both. */
+  --nav-active-surface: #5a6878;
+  --nav-active-foreground: #f5f7f9;
+  --nav-active-bar: #c8d6ea;
   --destructive: #ee7d77;
   --destructive-foreground: #490106;
-  --border: #343a40;
+  --border: #464e56;
   --input: #202429;
   --ring: #7d91ad;
 
@@ -101,7 +123,7 @@
   --surface-panel: #1b1e21;
   --surface-panel-solid: #1b1e21;
   --surface-panel-raised: #202429;
-  --surface-panel-border: #343a40;
+  --surface-panel-border: #4a525a;
   --surface-panel-border-active: rgba(125, 145, 173, 0.72);
   --surface-panel-border-active-soft: rgba(125, 145, 173, 0.45);
   --surface-panel-border-warm: #343a40;
@@ -126,14 +148,31 @@
   --surface-progress-track: rgba(0, 0, 0, 0.4);
   --button-pending-rail: rgba(255, 255, 255, 0.85);
   --button-pending-rail-track: rgba(255, 255, 255, 0.1);
-  --border-subtle: #30353a;
-  --border-strong: #48515a;
+  --border-subtle: #434a51;
+  /* Control chrome. Secondary/outline buttons, interactive cards and
+     disclosures carry no fill difference from the surface they sit on, so
+     this border is their only boundary and must clear the WCAG 2.4.11 3:1
+     non-text floor against every interior surface (card, canvas, secondary,
+     popover, surface-strong). Pinned by styles/globals.test.ts. */
+  --border-strong: #727d89;
+  --control-border: var(--border-strong);
+  --control-border-hover: #8b96a2;
+  /* Disabled treatment. A disabled control loses its fill entirely instead
+     of being marked only by a label colour step to the ordinary secondary
+     text colour, which was indistinguishable from an enabled control. */
+  --disabled-surface: transparent;
+  --disabled-border: #3a4148;
+  --disabled-foreground: #868e96;
+  /* Text-only navigation. Hue is never the sole carrier - links stay
+     underlined - but the hue still has to separate from body text. */
+  --link: #a8bcda;
+  --link-hover: #c6d4ea;
   --foreground-soft: #b8bdc3;
   --field: #171a1d;
   --field-strong: #242a31;
-  --field-border: #515a64;
-  --field-focus-border: #7d91ad;
-  --field-focus-shadow: 0 0 0 1px rgba(125, 145, 173, 0.28);
+  --field-border: #677480;
+  --field-focus-border: #8aa0bf;
+  --field-focus-shadow: 0 0 0 2px rgba(138, 160, 191, 0.34);
   --panel-surface-muted: #1b1e21;
   --shell-header-bg: rgba(21, 23, 25, 0.97);
   --focus-inset-highlight: rgba(255, 255, 255, 0.08);
@@ -143,7 +182,7 @@
   --select-shadow: 0 14px 40px rgba(0, 0, 0, 0.34);
   --progress-active-glow: none;
   --selection-background: rgba(125, 145, 173, 0.32);
-  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.4);
   --surface-grid-top: transparent;
   --surface-grid-line: transparent;
   --resume-preview-frame: radial-gradient(
@@ -176,20 +215,37 @@
 
   --empty-state-min-height: 18rem;
 
-  /* Component tokens - Typography */
-  --text-field: 0.92rem;
-  --text-eyebrow: 0.625rem;
-  --text-field-label: 0.625rem;
-  --text-section-title: 1.15rem;
-  --text-body: 0.95rem;
+  /* Component tokens - Typography
+   *
+   * One published scale, keyed by role, documented in the design-scale note
+   * that the screen groups read. Headings are h1 24 / h2 19 / h3 16 / h4 14,
+   * all at weight 600 and strictly monotonic; field content renders at body
+   * size; every uppercase or tracked label style sits on an 11px floor.
+   * Pinned by styles/globals.test.ts ("published type scale").
+   */
+  --text-heading-1: 1.5rem;
+  --text-heading-2: 1.1875rem;
+  --text-heading-3: 1rem;
+  --text-heading-4: 0.875rem;
+  --text-body: 0.92rem;
+  /* Field content must match body size. Un-classed inputs previously took
+     their size from `font: inherit` and rendered at 17-19px against 11px
+     labels, which was a direct driver of short-window overflow. */
+  --text-field: var(--text-body);
+  --text-section-title: var(--text-heading-2);
+  --text-eyebrow: 0.6875rem;
+  --text-field-label: 0.6875rem;
   --text-description: 0.84rem;
   --text-small: 0.78rem;
-  --text-tiny: 0.68rem;
-  --text-label: 0.58rem;
-  --text-label-mono-xs: 10px;
-  --text-card-heading-sm: 9px;
+  --text-tiny: 0.6875rem;
+  --text-label: 0.6875rem;
+  --text-label-mono-xs: 11px;
+  --text-card-heading-sm: 11px;
   --text-page-title: clamp(2.15rem, 3.4vw, 3.25rem);
-  --text-page-title-compact: clamp(1.45rem, 1.7vw, 1.75rem);
+  /* Fixed, not viewport-derived: the clamp made the page title land on a
+     different size per route (24 vs 24.5), so titles visibly shifted while
+     navigating. */
+  --text-page-title-compact: var(--text-heading-1);
   --text-page-description: 0.98rem;
   --text-page-description-compact: 0.8rem;
   --text-count: 0.72rem;
@@ -268,44 +324,51 @@
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --background: #d4d7da;
+  /* The light theme is layered rather than flat grey-on-grey: panels, cards,
+     popovers, and fields sit near white on a slightly darker page canvas, so
+     an owned surface is visible without a heavier border. Pinned by
+     styles/globals.test.ts. */
+  --background: #e6e8eb;
   --foreground: #20252a;
-  --card: #e0e2e3;
+  --card: #f6f7f8;
   --card-foreground: #20252a;
-  --popover: #e4e5e5;
+  --popover: #fbfbfc;
   --popover-foreground: #20252a;
   /* Light-theme accent fills darken the dark-theme steel family so white
      foreground text clears WCAG AA (>= 4.5:1) on every interior surface. */
   --primary: #3a5274;
   --primary-foreground: #f5f7f9;
-  --secondary: #d5d9dc;
+  --secondary: #e2e5e9;
   --secondary-foreground: #20252a;
-  --muted: #d8dbde;
+  --muted: #e8eaed;
   --muted-foreground: #4c545d;
-  --accent: #c8d4e0;
+  --accent: #d3dde9;
+  --nav-active-surface: #3a5274;
+  --nav-active-foreground: #f5f7f9;
+  --nav-active-bar: #a8bde0;
   --accent-foreground: #20252a;
   --destructive: #922f2a;
   --destructive-foreground: #fff8f7;
-  --border: #b7bdc2;
-  --input: #d5d9dc;
+  --border: #a8b0b8;
+  --input: #f0f2f4;
   --ring: #455673;
 
-  --surface: #c9cdd1;
-  --surface-raised: #d4d7da;
-  --surface-strong: #c8d4e0;
-  --surface-muted: #d0d3d6;
+  --surface: #dfe2e6;
+  --surface-raised: #eceef1;
+  --surface-strong: #d3dde9;
+  --surface-muted: #edeff2;
   /* Read-only detail/disclosure wells. Split from the field family so inert
      content keeps its praised quiet boundary while editable controls can
      carry a stronger one. */
-  --surface-well: #d9dcde;
-  --surface-well-border: #afb6bc;
-  --surface-panel: #e0e2e3;
-  --surface-panel-solid: #e0e2e3;
-  --surface-panel-raised: #d5d9dc;
-  --surface-panel-border: #b7bdc2;
+  --surface-well: #eef0f2;
+  --surface-well-border: #b1b8bf;
+  --surface-panel: #f6f7f8;
+  --surface-panel-solid: #f6f7f8;
+  --surface-panel-raised: #eceef1;
+  --surface-panel-border: #aab2ba;
   --surface-panel-border-active: rgba(95, 120, 153, 0.72);
   --surface-panel-border-active-soft: rgba(95, 120, 153, 0.42);
-  --surface-panel-border-warm: #b7bdc2;
+  --surface-panel-border-warm: #b9c0c7;
   --surface-panel-border-warm-strong: rgba(95, 120, 153, 0.72);
   --surface-panel-border-warm-hover: rgba(95, 120, 153, 0.5);
   --surface-tab-hover: rgba(95, 120, 153, 0.08);
@@ -327,16 +390,23 @@
   --surface-overlay-heavy: rgba(24, 24, 22, 0.12);
   --surface-overlay-track: rgba(24, 24, 22, 0.12);
   --surface-progress-track: rgba(24, 24, 22, 0.12);
-  --border-subtle: #c2c7cb;
-  --border-strong: #9fa7ae;
+  --border-subtle: #b5bcc3;
+  --border-strong: #767d85;
+  --control-border: var(--border-strong);
+  --control-border-hover: #5d646c;
+  --disabled-surface: transparent;
+  --disabled-border: #c6ccd2;
+  --disabled-foreground: #61686f;
+  --link: #2f4a70;
+  --link-hover: #23344a;
   --foreground-soft: #4f575f;
-  --field: #d9dcde;
-  --field-strong: #e9ebec;
-  --field-border: #8b939c;
+  --field: #fcfcfd;
+  --field-strong: #ffffff;
+  --field-border: #8a939c;
   --field-focus-border: #3a5274;
-  --field-focus-shadow: 0 0 0 1px rgba(58, 82, 116, 0.24);
-  --panel-surface-muted: #e0e2e3;
-  --shell-header-bg: rgba(201, 205, 209, 0.97);
+  --field-focus-shadow: 0 0 0 2px rgba(58, 82, 116, 0.3);
+  --panel-surface-muted: #f6f7f8;
+  --shell-header-bg: rgba(230, 232, 235, 0.97);
   --focus-inset-highlight: rgba(255, 255, 255, 0.28);
   --surface-inset-highlight: rgba(255, 255, 255, 0.2);
   --modal-scrim: rgba(31, 33, 36, 0.2);
@@ -344,7 +414,7 @@
   --select-shadow: 0 12px 34px rgba(31, 33, 36, 0.12);
   --progress-active-glow: none;
   --selection-background: rgba(95, 120, 153, 0.24);
-  --scrollbar-thumb: rgba(24, 24, 22, 0.18);
+  --scrollbar-thumb: rgba(24, 24, 22, 0.52);
   --surface-grid-top: transparent;
   --surface-grid-line: transparent;
   --resume-preview-frame: radial-gradient(
@@ -388,66 +458,95 @@
   --guided-edits-panel-border: rgba(24, 24, 22, 0.14);
   --guided-edits-panel-shadow: 0 24px 72px rgba(31, 33, 36, 0.16);
   --guided-edits-bubble-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
-  --workspace-state-card-bg-default: rgba(224, 226, 227, 0.98);
+  --workspace-state-card-bg-default: rgba(246, 247, 248, 0.98);
   --workspace-state-card-bg-error: rgba(229, 213, 212, 0.98);
   --workspace-state-card-shadow: 0 20px 56px rgba(31, 33, 36, 0.12);
 }
 
-* {
-  box-sizing: border-box;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
-}
+/*
+ * Element defaults belong in the base layer.
+ *
+ * An unlayered rule beats every layered rule regardless of specificity, so a
+ * bare `h1 { font-size: … }` written outside a layer outranked the
+ * `text-(length:--text-page-title-compact)` utility on the same element. Page
+ * titles therefore rendered at the full display clamp everywhere and the one
+ * screen that noticed patched itself with `!` important modifiers. Keeping
+ * these defaults inside `@layer base` restores the intended order: base
+ * defaults lose to component-chosen utilities. Pinned by
+ * styles/globals.test.ts.
+ */
+@layer base {
+  * {
+    box-sizing: border-box;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
 
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
 
-*::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-}
+  *::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+  }
 
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
 
-html,
-body,
-#root {
-  height: 100%;
-}
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
 
-body {
-  margin: 0;
-  min-height: 100vh;
-  overflow: hidden;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-body);
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-}
+  body {
+    margin: 0;
+    min-height: 100vh;
+    overflow: hidden;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-body);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
+  button {
+    font: inherit;
+  }
 
-button,
-[role="button"],
-a[href],
-summary {
-  cursor: pointer;
-}
+  /*
+   * `font: inherit` on a field takes the *parent's* size, so any input,
+   * select or textarea rendered inside a heading-sized or eyebrow-sized
+   * container rendered at that container's size (measured 17-19px against
+   * 11px labels). Family, weight, tracking and line-height still inherit;
+   * only the size is pinned to the published field token, which is itself
+   * an alias of the body size.
+   */
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+    font-size: var(--text-field);
+    font-weight: inherit;
+    letter-spacing: inherit;
+    line-height: inherit;
+  }
 
-button:disabled,
-[role="button"][aria-disabled="true"],
-[role="button"]:disabled,
-summary:disabled {
-  cursor: not-allowed;
+  button,
+  [role="button"],
+  a[href],
+  summary {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  [role="button"]:disabled,
+  summary:disabled {
+    cursor: not-allowed;
+  }
 }
 
 /*
@@ -465,22 +564,77 @@ summary:disabled {
   --tw-ring-color: var(--ring);
 }
 
-h1,
-h2,
-h3,
-h4,
-h5,
-h6,
-p {
-  margin: 0;
+/*
+ * The published type scale.
+ *
+ * These are element defaults, not overrides: they live in `@layer base` so a
+ * component that deliberately chooses a different role still wins with a
+ * `text-(length:--text-*)` utility. Before this block existed, only h1 and h2
+ * carried a size, so h3-h6 fell through to Tailwind preflight's
+ * `font-size: inherit` and rendered at whatever their container happened to
+ * be - producing an H3 at 9.3px inside a chip, an H3 at 16px/400 beside an
+ * H2 at 19.5px/400, and level inversions on six screens. Sizes are strictly
+ * monotonic h1 > h2 > h3 > h4 and every level carries its weight explicitly,
+ * because preflight also resets `font-weight` to inherit.
+ * Pinned by styles/globals.test.ts ("published type scale").
+ */
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p {
+    margin: 0;
+  }
+
+  h1 {
+    font-family: var(--font-headline);
+    font-size: var(--text-heading-1);
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -0.022em;
+    color: var(--headline-primary);
+  }
+
+  h3 {
+    font-family: var(--font-headline);
+    font-size: var(--text-heading-3);
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--headline-secondary);
+  }
+
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-headline);
+    font-size: var(--text-heading-4);
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--headline-secondary);
+  }
+
+  p {
+    font-size: var(--text-body);
+    line-height: 1.5;
+  }
 }
 
-h1 {
-  font-family: var(--font-headline);
-  font-size: clamp(2.05rem, 3.35vw, 3.3rem);
-  line-height: 0.97;
-  letter-spacing: -0.028em;
-  color: var(--headline-primary);
+/*
+ * The opening/loading workspace state keeps its display title. Its heading
+ * carries no size utility and used to rely on the old display-clamp default
+ * for h1; the size it actually wants already exists as a token, so bind it
+ * here rather than leaving it dependent on an element default.
+ */
+@layer components {
+  [data-workspace-state-title] {
+    font-family: var(--font-headline);
+    font-size: var(--workspace-state-title-size);
+    line-height: 1.02;
+    letter-spacing: var(--workspace-state-title-tracking);
+  }
 }
 
 .surface-panel-shell {
@@ -550,37 +704,47 @@ h1 {
   width: var(--progress-width);
 }
 
-.label-mono-xs {
-  font-family: var(--font-mono);
-  font-size: var(--text-label-mono-xs);
-  font-weight: 700;
-  letter-spacing: var(--tracking-badge);
-  text-transform: uppercase;
-  color: var(--muted-foreground);
+/*
+ * Typography helper classes belong in a layer too: an unlayered class rule
+ * also outranks every Tailwind utility, so a screen could not re-size one of
+ * these without an important modifier.
+ */
+@layer components {
+  .label-mono-xs {
+    font-family: var(--font-mono);
+    font-size: var(--text-label-mono-xs);
+    font-weight: 700;
+    letter-spacing: var(--tracking-badge);
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
+  .card-heading-sm {
+    font-family: var(--font-mono);
+    font-size: var(--text-card-heading-sm);
+    letter-spacing: var(--tracking-heading);
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
 }
 
-.card-heading-sm {
-  font-family: var(--font-mono);
-  font-size: var(--text-card-heading-sm);
-  letter-spacing: var(--tracking-heading);
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
+@layer base {
+  h2 {
+    font-family: var(--font-headline);
+    font-size: var(--text-heading-2);
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--headline-secondary);
+  }
 
-h2 {
-  font-family: var(--font-headline);
-  font-size: clamp(1.22rem, 1.12vw, 1.58rem);
-  line-height: 1.1;
-  color: var(--headline-secondary);
-}
+  strong {
+    font-weight: 600;
+  }
 
-strong {
-  font-weight: 600;
-}
-
-::selection {
-  background: var(--selection-background);
-  color: var(--foreground);
+  ::selection {
+    background: var(--selection-background);
+    color: var(--foreground);
+  }
 }
 
 .job-finder-shell-grid {
@@ -599,6 +763,27 @@ strong {
 
 .button-pending-rail {
   animation: button-pending-rail-slide 1.05s linear infinite;
+}
+
+/* The Resume Studio Assistant folds into, and unfolds out of, its own
+   bottom-right corner so minimizing reads as collapsing into the launcher pill
+   rather than the thread jumping somewhere else. The reduced-motion block
+   below already zeroes this animation. */
+@keyframes guided-edits-panel-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.guided-edits-panel-enter {
+  animation: guided-edits-panel-enter 140ms ease-out;
+  transform-origin: bottom right;
 }
 
 @media (prefers-reduced-motion: reduce) {

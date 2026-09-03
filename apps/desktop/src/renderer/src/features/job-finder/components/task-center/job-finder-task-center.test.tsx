@@ -96,7 +96,7 @@ describe("JobFinderTaskCenter", () => {
       />,
     );
 
-    const summary = screen.getByLabelText("Task center: 2 active");
+    const summary = screen.getByLabelText("Tasks: 2 active");
     expect(summary).toBeInstanceOf(HTMLElement);
     summary?.focus();
     expect(document.activeElement).toBe(summary);
@@ -167,7 +167,7 @@ describe("JobFinderTaskCenter", () => {
       />,
     );
 
-    const summary = screen.getByLabelText(/Task center:/);
+    const summary = screen.getByLabelText(/Tasks:/);
     fireEvent.click(summary);
     fireEvent.click(screen.getByRole("button", { name: "Open Find jobs" }));
     expect(onNavigate).toHaveBeenCalledWith("/job-finder/discovery");
@@ -191,7 +191,7 @@ describe("JobFinderTaskCenter", () => {
     );
 
     const details = document.querySelector("details") as HTMLDetailsElement;
-    const summary = screen.getByLabelText("Task center: 2 active");
+    const summary = screen.getByLabelText("Tasks: 2 active");
 
     fireEvent.click(summary);
     expect(details.open).toBe(true);
@@ -206,17 +206,17 @@ describe("JobFinderTaskCenter", () => {
     expect(details.open).toBe(false);
 
     fireEvent.click(summary);
-    fireEvent.pointerDown(screen.getByRole("region", { name: "Task center" }), {
+    fireEvent.pointerDown(screen.getByRole("region", { name: "Tasks" }), {
       bubbles: true,
     });
     expect(details.open).toBe(true);
 
     fireEvent.click(summary);
-    fireEvent.click(screen.getByRole("button", { name: "Close Task center" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close Tasks" }));
     expect(details.open).toBe(false);
     expect(document.activeElement).toBe(summary);
 
-    const panel = screen.getByRole("region", { name: "Task center" });
+    const panel = screen.getByRole("region", { name: "Tasks" });
     expect(panel.className).toContain("max-h-[calc(100vh-14rem)]");
   });
 
@@ -284,7 +284,7 @@ describe("JobFinderTaskCenter", () => {
     );
 
     const details = document.querySelector("details") as HTMLDetailsElement;
-    fireEvent.click(screen.getByLabelText(/Task center:/));
+    fireEvent.click(screen.getByLabelText(/Tasks:/));
     fireEvent.click(screen.getByRole("button", { name: "Open Find jobs" }));
 
     expect((await screen.findByRole("status")).textContent).toContain(
@@ -302,7 +302,7 @@ describe("JobFinderTaskCenter", () => {
       />,
     );
 
-    expect(screen.getByText("Task center", { selector: "h2" })).toBeInstanceOf(
+    expect(screen.getByText("Tasks", { selector: "h2" })).toBeInstanceOf(
       HTMLElement,
     );
     expect(screen.getAllByText("Progress").length).toBeGreaterThan(0);
@@ -332,7 +332,7 @@ describe("JobFinderTaskCenter", () => {
       />,
     );
 
-    const summary = screen.getByLabelText("Task center: 1 active");
+    const summary = screen.getByLabelText("Tasks: 1 active");
     expect(summary).toBeInstanceOf(HTMLElement);
     const task = document.querySelector('[data-task-kind="tailored_drafts"]');
     expect(task).not.toBeNull();
@@ -391,6 +391,6 @@ describe("JobFinderTaskCenter", () => {
     expect(
       document.querySelector('[data-task-kind="tailored_drafts"]'),
     ).toBeNull();
-    expect(screen.getByLabelText("Task center: 0 active")).toBeTruthy();
+    expect(screen.getByLabelText("Tasks: 0 active")).toBeTruthy();
   });
 });

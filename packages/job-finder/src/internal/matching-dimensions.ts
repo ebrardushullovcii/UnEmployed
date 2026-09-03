@@ -10,7 +10,7 @@ import type {
   LocationCompatibilityState,
   WorkModeCompatibilityState,
 } from "./matching";
-import { normalizeText } from "./shared";
+import { isAbsentFieldText, normalizeText } from "./shared";
 
 export type BuildMatchDimensionsAssessmentInput = {
   posting: MatchAssessmentPostingInput;
@@ -20,9 +20,26 @@ export type BuildMatchDimensionsAssessmentInput = {
   roleFamilyMismatch: boolean;
   roleFamilyUnclear: boolean;
   locationCompatibility: LocationCompatibilityState;
+  /**
+   * The listing is remote and remote is a preferred work mode, so the place
+   * comparison was settled by the work-mode preference instead of the city.
+   */
+  locationRemotePreferenceApplied?: boolean;
   workModeCompatibility: WorkModeCompatibilityState;
   isPreferredCompany: boolean;
 };
+
+// Absence placeholders are shared across boards, so both labels use the one
+// source-generic rule instead of a per-phrase pattern.
+function displayEmployerLabel(company: string): string | null {
+  const trimmed = company.trim();
+  return isAbsentFieldText(trimmed) ? null : trimmed;
+}
+
+function displayLocationLabel(location: string): string | null {
+  const trimmed = location.trim();
+  return isAbsentFieldText(trimmed) ? null : trimmed;
+}
 
 function clip(value: string, limit: number): string {
   const normalized = value.replace(/\s+/gu, " ").trim();
@@ -78,7 +95,12 @@ function buildRoleSuitability(
     input.requirements.find(
       (requirement) =>
         requirement.importance === "required" &&
-        requirement.category === "work_authorization" &&
+        // Career stage ("this opening is reserved for graduates") and work
+        // authorization are hard eligibility facts about the opening itself,
+        // so a conflict in either makes the role unsuitable even when every
+        // skill lines up.
+        (requirement.category === "work_authorization" ||
+          requirement.category === "seniority") &&
         requirement.status === "conflict",
     );
   const unsupportedRequiredCore = requiredCoreRequirements.find(
@@ -99,8 +121,11 @@ function buildRoleSuitability(
   if (input.roleFamilyMismatch || requiredCoreConflict) {
     return {
       state: "conflict",
+      // The requirement already states the conflict in its own words; a
+      // generic "conflicts with the saved profile evidence" sentence would
+      // hide the reason the user actually needs.
       explanation: requiredCoreConflict
-        ? `${requiredCoreConflict.label} explicitly conflicts with the saved profile evidence.`
+        ? clip(requiredCoreConflict.explanation, 320)
         : "The listing belongs to a different role family than the saved target roles.",
       evidence: requiredCoreConflict
         ? withRequirementEvidence(requiredCoreConflict)
@@ -112,7 +137,7 @@ function buildRoleSuitability(
     return {
       state: "unknown",
       explanation:
-        "No target roles are saved, so the listing title cannot be compared with an intended role.",
+        "No target roles are saved, so there is nothing to compare the listing title with.",
       evidence: roleEvidence,
     };
   }
@@ -134,8 +159,8 @@ function buildRoleSuitability(
     return {
       state: "adjacent",
       explanation: unsupportedRequiredCore
-        ? `The title matches, but ${unsupportedRequiredCore.label} is not fully supported by explicit profile evidence.`
-        : "The title matches, but no required core evidence was extracted to verify suitability.",
+        ? `The title matches, but your saved profile does not yet show ${unsupportedRequiredCore.label.toLowerCase()}.`
+        : "The title matches, but the listing text was not captured, so nothing beyond the title could be checked.",
       evidence: unsupportedRequiredCore
         ? withRequirementEvidence(unsupportedRequiredCore)
         : roleEvidence,
@@ -146,7 +171,7 @@ function buildRoleSuitability(
     return {
       state: "unknown",
       explanation:
-        "The listing title does not provide enough role-family evidence for a reliable comparison.",
+        "The listing title does not say enough about the kind of work for a reliable comparison.",
       evidence: roleEvidence,
     };
   }
@@ -192,6 +217,7 @@ function buildPreferenceAlignment(
   }> = [];
 
   if (hasLocationPreference) {
+    const locationLabel = displayLocationLabel(posting.location);
     const locationSignal =
       input.locationCompatibility === "compatible"
         ? true
@@ -203,11 +229,15 @@ function buildPreferenceAlignment(
       evidence: evidence(
         "preference",
         "Location comparison",
-        input.locationCompatibility === "compatible"
-          ? `${posting.location} compared with ${formatList(searchPreferences.locations)}: aligned.`
-          : input.locationCompatibility === "incompatible"
-            ? `${posting.location} compared with ${formatList(searchPreferences.locations)}: outside the saved areas.`
-            : `The listing does not specify enough geography to compare with ${formatList(searchPreferences.locations)}.`,
+        input.locationRemotePreferenceApplied
+          ? input.locationCompatibility === "compatible"
+            ? "Remote listing; remote is one of your preferred work modes."
+            : `Remote listing; remote is one of your preferred work modes, but its stated region (${locationLabel ?? "not stated"}) may exclude ${formatList(searchPreferences.locations)}.`
+          : input.locationCompatibility === "compatible"
+            ? `${locationLabel ?? "The listing location"} compared with ${formatList(searchPreferences.locations)}: aligned.`
+            : input.locationCompatibility === "incompatible"
+              ? `${locationLabel ?? "The listing location"} compared with ${formatList(searchPreferences.locations)}: outside the saved areas.`
+              : `The listing does not specify enough geography to compare with ${formatList(searchPreferences.locations)}.`,
       ),
     });
   }
@@ -233,14 +263,17 @@ function buildPreferenceAlignment(
   }
 
   if (hasCompanyPreference) {
+    const employerLabel = displayEmployerLabel(posting.company);
     facets.push({
       signal: input.isPreferredCompany ? true : null,
       evidence: evidence(
         "preference",
         "Preferred-company comparison",
         input.isPreferredCompany
-          ? `${posting.company} is on the saved preferred-company list.`
-          : `${posting.company} is not on the saved preferred-company list; this is neutral, not a conflict.`,
+          ? `${employerLabel ?? "This employer"} is on the saved preferred-company list.`
+          : employerLabel
+            ? `${employerLabel} is not on the saved preferred-company list; this is neutral, not a conflict.`
+            : "The listing employer is not on the saved preferred-company list; this is neutral, not a conflict.",
       ),
     });
   }
@@ -477,7 +510,7 @@ function buildEvidenceConfidence(
     return {
       level: "unavailable",
       explanation:
-        "Only card-level listing detail is available and no requirements were extracted. Confidence is not a measure of fit quality.",
+        "Only the search-result card was available, so no requirements could be checked. This describes how much was read, not how good the job is.",
       evidence: evidenceRows,
       ...counts,
     };
@@ -491,7 +524,7 @@ function buildEvidenceConfidence(
     return {
       level: "high",
       explanation:
-        "The detailed listing supports most extracted requirement comparisons. Explicit gaps still count as strong evidence, not positive fit.",
+        "The full listing was read and most of its requirements could be checked. A gap that was found still counts against the fit.",
       evidence: evidenceRows,
       ...counts,
     };
@@ -505,7 +538,7 @@ function buildEvidenceConfidence(
     return {
       level: "moderate",
       explanation:
-        "The listing supports several requirement comparisons, but some evidence remains incomplete. Confidence is not a measure of fit quality.",
+        "Several requirements could be checked, but some evidence is still incomplete. This describes how much was read, not how good the job is.",
       evidence: evidenceRows,
       ...counts,
     };
@@ -514,7 +547,7 @@ function buildEvidenceConfidence(
   return {
     level: "low",
     explanation:
-      "The listing detail or extracted requirement coverage is limited. Explicit gaps are preserved, while unsupported assumptions remain unknown.",
+      "Not much of the listing could be read, so few requirements could be checked. Gaps that were found are kept; nothing else is assumed.",
     evidence: evidenceRows,
     ...counts,
   };

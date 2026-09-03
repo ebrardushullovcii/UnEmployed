@@ -74,10 +74,9 @@ describe("ProfileExperienceTab remove control naming", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add experience" }));
 
     const removeButtons = screen.getAllByRole("button", { name: /Remove / });
-    expect(removeButtons.map((button) => button.getAttribute("aria-label"))).toEqual([
-      "Remove Role 1",
-      "Remove Role 2",
-    ]);
+    expect(
+      removeButtons.map((button) => button.getAttribute("aria-label")),
+    ).toEqual(["Remove Role 1", "Remove Role 2"]);
     // Visible label stays compact; only the accessible name identifies the role.
     expect(removeButtons[0]?.textContent).toContain("Remove");
 
@@ -95,12 +94,8 @@ describe("ProfileExperienceTab remove control naming", () => {
         .getByRole("button", { name: "Remove Barista" })
         .getAttribute("aria-label"),
     ).toBe("Remove Barista");
-    expect(
-      screen.queryByRole("button", { name: "Remove Role 1" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove Role 1" })).toBeNull();
     // The other card keeps its own distinct name.
-    expect(
-      screen.getByRole("button", { name: "Remove Role 2" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove Role 2" })).toBeTruthy();
   });
 });

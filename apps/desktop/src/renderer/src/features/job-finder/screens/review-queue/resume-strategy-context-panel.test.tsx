@@ -36,14 +36,16 @@ describe("ResumeStrategyContextPanel", () => {
       selectedStrategyId: "strategy_legacy",
       selectedStrategyName: "Legacy tailoring",
       selectionSource: "user",
-      selectionReason: "User chose strategy \"Legacy tailoring\" for this job.",
+      selectionReason: 'User chose strategy "Legacy tailoring" for this job.',
       selectedAt: "2026-08-20T10:00:00.000Z",
     });
     const markup = renderToStaticMarkup(
       <ResumeStrategyContextPanel context={context} />,
     );
 
-    expect(markup).toContain("User chose approach &quot;Legacy tailoring&quot;");
+    expect(markup).toContain(
+      "User chose approach &quot;Legacy tailoring&quot;",
+    );
     expect(markup).not.toContain("chose strategy");
   });
 });

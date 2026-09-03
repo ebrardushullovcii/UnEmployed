@@ -1,8 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockExposeInMainWorld, mockInvoke } = vi.hoisted(() => ({
+const {
+  mockExposeInMainWorld,
+  mockInvoke,
+  mockIpcRendererOff,
+  mockIpcRendererOn,
+  mockIpcRendererSend,
+} = vi.hoisted(() => ({
   mockExposeInMainWorld: vi.fn(),
   mockInvoke: vi.fn(),
+  mockIpcRendererOff: vi.fn(),
+  mockIpcRendererOn: vi.fn(),
+  mockIpcRendererSend: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
@@ -11,21 +20,27 @@ vi.mock("electron", () => ({
   },
   ipcRenderer: {
     invoke: mockInvoke,
-    off: vi.fn(),
-    on: vi.fn(),
-    send: vi.fn(),
+    off: mockIpcRendererOff,
+    on: mockIpcRendererOn,
+    send: mockIpcRendererSend,
   },
 }));
 
 import "./index";
 
 type ExposedJobFinderApi = {
+  getApplicationAuthorityReadiness: (input?: unknown) => Promise<unknown>;
+  approveCurrentApplicationAnswers: (input: unknown) => Promise<unknown>;
+  listApplicationAuthorityEnvelopes: (input?: unknown) => Promise<unknown>;
+  createApplicationAuthorityEnvelope: (input: unknown) => Promise<unknown>;
   dismissDiscoveryJob: (
     jobId: string,
     reasons: readonly string[],
     action?: "hide_job" | "hide_and_exclude_employer",
     expectedNormalizedCompanyName?: string | null,
   ) => Promise<unknown>;
+  importResume: (onProgress?: (event: unknown) => void) => Promise<unknown>;
+  cancelImportResume: () => void;
   previewEmployerExclusion: (jobId: string) => Promise<unknown>;
   removeEmployerExclusion: (input: unknown) => Promise<unknown>;
   getApplyRunDetails: (input: unknown) => Promise<unknown>;
@@ -384,6 +399,96 @@ describe("preload jobFinder grouped manual-answer boundary", () => {
   });
 });
 
+describe("preload jobFinder resume import boundary", () => {
+  beforeEach(() => {
+    mockInvoke.mockReset();
+    mockIpcRendererOn.mockReset();
+    mockIpcRendererOff.mockReset();
+    mockIpcRendererSend.mockReset();
+  });
+
+  it("cleans up the listener and single-flight lock when invoke throws synchronously", async () => {
+    const onProgress = vi.fn();
+    mockInvoke.mockImplementationOnce(() => {
+      throw new Error("renderer is tearing down");
+    });
+
+    await expect(exposedJobFinder.importResume(onProgress)).rejects.toThrow(
+      "renderer is tearing down",
+    );
+
+    const firstListenerCall = mockIpcRendererOn.mock.calls[0] as
+      | [channel: string, listener: (...arguments_: unknown[]) => void]
+      | undefined;
+    const channel = firstListenerCall?.[0];
+    const listener = firstListenerCall?.[1];
+    expect(channel).toEqual(
+      expect.stringMatching(/^job-finder:resume-import-progress:/),
+    );
+    expect(listener).toEqual(expect.any(Function));
+    expect(mockIpcRendererOff).toHaveBeenCalledWith(channel, listener);
+
+    // The failed request must not strand the module-level lock for the next
+    // import attempt.
+    const snapshot = { generatedAt: "2026-08-30T10:00:00.000Z" };
+    mockInvoke.mockResolvedValueOnce(snapshot);
+    await expect(exposedJobFinder.importResume()).resolves.toEqual(snapshot);
+  });
+
+  it("cleans up after an asynchronous rejection so a retry is accepted", async () => {
+    const onProgress = vi.fn();
+    mockInvoke.mockRejectedValueOnce(new Error("picker failed"));
+
+    await expect(exposedJobFinder.importResume(onProgress)).rejects.toThrow(
+      "picker failed",
+    );
+    expect(mockIpcRendererOff).toHaveBeenCalledOnce();
+
+    const snapshot = { generatedAt: "2026-08-30T10:01:00.000Z" };
+    mockInvoke.mockResolvedValueOnce(snapshot);
+    await expect(exposedJobFinder.importResume()).resolves.toEqual(snapshot);
+  });
+
+  it("fences a cancelled picker with its request identity", async () => {
+    const importResponse = new Promise<unknown>(() => undefined);
+    mockInvoke.mockImplementation((channel: unknown) =>
+      channel === "system:job-finder-routes-ready"
+        ? Promise.resolve(undefined)
+        : importResponse,
+    );
+
+    const parkedImport = exposedJobFinder.importResume();
+    await vi.waitFor(() => {
+      const importCall = mockInvoke.mock.calls.find(
+        (call) => call[0] === "job-finder:import-resume",
+      ) as [channel: string, payload: { requestId: string }] | undefined;
+
+      expect(importCall?.[1].requestId).toMatch(/^resume_import_/);
+    });
+    await expect(exposedJobFinder.importResume()).rejects.toThrow(
+      "A resume import is already running.",
+    );
+    exposedJobFinder.cancelImportResume();
+
+    await vi.waitFor(() => expect(mockIpcRendererSend).toHaveBeenCalled());
+    const cancelCall = mockIpcRendererSend.mock.calls.at(-1) as
+      | [channel: string, payload: { requestId: string }]
+      | undefined;
+    expect(cancelCall?.[0]).toBe("job-finder:cancel-import-resume");
+    expect(cancelCall?.[1].requestId).toMatch(/^resume_import_/);
+
+    // The local lock is released for a retry, while the parked old promise's
+    // eventual finally cannot clear the new request's identity.
+    mockInvoke.mockResolvedValueOnce({
+      generatedAt: "2026-08-30T10:02:00.000Z",
+    });
+    await expect(exposedJobFinder.importResume()).resolves.toEqual({
+      generatedAt: "2026-08-30T10:02:00.000Z",
+    });
+    void parkedImport;
+  });
+});
+
 describe("preload jobFinder resume claim confirmation boundary", () => {
   beforeEach(() => {
     mockInvoke.mockClear();
@@ -400,9 +505,8 @@ describe("preload jobFinder resume claim confirmation boundary", () => {
       confirmationId: "claim_confirmation_section_experience_abc",
     };
 
-    const result = await exposedJobFinder.setResumeClaimConfirmation(
-      removeCommand,
-    );
+    const result =
+      await exposedJobFinder.setResumeClaimConfirmation(removeCommand);
     expect(mockInvoke).toHaveBeenCalledWith(
       "job-finder:set-resume-claim-confirmation",
       removeCommand,
@@ -426,9 +530,8 @@ describe("preload jobFinder resume claim confirmation boundary", () => {
       ownershipStatement: "I confirm this content is accurate and my own.",
     };
 
-    const result = await exposedJobFinder.setResumeClaimConfirmation(
-      addCommand,
-    );
+    const result =
+      await exposedJobFinder.setResumeClaimConfirmation(addCommand);
 
     expect(mockInvoke).toHaveBeenCalledWith(
       "job-finder:set-resume-claim-confirmation",
@@ -459,9 +562,9 @@ describe("preload startup recovery boundary", () => {
     };
     mockInvoke.mockResolvedValueOnce({ ...fact });
 
-    await expect(exposedJobFinder.getStartupDatabaseRecovery()).resolves.toEqual(
-      fact,
-    );
+    await expect(
+      exposedJobFinder.getStartupDatabaseRecovery(),
+    ).resolves.toEqual(fact);
     expect(mockInvoke).toHaveBeenCalledWith(
       "job-finder:get-startup-database-recovery",
     );
@@ -512,5 +615,91 @@ describe("preload startup recovery boundary", () => {
     expect(mockInvoke).toHaveBeenCalledWith(
       "job-finder:dismiss-startup-database-recovery-notice",
     );
+  });
+});
+
+describe("preload application authority boundary", () => {
+  beforeEach(() => {
+    mockInvoke.mockClear();
+  });
+
+  it("validates authority management inputs and outputs", async () => {
+    mockInvoke.mockResolvedValueOnce([]);
+    await expect(
+      exposedJobFinder.listApplicationAuthorityEnvelopes({ status: "active" }),
+    ).resolves.toEqual([]);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "job-finder:list-application-authority-envelopes",
+      { status: "active" },
+    );
+
+    expect(() =>
+      exposedJobFinder.createApplicationAuthorityEnvelope({
+        mode: "prepare_only",
+        scope: { campaignId: null, jobIds: [] },
+        maxApplicationsPerRun: 1,
+        maxApplicationsPerLocalDay: 1,
+        intermediateMutationsAuthorized: false,
+        allowedResumeSha256: [],
+        allowedOrigins: ["https://jobs.example.com"],
+        expiresAt: null,
+        allowAutoSubmitOverride: true,
+      }),
+    ).toThrow();
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+
+    mockInvoke.mockResolvedValueOnce([{ id: "malformed" }]);
+    await expect(
+      exposedJobFinder.listApplicationAuthorityEnvelopes(),
+    ).rejects.toThrow();
+  });
+
+  it("validates readiness and approval payloads at the preload boundary", async () => {
+    const readiness = {
+      generatedAt: "2026-08-28T10:00:00.000Z",
+      executionCapability: "prepare_only",
+      elevatedExecutionAvailable: false,
+      answerApprovalStatus: "missing_answers",
+      currentAnswers: {
+        sourceProfileRevision: 1,
+        digest: null,
+        entryCount: 0,
+        kinds: [],
+        missingRequiredKinds: [],
+      },
+      approvedSnapshot: null,
+      activeAuthority: null,
+      blockers: [{ code: "no_reusable_answers", remediation: "profile" }],
+    };
+    mockInvoke.mockResolvedValueOnce(readiness);
+    await expect(
+      exposedJobFinder.getApplicationAuthorityReadiness(),
+    ).resolves.toEqual(readiness);
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "job-finder:get-application-authority-readiness",
+      {},
+    );
+
+    mockInvoke.mockResolvedValueOnce({
+      status: "blocked",
+      snapshot: null,
+      readiness,
+    });
+    await expect(
+      exposedJobFinder.approveCurrentApplicationAnswers({
+        expectedProfileRevision: 1,
+        confirmedCurrentAnswers: true,
+      }),
+    ).resolves.toMatchObject({ status: "blocked" });
+    expect(mockInvoke).toHaveBeenCalledWith(
+      "job-finder:approve-current-application-answers",
+      { expectedProfileRevision: 1, confirmedCurrentAnswers: true },
+    );
+    expect(() =>
+      exposedJobFinder.approveCurrentApplicationAnswers({
+        expectedProfileRevision: 1,
+        confirmedCurrentAnswers: false,
+      }),
+    ).toThrow();
   });
 });

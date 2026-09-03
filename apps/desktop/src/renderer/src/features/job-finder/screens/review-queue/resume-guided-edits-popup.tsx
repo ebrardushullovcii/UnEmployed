@@ -1,11 +1,4 @@
-import {
-  GripHorizontal,
-  Maximize2,
-  MessageSquare,
-  Minimize2,
-  Sparkles,
-  X,
-} from "lucide-react";
+import { GripHorizontal, MessageSquare, Minus, Sparkles } from "lucide-react";
 import { createPortal } from "react-dom";
 import {
   useEffect,
@@ -13,7 +6,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type KeyboardEvent,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -23,9 +15,6 @@ import type {
   ResumeValidationResult,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
-import { FieldLabel } from "@renderer/components/ui/field";
-import { ScrollArea } from "@renderer/components/ui/scroll-area";
-import { Textarea } from "@renderer/components/ui/textarea";
 import { cn } from "@renderer/lib/cn";
 import {
   COPILOT_BOTTOM_OFFSET,
@@ -33,12 +22,51 @@ import {
   clampCopilotPosition,
   getDefaultCopilotPosition,
   getCopilotPanelDimensions,
+  getCopilotViewportInset,
 } from "../../components/profile/profile-copilot-rail-layout";
-import { ThinkingDots } from "../../components/profile/profile-copilot-rail-sections";
 import { isImeComposingEvent } from "../../lib/job-finder-shortcuts";
-import { useJobFinderOverlayOwnership } from "../../lib/job-finder-overlay-ownership";
-import { formatTimestamp } from "./resume-workspace-utils";
-import { ResumeAssistantProposalCard } from "./resume-assistant-proposal-card";
+import {
+  useHasOpenJobFinderModal,
+  useJobFinderOverlayOwnership,
+} from "../../lib/job-finder-overlay-ownership";
+import { ResumeAssistantPanel } from "./resume-assistant-panel";
+
+/**
+ * Tall enough that a one-change proposal card shows its header, its change
+ * rows, and its Accept/Reject controls above the composer. The shared layout
+ * helper still clamps it to the viewport.
+ */
+const GUIDED_EDITS_PROPOSAL_PANEL_HEIGHT = 640;
+
+/** Resting height; the shared layout helper clamps it to the viewport. */
+const GUIDED_EDITS_PANEL_HEIGHT = 460;
+
+/** Comfortable reading width on a full desktop window. */
+export const GUIDED_EDITS_PANEL_WIDE_WIDTH = 384;
+
+/** Narrower windows give the studio panes their width back first. */
+export const GUIDED_EDITS_PANEL_NARROW_WIDTH = 360;
+
+/** Never narrower than this unless the window itself is. */
+export const GUIDED_EDITS_PANEL_MIN_WIDTH = 320;
+
+export const GUIDED_EDITS_PANEL_WIDE_BREAKPOINT = 1280;
+
+/**
+ * The Assistant is a floating panel at every width — it never takes a studio
+ * grid column, so opening it can never reflow the preview or tools panes.
+ * Only its own width follows the window. The shared Copilot layout helper
+ * clamps this against the real viewport, so a window narrower than the floor
+ * still gets a panel that fits.
+ */
+export function getGuidedEditsPanelMaxWidth(viewportWidth: number): number {
+  return Math.max(
+    GUIDED_EDITS_PANEL_MIN_WIDTH,
+    viewportWidth >= GUIDED_EDITS_PANEL_WIDE_BREAKPOINT
+      ? GUIDED_EDITS_PANEL_WIDE_WIDTH
+      : GUIDED_EDITS_PANEL_NARROW_WIDTH,
+  );
+}
 
 export function ResumeGuidedEditsPopup(props: {
   assistantMessages: readonly ResumeAssistantMessage[];
@@ -46,6 +74,13 @@ export function ResumeGuidedEditsPopup(props: {
   draft?: ResumeDraft | null;
   isWorkspacePending: boolean;
   onSendAssistantMessage: (content: string) => void;
+  onReloadWorkspace?: () => void;
+  /** Whole-draft rewrite, offered here as the single named AI action. */
+  onRegenerateDraft?: () => void;
+  /** Reports open/minimized state; the studio reserves no width for it. */
+  onOpenChange?: (open: boolean) => void;
+  openRequestKey?: number;
+  onEditProposalWording?: (targetId: string) => void;
   onResolveProposal?: (
     proposalId: string,
     action: "accept" | "reject",
@@ -53,26 +88,43 @@ export function ResumeGuidedEditsPopup(props: {
   ) => void;
   validation?: ResumeValidationResult | null;
 }) {
-  const [input, setInput] = useState("");
   const [isOpen, setIsOpen] = useState(false);
-  const [isMaximized, setIsMaximized] = useState(false);
   // The floating assistant dialog joins the app-wide LIFO overlay stack so
   // stacked surfaces close one per Escape and shell aliases stay blocked.
   const { isTopmost: isPopupTopmost } = useJobFinderOverlayOwnership({
     active: isOpen,
     close: () => {
-      setIsMaximized(false);
       setIsOpen(false);
     },
   });
+  // A window-owning dialog (prepare consent, unsaved changes, …) must be the
+  // only thing the user can act on. This panel portals to `document.body`, so
+  // it never inherits the modal's `#root` inertness; it steps under the scrim
+  // and turns itself off instead.
+  const isCoveredByModal = useHasOpenJobFinderModal();
   const [safeTopOffset, setSafeTopOffset] = useState(COPILOT_NAV_SAFE_OFFSET);
+  // Only the panel's own width follows the window. The studio grid never
+  // changes with it, so nothing behind the panel can reflow.
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === "undefined"
+      ? GUIDED_EDITS_PANEL_WIDE_BREAKPOINT
+      : window.innerWidth,
+  );
   const [position, setPosition] = useState(() => getDefaultCopilotPosition());
   const [hasCustomPosition, setHasCustomPosition] = useState(false);
   const composerId = useId();
   const panelId = useId();
   const titleId = useId();
   const popupRootRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
+  // The corner the surface must keep across a minimize or expand. The launcher
+  // pill is a labelled control, not the 48px square the shared layout helper
+  // assumes, so the exact anchor is settled against the rendered surface.
+  const cornerAnchorRef = useRef<{ bottom: number; right: number } | null>(
+    null,
+  );
   const wasOpenRef = useRef(false);
+  const handledOpenRequestKeyRef = useRef(0);
   const transcriptViewportRef = useRef<HTMLDivElement | null>(null);
   const dragStateRef = useRef<{
     pointerId: number;
@@ -84,7 +136,51 @@ export function ResumeGuidedEditsPopup(props: {
     suppressClickOnFinish: boolean;
   } | null>(null);
   const suppressNextBubbleClickRef = useRef(false);
-  const panelDimensions = getCopilotPanelDimensions(safeTopOffset);
+  // A grounded proposal is the one thing in this thread the user must read in
+  // full before deciding. At the resting panel height its header, checkboxes,
+  // and Accept/Reject controls were clipped behind the composer, so a pending
+  // proposal is allowed to grow the panel (still clamped to the viewport by
+  // the shared layout helper).
+  const hasPendingProposal = props.assistantMessages.some(
+    (message) =>
+      message.role === "assistant" && message.proposalStatus === "pending",
+  );
+  // The same limits must drive the rendered height AND every position clamp.
+  // Clamping with the default 460px maximum while rendering the taller
+  // proposal panel let the panel start low enough to run past the window
+  // bottom, hiding the Accept control and the composer.
+  const acceptedProposalCount = props.assistantMessages.filter(
+    (message) =>
+      message.role === "assistant" && message.proposalStatus === "accepted",
+  ).length;
+  const launcherBadgeLabel = props.assistantPending
+    ? "Reply in progress"
+    : hasPendingProposal
+      ? "A proposal is waiting for your decision"
+      : acceptedProposalCount > 0
+        ? acceptedProposalCount === 1
+          ? "1 applied change in this thread"
+          : `${acceptedProposalCount} applied changes in this thread`
+        : props.assistantMessages.length > 0
+          ? "This thread has replies"
+          : null;
+  const panelMaxHeight = hasPendingProposal
+    ? GUIDED_EDITS_PROPOSAL_PANEL_HEIGHT
+    : GUIDED_EDITS_PANEL_HEIGHT;
+  const panelMaxWidth = getGuidedEditsPanelMaxWidth(viewportWidth);
+  const panelSizeLimits = {
+    maxHeight: panelMaxHeight,
+    maxWidth: panelMaxWidth,
+  };
+  const panelDimensions = getCopilotPanelDimensions(
+    safeTopOffset,
+    COPILOT_BOTTOM_OFFSET,
+    panelSizeLimits,
+  );
+  const viewportInset =
+    typeof window === "undefined"
+      ? COPILOT_BOTTOM_OFFSET
+      : getCopilotViewportInset(window.innerWidth);
 
   useLayoutEffect(() => {
     const shellHeader = document.querySelector<HTMLElement>(
@@ -131,9 +227,13 @@ export function ResumeGuidedEditsPopup(props: {
         isOpen,
         minBottomOffset: COPILOT_BOTTOM_OFFSET,
         minTopOffset: safeTopOffset,
+        panelSizeLimits: {
+          maxHeight: panelMaxHeight,
+          maxWidth: panelMaxWidth,
+        },
       }),
     );
-  }, [isOpen, safeTopOffset]);
+  }, [isOpen, panelMaxHeight, panelMaxWidth, safeTopOffset]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -141,6 +241,7 @@ export function ResumeGuidedEditsPopup(props: {
     }
 
     const handleResize = () => {
+      setViewportWidth(window.innerWidth);
       setPosition((current) =>
         clampCopilotPosition({
           x: current.x,
@@ -148,13 +249,92 @@ export function ResumeGuidedEditsPopup(props: {
           isOpen,
           minBottomOffset: COPILOT_BOTTOM_OFFSET,
           minTopOffset: safeTopOffset,
+          panelSizeLimits: {
+            maxHeight: panelMaxHeight,
+            maxWidth: panelMaxWidth,
+          },
         }),
       );
     };
 
+    handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [isOpen, safeTopOffset]);
+  }, [isOpen, panelMaxHeight, panelMaxWidth, safeTopOffset]);
+
+  // The pill and the panel are different sizes, and the pill is a labelled
+  // control rather than the shared 48px square, so the exact corner is settled
+  // against the surface that actually rendered. Without this the pill lands up
+  // to its own label width away from the corner the panel folded out of.
+  useLayoutEffect(() => {
+    const corner = cornerAnchorRef.current;
+    const root = popupRootRef.current;
+
+    if (!corner || !root) {
+      return;
+    }
+
+    cornerAnchorRef.current = null;
+
+    const rect = root.getBoundingClientRect();
+
+    if (rect.width <= 0 && rect.height <= 0) {
+      return;
+    }
+
+    if (
+      Math.abs(rect.right - corner.right) <= 1 &&
+      Math.abs(rect.bottom - corner.bottom) <= 1
+    ) {
+      return;
+    }
+
+    setPosition(
+      clampCopilotPosition({
+        x: corner.right - rect.width,
+        y: corner.bottom - rect.height,
+        isOpen,
+        minBottomOffset: COPILOT_BOTTOM_OFFSET,
+        minTopOffset: safeTopOffset,
+        panelSizeLimits,
+      }),
+    );
+    setHasCustomPosition(true);
+  }, [isOpen]);
+
+  // The panel is a fixed, body-portalled surface, so studio scrolling can never
+  // move it — but its own height changes (a pending proposal grows it) can
+  // still leave a low-sitting panel hanging past the window bottom. Watching
+  // the rendered panel re-clamps on every such change, the same way the
+  // Profile Copilot placement helper does.
+  useEffect(() => {
+    const panel = panelRef.current;
+
+    if (!isOpen || !panel || typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const reclamp = () => {
+      setPosition((current) =>
+        clampCopilotPosition({
+          x: current.x,
+          y: current.y,
+          isOpen: true,
+          minBottomOffset: COPILOT_BOTTOM_OFFSET,
+          minTopOffset: safeTopOffset,
+          panelSizeLimits: {
+            maxHeight: panelMaxHeight,
+            maxWidth: panelMaxWidth,
+          },
+        }),
+      );
+    };
+
+    const observer = new ResizeObserver(reclamp);
+    observer.observe(panel);
+
+    return () => observer.disconnect();
+  }, [isOpen, panelMaxHeight, panelMaxWidth, safeTopOffset]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -170,13 +350,27 @@ export function ResumeGuidedEditsPopup(props: {
       }
 
       event.preventDefault();
-      setIsMaximized(false);
       setIsOpen(false);
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isPopupTopmost, isOpen]);
+
+  const onOpenChange = props.onOpenChange;
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
+
+  useEffect(() => {
+    const requestKey = props.openRequestKey ?? 0;
+    if (requestKey <= 0 || requestKey === handledOpenRequestKeyRef.current) {
+      return;
+    }
+
+    handledOpenRequestKeyRef.current = requestKey;
+    setIsOpen(true);
+  }, [props.openRequestKey]);
 
   useEffect(() => {
     const wasOpen = wasOpenRef.current;
@@ -194,73 +388,73 @@ export function ResumeGuidedEditsPopup(props: {
     }
   }, [composerId, isOpen]);
 
-  useEffect(() => {
-    const transcriptViewport = transcriptViewportRef.current;
+  /**
+   * Minimizing collapses the panel toward its own bottom-right corner and
+   * reopening expands it back out of the pill's corner, the way the Profile
+   * Assistant behaves. Keeping the stored top-left instead made the pill jump
+   * to where the panel's *top-left* had been, which reads as the thread moving
+   * rather than folding away.
+   */
+  function getCornerAnchoredPosition(nextOpen: boolean) {
+    const measured = popupRootRef.current?.getBoundingClientRect();
+    // A zero-sized rect means nothing is laid out yet; the declared geometry is
+    // then the honest source for the corner the surface currently occupies.
+    const rendered =
+      measured && (measured.width > 0 || measured.height > 0) ? measured : null;
+    const nextWidth = nextOpen
+      ? panelDimensions.expandedWidth
+      : panelDimensions.collapsedWidth;
+    const nextHeight = nextOpen
+      ? panelDimensions.expandedHeight
+      : panelDimensions.collapsedHeight;
+    const currentWidth = nextOpen
+      ? panelDimensions.collapsedWidth
+      : panelDimensions.expandedWidth;
+    const currentHeight = nextOpen
+      ? panelDimensions.collapsedHeight
+      : panelDimensions.expandedHeight;
+    // While closed and never dragged the launcher is anchored to the viewport
+    // corner rather than to `position`, so that is the corner to grow from.
+    const restingCorner =
+      !isOpen && !hasCustomPosition && typeof window !== "undefined"
+        ? {
+            bottom: window.innerHeight - COPILOT_BOTTOM_OFFSET,
+            right: window.innerWidth - viewportInset,
+          }
+        : null;
+    // The resting corner wins when it applies: it is exactly where the pill is
+    // painted, and it stays correct even before the launcher has been laid out.
+    const right =
+      restingCorner?.right ?? rendered?.right ?? position.x + currentWidth;
+    const bottom =
+      restingCorner?.bottom ?? rendered?.bottom ?? position.y + currentHeight;
 
-    if (!transcriptViewport) {
-      return;
-    }
-
-    transcriptViewport.scrollTop = transcriptViewport.scrollHeight;
-  }, [props.assistantMessages.length, props.assistantPending]);
-
-  function handleSend() {
-    const nextInput = input.trim();
-
-    if (
-      props.isWorkspacePending ||
-      props.assistantPending ||
-      nextInput.length === 0
-    ) {
-      return;
-    }
-
-    props.onSendAssistantMessage(nextInput);
-    setInput("");
-    setIsOpen(true);
-  }
-
-  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey) {
-      return;
-    }
-
-    event.preventDefault();
-    handleSend();
+    return {
+      corner: { bottom, right },
+      position: clampCopilotPosition({
+        // Same bottom-right corner, whichever size the surface takes next.
+        x: right - nextWidth,
+        y: bottom - nextHeight,
+        isOpen: nextOpen,
+        minBottomOffset: COPILOT_BOTTOM_OFFSET,
+        minTopOffset: safeTopOffset,
+        panelSizeLimits,
+      }),
+    };
   }
 
   function toggleOpen() {
-    if (isOpen) {
-      setIsMaximized(false);
-      setPosition((current) =>
-        clampCopilotPosition({
-          ...current,
-          isOpen: false,
-          minBottomOffset: COPILOT_BOTTOM_OFFSET,
-          minTopOffset: safeTopOffset,
-        }),
-      );
-      setIsOpen(false);
-      return;
-    }
+    const nextOpen = !isOpen;
+    const { corner, position: nextPosition } =
+      getCornerAnchoredPosition(nextOpen);
 
-    setPosition((current) =>
-      clampCopilotPosition({
-        ...current,
-        isOpen: true,
-        minBottomOffset: COPILOT_BOTTOM_OFFSET,
-        minTopOffset: safeTopOffset,
-      }),
-    );
-    setIsOpen(true);
-  }
-
-  function toggleMaximized() {
-    setIsMaximized((current) => !current);
+    cornerAnchorRef.current = corner;
+    setPosition(nextPosition);
+    setIsOpen(nextOpen);
   }
 
   function beginDrag(event: ReactPointerEvent<HTMLElement>) {
-    if (event.isPrimary === false || event.button !== 0 || isMaximized) {
+    if (event.isPrimary === false || event.button !== 0) {
       return;
     }
 
@@ -313,6 +507,7 @@ export function ResumeGuidedEditsPopup(props: {
         isOpen,
         minBottomOffset: COPILOT_BOTTOM_OFFSET,
         minTopOffset: safeTopOffset,
+        panelSizeLimits,
       }),
     );
   }
@@ -380,251 +575,113 @@ export function ResumeGuidedEditsPopup(props: {
     return null;
   }
 
+  // The Assistant is a floating panel at every width, exactly like the Profile
+  // Copilot. It used to take a real third studio grid column while open, which
+  // squeezed the preview and tools panes and shifted every control in them the
+  // moment it opened. It now rests over the studio instead: the grid behind it
+  // is identical open, minimized and closed.
   return createPortal(
     <div
-      className="pointer-events-none fixed z-60 hidden max-w-[min(30rem,calc(100vw-2rem))] flex-col items-start gap-3 xl:flex"
+      aria-hidden={isCoveredByModal ? "true" : undefined}
+      className={cn(
+        "pointer-events-none fixed flex min-w-0 flex-col items-end gap-3",
+        "max-w-[min(24rem,calc(100vw-1.5rem))]",
+        // The modal scrim owns z-50; dropping to z-30 puts this panel behind
+        // it so it is dimmed and blurred like the rest of the app.
+        isCoveredByModal ? "z-30" : "z-[80]",
+      )}
+      data-resume-guided-edits-covered-by-modal={
+        isCoveredByModal ? "true" : "false"
+      }
       data-resume-guided-edits-open={isOpen ? "true" : "false"}
+      inert={isCoveredByModal}
       ref={popupRootRef}
       style={
-        isOpen && isMaximized
+        !isOpen && !hasCustomPosition
           ? {
-              left: `${COPILOT_BOTTOM_OFFSET}px`,
-              top: `${safeTopOffset}px`,
+              bottom: `${COPILOT_BOTTOM_OFFSET}px`,
+              right: `${viewportInset}px`,
             }
-          : !isOpen && !hasCustomPosition
-            ? {
-                bottom: `${COPILOT_BOTTOM_OFFSET}px`,
-                left: `${COPILOT_BOTTOM_OFFSET}px`,
-              }
-            : {
-                top: `${position.y}px`,
-                left: `${position.x}px`,
-              }
+          : {
+              top: `${position.y}px`,
+              left: `${position.x}px`,
+            }
       }
     >
       {isOpen ? (
         <aside
           aria-labelledby={titleId}
-          className="pointer-events-auto surface-popover-solid flex min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-(--guided-edits-panel-border) bg-(--guided-edits-panel-bg) shadow-(--guided-edits-panel-shadow)"
-          data-resume-guided-edits-maximized={isMaximized ? "true" : "false"}
+          aria-modal="false"
+          className="surface-popover-solid guided-edits-panel-enter pointer-events-auto flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-(--guided-edits-panel-border) bg-(--guided-edits-panel-bg) shadow-(--guided-edits-panel-shadow)"
+          data-resume-guided-edits-panel="true"
           id={panelId}
+          ref={panelRef}
           role="dialog"
           style={{
-            width: isMaximized
-              ? `calc(100vw - ${COPILOT_BOTTOM_OFFSET * 2}px)`
-              : `${panelDimensions.expandedWidth}px`,
-            height: isMaximized
-              ? `calc(100vh - ${safeTopOffset + COPILOT_BOTTOM_OFFSET}px)`
-              : `${panelDimensions.expandedHeight}px`,
-            maxWidth: "calc(100vw - 2rem)",
+            width: `${panelDimensions.expandedWidth}px`,
+            height: `${panelDimensions.expandedHeight}px`,
+            maxWidth: `calc(100vw - ${viewportInset * 2}px)`,
             maxHeight: `calc(100vh - ${safeTopOffset + COPILOT_BOTTOM_OFFSET}px)`,
           }}
         >
-          <header
-            aria-label="Drag guided edits"
-            className={cn(
-              "flex touch-none select-none items-center justify-between gap-3 border-b border-border/30 px-5 py-4",
-              isMaximized
-                ? "cursor-default"
-                : "cursor-grab active:cursor-grabbing",
-            )}
-            onPointerCancel={cancelDrag}
-            onPointerDown={beginDrag}
-            onPointerMove={updateDrag}
-            onPointerUp={finishDrag}
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <GripHorizontal
-                aria-hidden="true"
-                className="size-4 shrink-0 text-muted-foreground"
-              />
-              <div className="flex size-9 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
-                <MessageSquare className="size-4" />
-              </div>
-              <div className="min-w-0">
-                <h2
-                  className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary"
-                  id={titleId}
-                >
-                  Guided edits
-                </h2>
-                <p className="text-sm text-foreground-soft">
-                  Ask for grounded resume edits for this job.
-                </p>
-              </div>
-            </div>
-            <div className="ml-auto flex shrink-0 items-center gap-1">
-              <Button
-                aria-label={
-                  isMaximized ? "Restore guided edits" : "Maximize guided edits"
-                }
-                onClick={toggleMaximized}
-                size="icon-xs"
-                title={
-                  isMaximized ? "Restore guided edits" : "Maximize guided edits"
-                }
-                type="button"
-                variant="ghost"
-              >
-                {isMaximized ? (
-                  <Minimize2 className="size-3.5" />
-                ) : (
-                  <Maximize2 className="size-3.5" />
-                )}
-              </Button>
+          <ResumeAssistantPanel
+            assistantMessages={props.assistantMessages}
+            assistantPending={props.assistantPending}
+            composerId={composerId}
+            draft={props.draft ?? null}
+            headerActions={
+              /* Minimizing is the only way back to the full-width preview, so
+                 it may not be the least visible control on the panel. It uses
+                 the same bordered treatment every dialog close control uses
+                 instead of a bare ghost icon. */
               <Button
                 aria-controls={panelId}
                 aria-expanded={isOpen}
-                aria-label="Minimize guided edits"
+                aria-label="Minimize the Assistant"
+                className="border border-(--border-strong) text-foreground"
+                data-resume-guided-edits-minimize
                 onClick={toggleOpen}
                 size="icon-xs"
-                title="Minimize guided edits"
+                title="Minimize the Assistant"
                 type="button"
                 variant="ghost"
               >
-                <X className="size-3.5" />
+                <Minus className="size-3.5" />
               </Button>
-            </div>
-          </header>
-
-          <div className="flex min-h-0 flex-1 flex-col">
-            <ScrollArea
-              className="min-h-0 flex-1"
-              viewportRef={transcriptViewportRef}
-            >
-              <div
-                aria-live="polite"
-                aria-relevant="additions text"
-                className="grid gap-3 px-4 py-4"
-                role="log"
-              >
-                {props.assistantMessages.length ? (
-                  props.assistantMessages.map((message) => {
-                    const isAssistant = message.role === "assistant";
-
-                    return (
-                      <article
-                        className={cn(
-                          "grid max-w-full gap-2",
-                          isAssistant
-                            ? "justify-items-start"
-                            : "justify-items-end",
-                        )}
-                        key={message.id}
-                      >
-                        <div
-                          className={cn(
-                            "max-w-full rounded-(--radius-field) border px-3 py-3 text-sm leading-6 shadow-[inset_0_1px_0_var(--surface-inset-highlight)]",
-                            isAssistant
-                              ? "border-primary/25 bg-primary/10 text-foreground"
-                              : "surface-card-tint border-(--surface-panel-border) text-foreground-soft",
-                          )}
-                        >
-                          <div className="mb-2 flex items-center gap-2 text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                            {isAssistant ? (
-                              <Sparkles className="size-3.5" />
-                            ) : null}
-                            <span>{isAssistant ? "Assistant" : "You"}</span>
-                            <span>{formatTimestamp(message.createdAt)}</span>
-                          </div>
-                          <p className="whitespace-pre-wrap break-words">
-                            {message.content}
-                          </p>
-                          {message.executionAttribution?.fallbackUsed ? (
-                            <p className="mt-2 text-(length:--text-tiny) text-muted-foreground">
-                              AI was unavailable, so Guided Edits used the
-                              built-in safe fallback for this reply.
-                            </p>
-                          ) : null}
-                          {isAssistant &&
-                          props.draft &&
-                          props.onResolveProposal &&
-                          message.proposalStatus !== "none" ? (
-                            <ResumeAssistantProposalCard
-                              draft={props.draft}
-                              isPending={props.isWorkspacePending}
-                              message={message}
-                              onResolve={props.onResolveProposal}
-                              validation={props.validation ?? null}
-                            />
-                          ) : null}
-                        </div>
-                      </article>
-                    );
-                  })
-                ) : (
-                  <div className="flex min-h-48 items-center justify-center">
-                    <div className="grid max-w-72 gap-3 text-center">
-                      <div className="surface-card-tint mx-auto flex size-11 items-center justify-center rounded-full border border-(--surface-panel-border) text-muted-foreground">
-                        <MessageSquare className="size-4" />
-                      </div>
-                      <p className="font-display text-sm text-foreground">
-                        No edit requests yet
-                      </p>
-                      <p className="text-sm leading-6 text-foreground-soft">
-                        Ask for a tighter summary, stronger bullets, or clearer
-                        job-specific wording.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {props.assistantPending ? (
-                  <article className="grid justify-items-start gap-2">
-                    <div className="max-w-full rounded-(--radius-field) border border-primary/25 bg-primary/10 px-3 py-3 text-sm leading-6 text-foreground shadow-[inset_0_1px_0_var(--surface-inset-highlight)]">
-                      <ThinkingDots
-                        label="Assistant thinking"
-                        className="mb-2"
-                      />
-                      <p>
-                        Working on grounded edits while keeping the resume
-                        studio usable.
-                      </p>
-                    </div>
-                  </article>
-                ) : null}
-              </div>
-            </ScrollArea>
-
-            <div className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) p-4">
-              <div className="grid gap-3">
-                <div className="grid min-w-0 gap-2">
-                  <FieldLabel htmlFor={composerId}>
-                    Request a resume edit
-                  </FieldLabel>
-                  <Textarea
-                    className="min-w-0"
-                    data-testid="resume-assistant-input"
-                    id={composerId}
-                    onChange={(event) => setInput(event.currentTarget.value)}
-                    onKeyDown={handleComposerKeyDown}
-                    placeholder="Example: tighten the summary, strengthen one experience bullet, or rewrite a section for this job..."
-                    rows={4}
-                    value={input}
-                  />
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-(length:--text-tiny) text-muted-foreground">
-                    {props.assistantPending
-                      ? "Assistant is thinking. You can keep typing or move this chat while it works."
-                      : "Press Enter to send. Shift+Enter adds a new line. Drag the panel header to move it."}
-                  </p>
-                  <Button
-                    className="min-w-28 px-4"
-                    disabled={
-                      props.isWorkspacePending ||
-                      props.assistantPending ||
-                      input.trim().length === 0
-                    }
-                    onClick={handleSend}
-                    type="button"
-                  >
-                    {props.assistantPending ? "Thinking..." : "Send request"}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
+            }
+            headerLeading={
+              <GripHorizontal
+                aria-hidden="true"
+                className="size-3.5 shrink-0 text-muted-foreground"
+              />
+            }
+            headerProps={{
+              "aria-label": "Drag the Assistant",
+              className:
+                "cursor-grab touch-none select-none active:cursor-grabbing",
+              onPointerCancel: cancelDrag,
+              onPointerDown: beginDrag,
+              onPointerMove: updateDrag,
+              onPointerUp: finishDrag,
+            }}
+            isWorkspacePending={props.isWorkspacePending}
+            {...(props.onEditProposalWording
+              ? { onEditProposalWording: props.onEditProposalWording }
+              : {})}
+            {...(props.onReloadWorkspace
+              ? { onReloadWorkspace: props.onReloadWorkspace }
+              : {})}
+            {...(props.onRegenerateDraft
+              ? { onRegenerateDraft: props.onRegenerateDraft }
+              : {})}
+            {...(props.onResolveProposal
+              ? { onResolveProposal: props.onResolveProposal }
+              : {})}
+            onSendAssistantMessage={props.onSendAssistantMessage}
+            titleId={titleId}
+            transcriptViewportRef={transcriptViewportRef}
+            validation={props.validation ?? null}
+          />
         </aside>
       ) : null}
 
@@ -632,20 +689,27 @@ export function ResumeGuidedEditsPopup(props: {
         <Button
           aria-label={
             props.assistantPending
-              ? "Open guided edits, reply in progress"
+              ? "Open the Assistant, reply in progress"
               : props.assistantMessages.length > 0
-                ? "Open guided edits, continue thread"
-                : "Open guided edits"
+                ? "Open the Assistant, unread activity in this thread"
+                : "Open the Assistant"
           }
           aria-expanded={false}
           aria-haspopup="dialog"
-          className="pointer-events-auto relative size-12 shrink-0 rounded-full p-0 shadow-(--guided-edits-bubble-shadow)"
+          // Same pill geometry as the Profile Copilot launcher: one labelled
+          // launcher style across the app instead of an unlabelled circle here
+          // and a named pill there.
+          className="pointer-events-auto relative size-12 min-h-12 shrink-0 touch-none select-none rounded-full p-0 shadow-(--guided-edits-bubble-shadow) sm:h-12 sm:w-auto sm:min-w-12 sm:px-3"
           onClick={handleBubbleClick}
           onPointerCancel={cancelDrag}
           onPointerDown={beginDrag}
           onPointerMove={updateDrag}
           onPointerUp={finishDrag}
-          title="Open guided edits"
+          title={
+            props.assistantPending
+              ? "The Assistant is working on your request — open to watch the thread"
+              : "Open the Assistant"
+          }
           type="button"
           variant={
             props.assistantMessages.length > 0 || props.assistantPending
@@ -656,11 +720,30 @@ export function ResumeGuidedEditsPopup(props: {
           <span className="flex size-9 items-center justify-center rounded-full border border-current/15 bg-background/15">
             <MessageSquare className="size-4" />
           </span>
-          {props.assistantPending || props.assistantMessages.length > 0 ? (
+          <span className="hidden items-center gap-1.5 text-xs font-semibold sm:inline-flex">
+            {props.assistantPending ? (
+              <>
+                {/* A static word looked stalled while the thread was
+                    minimized; a moving indicator shows the request is alive. */}
+                <Sparkles
+                  aria-hidden="true"
+                  className="size-3.5 animate-pulse"
+                />
+                Working
+              </>
+            ) : (
+              "Assistant"
+            )}
+          </span>
+          {/* An unexplained dot could mean an unread reply, a proposal waiting
+              for a decision, or a change already applied. It now says which. */}
+          {launcherBadgeLabel ? (
             <span
-              aria-hidden="true"
               className="absolute right-0.5 top-0.5 size-2.5 rounded-full border-2 border-background bg-primary"
-            />
+              title={launcherBadgeLabel}
+            >
+              <span className="sr-only">{launcherBadgeLabel}</span>
+            </span>
           ) : null}
         </Button>
       ) : null}

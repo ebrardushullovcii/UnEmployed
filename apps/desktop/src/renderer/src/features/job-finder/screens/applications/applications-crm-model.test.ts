@@ -35,17 +35,17 @@ describe("application CRM renderer model", () => {
     });
 
     expect(inferApplicationCrmStageForView(legacyRecord)).toBe("applied");
-    expect(applicationCrmStageLabelForView(legacyRecord)).toBe(
-      "Applied (local historical inference)",
-    );
+    // Implementation vocabulary stays out of the cell; provenance keeps its
+    // own plain-language badge.
+    expect(applicationCrmStageLabelForView(legacyRecord)).toBe("Applied");
     expect(applicationCrmStageProvenanceForView(legacyRecord)).toBe(
-      "Local historical inference",
+      "From your activity",
     );
     expect(applicationCrmStageLabelForView(explicitRecord)).toBe(
       "Applied (user recorded)",
     );
     expect(applicationCrmStageProvenanceForView(explicitRecord)).toBe(
-      "User recorded",
+      "You recorded this",
     );
     expect(APPLICATION_CRM_STAGE_LABELS.applied).toBe(
       "Applied (user recorded)",
@@ -54,6 +54,22 @@ describe("application CRM renderer model", () => {
       "Interview (user recorded)",
     );
     expect(legacyRecord.crm).toBeNull();
+  });
+
+  test("never reports a paused, blocked application as ready for approval", () => {
+    // The Stages tab said "Ready for approval" while the Preparation tab said
+    // Needs you about the very same application.
+    const pausedRecord = record({
+      status: "approved",
+      lastAttemptState: "paused",
+      latestBlocker: {
+        code: "requires_manual_review",
+        summary: "The application page could not safely save a prepared field.",
+      },
+    });
+
+    expect(inferApplicationCrmStageForView(pausedRecord)).toBe("preparing");
+    expect(applicationCrmStageLabelForView(pausedRecord)).toBe("Preparing");
   });
 
   test("groups records into all lifecycle columns", () => {

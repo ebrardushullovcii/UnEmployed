@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   BrowserSessionState,
   ApplicationRecord,
@@ -32,11 +25,18 @@ import { PageHeader } from "../../components/page-header";
 import { Button } from "@renderer/components/ui/button";
 import { EmptyState } from "../../components/empty-state";
 import { StatusBadge } from "../../components/status-badge";
+import { MatchEvidenceMatrix } from "../../components/match-evidence-matrix";
 import { jobDescriptionToText } from "../../lib/job-description-text";
+import {
+  formatJobEmployerLocationLine,
+  scrubJobAbsencePlaceholdersList,
+} from "../../lib/job-employer-location-display";
+import { getMatchAssessmentPresentation } from "../../lib/match-assessment-presentation";
 import {
   getDisplayedResumeProgress,
   getNextDisplayedResumeProgress,
   rememberDisplayedResumeProgress,
+  RESUME_OPERATION_LONG_RUNNING_MS,
 } from "./review-queue-progress";
 import {
   readReviewQueueBatchSelection,
@@ -48,11 +48,6 @@ import { ReviewQueueMissionPanel } from "./review-queue-mission-panel";
 import { ReviewQueuePreviewPanel } from "./review-queue-preview-panel";
 import type { TailoredDraftPreparationViewState } from "./review-queue-status";
 
-const workspaceTabs = [
-  ["readiness", "Readiness"],
-  ["resume", "Resume"],
-  ["job-details", "Job details"],
-] as const;
 const workspacePanelId = "review-queue-workspace-panel";
 
 /**
@@ -194,12 +189,12 @@ export function ReviewQueueScreen(props: {
       ),
     );
   }
-  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<
-    "readiness" | "resume" | "job-details"
-  >("readiness");
   const selectedJobPending = selectedItem
     ? isJobPending(selectedItem.jobId)
     : false;
+  const selectedJobId = selectedItem?.jobId ?? null;
+  const [selectedJobPendingTooLong, setSelectedJobPendingTooLong] =
+    useState(false);
   const [displayedProgress, setDisplayedProgress] = useState(() =>
     getDisplayedResumeProgress(selectedItem, selectedJobPending),
   );
@@ -230,12 +225,51 @@ export function ReviewQueueScreen(props: {
     selectedItem,
     selectedAsset,
   );
+  const selectedJobEmployerLocationLine = selectedJob
+    ? formatJobEmployerLocationLine({
+        company: selectedJob.company,
+        location: selectedJob.location,
+        canonicalUrl: selectedJob.canonicalUrl,
+      })
+    : "";
+  const selectedJobFitReasons = selectedJob
+    ? scrubJobAbsencePlaceholdersList(selectedJob.matchAssessment.reasons)
+    : [];
+  const selectedJobAssessment = selectedJob
+    ? getMatchAssessmentPresentation(selectedJob)
+    : null;
+  // A "summary" that only repeats the job title is not listing text.
+  const selectedJobSummaryText = (() => {
+    if (!selectedJob) {
+      return "";
+    }
+    const text = jobDescriptionToText(
+      selectedJob.summary ?? selectedJob.description,
+    ).trim();
+    return text.toLowerCase() === selectedJob.title.trim().toLowerCase()
+      ? ""
+      : text;
+  })();
 
   useEffect(() => {
     setDisplayedProgress(
       getDisplayedResumeProgress(selectedItem, selectedJobPending),
     );
   }, [selectedItem, selectedJobPending]);
+
+  useEffect(() => {
+    setSelectedJobPendingTooLong(false);
+
+    if (!selectedJobPending || selectedJobId === null) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSelectedJobPendingTooLong(true);
+    }, RESUME_OPERATION_LONG_RUNNING_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [selectedJobId, selectedJobPending]);
 
   useEffect(() => {
     if (!selectedJobPending) {
@@ -309,51 +343,10 @@ export function ReviewQueueScreen(props: {
     },
     [onStartAutoApplyQueue],
   );
-  const handleWorkspaceTabKeyDown = useCallback(
-    (event: ReactKeyboardEvent<HTMLDivElement>) => {
-      const currentIndex = workspaceTabs.findIndex(
-        ([tab]) => tab === activeWorkspaceTab,
-      );
-
-      if (
-        event.key !== "ArrowRight" &&
-        event.key !== "ArrowLeft" &&
-        event.key !== "Home" &&
-        event.key !== "End"
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-
-      let nextIndex = currentIndex;
-      if (event.key === "ArrowRight") {
-        nextIndex = (currentIndex + 1) % workspaceTabs.length;
-      } else if (event.key === "ArrowLeft") {
-        nextIndex =
-          (currentIndex - 1 + workspaceTabs.length) % workspaceTabs.length;
-      } else if (event.key === "Home") {
-        nextIndex = 0;
-      } else if (event.key === "End") {
-        nextIndex = workspaceTabs.length - 1;
-      }
-
-      const nextTab = workspaceTabs[nextIndex];
-      if (!nextTab) {
-        return;
-      }
-
-      setActiveWorkspaceTab(nextTab[0]);
-      const tabs =
-        event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-      tabs[nextIndex]?.focus();
-    },
-    [activeWorkspaceTab],
-  );
-
   return (
     <LockedScreenLayout
       contentClassName="xl:overflow-hidden"
+      lockContentHeight
       topContent={
         <PageHeader
           compact
@@ -367,7 +360,7 @@ export function ReviewQueueScreen(props: {
         />
       }
     >
-      <div className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(24rem,0.72fr)_minmax(34rem,1fr)] xl:overflow-hidden">
+      <div className="grid min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(24rem,0.72fr)_minmax(34rem,1fr)] xl:overflow-hidden">
         <ReviewQueueListPanel
           draftPreparation={draftPreparation}
           isJobPending={isJobPending}
@@ -381,17 +374,25 @@ export function ReviewQueueScreen(props: {
           tailoredAssets={tailoredAssets}
         />
         <section className="surface-panel-shell flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) xl:h-full">
-          <header className="grid shrink-0 gap-3 border-b border-(--surface-panel-border) px-5 pb-0 pt-4">
+          {/* Pinned: reading a long resume or job description must not scroll
+              away the job title or its state. */}
+          <header className="sticky top-0 z-10 grid shrink-0 gap-1 border-b border-(--surface-panel-border) bg-(--surface-panel) px-5 pb-3 pt-4 xl:static">
             <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="truncate text-lg font-semibold text-(--text-headline)">
+                <h2 className="truncate text-(--text-headline)">
                   {selectedJob?.title ?? "Job workspace"}
                 </h2>
-                <p className="mt-1 truncate text-(length:--text-small) text-foreground-muted">
-                  {selectedJob
-                    ? `${selectedJob.company} · ${selectedJob.location}`
-                    : "Choose a shortlisted job to review it."}
-                </p>
+                {selectedJob ? (
+                  selectedJobEmployerLocationLine ? (
+                    <p className="mt-1 truncate text-(length:--text-small) text-foreground-muted">
+                      {selectedJobEmployerLocationLine}
+                    </p>
+                  ) : null
+                ) : (
+                  <p className="mt-1 truncate text-(length:--text-small) text-foreground-muted">
+                    Choose a shortlisted job to review it.
+                  </p>
+                )}
               </div>
               {selectedItem ? (
                 <StatusBadge tone={selectedWorkflowStatus.tone}>
@@ -399,36 +400,18 @@ export function ReviewQueueScreen(props: {
                 </StatusBadge>
               ) : null}
             </div>
-            <div
-              aria-label="Selected job workspace"
-              className="flex gap-5"
-              onKeyDown={handleWorkspaceTabKeyDown}
-              role="tablist"
-            >
-              {workspaceTabs.map(([tab, label]) => (
-                <button
-                  aria-controls={workspacePanelId}
-                  aria-selected={activeWorkspaceTab === tab}
-                  className={`min-h-10 border-b-2 px-1 text-sm font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40 ${activeWorkspaceTab === tab ? "border-primary text-foreground" : "border-transparent text-foreground-muted hover:text-foreground"}`}
-                  id={`review-queue-workspace-${tab}-tab`}
-                  key={tab}
-                  onClick={() => setActiveWorkspaceTab(tab)}
-                  role="tab"
-                  tabIndex={activeWorkspaceTab === tab ? 0 : -1}
-                  type="button"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
           </header>
+          {/* One column, in the order the work happens: what state this job is
+              in and its one next action, then the resume once it exists, then
+              the job facts. The three tabs split a strictly sequential job
+              across three destinations, two of which were nearly empty. */}
           <div
-            aria-labelledby={`review-queue-workspace-${activeWorkspaceTab}-tab`}
-            className="min-h-0 min-w-0 flex-1 overflow-hidden"
+            className="grid min-h-0 min-w-0 flex-1 content-start gap-4 overflow-x-hidden overflow-y-auto pb-6"
+            data-locked-pane-scroll-region
+            data-testid="review-queue-workspace-column"
             id={workspacePanelId}
-            role="tabpanel"
           >
-            {activeWorkspaceTab === "readiness" ? (
+            {selectedItem ? (
               <ReviewQueueMissionPanel
                 actionMessage={scopedActionMessage}
                 applicationRecords={applicationRecords}
@@ -444,6 +427,7 @@ export function ReviewQueueScreen(props: {
                 embedded
                 isApplyPending={isApplyPending}
                 isJobPending={isJobPending}
+                isSelectedJobPendingTooLong={selectedJobPendingTooLong}
                 isResumeStrategyPending={isResumeStrategyPending}
                 onClearQueueSelection={handleClearQueueSelection}
                 onStartAutoApplyQueue={handleStartAutoApplyQueue}
@@ -468,12 +452,17 @@ export function ReviewQueueScreen(props: {
                 selectedAsset={selectedAsset}
                 selectedItem={selectedItem}
                 selectedJob={selectedJob}
+                stacked
               />
-            ) : activeWorkspaceTab === "resume" ? (
+            ) : null}
+            {selectedItem && (selectedAsset || previewState === "missing") ? (
+              // The resume appears in place once one exists; before that the
+              // tab was a ~600px empty box duplicating the primary above it.
               <ReviewQueuePreviewPanel
                 displayedProgress={displayedProgress}
                 embedded
                 isGenerating={selectedJobPending}
+                isPendingTooLong={selectedJobPendingTooLong}
                 onEditResumeWorkspace={onEditResumeWorkspace}
                 onGenerateResume={onGenerateResume}
                 originalResume={originalResume}
@@ -482,52 +471,87 @@ export function ReviewQueueScreen(props: {
                 selectedAsset={selectedAsset}
                 selectedItem={selectedItem}
                 selectedJob={selectedJob}
+                stacked
               />
-            ) : selectedJob && selectedItem ? (
-              <div
-                className="h-full overflow-y-auto px-6 py-5"
-                data-locked-pane-scroll-region
-              >
+            ) : null}
+            {selectedJob && selectedItem ? (
+              <div className="px-6 pt-2">
                 <div className="grid max-w-3xl gap-6">
-                  <section className="grid gap-2 border-b border-(--surface-panel-border) pb-5">
+                  <section className="grid gap-2 border-t border-(--surface-panel-border) pt-5">
                     <span className="label-mono-xs text-foreground-muted">
-                      Match
+                      About this job
                     </span>
-                    <strong className="text-2xl text-(--text-headline)">
-                      {selectedJob.matchAssessment.score}% fit
-                    </strong>
-                    <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                      {selectedJob.matchAssessment.reasons.join(" · ")}
-                    </p>
+                    {/* An echoed title under a heading looks like a bug; the
+                        listing text only appears when it is real text. */}
+                    {selectedJobSummaryText ? (
+                      <p className="whitespace-pre-line text-(length:--text-body) leading-7 text-foreground-soft">
+                        {selectedJobSummaryText}
+                      </p>
+                    ) : (
+                      <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                        The listing text was not captured. Open the full job
+                        details to read it.
+                      </p>
+                    )}
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <strong
+                        aria-label={
+                          selectedJobAssessment?.headlineScoreAriaLabel
+                        }
+                        className="text-(length:--text-body) text-(--text-headline)"
+                        data-testid="review-queue-fit-score"
+                      >
+                        {/* One shared rule decides whether a percentage was
+                            earned. A withheld score reads as what it is
+                            instead of a confident number above five
+                            "we don't know" rows. */}
+                        {selectedJobAssessment?.headlineScoreLabel}
+                      </strong>
+                      <span className="min-w-0 text-(length:--text-small) leading-6 text-foreground-soft">
+                        {selectedJobAssessment?.withheldReason ??
+                          selectedJobFitReasons[0] ??
+                          "Estimated from the listing and your approved profile."}
+                      </span>
+                    </div>
+                    <Button
+                      className="mt-1 w-fit"
+                      onClick={() => onOpenJobDetails(selectedItem.jobId)}
+                      type="button"
+                      variant="secondary"
+                    >
+                      Open full job details
+                    </Button>
                   </section>
-                  <section className="grid gap-2">
-                    <span className="label-mono-xs text-foreground-muted">
-                      Job summary
-                    </span>
-                    <p className="whitespace-pre-line text-(length:--text-body) leading-7 text-foreground-soft">
-                      {jobDescriptionToText(
-                        selectedJob.summary ?? selectedJob.description,
-                      )}
-                    </p>
-                  </section>
-                  <Button
-                    className="w-fit"
-                    onClick={() => onOpenJobDetails(selectedItem.jobId)}
-                    type="button"
-                    variant="secondary"
-                  >
-                    Open full job details
-                  </Button>
+                  {/* One honest line above, the full reasoning behind a
+                      disclosure: five UNKNOWN cards cost ~900px to say the
+                      listing title was all that could be read. */}
+                  <details className="min-w-0 rounded-(--radius-field) border border-(--surface-panel-border)">
+                    <summary className="cursor-pointer px-4 py-3 text-(length:--text-small) font-medium text-foreground-soft">
+                      How this was scored
+                    </summary>
+                    <div className="px-4 pb-4">
+                      <MatchEvidenceMatrix
+                        assessment={selectedJob.matchAssessment}
+                        // Always authoritative, including the null case: an
+                        // unbound assessment must print no number at all
+                        // rather than fall back to the matrix's own default.
+                        scoreLabel={
+                          selectedJobAssessment?.breakdownScoreLabel ?? null
+                        }
+                      />
+                    </div>
+                  </details>
                 </div>
               </div>
-            ) : (
-              <div className="grid h-full place-items-center p-8">
+            ) : null}
+            {!selectedItem ? (
+              <div className="grid place-items-center p-8">
                 <EmptyState
                   description="Select a shortlisted job to review its details."
                   title="Choose a job"
                 />
               </div>
-            )}
+            ) : null}
           </div>
         </section>
       </div>

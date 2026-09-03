@@ -8,6 +8,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +21,7 @@ import { JobFinderShell } from "./job-finder-shell";
 
 const windowControlsState = {
   isClosable: true,
+  isFullScreen: false,
   isMaximized: false,
   isMinimizable: true,
 } as const;
@@ -56,14 +58,14 @@ function createWorkspace(): JobFinderWorkspaceSnapshot {
 
 async function openTaskCenter() {
   const before = isTaskCenterOpen();
-  fireEvent.click(screen.getByLabelText(/Task center:/));
+  fireEvent.click(screen.getByLabelText(/Tasks:/));
   await waitFor(() => expect(isTaskCenterOpen()).toBe(!before));
 }
 
 function getTaskCenterDetails(): HTMLDetailsElement {
   const details = document.querySelector("details");
   if (!(details instanceof HTMLDetailsElement)) {
-    throw new Error("Task center details element is missing");
+    throw new Error("Tasks details element is missing");
   }
   return details;
 }
@@ -76,6 +78,19 @@ async function openSearchDialog() {
   fireEvent.keyDown(document.body, { ctrlKey: true, key: "k" });
   await screen.findByRole("dialog", {
     name: "Search current plan and workspace",
+  });
+}
+
+/** Only the compact top navigation's More trigger; the sidebar has its own. */
+function getCompactMoreButton(): HTMLElement {
+  const compactNavigation = document.querySelector(
+    "[data-job-finder-compact-navigation]",
+  );
+  if (!compactNavigation) {
+    throw new Error("Expected the compact navigation.");
+  }
+  return within(compactNavigation as HTMLElement).getByRole("button", {
+    name: /^More/u,
   });
 }
 
@@ -134,8 +149,7 @@ describe("JobFinderShell stacked overlay ownership", () => {
     vi.mocked(window.matchMedia).mockImplementation(
       (query) =>
         ({
-          matches:
-            Boolean(options.wide) && query === "(min-width: 1440px)",
+          matches: Boolean(options.wide) && query === "(min-width: 1440px)",
         }) as MediaQueryList,
     );
     return render(
@@ -158,33 +172,25 @@ describe("JobFinderShell stacked overlay ownership", () => {
     await openTaskCenter();
     expect(isTaskCenterOpen()).toBe(true);
 
-    const moreButton = screen.getByRole("button", {
-      name: "More",
-    });
+    const moreButton = getCompactMoreButton();
     fireEvent.click(moreButton);
     expect(screen.getByRole("navigation", { name: "More" }));
 
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(
-      screen.queryByRole("navigation", { name: "More" }),
-    ).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "More" })).toBeNull();
     // The lower layer survives the first Escape.
     expect(isTaskCenterOpen()).toBe(true);
     expect(document.activeElement).toBe(moreButton);
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(isTaskCenterOpen()).toBe(false);
-    expect(document.activeElement).toBe(
-      screen.getByLabelText(/Task center:/),
-    );
+    expect(document.activeElement).toBe(screen.getByLabelText(/Tasks:/));
   });
 
   it("closes the Task Center opened above the Planning menu one layer per Escape", async () => {
     renderShell();
 
-    const moreButton = screen.getByRole("button", {
-      name: "More",
-    });
+    const moreButton = getCompactMoreButton();
     fireEvent.click(moreButton);
     expect(screen.getByRole("navigation", { name: "More" }));
 
@@ -196,9 +202,7 @@ describe("JobFinderShell stacked overlay ownership", () => {
     expect(screen.getByRole("navigation", { name: "More" }));
 
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(
-      screen.queryByRole("navigation", { name: "More" }),
-    ).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "More" })).toBeNull();
     expect(document.activeElement).toBe(moreButton);
   });
 
@@ -220,7 +224,7 @@ describe("JobFinderShell stacked overlay ownership", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(isTaskCenterOpen()).toBe(false);
-    expect(document.activeElement).toBe(screen.getByLabelText(/Task center:/));
+    expect(document.activeElement).toBe(screen.getByLabelText(/Tasks:/));
   });
 
   it("gives the newest layer the first Escape when Task Center stacks above search", async () => {
@@ -275,16 +279,12 @@ describe("JobFinderShell stacked overlay ownership", () => {
   it("still summons search with Cmd+K while the Planning menu owns the surface", async () => {
     renderShell();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "More" }),
-    );
+    fireEvent.click(getCompactMoreButton());
     expect(screen.getByRole("navigation", { name: "More" }));
 
     await openSearchDialog();
 
-    expect(
-      screen.queryByRole("navigation", { name: "More" }),
-    ).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "More" })).toBeNull();
     expect(searchDialogQuery()).not.toBeNull();
   });
 
@@ -316,7 +316,9 @@ describe("JobFinderShell stacked overlay ownership", () => {
     // Simulates any adopted screen modal/dialog (trap hook, Interview
     // delete dialog, activity dialog, copilot panels, rule builder) holding
     // the stack without mounting its screen.
-    let screenModalLayer: ReturnType<typeof acquireJobFinderOverlay> | undefined;
+    let screenModalLayer:
+      | ReturnType<typeof acquireJobFinderOverlay>
+      | undefined;
     act(() => {
       screenModalLayer = acquireJobFinderOverlay(vi.fn());
     });

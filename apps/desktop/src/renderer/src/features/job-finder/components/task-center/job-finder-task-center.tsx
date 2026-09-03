@@ -230,8 +230,8 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
       ref={detailsRef}
     >
       <summary
-        aria-label={`Task center: ${model.activeCount} active`}
-        className="inline-flex h-10 min-h-10 min-w-10 cursor-pointer list-none items-center justify-center gap-2 rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel) px-3 py-2 text-[0.72rem] font-medium text-muted-foreground outline-none transition-colors hover:border-primary/50 hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[0.76rem] xl:px-4 xl:text-(length:--text-small) [&::-webkit-details-marker]:hidden"
+        aria-label={`Tasks: ${model.activeCount} active`}
+        className="inline-flex h-10 min-h-10 min-w-10 cursor-pointer list-none items-center justify-center gap-2 rounded-(--radius-button) border border-(--control-border) bg-(--surface-panel) px-2.5 py-2 text-(length:--text-small) font-medium text-muted-foreground outline-none transition-colors hover:border-primary/50 hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 xl:px-4 xl:text-(length:--text-small) [&::-webkit-details-marker]:hidden"
         onClick={(event) => {
           // The panel state owns openness so overlay ownership and shell
           // shortcut blocking stay truthful; cancel the native summary toggle.
@@ -239,35 +239,36 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
           setIsPanelOpen((open) => !open);
         }}
         ref={summaryRef}
+        title={`Tasks: ${model.activeCount} active`}
       >
         <ListChecks aria-hidden="true" className="size-4 shrink-0" />
-        <span className="hidden whitespace-nowrap min-[900px]:inline min-[1024px]:hidden min-[1120px]:inline">
-          Task center
+        {/* One name at every width. The header said "Tasks" compact and
+            "Task center" at 1440, so the same destination read as two. */}
+        <span className="hidden whitespace-nowrap min-[900px]:inline">
+          Tasks
         </span>
-        <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-[0.65rem] text-foreground tabular-nums">
+        <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-(length:--text-tiny) text-foreground tabular-nums">
           {model.activeCount}
         </span>
       </summary>
 
       <section
-        aria-label="Task center"
+        aria-label="Tasks"
         className="surface-popover-solid fixed inset-x-4 bottom-4 grid max-h-[calc(100vh-14rem)] gap-3 overflow-y-auto rounded-(--radius-panel) border border-(--surface-panel-border) p-4 shadow-(--modal-shadow) xl:absolute xl:inset-x-auto xl:bottom-auto xl:right-0 xl:top-12 xl:max-h-[min(38rem,calc(100vh-8rem))] xl:w-[min(34rem,calc(100vw-2rem))]"
       >
         <div className="flex items-start justify-between gap-3">
           <div className="grid gap-1">
-            <h2 className="font-display text-lg font-semibold text-(--text-headline)">
-              Task center
-            </h2>
+            <h2 className="font-display text-(--text-headline)">Tasks</h2>
             <p className="text-(length:--text-small) leading-5 text-foreground-soft">
               Current and latest job-search, resume, and application work.
               Estimates appear only when completed history exists.
             </p>
           </div>
           <Button
-            aria-label="Close Task center"
+            aria-label="Close Tasks"
             className="shrink-0"
             onClick={() => closePanel(true)}
-            size="icon-sm"
+            size="icon"
             type="button"
             variant="ghost"
           >

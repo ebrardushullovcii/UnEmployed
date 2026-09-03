@@ -14,7 +14,7 @@ Agent-first Electron monorepo for `Job Finder` and `Interview Helper`.
 - Prefer the smallest relevant doc set; do not rescan the repo when canonical docs already answer the question
 - Keep package boundaries typed and schema-validated
 - Do not introduce `any`, deep cross-package imports, or untyped IPC
-- Follow the source-generic discovery rules in `docs/ARCHITECTURE.md`
+- Follow the source-generic discovery, source-debug, and apply-prep rules in `docs/ARCHITECTURE.md` and `docs/adr/0007-source-generic-browser-workflows.md`
 - Keep durable knowledge in `docs/`; keep `AGENTS.md` short and pointer-based
 - Use `docs/STATUS.md`, `docs/TRACKS.md`, and active or queued exec plans as the handoff layer
 - Use `docs/HISTORY.md` and `docs/adr/` for completed context instead of old plan files
@@ -30,7 +30,18 @@ Agent-first Electron monorepo for `Job Finder` and `Interview Helper`.
 
 ## Validation
 
-- Default broad check: `pnpm verify`
+- While the product is still being iterated, batch related fixes, run only the
+  focused checks for touched behavior, build desktop once, and retest the real
+  app. Do not run fingerprints, custody, seals, `pnpm test:evidence`, broad
+  `pnpm verify`, or canonical persona harnesses unless the user explicitly
+  declares a settled release candidate.
+- During Job Finder product iteration, follow the current-build walkthrough and
+  visual-review loop in `docs/TESTING.md`. Optimize for visible flow improvement:
+  one Electron owner, shared screenshots, parallel review, one consolidated fix
+  batch, one rebuild, and a visible before/after handoff. Limit diagnostic
+  persona rounds to two or three users after a major batch. Do not substitute
+  architecture audits, harness work, or repeated narrow tests for using the app.
+- Broad repository or release-candidate check: `pnpm verify`
 - Docs or guidance only: `pnpm validate:docs-only`
 - Package-local code: `pnpm validate:package <alias>`
 

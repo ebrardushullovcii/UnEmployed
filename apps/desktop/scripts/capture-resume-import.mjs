@@ -128,7 +128,7 @@ async function captureResumeImport() {
     failIfExpectationMisses(reloadedSnapshot)
     await writeJson('workspace-after-reload.json', reloadedSnapshot)
 
-    await window.getByRole('tab', { name: /Experience/i }).click()
+    await window.getByRole('tab', { name: /Work history/i }).click()
     await window.getByRole('heading', { level: 2, name: 'Work history' }).waitFor({ timeout: 15000 })
 
     const visibleExperienceCards = await window.evaluate(() => {

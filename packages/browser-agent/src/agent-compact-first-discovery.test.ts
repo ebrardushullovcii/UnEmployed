@@ -2,10 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { Page } from "playwright";
 import type { BrowserAgentRunCheckpoint } from "@unemployed/contracts";
 import { runAgentDiscovery, type JobExtractor, type LLMClient } from "./agent";
-import {
-  createConfig,
-  createToolCall,
-} from "./agent.test-fixtures";
+import { createConfig, createToolCall } from "./agent.test-fixtures";
 import type { AgentMessage } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -27,6 +24,8 @@ interface FakeScanPayload {
     href?: string | null;
     containerKey?: string | null;
     jobIdHint?: string | null;
+    companyHref?: string | null;
+    companyLabel?: string | null;
   }>;
 }
 
@@ -250,8 +249,7 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
     const config = createOrdinaryConfig({ targetJobCount: 2 });
     const result = await runAgentDiscovery(
       createCompactFirstFakePage({
-        bodyText:
-          `RawBodyMarker Search jobs Apply Job description Frontend Engineer Acme Remote. ${"Responsibilities include React and TypeScript. Qualifications include browser automation. ".repeat(12)}`,
+        bodyText: `RawBodyMarker Search jobs Apply Job description Frontend Engineer Acme Remote. ${"Responsibilities include React and TypeScript. Qualifications include browser automation. ".repeat(12)}`,
         snapshot: '- list:\n  - link "SecretSnapshotMarker"',
         scanPayload: {
           elements: [
@@ -286,7 +284,9 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
     expect(compactLine).not.toContain("SecretSnapshotMarker");
     expect(compactLine).toContain("snapshot-scoped proposals");
 
-    const summary = JSON.parse(extractCompactSummaryJsonLine(result.reviewTranscript)) as Record<string, unknown>;
+    const summary = JSON.parse(
+      extractCompactSummaryJsonLine(result.reviewTranscript),
+    ) as Record<string, unknown>;
     expect(summary.kind).toBe("supported");
     expect(summary.postingCandidateCount).toBe(1);
     expect(Object.keys(summary)).not.toContain("textSample");
@@ -309,6 +309,66 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
           message.content.includes("[compact page scan]"),
       ),
     ).toBe(true);
+  });
+
+  test("keeps checkpointed compact jobs as a truthful partial result when model expansion is unavailable", async () => {
+    const llmClient: LLMClient = {
+      chatWithTools: vi.fn(async () => {
+        throw new Error("AI client does not support tool calling");
+      }),
+    };
+    const jobExtractor: JobExtractor = {
+      extractJobsFromPage: vi.fn(async () => []),
+    };
+
+    const result = await runAgentDiscovery(
+      createCompactFirstFakePage({
+        scanPayload: {
+          elements: [
+            {
+              role: "link",
+              accessibleName: "Frontend Engineer",
+              href: "https://www.linkedin.com/jobs/view/438900011",
+              containerKey: null,
+              jobIdHint: "438900011",
+            },
+          ],
+        },
+      }),
+      createOrdinaryConfig({ targetJobCount: 50 }),
+      llmClient,
+      jobExtractor,
+    );
+
+    expect(llmClient.chatWithTools).toHaveBeenCalledTimes(1);
+    expect(result.jobs).toHaveLength(1);
+    expect(result.jobs[0]?.sourceJobId).toBe("438900011");
+    expect(result.incomplete).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(result.warning).toBe(
+      "Deterministic page discovery kept partial results, but model-assisted expansion was unavailable.",
+    );
+    expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(0);
+  });
+
+  test("keeps model expansion failure fatal when compact discovery retained no jobs", async () => {
+    const llmClient: LLMClient = {
+      chatWithTools: vi.fn(async () => {
+        throw new Error("AI client does not support tool calling");
+      }),
+    };
+
+    const result = await runAgentDiscovery(
+      createCompactFirstFakePage({ scanPayload: { elements: [] } }),
+      createOrdinaryConfig({ targetJobCount: 50 }),
+      llmClient,
+      { extractJobsFromPage: vi.fn(async () => []) },
+    );
+
+    expect(llmClient.chatWithTools).toHaveBeenCalledTimes(1);
+    expect(result.jobs).toHaveLength(0);
+    expect(result.warning).toBeUndefined();
+    expect(result.error).toContain("LLM call failed after 3 attempts");
   });
 
   test("unsupported observation falls back instead of failing and its summary stays bounded and sanitized", async () => {
@@ -490,7 +550,9 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
       "Routes verified without the deterministic tier.",
     );
     expect(
-      compactProgressActions.filter((action) => action === "compact_page_observation"),
+      compactProgressActions.filter(
+        (action) => action === "compact_page_observation",
+      ),
     ).toHaveLength(0);
   });
 
@@ -564,5 +626,74 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
     expect(result.error).toBeUndefined();
     expect(result.jobs).toHaveLength(0);
     expect(progressActions).not.toContain("compact_page_observation");
+  });
+
+  test("multi-job board scan payload binds employers before checkpointing", async () => {
+    const journal: JournalEntry[] = [];
+    const llmClient: LLMClient = { chatWithTools: vi.fn() };
+    const jobExtractor: JobExtractor = {
+      extractJobsFromPage: vi.fn(async () => []),
+    };
+
+    const config = createOrdinaryConfig({ targetJobCount: 2 });
+    config.startingUrls = [
+      "https://wellfound.com/role/l/data-engineer/san-francisco",
+    ];
+    config.navigationPolicy = {
+      allowedHostnames: ["wellfound.com", "www.wellfound.com"],
+    };
+    config.promptContext = { siteLabel: "Wellfound" };
+    config.onCheckpoint = async (checkpoint) => {
+      journal.push({ kind: "checkpoint", revision: checkpoint.revision });
+    };
+
+    const result = await runAgentDiscovery(
+      createCompactFirstFakePage({
+        url: "https://wellfound.com/role/l/data-engineer/san-francisco",
+        scanPayload: {
+          elements: [
+            {
+              role: "link",
+              accessibleName: "Data Engineer",
+              href: "https://wellfound.com/jobs/4505800-data-engineer",
+              containerKey: null,
+              jobIdHint: null,
+              companyHref: "https://wellfound.com/company/sigma-computing-2",
+              companyLabel: "Sigma Computing",
+            },
+            {
+              role: "link",
+              accessibleName: "Customer Deployment Engineer",
+              href: "https://wellfound.com/jobs/4475735-customer-deployment-engineer",
+              containerKey: null,
+              jobIdHint: null,
+              companyHref: "https://wellfound.com/company/sigma-computing-2",
+              companyLabel: "Sigma Computing",
+            },
+          ],
+        },
+      }),
+      config,
+      llmClient,
+      jobExtractor,
+      (progress) => {
+        journal.push({
+          kind: "progress",
+          action: progress.currentAction,
+          message: progress.message,
+        });
+      },
+    );
+
+    expect(result.jobs).toHaveLength(2);
+    expect(result.jobs.every((job) => job.company === "Sigma Computing")).toBe(
+      true,
+    );
+    expect(
+      result.jobs.every((job) => job.company !== "Employer not stated"),
+    ).toBe(true);
+    expect(llmClient.chatWithTools).not.toHaveBeenCalled();
+    expect(jobExtractor.extractJobsFromPage).not.toHaveBeenCalled();
+    expect(journal.some((entry) => entry.kind === "checkpoint")).toBe(true);
   });
 });

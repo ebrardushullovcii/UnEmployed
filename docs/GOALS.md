@@ -43,6 +43,12 @@ discovery engine, browser control, profile-editing tools, resume editor, agent
 loops, and supporting libraries should be replaced when a measured alternative
 is materially simpler, more reliable, more truthful, or more effective.
 
+Implementation constraint: users pick and enable sources; discovery,
+source-debug, and apply preparation must improve generically through shared
+browser policy, typed evidence, and learned target instructions—not per-board
+route builders, triage overrides, or rescue branches in shared orchestration.
+See [ARCHITECTURE.md](ARCHITECTURE.md) and [ADR 0007](adr/0007-source-generic-browser-workflows.md).
+
 ### Product Outcomes
 
 - A first-time user can import a resume, correct the resulting profile, configure

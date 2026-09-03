@@ -16,6 +16,7 @@ import {
   profileSelectTriggerClassName,
 } from "./profile-form-primitives";
 import { ProfileListEditor } from "./profile-list-editor";
+import { PROFILE_WORK_CONSTRAINT_COPY } from "./profile-work-constraints-copy";
 import {
   PROFILE_SECTION_SCROLL_AREA_ID,
   computeProfileDeepLinkScrollTop,
@@ -102,7 +103,7 @@ export function ProfilePreferencesTargetingSection(props: {
   return (
     <section className="grid content-start gap-(--gap-card)">
       <ProfileSectionHeader
-        eyebrow="Targeting"
+        eyebrow="Job targets"
         title="Job preferences"
         description="Use this section to specify the roles, locations, and companies to focus on."
       />
@@ -164,7 +165,7 @@ export function ProfilePreferencesTargetingSection(props: {
       </article>
 
       <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-        <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">
+        <h3 className="font-semibold text-(--text-headline)">
           Location preferences
         </h3>
         <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
@@ -193,7 +194,7 @@ export function ProfilePreferencesTargetingSection(props: {
       </article>
 
       <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-        <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">
+        <h3 className="font-semibold text-(--text-headline)">
           Company preferences
         </h3>
         <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
@@ -248,9 +249,16 @@ export function ProfilePreferencesTargetingSection(props: {
         </div>
       </article>
 
-      <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
+      <article
+        className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4 scroll-mt-4 sm:scroll-mt-[8.25rem] xl:scroll-mt-4"
+        id="profile-work-modes"
+      >
         <div className="grid gap-1">
-          <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">
+          <h3
+            className="scroll-mt-4 text-[0.98rem] font-semibold text-(--text-headline) outline-none sm:scroll-mt-[8.25rem] xl:scroll-mt-4"
+            id="profile-work-modes-heading"
+            tabIndex={-1}
+          >
             Work mode and compensation
           </h3>
           <p className="text-sm leading-relaxed text-foreground-muted">
@@ -283,31 +291,43 @@ export function ProfilePreferencesTargetingSection(props: {
         </div>
         <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
           <fieldset
+            aria-describedby="profile-work-modes-description"
             className="grid gap-(--gap-field) md:col-span-2"
             id="profile-setup-field-search-preferences-work-modes"
           >
             <legend className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
-              Work modes
+              {PROFILE_WORK_CONSTRAINT_COPY.workModes.label}
             </legend>
+            <p
+              className="text-sm leading-6 text-foreground-soft"
+              id="profile-work-modes-description"
+            >
+              {PROFILE_WORK_CONSTRAINT_COPY.workModes.description}
+            </p>
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               {workModeValues.map((workMode) => (
                 <Controller
                   key={workMode}
                   control={control}
                   name="workModes"
-                  render={({ field }) => (
-                    <CheckboxField
-                      checked={field.value.includes(workMode)}
-                      label={formatStatusLabel(workMode)}
-                      onCheckedChange={(checked) =>
-                        field.onChange(
-                          checked
-                            ? [...field.value, workMode]
-                            : field.value.filter((value) => value !== workMode),
-                        )
-                      }
-                    />
-                  )}
+                  render={({ field }) => {
+                    const selectedWorkModes = field.value ?? [];
+                    return (
+                      <CheckboxField
+                        checked={selectedWorkModes.includes(workMode)}
+                        label={formatStatusLabel(workMode)}
+                        onCheckedChange={(checked) =>
+                          field.onChange(
+                            checked
+                              ? [...selectedWorkModes, workMode]
+                              : selectedWorkModes.filter(
+                                  (value) => value !== workMode,
+                                ),
+                          )
+                        }
+                      />
+                    );
+                  }}
                 />
               ))}
             </div>
@@ -416,7 +436,7 @@ export function ProfilePreferencesTargetingSection(props: {
 
       <article className="surface-card-tint grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
         <div>
-          <h3 className="text-[0.98rem] font-semibold text-(--text-headline)">
+          <h3 className="font-semibold text-(--text-headline)">
             How broadly should Job Finder collect?
           </h3>
           <p className="mt-1 text-[0.9rem] leading-6 text-foreground-soft">

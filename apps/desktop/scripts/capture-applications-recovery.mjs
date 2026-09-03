@@ -240,18 +240,18 @@ async function approveResumeForReadyJob(window) {
 
 async function startInitialCopilotRun(window) {
   const startApplyCopilotButton = window.getByRole("button", {
-    name: /^(?:Start apply copilot|Prepare application)$/,
+    name: "Prepare application",
   });
   await startApplyCopilotButton.waitFor({ timeout: 10000 });
   await startApplyCopilotButton.click();
   const checkpointDialog = window.getByRole("dialog");
   await checkpointDialog.waitFor({ timeout: 10000 });
   await checkpointDialog
-    .getByRole("button", { name: "Continue without" })
+    .getByRole("button", { name: "Prepare application", exact: true })
     .click();
   await waitForCondition(async () => {
     return (await getWorkspace(window)).applicationRecords.length > 0;
-  }, "application record created by Apply Copilot");
+  }, "application record created by the prepare-only run");
   await window.evaluate(() => {
     window.location.hash = "#/job-finder/applications";
   });
@@ -376,16 +376,16 @@ async function captureApplicationsRecovery() {
       ),
     });
 
-    const rerunCopilotButton = window.getByRole("button", {
-      name: "Rerun apply copilot",
+    const rerunPreparationButton = window.getByRole("button", {
+      name: "Prepare this job automatically",
     });
-    await rerunCopilotButton.scrollIntoViewIfNeeded();
-    await rerunCopilotButton.waitFor({ timeout: 10000 });
-    await rerunCopilotButton.click();
+    await rerunPreparationButton.scrollIntoViewIfNeeded();
+    await rerunPreparationButton.waitFor({ timeout: 10000 });
+    await rerunPreparationButton.click();
     const rerunCheckpointDialog = window.getByRole("dialog");
     await rerunCheckpointDialog.waitFor({ timeout: 10000 });
     await rerunCheckpointDialog
-      .getByRole("button", { name: "Continue without" })
+      .getByRole("button", { name: "Prepare application", exact: true })
       .click();
     await waitForCondition(async () => {
       const workspace = await getWorkspace(window);

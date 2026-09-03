@@ -25,7 +25,8 @@ function normalizeCount(value: number): number {
 }
 
 /**
- * Compact, truthful count phrasing for one discovery run's result volume.
+ * Compact, truthful count phrasing for one discovery run's result volume,
+ * meaning everything the run saved to this device.
  *
  * `distinctJobsRetained` is authoritative and shown directly; it must already
  * exclude duplicates, so this formatter never subtracts one count from
@@ -38,9 +39,14 @@ export function formatDiscoveryRunCountLabel(
 ): string {
   const retained = normalizeCount(evidence.distinctJobsRetained);
   const duplicatesMerged = normalizeCount(evidence.duplicatesMerged);
+  // "Saved", never "kept". This is the device-level population — everything
+  // the run added to the workspace — while "kept" belongs to the smaller
+  // population the active search plan holds. Home printed both numbers with
+  // the same verb, so "50 new jobs kept" and "the 15 kept in your current
+  // search plan" read as a contradiction rather than two different facts.
   const retainedLabel = `${retained} new ${
     retained === 1 ? "job" : "jobs"
-  } kept`;
+  } saved`;
 
   if (duplicatesMerged > 0) {
     const duplicateLabel =
@@ -86,8 +92,9 @@ export function getDiscoveryRunCountEvidence(
   run: DiscoveryRunRecord | null,
   liveEvent: DiscoveryActivityEvent | null,
 ): DiscoveryRunCountEvidence {
-  const summaryRetained = readCount(run?.summary.validJobsFound);
-  const summaryDuplicates = readCount(run?.summary.duplicatesMerged);
+  // Partial fixtures and legacy rows can reach here without a summary.
+  const summaryRetained = readCount(run?.summary?.validJobsFound);
+  const summaryDuplicates = readCount(run?.summary?.duplicatesMerged);
 
   if (summaryRetained > 0 || summaryDuplicates > 0) {
     return {
@@ -106,4 +113,87 @@ export function getDiscoveryRunCountEvidence(
   }
 
   return { distinctJobsRetained: 0, duplicatesMerged: 0 };
+}
+
+export interface DiscoveryResultBandCounts {
+  /** Results the app is willing to recommend opening. */
+  worthOpening: number;
+  /** Weaker matches plus clear mismatches, kept but not recommended. */
+  alsoFound: number;
+}
+
+/**
+ * The banded phrasing for one search's kept results.
+ *
+ * This is the SAME population the run-count sentence describes, split by how
+ * strongly the app recommends each row:
+ *
+ *     kept === worthOpening + alsoFound
+ *
+ * Every surface that talks about a finished search uses one of these two
+ * formatters, so "15 jobs kept in this search plan" and "2 worth opening · 13 also
+ * found" can
+ * never disagree about the total. Nothing anywhere may report a raw reviewed
+ * volume (the 50 listings a run looked at) as if it were a result count.
+ */
+export function formatDiscoveryResultBandLabel(
+  counts: DiscoveryResultBandCounts,
+): string {
+  const worthOpening = normalizeCount(counts.worthOpening);
+  const alsoFound = normalizeCount(counts.alsoFound);
+
+  if (alsoFound > 0) {
+    return `${worthOpening} worth opening · ${alsoFound} also found`;
+  }
+
+  return `${worthOpening} ${worthOpening === 1 ? "job" : "jobs"}`;
+}
+
+/**
+ * The reconciling sentence that lets a user connect the banded headline with
+ * the "kept" count Home prints.
+ *
+ * "Kept" means one thing everywhere: the jobs the current search plan holds,
+ * which is exactly the population this list shows. A search can save more
+ * listings to the device than the active plan's rules retain, so this
+ * sentence deliberately does not attribute the total to the last run.
+ */
+export function formatDiscoveryResultBandTotal(
+  counts: DiscoveryResultBandCounts,
+): string {
+  const kept =
+    normalizeCount(counts.worthOpening) + normalizeCount(counts.alsoFound);
+  return `${kept} ${kept === 1 ? "job" : "jobs"} kept in this search plan.`;
+}
+
+/**
+ * Home's one sentence about the last finished search.
+ *
+ * Two real numbers exist and they are not the same population: a run can save
+ * 50 listings to the device while the active plan's rules keep 15, which is
+ * what Find jobs lists. Printing only the larger number made Home over-claim
+ * and visibly disagree with Find jobs; printing only the smaller one would
+ * lose the run's own accounting. When they differ, both are stated with the
+ * meaning that separates them, so the two screens can be reconciled instead
+ * of read as a contradiction.
+ */
+export function formatLastSearchSummarySentence(input: {
+  runCountLabel: string;
+  savedByRun: number;
+  keptInPlan: number;
+}): string {
+  const savedByRun = normalizeCount(input.savedByRun);
+  const keptInPlan = normalizeCount(input.keptInPlan);
+
+  if (savedByRun === 0 || keptInPlan === savedByRun) {
+    // `runCountLabel` already reads "N new jobs saved · M duplicates merged",
+    // so the sentence must not repeat the verb around it.
+    return `Your last search: ${input.runCountLabel}.`;
+  }
+
+  // Two populations, two different words. Both numbers used to be introduced
+  // as "kept", which read as one number contradicting itself.
+  return `Your last search saved ${savedByRun} new ${
+    savedByRun === 1 ? "job" : "jobs"
+  } on this device · ${keptInPlan} in your current search plan.`;
 }

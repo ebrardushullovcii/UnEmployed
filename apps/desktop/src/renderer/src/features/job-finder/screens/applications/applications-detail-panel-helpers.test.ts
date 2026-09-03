@@ -4,10 +4,29 @@ import type {
 } from "@unemployed/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  applyResultIsFieldSavePause,
+  applyResultIsServiceWorkerBlocked,
+  applyResultNeedsManualFieldFinish,
   applyResultNeedsResumeAttachment,
+  applicationRecordLooksSiteBlocked,
+  FIELD_SAVE_PAUSE_GUIDANCE,
+  FIELD_SAVE_PAUSE_NEXT_STEP,
+  formatApplyRunModeLabel,
+  formatApplyRunStateLabel,
+  getApplyResultDestinationUrl,
   getCustomerFacingApplyText,
+  getManualFieldFinishGuidance,
+  getManualFieldFinishNextStep,
+  getManualFieldFinishReason,
   getQueueStateExplanation,
   getVerifiedExternalWriteRecoveryText,
+  applicationNeedsPrimaryRecovery,
+  MANUAL_FIELD_CONFLICT_REASON,
+  MANUAL_FIELD_FINISH_GUIDANCE,
+  MANUAL_FIELD_FINISH_NEXT_STEP,
+  SITE_BLOCKED_AUTOMATIC_PREP_GUIDANCE,
+  SITE_BLOCKED_AUTOMATIC_PREP_LIST_NEXT_STEP,
+  SITE_BLOCKED_AUTOMATIC_PREP_NEXT_STEP,
 } from "./applications-detail-panel-helpers";
 
 function createReceipt(
@@ -67,15 +86,15 @@ describe("getCustomerFacingApplyText", () => {
     );
 
     expect(message).toContain(
-      "No verified site writes are recorded for this run",
+      "No verified writes to the employer page were recorded for this run",
     );
-    expect(message).toContain("Review what remains on the employer page");
+    expect(message).toContain("Check what remains on the employer site");
     expect(message).not.toMatch(/fields? (?:were )?saved|fields? remain/i);
   });
 
   it("makes no saved or retained-field claim for a zero-write receipt", () => {
     expect(getVerifiedExternalWriteRecoveryText(createReceipt([]))).toBe(
-      "No verified site writes are recorded for this run. Review what remains on the employer page before retrying.",
+      "No verified writes to the employer page were recorded for this run. Check what remains on the employer site before retrying.",
     );
   });
 
@@ -105,7 +124,7 @@ describe("getCustomerFacingApplyText", () => {
     ]);
 
     expect(getVerifiedExternalWriteRecoveryText(receipt)).toBe(
-      "The receipt verifies writes to the employer page for profile fields, application answers. It does not confirm how the site stored them or what remains; review the employer page before retrying.",
+      "Job Finder recorded writes to the employer page for profile fields, application answers. That does not confirm what the site kept — review the page before retrying.",
     );
   });
 
@@ -113,6 +132,19 @@ describe("getCustomerFacingApplyText", () => {
     expect(
       getCustomerFacingApplyText("Resume attachment needs your help"),
     ).toBe("Resume attachment needs your help");
+  });
+
+  it("rewrites service-worker jargon into the finish-first site-block next step", () => {
+    expect(
+      getCustomerFacingApplyText(
+        "A LinkedIn service worker blocked automated preparation.",
+      ),
+    ).toBe(SITE_BLOCKED_AUTOMATIC_PREP_NEXT_STEP);
+    expect(
+      getCustomerFacingApplyText(
+        "Service worker interference on this job site.",
+      ),
+    ).not.toMatch(/service worker/i);
   });
 });
 
@@ -216,7 +248,7 @@ describe("getQueueStateExplanation", () => {
     completedJobCount: 0,
   };
 
-  it("says a stop-rule pause will not continue and needs a fresh Queue remaining jobs run", () => {
+  it("says a stop-rule pause will not continue and needs a fresh Prepare remaining jobs run", () => {
     const explanation = getQueueStateExplanation({
       ...baseInput,
       runState: "paused_for_user_review",
@@ -226,7 +258,7 @@ describe("getQueueStateExplanation", () => {
     expect(explanation).toContain("will not continue on its own");
     expect(explanation).toContain("no consent decision is holding it here");
     expect(explanation).toContain(
-      "Use Queue remaining jobs to finish the unfinished jobs in a fresh safe recovery run",
+      "Use Prepare remaining jobs to finish the unfinished jobs in a fresh safe recovery run",
     );
     // Unlike the consent pause, there is nothing to resolve to resume.
     expect(explanation).not.toContain("Resolve the consent request");
@@ -244,5 +276,230 @@ describe("getQueueStateExplanation", () => {
 
   it("returns no explanation when no run is selected", () => {
     expect(getQueueStateExplanation(null)).toBeNull();
+  });
+});
+
+describe("service-worker site block helpers", () => {
+  it("detects service-worker blockers and marks recovery as primary", () => {
+    const result = {
+      id: "result_sw",
+      runId: "run_sw",
+      jobId: "job_li",
+      applicationRecordId: "application_li",
+      queuePosition: 0,
+      state: "blocked" as const,
+      summary: "A LinkedIn service worker blocked automated preparation.",
+      detail: "Reset the browser profile, then finish manually.",
+      startedAt: "2026-08-27T10:00:00.000Z",
+      updatedAt: "2026-08-27T10:01:00.000Z",
+      completedAt: "2026-08-27T10:01:00.000Z",
+      blockerReason: "site_protection" as const,
+      blockerSummary: "Service worker interference",
+      listingSignalEvidence: null,
+      visualObservationSets: [],
+      visualCheckpoints: [],
+      latestQuestionCount: 0,
+      latestAnswerCount: 0,
+      pendingConsentRequestCount: 0,
+      artifactCount: 0,
+      latestCheckpointId: null,
+      privacyReceipt: null,
+    };
+
+    expect(applyResultIsServiceWorkerBlocked(result)).toBe(true);
+    expect(applyResultNeedsManualFieldFinish(result)).toBe(false);
+    expect(
+      applicationNeedsPrimaryRecovery({
+        lastAttemptState: "paused",
+        visibleApplyResult: result,
+      }),
+    ).toBe(true);
+    expect(SITE_BLOCKED_AUTOMATIC_PREP_GUIDANCE).toMatch(
+      /Reset the Job Finder browser in Safeguards/i,
+    );
+    expect(SITE_BLOCKED_AUTOMATIC_PREP_GUIDANCE).not.toMatch(/service worker/i);
+  });
+
+  it("detects site-blocked pauses from persisted application record fields", () => {
+    expect(
+      applicationRecordLooksSiteBlocked({
+        nextActionLabel: "Inspect the application page manually",
+        lastActionLabel: "Inspect the application page manually.",
+        latestBlocker: null,
+      }),
+    ).toBe(true);
+    expect(
+      applicationRecordLooksSiteBlocked({
+        nextActionLabel: "Prepare application",
+        lastActionLabel: "Resume approved",
+        latestBlocker: null,
+      }),
+    ).toBe(false);
+    expect(SITE_BLOCKED_AUTOMATIC_PREP_LIST_NEXT_STEP).toMatch(
+      /Open Safeguards to reset the Job Finder browser/i,
+    );
+  });
+});
+
+describe("manual field-finish helpers", () => {
+  function createResult(input: {
+    summary: string;
+    detail?: string;
+    blockerSummary?: string | null;
+    blockerReason?: JobFinderWorkspaceSnapshot["applyJobResults"][number]["blockerReason"];
+    state?: JobFinderWorkspaceSnapshot["applyJobResults"][number]["state"];
+  }): JobFinderWorkspaceSnapshot["applyJobResults"][number] {
+    return {
+      id: "result_field",
+      runId: "run_field",
+      jobId: "job_field",
+      applicationRecordId: "application_field",
+      queuePosition: 0,
+      state: input.state ?? "blocked",
+      summary: input.summary,
+      detail: input.detail ?? input.summary,
+      startedAt: "2026-08-27T10:00:00.000Z",
+      updatedAt: "2026-08-27T10:01:00.000Z",
+      completedAt: "2026-08-27T10:01:00.000Z",
+      blockerReason: input.blockerReason ?? "required_human_input",
+      blockerSummary: input.blockerSummary ?? input.summary,
+      listingSignalEvidence: null,
+      visualObservationSets: [],
+      visualCheckpoints: [],
+      latestQuestionCount: 0,
+      latestAnswerCount: 0,
+      pendingConsentRequestCount: 0,
+      artifactCount: 0,
+      latestCheckpointId: null,
+      privacyReceipt: null,
+    };
+  }
+
+  it("detects conflicting prefilled fields and marks recovery as primary", () => {
+    const result = createResult({
+      summary: "Prefilled application values need manual review",
+      detail:
+        "One or more known application fields already contain values that do not match the exact saved candidate profile.",
+      blockerSummary: "Prefilled application values need manual review",
+    });
+
+    expect(applyResultNeedsManualFieldFinish(result)).toBe(true);
+    expect(applyResultIsServiceWorkerBlocked(result)).toBe(false);
+    expect(
+      applicationNeedsPrimaryRecovery({
+        lastAttemptState: "paused",
+        visibleApplyResult: result,
+      }),
+    ).toBe(true);
+    expect(MANUAL_FIELD_FINISH_NEXT_STEP).toMatch(
+      /Review and fix the conflicting or unfinished fields/i,
+    );
+    expect(MANUAL_FIELD_FINISH_GUIDANCE).toMatch(
+      /Run preparation again" only if you want a fresh run/i,
+    );
+    // Actual conflicts keep the conflicting-fields copy.
+    expect(applyResultIsFieldSavePause(result)).toBe(false);
+    expect(getManualFieldFinishNextStep(result)).toBe(
+      MANUAL_FIELD_FINISH_NEXT_STEP,
+    );
+    expect(getManualFieldFinishGuidance(result)).toBe(
+      MANUAL_FIELD_FINISH_GUIDANCE,
+    );
+    expect(getManualFieldFinishReason(result)).toBe(
+      MANUAL_FIELD_CONFLICT_REASON,
+    );
+  });
+
+  it("explains a prepare-only autosave pause without claiming a field conflict", () => {
+    const result = createResult({
+      summary: "The application page could not safely save a prepared field",
+      detail:
+        "The application site tried to save 'Phone' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.",
+      blockerSummary:
+        "The application page could not safely save a prepared field",
+      state: "awaiting_review",
+    });
+
+    expect(applyResultNeedsManualFieldFinish(result)).toBe(true);
+    expect(applyResultIsFieldSavePause(result)).toBe(true);
+    expect(getManualFieldFinishNextStep(result)).toBe(
+      FIELD_SAVE_PAUSE_NEXT_STEP,
+    );
+    expect(getManualFieldFinishGuidance(result)).toBe(
+      FIELD_SAVE_PAUSE_GUIDANCE,
+    );
+    expect(getManualFieldFinishReason(result)).toMatch(
+      /tried to save a field automatically/i,
+    );
+    // One name for the window, and the instruction says the window is
+    // separate and names the exact action the user comes back to.
+    expect(FIELD_SAVE_PAUSE_NEXT_STEP).toMatch(
+      /tried to save a field automatically/i,
+    );
+    expect(FIELD_SAVE_PAUSE_NEXT_STEP).toMatch(
+      /Finish this application in the Job Finder browser\./,
+    );
+    expect(FIELD_SAVE_PAUSE_NEXT_STEP).toMatch(
+      /separate window outside this app/i,
+    );
+    expect(FIELD_SAVE_PAUSE_NEXT_STEP).toMatch(
+      /Check whether this step is done/,
+    );
+    expect(FIELD_SAVE_PAUSE_NEXT_STEP).not.toMatch(/the open browser/i);
+    expect(FIELD_SAVE_PAUSE_NEXT_STEP).not.toMatch(/the managed browser/i);
+    expect(FIELD_SAVE_PAUSE_NEXT_STEP).not.toMatch(/conflict/i);
+    expect(getManualFieldFinishReason(null)).toBeNull();
+  });
+
+  it("derives a query-free destination URL from the privacy receipt", () => {
+    const receipt = createReceipt([]);
+    expect(
+      getApplyResultDestinationUrl({
+        ...receipt,
+        destination: {
+          origin: "https://jobs.example.com",
+          safePath: "/apply/123",
+        },
+      }),
+    ).toBe("https://jobs.example.com/apply/123");
+    expect(getApplyResultDestinationUrl(null)).toBeNull();
+  });
+
+  it("formats run states and modes for people", () => {
+    expect(formatApplyRunStateLabel("paused_for_user_review")).toBe(
+      "Paused for your review",
+    );
+    expect(formatApplyRunStateLabel("paused_for_consent")).toBe(
+      "Paused for a consent decision",
+    );
+    expect(formatApplyRunStateLabel("completed")).toBe("Completed");
+    expect(formatApplyRunModeLabel("copilot")).toBe("Preparation");
+    expect(formatApplyRunModeLabel("single_job_auto")).toBe(
+      "Automatic preparation",
+    );
+  });
+
+  it("detects prepare-only field saves that require finishing in the open application", () => {
+    const result = createResult({
+      summary: "The application page could not safely save a prepared field",
+      detail:
+        "The application site tried to save 'application field' while it was being prepared, but this run did not have permission for that external save.",
+      blockerSummary:
+        "The application page could not safely save a prepared field",
+    });
+
+    expect(applyResultNeedsManualFieldFinish(result)).toBe(true);
+  });
+
+  it("keeps resume-attachment retries out of the manual-finish path", () => {
+    const result = createResult({
+      summary: "Resume attachment needs your help",
+      detail: "The approved resume was not attached.",
+      blockerSummary: "Resume attachment needs your help",
+      state: "blocked",
+    });
+
+    expect(applyResultNeedsResumeAttachment(result)).toBe(true);
+    expect(applyResultNeedsManualFieldFinish(result)).toBe(false);
   });
 });

@@ -1,12 +1,14 @@
 import type { DiscoveryTargetEditorValue } from "../../../lib/job-finder-types";
 import {
-  evaluateProfileSetupReadiness,
   findStarterJobSourceByStartingUrl,
+  normalizeProfileSetupStep,
+  getProfileSetupReadinessBlockers,
   hasProfileSetupPlaceholderValue,
   isFreshStartCandidateProfile,
   type CandidateProfile,
   type JobSearchPreferences,
   type ProfileCopilotContext,
+  type ProfileSetupReadinessBlockerId,
   type ProfileSetupReadiness,
   type ProfileSetupState,
   type ProfileSetupStep,
@@ -62,7 +64,8 @@ export function getProfileSetupStarterAccessNote(
 
 export type ProfileSetupSourceGuidance = {
   detail: string | null;
-  label: string;
+  /** Null when there is nothing worth saying about this source yet. */
+  label: string | null;
 };
 
 /**
@@ -94,9 +97,12 @@ export function getProfileSetupSourceGuidance(
         detail: "Automated checks could not read this site reliably yet.",
       };
     default:
+      // A source nobody has checked yet has nothing to report. "Not checked
+      // yet" was a third voice on a row whose checkbox and description
+      // already say everything the user can act on.
       return {
-        label: "No guidance yet",
-        detail: "The first check learns how to read this source.",
+        label: null,
+        detail: null,
       };
   }
 }
@@ -106,10 +112,161 @@ export type ProfileSetupReviewItemDisplay = ProfileSetupReviewItem & {
   savedStatus: ProfileSetupReviewItem["status"];
   statusSource: "saved" | "draft";
 };
+
+export function getProfileSetupReviewItemCopy(
+  item: Pick<ProfileSetupReviewItem, "label" | "reason" | "target">,
+): { label: string; reason: string } {
+  if (item.target.domain === "work_eligibility") {
+    return {
+      label: "Check legal work details",
+      reason: `${item.reason} If no legal work-authorization fact is available, leave this Not set; Job Finder will not guess.`,
+    };
+  }
+
+  return { label: item.label, reason: item.reason };
+}
+
 export function isBlockingPendingReviewItem(
   item: Pick<ProfileSetupReviewItem, "severity" | "status">,
 ): boolean {
   return item.status === "pending" && item.severity !== "optional";
+}
+
+type ProfileSetupFinishGateReviewItem = Pick<
+  ProfileSetupReviewItem,
+  "severity" | "status"
+> &
+  Partial<
+    Pick<
+      ProfileSetupReviewItem,
+      | "proposedValue"
+      | "sourceCandidateId"
+      | "sourceRunId"
+      | "sourceSnippet"
+      | "target"
+    >
+  >;
+
+/**
+ * Finishing setup is gated only by what setup genuinely requires: a missing
+ * required field (the "required setup item" drafts) or a critical pending
+ * item. Pending RECOMMENDED imported suggestions still deserve a look, but a
+ * person must never be forced back into a step to click Confirm/Dismiss
+ * before they can finish; those stay optional to review.
+ */
+export function isFinishBlockingReviewItem(
+  item: ProfileSetupFinishGateReviewItem,
+): boolean {
+  if (item.status !== "pending") {
+    return false;
+  }
+
+  if (item.severity === "critical") {
+    return true;
+  }
+
+  return (
+    item.severity !== "optional" &&
+    item.target !== undefined &&
+    isProfileSetupMissingFieldReviewItem({
+      proposedValue: item.proposedValue ?? null,
+      sourceCandidateId: item.sourceCandidateId ?? null,
+      sourceRunId: item.sourceRunId ?? null,
+      sourceSnippet: item.sourceSnippet ?? null,
+      target: item.target,
+    })
+  );
+}
+
+/** Pending items that do not gate finishing: recommended imports and optional hints. */
+export function isReviewableSuggestionItem(
+  item: ProfileSetupFinishGateReviewItem,
+): boolean {
+  return item.status === "pending" && !isFinishBlockingReviewItem(item);
+}
+
+export type ProfileSetupReadinessPresentation = {
+  blockers: ReturnType<typeof getProfileSetupReadinessBlockers>;
+  blockingPendingReviewItemCount: number;
+  remainingBlockerCount: number;
+};
+
+const PROFILE_SETUP_READINESS_BLOCKER_LABELS: Record<
+  ProfileSetupReadinessBlockerId,
+  string
+> = {
+  background: "Add work history",
+  discovery_source: "Enable a job source",
+  eligibility_preferences: "Add a preferred location",
+  identity_contact: "Complete your essentials",
+  work_mode_preference: "Pick a work mode (remote, hybrid, or onsite)",
+};
+
+export function getProfileSetupReadinessBlockerLabel(
+  blockerId: ProfileSetupReadinessBlockerId,
+): string {
+  return PROFILE_SETUP_READINESS_BLOCKER_LABELS[blockerId];
+}
+
+/**
+ * Shared presentation model for every visible setup readiness count. The
+ * canonical blocker list covers path readiness; only pending blocking review
+ * items add review work. Edited or optional review items must not inflate the
+ * count shown in the summary or sticky finish action.
+ */
+export function buildProfileSetupReadinessPresentation(input: {
+  readiness: Pick<
+    ProfileSetupReadiness,
+    | "hasCoreIdentity"
+    | "hasContactPath"
+    | "hasMeaningfulBackground"
+    | "hasEligibilityPreferences"
+    | "hasWorkModePreference"
+    | "hasDiscoverySource"
+  >;
+  reviewItems: readonly ProfileSetupFinishGateReviewItem[];
+}): ProfileSetupReadinessPresentation {
+  const blockers = getProfileSetupReadinessBlockers(input.readiness);
+  // Only finish-gating items count toward the remaining total; recommended
+  // imported suggestions are reported separately so they can never disable
+  // the Finish action.
+  const blockingPendingReviewItemCount = input.reviewItems.filter(
+    isFinishBlockingReviewItem,
+  ).length;
+
+  return {
+    blockers,
+    blockingPendingReviewItemCount,
+    remainingBlockerCount: blockers.length + blockingPendingReviewItemCount,
+  };
+}
+
+/**
+ * Missing-field drafts are required setup work, not imported values waiting
+ * for confirmation. Keep this distinction visible anywhere setup counts or
+ * describes pending work.
+ */
+export function isProfileSetupMissingFieldReviewItem(
+  item: Pick<
+    ProfileSetupReviewItem,
+    | "proposedValue"
+    | "sourceCandidateId"
+    | "sourceRunId"
+    | "sourceSnippet"
+    | "target"
+  >,
+): boolean {
+  return (
+    item.target.recordId === null &&
+    item.proposedValue === null &&
+    item.sourceCandidateId === null &&
+    item.sourceRunId === null &&
+    item.sourceSnippet === null
+  );
+}
+
+export function formatProfileSetupRequiredItemCount(count: number): string {
+  return `${count} required setup item${count === 1 ? "" : "s"}`;
 }
 
 export function isOptionalPendingReviewItem(
@@ -490,24 +647,38 @@ export function getReviewItemEditHint(
   item: ProfileSetupReviewItem,
 ): string | null {
   if (item.target.domain === "experience") {
-    return "Edit this in Work history on the left. Use the role's Work mode field to mark it Remote, Hybrid, or Onsite. Keep Location for the city or region you want shown, and use Targeting later if you also want future job searches to prefer remote roles.";
+    if (item.target.key === "record" && !item.target.recordId) {
+      return "Add a role in Work history on the left. Work mode and location can be added after you create the role.";
+    }
+
+    return "Edit this in Work history on the left. Use the role's Work mode field to mark it Remote, Hybrid, or Onsite. Keep Location for the city or region you want shown, and use Job targets later if you also want future job searches to prefer remote roles.";
   }
 
   if (
     item.target.domain === "search_preferences" ||
     item.target.domain === "work_eligibility"
   ) {
-    return "Edit this in the Targeting step. Preferred work modes controls Remote, Hybrid, or Onsite for future job searches, while Preferred locations narrows where you want those roles to be based.";
+    return "Edit this in the Job targets step — preferences say what you want, work details say what you can accept.";
   }
 
   if (
     item.target.domain === "identity" &&
     item.target.key === "currentLocation"
   ) {
-    return "Edit this in Essentials. Displayed location is the location shown on your profile and generated resumes, not your remote-job preference.";
+    return "Edit this in Basics. Displayed location is the location shown on your profile and generated resumes, not your remote-job preference.";
   }
 
   return null;
+}
+
+export function getReviewItemEditActionLabel(
+  item: Pick<ProfileSetupReviewItem, "target">,
+): string {
+  return item.target.domain === "experience" &&
+    item.target.key === "record" &&
+    !item.target.recordId
+    ? "Add a role"
+    : "Edit this";
 }
 
 export function buildSetupCopilotPlaceholder(step: ProfileSetupStep): string {
@@ -516,70 +687,11 @@ export function buildSetupCopilotPlaceholder(step: ProfileSetupStep): string {
       return 'Example: update my headline to "Principal product designer focused on workflow systems"';
     case "targeting":
       return "Example: help me tighten my target roles for remote design systems work";
-    case "narrative":
+    case "extras":
       return 'Example: rewrite my professional story: "..."';
-    case "answers":
-      return 'Example: draft a stronger short self-introduction: "..."';
     default:
       return "Ask for a grounded profile improvement or a structured edit for this setup step.";
   }
-}
-
-/**
- * Derives the setup summary cards from the shared canonical readiness rule so
- * the summary strip can never report "Ready to search" while the ready check
- * still reports blockers (for example, a missing work-mode preference).
- */
-export function buildProfileSetupSummaryCards(input: {
-  draftProfile: CandidateProfile;
-  draftSearchPreferences: JobSearchPreferences;
-  hasImportedResume: boolean;
-  profileSetupStateStatus: ProfileSetupState["status"];
-}): Array<{ label: string; value: string }> {
-  const readiness = evaluateProfileSetupReadiness(
-    input.draftProfile,
-    input.draftSearchPreferences,
-  );
-  const notProvidedYet =
-    !input.hasImportedResume && input.profileSetupStateStatus === "not_started";
-  const discoveryBlockers = [
-    !readiness.hasTargeting && ("Needs a target role" as const),
-    !readiness.hasEligibilityPreferences &&
-      ("Needs real work constraints" as const),
-    readiness.hasEligibilityPreferences &&
-      !readiness.hasWorkModePreference &&
-      ("Needs a work mode" as const),
-    !readiness.hasDiscoverySource && ("Needs a job source" as const),
-  ].filter(
-    (reason): reason is Exclude<typeof reason, false> => reason !== false,
-  );
-
-  return [
-    {
-      label: "Discovery",
-      value: notProvidedYet
-        ? "Not provided yet"
-        : discoveryBlockers.length === 0
-          ? "Ready to search"
-          : discoveryBlockers[0]!,
-    },
-    {
-      label: "Resume quality",
-      value: notProvidedYet
-        ? "Not analyzed yet"
-        : input.draftProfile.experiences.length > 0
-          ? "Structured background available"
-          : "Needs stronger work history",
-    },
-    {
-      label: "Apply readiness",
-      value: notProvidedYet
-        ? "Not provided yet"
-        : readiness.hasContactPath
-          ? "Contact path ready"
-          : "Missing contact details",
-    },
-  ];
 }
 
 export function buildStepEditorContext(
@@ -685,10 +797,6 @@ function hasProfileSetupPathStepEvidence(input: {
     return input.hasImportedResume;
   }
 
-  if (input.stepId === "ready_check") {
-    return input.setupCompleted;
-  }
-
   // Callers without draft evidence keep the legacy chronology-only rule
   // instead of guessing at domain completeness.
   if (input.readiness === null) {
@@ -706,13 +814,13 @@ function hasProfileSetupPathStepEvidence(input: {
         input.readiness.hasWorkModePreference &&
         input.readiness.hasDiscoverySource
       );
-    // Narrative and answers stay optional by product semantics: real content
-    // earns a Complete claim, while an empty optional step simply earns no
-    // claim instead of becoming a new obligation.
-    case "narrative":
-      return input.readiness.hasNarrative;
-    case "answers":
-      return input.readiness.hasAnswerBank;
+    // Extras stays optional by product semantics: real content earns a
+    // Complete claim, while an empty optional step simply earns no claim
+    // instead of becoming a new obligation.
+    case "extras":
+      return input.readiness.hasNarrative || input.readiness.hasAnswerBank;
+    default:
+      return input.setupCompleted;
   }
 }
 
@@ -737,14 +845,13 @@ export function isProfileSetupPathStepComplete(input: {
   }
 
   const setupCompleted = input.setupStatus === "completed";
+  // A stored step id can still be a retired one; compare visible steps only.
+  const currentStep = normalizeProfileSetupStep(input.currentStep);
+  const stepId = normalizeProfileSetupStep(input.stepId);
   const chronologicallyReached =
     setupCompleted ||
-    profileSetupStepDefinitions.findIndex(
-      (entry) => entry.id === input.currentStep,
-    ) >
-      profileSetupStepDefinitions.findIndex(
-        (entry) => entry.id === input.stepId,
-      );
+    profileSetupStepDefinitions.findIndex((entry) => entry.id === currentStep) >
+      profileSetupStepDefinitions.findIndex((entry) => entry.id === stepId);
 
   return (
     chronologicallyReached &&
@@ -752,7 +859,7 @@ export function isProfileSetupPathStepComplete(input: {
       hasImportedResume: input.hasImportedResume,
       readiness: input.readiness,
       setupCompleted,
-      stepId: input.stepId,
+      stepId,
     })
   );
 }

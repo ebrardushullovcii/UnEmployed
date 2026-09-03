@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { app, BrowserWindow, dialog } from "electron";
-import type { IpcMain, SaveDialogOptions } from "electron";
+import type { IpcMain, OpenDialogOptions, SaveDialogOptions } from "electron";
 import {
   ApplicationCrmExportInputSchema,
   ApplicationCrmFileExportResultSchema,
@@ -50,6 +50,7 @@ import {
   JobFinderRestoreResumeDraftRevisionInputSchema,
   JobFinderResumeWorkspaceSchema,
   JobFinderResumeSectionActionInputSchema,
+  JobFinderExportResumePdfInputSchema,
   JobFinderJobActionInputSchema,
   JobFinderJobResumeApplicationModeInputSchema,
   JobFinderDismissDiscoveryJobInputSchema,
@@ -110,6 +111,7 @@ import {
   UpdateWorkspaceBehaviorInputSchema,
   UserActionCommandSchema,
 } from "@unemployed/contracts";
+import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
 import { createJobFinderProductActionToolRegistry } from "@unemployed/job-finder";
 import { buildJobFinderDiagnosticExport } from "../services/job-finder/build-diagnostic-export";
 import { collectJobFinderPerformanceSnapshot } from "../services/job-finder/collect-performance-snapshot";
@@ -190,6 +192,55 @@ function buildApplicationPacketExportDefaultPath(
   return path.join(app.getPath("documents"), fileName);
 }
 
+/**
+ * Mutation responses carry the exact workspace snapshot the service just
+ * produced. `getWorkspaceSnapshot` already schema-parses that value inside
+ * `@unemployed/job-finder`, so re-parsing it in every route handler validated
+ * every job, application record, and stored answer a second time on every
+ * user action. That cost grows linearly with everything the user has ever
+ * discovered — the repository's own scale gate is 5,000 jobs / 1,001
+ * records — and it can never reject anything the first parse accepted.
+ *
+ * Removing the deep parse must not remove the fail-closed guarantee that a
+ * malformed main-process value never reaches the renderer, so this keeps a
+ * constant-time structural guard: the response must still be recognisably a
+ * workspace snapshot, checked without walking a single collection. The
+ * compile-time contract is unchanged (the argument must be exactly a
+ * `JobFinderWorkspaceSnapshot`), mutation *input* parsing is unchanged, and
+ * the genuine integrity boundaries — workspace reset, demo/fixture loading,
+ * and native resume-import recovery — keep the full deep parse.
+ */
+const REQUIRED_WORKSPACE_SNAPSHOT_COLLECTIONS = [
+  "discoveryJobs",
+  "reviewQueue",
+  "applyRuns",
+  "applicationRecords",
+] as const satisfies readonly (keyof JobFinderWorkspaceSnapshot)[];
+
+function workspaceMutationResponse(
+  snapshot: JobFinderWorkspaceSnapshot,
+): JobFinderWorkspaceSnapshot {
+  const candidate = snapshot as unknown;
+  const isWorkspaceSnapshotShape =
+    typeof candidate === "object" &&
+    candidate !== null &&
+    (candidate as { module?: unknown }).module === "job-finder" &&
+    typeof (candidate as { generatedAt?: unknown }).generatedAt === "string" &&
+    typeof (candidate as { profile?: unknown }).profile === "object" &&
+    (candidate as { profile?: unknown }).profile !== null &&
+    REQUIRED_WORKSPACE_SNAPSHOT_COLLECTIONS.every((key) =>
+      Array.isArray((candidate as Record<string, unknown>)[key]),
+    );
+
+  if (!isWorkspaceSnapshotShape) {
+    throw new Error(
+      "Job Finder produced a workspace response that is not a workspace snapshot.",
+    );
+  }
+
+  return snapshot;
+}
+
 export function registerJobFinderRouteHandlers(
   ipcMain: IpcMain,
   options: { includeBootstrapRoutes?: boolean } = {},
@@ -203,6 +254,14 @@ export function registerJobFinderRouteHandlers(
     {
       requestId: string;
       controller: AbortController;
+    }
+  >();
+  const activeResumeImportRequests = new WeakMap<
+    object,
+    {
+      requestId: string;
+      cancelled: boolean;
+      phase: "picking" | "processing";
     }
   >();
 
@@ -269,7 +328,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.openBrowserSession(input);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -277,7 +336,7 @@ export function registerJobFinderRouteHandlers(
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
     const snapshot = await jobFinderWorkspaceService.checkBrowserSession();
 
-    return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    return workspaceMutationResponse(snapshot);
   });
 
   ipcMain.handle(
@@ -287,7 +346,7 @@ export function registerJobFinderRouteHandlers(
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot = await jobFinderWorkspaceService.saveProfile(profile);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -308,7 +367,7 @@ export function registerJobFinderRouteHandlers(
 
       const snapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot();
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -316,7 +375,7 @@ export function registerJobFinderRouteHandlers(
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
     const snapshot = await jobFinderWorkspaceService.analyzeProfileFromResume();
 
-    return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    return workspaceMutationResponse(snapshot);
   });
 
   ipcMain.handle(
@@ -329,7 +388,7 @@ export function registerJobFinderRouteHandlers(
           searchPreferences,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -338,9 +397,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const campaign = SaveJobSearchCampaignInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
-        await service.saveCampaign(campaign),
-      );
+      return workspaceMutationResponse(await service.saveCampaign(campaign));
     },
   );
 
@@ -349,7 +406,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const { campaignId } = SelectJobSearchCampaignInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
+      return workspaceMutationResponse(
         await service.selectCampaign(campaignId),
       );
     },
@@ -369,9 +426,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = RunCampaignNowInputSchema.parse(payload ?? {});
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
-        await service.runCampaignNow(input),
-      );
+      return workspaceMutationResponse(await service.runCampaignNow(input));
     },
   );
 
@@ -387,7 +442,7 @@ export function registerJobFinderRouteHandlers(
         readAt: new Date().toISOString(),
       });
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -399,7 +454,7 @@ export function registerJobFinderRouteHandlers(
         readAt: new Date().toISOString(),
       });
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -408,9 +463,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = SaveCampaignRuleRouteInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
-        await service.saveCampaignRule(input),
-      );
+      return workspaceMutationResponse(await service.saveCampaignRule(input));
     },
   );
 
@@ -419,9 +472,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = DeleteCampaignRuleInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
-        await service.deleteCampaignRule(input),
-      );
+      return workspaceMutationResponse(await service.deleteCampaignRule(input));
     },
   );
 
@@ -430,9 +481,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = ToggleCampaignRuleInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
-        await service.toggleCampaignRule(input),
-      );
+      return workspaceMutationResponse(await service.toggleCampaignRule(input));
     },
   );
 
@@ -452,9 +501,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = SetJobFinderActivityControlInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
-        await service.setActivityControl(input),
-      );
+      return workspaceMutationResponse(await service.setActivityControl(input));
     },
   );
 
@@ -463,9 +510,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = RapidReviewMutationInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
-        await service.mutateRapidReview(input),
-      );
+      return workspaceMutationResponse(await service.mutateRapidReview(input));
     },
   );
 
@@ -474,9 +519,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = RecordOutcomeInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
-        await service.recordOutcome(input),
-      );
+      return workspaceMutationResponse(await service.recordOutcome(input));
     },
   );
 
@@ -485,9 +528,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = SaveResumeStrategyInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
-        await service.saveResumeStrategy(input),
-      );
+      return workspaceMutationResponse(await service.saveResumeStrategy(input));
     },
   );
 
@@ -496,7 +537,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const strategyId = NonEmptyStringSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
+      return workspaceMutationResponse(
         await service.disableResumeStrategy(strategyId),
       );
     },
@@ -507,7 +548,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = SelectResumeStrategyInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
+      return workspaceMutationResponse(
         await service.selectResumeStrategy(input),
       );
     },
@@ -529,7 +570,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = SetCampaignResumeStrategyDefaultInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
+      return workspaceMutationResponse(
         await service.setCampaignResumeStrategyDefault(input),
       );
     },
@@ -537,7 +578,7 @@ export function registerJobFinderRouteHandlers(
 
   ipcMain.handle("job-finder:refresh-company-intelligence", async () => {
     const service = await getJobFinderWorkspaceService();
-    return JobFinderWorkspaceSnapshotSchema.parse(
+    return workspaceMutationResponse(
       await service.refreshCompanyIntelligence(),
     );
   });
@@ -547,7 +588,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = SetCompanyPreferenceInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
+      return workspaceMutationResponse(
         await service.setCompanyPreference(input),
       );
     },
@@ -558,9 +599,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = ReviewCompanyMergeInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
-        await service.reviewCompanyMerge(input),
-      );
+      return workspaceMutationResponse(await service.reviewCompanyMerge(input));
     },
   );
 
@@ -569,7 +608,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = CompanyIntelligenceMutationInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
+      return workspaceMutationResponse(
         await service.mutateCompanyIntelligence(input),
       );
     },
@@ -580,7 +619,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = SetOutcomeSuggestionEnabledInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
+      return workspaceMutationResponse(
         await service.setOutcomeSuggestionEnabled(input),
       );
     },
@@ -591,9 +630,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = SafeguardMutationInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
-        await service.mutateSafeguards(input),
-      );
+      return workspaceMutationResponse(await service.mutateSafeguards(input));
     },
   );
 
@@ -607,7 +644,7 @@ export function registerJobFinderRouteHandlers(
           profileSetupState,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -624,7 +661,7 @@ export function registerJobFinderRouteHandlers(
           options,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -641,7 +678,7 @@ export function registerJobFinderRouteHandlers(
           action,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -674,7 +711,7 @@ export function registerJobFinderRouteHandlers(
       }
       const snapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot();
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -689,7 +726,7 @@ export function registerJobFinderRouteHandlers(
           patchGroupId,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -704,7 +741,7 @@ export function registerJobFinderRouteHandlers(
           patchGroupId,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -717,7 +754,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.undoProfileRevision(revisionId);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -728,7 +765,7 @@ export function registerJobFinderRouteHandlers(
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot = await jobFinderWorkspaceService.saveSettings(settings);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -740,7 +777,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.updateApplicationDefaults(input);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -752,7 +789,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.updateWorkspaceBehavior(input);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -764,7 +801,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.updateAppearanceTheme(appearanceTheme);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -776,7 +813,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.updateTrackerCrm(applicationCrm);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -784,19 +821,70 @@ export function registerJobFinderRouteHandlers(
     "job-finder:import-resume",
     async (event, payload: unknown) => {
       const requestId = parseOptionalRequestId(payload);
+      const request: {
+        requestId: string;
+        cancelled: boolean;
+        phase: "picking" | "processing";
+      } | null = requestId
+        ? { requestId, cancelled: false, phase: "picking" }
+        : null;
+      if (request) {
+        activeResumeImportRequests.set(event.sender, request);
+      }
+
+      const cancelHandler = request
+        ? (cancelEvent: Electron.IpcMainEvent, cancelPayload: unknown) => {
+            const activeRequest = activeResumeImportRequests.get(
+              cancelEvent.sender,
+            );
+            if (
+              activeRequest === request &&
+              parseOptionalRequestId(cancelPayload) === request.requestId &&
+              activeRequest.phase === "picking"
+            ) {
+              // The native picker cannot be force-closed safely from the main
+              // process. Marking the request is enough to discard a late file
+              // choice, so a manual fallback never imports behind the user's
+              // back after they stopped waiting.
+              request.cancelled = true;
+            }
+          }
+        : null;
+      if (cancelHandler) {
+        ipcMain.on("job-finder:cancel-import-resume", cancelHandler);
+      }
+
       const reportProgress = requestId
         ? (
             progress: Parameters<
               typeof ResumeImportProgressEventSchema.parse
             >[0],
           ) => {
-            event.sender.send(
-              `job-finder:resume-import-progress:${requestId}`,
-              ResumeImportProgressEventSchema.parse(progress),
-            );
+            const parsedProgress =
+              ResumeImportProgressEventSchema.parse(progress);
+
+            // A native picker can outlive the renderer that opened it. Do
+            // not let a progress notification race turn a successful import
+            // into a rejected IPC request after a reload or window close.
+            try {
+              if (event.sender.isDestroyed()) {
+                return;
+              }
+              event.sender.send(
+                `job-finder:resume-import-progress:${requestId}`,
+                parsedProgress,
+              );
+            } catch (error) {
+              // The sender may be destroyed between the check and send.
+              // Preserve import persistence for that expected lifecycle race,
+              // while still surfacing unexpected send failures.
+              if (!event.sender.isDestroyed()) {
+                throw error;
+              }
+            }
           }
         : undefined;
-      const selection = await dialog.showOpenDialog({
+      const dialogOptions: OpenDialogOptions = {
         properties: ["openFile"],
         filters: [
           {
@@ -805,27 +893,67 @@ export function registerJobFinderRouteHandlers(
           },
           { name: "All files", extensions: ["*"] },
         ],
-      });
+      };
+      const parentWindow = BrowserWindow.fromWebContents(event.sender);
+      try {
+        const usableParentWindow =
+          parentWindow && !parentWindow.isDestroyed() ? parentWindow : null;
+        if (usableParentWindow) {
+          // A hidden or backgrounded renderer can otherwise leave the native
+          // picker behind another window where automation and users cannot
+          // see Escape/cancel feedback.
+          usableParentWindow.show();
+          usableParentWindow.focus();
+        }
+        const selection = usableParentWindow
+          ? await dialog.showOpenDialog(usableParentWindow, dialogOptions)
+          : await dialog.showOpenDialog(dialogOptions);
 
-      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+        if (
+          request?.cancelled ||
+          selection.canceled ||
+          selection.filePaths.length === 0
+        ) {
+          const jobFinderWorkspaceService =
+            await getJobFinderWorkspaceService();
+          return JobFinderWorkspaceSnapshotSchema.parse(
+            await jobFinderWorkspaceService.getWorkspaceSnapshot(),
+          );
+        }
 
-      if (selection.canceled || selection.filePaths.length === 0) {
-        return JobFinderWorkspaceSnapshotSchema.parse(
-          await jobFinderWorkspaceService.getWorkspaceSnapshot(),
-        );
+        const sourcePath = selection.filePaths[0];
+
+        if (!sourcePath) {
+          const jobFinderWorkspaceService =
+            await getJobFinderWorkspaceService();
+          return JobFinderWorkspaceSnapshotSchema.parse(
+            await jobFinderWorkspaceService.getWorkspaceSnapshot(),
+          );
+        }
+
+        if (request) {
+          // A valid selection transfers ownership from the native picker to
+          // the importer synchronously, before any further await can let a
+          // route-change cancellation race discard real processing.
+          request.phase = "processing";
+        }
+        return importResumeFromSourcePath(sourcePath, {
+          ...(reportProgress ? { onProgress: reportProgress } : {}),
+        });
+      } finally {
+        if (cancelHandler) {
+          ipcMain.removeListener(
+            "job-finder:cancel-import-resume",
+            cancelHandler,
+          );
+        }
+        if (
+          request &&
+          activeResumeImportRequests.get(event.sender) === request
+        ) {
+          activeResumeImportRequests.delete(event.sender);
+        }
       }
-
-      const sourcePath = selection.filePaths[0];
-
-      if (!sourcePath) {
-        return JobFinderWorkspaceSnapshotSchema.parse(
-          await jobFinderWorkspaceService.getWorkspaceSnapshot(),
-        );
-      }
-
-      return importResumeFromSourcePath(sourcePath, {
-        ...(reportProgress ? { onProgress: reportProgress } : {}),
-      });
     },
   );
 
@@ -1042,7 +1170,7 @@ export function registerJobFinderRouteHandlers(
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot =
         await jobFinderWorkspaceService.performUserAction(command);
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1050,7 +1178,7 @@ export function registerJobFinderRouteHandlers(
     const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
     const snapshot = await jobFinderWorkspaceService.runDiscovery();
 
-    return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+    return workspaceMutationResponse(snapshot);
   });
 
   ipcMain.handle(
@@ -1158,7 +1286,7 @@ export function registerJobFinderRouteHandlers(
           : undefined,
       );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1169,7 +1297,7 @@ export function registerJobFinderRouteHandlers(
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot = await jobFinderWorkspaceService.cancelSourceDebug(runId);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1208,7 +1336,7 @@ export function registerJobFinderRouteHandlers(
           artifact,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1236,7 +1364,7 @@ export function registerJobFinderRouteHandlers(
           instructionId,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1251,7 +1379,7 @@ export function registerJobFinderRouteHandlers(
         instructionId,
       );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1262,7 +1390,7 @@ export function registerJobFinderRouteHandlers(
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot = await jobFinderWorkspaceService.queueJobForReview(jobId);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1278,7 +1406,7 @@ export function registerJobFinderRouteHandlers(
           resumeApplicationMode,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1290,7 +1418,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.removeJobFromReview(jobId);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1310,7 +1438,7 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = RemoveEmployerExclusionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
-      return JobFinderWorkspaceSnapshotSchema.parse(
+      return workspaceMutationResponse(
         await jobFinderWorkspaceService.removeEmployerExclusion(input),
       );
     },
@@ -1324,7 +1452,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.dismissDiscoveryJob(input);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1336,7 +1464,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.restoreDismissedDiscoveryJob(jobId);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1386,7 +1514,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.projectGroupedManualAnswer(command);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1398,7 +1526,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.applyGroupedManualAnswer(input);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1410,7 +1538,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.snoozeGroupedDecision(input);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1476,7 +1604,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.mutateApplicationCrm(input);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1488,7 +1616,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.mutateApplicationCrmBulkStage(input);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1504,7 +1632,7 @@ export function registerJobFinderRouteHandlers(
           settings,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1686,7 +1814,7 @@ export function registerJobFinderRouteHandlers(
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot = await jobFinderWorkspaceService.saveResumeDraft(draft);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1702,7 +1830,7 @@ export function registerJobFinderRouteHandlers(
           revisionId,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1714,7 +1842,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.regenerateResumeDraft(jobId);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1729,18 +1857,19 @@ export function registerJobFinderRouteHandlers(
         sectionId,
       );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
   ipcMain.handle(
     "job-finder:export-resume-pdf",
     async (event, payload: unknown) => {
-      const { jobId } = JobFinderJobActionInputSchema.parse(payload);
+      const { intent, jobId } =
+        JobFinderExportResumePdfInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       let outputPath: string | null = null;
 
-      if (!isDesktopTestApiEnabled()) {
+      if (intent === "download" && !isDesktopTestApiEnabled()) {
         const workspace =
           await jobFinderWorkspaceService.getResumeWorkspace(jobId);
         const browserWindow = BrowserWindow.fromWebContents(event.sender);
@@ -1766,7 +1895,7 @@ export function registerJobFinderRouteHandlers(
           const snapshot =
             await jobFinderWorkspaceService.getWorkspaceSnapshot();
 
-          return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+          return workspaceMutationResponse(snapshot);
         }
 
         outputPath = saveResult.filePath.toLowerCase().endsWith(".pdf")
@@ -1779,7 +1908,7 @@ export function registerJobFinderRouteHandlers(
         outputPath,
       );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1794,7 +1923,7 @@ export function registerJobFinderRouteHandlers(
         exportId,
       );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1806,7 +1935,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.clearResumeApproval(jobId);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1821,7 +1950,7 @@ export function registerJobFinderRouteHandlers(
           input,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1834,7 +1963,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.setResumeClaimConfirmation(input);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1849,7 +1978,7 @@ export function registerJobFinderRouteHandlers(
         revisionReason,
       );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1912,7 +2041,7 @@ export function registerJobFinderRouteHandlers(
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot = await jobFinderWorkspaceService.generateResume(jobId);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1934,7 +2063,7 @@ export function registerJobFinderRouteHandlers(
         startNewApplication ? null : applicationRecordId,
       );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1949,7 +2078,7 @@ export function registerJobFinderRouteHandlers(
         startNewApplication ? null : applicationRecordId,
       );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1961,7 +2090,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.startAutoApplyQueueRun(jobIds);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1978,7 +2107,7 @@ export function registerJobFinderRouteHandlers(
       );
       const snapshot = await jobFinderWorkspaceService.approveApplyRun(runId);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1995,7 +2124,7 @@ export function registerJobFinderRouteHandlers(
       );
       const snapshot = await jobFinderWorkspaceService.cancelApplyRun(runId);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -2023,7 +2152,7 @@ export function registerJobFinderRouteHandlers(
           action,
         );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -2041,7 +2170,7 @@ export function registerJobFinderRouteHandlers(
       const snapshot =
         await jobFinderWorkspaceService.revokeApplyRunApproval(runId);
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -2056,7 +2185,7 @@ export function registerJobFinderRouteHandlers(
         startNewApplication ? null : applicationRecordId,
       );
 
-      return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -2064,20 +2193,16 @@ export function registerJobFinderRouteHandlers(
     return resetJobFinderWorkspace();
   });
 
-  ipcMain.handle(
-    "job-finder:get-startup-reset-recovery",
-    () =>
-      JobFinderStartupResetRecoveryFactSchema.parse(
-        getJobFinderStartupResetRecoveryFact(),
-      ),
+  ipcMain.handle("job-finder:get-startup-reset-recovery", () =>
+    JobFinderStartupResetRecoveryFactSchema.parse(
+      getJobFinderStartupResetRecoveryFact(),
+    ),
   );
 
-  ipcMain.handle(
-    "job-finder:get-startup-database-recovery",
-    async () =>
-      JobFinderStartupDatabaseRecoveryFactSchema.parse(
-        await getJobFinderStartupDatabaseRecoveryFact(),
-      ),
+  ipcMain.handle("job-finder:get-startup-database-recovery", async () =>
+    JobFinderStartupDatabaseRecoveryFactSchema.parse(
+      await getJobFinderStartupDatabaseRecoveryFact(),
+    ),
   );
 
   ipcMain.handle(

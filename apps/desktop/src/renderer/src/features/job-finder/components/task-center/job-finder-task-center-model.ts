@@ -437,6 +437,31 @@ function applyDuration(run: ApplyRunSummary): number | null {
 function buildApplyTask(
   input: BuildJobFinderTaskCenterModelInput,
 ): JobFinderTaskCenterItem | null {
+  const uncertainResult = newestBy(
+    (input.workspace.applyJobResults ?? []).filter(
+      (result) =>
+        result.privacyReceipt?.submissionOutcome?.outcome ===
+        "outcome_uncertain",
+    ),
+    (result) => result.updatedAt,
+  );
+  if (uncertainResult) {
+    return {
+      id: `submission-verification_${uncertainResult.id}`,
+      kind: "apply",
+      title: "Manual verification required",
+      status: "paused",
+      stageLabel: "Verify on the employer site",
+      sourceLabel: applySourceLabel(input.workspace, uncertainResult.jobId),
+      countLabel: "Automatic retry is blocked until you record the outcome",
+      historyEstimateLabel: null,
+      canCancel: false,
+      cancelKind: null,
+      resumeRoute: "/job-finder/applications",
+      resumeActionLabel: "Verify outcome",
+    };
+  }
+
   const runs = input.workspace.applyRuns ?? [];
   const run = newestBy(runs, (candidate) => candidate.updatedAt);
   if (!run) {
@@ -532,7 +557,7 @@ function buildSafeguardTask(
     status: "paused",
     stageLabel: "Waiting for safeguards",
     sourceLabel:
-      "Job search and applications are waiting until these are resolved.",
+      "Affected work is waiting; some safeguards pause application preparation only, while others also pause job discovery.",
     countLabel: `${blockerCount} active blocker${blockerCount === 1 ? "" : "s"}`,
     historyEstimateLabel: null,
     canCancel: false,

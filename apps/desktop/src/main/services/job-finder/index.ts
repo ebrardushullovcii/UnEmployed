@@ -8,7 +8,16 @@ export {
   createJobFinderWorkspaceServiceAsync,
   dismissJobFinderStartupDatabaseRecoveryNotice,
   getJobFinderStartupDatabaseRecoveryFact,
+  getJobFinderRepositoryForWorkspaceService,
 } from "./create-workspace-service";
+export {
+  createJobFinderApplicationAuthorityService,
+  getJobFinderApplicationAuthorityService,
+  JobFinderApplicationAuthorityError,
+  type CreateJobFinderApplicationAuthorityServiceOptions,
+  type JobFinderApplicationAuthorityErrorCode,
+  type JobFinderApplicationAuthorityService,
+} from "./application-authority-service";
 export {
   getJobFinderWorkspaceService,
   setJobFinderWorkspaceServiceTestEnv,

@@ -14,14 +14,18 @@ import { Button } from "@renderer/components/ui/button";
 import {
   formatDateOnly,
   formatResumeAnalysisSummary,
-  formatStatusLabel,
   getAssetTone,
 } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { getVisibleYearsExperience } from "@renderer/features/job-finder/lib/profile-resume-panel-utils";
+import { Field, FieldLabel } from "@renderer/components/ui/field";
+import type { UseFormReturn } from "react-hook-form";
+import type { ProfileEditorValues } from "../../lib/profile-editor";
 import { PreferenceList } from "../preference-list";
 import { StatusBadge } from "../status-badge";
 import { ProfileImportSuggestionList } from "./profile-import-suggestion-list";
+import { ProfileTextarea } from "./profile-form-primitives";
 import { ProfileTimelineRepairList } from "./profile-timeline-repair-list";
+import { getResumeImportStageFallbackSummary } from "./resume-import-quality-note";
 import { ResumeImportProgress } from "./resume-import-progress";
 
 const PROFILE_PLACEHOLDER_HEADLINE = PROFILE_SETUP_PLACEHOLDER_HEADLINE;
@@ -84,6 +88,7 @@ function getImportedIdentityStatus(input: {
 }
 
 interface ProfileResumePanelProps {
+  compact?: boolean;
   importDisabledReason?: string | null;
   isProfileReady?: boolean;
   isAnalyzeProfilePending: boolean;
@@ -100,29 +105,88 @@ interface ProfileResumePanelProps {
   onReviewImportSuggestion?: (
     candidate: ResumeImportFieldCandidateSummary,
   ) => void;
+  profileForm: UseFormReturn<ProfileEditorValues>;
   profile: CandidateProfile;
 }
 
-const extractionStatusToAssetStatus: Record<
-  ResumeExtractionStatus,
-  AssetStatus
-> = {
-  ready: "ready",
-  failed: "failed",
-  needs_text: "queued",
-  not_started: "not_started",
-};
+function isResumeImportRunInProgress(
+  run: Pick<ResumeImportRun, "status"> | null,
+): boolean {
+  return (
+    run?.status === "queued" ||
+    run?.status === "parsing" ||
+    run?.status === "extracting" ||
+    run?.status === "reconciling"
+  );
+}
 
-const extractionStatusToLabel: Record<ResumeExtractionStatus, string> = {
-  ready: "Ready to review",
-  failed: "Import failed",
-  needs_text: "Needs better text",
-  not_started: "Not imported",
-};
+/**
+ * The resume strip's label and tone come from one derivation so they can
+ * never disagree. The profile's own extraction status is authoritative: a
+ * resume whose fields were already extracted and applied reads as imported
+ * even when a later import stage (for example the deferred visual scan)
+ * recorded a warning. "Failed" is reserved for a genuinely failed
+ * extraction on the profile itself.
+ */
+export function resolveResumeStripStatus(input: {
+  extractionStatus: ResumeExtractionStatus;
+  hasImportedResume: boolean;
+  isProfileReady: boolean;
+  latestRun: Pick<ResumeImportRun, "status"> | null;
+  pendingReviewCount: number;
+}): { label: string; tone: AssetStatus } {
+  if (!input.hasImportedResume) {
+    return { label: "Not imported", tone: "not_started" };
+  }
+
+  if (input.pendingReviewCount > 0) {
+    return input.isProfileReady
+      ? { label: "Ready", tone: "ready" }
+      : { label: "Needs review", tone: "queued" };
+  }
+
+  if (isResumeImportRunInProgress(input.latestRun)) {
+    return { label: "Importing", tone: "queued" };
+  }
+
+  switch (input.extractionStatus) {
+    case "ready":
+      return { label: "Imported", tone: "ready" };
+    case "failed":
+      return { label: "Import failed", tone: "failed" };
+    case "needs_text":
+      return { label: "Needs better text", tone: "queued" };
+    case "not_started":
+      return input.latestRun?.status === "failed"
+        ? { label: "Import failed", tone: "failed" }
+        : { label: "Ready to refresh", tone: "not_started" };
+    default:
+      return { label: "Imported", tone: "ready" };
+  }
+}
+/**
+ * Written by `describeResumeImportStageFallback` in the import workflow. These
+ * sentences say, in plain language, which part of the resume the configured
+ * model never got to read. They are rendered on their own as the import
+ * quality note, so they are kept out of the general notes list rather than
+ * printed twice.
+ */
+const RESUME_IMPORT_STAGE_FALLBACK_PATTERN =
+  /^job finder could not use the ai model for /;
+
+export function getResumeImportStageFallbackNotes(
+  warnings: readonly string[],
+): string[] {
+  return warnings.filter((warning) =>
+    RESUME_IMPORT_STAGE_FALLBACK_PATTERN.test(warning.trim().toLowerCase()),
+  );
+}
+
 function shouldHideAnalysisWarning(value: string): boolean {
   const normalized = value.trim().toLowerCase();
 
   return (
+    RESUME_IMPORT_STAGE_FALLBACK_PATTERN.test(normalized) ||
     normalized.includes("pdfplumber is unavailable") ||
     /^\d+ imported suggestions? still need review\b/.test(normalized) ||
     normalized.includes("pypdf is unavailable") ||
@@ -141,9 +205,17 @@ function shouldHideAnalysisWarning(value: string): boolean {
   );
 }
 
-function getFallbackResumeImportWarning(
+export function getFallbackResumeImportWarnings(
   warnings: readonly string[],
-): string | null {
+): string[] {
+  // A named stage that lost its model call is the specific, actionable version
+  // of this note, so it wins over the generic "a fallback path was used" copy.
+  const stageFallbackNotes = getResumeImportStageFallbackNotes(warnings);
+
+  if (stageFallbackNotes.length > 0) {
+    return stageFallbackNotes;
+  }
+
   const normalizedWarnings = warnings.map((warning) =>
     warning.trim().toLowerCase(),
   );
@@ -164,10 +236,12 @@ function getFallbackResumeImportWarning(
   );
 
   if (!usedFallback) {
-    return null;
+    return [];
   }
 
-  return "This import used a fallback parsing path, so review the imported details more closely before saving them.";
+  return [
+    "This import used a fallback parsing path, so review the imported details more closely before saving them.",
+  ];
 }
 
 function getResumePanelCopy(input: {
@@ -231,6 +305,7 @@ function getResumePanelCopy(input: {
 }
 
 export function ProfileResumePanel({
+  compact = false,
   importDisabledReason,
   isProfileReady = false,
   isAnalyzeProfilePending,
@@ -242,6 +317,7 @@ export function ProfileResumePanel({
   onApplyTimelineRepairAction,
   onImportResume,
   onReviewImportSuggestion,
+  profileForm,
   profile,
 }: ProfileResumePanelProps) {
   const resumeAnalysisSummary = formatResumeAnalysisSummary(profile);
@@ -252,6 +328,7 @@ export function ProfileResumePanel({
   const hasImportedResume =
     rawFileName.length > 0 &&
     rawFileName.toLowerCase() !== RESUME_PLACEHOLDER_FILE_NAME.toLowerCase();
+  const showResumeTextRecovery = hasImportedResume && !resumeTextReadyToAnalyze;
   const resumeFileName = hasImportedResume
     ? rawFileName
     : RESUME_PLACEHOLDER_FILE_NAME;
@@ -270,34 +347,14 @@ export function ProfileResumePanel({
     hasImportedResume && profile.baseResume.uploadedAt
       ? `Imported ${formatDateOnly(profile.baseResume.uploadedAt)}`
       : "Import your resume to fill in this profile faster.";
-  const extractionStatusLabel = (() => {
-    if (latestResumeImportReviewCandidates.length > 0) {
-      return isProfileReady ? "Ready" : "Needs review";
-    }
-
-    if (!hasImportedResume) {
-      return "Not imported";
-    }
-
-    if (latestResumeImportRun) {
-      return latestResumeImportRun.status === "applied"
-        ? "Imported into profile"
-        : latestResumeImportRun.status === "review_ready"
-          ? "Needs review"
-          : formatStatusLabel(latestResumeImportRun.status);
-    }
-
-    const label = extractionStatusToLabel[profile.baseResume.extractionStatus];
-
-    if (label) {
-      return label;
-    }
-
-    console.warn(
-      `Unexpected resume extraction status: ${profile.baseResume.extractionStatus}`,
-    );
-    return "Not imported";
-  })();
+  const resumeStripStatus = resolveResumeStripStatus({
+    extractionStatus: profile.baseResume.extractionStatus,
+    hasImportedResume,
+    isProfileReady,
+    latestRun: latestResumeImportRun,
+    pendingReviewCount: latestResumeImportReviewCandidates.length,
+  });
+  const extractionStatusLabel = resumeStripStatus.label;
   const displayName =
     profile.preferredDisplayName?.trim() ||
     profile.fullName?.trim() ||
@@ -331,14 +388,25 @@ export function ProfileResumePanel({
       : latestResumeImportRun.status === "applied"
         ? `${latestResumeImportRun.candidateCounts.autoApplied} imported automatically; the resume is ready to use.`
         : latestResumeImportRun.status === "failed"
-          ? "The latest resume import failed. Replace the file or refresh the import before relying on these details."
-          : latestResumeImportRun.status === "queued" ||
-              latestResumeImportRun.status === "parsing" ||
-              latestResumeImportRun.status === "extracting" ||
-              latestResumeImportRun.status === "reconciling"
+          ? profile.baseResume.extractionStatus === "ready"
+            ? "A later import step could not finish, but the details already extracted from this resume are in your profile."
+            : "The latest resume import failed. Replace the file or refresh the import before relying on these details."
+          : isResumeImportRunInProgress(latestResumeImportRun)
             ? "The latest resume import is still in progress."
             : null
     : null;
+  // Run warnings are secondary: they never change the strip's status, they
+  // only explain it in a quieter sentence underneath.
+  const latestRunWarning =
+    latestResumeImportRun && latestResumeImportRun.status !== "failed"
+      ? (latestResumeImportRun.warnings.find(
+          (warning) =>
+            !shouldHideAnalysisWarning(warning) &&
+            /superseded|changed while|could not|not applied|timed out/i.test(
+              warning,
+            ),
+        ) ?? null)
+      : null;
   const pendingReviewLabels = new Set(
     latestResumeImportReviewCandidates.map((candidate) =>
       candidate.label.trim().toLowerCase(),
@@ -349,15 +417,85 @@ export function ProfileResumePanel({
       !shouldHideAnalysisWarning(warning) &&
       !pendingReviewLabels.has(warning.trim().toLowerCase()),
   );
-  const fallbackResumeImportWarning = getFallbackResumeImportWarning(
+  const fallbackResumeImportWarnings = getFallbackResumeImportWarnings(
     profile.baseResume.analysisWarnings,
   );
-  const resumeStatusTone =
-    latestResumeImportReviewCandidates.length > 0 && !isProfileReady
-      ? "queued"
-      : hasImportedResume
-        ? extractionStatusToAssetStatus[profile.baseResume.extractionStatus]
-        : "not_started";
+  const resumeImportStageFallbackSummary = getResumeImportStageFallbackSummary(
+    latestResumeImportRun,
+  );
+  const resumeStatusTone = resumeStripStatus.tone;
+
+  if (compact) {
+    return (
+      <section
+        className="grid gap-3 border-b border-(--surface-panel-border) bg-(--surface-overlay-strong) px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-4"
+        data-profile-resume-summary
+      >
+        <div className="grid min-w-0 gap-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
+              Resume
+            </p>
+            <StatusBadge tone={getAssetTone(resumeStatusTone)}>
+              {extractionStatusLabel}
+            </StatusBadge>
+            <strong className="min-w-0 truncate text-sm text-(--text-headline)">
+              {resumeFileName}
+            </strong>
+          </div>
+          <p className="text-sm leading-5 text-foreground-muted">
+            {panelDescription}
+          </p>
+          {latestRunWarning ? (
+            <p
+              className="text-sm leading-5 text-foreground-muted"
+              data-profile-resume-run-warning
+            >
+              {latestRunWarning}
+            </p>
+          ) : null}
+          {originalFileNeedsReimport ? (
+            <p className="text-sm leading-5 text-(--warning-text)" role="alert">
+              The saved original resume cannot be verified for applications.
+              Replace it before using the original file for an application.
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          <Button
+            disabled={Boolean(importDisabledReason)}
+            pending={isImportResumePending}
+            onClick={onImportResume}
+            size="compact"
+            type="button"
+            variant="secondary"
+          >
+            <Upload className="size-4" />
+            {hasImportedResume ? "Replace resume" : "Import resume"}
+          </Button>
+          <Button
+            disabled={
+              isAnalyzeProfilePending ||
+              !resumeTextReadyToAnalyze ||
+              Boolean(importDisabledReason)
+            }
+            pending={isAnalyzeProfilePending}
+            onClick={onAnalyzeProfileFromResume}
+            size="compact"
+            type="button"
+            variant="outline"
+          >
+            <Sparkles className="size-4" />
+            {/* F80: "Refresh" alone is a verb with no object, and the full
+                panel below already calls the same action "Refresh from
+                resume". One name for one action. */}
+            Refresh from resume
+          </Button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="relative overflow-hidden border-y border-(--surface-panel-border) bg-transparent py-4 sm:py-5">
@@ -369,7 +507,7 @@ export function ProfileResumePanel({
                 Resume
               </p>
               <div className="grid gap-2">
-                <h2 className="text-[1.35rem] font-semibold tracking-[-0.03em] text-(--text-headline)">
+                <h2 className="font-semibold tracking-[-0.03em] text-(--text-headline)">
                   {panelHeadline}
                 </h2>
                 <p className="max-w-[62ch] text-(length:--text-description) leading-6 text-foreground-muted">
@@ -406,7 +544,40 @@ export function ProfileResumePanel({
                     : "Import a resume for faster suggestions, or continue entering profile details manually."}
                 </span>
               )}
+              {latestRunWarning ? (
+                <span
+                  className="text-(length:--text-description) leading-6 text-foreground-muted"
+                  data-profile-resume-run-warning
+                >
+                  {latestRunWarning}
+                </span>
+              ) : null}
             </div>
+
+            {/* The quality note qualifies the import status, so it sits with
+                it in ordinary sentences. It used to be an uppercase mono
+                `PreferenceList` far below the fold, which read as machine log
+                output rather than as something to act on. */}
+            {fallbackResumeImportWarnings.length > 0 ? (
+              <div
+                className="grid gap-1.5 border-t border-(--surface-panel-border) pt-3"
+                data-profile-resume-quality-note
+              >
+                {resumeImportStageFallbackSummary ? (
+                  <p className="text-(length:--text-description) font-medium leading-6 text-(--text-headline)">
+                    {resumeImportStageFallbackSummary.hint}.
+                  </p>
+                ) : null}
+                {fallbackResumeImportWarnings.map((warning) => (
+                  <p
+                    className="text-(length:--text-description) leading-6 text-foreground-muted"
+                    key={warning}
+                  >
+                    {warning}
+                  </p>
+                ))}
+              </div>
+            ) : null}
 
             <div className="flex flex-wrap gap-2.5">
               <Button
@@ -436,6 +607,28 @@ export function ProfileResumePanel({
                 Refresh from resume
               </Button>
             </div>
+            {showResumeTextRecovery ? (
+              <Field>
+                <FieldLabel htmlFor="profile-resume-recovery-text">
+                  Resume text recovery
+                </FieldLabel>
+                <ProfileTextarea
+                  aria-describedby="profile-resume-recovery-text-description"
+                  id="profile-resume-recovery-text"
+                  placeholder="Paste the plain text of your resume here"
+                  rows={10}
+                  {...profileForm.register("identity.resumeText")}
+                />
+                <p
+                  className="text-sm leading-6 text-foreground-muted"
+                  id="profile-resume-recovery-text-description"
+                >
+                  If this file has no readable text, paste a plain-text copy
+                  here. Save your profile first, then choose Refresh from resume
+                  to rebuild profile suggestions from the saved text.
+                </p>
+              </Field>
+            ) : null}
             <ResumeImportProgress
               isPending={isImportResumePending}
               progress={resumeImportProgress}
@@ -458,19 +651,12 @@ export function ProfileResumePanel({
           </article>
 
           {visibleAnalysisWarnings.length > 0 ||
-          fallbackResumeImportWarning ||
           latestResumeImportReviewCandidates.length > 0 ||
           (latestResumeImportRun?.timelineRepairProposals?.length ?? 0) > 0 ? (
             <article className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border-warm) bg-(--surface-overlay-strong) p-4">
               <p className="text-(length:--text-eyebrow) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
                 {isProfileReady ? "Optional review" : "Review before saving"}
               </p>
-              {fallbackResumeImportWarning ? (
-                <PreferenceList
-                  label="Import quality note"
-                  values={[fallbackResumeImportWarning]}
-                />
-              ) : null}
               {visibleAnalysisWarnings.length > 0 ? (
                 <PreferenceList
                   label="Import notes"

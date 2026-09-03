@@ -47,8 +47,7 @@ export function matchResumeClaimConfirmation(input: {
         confirmation.sectionId === input.assessment.sectionId &&
         confirmation.entryId === input.assessment.entryId &&
         confirmation.bulletId === input.assessment.bulletId &&
-        confirmation.confirmedClaimContentHash ===
-          input.assessment.contentHash,
+        confirmation.confirmedClaimContentHash === input.assessment.contentHash,
     ) ?? null
   );
 }
@@ -198,9 +197,7 @@ export function ResumeClaimConfirmationPanel(
     message: string;
   } | null>(null);
 
-  const assessments = listConfirmNeededClaimAssessments(
-    props.claimAssessments,
-  );
+  const assessments = listConfirmNeededClaimAssessments(props.claimAssessments);
 
   if (assessments.length === 0) {
     return null;
@@ -271,12 +268,12 @@ export function ResumeClaimConfirmationPanel(
       tabIndex={-1}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2
-          className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary"
+        <h3
+          className="font-display text-primary"
           id="resume-claim-confirmation-heading"
         >
           Claim confirmations
-        </h2>
+        </h3>
         <StatusBadge tone={unconfirmedCount > 0 ? "critical" : "positive"}>
           {unconfirmedCount > 0
             ? `${unconfirmedCount} need${unconfirmedCount === 1 ? "s" : ""} your confirmation`
@@ -318,9 +315,7 @@ export function ResumeClaimConfirmationPanel(
           >
             <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
               <span className="min-w-0 grid gap-0.5">
-                <span className="text-foreground-muted">
-                  {row.targetLabel}
-                </span>
+                <span className="text-foreground-muted">{row.targetLabel}</span>
                 <span className="min-w-0 break-words text-(length:--text-body) leading-6 text-(--text-headline)">
                   {row.assessment.claimText}
                 </span>
@@ -368,7 +363,9 @@ export function ResumeClaimConfirmationPanel(
                 type="button"
                 variant={row.confirmation ? "secondary" : "primary"}
               >
-                {row.confirmation ? "Undo confirmation" : "Confirm this wording"}
+                {row.confirmation
+                  ? "Undo confirmation"
+                  : "Confirm this wording"}
               </Button>
             </div>
           </li>

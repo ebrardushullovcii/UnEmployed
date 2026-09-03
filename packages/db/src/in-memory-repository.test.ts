@@ -335,12 +335,31 @@ describe("createInMemoryJobFinderRepository", () => {
       }),
     );
 
-    await repository.reset(createSeed());
+    // Guided setup is five steps now, so the retired `ready_check` step
+    // migrates to the step that owns the finish action at parse time.
+    await repository.saveProfileSetupState({
+      status: "completed",
+      currentStep: "ready_check",
+      completedAt: "2026-04-11T10:06:00.000Z",
+      reviewItems: [],
+      lastResumedAt: null,
+    });
 
     await expect(repository.getProfileSetupState()).resolves.toEqual(
       expect.objectContaining({
         status: "completed",
-        currentStep: "ready_check",
+        currentStep: "targeting",
+      }),
+    );
+
+    await repository.reset(createSeed());
+
+    // The seed still carries the legacy step, so reset proves the same
+    // migration applies to seeded workspaces.
+    await expect(repository.getProfileSetupState()).resolves.toEqual(
+      expect.objectContaining({
+        status: "completed",
+        currentStep: "targeting",
       }),
     );
   });

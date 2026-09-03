@@ -1,6 +1,7 @@
 import { useDeferredValue, useId, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type {
+  DiscoveryRunRecord,
   EditableSourceInstructionArtifact,
   SourceAccessPrompt,
   SourceDebugRunDetails,
@@ -13,8 +14,10 @@ import { Checkbox } from "@renderer/components/ui/checkbox";
 import { FieldLabel } from "@renderer/components/ui/field";
 import type { UseFormReturn } from "react-hook-form";
 import {
-  deriveEnabledSourceHealthCounts,
+  deriveSourceHealthSignals,
+  describeEnabledSourceHealth,
   isEnabledSourceNeedingAttention,
+  type SourceRuntimeSignals,
 } from "@unemployed/job-finder/source-health";
 import type { SearchPreferencesEditorValues } from "../../lib/profile-editor";
 import { PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES } from "./profile-deep-link-focus";
@@ -47,7 +50,12 @@ function getSourceHost(startingUrl: string): string {
   }
 }
 
-function getInstructionStatusLabel(target: DiscoveryTarget): string {
+/**
+ * Status line for a source row. A never-checked source returns `null`: the
+ * app's internal learning state is not a fact the user can act on, and the
+ * Enabled/Disabled badge already carries the actionable part.
+ */
+function getInstructionStatusLabel(target: DiscoveryTarget): string | null {
   switch (target.instructionStatus) {
     case "validated":
       return "Guidance ready";
@@ -58,7 +66,7 @@ function getInstructionStatusLabel(target: DiscoveryTarget): string {
     case "unsupported":
       return "Check unsupported";
     default:
-      return "No guidance yet";
+      return null;
   }
 }
 
@@ -66,7 +74,7 @@ export function filterJobSources(
   targets: readonly DiscoveryTarget[],
   query: string,
   filter: SourceFilter,
-  loginRequiredTargetIds: ReadonlySet<string>,
+  signals: SourceRuntimeSignals,
 ): Array<{ index: number; target: DiscoveryTarget }> {
   const normalizedQuery = query.trim().toLocaleLowerCase();
 
@@ -83,9 +91,7 @@ export function filterJobSources(
       (filter === "enabled" && target.enabled) ||
       (filter === "disabled" && !target.enabled) ||
       (filter === "needs_attention" &&
-        isEnabledSourceNeedingAttention(target, {
-          loginRequiredTargetIds,
-        }));
+        isEnabledSourceNeedingAttention(target, signals));
 
     return matchesQuery && matchesFilter ? [{ index, target }] : [];
   });
@@ -150,6 +156,14 @@ interface ProfileJobSourcesTabProps {
   ) => void;
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void;
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>;
+  /**
+   * The workspace discovery runs behind source health. Passing the same facts
+   * Home uses keeps both screens on one classification: a source whose latest
+   * run completed is healthy even when guidance was never verified, and a
+   * source with an in-flight execution reads as running, not as a problem.
+   */
+  activeDiscoveryRun?: DiscoveryRunRecord | null;
+  discoveryRuns?: readonly DiscoveryRunRecord[];
   recentSourceDebugRuns: readonly SourceDebugRunRecord[];
   sourceAccessPrompts: readonly SourceAccessPrompt[];
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[];
@@ -175,16 +189,16 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
       ),
     [props.sourceAccessPrompts],
   );
-  // Only hard sign-in blockers count as "needs attention"; optional
-  // `prompt_login_recommended` prompts stay informational.
-  const loginRequiredTargetIds = useMemo(
+  // One shared classification for Home and Profile: same login prompts, same
+  // running executions, same completed-run evidence.
+  const sourceHealthSignals = useMemo(
     () =>
-      new Set(
-        props.sourceAccessPrompts
-          .filter((prompt) => prompt.state === "prompt_login_required")
-          .map((prompt) => prompt.targetId),
-      ),
-    [props.sourceAccessPrompts],
+      deriveSourceHealthSignals({
+        activeRun: props.activeDiscoveryRun ?? null,
+        recentRuns: props.discoveryRuns ?? [],
+        sourceAccessPrompts: props.sourceAccessPrompts,
+      }),
+    [props.activeDiscoveryRun, props.discoveryRuns, props.sourceAccessPrompts],
   );
   const instructionArtifactById = useMemo(
     () =>
@@ -202,9 +216,9 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
         discoveryTargets,
         deferredQuery,
         filter,
-        loginRequiredTargetIds,
+        sourceHealthSignals,
       ),
-    [deferredQuery, discoveryTargets, filter, loginRequiredTargetIds],
+    [deferredQuery, discoveryTargets, filter, sourceHealthSignals],
   );
   const pageCount = Math.max(
     1,
@@ -221,15 +235,6 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
     filteredSources.length,
     firstVisibleSourceNumber + visibleSources.length - 1,
   );
-  const enabledCount = discoveryTargets.filter(
-    (target) => target.enabled,
-  ).length;
-  // Same projection as Home; Home also marks active-run sources because
-  // Profile intentionally has no discovery-run context.
-  const sourceHealthCounts = deriveEnabledSourceHealthCounts(discoveryTargets, {
-    loginRequiredTargetIds,
-  });
-
   const updateDiscoveryTargets = (
     nextTargets: SearchPreferencesEditorValues["discoveryTargets"],
   ) => {
@@ -319,35 +324,6 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
         headingId="profile-job-sources-heading"
         title="Job sources"
       />
-
-      <div
-        className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
-        role="list"
-        aria-label="Job source summary"
-      >
-        {[
-          { label: "Total sources", value: discoveryTargets.length },
-          { label: "Enabled for search", value: enabledCount },
-          { label: "Disabled", value: discoveryTargets.length - enabledCount },
-          {
-            label: "Needs attention",
-            value: sourceHealthCounts.needsAttention,
-          },
-        ].map((item) => (
-          <div
-            className="surface-card-tint grid gap-1 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-3"
-            key={item.label}
-            role="listitem"
-          >
-            <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-              {item.label}
-            </span>
-            <strong className="text-xl text-(--text-headline)">
-              {item.value}
-            </strong>
-          </div>
-        ))}
-      </div>
 
       <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
         <div className="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_auto] lg:items-end">
@@ -476,6 +452,12 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
                 target.label.trim() || `New source ${index + 1}`;
               const accessPrompt =
                 accessPromptByTargetId.get(target.id) ?? null;
+              const health = describeEnabledSourceHealth(
+                target,
+                sourceHealthSignals,
+              );
+              const needsAttention =
+                target.enabled && health.state === "needs_attention";
 
               return (
                 <li className="min-w-0" key={target.id}>
@@ -554,15 +536,12 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
                           >
                             {displayName}
                           </h4>
-                          <Badge
-                            variant={target.enabled ? "default" : "outline"}
-                          >
-                            {target.enabled ? "Enabled" : "Disabled"}
-                          </Badge>
-                          {isEnabledSourceNeedingAttention(target, {
-                            loginRequiredTargetIds,
-                          }) ? (
-                            <Badge variant="destructive">Needs attention</Badge>
+                          {/* No Enabled/Disabled badge: the "Include in
+                              search" checkbox on this row states it. */}
+                          {needsAttention ? (
+                            <Badge title={health.reason} variant="destructive">
+                              Needs attention
+                            </Badge>
                           ) : null}
                         </div>
                         <p
@@ -571,12 +550,25 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
                         >
                           {getSourceHost(target.startingUrl)}
                         </p>
-                        <p className="mt-1 text-xs text-foreground-muted">
-                          {getInstructionStatusLabel(target)}
-                        </p>
+                        {needsAttention ? (
+                          <p className="mt-1 text-xs text-foreground-soft">
+                            {health.reason}
+                          </p>
+                        ) : getInstructionStatusLabel(target) ? (
+                          <p className="mt-1 text-xs text-foreground-muted">
+                            {getInstructionStatusLabel(target)}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                        <label className="flex min-h-9 items-center gap-2 rounded-(--radius-button) border border-(--surface-panel-border) px-3 text-sm text-foreground-soft">
+                        {/* F78: this toggle was wrapped in a bordered pill at
+                            the same height and border weight as the real
+                            `Edit source` button beside it, so a checkbox and a
+                            navigation read as two identical controls. The
+                            toggle is now a plain checkbox+label with no button
+                            chrome, and it reports its committed state in words
+                            rather than leaving the tick as the only feedback. */}
+                        <label className="flex min-h-9 items-center gap-2 text-sm text-foreground-soft">
                           <Checkbox
                             aria-label={`Include ${displayName} in searches`}
                             checked={target.enabled}
@@ -584,7 +576,12 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
                               toggleTarget(target.id, checked === true)
                             }
                           />
-                          Include in search
+                          <span>
+                            Include in search
+                            <span className="ml-1.5 text-(length:--text-tiny) uppercase tracking-(--tracking-mono) text-foreground-muted">
+                              {target.enabled ? "On" : "Off"}
+                            </span>
+                          </span>
                         </label>
                         <Button
                           aria-expanded={false}

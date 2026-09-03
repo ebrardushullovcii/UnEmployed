@@ -25,10 +25,12 @@ import {
   APPLICATION_CRM_STAGE_ORDER,
   applicationCrmDataForView,
   applicationCrmStageLabelForView,
+  applicationCrmStageProvenanceDetailForView,
   applicationCrmStageProvenanceForView,
   buildApplicationCrmCalendarForView,
   groupApplicationRecordsByStage,
 } from "./applications-crm-model";
+import { formatApplicationEmployerLine } from "../../lib/job-employer-location-display";
 
 export const APPLICATION_CRM_VIEW_VALUES = [
   "table",
@@ -62,6 +64,13 @@ const columnValues = [
   "updated",
 ] as const;
 type CrmColumn = (typeof columnValues)[number];
+
+/**
+ * Below this many records the table/board/calendar switcher and the exports
+ * are not offered: they are three ways of viewing, and two formats for
+ * exporting, a single row.
+ */
+export const APPLICATION_CRM_VIEW_SWITCHER_MIN_RECORDS = 2;
 
 const viewLabels: Record<ApplicationCrmView, string> = {
   table: "Table",
@@ -111,11 +120,18 @@ function RecordButton(props: {
   selected: boolean;
   onSelect: (id: string) => void;
   compact?: boolean;
+  relatedJobCanonicalUrl?: string | null;
 }) {
   const crm = applicationCrmDataForView(props.record);
   const pendingReminderCount = crm.reminders.filter(
     (reminder) => reminder.status === "pending",
   ).length;
+  const employerLine = formatApplicationEmployerLine({
+    company: props.record.company,
+    ...(props.relatedJobCanonicalUrl
+      ? { canonicalUrl: props.relatedJobCanonicalUrl }
+      : {}),
+  });
   return (
     <button
       aria-current={props.selected ? "true" : undefined}
@@ -130,11 +146,16 @@ function RecordButton(props: {
       <strong className="min-w-0 break-words text-sm text-foreground">
         {props.record.title}
       </strong>
-      <span className="min-w-0 break-words text-xs text-muted-foreground">
-        {props.record.company}
-      </span>
+      {employerLine ? (
+        <span className="min-w-0 break-words text-xs text-foreground-soft">
+          {employerLine}
+        </span>
+      ) : null}
       <span className="flex flex-wrap gap-1.5">
-        <Badge variant="section">
+        <Badge
+          title={applicationCrmStageProvenanceDetailForView(props.record)}
+          variant="section"
+        >
           {applicationCrmStageProvenanceForView(props.record)}
         </Badge>
         {crm.tags.slice(0, 3).map((tag) => (
@@ -157,6 +178,10 @@ export function ApplicationsCrmViews(props: {
   records: readonly ApplicationRecord[];
   selectedRecordId: string | null;
   view: ApplicationCrmView;
+  discoveryJobs?: ReadonlyArray<{
+    id: string;
+    canonicalUrl: string;
+  }>;
   onSelectRecord: (recordId: string) => void;
   onViewChange: (view: ApplicationCrmView) => void;
   onVisibleRecordIdsChange?: (recordIds: readonly string[]) => void;
@@ -230,6 +255,12 @@ export function ApplicationsCrmViews(props: {
     }
   }, [savedView, visibleColumns]);
 
+  const relatedJobsById = useMemo(
+    () =>
+      new Map((props.discoveryJobs ?? []).map((job) => [job.id, job] as const)),
+    [props.discoveryJobs],
+  );
+
   const filteredRecords = useMemo(
     () =>
       props.records.filter((record) => {
@@ -246,11 +277,18 @@ export function ApplicationsCrmViews(props: {
               (interview) => interview.status === "scheduled",
             )) ||
           (savedView === "offers" && crm.stage === "offer");
+        const employerLine = formatApplicationEmployerLine({
+          company: record.company,
+          ...(relatedJobsById.get(record.jobId)?.canonicalUrl
+            ? { canonicalUrl: relatedJobsById.get(record.jobId)?.canonicalUrl }
+            : {}),
+        });
         return (
           savedViewMatch &&
           matchesCollectionSearch(query, [
             record.title,
             record.company,
+            employerLine,
             crm.stage,
             crm.customStageId,
             ...crm.tags,
@@ -258,7 +296,7 @@ export function ApplicationsCrmViews(props: {
           ])
         );
       }),
-    [props.records, query, savedView],
+    [props.records, query, relatedJobsById, savedView],
   );
   const visibleRecordIdKey = useMemo(
     () => encodeVisibleRecordIdKey(filteredRecords.map((record) => record.id)),
@@ -287,8 +325,8 @@ export function ApplicationsCrmViews(props: {
   }, [props.view, query, savedView]);
 
   const calendar = useMemo(
-    () => buildApplicationCrmCalendarForView(filteredRecords),
-    [filteredRecords],
+    () => buildApplicationCrmCalendarForView(filteredRecords, relatedJobsById),
+    [filteredRecords, relatedJobsById],
   );
   const pageItemCount =
     props.view === "calendar" ? calendar.length : filteredRecords.length;
@@ -385,35 +423,44 @@ export function ApplicationsCrmViews(props: {
   }
 
   return (
-    <section className="surface-panel-shell flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
+    <section className="surface-panel-shell @container/tracker flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-5 py-3">
         <div>
-          <h2
-            className="font-display text-lg font-bold uppercase tracking-(--tracking-heading) text-primary"
-            id="application-tracker-heading"
-          >
+          {/* Same panel-title rule as the Preparation list: the base scale
+              owns the size and weight. */}
+          <h2 className="min-w-0" id="application-tracker-heading">
             Application tracker
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
             {filteredRecords.length} of {props.records.length} applications in
-            this view · stages are local user-recorded facts or historical
-            workflow inferences
+            this view · a stage is either one you recorded or one Job Finder
+            worked out from your activity
           </p>
         </div>
-        <div aria-label="Application view" className="flex gap-1" role="group">
-          {APPLICATION_CRM_VIEW_VALUES.map((view) => (
-            <Button
-              aria-pressed={props.view === view}
-              key={view}
-              onClick={() => props.onViewChange(view)}
-              size="sm"
-              type="button"
-              variant={props.view === view ? "secondary" : "ghost"}
-            >
-              {viewLabels[view]}
-            </Button>
-          ))}
-        </div>
+        {/* A table, a board and a calendar are three ways of looking at a
+            list. With one row there is nothing to look at three ways, so the
+            switcher is earned rather than always present. */}
+        {props.records.length >= APPLICATION_CRM_VIEW_SWITCHER_MIN_RECORDS ? (
+          <div
+            aria-label="Application view"
+            className="flex gap-1"
+            data-testid="applications-crm-view-switcher"
+            role="group"
+          >
+            {APPLICATION_CRM_VIEW_VALUES.map((view) => (
+              <Button
+                aria-pressed={props.view === view}
+                key={view}
+                onClick={() => props.onViewChange(view)}
+                size="sm"
+                type="button"
+                variant={props.view === view ? "secondary" : "ghost"}
+              >
+                {viewLabels[view]}
+              </Button>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <CollectionSearchToolbar
@@ -507,9 +554,14 @@ export function ApplicationsCrmViews(props: {
           className="min-h-0 flex-1 overflow-auto"
           data-locked-pane-scroll-region
         >
+          {/* A fixed 50rem minimum turned this table into a horizontally
+              scrolling strip inside a ~28rem column, which cut the Stage cell
+              off at the pane edge. The wide layout is kept only once the
+              panel is actually wide enough for it. */}
           <table
             aria-labelledby="application-tracker-heading"
-            className="w-full min-w-200 border-collapse text-left text-sm"
+            className="w-full min-w-0 border-collapse text-left text-sm @[54rem]/tracker:min-w-200"
+            data-application-tracker-table
           >
             <thead className="sticky top-0 z-10 bg-(--surface-panel-solid)">
               <tr className="border-b border-(--surface-panel-border)">
@@ -532,7 +584,7 @@ export function ApplicationsCrmViews(props: {
                 </th>
                 {columnValues.filter(columnVisible).map((column) => (
                   <th
-                    className="label-mono-xs px-4 py-3 capitalize"
+                    className="label-mono-xs px-2 @[54rem]/tracker:px-4 py-3 capitalize"
                     key={column}
                     scope="col"
                   >
@@ -544,6 +596,15 @@ export function ApplicationsCrmViews(props: {
             <tbody>
               {pagedRecords.map((record) => {
                 const crm = applicationCrmDataForView(record);
+                const employerLine = formatApplicationEmployerLine({
+                  company: record.company,
+                  ...(relatedJobsById.get(record.jobId)?.canonicalUrl
+                    ? {
+                        canonicalUrl: relatedJobsById.get(record.jobId)
+                          ?.canonicalUrl,
+                      }
+                    : {}),
+                });
                 const reminder = crm.reminders
                   .filter((entry) => entry.status === "pending")
                   .sort((left, right) =>
@@ -569,7 +630,11 @@ export function ApplicationsCrmViews(props: {
                       onClick={(event) => event.stopPropagation()}
                     >
                       <input
-                        aria-label={`Select ${record.title} at ${record.company}`}
+                        aria-label={
+                          employerLine
+                            ? `Select ${record.title} at ${employerLine}`
+                            : `Select ${record.title}`
+                        }
                         checked={selectedIdSet.has(record.id)}
                         onChange={(event) =>
                           setSelectedIds((current) => {
@@ -588,7 +653,7 @@ export function ApplicationsCrmViews(props: {
                     {columnVisible("job") ? (
                       <td
                         className={cn(
-                          "px-4 font-semibold text-foreground",
+                          "px-2 @[54rem]/tracker:px-4 font-semibold text-foreground",
                           rowPadding,
                         )}
                       >
@@ -603,19 +668,33 @@ export function ApplicationsCrmViews(props: {
                     ) : null}
                     {columnVisible("company") ? (
                       <td
-                        className={cn("px-4 text-foreground-soft", rowPadding)}
+                        className={cn(
+                          "px-2 @[54rem]/tracker:px-4 text-foreground-soft",
+                          rowPadding,
+                        )}
                       >
-                        {record.company}
+                        {employerLine ?? "—"}
                       </td>
                     ) : null}
                     {columnVisible("stage") ? (
-                      <td className={cn("px-4", rowPadding)}>
-                        {applicationCrmStageLabelForView(record)}
+                      <td
+                        className={cn("px-2 @[54rem]/tracker:px-4", rowPadding)}
+                      >
+                        <span
+                          title={applicationCrmStageProvenanceDetailForView(
+                            record,
+                          )}
+                        >
+                          {applicationCrmStageLabelForView(record)}
+                        </span>
                       </td>
                     ) : null}
                     {columnVisible("reminder") ? (
                       <td
-                        className={cn("px-4 text-muted-foreground", rowPadding)}
+                        className={cn(
+                          "px-2 @[54rem]/tracker:px-4 text-muted-foreground",
+                          rowPadding,
+                        )}
                       >
                         {reminder
                           ? new Date(reminder.dueAt).toLocaleDateString()
@@ -624,7 +703,10 @@ export function ApplicationsCrmViews(props: {
                     ) : null}
                     {columnVisible("interview") ? (
                       <td
-                        className={cn("px-4 text-muted-foreground", rowPadding)}
+                        className={cn(
+                          "px-2 @[54rem]/tracker:px-4 text-muted-foreground",
+                          rowPadding,
+                        )}
                       >
                         {interview
                           ? new Date(interview.startsAt).toLocaleString()
@@ -633,14 +715,20 @@ export function ApplicationsCrmViews(props: {
                     ) : null}
                     {columnVisible("tags") ? (
                       <td
-                        className={cn("px-4 text-muted-foreground", rowPadding)}
+                        className={cn(
+                          "px-2 @[54rem]/tracker:px-4 text-muted-foreground",
+                          rowPadding,
+                        )}
                       >
                         {crm.tags.join(", ") || "—"}
                       </td>
                     ) : null}
                     {columnVisible("updated") ? (
                       <td
-                        className={cn("px-4 text-muted-foreground", rowPadding)}
+                        className={cn(
+                          "px-2 @[54rem]/tracker:px-4 text-muted-foreground",
+                          rowPadding,
+                        )}
                       >
                         {new Date(record.lastUpdatedAt).toLocaleDateString()}
                       </td>
@@ -713,7 +801,7 @@ export function ApplicationsCrmViews(props: {
                   key={stage}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-semibold text-foreground">
+                    <h3 className="font-semibold text-foreground">
                       {APPLICATION_CRM_STAGE_NAMES[stage]}
                     </h3>
                     <Badge variant="section">
@@ -728,6 +816,10 @@ export function ApplicationsCrmViews(props: {
                           key={record.id}
                           onSelect={props.onSelectRecord}
                           record={record}
+                          relatedJobCanonicalUrl={
+                            relatedJobsById.get(record.jobId)?.canonicalUrl ??
+                            null
+                          }
                           selected={props.selectedRecordId === record.id}
                         />
                       ))

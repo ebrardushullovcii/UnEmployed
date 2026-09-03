@@ -6,7 +6,11 @@ import { describe, expect, test } from "vitest";
 
 import { createJobFinderWorkspaceService } from "../index";
 import { ProfileCommitStaleError } from "./profile-commit-stale-conflict";
-import { createSeed } from "../workspace-service.test-fixtures";
+import { RESUME_IMPORT_SUPERSEDED_MESSAGE } from "./resume-import-workflow";
+import {
+  createFreshStartSeedProfile,
+  createSeed,
+} from "../workspace-service.test-fixtures";
 import {
   createAiClient,
   createBrowserRuntime,
@@ -196,9 +200,7 @@ describe("resume import finalize concurrency", () => {
     return {
       ...seed,
       profile: {
-        ...seed.profile,
-        fullName: "Candidate",
-        email: null,
+        ...createFreshStartSeedProfile(),
         baseResume: {
           ...seed.profile.baseResume,
           extractionStatus: "not_started" as const,
@@ -221,22 +223,31 @@ describe("resume import finalize concurrency", () => {
     let racedOnce = false;
     const repository: JobFinderRepository = {
       ...base,
-      commitProfileUpdate: async (updateProfile, options) => {
+      // The answer lands after the import captured its profile revision and
+      // before the import commits: the exact window in which a concurrent user
+      // edit must never be overwritten by extracted candidates.
+      finalizeResumeImportRun: async (input) => {
         if (!racedOnce) {
           racedOnce = true;
           await base.commitProfileUpdate(addReusableAnswer);
         }
-        return base.commitProfileUpdate(updateProfile, options);
+        return base.finalizeResumeImportRun(input);
       },
     };
     const service = createTestHarness(repository);
 
     await service.analyzeProfileFromResume();
 
-    const profile = await repository.getProfile();
-    expect(profile.fullName).toBe("Jamie Rivers");
-    expect(profile.email).toBe("jamie@example.com");
+    const profile = await base.getProfile();
+    const run = await base.getLatestResumeImportRun();
+
+    expect(racedOnce).toBe(true);
     expect(profile.answerBank.customAnswers).toEqual([REUSABLE_ANSWER]);
+    // The concurrent edit wins the compare-and-swap, so the imported identity
+    // waits for review instead of silently replacing the current profile.
+    expect(profile.fullName).toBeNull();
+    expect(run?.status).toBe("review_ready");
+    expect(run?.warnings).toContain(RESUME_IMPORT_SUPERSEDED_MESSAGE);
   });
 
   test("a reusable answer committed after import finalization survives", async () => {

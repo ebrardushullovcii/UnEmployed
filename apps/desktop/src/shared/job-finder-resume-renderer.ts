@@ -331,7 +331,11 @@ function renderEntryHeading(input: {
     })}>${escapeHtml(input.heading)}</span></span></h4>`;
   }
 
-  return `<h4><span class="entry-primary">${primaryParts.join(' <span aria-hidden="true">—</span> ')}</span>${metaParts.length > 0 ? `<span class="entry-meta">${metaParts.join(' <span aria-hidden="true">|</span> ')}</span>` : ""}</h4>`;
+  // A pipe between "Remote, CA" and a date range renders as a lowercase "l"
+  // in the serif faces these templates use, so the exported PDF read
+  // "Remote, CA l Dec 2021 - Feb 2026". A middot cannot be mistaken for a
+  // letter at any resume size.
+  return `<h4><span class="entry-primary">${primaryParts.join(' <span aria-hidden="true">—</span> ')}</span>${metaParts.length > 0 ? `<span class="entry-meta">${metaParts.join(' <span aria-hidden="true">·</span> ')}</span>` : ""}</h4>`;
 }
 
 function renderPreviewAttributes(input: {
@@ -366,6 +370,154 @@ function renderPreviewAttributes(input: {
   return attributes.length > 0 ? ` ${attributes.join(" ")}` : "";
 }
 
+const INLINE_BULLET_GLYPH_CLASS = "●•▪◦‣";
+const INLINE_BULLET_GLYPH_PATTERN = new RegExp(
+  `[${INLINE_BULLET_GLYPH_CLASS}]`,
+  "g",
+);
+const LEADING_BULLET_GLYPH_PATTERN = new RegExp(
+  `^[\\s${INLINE_BULLET_GLYPH_CLASS}\\-–—*]+`,
+);
+const INLINE_BULLET_SPLIT_PATTERN = new RegExp(
+  `\\s*[${INLINE_BULLET_GLYPH_CLASS}]\\s*`,
+);
+const SENTENCE_BOUNDARY_PATTERN = /(?<=[.!?])\s+(?=["'([A-Z0-9])/;
+const LEAD_SENTENCE_BUDGET = 160;
+
+/**
+ * Imported resumes routinely split the .NET family across a space
+ * ("ASP .NET Core") or drop the space after a list comma ("C#,.NET"), so
+ * the same stack reads as a different token in the bullets than in the
+ * skills line. Both a recruiter and a keyword-matching ATS see the
+ * mismatch, so normalize the spacing deterministically at render time for
+ * the preview and the export alike.
+ */
+export function normalizeResumeTokenSpacing(value: string): string {
+  return (
+    value
+      // "ASP .NET" / "VB .Net" / "ADO .NET" are one token.
+      .replace(
+        /\b(ASP|VB|ADO)\s+\.(NET)\b/gi,
+        (_match, prefix: string, suffix: string) => `${prefix}.${suffix}`,
+      )
+      // A list comma always takes one following space. Digits are skipped so
+      // thousands separators ("1,000") stay intact.
+      .replace(/,(?![\s\d])/g, ", ")
+      .replace(/[ \t]{2,}/g, " ")
+  );
+}
+
+/**
+ * Bullet glyphs are layout, not content: the list style paints its own
+ * marker, so a glyph left inside the text would print twice.
+ */
+export function stripBulletGlyphs(value: string): string {
+  return normalizeResumeTokenSpacing(value)
+    .replace(LEADING_BULLET_GLYPH_PATTERN, "")
+    .replace(INLINE_BULLET_GLYPH_PATTERN, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function ensureTerminalPunctuation(value: string): string {
+  return value.length === 0 || /[.!?…]$/.test(value) ? value : `${value}.`;
+}
+
+/**
+ * Legacy profiles carry inline "● item ● item" lists or long paragraphs in
+ * an entry summary while the entry has no real bullets. Present that text as
+ * bullets with at most one short lead sentence. Derived bullets keep the
+ * summary as their preview target so clicking one still opens the summary
+ * field in the editor.
+ */
+export function presentEntryNarrative(entry: {
+  summary: string | null;
+  bullets: ReadonlyArray<{ id: string; text: string }>;
+}): {
+  summary: string | null;
+  bullets: Array<{ id: string; text: string; derivedFromSummary?: boolean }>;
+} {
+  const cleanedBullets = entry.bullets
+    .map((bullet) => ({
+      ...bullet,
+      // Imported bullets arrive as fragments without terminal punctuation,
+      // so a rendered list mixed complete sentences with dangling ones.
+      text: ensureTerminalPunctuation(stripBulletGlyphs(bullet.text)),
+    }))
+    .filter((bullet) => bullet.text.length > 0);
+  const summary = entry.summary?.trim() ?? "";
+  if (!summary) {
+    return { summary: null, bullets: cleanedBullets };
+  }
+
+  const glyphCount = summary.match(INLINE_BULLET_GLYPH_PATTERN)?.length ?? 0;
+  let lead: string | null = null;
+  let derived: string[] = [];
+
+  if (glyphCount >= 2) {
+    const startsWithGlyph = new RegExp(
+      `^[\\s${INLINE_BULLET_GLYPH_CLASS}]`,
+    ).test(summary);
+    const segments = summary
+      .split(INLINE_BULLET_SPLIT_PATTERN)
+      .map(stripBulletGlyphs)
+      .filter(Boolean);
+    const [first, ...rest] = segments;
+    if (
+      !startsWithGlyph &&
+      first !== undefined &&
+      first.length <= LEAD_SENTENCE_BUDGET
+    ) {
+      lead = ensureTerminalPunctuation(first);
+      derived = rest;
+    } else {
+      derived = segments;
+    }
+  } else if (cleanedBullets.length < 2) {
+    const sentences = summary
+      .split(SENTENCE_BOUNDARY_PATTERN)
+      .map((sentence) => sentence.trim())
+      .filter(Boolean);
+    if (sentences.length >= 3) {
+      const [first, ...rest] = sentences;
+      if (first !== undefined && first.length <= LEAD_SENTENCE_BUDGET) {
+        lead = first;
+        derived = rest;
+      } else {
+        derived = sentences;
+      }
+    } else {
+      return { summary: stripBulletGlyphs(summary), bullets: cleanedBullets };
+    }
+  } else {
+    return { summary: stripBulletGlyphs(summary), bullets: cleanedBullets };
+  }
+
+  const seen = new Set(
+    cleanedBullets.map((bullet) => bullet.text.toLowerCase()),
+  );
+  const derivedBullets = derived
+    .map((text) => ensureTerminalPunctuation(stripBulletGlyphs(text)))
+    .filter((text) => {
+      const key = text.toLowerCase();
+      if (!key || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .map((text, index) => ({
+      id: `summary-line-${index + 1}`,
+      text,
+      derivedFromSummary: true,
+    }));
+
+  return {
+    summary: lead,
+    bullets: [...derivedBullets, ...cleanedBullets],
+  };
+}
+
 function renderStructuredSection(input: {
   sectionId?: string;
   title: string;
@@ -387,8 +539,16 @@ function renderStructuredSection(input: {
     bullets: Array<{ id: string; text: string }>;
   }>;
 }): string {
-  const bullets = input.bullets ?? [];
-  const entries = input.entries ?? [];
+  const bullets = (input.bullets ?? [])
+    .map((bullet) => ({
+      ...bullet,
+      text: ensureTerminalPunctuation(stripBulletGlyphs(bullet.text)),
+    }))
+    .filter((bullet) => bullet.text.length > 0);
+  const entries = (input.entries ?? []).map((entry) => ({
+    ...entry,
+    ...presentEntryNarrative(entry),
+  }));
   const hasContent =
     Boolean(input.text) || bullets.length > 0 || entries.length > 0;
 
@@ -416,7 +576,11 @@ function renderStructuredSection(input: {
                   ? getResumeSectionTextTargetId(input.sectionId)
                   : null,
               }),
-            })}>${escapeHtml(input.text)}</p>`
+            })}>${escapeHtml(
+              ensureTerminalPunctuation(
+                normalizeResumeTokenSpacing(input.text).trim(),
+              ),
+            )}</p>`
           : ""
       }
       ${entries
@@ -473,11 +637,17 @@ function renderStructuredSection(input: {
                               sectionId: input.sectionId ?? null,
                               entryId: entry.id,
                               targetId: input.sectionId
-                                ? getResumeEntryBulletTargetId(
-                                    input.sectionId,
-                                    entry.id,
-                                    bullet.id,
-                                  )
+                                ? bullet.derivedFromSummary
+                                  ? getResumeEntryFieldTargetId(
+                                      input.sectionId,
+                                      entry.id,
+                                      "summary",
+                                    )
+                                  : getResumeEntryBulletTargetId(
+                                      input.sectionId,
+                                      entry.id,
+                                      bullet.id,
+                                    )
                                 : null,
                             }),
                           })}>${escapeHtml(bullet.text)}</li>`,
@@ -1527,17 +1697,23 @@ export function renderResumeTemplateHtml(
     :root {
       color-scheme: light;
       --resume-font-family: var(--font-body, ${fontFamily});
-      --resume-paper: var(--card, #ffffff);
+      /* The page is paper, never an app surface: the preview must show the
+         same white the export prints, so a reviewer never judges their
+         resume through a tinted or dark app panel. The pane behind the
+         page stays tinted through --resume-preview-canvas. */
+      --resume-paper: #ffffff;
       --resume-preview-canvas: var(--surface-muted, #e7edf6);
       --resume-catalog-canvas-start: var(--surface-raised, rgba(241, 245, 249, 0.98));
       --resume-catalog-canvas-end: var(--surface-muted, rgba(226, 232, 240, 0.94));
       --resume-catalog-thumbnail-start: var(--surface-raised, rgba(241, 245, 249, 0.92));
       --resume-catalog-thumbnail-end: var(--card, rgba(255, 255, 255, 0.98));
-      --resume-shadow-color: var(--border-strong, rgba(24, 38, 62, 0.16));
-      --resume-selected-shadow: var(--ring, rgba(31, 58, 95, 0.26));
-      --resume-selected-surface: var(--surface-fill-soft, rgba(31, 58, 95, 0.06));
-      --resume-hover-shadow: var(--border-strong, rgba(31, 58, 95, 0.18));
-      --resume-hover-surface: var(--surface-fill-subtle, rgba(31, 58, 95, 0.04));
+      --resume-shadow-color: rgba(24, 38, 62, 0.18);
+      /* Linked-entry affordances outline the target instead of tinting it:
+         a fill read as a permanent grey highlight band on the page. */
+      --resume-selected-shadow: rgba(31, 58, 95, 0.55);
+      --resume-selected-surface: transparent;
+      --resume-hover-shadow: rgba(31, 58, 95, 0.3);
+      --resume-hover-surface: transparent;
       --resume-page-padding-classic: 0.52in 0.62in;
       --resume-page-padding-compact: 0.44in 0.54in;
       --resume-page-padding-modern: 0.54in 0.64in;
@@ -1578,8 +1754,10 @@ export function renderResumeTemplateHtml(
       --resume-pivot-accent: #365947;
       --resume-pivot-line: #bcc8c1;
       --resume-pivot-surface: #f3f7f4;
-      --ink: var(--foreground, #202124);
-      --muted: var(--muted-foreground, #4f5661);
+      /* Document ink stays paper ink. Binding it to the app foreground made
+         the preview readable only while the app happened to be light. */
+      --ink: #202124;
+      --muted: #4f5661;
       --line: var(--resume-classic-line);
       --accent: var(--resume-classic-accent);
       --surface: var(--resume-classic-surface);
@@ -1588,7 +1766,7 @@ export function renderResumeTemplateHtml(
     * { box-sizing: border-box; }
     html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     body { margin: 0; background: var(--resume-paper); color: var(--ink); font-family: var(--resume-font-family); }
-    .page { width: 8.5in; min-height: 11in; margin: 0 auto; }
+    .page { width: 8.5in; min-height: 11in; margin: 0 auto; background: var(--resume-paper); }
     .page-classic { padding: var(--resume-page-padding-classic); }
     .page-compact { padding: var(--resume-page-padding-compact); }
     .page-modern { padding: var(--resume-page-padding-modern); }
@@ -1783,12 +1961,17 @@ export function renderResumeTemplateHtml(
     }
     .preview-body .page {
       min-height: auto;
-      box-shadow: 0 20px 60px var(--resume-shadow-color);
+      background: var(--resume-paper);
+      box-shadow: 0 1px 2px var(--resume-shadow-color), 0 18px 44px var(--resume-shadow-color);
       margin: 0;
     }
     [data-resume-section-id], [data-resume-entry-id], [data-resume-target-id] { cursor: pointer; transition: box-shadow 120ms ease, background-color 120ms ease; border-radius: 0.02in; }
     [data-resume-entry-id] { padding: 0.035in 0.05in; margin-inline: -0.05in; }
     [data-resume-section-id][data-resume-selected="true"], [data-resume-entry-id][data-resume-selected="true"], [data-resume-target-id][data-resume-selected="true"] { box-shadow: 0 0 0 1px var(--resume-selected-shadow); background: var(--resume-selected-surface); }
+    /* An accepted assistant proposal used to change the document silently.
+       The lines it landed on stay marked until the edit is undone or the
+       thread moves on, so the change is visible where it happened. */
+    [data-resume-ai-edited="true"] { box-shadow: inset 3px 0 0 var(--resume-selected-shadow); background: var(--resume-hover-surface); }
     [data-resume-section-id]:hover, [data-resume-entry-id]:hover, [data-resume-target-id]:hover, [data-resume-section-id]:focus-visible, [data-resume-entry-id]:focus-visible, [data-resume-target-id]:focus-visible { box-shadow: 0 0 0 1px var(--resume-hover-shadow); background: var(--resume-hover-surface); outline: none; }
       `
         : ""
@@ -1877,10 +2060,24 @@ export function renderResumeTemplateHtml(
     .join(" ");
   const catalogShellClassName = `catalog-shell catalog-shell-${catalogLayout}`;
 
+  // The studio preview and the template catalog render this document inside a
+  // srcdoc iframe. The renderer emits no script of its own, and this policy
+  // makes that a guarantee the browser enforces: nothing in a resume - not
+  // imported text, not a model rewrite - can execute in the frame, and the
+  // frame loads no network resource. Blocking script here (rather than with a
+  // `sandbox` attribute that has to keep `allow-same-origin` for the studio's
+  // click-to-edit binding) also keeps the renderer console free of Chromium's
+  // "Blocked script execution in 'about:srcdoc'" notice, which the host
+  // emitted on every preview reload. The exported/print document is unchanged.
+  const framedDocumentPolicy =
+    mode === "preview" || mode === "catalog"
+      ? `\n    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:;" />`
+      : "";
+
   return `<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
+    <meta charset="utf-8" />${framedDocumentPolicy}
     <title>${escapeHtml(input.renderDocument.fullName)} Resume</title>
     <meta name="resume-template" content="${escapeHtml(templateDefinition.label)}" />
     <style>

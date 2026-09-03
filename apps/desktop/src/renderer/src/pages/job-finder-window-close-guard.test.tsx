@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 
 import { StrictMode, useState } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
 import {
   afterAll,
@@ -89,7 +96,10 @@ class NavigationRequestStub {
   signal: unknown;
   url: string;
 
-  constructor(input: string | URL, init?: { method?: string; signal?: unknown }) {
+  constructor(
+    input: string | URL,
+    init?: { method?: string; signal?: unknown },
+  ) {
     this.url = String(input);
     this.method = (init?.method ?? "GET").toUpperCase();
     this.signal = init?.signal ?? null;
@@ -191,7 +201,9 @@ describe("JobFinderWindowCloseGuard decisions", () => {
     expect(bridge.resolutions).toEqual([]);
 
     // A double click on the same control must not resolve the request twice.
-    const stayButton = screen.getByRole("button", { name: "Stay on this page" });
+    const stayButton = screen.getByRole("button", {
+      name: "Stay on this page",
+    });
     fireEvent.click(stayButton);
     fireEvent.click(stayButton);
 
@@ -426,6 +438,59 @@ describe("JobFinderPage answers close requests in every render state", () => {
       ]);
     });
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("uses the production brand lockup and macOS-safe header geometry while opening", () => {
+    installCloseBridgeMock();
+    const unemployed = window.unemployed as unknown as {
+      ping: () => Promise<never>;
+    };
+    unemployed.ping = () => new Promise(() => undefined);
+
+    renderJobFinderPage();
+
+    const openingShell = document.querySelector<HTMLElement>(
+      "[data-job-finder-opening-shell]",
+    );
+    const header = document.querySelector<HTMLElement>(
+      "[data-job-finder-shell-header]",
+    );
+    const brand = document.querySelector<HTMLElement>("[data-desktop-brand]");
+    const wordmark = document.querySelector<HTMLElement>(
+      "[data-desktop-brand-wordmark]",
+    );
+    const moduleNavigation = document.querySelector<HTMLElement>(
+      "[data-desktop-module-navigation]",
+    );
+
+    expect(openingShell).not.toBeNull();
+    expect(header?.className).toContain("h-14");
+    expect(brand?.style.paddingInlineStart).toBe("");
+    expect(wordmark?.textContent).toBe("UNEMPLOYED");
+    expect(wordmark?.className).toContain("sm:text-[2rem]");
+    expect(
+      screen.getAllByText("Job Finder", { selector: "span" }),
+    ).toHaveLength(2);
+    // The opening skeleton mirrors the loaded shell header: the switcher is
+    // the centre track of a three-region grid, not an absolutely centred
+    // overlay that fights the native window-control insets.
+    expect(moduleNavigation?.className).not.toContain("absolute");
+    expect(moduleNavigation?.className).toContain("col-start-2");
+    expect(moduleNavigation?.className).toContain("justify-self-center");
+    expect(brand?.className).toContain(
+      "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]",
+    );
+    expect(
+      document.querySelector<HTMLElement>(
+        "[data-desktop-header-window-control-inset]",
+      ),
+    ).not.toBeNull();
+    expect(screen.getByRole("navigation", { name: "UnEmployed modules" })).toBe(
+      moduleNavigation,
+    );
+    expect(
+      screen.getByRole("navigation", { name: "Job Finder sections" }),
+    ).not.toBe(moduleNavigation);
   });
 
   it("answers close requests on the post-ready generic error screen", async () => {

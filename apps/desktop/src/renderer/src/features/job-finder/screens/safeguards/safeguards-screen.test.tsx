@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   JobFinderWorkspaceSnapshot,
@@ -28,6 +35,39 @@ function signalSafeguards() {
         provenance: "browser",
         explanation: "Listing shows unusual signs.",
         recoveryGuidance: "Inspect the listing before applying.",
+      },
+    ],
+  });
+}
+
+function mixedSafeguards() {
+  return JobFinderIntelligenceSafeguardsSchema.parse({
+    listingSignals: [
+      {
+        id: "signal_1",
+        jobId: "job_ready",
+        signal: "suspicious",
+        detail: null,
+        detectedAt: now,
+        confidence: 0.95,
+        provenance: "browser",
+        explanation: "Listing shows unusual signs.",
+        recoveryGuidance: "Inspect the listing before applying.",
+      },
+    ],
+    abnormalFailurePauses: [
+      {
+        id: "pause_1",
+        windowStartedAt: "2026-08-01T00:00:00.000Z",
+        failuresInWindow: 4,
+        sampleSize: 5,
+        failureRatePercent: 80,
+        failureRateThresholdPercent: 40,
+        minimumSample: 5,
+        paused: true,
+        explanation: "Elevated discovery failure rate.",
+        recoveryGuidance:
+          "Inspect the failed source history and retry only after the cause is understood.",
       },
     ],
   });
@@ -83,16 +123,18 @@ function renderScreen(props: {
   workspace?: JobFinderWorkspaceSnapshot | null;
 }) {
   return render(
-    <SafeguardsScreen
-      actionMessage={props.actionMessage ?? null}
-      isPending={props.isPending ?? (() => false)}
-      onMutateSafeguards={
-        props.onMutateSafeguards ?? (() => Promise.resolve(true))
-      }
-      workspace={
-        props.workspace === undefined ? workspaceWith() : props.workspace
-      }
-    />,
+    <MemoryRouter>
+      <SafeguardsScreen
+        actionMessage={props.actionMessage ?? null}
+        isPending={props.isPending ?? (() => false)}
+        onMutateSafeguards={
+          props.onMutateSafeguards ?? (() => Promise.resolve(true))
+        }
+        workspace={
+          props.workspace === undefined ? workspaceWith() : props.workspace
+        }
+      />
+    </MemoryRouter>,
   );
 }
 
@@ -109,9 +151,11 @@ describe("SafeguardsScreen", () => {
 
   it("shows an empty state when no safeguards exist", () => {
     renderScreen({});
-    expect(screen.getByText("No safeguards yet")).toBeTruthy();
+    expect(screen.getByText("No safety events yet")).toBeTruthy();
+    // The empty state describes the rule conditionally instead of rendering a
+    // card for a threshold nothing has crossed.
     expect(
-      screen.getByText(/appear here automatically when the pipeline detects/i),
+      screen.getByText(/only when one of its limits is actually reached/i),
     ).toBeTruthy();
     expect(screen.getByText(/No active safeguard blockers/i)).toBeTruthy();
   });
@@ -263,11 +307,11 @@ describe("SafeguardsScreen", () => {
   });
 
   it("announces the active filter and preserves filtering and counts", () => {
-    renderScreen({ workspace: workspaceWith(signalSafeguards()) });
+    renderScreen({ workspace: workspaceWith(mixedSafeguards()) });
 
-    const allFilter = screen.getByRole("button", { name: /^All 1$/ });
-    const capsFilter = screen.getByRole("button", {
-      name: /^Application limits 0$/,
+    const allFilter = screen.getByRole("button", { name: /^All 2$/ });
+    const pausesFilter = screen.getByRole("button", {
+      name: /^Automatic pauses 1$/,
     });
     const signalsFilter = screen.getByRole("button", {
       name: /^Listing signals 1$/,
@@ -277,32 +321,142 @@ describe("SafeguardsScreen", () => {
     expect(signalsFilter.getAttribute("aria-pressed")).toBe("false");
     expect(screen.getByText("Listing suspicious")).toBeTruthy();
 
-    fireEvent.click(capsFilter);
-    expect(capsFilter.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(pausesFilter);
+    expect(pausesFilter.getAttribute("aria-pressed")).toBe("true");
     expect(allFilter.getAttribute("aria-pressed")).toBe("false");
-    expect(screen.getByText("No matching safeguards")).toBeTruthy();
+    expect(screen.queryByText("Listing suspicious")).toBeNull();
 
     fireEvent.click(signalsFilter);
     expect(signalsFilter.getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByText("Listing suspicious")).toBeTruthy();
   });
 
-  it("keeps every native filter button in the normal focus order", () => {
+  it("offers no zero-count category chips", () => {
     renderScreen({ workspace: workspaceWith(signalSafeguards()) });
 
     const group = screen.getByRole("group", { name: "Safeguard categories" });
     const filters = Array.from(group.querySelectorAll("button"));
 
-    expect(filters).toHaveLength(8);
+    // Seven of eight chips used to read 0 and wrapped the row onto a second
+    // line for categories with nothing in them.
+    expect(filters.map((filter) => filter.textContent)).toEqual([
+      "All1",
+      "Listing signals1",
+    ]);
+    expect(
+      filters.some((filter) => /\D0$/.test(filter.textContent ?? "")),
+    ).toBe(false);
+  });
+
+  it("keeps every native filter button in the normal focus order", () => {
+    renderScreen({ workspace: workspaceWith(mixedSafeguards()) });
+
+    const group = screen.getByRole("group", { name: "Safeguard categories" });
+    const filters = Array.from(group.querySelectorAll("button"));
+
+    expect(filters).toHaveLength(3);
     expect(filters.every((filter) => filter.tabIndex === 0)).toBe(true);
 
-    filters[3]!.focus();
-    expect(document.activeElement).toBe(filters[3]);
-    expect(filters[3]!.getAttribute("aria-pressed")).toBe("false");
+    filters[2]!.focus();
+    expect(document.activeElement).toBe(filters[2]);
+    expect(filters[2]!.getAttribute("aria-pressed")).toBe("false");
 
-    fireEvent.click(filters[3]!);
-    expect(document.activeElement).toBe(filters[3]);
-    expect(filters[3]!.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(filters[2]!);
+    expect(document.activeElement).toBe(filters[2]);
+    expect(filters[2]!.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("keeps the All count equal to the categories and to the rendered list", () => {
+    renderScreen({ workspace: workspaceWith(mixedSafeguards()) });
+
+    const group = screen.getByRole("group", { name: "Safeguard categories" });
+    const chipCounts = Array.from(group.querySelectorAll("button")).map(
+      (filter) => ({
+        label: filter.textContent ?? "",
+        count: Number(
+          filter.querySelector("span:last-of-type")?.textContent ?? "0",
+        ),
+      }),
+    );
+    const allChip = chipCounts.find((chip) => chip.label.startsWith("All"));
+    const categoryChips = chipCounts.filter(
+      (chip) => !chip.label.startsWith("All"),
+    );
+    const renderedCards = document.querySelectorAll("[data-safeguard-kind]");
+
+    expect(allChip?.count).toBe(
+      categoryChips.reduce((total, chip) => total + chip.count, 0),
+    );
+    expect(allChip?.count).toBe(renderedCards.length);
+    // The banner and the list agree: one crossed threshold, one blocking
+    // signal, and an `All` that counts both.
+    expect(allChip?.count).toBe(2);
+  });
+
+  it("renders no card for a threshold that has not been crossed", () => {
+    const safeguards = JobFinderIntelligenceSafeguardsSchema.parse({
+      abnormalFailurePauses: [
+        {
+          id: "pause_quiet",
+          windowStartedAt: "2026-08-01T00:00:00.000Z",
+          failuresInWindow: 0,
+          sampleSize: 1,
+          failureRatePercent: 0,
+          failureRateThresholdPercent: 40,
+          minimumSample: 5,
+          paused: false,
+          explanation: "Discovery failures stayed under the safety threshold.",
+          recoveryGuidance: "Nothing to do.",
+        },
+      ],
+      companyApplicationCaps: [
+        {
+          id: "cap_quiet",
+          companyId: "company_signal",
+          maxApplicationsPerWindow: 3,
+          windowDays: 7,
+          currentWindowCount: 1,
+          limitReached: false,
+          windowStartedAt: "2026-08-01T00:00:00.000Z",
+          explanation: "Per-company weekly cap.",
+          recoveryGuidance: "Nothing to do.",
+        },
+      ],
+    });
+    renderScreen({ workspace: workspaceWith(safeguards) });
+
+    expect(document.querySelectorAll("[data-safeguard-kind]")).toHaveLength(0);
+    expect(screen.queryByText(/Below threshold/i)).toBeNull();
+    expect(screen.queryByText(/Within limit/i)).toBeNull();
+    // No raw machine timestamp survives to the user.
+    expect(document.body.textContent).not.toContain("2026-08-01T00:00:00.000Z");
+    expect(screen.getByText("No safety events yet")).toBeTruthy();
+  });
+
+  it("gives a named recovery action a control that performs it", () => {
+    const safeguards = JobFinderIntelligenceSafeguardsSchema.parse({
+      abnormalFailurePauses: [
+        {
+          id: "pause_1",
+          windowStartedAt: "2026-08-01T00:00:00.000Z",
+          failuresInWindow: 4,
+          sampleSize: 5,
+          failureRatePercent: 80,
+          failureRateThresholdPercent: 40,
+          minimumSample: 5,
+          paused: true,
+          explanation: "Elevated discovery failure rate.",
+          recoveryGuidance:
+            "Inspect the failed source history and retry only after the cause is understood.",
+        },
+      ],
+    });
+    renderScreen({ workspace: workspaceWith(safeguards) });
+
+    const recovery = screen.getByRole("link", { name: "Open Find jobs" });
+    expect(recovery.getAttribute("href")).toBe("/job-finder/discovery");
+    // The window start reads as a date a person can check, not an instant.
+    expect(document.body.textContent).not.toContain("2026-08-01T00:00:00.000Z");
   });
 
   it("surfaces a mutation failure as an inline error on the row", async () => {
@@ -390,10 +544,74 @@ describe("SafeguardsScreen", () => {
     renderScreen({ workspace });
 
     expect(
-      screen.getByText(/No active safeguard blockers\. Discovery and preparation are clear\./i),
+      screen.getByText(
+        /No active safeguard blockers\. Discovery and preparation are clear\./i,
+      ),
     ).toBeTruthy();
+    expect(screen.queryByTestId("safeguards-daily-capacity-status")).toBeNull();
+  });
+
+  it("states the whole application boundary and keeps every permission revocable", async () => {
+    const envelope = {
+      allowedOrigins: ["https://boards.example.test"],
+      allowedResumeSha256: [],
+      createdAt: now,
+      expiresAt: null,
+      id: "envelope_1",
+      intermediateMutationsAuthorized: false,
+      maxApplicationsPerLocalDay: 20,
+      maxApplicationsPerRun: 10,
+      mode: "prepare_only",
+      revision: 4,
+      scope: { campaignId: null, jobIds: ["job_ready"] },
+      status: "active",
+      updatedAt: now,
+    };
+    const revokeApplicationAuthorityEnvelope = vi
+      .fn()
+      .mockResolvedValue({ status: "applied" });
+    const listApplicationAuthorityEnvelopes = vi
+      .fn()
+      .mockResolvedValueOnce([envelope])
+      .mockResolvedValue([{ ...envelope, status: "revoked" }]);
+    (window as unknown as Record<string, unknown>).unemployed = {
+      jobFinder: {
+        listApplicationAuthorityEnvelopes,
+        revokeApplicationAuthorityEnvelope,
+      },
+    };
+
+    renderScreen({});
+
+    // The sentence a job seeker can hold the product to, verbatim.
     expect(
-      screen.queryByTestId("safeguards-daily-capacity-status"),
-    ).toBeNull();
+      screen.getByText(
+        "Job Finder fills applications for your review and never submits them, never creates an account, never enters a password, and never answers a security check.",
+      ),
+    ).toBeTruthy();
+
+    const revokeTrigger = await screen.findByRole("button", {
+      name: "Revoke permission",
+    });
+    fireEvent.click(revokeTrigger);
+    // Revoking asks twice; the first click alone never changes authority.
+    expect(revokeApplicationAuthorityEnvelope).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Yes, revoke" }));
+
+    await waitFor(() => {
+      expect(revokeApplicationAuthorityEnvelope).toHaveBeenCalledWith({
+        expectedRevision: 4,
+        id: "envelope_1",
+      });
+    });
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "None. Job Finder prepares applications for your review only.",
+        ),
+      ).toBeTruthy();
+    });
+
+    delete (window as unknown as Record<string, unknown>).unemployed;
   });
 });

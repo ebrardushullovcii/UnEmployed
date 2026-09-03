@@ -11,7 +11,9 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  DiscoveryRunRecordSchema,
   JobSearchPreferencesSchema,
+  type DiscoveryRunRecord,
   type SourceAccessPrompt,
   type SourceDebugRunDetails,
 } from "@unemployed/contracts";
@@ -20,7 +22,10 @@ import {
   type SearchPreferencesEditorValues,
 } from "../../lib/profile-editor";
 import { buildJobSourceProgress } from "../../lib/profile-screen-view-model";
-import { deriveEnabledSourceHealthCounts } from "@unemployed/job-finder/source-health";
+import {
+  deriveEnabledSourceHealthCounts,
+  deriveSourceHealthSignals,
+} from "@unemployed/job-finder/source-health";
 import {
   JOB_SOURCES_PAGE_SIZE,
   ProfileJobSourcesTab,
@@ -65,6 +70,8 @@ function createTargets(count = 507): DiscoveryTarget[] {
 
 function JobSourcesHarness(props: {
   accessPrompts?: readonly SourceAccessPrompt[];
+  activeDiscoveryRun?: DiscoveryRunRecord | null;
+  discoveryRuns?: readonly DiscoveryRunRecord[];
   targets?: DiscoveryTarget[];
 }) {
   const preferences = JobSearchPreferencesSchema.parse({
@@ -83,6 +90,8 @@ function JobSourcesHarness(props: {
 
   return (
     <ProfileJobSourcesTab
+      activeDiscoveryRun={props.activeDiscoveryRun ?? null}
+      discoveryRuns={props.discoveryRuns ?? []}
       isBrowserSessionPending={() => false}
       isSourceDebugPending={() => false}
       isSourceInstructionPending={() => false}
@@ -134,6 +143,7 @@ describe("ProfileJobSourcesTab", () => {
     expect(buildJobSourceProgress(targets)).toEqual({
       filled: 4,
       percent: 1,
+      required: { filled: 1, total: 1 },
       total: 507,
     });
     expect(container.querySelectorAll("[data-compact-source-id]")).toHaveLength(
@@ -378,10 +388,10 @@ describe("ProfileJobSourcesTab", () => {
     // The Home dashboard derives identical numbers from the same workspace
     // state through the shared `@unemployed/job-finder/source-health`
     // classifier; assert the rendered cards agree with it exactly.
-    const expectedCounts = deriveEnabledSourceHealthCounts(targets, {
-      runningTargetIds: new Set<string>(),
-      loginRequiredTargetIds: new Set(["target_login"]),
-    });
+    const expectedCounts = deriveEnabledSourceHealthCounts(
+      targets,
+      deriveSourceHealthSignals({ sourceAccessPrompts: [loginPrompt] }),
+    );
     expect(expectedCounts).toEqual({
       healthy: 1,
       needsAttention: 4,
@@ -389,25 +399,11 @@ describe("ProfileJobSourcesTab", () => {
       total: 5,
     });
 
-    const summaryList = screen.getByRole("list", {
-      name: "Job source summary",
-    });
-    function summaryCardValue(label: string): string {
-      const item = within(summaryList)
-        .getAllByRole("listitem")
-        .find((node) => node.textContent?.includes(label));
-      expect(item).toBeTruthy();
-      return (item as HTMLElement).querySelector("strong")?.textContent ?? "";
-    }
-
-    expect(summaryCardValue("Total sources")).toBe(String(targets.length));
-    expect(summaryCardValue("Enabled for search")).toBe(
-      String(expectedCounts.total),
-    );
-    expect(summaryCardValue("Disabled")).toBe("2");
-    expect(summaryCardValue("Needs attention")).toBe(
-      String(expectedCounts.needsAttention),
-    );
+    // The stat tiles are gone: the filter row and the list caption already
+    // said the same four numbers, three times, above a short list.
+    expect(
+      screen.queryByRole("list", { name: "Job source summary" }),
+    ).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Needs attention" }));
 
@@ -428,6 +424,22 @@ describe("ProfileJobSourcesTab", () => {
       expect(within(row).getByText("Needs attention")).toBeTruthy();
     }
 
+    // Every attention row states its reason instead of an unexplained badge.
+    expect(
+      within(
+        container.querySelector(
+          '[data-compact-source-id="target_login"]',
+        ) as HTMLElement,
+      ).getByText("This source is waiting for you to sign in."),
+    ).toBeTruthy();
+    expect(
+      within(
+        container.querySelector(
+          '[data-compact-source-id="target_never_run"]',
+        ) as HTMLElement,
+      ).getByText("No completed search has used this source yet."),
+    ).toBeTruthy();
+
     // Back on the full library view, disabled problem sources stay explicitly
     // labeled as disabled without an attention badge.
     fireEvent.click(screen.getByRole("button", { name: "All" }));
@@ -439,8 +451,63 @@ describe("ProfileJobSourcesTab", () => {
         `[data-compact-source-id="${disabledRowId}"]`,
       ) as HTMLElement;
       expect(within(row).queryByText("Needs attention")).toBeNull();
-      expect(within(row).getByText("Disabled")).toBeTruthy();
+      expect(within(row).queryByText("Disabled")).toBeNull();
     }
+  });
+
+  it("agrees with the Home badge when a never-verified source completed a run", () => {
+    const targets = [
+      createTarget(1, {
+        id: "target_completed_run",
+        label: "Wellfound",
+        enabled: true,
+        instructionStatus: "missing",
+        lastVerifiedAt: null,
+      }),
+    ];
+    const discoveryRuns = [
+      DiscoveryRunRecordSchema.parse({
+        id: "discovery_run_1",
+        state: "completed",
+        startedAt: "2026-09-02T09:00:00.000Z",
+        completedAt: "2026-09-02T09:04:00.000Z",
+        targetIds: ["target_completed_run"],
+        targetExecutions: [
+          {
+            targetId: "target_completed_run",
+            adapterKind: "auto",
+            state: "completed",
+            startedAt: "2026-09-02T09:00:00.000Z",
+            completedAt: "2026-09-02T09:04:00.000Z",
+          },
+        ],
+      }),
+    ];
+
+    // Home derives its badge from the same classifier plus completed-run
+    // evidence, so Profile must not contradict it with a red badge.
+    expect(
+      deriveEnabledSourceHealthCounts(targets, {
+        succeededTargetIds: new Set(["target_completed_run"]),
+      }),
+    ).toEqual({ healthy: 1, needsAttention: 0, running: 0, total: 1 });
+
+    const { container } = render(
+      <JobSourcesHarness discoveryRuns={discoveryRuns} targets={targets} />,
+    );
+
+    const row = container.querySelector(
+      '[data-compact-source-id="target_completed_run"]',
+    ) as HTMLElement;
+    expect(within(row).queryByText("Needs attention")).toBeNull();
+    expect(within(row).queryByText("No guidance yet")).toBeNull();
+
+    // Nothing in the list claims attention for a source that just completed
+    // a run; the filter is the only place that count lives now.
+    fireEvent.click(screen.getByRole("button", { name: "Needs attention" }));
+    expect(container.querySelectorAll("[data-compact-source-id]")).toHaveLength(
+      0,
+    );
   });
 
   it("names the unmatched query in the empty state and restores the full list", async () => {
@@ -480,14 +547,15 @@ describe("ProfileJobSourcesTab", () => {
         name: "Include Company 005 in searches",
       }),
     );
+    // The checkbox is the state: no separate Enabled/Disabled badge repeats it.
     expect(
-      within(companyFive as HTMLElement).getByText("Enabled"),
-    ).toBeTruthy();
+      within(companyFive as HTMLElement)
+        .getByRole("checkbox", { name: "Include Company 005 in searches" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
     expect(
-      within(
-        screen.getByText("Enabled for search").parentElement as HTMLElement,
-      ).getByText("5"),
-    ).toBeTruthy();
+      within(companyFive as HTMLElement).queryByText("Enabled"),
+    ).toBeNull();
 
     fireEvent.click(
       within(companyFive as HTMLElement).getByRole("button", {
@@ -519,9 +587,6 @@ describe("ProfileJobSourcesTab", () => {
         })
         .getAttribute("aria-checked"),
     ).toBe("false");
-    expect(
-      screen.getByText("Enabled for search").parentElement?.textContent,
-    ).toContain("0");
   });
 
   it("truncates long source names in rows while exposing the complete name", () => {

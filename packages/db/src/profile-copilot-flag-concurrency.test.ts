@@ -153,6 +153,27 @@ async function expectSharedEpochAndFlagParity(
       patch_flag_headline: "needs_review",
       patch_flag_location: "rejected",
     });
+
+    // Legacy provider IDs can occur in more than one message. A group-only
+    // flag update must fail closed instead of selecting the oldest row.
+    const duplicateSource = createTwoGroupMessage();
+    await repository.upsertProfileCopilotMessage({
+      ...duplicateSource,
+      id: "profile_copilot_assistant_message_flags_duplicate",
+      patchGroups: [duplicateSource.patchGroups[0]!],
+    });
+    expect(
+      await repository.commitProfileCopilotPatchFlagUpdate({
+        patchGroupId: "patch_flag_headline",
+        applyMode: "rejected",
+      }),
+    ).toBe(false);
+    expect(
+      (await repository.listProfileCopilotMessages())
+        .flatMap((message) => message.patchGroups)
+        .filter((group) => group.id === "patch_flag_headline")
+        .map((group) => group.applyMode),
+    ).toEqual(["needs_review", "needs_review"]);
   } finally {
     await repository.close();
   }

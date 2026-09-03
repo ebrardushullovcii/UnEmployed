@@ -1,10 +1,4 @@
-import {
-  GripHorizontal,
-  Maximize2,
-  MessageSquare,
-  Minimize2,
-  Minus,
-} from "lucide-react";
+import { GripHorizontal, MessageSquare, Minus } from "lucide-react";
 import {
   useEffect,
   useId,
@@ -22,13 +16,12 @@ import type {
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { getProfileCopilotContextKey } from "../../lib/profile-copilot-context";
-import { formatStatusLabel } from "../../lib/job-finder-utils";
 import { isImeComposingEvent } from "../../lib/job-finder-shortcuts";
-import { useJobFinderOverlayOwnership } from "../../lib/job-finder-overlay-ownership";
 import {
-  getPatchGroupOperationSummary,
-  getProfileCopilotContextLabel,
-} from "./profile-copilot-rail.shared";
+  useHasOpenJobFinderModal,
+  useJobFinderOverlayOwnership,
+} from "../../lib/job-finder-overlay-ownership";
+import { getProfileCopilotContextLabel } from "./profile-copilot-rail.shared";
 import {
   COPILOT_BOTTOM_OFFSET,
   COPILOT_POSITION_STORAGE_KEY,
@@ -38,14 +31,45 @@ import {
   getDefaultCopilotPosition,
   getDraggedCopilotPosition,
   getCopilotPanelDimensions,
+  getCopilotViewportInset,
+  getProfileCopilotSafeTopOffset,
   resizeCopilotPosition,
+  classifyCopilotFocusTarget,
+  shouldYieldCollapsedLauncher,
+  type CopilotFocusKind,
+  type CopilotPanelSizeLimits,
 } from "./profile-copilot-rail-layout";
 import {
   ProfileCopilotCollapsedBubble,
   ProfileCopilotComposer,
-  ProfileCopilotRevisionTray,
+  type ProfileCopilotFailedRequest,
   ProfileCopilotTranscript,
 } from "./profile-copilot-rail-sections";
+
+const COPILOT_TRANSCRIPT_NEAR_BOTTOM_THRESHOLD = 96;
+
+const PROFILE_COPILOT_PANEL_SIZE_LIMITS: CopilotPanelSizeLimits = {
+  maxHeight: 460,
+  maxWidth: 360,
+};
+
+function getProfileCopilotPanelSizeLimits(): CopilotPanelSizeLimits {
+  if (typeof window === "undefined" || window.innerWidth >= 640) {
+    return PROFILE_COPILOT_PANEL_SIZE_LIMITS;
+  }
+
+  return {
+    maxHeight: 460,
+    maxWidth: Math.max(0, window.innerWidth - 24),
+  };
+}
+
+function isTranscriptNearBottom(transcript: HTMLElement): boolean {
+  return (
+    transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight <=
+    COPILOT_TRANSCRIPT_NEAR_BOTTOM_THRESHOLD
+  );
+}
 
 export function ProfileCopilotRail(props: {
   busy: boolean;
@@ -56,7 +80,10 @@ export function ProfileCopilotRail(props: {
   messages: readonly JobFinderWorkspaceSnapshot["profileCopilotMessages"][number][];
   onApplyPatchGroup: (patchGroupId: string) => void;
   onRejectPatchGroup: (patchGroupId: string) => void;
-  onSendMessage: (content: string, context: ProfileCopilotContext) => void;
+  onSendMessage: (
+    content: string,
+    context: ProfileCopilotContext,
+  ) => void | Promise<boolean>;
   onUndoRevision: (revisionId: string) => void;
   pendingContextKey: string | null;
   placeholder: string;
@@ -64,30 +91,49 @@ export function ProfileCopilotRail(props: {
   sendDisabledReason?: string | null;
   starterQuestion?: string | null;
   suggestedPrompts?: readonly string[];
+  showProactivePrompt?: boolean;
   minBottomOffset?: number;
   collapsedMinBottomOffset?: number;
+  /**
+   * Sticky-footer slot that owns the collapsed launcher. When a screen has a
+   * persistent action row (guided setup steps, the Profile save footer) the
+   * launcher docks there instead of floating over the content column, so it
+   * can never sit on a field the user is typing in or on a button label.
+   * Without a slot the launcher falls back to the floating bottom-right pill.
+   */
+  launcherContainer?: HTMLElement | null;
   title?: string;
 }) {
   const [input, setInput] = useState("");
   const [isOpen, setIsOpen] = useState(false);
-  const [isMaximized, setIsMaximized] = useState(false);
-  const [showRevisionTray, setShowRevisionTray] = useState(false);
   const [showProactivePrompt, setShowProactivePrompt] = useState(true);
+  const [failedRequest, setFailedRequest] =
+    useState<ProfileCopilotFailedRequest | null>(null);
   const [safeTopOffset, setSafeTopOffset] = useState(240);
+  const [focusKind, setFocusKind] = useState<CopilotFocusKind>("none");
   const [workspaceActionClearance, setWorkspaceActionClearance] = useState(
     COPILOT_BOTTOM_OFFSET,
   );
   const [position, setPosition] = useState(() => getDefaultCopilotPosition());
+  const inputRef = useRef("");
+  const requestSequenceRef = useRef(0);
+  const activeRequestRef = useRef<{
+    contextKey: string;
+    id: number;
+  } | null>(null);
   const collapsedPositionRef = useRef(position);
   const viewportRef = useRef({
     height: typeof window === "undefined" ? 0 : window.innerHeight,
     width: typeof window === "undefined" ? 0 : window.innerWidth,
   });
   const composerId = useId();
+  const dialogTitleId = `${composerId}-title`;
   const railRootRef = useRef<HTMLDivElement | null>(null);
   const wasOpenRef = useRef(false);
   const wasPendingHereRef = useRef(false);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const transcriptNearBottomRef = useRef(true);
+  const transcriptScrollTopRef = useRef(0);
   const dragStateRef = useRef<{
     pointerId: number;
     originX: number;
@@ -99,6 +145,7 @@ export function ProfileCopilotRail(props: {
   } | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
   const suppressNextBubbleClickRef = useRef(false);
+  const panelSizeLimits = getProfileCopilotPanelSizeLimits();
   // The floating copilot dialog joins the app-wide LIFO overlay stack so
   // stacked surfaces close one per Escape and shell aliases stay blocked.
   const { isTopmost: isCopilotTopmost } = useJobFinderOverlayOwnership({
@@ -112,14 +159,34 @@ export function ProfileCopilotRail(props: {
           isOpen: false,
           minBottomOffset: collapsedMinBottomOffset,
           minTopOffset: safeTopOffset,
+          panelSizeLimits,
         }),
       );
-      setIsMaximized(false);
       setIsOpen(false);
     },
   });
   const contextKey = getProfileCopilotContextKey(props.context);
+  inputRef.current = input;
+  const contextKeyRef = useRef(contextKey);
+  contextKeyRef.current = contextKey;
   const isPendingHere = props.pendingContextKey === contextKey;
+  const hasPendingReview = props.messages.some((message) =>
+    message.patchGroups.some(
+      (patchGroup) => patchGroup.applyMode === "needs_review",
+    ),
+  );
+  const lastMessage = props.messages[props.messages.length - 1];
+  const transcriptTailKey = lastMessage
+    ? [
+        props.messages.length,
+        lastMessage.id,
+        lastMessage.role,
+        lastMessage.content.length,
+        lastMessage.patchGroups
+          .map((patchGroup) => `${patchGroup.id}:${patchGroup.applyMode}`)
+          .join(","),
+      ].join(":")
+    : "empty";
   const minBottomOffset = Math.max(
     props.minBottomOffset ?? COPILOT_BOTTOM_OFFSET,
     workspaceActionClearance,
@@ -128,18 +195,20 @@ export function ProfileCopilotRail(props: {
     props.collapsedMinBottomOffset ?? COPILOT_BOTTOM_OFFSET,
     workspaceActionClearance,
   );
-  const panelDimensions = getCopilotPanelDimensions(safeTopOffset);
+  const panelDimensions = getCopilotPanelDimensions(
+    safeTopOffset,
+    minBottomOffset,
+    panelSizeLimits,
+  );
   const collapsedPreviewTitle = isPendingHere
     ? "Working on your last request"
-    : props.messages.length > 0
-      ? "Continue this thread"
-      : props.starterQuestion
-        ? "Top missing detail"
-        : "Ask for a structured edit";
-  const recentRevisions = useMemo(
-    () => props.revisions.slice(0, 4),
-    [props.revisions],
-  );
+    : hasPendingReview
+      ? "Review change"
+      : props.messages.length > 0
+        ? "Continue this thread"
+        : props.starterQuestion
+          ? "Top missing detail"
+          : "Message the Assistant";
   const suggestedPrompts = useMemo(
     () =>
       Array.from(
@@ -147,28 +216,67 @@ export function ProfileCopilotRail(props: {
           ...(props.starterQuestion ? [props.starterQuestion] : []),
           ...(props.suggestedPrompts ?? []),
         ]),
-      ).slice(0, 3),
+      ).slice(0, 2),
     [props.starterQuestion, props.suggestedPrompts],
   );
-  const recentRevisionEntries = useMemo(() => {
-    return recentRevisions.map((revision) => {
-      const matchingPatchGroup = props.messages
-        .flatMap((message) => message.patchGroups)
-        .find((patchGroup) => patchGroup.id === revision.patchGroupId);
+  const visibleSuggestedPrompts = useMemo(() => {
+    const currentInput = input.trim();
+    if (!currentInput) {
+      return suggestedPrompts;
+    }
 
-      return {
-        revision,
-        summary: matchingPatchGroup
-          ? getPatchGroupOperationSummary(matchingPatchGroup)
-          : (revision.reason ?? formatStatusLabel(revision.trigger)),
-      };
-    });
-  }, [props.messages, recentRevisions]);
+    return suggestedPrompts.filter((prompt) => prompt.trim() !== currentInput);
+  }, [input, suggestedPrompts]);
   const showsProactiveSuggestion =
+    props.showProactivePrompt !== false &&
     !isOpen &&
     showProactivePrompt &&
     props.messages.length === 0 &&
     Boolean(props.starterQuestion);
+  const viewportInset =
+    typeof window === "undefined"
+      ? COPILOT_BOTTOM_OFFSET
+      : getCopilotViewportInset(window.innerWidth);
+  const yieldsToFocusedField = shouldYieldCollapsedLauncher({
+    focusKind,
+    isOpen,
+    isPendingHere,
+  });
+  // A window-owning dialog must be the only actionable surface. This rail
+  // portals to `document.body`, so the modal's `#root` inertness cannot reach
+  // it; it drops under the scrim and turns itself off instead.
+  const isCoveredByModal = useHasOpenJobFinderModal();
+  const launcherContainer = props.launcherContainer ?? null;
+  const isLauncherDocked = !isOpen && launcherContainer !== null;
+
+  // Track what owns focus so the collapsed launcher can step aside while a
+  // field is being edited instead of covering the text the user just typed.
+  useEffect(() => {
+    let settleTimer: number | undefined;
+    const readFocus = () => {
+      setFocusKind(classifyCopilotFocusTarget(document.activeElement));
+    };
+    const handleFocusIn = () => {
+      readFocus();
+    };
+    const handleFocusOut = () => {
+      // `focusout` fires before the next element receives focus.
+      settleTimer = window.setTimeout(readFocus, 0);
+    };
+
+    readFocus();
+    document.addEventListener("focusin", handleFocusIn);
+    document.addEventListener("focusout", handleFocusOut);
+
+    return () => {
+      if (settleTimer !== undefined) {
+        window.clearTimeout(settleTimer);
+      }
+
+      document.removeEventListener("focusin", handleFocusIn);
+      document.removeEventListener("focusout", handleFocusOut);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const shellHeader = document.querySelector<HTMLElement>(
@@ -179,9 +287,14 @@ export function ProfileCopilotRail(props: {
       return;
     }
 
+    const getProfileTabs = () =>
+      document.querySelector<HTMLElement>("[data-profile-section-tabs]");
     const updateSafeTopOffset = () => {
       setSafeTopOffset(
-        Math.ceil(shellHeader.getBoundingClientRect().bottom + 16),
+        getProfileCopilotSafeTopOffset({
+          shellHeaderBottom: shellHeader.getBoundingClientRect().bottom,
+          profileTabsBottom: getProfileTabs()?.getBoundingClientRect().bottom,
+        }),
       );
     };
     const observer =
@@ -191,27 +304,31 @@ export function ProfileCopilotRail(props: {
 
     updateSafeTopOffset();
     observer?.observe(shellHeader);
+    const profileTabs = getProfileTabs();
+    if (profileTabs) {
+      observer?.observe(profileTabs);
+    }
+    document.addEventListener("scroll", updateSafeTopOffset, true);
     window.addEventListener("resize", updateSafeTopOffset);
 
     return () => {
       observer?.disconnect();
+      document.removeEventListener("scroll", updateSafeTopOffset, true);
       window.removeEventListener("resize", updateSafeTopOffset);
     };
-  }, []);
+  }, [contextKey]);
 
   useLayoutEffect(() => {
-    const clearanceTargets = Array.from(
-      document.querySelectorAll<HTMLElement>(
-        "[data-profile-workspace-actions], [data-profile-section-tabs]",
-      ),
-    );
-
-    if (clearanceTargets.length === 0) {
-      setWorkspaceActionClearance(COPILOT_BOTTOM_OFFSET);
-      return;
-    }
+    let remeasureFrame: number | undefined;
+    const getClearanceTargets = () =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>(
+          "[data-profile-workspace-actions], [data-profile-section-tabs]",
+        ),
+      );
 
     const updateWorkspaceActionClearance = () => {
+      const clearanceTargets = getClearanceTargets();
       const launcherStack = getCollapsedLauncherStackSize({
         showSuggestionPill: showsProactiveSuggestion,
       });
@@ -227,34 +344,42 @@ export function ProfileCopilotRail(props: {
       });
 
       setWorkspaceActionClearance(clearance);
+      clearanceTargets.forEach((target) => observer?.observe(target));
+    };
+    const remeasureAfterLayout = () => {
+      if (
+        remeasureFrame !== undefined ||
+        typeof window.requestAnimationFrame !== "function"
+      ) {
+        return;
+      }
+
+      remeasureFrame = window.requestAnimationFrame(() => {
+        remeasureFrame = undefined;
+        updateWorkspaceActionClearance();
+      });
+    };
+    const handleReflow = () => {
+      updateWorkspaceActionClearance();
+      remeasureAfterLayout();
     };
     const observer =
       typeof ResizeObserver === "undefined"
         ? undefined
-        : new ResizeObserver(updateWorkspaceActionClearance);
-    const reflowObserver =
-      typeof MutationObserver === "undefined"
-        ? undefined
-        : new MutationObserver(updateWorkspaceActionClearance);
+        : new ResizeObserver(handleReflow);
 
     updateWorkspaceActionClearance();
-    clearanceTargets.forEach((target) => observer?.observe(target));
-    reflowObserver?.observe(document.documentElement, {
-      childList: true,
-      subtree: true,
-    });
-    document.addEventListener("scroll", updateWorkspaceActionClearance, true);
-    window.addEventListener("resize", updateWorkspaceActionClearance);
+    remeasureAfterLayout();
+    document.addEventListener("scroll", handleReflow, true);
+    window.addEventListener("resize", handleReflow);
 
     return () => {
       observer?.disconnect();
-      reflowObserver?.disconnect();
-      document.removeEventListener(
-        "scroll",
-        updateWorkspaceActionClearance,
-        true,
-      );
-      window.removeEventListener("resize", updateWorkspaceActionClearance);
+      if (remeasureFrame !== undefined) {
+        window.cancelAnimationFrame(remeasureFrame);
+      }
+      document.removeEventListener("scroll", handleReflow, true);
+      window.removeEventListener("resize", handleReflow);
     };
   }, [contextKey, safeTopOffset, showsProactiveSuggestion]);
 
@@ -300,9 +425,9 @@ export function ProfileCopilotRail(props: {
           isOpen: false,
           minBottomOffset: collapsedMinBottomOffset,
           minTopOffset: safeTopOffset,
+          panelSizeLimits,
         }),
       );
-      setIsMaximized(false);
       setIsOpen(false);
     };
 
@@ -355,6 +480,7 @@ export function ProfileCopilotRail(props: {
           minBottomOffset: isOpen ? minBottomOffset : collapsedMinBottomOffset,
           minTopOffset: safeTopOffset,
           nextViewport,
+          panelSizeLimits,
           position: current,
           previousViewport,
         });
@@ -368,9 +494,16 @@ export function ProfileCopilotRail(props: {
 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [collapsedMinBottomOffset, isOpen, minBottomOffset, safeTopOffset]);
+  }, [
+    collapsedMinBottomOffset,
+    isOpen,
+    minBottomOffset,
+    panelSizeLimits.maxHeight,
+    panelSizeLimits.maxWidth,
+    safeTopOffset,
+  ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setPosition((current) => {
       const nextPosition = clampCopilotPosition({
         x: current.x,
@@ -378,6 +511,7 @@ export function ProfileCopilotRail(props: {
         isOpen,
         minBottomOffset: isOpen ? minBottomOffset : collapsedMinBottomOffset,
         minTopOffset: safeTopOffset,
+        panelSizeLimits,
       });
 
       if (!isOpen) {
@@ -385,32 +519,182 @@ export function ProfileCopilotRail(props: {
       }
       return nextPosition;
     });
-  }, [collapsedMinBottomOffset, isOpen, minBottomOffset, safeTopOffset]);
+  }, [
+    collapsedMinBottomOffset,
+    isOpen,
+    minBottomOffset,
+    panelSizeLimits.maxHeight,
+    panelSizeLimits.maxWidth,
+    safeTopOffset,
+  ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const transcript = transcriptRef.current;
 
     if (!transcript) {
       return;
     }
 
-    transcript.scrollTop = transcript.scrollHeight;
-  }, [isPendingHere, props.messages.length]);
+    // The viewport is unmounted while the rail is minimized. Restore the
+    // position captured before unmounting before measuring it again. In
+    // particular, a fresh viewport starts at scrollTop=0 even when the user
+    // was at the bottom, so recomputing first would lose the follow decision.
+    if (transcriptNearBottomRef.current) {
+      transcript.scrollTop = transcript.scrollHeight;
+    } else {
+      transcript.scrollTop = transcriptScrollTopRef.current;
+    }
 
-  function handleSend() {
-    const nextInput = input.trim();
+    const updateTranscriptScrollState = () => {
+      transcriptScrollTopRef.current = transcript.scrollTop;
+      transcriptNearBottomRef.current = isTranscriptNearBottom(transcript);
+    };
 
-    if (isPendingHere || nextInput.length === 0 || props.sendDisabledReason) {
+    updateTranscriptScrollState();
+    transcript.addEventListener("scroll", updateTranscriptScrollState);
+
+    return () => {
+      transcript.removeEventListener("scroll", updateTranscriptScrollState);
+    };
+  }, [isOpen]);
+
+  useLayoutEffect(() => {
+    const transcript = transcriptRef.current;
+
+    if (!transcript) {
       return;
     }
 
-    props.onSendMessage(nextInput, props.context);
-    setInput("");
+    if (props.messages.length === 0 && !isPendingHere) {
+      transcript.scrollTop = 0;
+      transcriptScrollTopRef.current = 0;
+      transcriptNearBottomRef.current = true;
+      return;
+    }
+
+    // Follow only from the position captured before the new tail rendered.
+    // Measuring after a proposal is inserted includes its height and makes a
+    // formerly-bottomed transcript look scrolled upward.
+    if (transcriptNearBottomRef.current) {
+      transcript.scrollTop = transcript.scrollHeight;
+      transcriptScrollTopRef.current = transcript.scrollTop;
+    }
+  }, [
+    contextKey,
+    isOpen,
+    isPendingHere,
+    props.messages.length,
+    transcriptTailKey,
+  ]);
+
+  function setComposerInput(value: string) {
+    inputRef.current = value;
+    setInput(value);
+  }
+
+  function submitMessage(
+    content: string,
+    requestContext: ProfileCopilotContext = props.context,
+  ) {
+    const nextInput = content.trim();
+
+    if (
+      props.busy ||
+      isPendingHere ||
+      nextInput.length === 0 ||
+      props.sendDisabledReason
+    ) {
+      return;
+    }
+
+    setFailedRequest(null);
+    setComposerInput("");
     setIsOpen(true);
+    const request = {
+      contextKey: getProfileCopilotContextKey(requestContext),
+      id: requestSequenceRef.current + 1,
+    };
+    requestSequenceRef.current = request.id;
+    activeRequestRef.current = request;
+
+    const isCurrentRequest = () =>
+      activeRequestRef.current?.id === request.id &&
+      contextKeyRef.current === request.contextKey;
+
+    const restoreFailedRequest = (message: string) => {
+      if (!isCurrentRequest()) {
+        return;
+      }
+
+      activeRequestRef.current = null;
+      if (inputRef.current === "") {
+        setComposerInput(nextInput);
+      }
+      setFailedRequest({
+        content: nextInput,
+        context: requestContext,
+        message,
+      });
+    };
+
+    let result: void | Promise<boolean>;
+    try {
+      result = props.onSendMessage(nextInput, requestContext);
+    } catch (error) {
+      restoreFailedRequest(
+        error instanceof Error
+          ? error.message
+          : "The Assistant could not send that request.",
+      );
+      return;
+    }
+
+    if (result && typeof result.then === "function") {
+      void result
+        .then((succeeded) => {
+          if (succeeded === false) {
+            restoreFailedRequest(
+              "The Assistant could not complete that request.",
+            );
+            return;
+          }
+
+          if (isCurrentRequest()) {
+            activeRequestRef.current = null;
+          }
+        })
+        .catch((error: unknown) => {
+          restoreFailedRequest(
+            error instanceof Error
+              ? error.message
+              : "The Assistant could not send that request.",
+          );
+        });
+      return;
+    }
+
+    activeRequestRef.current = null;
+  }
+
+  function handleSend() {
+    submitMessage(input);
+  }
+
+  function handleInputChange(value: string) {
+    setComposerInput(value);
+    if (failedRequest && value !== failedRequest.content) {
+      setFailedRequest(null);
+    }
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== "Enter" || event.shiftKey) {
+    if (
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      isImeComposingEvent(event.nativeEvent) ||
+      event.nativeEvent.keyCode === 229 ||
+      props.busy
+    ) {
       return;
     }
 
@@ -420,14 +704,21 @@ export function ProfileCopilotRail(props: {
 
   function handleOpen(prefill?: string) {
     if (prefill && input.trim().length === 0) {
-      setInput(prefill);
+      setComposerInput(prefill);
     }
 
     if (!isOpen) {
       collapsedPositionRef.current = position;
     }
-    setIsMaximized(false);
     setIsOpen(true);
+  }
+
+  function handleRetryFailedRequest() {
+    if (!failedRequest) {
+      return;
+    }
+
+    submitMessage(failedRequest.content, failedRequest.context);
   }
 
   function toggleOpen() {
@@ -438,9 +729,9 @@ export function ProfileCopilotRail(props: {
           isOpen: false,
           minBottomOffset: collapsedMinBottomOffset,
           minTopOffset: safeTopOffset,
+          panelSizeLimits,
         }),
       );
-      setIsMaximized(false);
       setIsOpen(false);
       return;
     }
@@ -466,7 +757,7 @@ export function ProfileCopilotRail(props: {
     event: ReactPointerEvent<HTMLElement>,
     draggingOpen: boolean,
   ) {
-    if (event.button !== 0 || (draggingOpen && isMaximized)) {
+    if (event.button !== 0) {
       return;
     }
 
@@ -548,6 +839,7 @@ export function ProfileCopilotRail(props: {
           ? minBottomOffset
           : collapsedMinBottomOffset,
         minTopOffset: safeTopOffset,
+        panelSizeLimits,
       }),
     );
   }
@@ -579,6 +871,7 @@ export function ProfileCopilotRail(props: {
             ? minBottomOffset
             : collapsedMinBottomOffset,
           minTopOffset: safeTopOffset,
+          panelSizeLimits,
         }),
       );
     }
@@ -628,10 +921,6 @@ export function ProfileCopilotRail(props: {
     beginDrag(event, true);
   }
 
-  function toggleMaximized() {
-    setIsMaximized((current) => !current);
-  }
-
   function handleBubblePointerMove(
     event: ReactPointerEvent<HTMLButtonElement>,
   ) {
@@ -657,183 +946,189 @@ export function ProfileCopilotRail(props: {
     toggleOpenFromBubble();
   }
 
-  return createPortal(
-    <div
-      className="pointer-events-none fixed z-[80] flex max-w-[min(30rem,calc(100vw-2rem))] flex-col items-end gap-3"
-      ref={railRootRef}
-      style={
-        isOpen && isMaximized
-          ? {
-              left: `${COPILOT_BOTTOM_OFFSET}px`,
-              maxWidth: `calc(100vw - ${COPILOT_BOTTOM_OFFSET * 2}px)`,
-              top: `${safeTopOffset}px`,
-              width: `calc(100vw - ${COPILOT_BOTTOM_OFFSET * 2}px)`,
-            }
-          : !isOpen
-            ? {
-                bottom: `${collapsedMinBottomOffset}px`,
-                right: `${COPILOT_BOTTOM_OFFSET}px`,
-              }
-            : { left: `${position.x}px`, top: `${position.y}px` }
-      }
-    >
-      {isOpen ? (
-        <aside
-          aria-label={props.title ?? "Profile Copilot"}
-          role="dialog"
-          className="pointer-events-auto surface-panel-shell flex min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-border/40 bg-card shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur"
-          data-profile-copilot-maximized={isMaximized ? "true" : "false"}
-          style={{
-            width: isMaximized ? "100%" : `${panelDimensions.expandedWidth}px`,
-            height: isMaximized
-              ? `calc(100vh - ${safeTopOffset + COPILOT_BOTTOM_OFFSET}px)`
-              : `${panelDimensions.expandedHeight}px`,
-            maxWidth: "calc(100vw - 2rem)",
-            maxHeight: `calc(100vh - ${safeTopOffset + COPILOT_BOTTOM_OFFSET}px)`,
-          }}
+  const collapsedLauncher = !isOpen ? (
+    <ProfileCopilotCollapsedBubble
+      collapsedPreviewTitle={collapsedPreviewTitle}
+      isDraggable={false}
+      // Docked in a footer row the launcher is part of the layout, so it must
+      // never fade out under a focused field — nothing is behind it to cover.
+      yieldsToFocusedField={isLauncherDocked ? false : yieldsToFocusedField}
+      isOpen={isOpen}
+      isPendingHere={isPendingHere}
+      messageCount={props.messages.length}
+      onClick={handleBubbleClick}
+      onPointerDown={handleBubblePointerDown}
+      onPointerMove={handleBubblePointerMove}
+      onPointerCancel={handleBubblePointerCancel}
+      onPointerUp={handleBubblePointerUp}
+      hasPendingReview={hasPendingReview}
+      title={props.title}
+    />
+  ) : null;
+
+  return (
+    <>
+      {isLauncherDocked && collapsedLauncher
+        ? createPortal(
+            <div
+              className="flex shrink-0 items-center"
+              data-profile-copilot-launcher-dock="true"
+            >
+              {collapsedLauncher}
+            </div>,
+            launcherContainer,
+          )
+        : null}
+      {createPortal(
+        <div
+          aria-hidden={isCoveredByModal ? "true" : undefined}
+          className={[
+            "pointer-events-none fixed flex min-w-0 max-w-[min(22.5rem,calc(100vw-1.5rem))] flex-col items-end gap-3",
+            // Modal scrims own z-50; stepping to z-30 puts this panel behind
+            // the scrim so an open dialog stays the only actionable surface.
+            isCoveredByModal ? "z-30" : "z-[80]",
+          ].join(" ")}
+          data-profile-copilot-covered-by-modal={
+            isCoveredByModal ? "true" : "false"
+          }
+          inert={isCoveredByModal}
+          ref={railRootRef}
+          style={
+            !isOpen
+              ? {
+                  bottom: `${collapsedMinBottomOffset}px`,
+                  right: `${viewportInset}px`,
+                }
+              : { left: `${position.x}px`, top: `${position.y}px` }
+          }
         >
-          <header
-            aria-label="Drag Profile Copilot"
-            className={`flex touch-none select-none items-center justify-between gap-3 border-b border-border/30 px-5 py-4 ${isMaximized ? "cursor-default" : "cursor-grab active:cursor-grabbing"}`}
-            onPointerDown={handlePanelPointerDown}
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <GripHorizontal
-                aria-hidden="true"
-                className="size-4 shrink-0 text-muted-foreground"
-              />
-              <div className="flex size-9 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
-                <MessageSquare className="size-4" />
-              </div>
-              <div className="min-w-0">
-                <h2 className="font-display text-[11px] font-bold uppercase tracking-(--tracking-caps) text-primary">
-                  {props.title ?? "Profile Copilot"}
-                </h2>
-                <p className="text-sm text-foreground-soft">
-                  {getProfileCopilotContextLabel(props.context)}
-                </p>
-              </div>
-            </div>
-            <div className="ml-auto flex shrink-0 items-center gap-1">
-              <Button
-                aria-label={
-                  isMaximized
-                    ? "Restore Profile Copilot"
-                    : "Maximize Profile Copilot"
-                }
-                onClick={toggleMaximized}
-                size="icon-xs"
-                title={
-                  isMaximized
-                    ? "Restore Profile Copilot"
-                    : "Maximize Profile Copilot"
-                }
-                type="button"
-                variant="ghost"
+          {isOpen ? (
+            <aside
+              aria-labelledby={dialogTitleId}
+              aria-modal="false"
+              role="dialog"
+              className="pointer-events-auto surface-popover-solid flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border shadow-(--modal-shadow) backdrop-blur"
+              data-profile-copilot-panel="true"
+              style={{
+                width: `${panelDimensions.expandedWidth}px`,
+                height: `${panelDimensions.expandedHeight}px`,
+                maxWidth: `calc(100vw - ${viewportInset * 2}px)`,
+                maxHeight: `calc(100vh - ${safeTopOffset + minBottomOffset}px)`,
+              }}
+            >
+              <header
+                aria-label="Drag the Assistant"
+                className="flex shrink-0 cursor-grab touch-none select-none items-center justify-between gap-3 border-b border-border/30 px-4 py-2.5 active:cursor-grabbing"
+                onPointerDown={handlePanelPointerDown}
               >
-                {isMaximized ? (
-                  <Minimize2 className="size-3.5" />
-                ) : (
-                  <Maximize2 className="size-3.5" />
-                )}
-              </Button>
-              <Button
-                aria-label="Minimize Profile Copilot"
-                onClick={toggleOpen}
-                size="icon-xs"
-                title="Minimize Profile Copilot"
-                type="button"
-                variant="ghost"
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <GripHorizontal
+                    aria-hidden="true"
+                    className="size-3.5 shrink-0 text-muted-foreground"
+                  />
+                  <div className="flex size-7 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
+                    <MessageSquare className="size-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2
+                      className="truncate text-sm font-semibold text-foreground"
+                      id={dialogTitleId}
+                    >
+                      {props.title ?? "Assistant"}
+                    </h2>
+                    <p className="truncate text-(length:--text-tiny) text-muted-foreground">
+                      {getProfileCopilotContextLabel(props.context)}
+                    </p>
+                  </div>
+                </div>
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <Button
+                    aria-label="Minimize the Assistant"
+                    onClick={toggleOpen}
+                    size="icon-xs"
+                    title="Minimize the Assistant"
+                    type="button"
+                    variant="ghost"
+                  >
+                    <Minus className="size-3.5" />
+                  </Button>
+                </div>
+              </header>
+
+              <div
+                className="flex min-h-0 flex-1 flex-col overflow-hidden"
+                data-profile-copilot-content="true"
               >
-                <Minus className="size-3.5" />
-              </Button>
+                <ProfileCopilotTranscript
+                  actionsDisabledReason={props.actionsDisabledReason}
+                  busy={props.busy}
+                  context={props.context}
+                  emptyStateDescription={props.emptyStateDescription}
+                  emptyStateTitle={props.emptyStateTitle}
+                  failedRequest={failedRequest}
+                  isPendingHere={isPendingHere}
+                  messages={props.messages}
+                  onApplyPatchGroup={props.onApplyPatchGroup}
+                  onRejectPatchGroup={props.onRejectPatchGroup}
+                  onRetryFailedRequest={handleRetryFailedRequest}
+                  onUndoRevision={props.onUndoRevision}
+                  onUsePrompt={handleInputChange}
+                  suggestedPrompts={visibleSuggestedPrompts}
+                  transcriptRef={transcriptRef}
+                  revisions={props.revisions}
+                />
+
+                <div
+                  className="shrink-0 border-t border-(--surface-panel-border) bg-(--surface-fill-soft) p-2.5"
+                  data-profile-copilot-composer-footer="true"
+                >
+                  <ProfileCopilotComposer
+                    busy={props.busy}
+                    composerId={composerId}
+                    input={input}
+                    isPendingHere={isPendingHere}
+                    onInputChange={handleInputChange}
+                    onKeyDown={handleComposerKeyDown}
+                    onSend={handleSend}
+                    placeholder="Message the Assistant…"
+                    sendDisabledReason={props.sendDisabledReason}
+                  />
+                </div>
+              </div>
+            </aside>
+          ) : null}
+
+          {showsProactiveSuggestion ? (
+            <div
+              className={`flex min-w-0 max-w-[min(22.5rem,calc(100vw-1.5rem))] items-center gap-2 rounded-full border border-border/40 bg-card/95 p-1.5 pl-4 shadow-(--guided-edits-bubble-shadow) backdrop-blur transition-opacity duration-150 max-sm:hidden ${
+                yieldsToFocusedField
+                  ? "pointer-events-none opacity-0"
+                  : "pointer-events-auto opacity-100"
+              }`}
+            >
+              <button
+                aria-label={`Use suggested prompt: ${props.starterQuestion}`}
+                className="min-w-0 max-w-full flex-1 break-words whitespace-normal text-left text-xs leading-5 text-foreground-soft hover:text-foreground"
+                onClick={() => handleOpen(props.starterQuestion ?? undefined)}
+                type="button"
+              >
+                Suggested: {props.starterQuestion}
+              </button>
+              <button
+                aria-label="Dismiss suggestion"
+                className="rounded-full px-2 py-1 text-xs text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                onClick={() => setShowProactivePrompt(false)}
+                type="button"
+              >
+                Dismiss
+              </button>
             </div>
-          </header>
+          ) : null}
 
-          <div className="flex min-h-0 flex-1 flex-col">
-            <ProfileCopilotTranscript
-              busy={props.busy}
-              actionsDisabledReason={props.actionsDisabledReason}
-              emptyStateDescription={props.emptyStateDescription}
-              emptyStateTitle={props.emptyStateTitle}
-              isPendingHere={isPendingHere}
-              messages={props.messages}
-              onApplyPatchGroup={props.onApplyPatchGroup}
-              onRejectPatchGroup={props.onRejectPatchGroup}
-              onUsePrompt={(prompt) => setInput(prompt)}
-              suggestedPrompts={suggestedPrompts}
-              starterQuestion={props.starterQuestion}
-              transcriptRef={transcriptRef}
-              revisions={props.revisions}
-            />
-
-            <div className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) p-4">
-              <ProfileCopilotRevisionTray
-                busy={props.busy}
-                actionsDisabledReason={props.actionsDisabledReason}
-                onToggleRevisionTray={() =>
-                  setShowRevisionTray((current) => !current)
-                }
-                onUndoRevision={props.onUndoRevision}
-                recentRevisionEntries={recentRevisionEntries}
-                revisionCount={props.revisions.length}
-                showRevisionTray={showRevisionTray}
-              />
-
-              <ProfileCopilotComposer
-                busy={props.busy}
-                composerId={composerId}
-                input={input}
-                isPendingHere={isPendingHere}
-                onInputChange={setInput}
-                onKeyDown={handleComposerKeyDown}
-                onSend={handleSend}
-                placeholder={props.placeholder}
-                sendDisabledReason={props.sendDisabledReason}
-                starterQuestion={props.starterQuestion}
-                movementHint="Drag the panel header to move Copilot."
-              />
-            </div>
-          </div>
-        </aside>
-      ) : null}
-
-      {showsProactiveSuggestion ? (
-        <div className="pointer-events-auto flex max-w-sm items-center gap-2 rounded-full border border-border/40 bg-card/95 p-1.5 pl-4 shadow-[0_12px_32px_rgba(0,0,0,0.32)] backdrop-blur max-sm:hidden">
-          <button
-            className="min-w-0 flex-1 truncate text-left text-xs text-foreground-soft hover:text-foreground"
-            onClick={() => handleOpen(props.starterQuestion ?? undefined)}
-            type="button"
-          >
-            Suggested: {props.starterQuestion}
-          </button>
-          <button
-            aria-label="Dismiss suggestion"
-            className="rounded-full px-2 py-1 text-xs text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
-            onClick={() => setShowProactivePrompt(false)}
-            type="button"
-          >
-            Dismiss
-          </button>
-        </div>
-      ) : null}
-
-      {!isOpen ? (
-        <ProfileCopilotCollapsedBubble
-          collapsedPreviewTitle={collapsedPreviewTitle}
-          isDraggable={false}
-          isOpen={isOpen}
-          isPendingHere={isPendingHere}
-          messageCount={props.messages.length}
-          onClick={handleBubbleClick}
-          onPointerDown={handleBubblePointerDown}
-          onPointerMove={handleBubblePointerMove}
-          onPointerCancel={handleBubblePointerCancel}
-          onPointerUp={handleBubblePointerUp}
-          title={props.title}
-        />
-      ) : null}
-    </div>,
-    document.body,
+          {isLauncherDocked ? null : collapsedLauncher}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }

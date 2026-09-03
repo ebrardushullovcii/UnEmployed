@@ -1,11 +1,15 @@
+// @vitest-environment jsdom
+
 import { describe, expect, test } from "vitest";
 import {
   COPILOT_BOTTOM_OFFSET,
   COPILOT_LAUNCHER_MIN_INTERACTIVE_GAP,
   type CopilotRect,
   type CopilotViewport,
+  classifyCopilotFocusTarget,
   getCollapsedLauncherClearance,
   getCollapsedLauncherStackSize,
+  shouldYieldCollapsedLauncher,
 } from "./profile-copilot-rail-layout";
 
 const REPRESENTATIVE_VIEWPORTS: readonly {
@@ -230,5 +234,80 @@ describe("profile copilot launcher overlap guard", () => {
     );
     expect(launcher.top).toBe(minTopOffset);
     expect(launcher.bottom).toBeLessThanOrEqual(viewport.height);
+  });
+});
+
+describe("collapsed launcher focus yielding", () => {
+  function createElement(html: string): Element {
+    const host = document.createElement("div");
+    host.innerHTML = html;
+    return host.firstElementChild as Element;
+  }
+
+  test("classifies the focused element", () => {
+    expect(classifyCopilotFocusTarget(null)).toBe("none");
+    expect(classifyCopilotFocusTarget(document.body)).toBe("none");
+    expect(
+      classifyCopilotFocusTarget(createElement("<textarea></textarea>")),
+    ).toBe("form_field");
+    expect(classifyCopilotFocusTarget(createElement("<input />"))).toBe(
+      "form_field",
+    );
+    expect(
+      classifyCopilotFocusTarget(
+        createElement('<button data-profile-copilot-launcher="true"></button>'),
+      ),
+    ).toBe("copilot");
+    expect(
+      classifyCopilotFocusTarget(
+        createElement(
+          '<div data-profile-copilot-panel="true"><textarea></textarea></div>',
+        ).querySelector("textarea"),
+      ),
+    ).toBe("copilot");
+    expect(classifyCopilotFocusTarget(createElement("<a href='#'></a>"))).toBe(
+      "other",
+    );
+  });
+
+  test("steps aside only for a focused form field on the page", () => {
+    // The pill sat on top of the self-introduction textarea and hid the text
+    // the user had just typed.
+    expect(
+      shouldYieldCollapsedLauncher({
+        focusKind: "form_field",
+        isOpen: false,
+        isPendingHere: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldYieldCollapsedLauncher({
+        focusKind: "copilot",
+        isOpen: false,
+        isPendingHere: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldYieldCollapsedLauncher({
+        focusKind: "none",
+        isOpen: false,
+        isPendingHere: false,
+      }),
+    ).toBe(false);
+    // A reply in flight must stay visible, and an open panel is not the pill.
+    expect(
+      shouldYieldCollapsedLauncher({
+        focusKind: "form_field",
+        isOpen: false,
+        isPendingHere: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldYieldCollapsedLauncher({
+        focusKind: "form_field",
+        isOpen: true,
+        isPendingHere: false,
+      }),
+    ).toBe(false);
   });
 });

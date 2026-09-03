@@ -87,7 +87,14 @@ export function updateSectionEntry(
   };
 }
 
-type ResumeEntryTextField = "dateRange" | "endDate" | "location" | "startDate" | "subtitle" | "summary" | "title";
+type ResumeEntryTextField =
+  | "dateRange"
+  | "endDate"
+  | "location"
+  | "startDate"
+  | "subtitle"
+  | "summary"
+  | "title";
 
 type ResumeEntryFieldValue = {
   [K in ResumeEntryTextField]: string | null;
@@ -108,7 +115,11 @@ export function updateEntryField<TField extends keyof ResumeEntryFieldValue>(
 }
 
 function parseStructuredEntryDate(entry: ResumeDraftEntry) {
-  if (entry.startDate?.trim() || entry.endDate?.trim() || entry.isCurrent === true) {
+  if (
+    entry.startDate?.trim() ||
+    entry.endDate?.trim() ||
+    entry.isCurrent === true
+  ) {
     return parseEntryDateRange(
       [entry.startDate, entry.isCurrent === true ? "Present" : entry.endDate]
         .filter((value): value is string => Boolean(value?.trim()))

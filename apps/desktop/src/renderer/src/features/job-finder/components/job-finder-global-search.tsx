@@ -190,7 +190,7 @@ export function JobFinderGlobalSearch(props: {
         value={query}
       />
       {isPopupOpen ? (
-        <div className="surface-panel-shell absolute left-0 right-0 top-full z-40 mt-2 max-h-[min(32rem,70vh)] overflow-y-auto rounded-(--radius-panel) border border-(--surface-panel-border) p-3 shadow-(--modal-shadow)">
+        <div className="surface-panel-shell absolute left-0 right-0 top-full z-40 mt-2 max-h-[min(32rem,calc(100dvh-14rem))] overflow-y-auto rounded-(--radius-panel) border border-(--surface-panel-border) p-3 shadow-(--modal-shadow)">
           <p
             aria-live="polite"
             className="px-2 pb-2 text-xs text-foreground-muted"
@@ -385,7 +385,7 @@ export function JobFinderGlobalSearchDialog(props: {
       <section
         aria-label={JOB_FINDER_GLOBAL_SEARCH_LABEL}
         aria-modal="true"
-        className="absolute inset-x-4 top-16 mx-auto max-w-xl rounded-2xl border border-(--surface-panel-border) bg-(--surface-panel-raised) p-3 shadow-(--modal-shadow)"
+        className="absolute inset-x-4 top-16 mx-auto max-h-[calc(100dvh-5rem)] max-w-xl overflow-y-auto rounded-2xl border border-(--surface-panel-border) bg-(--surface-panel-raised) p-3 shadow-(--modal-shadow)"
         onKeyDown={handlePanelKeyDown}
         ref={panelRef}
         role="dialog"

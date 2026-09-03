@@ -44,6 +44,8 @@ import {
 } from "@unemployed/contracts";
 
 import { cloneValue } from "./internal/state";
+import { createApplicationAnswerSnapshotRepositoryMethods } from "./application-answer-snapshot-repository";
+import { createApplicationAuthorityRepositoryMethods } from "./application-authority-repository";
 import {
   areSameApplicationAnswerRecords,
   areSameApplicationQuestionRecords,
@@ -99,10 +101,24 @@ import type {
   JobFinderRepositorySeed,
 } from "./repository-types";
 
+function assertAtMostOneActiveApplicationAuthority(
+  state: JobFinderRepositorySeed,
+): void {
+  const activeAuthorityCount = state.applicationAuthorityEnvelopes.filter(
+    (envelope) => envelope.status === "active",
+  ).length;
+  if (activeAuthorityCount > 1) {
+    throw new Error(
+      "Refusing to create an in-memory repository with more than one active application authority envelope.",
+    );
+  }
+}
+
 export function createInMemoryJobFinderRepository(
   seed: JobFinderRepositorySeed,
 ): JobFinderRepository {
   const state = JobFinderRepositoryStateSchema.parse(cloneValue(seed));
+  assertAtMostOneActiveApplicationAuthority(state);
   let profileRevision = 1;
 
   function readProfileWithRevision(): {
@@ -142,6 +158,24 @@ export function createInMemoryJobFinderRepository(
   }
 
   return {
+    ...createApplicationAnswerSnapshotRepositoryMethods({
+      read: () => state,
+      mutate: (operation) => {
+        const draft = JobFinderRepositoryStateSchema.parse(cloneValue(state));
+        const result = operation(draft);
+        Object.assign(state, draft);
+        return result;
+      },
+    }),
+    ...createApplicationAuthorityRepositoryMethods({
+      read: () => state,
+      mutate: (operation) => {
+        const draft = JobFinderRepositoryStateSchema.parse(cloneValue(state));
+        const result = operation(draft);
+        Object.assign(state, draft);
+        return result;
+      },
+    }),
     close() {
       return Promise.resolve();
     },
@@ -149,6 +183,7 @@ export function createInMemoryJobFinderRepository(
       const normalizedSeed = JobFinderRepositoryStateSchema.parse(
         cloneValue(nextSeed),
       );
+      assertAtMostOneActiveApplicationAuthority(normalizedSeed);
 
       profileRevision = 1;
       state.profile = normalizedSeed.profile;
@@ -172,6 +207,15 @@ export function createInMemoryJobFinderRepository(
       state.applyRuns = normalizedSeed.applyRuns;
       state.applyJobResults = normalizedSeed.applyJobResults;
       state.applySubmitApprovals = normalizedSeed.applySubmitApprovals;
+      state.applicationAuthorityEnvelopes =
+        normalizedSeed.applicationAuthorityEnvelopes;
+      state.submissionPreflights = normalizedSeed.submissionPreflights;
+      state.submissionExecutionGrants =
+        normalizedSeed.submissionExecutionGrants;
+      state.submissionIdempotencyRecords =
+        normalizedSeed.submissionIdempotencyRecords;
+      state.submissionArmedMarkers = normalizedSeed.submissionArmedMarkers;
+      state.submissionOutcomeRecords = normalizedSeed.submissionOutcomeRecords;
       state.applicationQuestionRecords =
         normalizedSeed.applicationQuestionRecords;
       state.applicationAnswerRecords = normalizedSeed.applicationAnswerRecords;
@@ -180,6 +224,8 @@ export function createInMemoryJobFinderRepository(
         normalizedSeed.applicationReplayCheckpoints;
       state.applicationConsentRequests =
         normalizedSeed.applicationConsentRequests;
+      state.applicationAnswerSnapshots =
+        normalizedSeed.applicationAnswerSnapshots;
       state.userActionRequests = normalizedSeed.userActionRequests;
       state.userActionEvents = normalizedSeed.userActionEvents;
       state.applicationRecords = normalizedSeed.applicationRecords;
@@ -331,11 +377,12 @@ export function createInMemoryJobFinderRepository(
         cloneValue(state.profileCopilotMessages),
       );
 
-      if (
-        findProfileCopilotMessageByPatchGroup(currentMessages, {
-          patchGroupId,
-        }) < 0
-      ) {
+      const messageIndex = findProfileCopilotMessageByPatchGroup(
+        currentMessages,
+        { patchGroupId },
+      );
+
+      if (messageIndex < 0) {
         return Promise.resolve(false);
       }
 
@@ -343,9 +390,7 @@ export function createInMemoryJobFinderRepository(
         currentMessages,
         [
           {
-            messageId: currentMessages.find((message) =>
-              message.patchGroups.some((group) => group.id === patchGroupId),
-            )!.id,
+            messageId: currentMessages[messageIndex]!.id,
             patchGroupId,
             applyMode,
           },
@@ -834,6 +879,7 @@ export function createInMemoryJobFinderRepository(
       run,
       documentBundles,
       fieldCandidates,
+      expectedProfileRevision,
     }) {
       const normalizedProfile = CandidateProfileSchema.parse(
         cloneValue(profile),
@@ -866,6 +912,18 @@ export function createInMemoryJobFinderRepository(
         }
       }
 
+      if (
+        expectedProfileRevision !== undefined &&
+        expectedProfileRevision !== profileRevision
+      ) {
+        return Promise.resolve({
+          status: "stale" as const,
+          profile: cloneValue(state.profile),
+          searchPreferences: cloneValue(state.searchPreferences),
+          revision: profileRevision,
+        });
+      }
+
       state.profile = normalizedProfile;
       profileRevision += 1;
       state.searchPreferences = normalizedSearchPreferences;
@@ -882,7 +940,12 @@ export function createInMemoryJobFinderRepository(
       );
       state.resumeImportDocumentBundles = nextArtifacts.bundles;
       state.resumeImportFieldCandidates = nextArtifacts.candidates;
-      return Promise.resolve();
+      return Promise.resolve({
+        status: "applied" as const,
+        profile: cloneValue(state.profile),
+        searchPreferences: cloneValue(state.searchPreferences),
+        revision: profileRevision,
+      });
     },
     listResumeValidationResults(draftId) {
       const values = draftId

@@ -1,10 +1,15 @@
 import { useId } from "react";
-import type { UseFormReturn } from "react-hook-form";
+import { useWatch, type UseFormReturn } from "react-hook-form";
 import { Field, FieldLabel } from "@renderer/components/ui/field";
 import type { ProfileEditorValues } from "../../lib/profile-editor";
 import { joinListInput, parseListInput } from "../../lib/job-finder-utils";
+import { ProfileBasicsFields } from "./profile-basics-fields";
 import { ProfileOptionalSection } from "./profile-optional-section";
-import { ProfileInput, ProfileTextarea } from "./profile-form-primitives";
+import {
+  ProfileFieldHint,
+  ProfileInput,
+  ProfileTextarea,
+} from "./profile-form-primitives";
 import { ProfileListEditor } from "./profile-list-editor";
 import { ProfileSectionHeader } from "./profile-section-header";
 
@@ -17,16 +22,34 @@ function buildProfileCoreFieldId(field: string) {
 }
 
 export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
-  const { register, setValue, watch } = profileForm;
+  const { control, register, setValue, watch } = profileForm;
   const listFieldOptions = {
     shouldDirty: true,
     shouldTouch: true,
     shouldValidate: true,
   } as const;
+  const shortSummaryHintId = useId();
+  const professionalStoryHintId = useId();
   const careerThemesId = useId();
   const nextChapterSummaryId = useId();
   const leadershipSummaryId = useId();
   const careerTransitionSummaryId = useId();
+  const fullSummary = useWatch({ control, name: "summary.fullSummary" }) ?? "";
+  const shortSummary =
+    useWatch({ control, name: "summary.shortValueProposition" }) ?? "";
+  const professionalStory =
+    useWatch({ control, name: "narrative.professionalStory" }) ?? "";
+  const isSameSummaryText = (left: string, right: string) =>
+    left.trim().replace(/\s+/g, " ").toLowerCase() ===
+    right.trim().replace(/\s+/g, " ").toLowerCase();
+  const shortSummaryDiffers =
+    shortSummary.trim().length > 0 &&
+    !isSameSummaryText(shortSummary, fullSummary);
+  const professionalStoryDiffers =
+    professionalStory.trim().length > 0 &&
+    !isSameSummaryText(professionalStory, fullSummary);
+  const hasDifferingSummaryVariants =
+    shortSummaryDiffers || professionalStoryDiffers;
 
   return (
     <div className="grid gap-6">
@@ -37,170 +60,12 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
           description="Start with the basics employers expect first: name, contact info, location, and key links."
         />
 
-        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-          <p className="text-[0.98rem] font-semibold text-(--text-headline)">
-            Name and headline
-          </p>
-          <div className="grid gap-(--gap-content) md:grid-cols-2">
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("first-name")}>
-                First name
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("first-name")}
-                {...register("identity.firstName")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("last-name")}>
-                Last name
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("last-name")}
-                {...register("identity.lastName")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("preferred-name")}>
-                Preferred name
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("preferred-name")}
-                placeholder="Use this if it differs from your first name"
-                {...register("identity.preferredDisplayName")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("headline")}>
-                Headline
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("headline")}
-                {...register("identity.headline")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("years-experience")}>
-                Years of experience
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("years-experience")}
-                min="0"
-                step="1"
-                type="number"
-                {...register("identity.yearsExperience")}
-              />
-            </Field>
-          </div>
-        </article>
-
-        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-          <p className="text-[0.98rem] font-semibold text-(--text-headline)">
-            Contact
-          </p>
-          <div className="grid gap-(--gap-content) md:grid-cols-2">
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("email")}>
-                Email
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("email")}
-                {...register("identity.email")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("phone")}>
-                Phone
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("phone")}
-                {...register("identity.phone")}
-              />
-            </Field>
-          </div>
-        </article>
-
-        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-          <p className="text-[0.98rem] font-semibold text-(--text-headline)">
-            Location
-          </p>
-          <div className="grid gap-(--gap-content) md:grid-cols-2">
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("city")}>
-                City
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("city")}
-                {...register("identity.currentCity")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("region")}>
-                State or region
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("region")}
-                {...register("identity.currentRegion")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("country")}>
-                Country
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("country")}
-                {...register("identity.currentCountry")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel
-                htmlFor={buildProfileCoreFieldId("displayed-location")}
-              >
-                Displayed location
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("displayed-location")}
-                placeholder="Shown on generated resumes"
-                {...register("identity.currentLocation")}
-              />
-            </Field>
-          </div>
-        </article>
-
-        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-          <p className="text-[0.98rem] font-semibold text-(--text-headline)">
-            Links
-          </p>
-          <div className="grid gap-(--gap-content) md:grid-cols-2">
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("linkedin-url")}>
-                LinkedIn URL
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("linkedin-url")}
-                {...register("identity.linkedinUrl")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("website")}>
-                Website
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("website")}
-                {...register("identity.portfolioUrl")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("github-url")}>
-                GitHub URL
-              </FieldLabel>
-              <ProfileInput
-                id={buildProfileCoreFieldId("github-url")}
-                {...register("identity.githubUrl")}
-              />
-            </Field>
-          </div>
-        </article>
+        {/* One shared field list with guided setup › Basics: same fields,
+            same order, same labels. */}
+        <ProfileBasicsFields
+          idPrefix="profile-core-field"
+          profileForm={profileForm}
+        />
 
         <ProfileOptionalSection
           description="Keep the main profile focused on the details Job Finder uses most often. Open this only when an application needs the extras."
@@ -240,66 +105,88 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
 
       <section className="grid content-start gap-(--gap-card)">
         <ProfileSectionHeader
-          eyebrow="Narrative"
-          title="Summary"
-          description="Start with the short version of your story, then add the details that help resumes sound like you."
+          eyebrow="Your story"
+          title="Positioning"
+          description="How you describe the way you work. Your professional summary is edited once, in Basics above."
         />
 
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-          <p className="text-[0.98rem] font-semibold text-(--text-headline)">
-            Positioning
-          </p>
-          <div className="grid gap-(--gap-content)">
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("short-summary")}>
-                Short summary
-              </FieldLabel>
-              <ProfileTextarea
-                id={buildProfileCoreFieldId("short-summary")}
-                className="min-h-(--textarea-compact) max-h-(--textarea-compact)"
-                rows={3}
-                {...register("summary.shortValueProposition")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel
-                htmlFor={buildProfileCoreFieldId("professional-summary")}
-              >
-                Professional summary
-              </FieldLabel>
-              <ProfileTextarea
-                id={buildProfileCoreFieldId("professional-summary")}
-                className="min-h-(--textarea-default) max-h-(--textarea-default)"
-                rows={5}
-                {...register("summary.fullSummary")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel
-                htmlFor={buildProfileCoreFieldId("professional-story")}
-              >
-                Professional story
-              </FieldLabel>
-              <ProfileTextarea
-                id={buildProfileCoreFieldId("professional-story")}
-                className="min-h-(--textarea-default) max-h-(--textarea-default)"
-                rows={5}
-                {...register("narrative.professionalStory")}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={buildProfileCoreFieldId("strengths")}>
-                Strengths
-              </FieldLabel>
-              <ProfileTextarea
-                id={buildProfileCoreFieldId("strengths")}
-                className="min-h-(--textarea-tall) max-h-(--textarea-tall)"
-                rows={4}
-                {...register("summary.strengths")}
-              />
-            </Field>
+          <div className="grid gap-1">
+            <p className="text-[0.98rem] font-semibold text-(--text-headline)">
+              Strengths
+            </p>
+            {/* The rule lives in the panel that owns the field, not floating
+                between the summary and the chip box where it read as a second
+                sentence about the summary. */}
+            <ProfileFieldHint>
+              Short phrases about how you work. Resumes use these in your
+              summary; named technologies belong in Skills further down.
+            </ProfileFieldHint>
           </div>
+          <ProfileListEditor
+            label="Strengths"
+            onChange={(values) =>
+              setValue("summary.strengths", joinListInput(values), {
+                ...listFieldOptions,
+                shouldValidate: false,
+              })
+            }
+            placeholder="Add a strength"
+            values={parseListInput(watch("summary.strengths"))}
+          />
         </article>
+
+        {/* One summary field owns the resume text. Older variants are never
+            deleted silently: they stay retrievable here, and only while they
+            actually differ from the summary above. */}
+        {hasDifferingSummaryVariants ? (
+          <ProfileOptionalSection
+            description="Older wordings kept from an earlier version of your profile. Nothing reads these automatically; copy anything you still want into the professional summary above."
+            title="Previous versions"
+          >
+            <div className="grid gap-(--gap-content)">
+              {shortSummaryDiffers ? (
+                <Field>
+                  <FieldLabel
+                    htmlFor={buildProfileCoreFieldId("short-summary")}
+                  >
+                    Short summary
+                  </FieldLabel>
+                  <ProfileTextarea
+                    aria-describedby={shortSummaryHintId}
+                    id={buildProfileCoreFieldId("short-summary")}
+                    className="min-h-(--textarea-compact) max-h-(--textarea-compact)"
+                    rows={3}
+                    {...register("summary.shortValueProposition")}
+                  />
+                  <ProfileFieldHint id={shortSummaryHintId}>
+                    One or two lines, kept from an earlier profile version.
+                  </ProfileFieldHint>
+                </Field>
+              ) : null}
+              {professionalStoryDiffers ? (
+                <Field>
+                  <FieldLabel
+                    htmlFor={buildProfileCoreFieldId("professional-story")}
+                  >
+                    Professional story
+                  </FieldLabel>
+                  <ProfileTextarea
+                    aria-describedby={professionalStoryHintId}
+                    id={buildProfileCoreFieldId("professional-story")}
+                    className="min-h-(--textarea-default) max-h-(--textarea-default)"
+                    rows={5}
+                    {...register("narrative.professionalStory")}
+                  />
+                  <ProfileFieldHint id={professionalStoryHintId}>
+                    The longer background, used for cover letters and screener
+                    answers rather than the resume.
+                  </ProfileFieldHint>
+                </Field>
+              ) : null}
+            </div>
+          </ProfileOptionalSection>
+        ) : null}
 
         <ProfileOptionalSection
           description="Add the extra context that helps with targeted rewriting, without keeping the main summary path overloaded."
@@ -391,26 +278,32 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
         <ProfileSectionHeader
           eyebrow="Skills"
           title="Skills"
-          description="Keep your main skills here so resumes and future forms stay grounded in the same facts."
+          description="One list of skills, kept where resumes and application forms read it."
         />
 
         <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
           <p className="text-[0.98rem] font-semibold text-(--text-headline)">
-            Role-facing skills
+            Main skills
           </p>
+          <ProfileFieldHint>
+            One list is enough. This is the list resumes and application forms
+            read; the optional groupings below only change wording order.
+          </ProfileFieldHint>
+          <ProfileListEditor
+            label="Main skills"
+            onChange={(values) =>
+              setValue("profileSkills", joinListInput(values), listFieldOptions)
+            }
+            placeholder="Add a skill"
+            values={parseListInput(watch("profileSkills"))}
+          />
+        </article>
+
+        <ProfileOptionalSection
+          description="Ways to group the same skills. Nothing here adds a skill to your resume on its own; Main skills above stays the source of truth."
+          title="Optional skill groupings"
+        >
           <div className="grid gap-(--gap-content) md:grid-cols-2">
-            <ProfileListEditor
-              label="Main skills"
-              onChange={(values) =>
-                setValue(
-                  "profileSkills",
-                  joinListInput(values),
-                  listFieldOptions,
-                )
-              }
-              placeholder="Add a skill"
-              values={parseListInput(watch("profileSkills"))}
-            />
             <ProfileListEditor
               label="Skills to emphasize for target roles"
               onChange={(values) =>
@@ -423,14 +316,6 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
               placeholder="Add a highlighted skill"
               values={parseListInput(watch("skillGroups.highlightedSkills"))}
             />
-          </div>
-        </article>
-
-        <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
-          <p className="text-[0.98rem] font-semibold text-(--text-headline)">
-            Grouped skills
-          </p>
-          <div className="grid gap-(--gap-content) md:grid-cols-2">
             <ProfileListEditor
               label="Core strengths"
               onChange={(values) =>
@@ -482,7 +367,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
               values={parseListInput(watch("skillGroups.softSkills"))}
             />
           </div>
-        </article>
+        </ProfileOptionalSection>
       </section>
     </div>
   );

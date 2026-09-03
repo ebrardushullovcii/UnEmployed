@@ -44,8 +44,38 @@ vi.mock("./discovery-filters-panel", () => ({
   ),
 }));
 vi.mock("./discovery-results-panel", () => ({
-  DiscoveryResultsPanel: () => (
-    <section aria-label="Job results">Job results</section>
+  DISCOVERY_OFFLINE_CATALOG_NOTICE_ID: "discovery-offline-catalog-notice",
+  DISCOVERY_SEARCH_SETUP_BLOCKER_ID: "discovery-search-setup-blocker",
+  DiscoveryResultsPanel: ({
+    browserSession,
+    jobs,
+    searchSetupBlocker,
+  }: {
+    browserSession: BrowserSessionState;
+    jobs: readonly SavedJob[];
+    searchSetupBlocker?: {
+      actionLabel?: string | null;
+      title: string;
+    } | null;
+  }) => (
+    <section aria-label="Job results">
+      Job results
+      {searchSetupBlocker ? (
+        <div id="discovery-search-setup-blocker">
+          <p>{searchSetupBlocker.title}</p>
+          {searchSetupBlocker.actionLabel ? (
+            <a href="/job-finder/profile?section=sources&focus=job-sources">
+              {searchSetupBlocker.actionLabel}
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+      {browserSession.driver === "catalog_seed" && jobs.length > 0 ? (
+        <div id="discovery-offline-catalog-notice" role="status">
+          Offline catalog · review-only. Catalog jobs are review-only.
+        </div>
+      ) : null}
+    </section>
   ),
 }));
 
@@ -140,6 +170,137 @@ afterEach(() => {
 });
 
 describe("DiscoveryScreen established-results layout", () => {
+  it("keeps populated offline provenance on one results surface and describes disabled search", () => {
+    const catalogJob = createJob("catalog", "review_before_applying");
+
+    render(
+      <MemoryRouter>
+        <DiscoveryScreen
+          actionState={{ message: null }}
+          activeRun={null}
+          browserSession={{
+            ...browserSession,
+            driver: "catalog_seed",
+            status: "unknown",
+          }}
+          discoverySessions={[]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isJobPending={() => false}
+          isTargetPending={() => false}
+          jobs={[catalogJob]}
+          dismissedJobs={[]}
+          liveEvents={[]}
+          onDismissJob={vi.fn()}
+          onRestoreDismissedJob={vi.fn()}
+          onOpenBrowserSession={vi.fn()}
+          onOpenBrowserSessionForTarget={vi.fn()}
+          onQueueJob={vi.fn()}
+          onRunAgentDiscovery={vi.fn()}
+          onSelectJob={vi.fn()}
+          recentRuns={[]}
+          searchPreferences={searchPreferences}
+          selectedJob={catalogJob}
+          sourceAccessPrompts={[]}
+        />
+      </MemoryRouter>,
+    );
+
+    const offlineNotice = document.getElementById(
+      "discovery-offline-catalog-notice",
+    );
+    const searchButton = screen.getByRole("button", { name: "Search now" });
+
+    expect(document.querySelector("[data-page-header-status]")).toBeNull();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(offlineNotice?.textContent).toContain(
+      "Offline catalog · review-only.",
+    );
+    expect(searchButton.hasAttribute("disabled")).toBe(true);
+    expect(searchButton.getAttribute("aria-describedby")).toBe(
+      "discovery-offline-catalog-notice",
+    );
+  });
+
+  it("keeps the zero-result source blocker on one surface with a valid search description", () => {
+    const selectedJob = createJob("strong", "strong_fit");
+    const view = render(
+      <MemoryRouter>
+        <DiscoveryScreen
+          actionState={{ message: null }}
+          activeRun={null}
+          browserSession={browserSession}
+          discoverySessions={[]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isJobPending={() => false}
+          isTargetPending={() => false}
+          jobs={[selectedJob]}
+          dismissedJobs={[]}
+          liveEvents={[]}
+          onDismissJob={vi.fn()}
+          onRestoreDismissedJob={vi.fn()}
+          onOpenBrowserSession={vi.fn()}
+          onOpenBrowserSessionForTarget={vi.fn()}
+          onQueueJob={vi.fn()}
+          onRunAgentDiscovery={vi.fn()}
+          onSelectJob={vi.fn()}
+          recentRuns={[]}
+          searchPreferences={searchPreferences}
+          selectedJob={selectedJob}
+          sourceAccessPrompts={[]}
+        />
+      </MemoryRouter>,
+    );
+
+    // Results mode stays mounted while the last visible job disappears, which
+    // is the path that previously rendered the same source blocker twice.
+    view.rerender(
+      <MemoryRouter>
+        <DiscoveryScreen
+          actionState={{ message: null }}
+          activeRun={null}
+          browserSession={browserSession}
+          discoverySessions={[]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isJobPending={() => false}
+          isTargetPending={() => false}
+          jobs={[]}
+          dismissedJobs={[]}
+          liveEvents={[]}
+          onDismissJob={vi.fn()}
+          onRestoreDismissedJob={vi.fn()}
+          onOpenBrowserSession={vi.fn()}
+          onOpenBrowserSessionForTarget={vi.fn()}
+          onQueueJob={vi.fn()}
+          onRunAgentDiscovery={vi.fn()}
+          onSelectJob={vi.fn()}
+          recentRuns={[]}
+          searchPreferences={searchPreferences}
+          selectedJob={null}
+          sourceAccessPrompts={[]}
+        />
+      </MemoryRouter>,
+    );
+
+    const searchButton = screen.getByRole("button", { name: "Search now" });
+    const blocker = document.getElementById("discovery-search-setup-blocker");
+    expect(document.querySelector("[data-page-header-status]")).toBeNull();
+    expect(searchButton.getAttribute("aria-describedby")).toBe(
+      "discovery-search-setup-blocker",
+    );
+    expect(blocker).toBeTruthy();
+    expect(blocker?.contains(screen.getByText("Add a job source"))).toBe(true);
+    expect(
+      screen.getAllByRole("link", { name: "Add a job source" }),
+    ).toHaveLength(1);
+    expect(screen.queryByRole("region", { name: "Job details" })).toBeNull();
+  });
+
   it("offers exact employer reversal separately from restoring a hidden job", () => {
     const onRemoveEmployerExclusion = vi.fn();
     const onRestoreDismissedJob = vi.fn();
@@ -237,12 +398,13 @@ describe("DiscoveryScreen established-results layout", () => {
       expect(pane.className).not.toMatch(/(?:^|\s)(?:\w+:)?order-/u);
     }
 
-    fireEvent.click(screen.getByRole("button", { name: "Search setup" }));
+    // Search setup is a disclosure opened from the bar, not a peer tab.
+    fireEvent.click(screen.getByRole("button", { name: /search target/iu }));
     expect(screen.getByRole("region", { name: "Current search" })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Job results" })).toBeNull();
   });
 
-  it("renders the shared header grammar: stack, one divider, subnav, single search control", () => {
+  it("renders the shared header grammar: stack, one divider, one interactive search bar", () => {
     const view = renderEstablishedResults();
 
     const main = view.container.querySelector("main");
@@ -250,21 +412,31 @@ describe("DiscoveryScreen established-results layout", () => {
       throw new Error("Expected the mocked layout main.");
     }
     const stack = main.querySelector("[data-page-header-stack]");
+    const header = main.querySelector("[data-page-header]");
+    const actions = main.querySelector("[data-page-header-actions]");
     const subnav = main.querySelector("[data-page-header-subnav]");
     const dividers = main.querySelectorAll("[data-page-header-divider]");
     const workspace = document.getElementById("discovery-workspace-content");
 
     expect(stack).toBeTruthy();
+    expect(header).toBeTruthy();
+    // No route-level action cluster: the search bar owns the one command.
+    expect(actions).toBeNull();
+    expect(header?.className).toContain("xl:grid-cols-[minmax(0,1fr)_auto]");
+    expect(header?.className).not.toContain("lg:grid-cols-");
+    expect(header?.firstElementChild?.querySelector("h1")?.textContent).toBe(
+      "Find jobs",
+    );
+    expect(subnav?.textContent).toContain("Search now");
     expect(dividers).toHaveLength(1);
     expect(subnav?.className).toContain("mt-(--gap-page-header-aux)");
     expect(stack?.className).toContain("mb-(--gap-page-header-body)");
     expect(main.children[0]).toBe(stack);
     expect(main.children[1]).toBe(workspace);
 
-    expect(
-      screen.getByRole("group", { name: "Find jobs workspace" }),
-    ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Results" })).toBeTruthy();
+    // The tab strip is gone: no Results/Search setup peers remain.
+    expect(screen.queryByRole("button", { name: "Results" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Search setup" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Edit search" })).toBeNull();
 
     const searchButtons = screen.getAllByRole("button", {
@@ -272,12 +444,12 @@ describe("DiscoveryScreen established-results layout", () => {
     });
     expect(searchButtons).toHaveLength(1);
 
-    for (const mode of ["Results", "Search setup"]) {
-      expect(
-        screen
-          .getByRole("button", { name: mode })
-          .getAttribute("aria-controls"),
-      ).toBe("discovery-workspace-content");
+    for (const chip of Array.from(
+      document.querySelectorAll("[data-discovery-search-chip]"),
+    )) {
+      expect(chip.getAttribute("aria-controls")).toBe(
+        "discovery-search-setup-panel",
+      );
     }
     expect(workspace?.getAttribute("id")).toBe("discovery-workspace-content");
     expect(

@@ -55,8 +55,9 @@ describe("ProfileTimelineRepairList", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
 
-  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
-    .IS_REACT_ACT_ENVIRONMENT = true;
+  (
+    globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
 
   afterEach(() => {
     act(() => root?.unmount());
@@ -103,15 +104,17 @@ describe("ProfileTimelineRepairList", () => {
 
   it("sends an independent action and displays stale-edit errors", async () => {
     const onAction = render(
-      vi.fn().mockRejectedValue(
-        new Error(
-          "Experience 'experience_1' changed after this timeline proposal was created.",
+      vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            "Experience 'experience_1' changed after this timeline proposal was created.",
+          ),
         ),
-      ),
     );
-    const acceptButton = [...(container?.querySelectorAll("button") ?? [])].find(
-      (button) => button.textContent?.includes("Accept proposed change"),
-    );
+    const acceptButton = [
+      ...(container?.querySelectorAll("button") ?? []),
+    ].find((button) => button.textContent?.includes("Accept proposed change"));
 
     await act(async () => {
       acceptButton?.click();

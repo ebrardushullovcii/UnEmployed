@@ -8,6 +8,7 @@ import { fnv1a32 } from "@unemployed/core";
 import {
   buildResumeRenderDocument,
   buildResumeDraftFromTailoredDraft,
+  buildTailoredResumeTextFromResumeDraft,
   seedResumeDraft,
 } from "./internal/resume-workspace-structure";
 import { createSeed } from "./workspace-service.test-support";
@@ -44,8 +45,70 @@ describe("buildResumeRenderDocument", () => {
       },
     });
 
+    // The first line a recruiter reads must name the target role, not the
+    // headline that came in with the imported CV.
     expect(draft.identity?.headline).toBe("JavaScript Frontend Developer");
+    expect(draft.identity?.headline).not.toBe(seed.profile.headline);
+    expect(
+      buildResumeRenderDocument({ ...seed.profile, yearsExperience: 7 }, draft)
+        .headline,
+    ).toBe("JavaScript Frontend Developer");
     expect(draft.targetPageCount).toBe(2);
+  });
+
+  test("filters quantified job requirements from model-shaped candidate keyword sections", () => {
+    const seed = createSeed();
+    const qualifications = [
+      "Seven years of frontend experience",
+      "6 months of accessibility testing",
+    ];
+    const job = {
+      ...seed.savedJobs[0]!,
+      minimumQualifications: qualifications,
+    };
+    const draft = buildResumeDraftFromTailoredDraft({
+      job,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-08-30T10:04:00.000Z",
+      generationMethod: "ai",
+      profile: seed.profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: "Grounded software summary.",
+        experienceHighlights: [],
+        coreSkills: ["React"],
+        targetedKeywords: [...qualifications, "React"],
+        experienceEntries: [],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: qualifications.join("\n"),
+        compatibilityScore: 90,
+        notes: [],
+      },
+    });
+    const keywordSection = draft.sections.find(
+      (section) => section.kind === "keywords",
+    );
+    const candidateText = buildTailoredResumeTextFromResumeDraft(
+      seed.profile,
+      job,
+      draft,
+    );
+
+    expect(job.minimumQualifications).toEqual(qualifications);
+    expect(keywordSection).toMatchObject({
+      id: "section_keywords",
+      included: false,
+    });
+    expect(keywordSection?.bullets.map((bullet) => bullet.text)).toEqual([
+      "React",
+    ]);
+    expect(candidateText).not.toContain(qualifications[0]);
+    expect(candidateText).not.toContain(qualifications[1]);
   });
 
   test("renders experience entry metadata with tailored entry content", () => {
@@ -140,8 +203,10 @@ describe("buildResumeRenderDocument", () => {
       startDate: "2020-01",
       endDate: null,
       isCurrent: true,
+      // A vertical bar reads as a lowercase "l" in the resume face, so the
+      // entry meta uses a middot separator.
       heading:
-        "Senior systems designer — Signal Systems | London, UK | Jan 2020 – Present",
+        "Senior systems designer — Signal Systems · London, UK · Jan 2020 – Present",
       summary: "Tailored workflow platform summary.",
       bullets: [
         {
@@ -226,6 +291,203 @@ describe("buildResumeRenderDocument", () => {
     ]);
     expect(documentEntries.map((entry) => entry.id)).toEqual(
       experienceEntries.map((entry) => entry.id),
+    );
+  });
+
+  test("seedResumeDraft rebuilds from structured profile records instead of flat tailored previews", () => {
+    const seed = createSeed();
+    const draft = seedResumeDraft({
+      profile: seed.profile,
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      tailoredAsset: {
+        ...seed.tailoredAssets[0]!,
+        generationMethod: "ai_assisted",
+        previewSections: [
+          {
+            heading: "Experience",
+            lines: ["Untraceable preview role", "Invented preview claim."],
+          },
+        ],
+      },
+    });
+
+    const experienceSection = draft.sections.find(
+      (section) => section.kind === "experience",
+    );
+
+    expect(draft.status).toBe("draft");
+    expect(experienceSection?.entries[0]?.profileRecordId).toBe(
+      seed.profile.experiences[0]?.id,
+    );
+    expect(
+      experienceSection?.bullets.some((bullet) =>
+        bullet.text.includes("Untraceable preview"),
+      ),
+    ).toBe(false);
+  });
+
+  test("seedResumeDraft marks preview-only content as needing factual review", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      experiences: [],
+      projects: [],
+      education: [],
+      certifications: [],
+    };
+    const draft = seedResumeDraft({
+      profile,
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      tailoredAsset: {
+        ...seed.tailoredAssets[0]!,
+        generationMethod: "ai_assisted",
+        previewSections: [
+          {
+            heading: "Summary",
+            lines: ["Preview-only summary."],
+          },
+          {
+            heading: "Experience",
+            lines: ["Preview-only role", "Preview-only claim."],
+          },
+        ],
+      },
+    });
+
+    expect(draft.status).toBe("needs_review");
+    expect(
+      draft.sections
+        .flatMap((section) => section.entries)
+        .every((entry) => entry.profileRecordId === null),
+    ).toBe(true);
+  });
+
+  test("keeps legacy targeted keywords excluded from the candidate resume", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      experiences: [],
+      projects: [],
+      education: [],
+      certifications: [],
+    };
+    const draft = seedResumeDraft({
+      profile,
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      tailoredAsset: {
+        ...seed.tailoredAssets[0]!,
+        previewSections: [
+          { heading: "Summary", lines: ["Profile summary."] },
+          { heading: "Targeted Keywords", lines: ["React", "TypeScript"] },
+        ],
+      },
+    });
+
+    expect(
+      draft.sections.find((section) => section.kind === "keywords"),
+    ).toMatchObject({ included: false });
+  });
+
+  test("preserves bounded imported evidence refs beyond the first preview", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      baseResume: {
+        ...seed.profile.baseResume,
+        textContent: [
+          "Alex Vanguard",
+          "Senior systems designer",
+          "Organization: Northwind Labs",
+          "Recorded supply counts in a shared spreadsheet for weekly operations.",
+          "High School Diploma, Central Academy",
+        ].join("\n"),
+      },
+    };
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-08-30T10:04:00.000Z",
+      generationMethod: "ai",
+      profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: "Grounded summary.",
+        experienceHighlights: [],
+        coreSkills: ["React"],
+        targetedKeywords: [],
+        experienceEntries: [],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: "Grounded summary.",
+        compatibilityScore: 80,
+        notes: [],
+      },
+    });
+    const importedRefs = draft.sections
+      .find((section) => section.kind === "summary")
+      ?.sourceRefs.filter((ref) => ref.sourceKind === "resume");
+
+    expect(importedRefs?.length).toBeGreaterThan(1);
+    expect(
+      importedRefs?.every((ref) => (ref.snippet?.length ?? 0) <= 220),
+    ).toBe(true);
+    expect(
+      importedRefs?.some((ref) => ref.snippet?.includes("Organization")),
+    ).toBe(true);
+    expect(
+      importedRefs?.some((ref) => ref.snippet?.includes("High School Diploma")),
+    ).toBe(true);
+  });
+
+  test("binds generated summary and skills to saved profile provenance", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      baseResume: { ...seed.profile.baseResume, textContent: null },
+    };
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-08-30T10:04:00.000Z",
+      generationMethod: "ai",
+      profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: profile.summary ?? "Grounded summary.",
+        experienceHighlights: [],
+        coreSkills: ["React"],
+        targetedKeywords: [],
+        experienceEntries: [],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: profile.summary ?? "Grounded summary.",
+        compatibilityScore: 80,
+        notes: [],
+      },
+    });
+    const summary = draft.sections.find(
+      (section) => section.kind === "summary",
+    );
+    const skills = draft.sections.find(
+      (section) => section.kind === "skills" && section.label === "Core Skills",
+    );
+
+    expect(
+      summary?.sourceRefs.some((ref) => ref.sourceKind === "profile"),
+    ).toBe(true);
+    expect(skills?.sourceRefs.some((ref) => ref.sourceKind === "profile")).toBe(
+      true,
     );
   });
 
@@ -915,7 +1177,7 @@ describe("buildResumeRenderDocument", () => {
       endDate: null,
       isCurrent: false,
       heading:
-        "Workflow OS — Design lead | https://alex.example.com/workflow-os-case-study",
+        "Workflow OS — Design lead · https://alex.example.com/workflow-os-case-study",
       summary:
         "Scaled a workflow design system. Reduced release churn. Technologies: Figma, React.",
       bullets: [],

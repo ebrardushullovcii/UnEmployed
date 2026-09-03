@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type {
   ApplicationCrmExportFormat,
@@ -22,6 +29,10 @@ import { ApplicationsOutcomeRecorder } from "./applications-outcome-recorder";
 import { isImeComposingEvent } from "../../lib/job-finder-shortcuts";
 import { useJobFinderOverlayOwnership } from "../../lib/job-finder-overlay-ownership";
 import { StatusBadge } from "../../components/status-badge";
+import { formatApplicationEmployerLine } from "../../lib/job-employer-location-display";
+import { getJobFinderDateInputLocale } from "../../lib/job-finder-date-input-locale";
+
+const jobFinderDateInputLocale = getJobFinderDateInputLocale();
 
 function createId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -93,6 +104,7 @@ function applicationCrmEventCopyForView(
 
 export function ApplicationsCrmDetail(props: {
   record: ApplicationRecord;
+  relatedJobCanonicalUrl?: string | null;
   settings: ApplicationCrmSettings;
   onMutate: (command: ApplicationCrmMutationInput) => Promise<void>;
   onExport: (
@@ -105,6 +117,12 @@ export function ApplicationsCrmDetail(props: {
   outcomeResumeStrategyId?: string | null;
 }) {
   const crm = applicationCrmDataForView(props.record);
+  const employerLine = formatApplicationEmployerLine({
+    company: props.record.company,
+    ...(props.relatedJobCanonicalUrl
+      ? { canonicalUrl: props.relatedJobCanonicalUrl }
+      : {}),
+  });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tags, setTags] = useState(crm.tags.join(", "));
@@ -141,6 +159,8 @@ export function ApplicationsCrmDetail(props: {
     customStageId: string | null;
     label: string;
   } | null>(null);
+  const addNoteReasonId = useId();
+  const exportDisabledReasonId = useId();
   const stageConfirmationTitleId = useId();
   const stageConfirmationDescriptionId = useId();
   const stageConfirmationRef = useRef<HTMLDivElement>(null);
@@ -383,7 +403,9 @@ export function ApplicationsCrmDetail(props: {
             Track what happens next
           </h3>
           <p className="mt-1 text-sm font-medium break-words leading-6 text-foreground">
-            {props.record.title} · {props.record.company}
+            {employerLine
+              ? `${props.record.title} · ${employerLine}`
+              : props.record.title}
           </p>
           <p className="mt-1 text-sm leading-6 text-foreground-soft">
             These are local, user-recorded notes and stages. Nothing here
@@ -391,25 +413,38 @@ export function ApplicationsCrmDetail(props: {
             these tracking facts, not submission evidence.
           </p>
         </div>
-        <div className="flex gap-2">
+        {/* These two were the same colour as the paragraph directly above
+            them, with no underline, box or chevron — nothing said they were
+            controls. One link treatment, always underlined. */}
+        <div className="flex items-baseline gap-4">
           <Button
+            aria-describedby={pending ? exportDisabledReasonId : undefined}
             disabled={pending}
             onClick={() => void props.onExport("csv", props.record.id)}
             size="sm"
             type="button"
-            variant="ghost"
+            variant="link"
           >
             Export CSV
           </Button>
           <Button
+            aria-describedby={pending ? exportDisabledReasonId : undefined}
             disabled={pending}
             onClick={() => void props.onExport("json", props.record.id)}
             size="sm"
             type="button"
-            variant="ghost"
+            variant="link"
           >
             Export JSON
           </Button>
+          {pending ? (
+            <span
+              className="text-(length:--text-small) text-(--disabled-foreground)"
+              id={exportDisabledReasonId}
+            >
+              Available once the change you just made has saved.
+            </span>
+          ) : null}
         </div>
       </div>
 
@@ -508,7 +543,7 @@ export function ApplicationsCrmDetail(props: {
                 <div className="grid gap-2">
                   <p className="label-mono-xs">Confirm local tracking claim</p>
                   <h2
-                    className="font-display text-xl font-semibold text-foreground"
+                    className="font-display font-semibold text-foreground"
                     id={stageConfirmationTitleId}
                   >
                     Record {pendingStage.label}?
@@ -583,15 +618,31 @@ export function ApplicationsCrmDetail(props: {
               placeholder="Record recruiter feedback or what you want to remember."
               value={note}
             />
-            <Button
-              className="justify-self-start"
-              disabled={pending || !note.trim()}
-              size="sm"
-              type="submit"
-              variant="secondary"
-            >
-              Add note
-            </Button>
+            {/* A greyed control with no stated reason reads as broken. */}
+            <div className="grid justify-items-start gap-1">
+              <Button
+                aria-describedby={
+                  pending || !note.trim() ? addNoteReasonId : undefined
+                }
+                className="justify-self-start"
+                disabled={pending || !note.trim()}
+                size="sm"
+                type="submit"
+                variant="secondary"
+              >
+                Add note
+              </Button>
+              {pending || !note.trim() ? (
+                <p
+                  className="text-(length:--text-small) text-(--disabled-foreground)"
+                  id={addNoteReasonId}
+                >
+                  {pending
+                    ? "Available once the change you just made has saved."
+                    : "Write the note first."}
+                </p>
+              ) : null}
+            </div>
           </form>
           {crm.notes.length > 0 ? (
             <ul className="grid gap-2" aria-label="Application notes">
@@ -667,6 +718,7 @@ export function ApplicationsCrmDetail(props: {
                 className={fieldClassName}
                 disabled={pending}
                 onChange={(event) => setReminderAt(event.target.value)}
+                lang={jobFinderDateInputLocale}
                 type="datetime-local"
                 value={reminderAt}
               />
@@ -710,9 +762,7 @@ export function ApplicationsCrmDetail(props: {
                       <>
                         <Button
                           disabled={pending}
-                          onClick={() =>
-                            setReminderStatus(entry, "completed")
-                          }
+                          onClick={() => setReminderStatus(entry, "completed")}
                           size="sm"
                           type="button"
                           variant="ghost"
@@ -745,13 +795,12 @@ export function ApplicationsCrmDetail(props: {
                                 [entry.id]: event.target.value,
                               }))
                             }
+                            lang={jobFinderDateInputLocale}
                             type="datetime-local"
                             value={reminderReschedules[entry.id] ?? ""}
                           />
                           <Button
-                            disabled={
-                              pending || !reminderReschedules[entry.id]
-                            }
+                            disabled={pending || !reminderReschedules[entry.id]}
                             size="sm"
                             type="submit"
                             variant="secondary"
@@ -783,7 +832,7 @@ export function ApplicationsCrmDetail(props: {
         </div>
       </details>
 
-      <details className="rounded-(--radius-field) border border-(--surface-panel-border) p-3">
+      <details className="rounded-(--radius-field) border border-(--control-border) p-3">
         <summary className="cursor-pointer font-semibold text-foreground">
           Interviews and contacts
         </summary>
@@ -834,6 +883,7 @@ export function ApplicationsCrmDetail(props: {
                 className={fieldClassName}
                 disabled={pending}
                 onChange={(event) => setInterviewAt(event.target.value)}
+                lang={jobFinderDateInputLocale}
                 type="datetime-local"
                 value={interviewAt}
               />
@@ -883,9 +933,7 @@ export function ApplicationsCrmDetail(props: {
                       <>
                         <Button
                           disabled={pending}
-                          onClick={() =>
-                            setInterviewStatus(entry, "completed")
-                          }
+                          onClick={() => setInterviewStatus(entry, "completed")}
                           size="sm"
                           type="button"
                           variant="ghost"
@@ -1013,7 +1061,7 @@ export function ApplicationsCrmDetail(props: {
         </div>
       </details>
 
-      <details className="rounded-(--radius-field) border border-(--surface-panel-border) p-3">
+      <details className="rounded-(--radius-field) border border-(--control-border) p-3">
         <summary className="cursor-pointer font-semibold text-foreground">
           Offer and attachments
         </summary>
@@ -1084,6 +1132,7 @@ export function ApplicationsCrmDetail(props: {
                 className={fieldClassName}
                 disabled={pending}
                 onChange={(event) => setOfferDeadline(event.target.value)}
+                lang={jobFinderDateInputLocale}
                 type="datetime-local"
                 value={offerDeadline}
               />
@@ -1152,7 +1201,10 @@ export function ApplicationsCrmDetail(props: {
             </Button>
           </div>
           {crm.attachments.length > 0 ? (
-            <ul aria-label="Linked application attachments" className="grid gap-2">
+            <ul
+              aria-label="Linked application attachments"
+              className="grid gap-2"
+            >
               {[...crm.attachments].reverse().map((entry) => (
                 <li
                   className="flex items-start justify-between gap-3 rounded-(--radius-field) bg-background/45 p-3 text-sm"
@@ -1192,7 +1244,7 @@ export function ApplicationsCrmDetail(props: {
         </div>
       </details>
 
-      <details className="rounded-(--radius-field) border border-(--surface-panel-border) p-3">
+      <details className="rounded-(--radius-field) border border-(--control-border) p-3">
         <summary className="cursor-pointer font-semibold text-foreground">
           Timeline ({crm.events.length})
         </summary>

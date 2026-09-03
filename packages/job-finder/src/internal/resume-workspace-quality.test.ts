@@ -11,8 +11,10 @@ import { ResumeGenerationStrategyPolicySchema } from "@unemployed/ai-providers";
 import {
   buildResumeCoverageComparison,
   buildResumeDraftContentHash,
+  buildResumeDraftFromTailoredDraft,
   hasBlockingResumeClaimAssessment,
   sanitizeResumeDraft,
+  seedResumeDraft,
   validateResumeDraft,
 } from "./resume-workspace-helpers";
 import { createEntry } from "./resume-workspace-primitives";
@@ -651,6 +653,154 @@ describe("resume workspace quality helpers", () => {
         }),
       ]),
     );
+  });
+
+  test("validateResumeDraft blocks preview-derived content without candidate traceability", () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      experiences: [],
+      projects: [],
+      education: [],
+      certifications: [],
+    };
+    const draft = seedResumeDraft({
+      profile,
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      tailoredAsset: {
+        ...seed.tailoredAssets[0]!,
+        previewSections: [
+          { heading: "Summary", lines: ["Preview-only summary."] },
+          {
+            heading: "Experience",
+            lines: ["Preview-only role", "Preview-only claim."],
+          },
+        ],
+      },
+    });
+
+    const validation = validateResumeDraft({
+      draft,
+      job: seed.savedJobs[0]!,
+      profile,
+    });
+
+    const factualReviewIssue = validation.issues.find(
+      (issue) => issue.category === "low_confidence_fact",
+    );
+    expect(factualReviewIssue?.severity).toBe("error");
+    expect(factualReviewIssue?.message).toMatch(
+      /needs factual review before approval/i,
+    );
+  });
+
+  test("keeps thin generated fallback empty of search metadata and blocks approval", () => {
+    const seed = createSeed();
+    const job = seed.savedJobs[0]!;
+    const draft = buildResumeDraftFromTailoredDraft({
+      job,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-08-30T10:04:00.000Z",
+      generationMethod: "deterministic",
+      profile: seed.profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: "A short generated summary.",
+        experienceHighlights: [],
+        coreSkills: ["React"],
+        targetedKeywords: [],
+        experienceEntries: [],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: "A short generated summary.",
+        compatibilityScore: 40,
+        notes: [],
+      },
+    });
+    const summary = draft.sections.find(
+      (section) => section.kind === "summary",
+    );
+
+    expect(summary?.bullets).toEqual([]);
+    expect(summary?.text).not.toMatch(
+      /target role|preferred location|core tools/i,
+    );
+
+    const validation = validateResumeDraft({
+      draft,
+      job,
+      profile: seed.profile,
+    });
+
+    const factualReviewIssue = validation.issues.find(
+      (issue) => issue.category === "low_confidence_fact",
+    );
+    expect(factualReviewIssue?.severity).toBe("error");
+    expect(factualReviewIssue?.message).toMatch(
+      /needs factual review before approval/i,
+    );
+  });
+
+  test("blocks an untraceable generated summary when another section is grounded", () => {
+    const { profile, job } = getSeedContext();
+    const candidateSourceRef = {
+      id: "resume_source_profile_summary",
+      sourceKind: "profile" as const,
+      sourceId: "profile:summary",
+      snippet: profile.summary,
+    };
+    const baseDraft = createBaseDraft();
+    const draft = {
+      ...baseDraft,
+      sections: baseDraft.sections.map((section) => ({
+        ...section,
+        text: section.kind === "summary" ? job.description : section.text,
+        sourceRefs: section.kind === "summary" ? [] : [candidateSourceRef],
+      })),
+    };
+
+    const validation = validateResumeDraft({ draft, job, profile });
+
+    expect(validation.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "low_confidence_fact",
+          severity: "error",
+        }),
+      ]),
+    );
+  });
+
+  test("does not flag generated sections when every visible section has candidate grounding", () => {
+    const { profile, job } = getSeedContext();
+    const candidateSourceRef = {
+      id: "resume_source_profile_summary",
+      sourceKind: "profile" as const,
+      sourceId: "profile:summary",
+      snippet: profile.summary,
+    };
+    const baseDraft = createBaseDraft();
+    const draft = {
+      ...baseDraft,
+      sections: baseDraft.sections.map((section) => ({
+        ...section,
+        text: section.kind === "summary" ? profile.summary : section.text,
+        sourceRefs: [candidateSourceRef],
+      })),
+    };
+
+    const validation = validateResumeDraft({ draft, job, profile });
+
+    expect(
+      validation.issues.some(
+        (issue) => issue.category === "low_confidence_fact",
+      ),
+    ).toBe(false);
   });
 
   test("validateResumeDraft flags page overflow at three pages as an error", () => {

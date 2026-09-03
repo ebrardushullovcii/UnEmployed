@@ -37,6 +37,8 @@ import { DatabaseSync } from "node:sqlite";
 import { createFileRepositoryResumeMethods } from "./file-repository-resume-methods";
 import { createFileRepositoryUserActionMethods } from "./file-repository-user-action-methods";
 import { createFileRepositoryGroupedManualAnswerMethods } from "./file-repository-grouped-manual-answer-methods";
+import { createApplicationAnswerSnapshotRepositoryMethods } from "./application-answer-snapshot-repository";
+import { createApplicationAuthorityRepositoryMethods } from "./application-authority-repository";
 import {
   APPLY_COLLECTION_ORDER_BY_SQL,
   APPLY_INDEXED_COLLECTION_CONFIGS,
@@ -46,6 +48,7 @@ import {
 } from "./apply-collection-support";
 import {
   createFileRepositoryContext,
+  INDEXED_COLLECTION_CONFIGS,
   runImmediateTransaction,
   syncApprovedResumeExportsForJob,
 } from "./file-repository-support";
@@ -84,8 +87,11 @@ import {
   incrementSingletonRevision,
   listCollectionValues,
   listValues,
+  readState,
   replaceCollection,
   saveSingletonValue,
+  stateTableNames,
+  upsertIndexedCollectionValue,
   writeState,
 } from "./internal/state";
 import {
@@ -370,6 +376,234 @@ export async function createFileJobFinderRepository(
   }
 
   return {
+    ...createApplicationAnswerSnapshotRepositoryMethods({
+      read: () => readState(database, normalizedSeed),
+      mutate: (operation) =>
+        runImmediateTransaction(database, () => {
+          const state = readState(database, normalizedSeed);
+          const previousSnapshots = new Map(
+            (state.applicationAnswerSnapshots ?? []).map((snapshot) => [
+              snapshot.id,
+              JSON.stringify(snapshot),
+            ]),
+          );
+          const result = operation(state);
+          const nextSnapshots = new Map(
+            (state.applicationAnswerSnapshots ?? []).map((snapshot) => [
+              snapshot.id,
+              JSON.stringify(snapshot),
+            ]),
+          );
+          for (const snapshotId of previousSnapshots.keys()) {
+            if (!nextSnapshots.has(snapshotId)) {
+              throw new Error(
+                "Approved application answer snapshots are append-only; deletion is not permitted.",
+              );
+            }
+          }
+          for (const snapshot of state.applicationAnswerSnapshots ?? []) {
+            const previous = previousSnapshots.get(snapshot.id);
+            if (previous !== undefined) {
+              if (previous !== nextSnapshots.get(snapshot.id)) {
+                throw new Error(
+                  "Approved application answer snapshots are immutable; updates are not permitted.",
+                );
+              }
+              continue;
+            }
+            upsertIndexedCollectionValue(
+              database,
+              "application_answer_snapshots",
+              snapshot,
+              INDEXED_COLLECTION_CONFIGS.application_answer_snapshots,
+            );
+          }
+          return result;
+        }),
+    }),
+    ...createApplicationAuthorityRepositoryMethods({
+      read: () => readState(database, normalizedSeed),
+      mutate: (operation) =>
+        runImmediateTransaction(database, () => {
+          const state = readState(database, normalizedSeed);
+          const previousApplyJobResults = new Map(
+            state.applyJobResults.map((value) => [
+              value.id,
+              JSON.stringify(value),
+            ]),
+          );
+          const previousApplicationRecords = new Map(
+            state.applicationRecords.map((value) => [
+              value.id,
+              JSON.stringify(value),
+            ]),
+          );
+          const previousApplicationAnswerSnapshots = new Map(
+            (state.applicationAnswerSnapshots ?? []).map((value) => [
+              value.id,
+              JSON.stringify(value),
+            ]),
+          );
+          const result = operation(state);
+          const nextApplicationAnswerSnapshots = new Map(
+            (state.applicationAnswerSnapshots ?? []).map((value) => [
+              value.id,
+              JSON.stringify(value),
+            ]),
+          );
+          for (const snapshotId of previousApplicationAnswerSnapshots.keys()) {
+            if (!nextApplicationAnswerSnapshots.has(snapshotId)) {
+              throw new Error(
+                "Approved application answer snapshots are append-only; deletion is not permitted.",
+              );
+            }
+          }
+          for (const value of state.applicationAnswerSnapshots ?? []) {
+            const previous = previousApplicationAnswerSnapshots.get(value.id);
+            if (previous !== undefined) {
+              if (previous !== nextApplicationAnswerSnapshots.get(value.id)) {
+                throw new Error(
+                  "Approved application answer snapshots are immutable; updates are not permitted.",
+                );
+              }
+              continue;
+            }
+            upsertIndexedCollectionValue(
+              database,
+              "application_answer_snapshots",
+              value,
+              INDEXED_COLLECTION_CONFIGS.application_answer_snapshots,
+            );
+          }
+          // Delete children before parents and insert parents before children;
+          // all names are fixed repository constants and the surrounding
+          // BEGIN IMMEDIATE transaction keeps the lifecycle atomic.
+          database.exec(
+            `DELETE FROM ${stateTableNames.submission_outcome_records}`,
+          );
+          database.exec(
+            `DELETE FROM ${stateTableNames.submission_armed_markers}`,
+          );
+          database.exec(
+            `DELETE FROM ${stateTableNames.submission_idempotency_records}`,
+          );
+          database.exec(
+            `DELETE FROM ${stateTableNames.submission_execution_grants}`,
+          );
+          database.exec(`DELETE FROM ${stateTableNames.submission_preflights}`);
+          database.exec(
+            `DELETE FROM ${stateTableNames.application_authority_envelopes}`,
+          );
+          for (const value of state.applicationAuthorityEnvelopes) {
+            upsertIndexedCollectionValue(
+              database,
+              "application_authority_envelopes",
+              value,
+              INDEXED_COLLECTION_CONFIGS.application_authority_envelopes,
+            );
+          }
+          // Outcome reconciliation may update the receipt nested in an
+          // ApplyJobResult. Persist only changed parent rows in this same
+          // transaction so authority state can never commit without its
+          // matching receipt, while unrelated apply history is untouched.
+          const nextApplyJobResults = new Map(
+            state.applyJobResults.map((value) => [
+              value.id,
+              JSON.stringify(value),
+            ]),
+          );
+          for (const resultId of previousApplyJobResults.keys()) {
+            if (!nextApplyJobResults.has(resultId)) {
+              database
+                .prepare(
+                  `DELETE FROM ${stateTableNames.apply_job_results} WHERE id = ?`,
+                )
+                .run(resultId);
+            }
+          }
+          for (const value of state.applyJobResults) {
+            if (
+              previousApplyJobResults.get(value.id) !==
+              nextApplyJobResults.get(value.id)
+            ) {
+              upsertIndexedCollectionValue(
+                database,
+                "apply_job_results",
+                value,
+                APPLY_INDEXED_COLLECTION_CONFIGS.apply_job_results,
+              );
+            }
+          }
+          // Outcome reconciliation may also update the exact application
+          // record projection. Persist only changed rows in this same
+          // transaction so the result receipt, outcome, idempotency state,
+          // and Applications truth can never diverge after a crash.
+          const nextApplicationRecords = new Map(
+            state.applicationRecords.map((value) => [
+              value.id,
+              JSON.stringify(value),
+            ]),
+          );
+          for (const applicationRecordId of previousApplicationRecords.keys()) {
+            if (!nextApplicationRecords.has(applicationRecordId)) {
+              database
+                .prepare(
+                  `DELETE FROM ${stateTableNames.application_records} WHERE id = ?`,
+                )
+                .run(applicationRecordId);
+            }
+          }
+          for (const value of state.applicationRecords) {
+            if (
+              previousApplicationRecords.get(value.id) !==
+              nextApplicationRecords.get(value.id)
+            ) {
+              context.writePersistedValue("application_records", value);
+            }
+          }
+          for (const value of state.submissionPreflights) {
+            upsertIndexedCollectionValue(
+              database,
+              "submission_preflights",
+              value,
+              INDEXED_COLLECTION_CONFIGS.submission_preflights,
+            );
+          }
+          for (const value of state.submissionExecutionGrants) {
+            upsertIndexedCollectionValue(
+              database,
+              "submission_execution_grants",
+              value,
+              INDEXED_COLLECTION_CONFIGS.submission_execution_grants,
+            );
+          }
+          for (const value of state.submissionIdempotencyRecords) {
+            upsertIndexedCollectionValue(
+              database,
+              "submission_idempotency_records",
+              value,
+              INDEXED_COLLECTION_CONFIGS.submission_idempotency_records,
+            );
+          }
+          for (const value of state.submissionArmedMarkers) {
+            upsertIndexedCollectionValue(
+              database,
+              "submission_armed_markers",
+              value,
+              INDEXED_COLLECTION_CONFIGS.submission_armed_markers,
+            );
+          }
+          for (const value of state.submissionOutcomeRecords) {
+            upsertIndexedCollectionValue(
+              database,
+              "submission_outcome_records",
+              value,
+              INDEXED_COLLECTION_CONFIGS.submission_outcome_records,
+            );
+          }
+          return result;
+        }),
+    }),
     ...createFileRepositoryResumeMethods(context),
     ...createFileRepositoryUserActionMethods(context),
     ...createFileRepositoryGroupedManualAnswerMethods(context),

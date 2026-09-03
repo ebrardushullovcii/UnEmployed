@@ -3,6 +3,7 @@ import type {
   CandidateProfile,
   JobSearchPreferences,
   ProfileSetupStep,
+  ResumeApplicationMode,
 } from "@unemployed/contracts";
 import type {
   ProfileEditorValues,
@@ -13,13 +14,102 @@ import {
   buildSearchPreferencesPayload,
 } from "../../../lib/profile-editor";
 import { getJobFinderScrollBehavior } from "../../../lib/job-finder-scroll-behavior";
+import { revealBelowShellHeader } from "../../../lib/job-finder-scroll-reveal";
 import { getReviewItemScrollTargetId } from "./profile-setup-review-scroll-targets";
 import {
   PROFILE_SETUP_VALIDATION_ALERT_ID,
   type ProfileSetupReviewItemDisplay,
 } from "./profile-setup-screen-helpers";
 
+/** A pending review item the current draft already resolved by editing its field. */
+export interface ProfileSetupResolvedReviewItem {
+  id: string;
+  status: "confirmed" | "edited";
+}
+
 export { getJobFinderScrollBehavior as getProfileSetupScrollBehavior } from "../../../lib/job-finder-scroll-behavior";
+
+/**
+ * Guided setup keeps its essentials intentionally compact: location and the
+ * short summary are each edited through one field. Profile Basics exposes the
+ * same facts through the newer structured fields, so normalize the compact
+ * setup draft before it crosses the save boundary. This keeps the canonical
+ * snapshot useful to every profile surface without changing the meaning of a
+ * direct Profile edit.
+ */
+function normalizeSetupProfileValues(
+  profile: CandidateProfile,
+  values: ProfileEditorValues,
+): ProfileEditorValues {
+  const setupLocation = values.identity.currentLocation.trim();
+  const persistedLocation = profile.currentLocation?.trim() ?? "";
+  const locationChanged = setupLocation !== persistedLocation;
+  const locationParts = setupLocation
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const summary = values.identity.summary.trim();
+  const persistedSummary = profile.summary?.trim() ?? "";
+  const summaryChanged = summary !== persistedSummary;
+
+  return {
+    ...values,
+    identity: {
+      ...values.identity,
+      ...(locationChanged
+        ? {
+            // The compact setup field is authoritative when it changes. Set
+            // every structured location field explicitly so a shorter edit
+            // cannot retain a stale country/region from the previous draft.
+            currentCity: locationParts[0] ?? "",
+            currentRegion: locationParts[1] ?? "",
+            currentCountry:
+              locationParts.length > 2 ? (locationParts.at(-1) ?? "") : "",
+          }
+        : {}),
+    },
+    summary: {
+      ...values.summary,
+      // An explicit setup edit (including clearing it) is authoritative;
+      // unchanged summaries preserve any existing structured short summary.
+      shortValueProposition: summaryChanged
+        ? summary
+        : values.summary.shortValueProposition,
+    },
+  };
+}
+
+export function buildProfileSetupPayload(
+  profile: CandidateProfile,
+  values: ProfileEditorValues,
+) {
+  const profileResult = buildProfilePayload(
+    profile,
+    normalizeSetupProfileValues(profile, values),
+  );
+
+  if (!profileResult.payload) {
+    return profileResult;
+  }
+
+  // The compact field is not authoritative when it was not edited. Preserve
+  // the stored display value even if legacy structured fields would otherwise
+  // cause the generic editor builder to expand it on an unrelated save.
+  const locationUnchanged =
+    values.identity.currentLocation.trim() ===
+    (profile.currentLocation?.trim() ?? "");
+  if (!locationUnchanged) {
+    return profileResult;
+  }
+
+  return {
+    ...profileResult,
+    payload: {
+      ...profileResult.payload,
+      currentLocation: profile.currentLocation,
+    },
+  };
+}
 
 /**
  * Bring the one canonical validation alert into view after an aborted
@@ -30,12 +120,10 @@ export { getJobFinderScrollBehavior as getProfileSetupScrollBehavior } from "../
  */
 export function revealProfileSetupValidationAlert(): void {
   const reveal = () => {
-    document
-      .getElementById(PROFILE_SETUP_VALIDATION_ALERT_ID)
-      ?.scrollIntoView({
-        behavior: getJobFinderScrollBehavior(),
-        block: "center",
-      });
+    document.getElementById(PROFILE_SETUP_VALIDATION_ALERT_ID)?.scrollIntoView({
+      behavior: getJobFinderScrollBehavior(),
+      block: "center",
+    });
   };
 
   if (document.getElementById(PROFILE_SETUP_VALIDATION_ALERT_ID)) {
@@ -60,12 +148,15 @@ export function useProfileSetupScreenActions(input: {
       finishSetup?: boolean;
       message?: string;
       openProfile?: boolean;
+      resolvedReviewItems?: readonly ProfileSetupResolvedReviewItem[];
+      resumeApplicationMode?: ResumeApplicationMode;
       stayOnCurrentStep?: boolean;
     },
   ) => void;
   profile: CandidateProfile;
   profileFormValues: () => ProfileEditorValues;
   profileSetupCurrentStep: ProfileSetupStep;
+  resumeApplicationMode?: ResumeApplicationMode;
   searchPreferences: JobSearchPreferences;
   preferencesFormValues: () => SearchPreferencesEditorValues;
   setValidationMessage: (message: string | null) => void;
@@ -103,6 +194,13 @@ export function useProfileSetupScreenActions(input: {
       behavior: getJobFinderScrollBehavior(),
       block: "center",
     });
+    const view = target.ownerDocument.defaultView;
+    if (view) {
+      // Native centering gets a lower target into view; the shared reveal
+      // helper then corrects the final position below the fixed shell header
+      // and its 16px breathing gap without scrolling the window directly.
+      revealBelowShellHeader(target, view);
+    }
 
     window.requestAnimationFrame(() => {
       const focusTarget =
@@ -153,10 +251,11 @@ export function useProfileSetupScreenActions(input: {
       finishSetup?: boolean;
       message?: string;
       openProfile?: boolean;
+      resumeApplicationMode?: ResumeApplicationMode;
       stayOnCurrentStep?: boolean;
     },
   ) {
-    const profileResult = buildProfilePayload(
+    const profileResult = buildProfileSetupPayload(
       input.profile,
       input.profileFormValues(),
     );
@@ -182,11 +281,28 @@ export function useProfileSetupScreenActions(input: {
     }
 
     input.setValidationMessage(null);
+    const resumeApplicationMode =
+      input.resumeApplicationMode ?? options?.resumeApplicationMode;
+    // The draft-aware queue already knows which pending suggestions this
+    // draft edits or confirms. Carry those resolutions with the save so the
+    // persisted setup state matches what the person just saved instead of
+    // asking them to come back and click Confirm on a field they edited.
+    const resolvedReviewItems = input.draftAwareReviewItems.flatMap((item) =>
+      item.statusSource === "draft" &&
+      (item.status === "confirmed" || item.status === "edited")
+        ? [{ id: item.id, status: item.status }]
+        : [],
+    );
+    const saveOptions = {
+      ...options,
+      ...(resumeApplicationMode ? { resumeApplicationMode } : {}),
+      ...(resolvedReviewItems.length > 0 ? { resolvedReviewItems } : {}),
+    };
     input.onSaveSetupStep(
       profileResult.payload,
       preferencesResult.payload,
       nextStep,
-      options,
+      saveOptions,
     );
   }
 
@@ -196,7 +312,7 @@ export function useProfileSetupScreenActions(input: {
     }
 
     if (input.hasUnsavedChanges) {
-      const profileResult = buildProfilePayload(
+      const profileResult = buildProfileSetupPayload(
         input.profile,
         input.profileFormValues(),
       );

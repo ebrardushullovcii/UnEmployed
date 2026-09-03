@@ -213,7 +213,7 @@ export function JobFinderRouteErrorBoundary({
 
             {technicalDetails && !isStaleBundle ? (
               <details className="group rounded-(--radius-field) border border-border/45 bg-background/45 p-4">
-                <summary className="cursor-pointer list-none text-sm font-medium text-foreground transition-colors group-open:text-foreground-soft">
+                <summary className="w-fit cursor-pointer list-none text-sm font-medium text-foreground underline decoration-from-font underline-offset-4 transition-colors group-open:text-foreground-soft">
                   Technical details
                 </summary>
                 <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words border-t border-border/35 pt-3 text-xs leading-6 text-foreground-soft">

@@ -47,50 +47,135 @@ Audio configuration is intentionally not included in this mixed provider routing
 Keep local Whisper or an explicit audio-capable transcription model configured
 for Interview Helper audio.
 
-## Temporary Muse Free dogfood override
+## Temporary Muse Contributor dogfood override
 
-For current local dogfood only, the owner selected OpenCode Zen's free Muse
-contributor route for all shared text and image-capable AI surfaces:
+For current local dogfood only, the owner selected OpenCode Go's Muse Spark 1.2
+Contributor model for shared text, tool-based agent work, and image-capable
+surfaces. Muse Contributor accepts image input on this route; Luna is not used
+in the local override:
 
 ```dotenv
-UNEMPLOYED_AI_API_KEY=your-opencode-zen-key
-UNEMPLOYED_AI_BASE_URL=https://opencode.ai/zen/v1
-UNEMPLOYED_AI_MODEL=muse-spark-1.2-contributor-free
+UNEMPLOYED_AI_API_KEY=your-opencode-go-key
+UNEMPLOYED_AI_BASE_URL=https://opencode.ai/zen/go/v1
+UNEMPLOYED_AI_MODEL=muse-spark-1.2-contributor
 UNEMPLOYED_AI_API_MODE=responses
 UNEMPLOYED_AI_REASONING_EFFORT=xhigh
 
-UNEMPLOYED_AI_VISION_BASE_URL=https://opencode.ai/zen/v1
-UNEMPLOYED_AI_VISION_MODEL=muse-spark-1.2-contributor-free
+UNEMPLOYED_AI_VISION_BASE_URL=https://opencode.ai/zen/go/v1
+UNEMPLOYED_AI_VISION_MODEL=muse-spark-1.2-contributor
 UNEMPLOYED_AI_VISION_API_MODE=responses
 UNEMPLOYED_AI_VISION_REASONING_EFFORT=xhigh
 ```
 
-The shared text variables cover Job Finder generative work and Interview Helper
-text unless a narrower override is present. The shared vision variables cover
-resume visual analysis, browser visual analysis, and Interview Helper screenshot
-analysis unless a narrower override is present. Audio transcription remains
-local Whisper or a separately configured audio model.
+The shared text variables cover Job Finder generative work, browser-agent
+tool loops, and Interview Helper text unless a narrower override is present.
+The shared vision variables cover resume visual analysis, browser visual
+analysis, and Interview Helper screenshot analysis unless a narrower override
+is present. Audio transcription remains local Whisper or a separately
+configured audio model.
 
-On 2026-08-26, synthetic direct API probes confirmed both text and image input
-return HTTP 200 through `https://opencode.ai/zen/v1/responses`. The same model
-returned HTTP 500 through Chat Completions, so this override must stay on the
-Responses API. This is transport evidence only, not an end-to-end capability,
-quality, privacy, or release acceptance result.
+OpenCode Go serves `muse-spark-1.2-contributor` on the Responses API
+(`https://opencode.ai/zen/go/v1/responses`). Chat Completions is the wrong
+transport for this model and can drop tool-call streams. This is a temporary
+dogfood override, not an end-to-end capability, quality, privacy, or release
+acceptance result.
 
-`muse-spark-1.2-contributor-free` is a limited-time zero-token-cost Zen model,
-not the subscription-included Go model `muse-spark-1.2-contributor`. OpenCode's
-published terms state that prompts and completions on the free contributor route
-may be used to train future Meta models. Do not send a private resume, credentials,
-application answers, interview media, or other personal/confidential data through
-this route without explicit informed user consent. Use synthetic data for initial
-testing. Keep the API key only in ignored `.env.local`, never documentation or
-tracked examples, and rotate any temporary key shared through a conversation.
+`muse-spark-1.2-contributor` is the discounted Go contributor model, not the
+zero-cost Zen route `muse-spark-1.2-contributor-free`. OpenCode's published
+terms state that prompts and completions on the contributor route may be used
+to train future Meta models. Do not send a private resume, credentials,
+application answers, interview media, or other personal/confidential data
+through this route without explicit informed user consent. Use synthetic data
+for initial testing. Keep the API key only in ignored `.env.local`, never
+documentation or tracked examples, and rotate any temporary key shared through
+a conversation.
 
-ADR 0010 remains the accepted production route until synthetic capability tests,
-privacy review, and owner acceptance justify a new routing decision. If Muse Free
-is adopted beyond temporary dogfood, update ADR 0010 (or supersede it), the
-recommended production setup above, `.env.example`, and provider acceptance
-evidence together.
+Live Job Finder search during a desktop test-API session also requires
+`UNEMPLOYED_TEST_API_USE_LIVE_AI=1` for model/tool escalation.
+`UNEMPLOYED_ENABLE_TEST_API=1` alone forces the deterministic client (no
+`chatWithTools`). Discovery still runs the ADR 0013 compact-first page scan and
+can finish with zero-new / already-saved results when that scan finds listings;
+model escalation is unavailable until live AI is enabled.
+
+ADR 0010 remains the accepted production route until synthetic capability
+tests, privacy review, and owner acceptance justify a new routing decision.
+If Muse Contributor on Go is adopted beyond temporary dogfood, update ADR 0010
+(or supersede it), the recommended production setup above, `.env.example`, and
+provider acceptance evidence together.
+
+## Manual Zen fallback when Go quota is exhausted
+
+This is **operational guidance for agents and developers**, not application
+behavior. UnEmployed does **not** auto-switch AI routes, rotate models, or
+recover from quota errors at runtime. When Go usage is exhausted or rate
+limited, edit ignored `.env.local` manually and restart the desktop app.
+
+### Endpoints
+
+| Route              | Base URL                        | Billing                 |
+| ------------------ | ------------------------------- | ----------------------- |
+| **Go (primary)**   | `https://opencode.ai/zen/go/v1` | Paid contributor quota  |
+| **Zen (fallback)** | `https://opencode.ai/zen/v1`    | Free tier (`cost: "0"`) |
+
+The same OpenCode API key works on both endpoints.
+
+### Primary (local dogfood default)
+
+Keep Go with Muse Contributor on the Responses API:
+
+```dotenv
+UNEMPLOYED_AI_BASE_URL=https://opencode.ai/zen/go/v1
+UNEMPLOYED_AI_MODEL=muse-spark-1.2-contributor
+UNEMPLOYED_AI_API_MODE=responses
+UNEMPLOYED_AI_VISION_BASE_URL=https://opencode.ai/zen/go/v1
+UNEMPLOYED_AI_VISION_MODEL=muse-spark-1.2-contributor
+UNEMPLOYED_AI_VISION_API_MODE=responses
+```
+
+### When Go quota or rate limit is hit
+
+Switch **all** shared base URLs in `.env.local` to Zen and point each surface
+at the appropriate free model:
+
+```dotenv
+UNEMPLOYED_AI_BASE_URL=https://opencode.ai/zen/v1
+UNEMPLOYED_AI_MODEL=deepseek-v4-flash-free
+UNEMPLOYED_AI_API_MODE=chat_completions
+
+UNEMPLOYED_AI_VISION_BASE_URL=https://opencode.ai/zen/v1
+UNEMPLOYED_AI_VISION_MODEL=muse-spark-1.2-contributor-free
+UNEMPLOYED_AI_VISION_API_MODE=responses
+```
+
+- **Text / tool loops:** `deepseek-v4-flash-free` via Chat Completions (no
+  vision).
+- **Vision surfaces** (resume, browser, Interview screenshots):
+  `muse-spark-1.2-contributor-free` via Responses (has vision input).
+
+### Rotating on Zen rate limits
+
+If Zen returns HTTP 429, manually swap the **text** model in `.env.local`:
+
+1. Start with `deepseek-v4-flash-free` (Chat Completions).
+2. On rate limit, switch text to `muse-spark-1.2-contributor-free`
+   (Responses, `UNEMPLOYED_AI_API_MODE=responses`).
+3. On the next rate limit, switch back to `deepseek-v4-flash-free`.
+
+Keep vision on `muse-spark-1.2-contributor-free` throughout — DeepSeek Free
+does not accept image input. Restart the app after each change.
+
+### Operator caveats
+
+- **Tool calling:** Zen free models may not reliably stream tool calls.
+  Discovery and browser-agent loops that depend on `chatWithTools` can fail or
+  behave differently on the free tier. Go Muse Contributor is the safer route
+  for tool-based work.
+- **Not a product feature:** Do not add automatic route rotation, fallback
+  env vars, or retry logic to `packages/ai-providers` for this workflow.
+- **Signals to watch for:** HTTP 401 with insufficient balance / credits,
+  `CreditsError`, or HTTP 429 on Go → time to switch to Zen manually.
+- **Privacy:** Zen free contributor models may be used for model training per
+  OpenCode terms. Use synthetic data until you accept that tradeoff.
 
 ## Desktop test API precedence for Interview Helper
 

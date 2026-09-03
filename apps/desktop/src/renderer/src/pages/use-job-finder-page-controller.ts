@@ -6,6 +6,7 @@ import type {
   JobFinderWorkspaceSnapshot,
   ProfileCopilotMessage,
   ResumeAssistantMessage,
+  ResumeImportProgressEvent,
 } from "@unemployed/contracts";
 import { useJobFinderWorkspace } from "@renderer/features/job-finder/hooks/use-job-finder-workspace";
 import { resolveResumeWorkspaceRouteState } from "@renderer/features/job-finder/lib/resume-workspace-route-state";
@@ -17,8 +18,11 @@ import type { DiscoveryRunFeedback } from "@renderer/features/job-finder/screens
 import type { TailoredDraftPreparationViewState } from "@renderer/features/job-finder/screens/review-queue/review-queue-status";
 import { useBlocker, useLocation, useNavigate } from "react-router-dom";
 import {
+  clearPendingActionScopes,
   hasAnyPendingAction,
   hasPendingAction,
+  invalidatePendingActionScope,
+  jobFinderPendingActions,
   type PendingActionScope,
   type PendingActionState,
 } from "./job-finder-pending-actions";
@@ -48,6 +52,16 @@ import { applyJobFinderWindowCloseGuard } from "./job-finder-window-close-guard"
 
 export type ApplyCopilotVisualCheckpointRequest = {
   jobId: string;
+  /**
+   * Identity of the exact application being prepared. The round-eight review
+   * (F03, P0) found the prepare dialog titled only "Use visual checkpoints?"
+   * with nothing on screen naming the job or the employer, so there was no
+   * way to tell what was being agreed to. `subject` is the rendered
+   * "<title> at <employer>" line and `description` is the honest statement of
+   * what will happen, including the prepare-only boundary.
+   */
+  subject: string | null;
+  description: string;
   onResolve: (visualCheckpointsEnabled: boolean) => void;
   onCancel?: () => void;
 };
@@ -129,7 +143,9 @@ export function composeLeaveConfirmation(
  * handshake. Called at every mutation point of `navigationGuardRef` so main
  * always caches whether a native close needs the branded dialog first.
  */
-function syncJobFinderWindowCloseGuard(input: JobFinderNavigationGuardInput): void {
+function syncJobFinderWindowCloseGuard(
+  input: JobFinderNavigationGuardInput,
+): void {
   applyJobFinderWindowCloseGuard(composeLeaveConfirmation(input));
 }
 
@@ -239,6 +255,38 @@ export function useJobFinderPageController() {
   const saveCoordinator = saveCoordinatorRef.current;
   const [pendingActionState, setPendingActionState] =
     useState<PendingActionState>({});
+  const clearResumeLifecyclePending = useCallback(
+    (scopes: readonly PendingActionScope[]) => {
+      for (const scope of scopes) {
+        invalidatePendingActionScope(scope);
+      }
+      setPendingActionState((current) =>
+        clearPendingActionScopes(current, scopes),
+      );
+    },
+    [],
+  );
+  const pendingActionStateRef = useRef(pendingActionState);
+  pendingActionStateRef.current = pendingActionState;
+  const resumeImportProgressRef = useRef<ResumeImportProgressEvent | null>(
+    null,
+  );
+  resumeImportProgressRef.current =
+    workspaceState.status === "ready"
+      ? workspaceState.resumeImportProgress
+      : null;
+  const cancelImportResumeIfWaiting = useCallback(() => {
+    const scope = jobFinderPendingActions.profileImport();
+    if (
+      !hasPendingAction(pendingActionStateRef.current, scope) ||
+      resumeImportProgressRef.current !== null
+    ) {
+      return;
+    }
+
+    window.unemployed.jobFinder.cancelImportResume();
+    clearResumeLifecyclePending([scope]);
+  }, [clearResumeLifecyclePending]);
   const [liveDiscoveryEvents, setLiveDiscoveryEvents] = useState<
     DiscoveryActivityEvent[]
   >([]);
@@ -275,6 +323,59 @@ export function useJobFinderPageController() {
   const activeResumeWorkspaceJobId = getActiveResumeWorkspaceJobId(
     location.pathname,
   );
+  const previousResumeWorkspaceJobIdRef = useRef<string | null>(
+    activeResumeWorkspaceJobId,
+  );
+
+  // Native file dialogs and renderer reloads can outlive the route that
+  // launched them. Retire only the local pending presentation on navigation;
+  // the main-process operation remains owned by its existing IPC promise and
+  // may still finish and persist its real result. Generation fencing prevents
+  // a late finally from touching a newer request in the same scope.
+  useEffect(() => {
+    const previousJobId = previousResumeWorkspaceJobIdRef.current;
+    const scopes: PendingActionScope[] = [
+      jobFinderPendingActions.profileImport(),
+    ];
+
+    if (previousJobId && previousJobId !== activeResumeWorkspaceJobId) {
+      scopes.push(
+        jobFinderPendingActions.resumeJob(previousJobId),
+        jobFinderPendingActions.resumeExport(previousJobId),
+      );
+    }
+
+    cancelImportResumeIfWaiting();
+    clearResumeLifecyclePending(scopes);
+    previousResumeWorkspaceJobIdRef.current = activeResumeWorkspaceJobId;
+  }, [
+    activeResumeWorkspaceJobId,
+    cancelImportResumeIfWaiting,
+    clearResumeLifecyclePending,
+    location.pathname,
+  ]);
+
+  // The controller is replaced on a full renderer reload. Invalidate the
+  // previous generation so a parked IPC finally cannot decrement state in a
+  // newly mounted controller that happens to reuse the same job scope.
+  useEffect(() => {
+    return () => {
+      cancelImportResumeIfWaiting();
+      const scopes: PendingActionScope[] = [
+        jobFinderPendingActions.profileImport(),
+      ];
+      const currentJobId = activeResumeWorkspaceJobIdRef.current;
+      if (currentJobId) {
+        scopes.push(
+          jobFinderPendingActions.resumeJob(currentJobId),
+          jobFinderPendingActions.resumeExport(currentJobId),
+        );
+      }
+      for (const scope of scopes) {
+        invalidatePendingActionScope(scope);
+      }
+    };
+  }, [cancelImportResumeIfWaiting]);
 
   // Discovery and review selections retain the locally inspected job across
   // background refreshes: snapshots only carry first-row defaults, so a
@@ -331,7 +432,9 @@ export function useJobFinderPageController() {
     ? resumeWorkspaceDirty
     : false;
   const [profileSurfaceDirty, setProfileSurfaceDirty] = useState(false);
-  const applyProfileSurfaceDirty = useCallback<Dispatch<SetStateAction<boolean>>>(
+  const applyProfileSurfaceDirty = useCallback<
+    Dispatch<SetStateAction<boolean>>
+  >(
     (value) => {
       const next =
         typeof value === "function"
@@ -353,20 +456,23 @@ export function useJobFinderPageController() {
   );
   const applyResumeWorkspaceDirty = useCallback<
     Dispatch<SetStateAction<boolean>>
-  >((value) => {
-    const next =
-      typeof value === "function"
-        ? value(navigationGuardRef.current.resumeWorkspaceDirty)
-        : value;
-    navigationGuardRef.current.resumeWorkspaceDirty = next;
-    syncJobFinderWindowCloseGuard(navigationGuardRef.current);
-    if (next) {
-      // Resume Studio started holding unsaved edits; see the profile-surface
-      // note above for why a stale exact-request retry must be retired.
-      saveCoordinator.markSurfaceRevised("resume");
-    }
-    setResumeWorkspaceDirty(next);
-  }, [saveCoordinator]);
+  >(
+    (value) => {
+      const next =
+        typeof value === "function"
+          ? value(navigationGuardRef.current.resumeWorkspaceDirty)
+          : value;
+      navigationGuardRef.current.resumeWorkspaceDirty = next;
+      syncJobFinderWindowCloseGuard(navigationGuardRef.current);
+      if (next) {
+        // Resume Studio started holding unsaved edits; see the profile-surface
+        // note above for why a stale exact-request retry must be retired.
+        saveCoordinator.markSurfaceRevised("resume");
+      }
+      setResumeWorkspaceDirty(next);
+    },
+    [saveCoordinator],
+  );
   // Per-edit counterparts to the dirty-transition guards above: a surface
   // that is already dirty keeps taking edits without another boolean
   // transition, so each user-authored draft edit reports here to retire any
@@ -448,8 +554,7 @@ export function useJobFinderPageController() {
 
         settleResumeWorkspaceLeaveRequestRef.current = settle;
         setResumeWorkspaceLeaveRequest({
-          confirmation:
-            composeResumeWorkspaceLeaveConfirmation(pendingAction),
+          confirmation: composeResumeWorkspaceLeaveConfirmation(pendingAction),
           resolve: settle,
         });
       });
@@ -496,12 +601,12 @@ export function useJobFinderPageController() {
     // Protection can lapse between blocking and rendering because a racing
     // save may have completed; continue instead of asking a pointless
     // question about work that no longer exists.
-    const confirmation = composeLeaveConfirmation(
-      navigationGuardRef.current,
-    );
+    const confirmation = composeLeaveConfirmation(navigationGuardRef.current);
 
     if (!confirmation) {
-      routeChangeBlocker.reset();
+      // Let the parked navigation through: `reset()` would silently cancel
+      // it, which dropped hand-offs issued right as a save settled.
+      routeChangeBlocker.proceed();
       return;
     }
 
@@ -532,11 +637,7 @@ export function useJobFinderPageController() {
     applyProfileSurfaceDirty(false);
     applyResumeWorkspaceDirty(false);
     routeChangeBlocker.proceed();
-  }, [
-    applyProfileSurfaceDirty,
-    applyResumeWorkspaceDirty,
-    routeChangeBlocker,
-  ]);
+  }, [applyProfileSurfaceDirty, applyResumeWorkspaceDirty, routeChangeBlocker]);
 
   // Once a navigation commits, its route hint has either been consumed by the
   // action's own status write or belongs to no write at all; drop it so a
@@ -580,7 +681,7 @@ export function useJobFinderPageController() {
   const profileSetupState = workspace?.profileSetupState ?? null;
   const canImportResume = !profileSurfaceDirty;
   const importResumeGuardMessage = profileSurfaceDirty
-    ? "Save your current profile or setup draft before importing or refreshing from resume so those unsaved edits do not get overwritten."
+    ? "Save this step before importing or refreshing from a resume."
     : null;
   const activeResumeWorkspaceJobIdRef = useRef<string | null>(
     activeResumeWorkspaceJobId,
@@ -745,9 +846,13 @@ export function useJobFinderPageController() {
       })
       .catch((error) => {
         if (!cancelled) {
+          // Electron wraps the main-process failure as "Error invoking
+          // remote method '…': Error: Unknown Job Finder job '…'", so an
+          // anchored match never fired and the raw IPC string reached the
+          // screen instead of the owned "Resume no longer available" state.
           const isUnknownJob =
             error instanceof Error &&
-            /^Unknown Job Finder job /.test(error.message);
+            /Unknown Job Finder job /.test(error.message);
           if (isUnknownJob) {
             // The job no longer exists in the workspace. The route owns the
             // visible "Resume no longer available" state, so a silent bounce
@@ -755,14 +860,16 @@ export function useJobFinderPageController() {
             return;
           }
 
+          // The technical failure belongs in the log, never on the screen:
+          // an IPC channel name and an internal job id are not something a
+          // user can act on.
+          console.error("Resume workspace could not be loaded.", error);
           // The error is written as part of the replace navigation itself, so
           // it is owned by the review-queue destination it lands on.
           applyScopedActionState(
             {
               message:
-                error instanceof Error
-                  ? `Resume editor could not be loaded. ${error.message}`
-                  : "Resume editor could not be loaded. Shortlisted is shown instead.",
+                "We couldn’t open the resume editor for this job. Shortlisted is shown instead — open the job again to retry.",
             },
             "/job-finder/review-queue",
           );
@@ -924,6 +1031,7 @@ export function useJobFinderPageController() {
       clearResumeWorkspaceState,
       setResumeWorkspaceDirty: applyResumeWorkspaceDirty,
       onProfileSurfaceDraftEdited: noteProfileSurfaceDraftEdited,
+      onCancelImportResume: cancelImportResumeIfWaiting,
       onResumeWorkspaceDraftEdited: noteResumeWorkspaceDraftEdited,
       onSettingsDraftEdited: noteSettingsDraftEdited,
       setSelectedApplicationRecordId,
@@ -957,6 +1065,7 @@ export function useJobFinderPageController() {
     navigate,
     navigateFromShell,
     canImportResume,
+    cancelImportResumeIfWaiting,
     profileCopilotBusy,
     readyWorkspaceState,
     profileSetupState,

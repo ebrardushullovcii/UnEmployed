@@ -346,7 +346,9 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     );
 
     expect(extraction.headline).toBe("Senior Full-Stack Software Engineer");
-    expect(extraction.targetRoles).toEqual(["Senior Full-Stack Software Engineer"]);
+    expect(extraction.targetRoles).toEqual([
+      "Senior Full-Stack Software Engineer",
+    ]);
   });
 
   test("does not inflate ISO month date ranges into a full year of experience", () => {
@@ -954,5 +956,96 @@ describe("buildDeterministicResumeProfileExtraction", () => {
         location: "Rotterdam, Netherlands",
       }),
     ]);
+  });
+
+  test("splits ● bullet glyphs into separate achievements instead of one summary paragraph", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Ryan Holstien",
+          "Senior Software Engineer",
+          "ryanholstien993@outlook.com",
+          "EXPERIENCE",
+          "Senior Software Engineer — DataHub, Remote, CA (Dec 2021–Feb 2026)",
+          "● Designed C# and .NET services for a behavioral-health platform, using GitHub Copilot and ChatGPT to speed",
+          "coding, refactoring, and docs while improving release quality and delivery pace.",
+          "● Built ASP.NET Core REST APIs and internal microservices integrating scheduling, billing, and EHR-adjacent",
+          "workflows, reducing manual handoffs and supporting reliable low-latency operations.",
+          "● Optimized MongoDB collections with better schema design, compound indexes, and query tuning, cutting read",
+          "latency on provider and appointment workflows in production environments.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.experiences).toHaveLength(1);
+    const entry = extraction.experiences[0];
+    expect(entry?.title).toBe("Senior Software Engineer");
+    expect(entry?.companyName).toBe("DataHub");
+    expect(entry?.summary).toBeNull();
+    expect(entry?.achievements).toHaveLength(3);
+    expect(entry?.achievements[0]).toMatch(/^Designed C# and \.NET services/);
+    expect(entry?.achievements[1]).toMatch(/^Built ASP ?\.NET Core REST APIs/);
+    expect(entry?.achievements[2]).toMatch(/^Optimized MongoDB collections/);
+    expect(JSON.stringify(entry)).not.toContain("●");
+  });
+
+  test("splits inline ● bullets that PDF extraction glued onto the previous sentence", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Ryan Holstien",
+          "Senior Software Engineer",
+          "EXPERIENCE",
+          "Senior Software Engineer — DataHub, Remote, CA (Dec 2021–Feb 2026)",
+          "● Designed C# and .NET services for a behavioral-health platform while improving release quality and delivery pace. ● Built ASP.NET Core REST APIs and internal microservices integrating scheduling, billing, and EHR-adjacent workflows.",
+          "● Optimized MongoDB collections with better schema design, compound indexes, and query tuning.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    const entry = extraction.experiences[0];
+    expect(entry?.summary).toBeNull();
+    expect(entry?.achievements).toHaveLength(3);
+    expect(JSON.stringify(entry)).not.toContain("●");
+  });
+
+  test("seeds target roles from the headline and the two most recent role titles", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Ryan Holstien",
+          "Senior Software Engineer",
+          "EXPERIENCE",
+          "Staff Backend Engineer — DataHub, Remote, CA (Dec 2021–Feb 2026)",
+          "● Designed C# and .NET services for a behavioral-health platform while improving release quality.",
+          "Senior Software Engineer — Cedar Ledger, Remote (Jun 2018–Nov 2021)",
+          "● Built account-management workflows with React, GraphQL, and Node.js for enterprise customers.",
+          "Software Engineer — Harbor Studio, Rotterdam (Jan 2015–May 2018)",
+          "● Shipped front-end features for a design collaboration product used by agencies.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.headline).toBe("Senior Software Engineer");
+    expect(extraction.targetRoles).toEqual([
+      "Senior Software Engineer",
+      "Staff Backend Engineer",
+    ]);
+    expect(extraction.targetRoles.length).toBeLessThanOrEqual(3);
   });
 });

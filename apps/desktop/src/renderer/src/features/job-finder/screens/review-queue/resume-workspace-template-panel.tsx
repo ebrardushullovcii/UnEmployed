@@ -51,15 +51,13 @@ export function ResumeWorkspaceTemplatePanel(
           <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
             Template
           </p>
-          <Badge
-            variant={
-              props.selectedTemplateApprovalEligible ? "default" : "outline"
-            }
-          >
-            {props.selectedTemplateApprovalEligible
-              ? "Approval eligible"
-              : "Approval blocked"}
-          </Badge>
+          {/* The selected row below already carries the lane and ATS badges,
+              so repeating "Approval-compatible template" here was a fourth
+              internal-state chip on one screen saying nothing new. Only the
+              blocking case still needs a header, in plain words. */}
+          {props.selectedTemplateApprovalEligible ? null : (
+            <Badge variant="outline">Cannot be used for applications</Badge>
+          )}
         </div>
       </div>
 

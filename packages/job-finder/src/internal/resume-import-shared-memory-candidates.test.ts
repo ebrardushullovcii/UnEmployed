@@ -132,4 +132,61 @@ describe("promoteGroundedSharedMemoryCandidates", () => {
       expect.objectContaining({ resolution: "auto_applied" }),
     );
   });
+
+  test("drops a professional story that repeats the imported summary verbatim", () => {
+    const now = "2026-09-02T04:00:00.000Z";
+    const summary =
+      "Senior software engineer with 10+ years building secure healthcare and SaaS platforms.";
+    const bundle = createTestBundle({ fullText: summary });
+    const summaryCandidate = toCandidate(
+      bundle,
+      "run_summary_deduplication",
+      "parser_literal",
+      now,
+      createStageCandidate({
+        target: { section: "identity", key: "summary", recordId: null },
+        label: "Summary",
+        value: summary,
+        sourceBlockIds: ["page_1_block_1"],
+        confidence: 0.95,
+        recommendation: "auto_apply",
+        overall: 0.95,
+      }),
+      0,
+    );
+    const duplicateStory = toCandidate(
+      bundle,
+      "run_summary_deduplication",
+      "model_shared_memory",
+      now,
+      createStageCandidate({
+        target: {
+          section: "narrative",
+          key: "professionalStory",
+          recordId: null,
+        },
+        label: "Professional story",
+        value: summary,
+        sourceBlockIds: ["page_1_block_1"],
+        confidence: 0.46,
+        recommendation: "needs_review",
+        overall: 0.46,
+      }),
+      1,
+    );
+
+    const promoted = promoteGroundedSharedMemoryCandidates([
+      summaryCandidate,
+      duplicateStory,
+    ]);
+
+    // The same paragraph must not fill both the professional summary and the
+    // professional story: one edit, one field.
+    expect(promoted[1]).toEqual(
+      expect.objectContaining({
+        resolution: "rejected",
+        resolutionReason: "redundant_with_professional_summary",
+      }),
+    );
+  });
 });

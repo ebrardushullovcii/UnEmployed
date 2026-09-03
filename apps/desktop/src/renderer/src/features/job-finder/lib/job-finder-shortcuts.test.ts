@@ -6,6 +6,7 @@ import {
   eventMatchesJobFinderShortcut,
   formatJobFinderShortcutCombo,
   getJobFinderAriaKeyshortcuts,
+  getJobFinderShortcutKeycaps,
   isEditableShortcutTarget,
   isImeComposingEvent,
   isInteractiveShortcutTarget,
@@ -109,30 +110,76 @@ describe("job finder shortcut registry", () => {
     expect(formatJobFinderShortcutCombo("mod+k", "darwin")).toBe("⌘K");
     expect(formatJobFinderShortcutCombo("mod+k", "win32")).toBe("Ctrl K");
     expect(formatJobFinderShortcutCombo("/", "darwin")).toBe("/");
+    expect(formatJobFinderShortcutCombo("?", "win32")).toBe("?");
     expect(getJobFinderAriaKeyshortcuts("mod+b", "darwin")).toBe("Meta+b");
     expect(getJobFinderAriaKeyshortcuts("mod+b", "linux")).toBe("Control+b");
   });
 
-  it("builds one help row per shortcut id with platform-formatted combos", () => {
+  it("builds one help row per shortcut id and scope, never merging scopes", () => {
+    // Grouping by id alone used to concatenate two different conditions into
+    // one three-line grey paragraph beside a pair of keycaps that read as a
+    // single broken token.
     expect(buildJobFinderShortcutHelp("darwin")).toEqual([
       {
-        combos: ["⌘K", "/"],
+        combos: [["⌘", "K"]],
         id: "open-global-search",
+        rowId: "open-global-search::Anywhere in Job Finder",
         label: "Search current plan and workspace",
-        scope:
-          "Anywhere in Job Finder; Outside text fields, controls, and dialogs",
+        scope: "Anywhere in Job Finder",
       },
       {
-        combos: ["⌘B"],
+        combos: [["/"]],
+        id: "open-global-search",
+        rowId: "open-global-search::Outside text fields, controls, and dialogs",
+        label: "Search current plan and workspace",
+        scope: "Outside text fields, controls, and dialogs",
+      },
+      {
+        combos: [["⌘", "B"]],
         id: "toggle-sidebar",
+        rowId:
+          "toggle-sidebar::Wide layout only, outside overlays, search, and editable fields",
         label: "Show or hide the sidebar",
-        scope: "Wide layout only, outside overlays, search, and editable fields",
+        scope:
+          "Wide layout only, outside overlays, search, and editable fields",
+      },
+      {
+        combos: [["?"]],
+        id: "open-shortcuts",
+        rowId: "open-shortcuts::Outside text fields, controls, and dialogs",
+        label: "Show keyboard shortcuts",
+        scope: "Outside text fields, controls, and dialogs",
       },
     ]);
+    // A modifier and its key are separate caps so the row reads as "hold
+    // Ctrl, press K" instead of one "Ctrl K" token.
     expect(buildJobFinderShortcutHelp("win32")[0]?.combos).toEqual([
-      "Ctrl K",
-      "/",
+      ["Ctrl", "K"],
     ]);
+    expect(getJobFinderShortcutKeycaps("mod+k", "darwin")).toEqual(["⌘", "K"]);
+    expect(getJobFinderShortcutKeycaps("mod+b", "linux")).toEqual([
+      "Ctrl",
+      "B",
+    ]);
+    expect(getJobFinderShortcutKeycaps("?", "darwin")).toEqual(["?"]);
+    for (const entry of buildJobFinderShortcutHelp("win32")) {
+      expect(entry.scope).not.toContain(";");
+    }
+  });
+
+  it("matches the literal ? combo without colliding with /", () => {
+    expect(eventMatchesJobFinderShortcut(keyEvent({ key: "?" }), "?")).toBe(
+      true,
+    );
+    expect(eventMatchesJobFinderShortcut(keyEvent({ key: "?" }), "/")).toBe(
+      false,
+    );
+    expect(eventMatchesJobFinderShortcut(keyEvent({ key: "/" }), "?")).toBe(
+      false,
+    );
+    expect(
+      eventMatchesJobFinderShortcut(keyEvent({ key: "?", metaKey: true }), "?"),
+    ).toBe(false);
   });
 
   it("states the Cmd+B scope truthfully for every platform", () => {
@@ -150,7 +197,8 @@ describe("job finder shortcut registry", () => {
         expect.arrayContaining([
           expect.objectContaining({
             id: "toggle-sidebar",
-            scope: "Wide layout only, outside overlays, search, and editable fields",
+            scope:
+              "Wide layout only, outside overlays, search, and editable fields",
           }),
         ]),
       );

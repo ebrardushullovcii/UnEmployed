@@ -48,9 +48,13 @@ export function useModalFocusTrap(
     onCloseRef.current = onClose;
   }, [onClose]);
 
+  // `modal: true` also drops body-portalled floating surfaces (Profile
+  // Copilot, Guided edits) under the scrim: `#root` inertness below cannot
+  // reach them because they are not inside `#root`.
   const { isTopmost } = useJobFinderOverlayOwnership({
     active: open,
     close: () => onCloseRef.current(),
+    modal: true,
   });
 
   useEffect(() => {
@@ -76,10 +80,9 @@ export function useModalFocusTrap(
     appRoot?.setAttribute("inert", "");
 
     const focusableElements = getFocusableElements(dialog);
-    (
-      initialFocusMode === "dialog"
-        ? dialog
-        : (focusableElements[0] ?? dialog)
+    (initialFocusMode === "dialog"
+      ? dialog
+      : (focusableElements[0] ?? dialog)
     ).focus();
 
     const sentinelStart = document.createElement("span");

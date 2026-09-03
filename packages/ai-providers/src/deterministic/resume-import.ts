@@ -12,6 +12,10 @@ import {
   type ResumeImportStageExtractionResult,
 } from "../resume-import";
 import { buildCandidateConfidenceBreakdown } from "../resume-import-helpers";
+import {
+  experienceSectionHeadingPattern,
+  nonExperienceSectionHeadingPattern,
+} from "./constants";
 import { buildDeterministicResumeProfileExtraction } from "./resume-parser";
 
 function normalizeText(value: string): string {
@@ -39,24 +43,38 @@ function containsWholePhrase(haystack: string, needle: string): boolean {
 
 function getExperienceSectionText(resumeText: string): string {
   const lines = resumeText.split(/\r?\n/);
-  const experienceHeadingPattern =
-    /^(relevant\s+experience|work\s+(?:experience|history)|professional\s+(?:experience|background)|experience|employment|career\s+history|background)\s*[:\-–—]?\s*$/i;
-  const followingSectionHeadingPattern =
-    /^(education(?:\s+and\s+training)?|certifications?|projects?|(?:technical|core|additional)?\s*skills?|language(?:\s+skills?)?|languages?|publications?|awards?)\s*[:\-–—]?\s*$/i;
-  const startIndex = lines.findIndex((line) =>
-    experienceHeadingPattern.test(line.trim()),
-  );
+  const sections: string[][] = [];
+  let collecting = false;
+  let sectionLines: string[] = [];
 
-  if (startIndex < 0) {
-    return "";
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+
+    if (experienceSectionHeadingPattern.test(trimmedLine)) {
+      collecting = true;
+      continue;
+    }
+
+    if (collecting && nonExperienceSectionHeadingPattern.test(trimmedLine)) {
+      if (sectionLines.length > 0) {
+        sections.push(sectionLines);
+      }
+
+      sectionLines = [];
+      collecting = false;
+      continue;
+    }
+
+    if (collecting && trimmedLine.length > 0) {
+      sectionLines.push(line);
+    }
   }
 
-  const endOffset = lines
-    .slice(startIndex + 1)
-    .findIndex((line) => followingSectionHeadingPattern.test(line.trim()));
-  const endIndex = endOffset < 0 ? lines.length : startIndex + 1 + endOffset;
+  if (sectionLines.length > 0) {
+    sections.push(sectionLines);
+  }
 
-  return lines.slice(startIndex + 1, endIndex).join("\n");
+  return sections.flat().join("\n");
 }
 
 function buildYearsExperienceEvidenceCandidates(

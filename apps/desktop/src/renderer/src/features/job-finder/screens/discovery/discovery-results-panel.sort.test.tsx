@@ -137,6 +137,43 @@ describe("DiscoveryResultsPanel result sorting", () => {
     expect(sourceLine.querySelector(".truncate")).toBeTruthy();
   });
 
+  it("names an unknown employer plainly instead of a 'Listing ·' company", () => {
+    const source = JobDiscoveryTargetSchema.parse({
+      id: "target_wellfound",
+      label: "Wellfound",
+      startingUrl: "https://wellfound.example.test/jobs",
+    });
+    const job = SavedJobSchema.parse({
+      ...createJobs(1)[0]!,
+      // The stored absence placeholders the extraction layer keeps when a
+      // board never states an employer or location.
+      company: "Employer not stated",
+      location: "Location not stated",
+      provenance: [
+        {
+          targetId: source.id,
+          adapterKind: "auto",
+          startingUrl: "https://wellfound.example.test/jobs",
+          discoveredAt: "2026-08-23T10:00:00.000Z",
+          collectionMethod: "careers_page",
+        },
+      ],
+    });
+
+    renderResults([job], { discoveryTargets: [source] });
+
+    const sourceLine = screen.getByTestId(`discovery-result-source-${job.id}`);
+    expect(sourceLine.textContent).toContain("Employer not listed ·");
+    expect(sourceLine.textContent).toContain("Found on Wellfound");
+    expect(sourceLine.textContent).not.toContain("Listing ·");
+    // The row's own source line must not be the palest text on the screen;
+    // it sits at the same softness as the employer line above it.
+    expect(sourceLine.className).toContain("text-foreground-soft");
+    expect(sourceLine.getAttribute("title")).toBe(
+      "Employer not listed · Wellfound",
+    );
+  });
+
   it("keeps the shipped best-match ranking as the default sort", () => {
     renderResults(createJobs());
 
@@ -201,13 +238,21 @@ describe("DiscoveryResultsPanel result sorting", () => {
     });
     expect(getFirstResultJobId()).toBe("sort_job_059");
 
-    fireEvent.click(screen.getByRole("button", { name: "Sort ascending" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Sort direction: lowest first. Select to sort highest first.",
+      }),
+    );
     // Descending companies order the Mega group by their flipped title
     // tie-break, so Engineer 058 leads while Aardvark sinks to the last page.
     expect(getFirstResultJobId()).toBe("sort_job_058");
     expect(
-      screen.getByRole("button", { name: "Sort descending" }),
+      screen.getByRole("button", {
+        name: "Sort direction: highest first. Select to sort lowest first.",
+      }),
     ).toBeTruthy();
+    // The direction is readable without decoding a bare arrow.
+    expect(screen.getByText("Highest first")).toBeTruthy();
   });
 
   it("orders recency newest-first using available listing dates", () => {

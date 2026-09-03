@@ -641,13 +641,16 @@ export const genericCompanyNameValues = [
   "confidential company",
   "confidential employer",
   "employer confidential",
+  "employer not stated",
   "hiring agency",
+  "location not stated",
   "multiple companies",
   "n a",
   "na",
   "not applicable",
   "not available",
   "not disclosed",
+  "not stated",
   "our client",
   "private company",
   "recruiting agency",
@@ -671,9 +674,286 @@ const genericCompanyNameSet: ReadonlySet<string> = new Set(
   genericCompanyNameValues,
 );
 
+/**
+ * Site utility / chrome titles that must not become jobs or company shells.
+ * Keep in sync with shortlist/extraction utility filters (exact, Albanian
+ * privacy prefix without diacritic `\b`, marketing prefixes, open-positions).
+ */
+const utilitySiteChromeExactNamePattern =
+  /^(blog|blogs|news|about|about us|contact|contact us|kontakt|faq|help|support|privacy|privacy policy|cookie policy|politik[eë]\s+e\s+privat[eë]sis[eë]|politika\s+e\s+privat[eë]sis[eë]|terms|sign in|log in|login|register|sign up|create cv|krijo cv|create resume|home|homepage|view all jobs|view all .+ jobs|overview|locations|pricing|jobs|remote jobs|remote|trust|curated|wellfound|wellfound:ai|why wellfound|previous|next|platform status|privacy & cookies|terms & risks|salaries|for companies|get discovered|hire developers|create profile|recruit pro|try errgo|web3 jobs|tech startups|sign up with google|produktet|publiko konkurs|llogarite pag[eë]n|llogaritja e pages|www\.fb\.com\/kosovajob|fb\.com\/kosovajob)$/i;
+
+// Albanian privacy titles often continue after "Privatësisë". Avoid `\b` after
+// diacritics — JS word boundaries treat `ë` as non-word, so `\b` fails before
+// the following space.
+const utilitySiteChromeAlbanianPrivacyNamePattern =
+  /^politik[aeë]\s+e\s+privat[eë]sis[eë]/i;
+
+const utilitySiteChromePrefixNamePattern =
+  /^(sign up with|view all|create profile|get discovered|for companies|hire developers|platform status|privacy|privacy policy|cookie policy|terms|remote jobs|web3 jobs|tech startups|recruit pro|try errgo|why wellfound|publiko|llogarite|llogaritja|www\.fb\.com\/|fb\.com\/)\b/i;
+
+const utilitySiteChromeOpenPositionsNamePattern = /^\d+\s+open positions$/i;
+
+/**
+ * True when a label matches site utility / chrome titles (privacy policy,
+ * nav, marketing) that should not appear as jobs or company entities.
+ */
+export function isLikelyUtilitySiteChromeName(value: string): boolean {
+  const title = value.trim();
+  if (title.length === 0) {
+    return false;
+  }
+
+  return (
+    utilitySiteChromeExactNamePattern.test(title) ||
+    utilitySiteChromeAlbanianPrivacyNamePattern.test(title) ||
+    utilitySiteChromePrefixNamePattern.test(title) ||
+    utilitySiteChromeOpenPositionsNamePattern.test(title)
+  );
+}
+
 /** Rejects only the bounded source-generic placeholder corpus. */
 export function isGenericCompanyName(value: string): boolean {
   return genericCompanyNameSet.has(normalizeCompanyName(value));
+}
+
+/**
+ * True when a company display name is specific enough to list in Companies
+ * intelligence (non-empty, outside the generic/absence placeholder corpus,
+ * and not site utility chrome such as privacy-policy shells).
+ */
+export function isListableCompanyName(value: string): boolean {
+  const trimmed = value.trim();
+  if (
+    trimmed === "" ||
+    isLikelyUtilitySiteChromeName(trimmed) ||
+    isUrlDerivedEmployerLabel(trimmed)
+  ) {
+    return false;
+  }
+  const normalized = normalizeCompanyName(trimmed);
+  return normalized !== "" && !genericCompanyNameSet.has(normalized);
+}
+
+const URL_SCHEME_EMPLOYER_LABEL_PATTERN = /^(?:https?|ftp):\/\//i;
+const WWW_EMPLOYER_LABEL_PREFIX_PATTERN = /^www\./i;
+const TITLECASE_URL_HOST_PREFIX_PATTERN = /^(?:Https?|Http|Www|Ftp)\s+/;
+const INLINE_DOMAIN_EMPLOYER_LABEL_PATTERN =
+  /\b[a-z0-9-]+\.(?:com|net|org|io|co|app|dev|ai|us|uk|de|fr)\b/i;
+/** Case-insensitive TLD tail so `… IO` / `… COM` match title-cased host fragments. */
+const DOMAIN_TLD_TAIL_EMPLOYER_LABEL_PATTERN =
+  /\s+(?:Com|Net|Org|Io|Co|App|Dev|Ai|Us|Uk|De|Fr)\s*$/i;
+/**
+ * Strong hostname TLDs almost never appear as a real display-name second word
+ * (`Scan Com`, `Dearhiringmanager IO`). Ambiguous tails (`Co`, `AI`, …) need
+ * longer single-token heads so brands like `Acme Co` / `Scale AI` survive.
+ */
+const STRONG_HOSTNAME_TLD_WORDS: ReadonlySet<string> = new Set([
+  "com",
+  "net",
+  "org",
+  "io",
+  "app",
+  "dev",
+]);
+const AMBIGUOUS_HOSTNAME_TLD_WORDS: ReadonlySet<string> = new Set([
+  "co",
+  "ai",
+  "us",
+  "uk",
+  "de",
+  "fr",
+]);
+const EMPLOYER_SLUG_SUFFIX_REJECT_PATTERN =
+  /-(?:usd|eur|gbp|cad|aud|chf|jpy|cny|inr)$/i;
+/** Hyphenated strong-TLD slug tails (`scan-com`, `dearhiringmanager-io`). */
+const EMPLOYER_SLUG_HOSTNAME_TLD_REJECT_PATTERN =
+  /-(?:com|net|org|io|app|dev)$/i;
+const EMPLOYER_SLUG_ACRONYM_WORDS = new Set([
+  "ai",
+  "ml",
+  "api",
+  "sdk",
+  "io",
+  "it",
+  "hr",
+  "qa",
+  "ui",
+  "ux",
+  "vr",
+  "ar",
+  "ip",
+  "tv",
+  "usa",
+  "uk",
+  "eu",
+  "llc",
+  "inc",
+]);
+
+/**
+ * True when a single head token looks like a hostname label (TitleCase or
+ * lowercase slug) rather than a multi-capital brand (`McKinsey`).
+ */
+function isHostnameLikeEmployerHead(token: string): boolean {
+  return (
+    token.length >= 3 &&
+    (/^[A-Z][a-z0-9-]+$/.test(token) || /^[a-z0-9-]+$/.test(token))
+  );
+}
+
+/**
+ * True when a label looks like a URL, hostname, or title-cased domain fragment
+ * rather than an observed employer name.
+ */
+export function isUrlDerivedEmployerLabel(value: string): boolean {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (
+    URL_SCHEME_EMPLOYER_LABEL_PATTERN.test(trimmed) ||
+    WWW_EMPLOYER_LABEL_PREFIX_PATTERN.test(trimmed) ||
+    TITLECASE_URL_HOST_PREFIX_PATTERN.test(trimmed) ||
+    INLINE_DOMAIN_EMPLOYER_LABEL_PATTERN.test(trimmed)
+  ) {
+    return true;
+  }
+
+  if (DOMAIN_TLD_TAIL_EMPLOYER_LABEL_PATTERN.test(trimmed)) {
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    if (words.length >= 2) {
+      const tld = (words[words.length - 1] ?? "").toLowerCase();
+      const head = words.slice(0, -1);
+      if (head.some((word) => /^(?:Https?|Http|Www|Ftp)$/i.test(word))) {
+        return true;
+      }
+      const body = head.join("");
+      if (head.length === 1 && isHostnameLikeEmployerHead(body)) {
+        if (STRONG_HOSTNAME_TLD_WORDS.has(tld)) {
+          return true;
+        }
+        if (
+          AMBIGUOUS_HOSTNAME_TLD_WORDS.has(tld) &&
+          body.length >= 12 &&
+          /^[A-Z][a-z]+$/.test(body)
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/** True when a `/company/{slug}` segment should not become an employer label. */
+export function shouldRejectEmployerSlugInference(slug: string): boolean {
+  const normalized = slug.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  if (EMPLOYER_SLUG_SUFFIX_REJECT_PATTERN.test(normalized)) {
+    return true;
+  }
+
+  if (EMPLOYER_SLUG_HOSTNAME_TLD_REJECT_PATTERN.test(normalized)) {
+    return true;
+  }
+
+  if (
+    /^(?:www\.)?[a-z0-9-]+\.(?:com|net|org|io|co|app|dev)$/.test(normalized)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function titleCaseEmployerSlugWord(word: string): string {
+  const lower = word.toLowerCase();
+  if (EMPLOYER_SLUG_ACRONYM_WORDS.has(lower)) {
+    return lower.toUpperCase();
+  }
+
+  if (!word) {
+    return "";
+  }
+
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+}
+
+/**
+ * Formats a company-profile slug into a display label, returning null when the
+ * result would look URL-derived or otherwise unreliable.
+ */
+export function formatEmployerLabelFromSlug(slug: string): string | null {
+  const raw = slug.trim();
+  if (!raw || shouldRejectEmployerSlugInference(raw)) {
+    return null;
+  }
+
+  const displaySlug = raw.replace(/-\d+$/u, "");
+  const hadSeparators = /[-_]/.test(displaySlug);
+  const words = displaySlug.split(/[-_]+/).filter(Boolean);
+  if (words.length === 0) {
+    return null;
+  }
+
+  if (!hadSeparators && displaySlug.length >= 10) {
+    return null;
+  }
+
+  const formatted = words.map(titleCaseEmployerSlugWord).join(" ");
+  return sanitizeEmployerLabel(formatted);
+}
+
+/**
+ * Drops absence placeholders, URL-like labels, generic placeholders, and site
+ * utility chrome so downstream UI can fall back to neutral listing copy.
+ */
+export function sanitizeEmployerLabel(
+  value: string | null | undefined,
+): string | null {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (
+    isGenericCompanyName(trimmed) ||
+    isLikelyUtilitySiteChromeName(trimmed) ||
+    isUrlDerivedEmployerLabel(trimmed) ||
+    /^[A-Z][a-z]{12,}$/.test(trimmed)
+  ) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+/**
+ * Sanitizes observed card/listing employer text without rejecting generic
+ * placeholders such as "Confidential" that boards expose intentionally.
+ */
+export function sanitizeObservedEmployerLabel(
+  value: string | null | undefined,
+): string | null {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (
+    isLikelyUtilitySiteChromeName(trimmed) ||
+    isUrlDerivedEmployerLabel(trimmed) ||
+    /^[A-Z][a-z]{12,}$/.test(trimmed)
+  ) {
+    return null;
+  }
+
+  return trimmed;
 }
 
 export const companyPreferenceValues = [

@@ -126,16 +126,16 @@ export function buildWorkspaceStatusCopy(input: {
   } = input;
 
   const studioStatusMessage = hasUnsavedChanges
-    ? "Save the draft before you export a fresh PDF or approve it."
+    ? "Your edits will be saved automatically when you approve."
     : approvalBlockedReason
       ? approvalBlockedReason
       : !selectedTemplateApprovalEligible
         ? `This ${selectedTemplateLane === "share_ready" ? "share-ready" : "selected"} template can still be exported, but approval stays disabled until you switch back to an apply-safe template.`
         : draft.approvedExportId
-          ? "A PDF from this saved draft is already approved. Any new save or template change clears that approval."
+          ? "This resume is approved. Any new edit or template change will require approval again."
           : availableExportToApprove
-            ? "The newest saved export matches this draft and can be approved now."
-            : "Save the draft, then export a fresh PDF before approval.";
+            ? "This resume is ready to approve."
+            : "Review the preview, then approve when you are ready. Downloading a copy is optional.";
   const approvalStateLabel = approvalBlockedReason
     ? "Approval needs decisions"
     : selectedTemplateApprovalEligible

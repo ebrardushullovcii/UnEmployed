@@ -45,10 +45,10 @@ import { DiscoveryScreen } from "./discovery-screen";
 
 const browserSession = {
   source: "target_site",
-  status: "unknown",
+  status: "ready",
   driver: "chrome_profile_agent",
-  label: "Browser not open",
-  detail: "The browser is not open.",
+  label: "Browser ready",
+  detail: "The browser is ready for source search.",
   lastCheckedAt: "2026-08-23T10:00:00.000Z",
 } as BrowserSessionState;
 
@@ -196,9 +196,7 @@ describe("DiscoveryScreen stop search action", () => {
 
     // The settled run clears the request; the next run gets a live stop.
     rerender(buildScreen({ activeRun: completedRun, onCancelDiscovery }));
-    expect(
-      screen.queryByRole("button", { name: "Stop search" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop search" })).toBeNull();
 
     rerender(
       buildScreen({

@@ -78,10 +78,10 @@ import {
 
 const browserSession = {
   source: "target_site",
-  status: "unknown",
+  status: "ready",
   driver: "chrome_profile_agent",
-  label: "Browser not open",
-  detail: "The browser is not open.",
+  label: "Browser ready",
+  detail: "The browser is ready for source search.",
   lastCheckedAt: "2026-08-23T10:00:00.000Z",
 } as BrowserSessionState;
 
@@ -312,9 +312,7 @@ describe("DiscoveryScreen Results-mode shortlist feedback", () => {
     );
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toBe(
-      "The requested Job Finder action failed.",
-    );
+    expect(alert.textContent).toBe("The requested Job Finder action failed.");
     expect(screen.queryByRole("status")).toBeNull();
   });
 
@@ -355,9 +353,13 @@ describe("DiscoveryScreen Results-mode shortlist feedback", () => {
 
     // Modes are exclusive: setup keeps its own footer status, so switching to
     // Search setup removes the Results surface instead of doubling it.
-    fireEvent.click(screen.getByRole("button", { name: "Search setup" }));
+    fireEvent.click(
+      document.querySelector(
+        '[data-discovery-search-chip="roles"]',
+      ) as HTMLElement,
+    );
     expect(screen.queryByRole("status")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Results" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Back to results$/u }));
     expect(screen.queryByRole("status")).toBeNull();
   });
 
@@ -395,13 +397,11 @@ describe("DiscoveryScreen Results-mode shortlist feedback", () => {
       message: "The requested Job Finder action failed.",
     });
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toBe(
-      "The requested Job Finder action failed.",
-    );
+    expect(alert.textContent).toBe("The requested Job Finder action failed.");
     // The row keeps its own failure; the route surface stays separate.
-    expect(screen.getByTestId("discovery-route-action-status").textContent).toContain(
-      "Search finished",
-    );
+    expect(
+      screen.getByTestId("discovery-route-action-status").textContent,
+    ).toContain("Search finished");
   });
 
   it("renders a failed Resume activity on the shared route surface in results mode", () => {
@@ -411,9 +411,7 @@ describe("DiscoveryScreen Results-mode shortlist feedback", () => {
       onResumeActivity,
     });
 
-    fireEvent.click(
-      screen.getByRole("button", { name: /resume activity/iu }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /resume activity/iu }));
     expect(onResumeActivity).toHaveBeenCalledTimes(1);
 
     // The controller resolves the refusal as a route-owned status; Results
@@ -437,6 +435,38 @@ describe("DiscoveryScreen Results-mode shortlist feedback", () => {
     expect(screen.getByTestId("discovery-paused-banner")).toBeTruthy();
   });
 
+  it("keeps a finished-search banner off the search-setup editor", () => {
+    renderScreen({
+      discoveryRunFeedback: {
+        detail: null,
+        headline: "Search finished and results were saved on this device.",
+        recovery: null,
+        status: "succeeded",
+        targetLabel: null,
+      },
+    });
+
+    expect(
+      screen.getByText(
+        "Search finished and results were saved on this device.",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      document.querySelector(
+        '[data-discovery-search-chip="roles"]',
+      ) as HTMLElement,
+    );
+
+    // No results are on screen while the editor is open, so a banner about
+    // them has nowhere to belong.
+    expect(
+      screen.queryByText(
+        "Search finished and results were saved on this device.",
+      ),
+    ).toBeNull();
+  });
+
   it("keeps one shared route message surface across Results and Search setup", () => {
     const { rerender } = renderScreen({
       actionState: { message: "Activity resumed." },
@@ -450,17 +480,19 @@ describe("DiscoveryScreen Results-mode shortlist feedback", () => {
 
     assertSingleSurface();
 
-    fireEvent.click(screen.getByRole("button", { name: "Search setup" }));
+    fireEvent.click(
+      document.querySelector(
+        '[data-discovery-search-chip="roles"]',
+      ) as HTMLElement,
+    );
     assertSingleSurface();
 
-    fireEvent.click(screen.getByRole("button", { name: /^Results$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Back to results$/u }));
     assertSingleSurface();
 
     // Clearing the route message removes the one surface entirely.
     rerender(buildScreen({ actionState: { message: null } }));
-    expect(
-      screen.queryByTestId("discovery-route-action-status"),
-    ).toBeNull();
+    expect(screen.queryByTestId("discovery-route-action-status")).toBeNull();
   });
 
   it("labels overlapping out-of-order shortlists with their own outcomes", async () => {

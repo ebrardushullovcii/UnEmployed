@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { X } from "lucide-react";
 import { Button } from "@renderer/components/ui/button";
 import { FieldLabel } from "@renderer/components/ui/field";
 import { Input } from "@renderer/components/ui/input";
@@ -62,11 +63,16 @@ export function ProfileListEditor({
 
   const isPopulated = values.length > 0;
   // Empty trays stay mounted (so adding items cannot shift the layout) but
-  // collapse to roughly one control height instead of reserving full list space.
+  // collapse to roughly one control height instead of reserving full list
+  // space. A populated tray grows with its content: a fixed-height tray showed
+  // 6 of 52 chips and clipped the last row mid-chip, and an inner scrollbar
+  // inside a page that already scrolls is worse than a taller section.
   const traySizingClassName = isPopulated
     ? displayMode === "chips"
-      ? "max-h-[8.6rem] min-h-[8.6rem]"
-      : "max-h-46 min-h-46"
+      ? // Chips grow with their content; the old fixed 8.6rem floor left ~100px
+        // of empty space under a single row of chips.
+        "min-h-16"
+      : "min-h-46"
     : "min-h-14";
 
   return (
@@ -117,8 +123,8 @@ export function ProfileListEditor({
         className={cn(
           "rounded-(--radius-field) border border-border/70 bg-(--surface-overlay-list) p-3",
           displayMode === "chips"
-            ? "flex flex-wrap content-start items-start gap-2 overflow-auto"
-            : "grid content-start gap-2 overflow-auto",
+            ? "flex flex-wrap content-start items-start gap-2"
+            : "grid content-start gap-2",
           traySizingClassName,
         )}
       >
@@ -138,7 +144,7 @@ export function ProfileListEditor({
                 }
                 type="button"
               >
-                x
+                <X aria-hidden className="size-3" />
               </button>
             </div>
           ) : (
@@ -158,7 +164,7 @@ export function ProfileListEditor({
                   }
                   type="button"
                 >
-                  x
+                  <X aria-hidden className="size-3.5" />
                 </button>
               </div>
             </div>

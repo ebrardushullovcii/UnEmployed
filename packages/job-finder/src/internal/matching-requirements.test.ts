@@ -1,8 +1,15 @@
-import type { CandidateProfile, JobPosting } from "@unemployed/contracts";
+import type {
+  CandidateProfile,
+  JobPosting,
+  JobRequirementAssessment,
+} from "@unemployed/contracts";
 import { describe, expect, test } from "vitest";
 
 import { createSeed } from "../workspace-service.test-fixtures";
-import { buildRequirementEvidenceAssessment } from "./matching-requirements";
+import {
+  buildFitRecommendation,
+  buildRequirementEvidenceAssessment,
+} from "./matching-requirements";
 
 function buildAssessment(input: {
   profile?: Partial<CandidateProfile>;
@@ -30,6 +37,45 @@ function buildAssessment(input: {
     hasWorkModePreferences: false,
   });
 }
+
+describe("location requirement labels", () => {
+  test("never renders a dangling label when the listing states no location", () => {
+    const seed = createSeed();
+    const requirements = buildRequirementEvidenceAssessment({
+      profile: seed.profile,
+      posting: { ...seed.savedJobs[0]!, location: "" },
+      locationCompatibility: "unknown",
+      workModeCompatibility: "unknown",
+      hasLocationPreferences: true,
+      hasWorkModePreferences: false,
+    });
+    const location = requirements.find(
+      (requirement) =>
+        requirement.category === "location" &&
+        requirement.label.startsWith("Location"),
+    );
+
+    expect(location?.label).toBe("Location (not stated in listing)");
+    expect(location?.status).toBe("unknown");
+    expect(location?.explanation).toBe(
+      "The listing does not state a location, so it could not be compared with the saved search areas.",
+    );
+
+    const stated = buildRequirementEvidenceAssessment({
+      profile: seed.profile,
+      posting: { ...seed.savedJobs[0]!, location: "Austin, TX" },
+      locationCompatibility: "compatible",
+      workModeCompatibility: "unknown",
+      hasLocationPreferences: true,
+      hasWorkModePreferences: false,
+    }).find(
+      (requirement) =>
+        requirement.category === "location" &&
+        requirement.label.startsWith("Location"),
+    );
+    expect(stated?.label).toBe("Location: Austin, TX");
+  });
+});
 
 describe("structured requirement evidence extraction", () => {
   test("maps location compatibility states onto truthful requirement evidence", () => {
@@ -419,5 +465,92 @@ describe("structured requirement evidence extraction", () => {
     expect(
       bareStorybook.find(({ label }) => label === "Design systems"),
     ).toMatchObject({ status: "missing", resumeEvidence: [] });
+  });
+});
+
+describe("fit recommendation rationale wording", () => {
+  const requirement = (
+    overrides: Partial<JobRequirementAssessment>,
+  ): JobRequirementAssessment => ({
+    id: "requirement_1",
+    category: "skill",
+    label: "TypeScript",
+    importance: "required",
+    status: "missing",
+    jobEvidence: "TypeScript experience required.",
+    resumeEvidence: [],
+    explanation: "No matching resume evidence was located.",
+    ...overrides,
+  });
+
+  test("keeps the resume-evidence sentence for resume-backed categories", () => {
+    expect(
+      buildFitRecommendation({
+        score: 50,
+        requirements: [requirement({})],
+      }).rationale,
+    ).toBe("TypeScript is not yet supported by explicit resume evidence.");
+  });
+
+  test("never asks a resume to prove work mode, location, or work authorization", () => {
+    const cases: readonly [Partial<JobRequirementAssessment>, string][] = [
+      [
+        {
+          category: "work_mode",
+          label: "Work mode: remote",
+          status: "unknown",
+        },
+        "Work mode: remote — not stated clearly enough to compare with your preferred work modes.",
+      ],
+      [
+        {
+          category: "work_mode",
+          label: "Work mode: onsite",
+          status: "missing",
+        },
+        "Work mode: onsite — does not match your preferred work modes.",
+      ],
+      [
+        {
+          category: "location",
+          label: "Location: Berlin, Germany",
+          status: "unknown",
+        },
+        "The listing location could not be compared with the saved search areas yet.",
+      ],
+      [
+        {
+          category: "location",
+          label: "Location: Berlin, Germany",
+          status: "missing",
+        },
+        "The listing location is outside the saved search areas.",
+      ],
+      [
+        {
+          category: "work_authorization",
+          label: "Work authorization without sponsorship",
+          status: "unknown",
+        },
+        "Work authorization is not stated in your profile yet.",
+      ],
+      [
+        {
+          category: "work_authorization",
+          label: "Work authorization without sponsorship",
+          status: "missing",
+        },
+        "Work authorization does not match what this listing requires.",
+      ],
+    ];
+
+    for (const [overrides, expected] of cases) {
+      const { rationale } = buildFitRecommendation({
+        score: 50,
+        requirements: [requirement(overrides)],
+      });
+      expect(rationale, overrides.label).toBe(expected);
+      expect(rationale, overrides.label).not.toContain("resume evidence");
+    }
   });
 });

@@ -1,7 +1,10 @@
 import { useCallback, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Check } from "lucide-react";
 import { cn } from "@renderer/lib/cn";
 import {
   formatSectionProgressLabel,
+  getSectionProgressState,
+  isSectionRequiredComplete,
   type ProfileSection,
   type SectionProgress,
 } from "../../lib/profile-screen-progress";
@@ -76,19 +79,29 @@ export function ProfileSectionTabs({
     <div className="pb-1">
       <div
         aria-label="Profile sections"
-        className="grid items-stretch gap-px overflow-hidden border-y border-(--surface-panel-border) bg-(--surface-panel-border) sm:grid-cols-2 xl:grid-cols-5"
+        // Five short section names fit one row from 640px up. The old
+        // `sm:grid-cols-2 xl:grid-cols-5` stacked them into three rows for
+        // every width below 1280px, costing ~85px of the section pane - the
+        // reason a tab click at 1200x640 and 1024x720 left the newly selected
+        // section's content entirely below the fold, so the click looked
+        // like it had done nothing.
+        className="grid grid-cols-2 items-stretch gap-px overflow-hidden border-y border-(--surface-panel-border) bg-(--surface-panel-border) sm:grid-cols-5"
         data-profile-section-tabs
         onKeyDown={handleSectionKeyDown}
         role="tablist"
       >
-        {sections.map((section) => (
+        {sections.map((section, index) => (
           <button
             aria-controls={panelId}
             aria-selected={activeSection === section.id}
             className={cn(
-              "group relative h-full min-h-16 w-full cursor-pointer bg-(--surface-panel) text-left transition-colors duration-150 focus-visible:z-40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/40",
+              "group relative h-full min-h-10 w-full cursor-pointer bg-(--surface-panel) text-left transition-colors duration-150 focus-visible:z-40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/40",
+              index === 4 && "col-span-2 sm:col-span-1",
               activeSection === section.id
-                ? "z-30 bg-accent text-(--text-headline) shadow-[inset_0_-2px_0_var(--primary)]"
+                ? // A left accent bar plus the bottom rule so the selected tab
+                  // still reads as selected when the strip stacks into a
+                  // two-column grid at compact widths.
+                  "z-30 bg-accent font-semibold text-(--text-headline) shadow-[inset_3px_0_0_var(--primary),inset_0_-2px_0_var(--primary)]"
                 : "text-foreground-soft hover:bg-(--surface-tab-hover) hover:text-foreground",
             )}
             id={`${section.id}-tab`}
@@ -98,26 +111,44 @@ export function ProfileSectionTabs({
             tabIndex={activeSection === section.id ? 0 : -1}
             type="button"
           >
-            <span className="pointer-events-none relative grid gap-1.5 px-3 py-2.5">
-              <span className="flex items-center justify-between gap-3">
-                <span className="text-(length:--text-body) font-semibold tracking-[-0.02em]">
-                  {section.label}
-                </span>
-                <span className="text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
-                  {formatSectionProgressLabel(section.id, section.progress)}
-                </span>
-              </span>
+            {/* F16: the navigation label wins the width fight. It used to be
+                the only `min-w-0 truncate` element beside a `shrink-0` status
+                chip, so at 1440px four of five section names rendered as
+                "Experi… / Backgr… / Prefer… / Job so…" while "REQUIRED DONE"
+                rendered in full — including on the active tab, so the user
+                could not read the section they were on. The label never
+                ellipsizes now; the chip does.
 
-              <span className="flex items-center gap-2">
-                <span className="text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-mono) text-foreground-muted">
-                  {section.progress.percent}%
-                </span>
-                <span className="h-1 flex-1 overflow-hidden rounded-(--radius-small) bg-(--surface-overlay-track)">
-                  <span
-                    className="block h-full bg-[linear-gradient(90deg,var(--progress-active-start),var(--progress-active-end))] transition-[width] duration-300"
-                    style={{ width: `${section.progress.percent}%` }}
-                  />
-                </span>
+                The chip is also reduced to its non-default state only. A
+                finished section shows a check with its meaning available to
+                assistive tech, not the words "REQUIRED DONE" repeated across
+                four tabs — which is what was consuming the width. */}
+            <span className="pointer-events-none relative flex min-w-0 items-center justify-between gap-2 px-3 py-2.5">
+              <span className="shrink-0 text-(length:--text-body) font-semibold tracking-[-0.02em]">
+                {section.label}
+              </span>
+              <span
+                className={cn(
+                  "inline-flex min-w-0 items-center gap-1 truncate text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-mono)",
+                  isSectionRequiredComplete(section.progress)
+                    ? "text-(--success-text,var(--foreground-muted))"
+                    : "text-foreground-muted",
+                )}
+                data-profile-section-progress-state={getSectionProgressState(
+                  section.progress,
+                )}
+                title={formatSectionProgressLabel(section.id, section.progress)}
+              >
+                {isSectionRequiredComplete(section.progress) ? (
+                  <>
+                    <Check aria-hidden className="size-3.5 shrink-0" />
+                    <span className="sr-only">
+                      {formatSectionProgressLabel(section.id, section.progress)}
+                    </span>
+                  </>
+                ) : (
+                  formatSectionProgressLabel(section.id, section.progress)
+                )}
               </span>
             </span>
           </button>

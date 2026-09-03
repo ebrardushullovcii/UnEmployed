@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
+  buildDeterministicResumeText,
   buildDeterministicStructuredResumeDraft,
   completeTailoredResumeDraft,
+  composeDeterministicFullText,
 } from "./index";
 import {
   createJobPosting,
@@ -136,6 +138,61 @@ describe("resume generation quality", () => {
         classification: "compact",
       }),
     );
+  });
+
+  test("keeps quantified job qualifications for matching while excluding them from deterministic candidate output", () => {
+    const profile = createProfile();
+    const qualifications = [
+      "Seven years of frontend experience",
+      "6 months of accessibility testing",
+    ];
+    const job = {
+      ...createJobPosting(),
+      title: "Senior Frontend Engineer",
+      keySkills: ["React", "TypeScript"],
+      minimumQualifications: qualifications,
+    };
+    const targetedKeywords = [...qualifications, "React"];
+    const directText = buildDeterministicResumeText(
+      profile,
+      job,
+      "Grounded frontend summary.",
+      [],
+      ["React"],
+      targetedKeywords,
+    );
+    const composedText = composeDeterministicFullText({
+      label: "Tailored Resume",
+      summary: "Grounded frontend summary.",
+      experienceHighlights: [],
+      coreSkills: ["React"],
+      targetedKeywords,
+    });
+    const result = buildDeterministicStructuredResumeDraft({
+      profile,
+      searchPreferences: createPreferences(),
+      settings: createSettings(),
+      job,
+      resumeText: profile.baseResume.textContent,
+      evidence: {
+        summary: [],
+        candidateSummary: [],
+        experience: [],
+        skills: ["React"],
+        keywords: targetedKeywords,
+      },
+    });
+
+    expect(job.minimumQualifications).toEqual(qualifications);
+    expect(directText).toContain("Keywords: React");
+    expect(composedText).toContain("Targeted keywords: React");
+
+    for (const qualification of qualifications) {
+      expect(result.targetedKeywords).not.toContain(qualification);
+      expect(result.fullText).not.toContain(qualification);
+      expect(directText).not.toContain(qualification);
+      expect(composedText).not.toContain(qualification);
+    }
   });
 
   test("never accepts model-authored employment metadata for a canonical role", () => {

@@ -9,7 +9,10 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  getSaveStatusTopOffset,
   JobFinderSaveStatus,
+  SAVE_STATUS_DEFAULT_TOP_OFFSET_PX,
+  SAVE_STATUS_SHELL_HEADER_GAP_PX,
   SAVE_SUCCESS_VISIBLE_MS,
 } from "./job-finder-save-status";
 
@@ -19,6 +22,220 @@ afterEach(() => {
 });
 
 describe("JobFinderSaveStatus", () => {
+  it.each([
+    ["wide", 56, 72],
+    ["two-row", 116, 132],
+  ] as const)(
+    "places the %s shell status lane below the measured shell header",
+    (_label, headerBottom, expectedTop) => {
+      const shellHeader = document.createElement("header");
+      shellHeader.dataset.jobFinderShellHeader = "";
+      shellHeader.getBoundingClientRect = () =>
+        ({ bottom: headerBottom, top: 0 }) as DOMRect;
+      document.body.append(shellHeader);
+
+      const originalInnerHeight = window.innerHeight;
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: 800,
+      });
+
+      try {
+        render(
+          <JobFinderSaveStatus
+            onRetry={vi.fn()}
+            saveState={{
+              state: "saved",
+              version: 1,
+              attempt: 1,
+              surface: "profile",
+              label: "Profile",
+              message: "Profile saved.",
+              canRetry: false,
+            }}
+          />,
+        );
+
+        const status = screen.getByRole("status");
+        expect(status.style.top).toBe(`${expectedTop}px`);
+        expect(status.style.maxHeight).toBe(
+          `calc(100vh - ${expectedTop + 16}px)`,
+        );
+        expect(status.className).toContain("pointer-events-auto");
+        expect(status.parentElement?.className).toContain(
+          "pointer-events-none",
+        );
+        expect(status.dataset.saveStatus).toBe("saved");
+        expect(status.dataset.saveState).toBe("saved");
+        expect(
+          getSaveStatusTopOffset({
+            shellHeaderBottom: headerBottom,
+            viewportHeight: 800,
+          }),
+        ).toBe(expectedTop);
+      } finally {
+        shellHeader.remove();
+        Object.defineProperty(window, "innerHeight", {
+          configurable: true,
+          value: originalInnerHeight,
+        });
+      }
+    },
+  );
+
+  it("uses the default top inset when the shell header is unavailable", () => {
+    render(
+      <JobFinderSaveStatus
+        onRetry={vi.fn()}
+        saveState={{
+          state: "saving",
+          version: 1,
+          attempt: 1,
+          surface: "settings",
+          label: "Settings",
+          message: "Saving settings…",
+          canRetry: false,
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("status").style.top).toBe(
+      `${SAVE_STATUS_DEFAULT_TOP_OFFSET_PX}px`,
+    );
+  });
+
+  it("clamps the measured top inset to the viewport safe area", () => {
+    expect(
+      getSaveStatusTopOffset({
+        shellHeaderBottom: 400,
+        viewportHeight: 320,
+      }),
+    ).toBe(304);
+    expect(SAVE_STATUS_SHELL_HEADER_GAP_PX).toBe(16);
+  });
+
+  it("does not inspect Profile action footers when positioning the status", () => {
+    const originalInnerHeight = window.innerHeight;
+    const shellHeader = document.createElement("header");
+    shellHeader.dataset.jobFinderShellHeader = "";
+    shellHeader.getBoundingClientRect = () =>
+      ({ bottom: 56, top: 0 }) as DOMRect;
+    const footer = document.createElement("div");
+    footer.dataset.profileWorkspaceActions = "";
+    footer.getBoundingClientRect = () => {
+      throw new Error("The save status must not measure Profile footers.");
+    };
+    document.body.append(shellHeader, footer);
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 800,
+    });
+
+    try {
+      render(
+        <JobFinderSaveStatus
+          onRetry={vi.fn()}
+          saveState={{
+            state: "saved",
+            version: 1,
+            attempt: 1,
+            surface: "profile",
+            label: "Profile",
+            message: "Profile saved.",
+            canRetry: false,
+          }}
+        />,
+      );
+
+      const status = screen.getByRole("status");
+      expect(status.style.top).toBe("72px");
+    } finally {
+      shellHeader.remove();
+      footer.remove();
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: originalInnerHeight,
+      });
+    }
+  });
+
+  it("dismisses a successful confirmation when its route changes", () => {
+    const onDismissSaved = vi.fn();
+    const saveState = {
+      state: "saved" as const,
+      version: 4,
+      attempt: 1,
+      surface: "resume" as const,
+      label: "Draft",
+      message: "Draft saved.",
+      canRetry: false,
+    };
+    const view = render(
+      <JobFinderSaveStatus
+        layoutKey="/job-finder/resume"
+        onDismissSaved={onDismissSaved}
+        onRetry={vi.fn()}
+        saveState={saveState}
+      />,
+    );
+
+    expect(screen.getByRole("status").textContent).toContain("Draft saved.");
+
+    view.rerender(
+      <JobFinderSaveStatus
+        layoutKey="/job-finder/applications"
+        onDismissSaved={onDismissSaved}
+        onRetry={vi.fn()}
+        saveState={saveState}
+      />,
+    );
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(onDismissSaved).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["saving", "Saving draft…"],
+    ["failed", "Draft was not saved."],
+  ] as const)(
+    "keeps a %s state visible when its route changes",
+    (state, message) => {
+      const view = render(
+        <JobFinderSaveStatus
+          layoutKey="/job-finder/resume"
+          onRetry={vi.fn()}
+          saveState={{
+            state,
+            version: 5,
+            attempt: 1,
+            surface: "resume",
+            label: "Draft",
+            message,
+            canRetry: state === "failed",
+          }}
+        />,
+      );
+
+      view.rerender(
+        <JobFinderSaveStatus
+          layoutKey="/job-finder/applications"
+          onRetry={vi.fn()}
+          saveState={{
+            state,
+            version: 5,
+            attempt: 1,
+            surface: "resume",
+            label: "Draft",
+            message,
+            canRetry: state === "failed",
+          }}
+        />,
+      );
+
+      expect(screen.getByRole("status").textContent).toContain(message);
+    },
+  );
+
   it.each([
     ["saving", "Saving profile…"],
     ["saved", "Profile saved."],
@@ -39,9 +256,7 @@ describe("JobFinderSaveStatus", () => {
     );
 
     expect(screen.getByRole("status").textContent).toContain(message);
-    expect(
-      screen.queryByRole("button", { name: /Retry saving/iu }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Retry saving/iu })).toBeNull();
   });
 
   it("keeps failed state visible and exposes a named retry action", () => {
@@ -88,9 +303,7 @@ describe("JobFinderSaveStatus", () => {
 
     // The stale exact-request retry must be gone, and the guidance must name
     // the safe alternative instead of leaving an unexplained gap.
-    expect(
-      screen.queryByRole("button", { name: /Retry saving/iu }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Retry saving/iu })).toBeNull();
     expect(screen.getByRole("status").textContent).toContain(
       "Use Save on the form to submit your current changes.",
     );

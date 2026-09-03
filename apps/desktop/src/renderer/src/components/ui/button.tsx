@@ -5,23 +5,40 @@ import { cn } from "@renderer/lib/utils";
 
 // `aria-disabled:` mirrors the `disabled:` treatment so pending controls (and
 // asChild children that cannot take a native disabled attribute) keep the same
-// dimmed, non-interactive look without leaving the accessibility tree.
+// inert, non-interactive look without leaving the accessibility tree.
+//
+// Disabled loses the fill entirely. It used to keep the enabled `secondary`
+// fill and differ only by a label colour step to `--muted-foreground` - the
+// app's ordinary secondary text colour - so a disabled `Add note` was pixel
+// identical to an enabled `Save` beside it, and `Save appearance` (the primary
+// commit on Settings) was unreadable as a state. Removing the fill makes the
+// state legible without relying on a body-text colour.
 const buttonVariants = cva(
-  "relative inline-flex shrink-0 items-center justify-center gap-2 rounded-(--radius-button) whitespace-nowrap transition-[background-color,border-color,color,opacity,box-shadow,transform] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:border-border disabled:bg-secondary disabled:text-muted-foreground disabled:shadow-none disabled:saturate-100 disabled:opacity-100 aria-disabled:cursor-not-allowed aria-disabled:border-border aria-disabled:bg-secondary aria-disabled:text-muted-foreground aria-disabled:shadow-none aria-disabled:saturate-100 aria-disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "relative inline-flex shrink-0 items-center justify-center gap-2 rounded-(--radius-button) whitespace-nowrap transition-[background-color,border-color,color,opacity,box-shadow,transform] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:border-(--disabled-border) disabled:bg-(--disabled-surface) disabled:text-(--disabled-foreground) disabled:shadow-none disabled:saturate-100 disabled:opacity-100 aria-disabled:cursor-not-allowed aria-disabled:border-(--disabled-border) aria-disabled:bg-(--disabled-surface) aria-disabled:text-(--disabled-foreground) aria-disabled:shadow-none aria-disabled:saturate-100 aria-disabled:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         primary:
-          "border border-primary/55 bg-primary text-primary-foreground shadow-none hover:bg-primary/90",
+          // Full primary border + soft outer edge so funnel CTAs (Prepare,
+          // Search, Safeguards) hold weight on dark panels without glow kitsch.
+          "border border-primary bg-primary text-primary-foreground shadow-[inset_0_1px_0_var(--focus-inset-highlight),0_0_0_1px_color-mix(in_oklab,var(--primary)_45%,transparent)] hover:bg-primary/90",
         destructive:
           "border border-destructive/35 bg-destructive text-destructive-foreground hover:opacity-90",
+        // Outline and secondary have no fill difference from the surface they
+        // sit on, so the border is their entire boundary and has to clear the
+        // 3:1 non-text floor against both --card and --background in both
+        // themes. `--control-border` is the token that guarantees that;
+        // `--border`, `--surface-panel-border` and `--surface-well-border` are
+        // inert chrome and must never be a control's only boundary.
         outline:
-          "border border-border bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
+          "border border-(--control-border) bg-transparent text-foreground hover:border-(--control-border-hover) hover:bg-accent hover:text-accent-foreground",
         secondary:
-          "border border-border bg-secondary text-secondary-foreground hover:bg-surface-strong",
+          "border border-(--control-border) bg-secondary text-secondary-foreground hover:border-(--control-border-hover) hover:bg-surface-strong",
         ghost:
-          "border border-transparent bg-transparent text-muted-foreground hover:bg-secondary hover:text-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+          "border border-transparent bg-transparent text-foreground-soft hover:border-(--control-border) hover:bg-secondary hover:text-foreground",
+        // One link treatment app-wide: hue is never the sole carrier, so the
+        // underline is always painted rather than appearing on hover.
+        link: "text-(--link) underline decoration-from-font underline-offset-4 hover:text-(--link-hover)",
       },
       size: {
         default: "h-10 px-5 text-sm font-semibold has-[>svg]:px-4",

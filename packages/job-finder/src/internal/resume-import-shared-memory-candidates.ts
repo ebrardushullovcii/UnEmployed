@@ -132,9 +132,14 @@ export function promoteGroundedSharedMemoryCandidates(
           typeof candidate.evidenceText === "string" &&
           summaryValues.has(normalizeText(candidate.evidenceText))))
     ) {
+      // The resume summary already lands in the professional summary, which is
+      // the field resumes read. Copying the identical paragraph into the
+      // professional story too left the user editing one summary in three
+      // places, so an identical value is dropped instead of duplicated.
       return {
         ...candidate,
-        resolution: "auto_applied",
+        resolution: "rejected",
+        resolutionReason: "redundant_with_professional_summary",
         resolvedAt: new Date().toISOString(),
       };
     }
@@ -145,9 +150,15 @@ export function promoteGroundedSharedMemoryCandidates(
       typeof candidate.value === "string" &&
       summaryValues.has(normalizeText(candidate.value))
     ) {
+      // "How would you introduce yourself?" is a spoken answer that goes into
+      // application forms. Pre-filling it with the written resume paragraph
+      // put text the user was told to rewrite into their applications. Setup
+      // offers the summary as a one-click suggestion instead, so the
+      // identical paragraph is dropped rather than silently applied.
       return {
         ...candidate,
-        resolution: "auto_applied",
+        resolution: "rejected",
+        resolutionReason: "redundant_with_professional_summary",
         resolvedAt: new Date().toISOString(),
       };
     }

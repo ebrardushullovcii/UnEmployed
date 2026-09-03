@@ -1,15 +1,15 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ProfileSaveFooter } from './profile-save-footer'
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ProfileSaveFooter } from "./profile-save-footer";
 
 function renderFooter(overrides?: {
-  actionMessage?: string | null
-  hasUnsavedChanges?: boolean
-  isSavePending?: boolean
-  onSave?: () => void
-  validationMessage?: string | null
+  actionMessage?: string | null;
+  hasUnsavedChanges?: boolean;
+  isSavePending?: boolean;
+  onSave?: () => void;
+  validationMessage?: string | null;
 }) {
   return render(
     <ProfileSaveFooter
@@ -19,16 +19,16 @@ function renderFooter(overrides?: {
       onSave={overrides?.onSave ?? vi.fn()}
       validationMessage={overrides?.validationMessage ?? null}
     />,
-  )
+  );
 }
 
-describe('ProfileSaveFooter', () => {
+describe("ProfileSaveFooter", () => {
   afterEach(() => {
-    cleanup()
-  })
+    cleanup();
+  });
 
-  it('keeps Save changes disabled until the form is dirty', () => {
-    const onSave = vi.fn()
+  it("keeps Save changes disabled until the form is dirty", () => {
+    const onSave = vi.fn();
     const { rerender } = render(
       <ProfileSaveFooter
         actionMessage={null}
@@ -37,12 +37,12 @@ describe('ProfileSaveFooter', () => {
         onSave={onSave}
         validationMessage={null}
       />,
-    )
+    );
 
-    const button = screen.getByRole('button', { name: 'Save changes' })
+    const button = screen.getByRole("button", { name: "Save changes" });
     // A clean form keeps native disabled semantics.
-    expect(button.hasAttribute('disabled')).toBe(true)
-    expect(button.getAttribute('aria-disabled')).toBeNull()
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(button.getAttribute("aria-disabled")).toBeNull();
 
     rerender(
       <ProfileSaveFooter
@@ -52,18 +52,22 @@ describe('ProfileSaveFooter', () => {
         onSave={onSave}
         validationMessage={null}
       />,
-    )
+    );
 
-    expect(screen.getByRole('button', { name: 'Save changes' }).hasAttribute('disabled')).toBe(false)
-  })
+    expect(
+      screen
+        .getByRole("button", { name: "Save changes" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+  });
 
-  it('retains focus on Save changes while the save is pending and blocks activation', () => {
-    const onSave = vi.fn()
-    const view = renderFooter({ hasUnsavedChanges: true, onSave })
+  it("retains focus on Save changes while the save is pending and blocks activation", () => {
+    const onSave = vi.fn();
+    const view = renderFooter({ hasUnsavedChanges: true, onSave });
 
-    const button = screen.getByRole('button', { name: 'Save changes' })
-    button.focus()
-    expect(document.activeElement).toBe(button)
+    const button = screen.getByRole("button", { name: "Save changes" });
+    button.focus();
+    expect(document.activeElement).toBe(button);
 
     view.rerender(
       <ProfileSaveFooter
@@ -73,19 +77,19 @@ describe('ProfileSaveFooter', () => {
         onSave={onSave}
         validationMessage={null}
       />,
-    )
+    );
 
     // Pending keeps the control exposed but inert without dropping focus.
-    expect(document.activeElement).toBe(button)
-    expect(button.hasAttribute('disabled')).toBe(false)
-    expect(button.getAttribute('aria-busy')).toBe('true')
-    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(document.activeElement).toBe(button);
+    expect(button.hasAttribute("disabled")).toBe(false);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(button.getAttribute("aria-disabled")).toBe("true");
 
-    fireEvent.click(button)
-    fireEvent.keyDown(button, { key: 'Enter' })
-    fireEvent.keyDown(button, { key: ' ' })
-    fireEvent.click(screen.getByText(/Save your changes before leaving/))
-    expect(onSave).not.toHaveBeenCalled()
+    fireEvent.click(button);
+    fireEvent.keyDown(button, { key: "Enter" });
+    fireEvent.keyDown(button, { key: " " });
+    fireEvent.click(screen.getByText(/Unsaved changes on this page/));
+    expect(onSave).not.toHaveBeenCalled();
 
     view.rerender(
       <ProfileSaveFooter
@@ -95,32 +99,70 @@ describe('ProfileSaveFooter', () => {
         onSave={onSave}
         validationMessage={null}
       />,
-    )
+    );
 
     // Pending -> ready restores activation under the retained focus.
-    expect(document.activeElement).toBe(button)
-    expect(button.getAttribute('aria-busy')).toBeNull()
-    expect(button.getAttribute('aria-disabled')).toBeNull()
-    fireEvent.click(button)
-    expect(onSave).toHaveBeenCalledTimes(1)
-  })
+    expect(document.activeElement).toBe(button);
+    expect(button.getAttribute("aria-busy")).toBeNull();
+    expect(button.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(button);
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
 
-  it('announces save state through live regions only, without describedby duplication', () => {
+  it("describes the disabled save with its reason and never with a live region", () => {
     renderFooter({
-      actionMessage: 'Profile saved.',
+      actionMessage: "Profile saved.",
       hasUnsavedChanges: false,
-      validationMessage: 'Add an email address before saving.',
-    })
+      validationMessage: "Add an email address before saving.",
+    });
 
-    const button = screen.getByRole('button', { name: 'Save changes' })
-    // Both messages already live in role="status" regions; pointing the button
-    // at them via aria-describedby would announce each message twice.
-    expect(button.getAttribute('aria-describedby')).toBeNull()
-
-    const statuses = screen.getAllByRole('status')
+    const button = screen.getByRole("button", { name: "Save changes" });
+    const statuses = screen.getAllByRole("status");
     expect(statuses.map((status) => status.textContent)).toEqual([
-      'Add an email address before saving.',
-      'Profile saved.',
-    ])
-  })
-})
+      "Add an email address before saving.",
+      "Profile saved.",
+    ]);
+
+    // The validation and last-action messages already live in role="status"
+    // regions; pointing the button at either would announce it twice. The
+    // save-state line is not a live region, so a greyed Save can carry it as
+    // a visible, announced reason instead of being unexplained.
+    const describedBy = button.getAttribute("aria-describedby");
+    expect(describedBy).not.toBeNull();
+    expect(
+      statuses.some((status) => status.getAttribute("id") === describedBy),
+    ).toBe(false);
+    const reason = document.getElementById(describedBy ?? "");
+    expect(reason?.textContent).toBe("No unsaved changes.");
+    expect(reason?.getAttribute("data-profile-save-state")).toBe("clean");
+  });
+
+  it("turns Save off when the page is clean and on when it is dirty", () => {
+    const { rerender } = renderFooter({ hasUnsavedChanges: false });
+
+    const cleanButton = screen.getByRole("button", { name: "Save changes" });
+    expect((cleanButton as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      document
+        .querySelector("[data-profile-save-state]")
+        ?.getAttribute("data-profile-save-state"),
+    ).toBe("clean");
+
+    rerender(
+      <ProfileSaveFooter
+        actionMessage={null}
+        hasUnsavedChanges
+        isSavePending={false}
+        onSave={() => {}}
+        validationMessage={null}
+      />,
+    );
+
+    const dirtyButton = screen.getByRole("button", { name: "Save changes" });
+    expect((dirtyButton as HTMLButtonElement).disabled).toBe(false);
+    expect(dirtyButton.getAttribute("aria-describedby")).toBeNull();
+    const dirtyState = document.querySelector("[data-profile-save-state]");
+    expect(dirtyState?.getAttribute("data-profile-save-state")).toBe("dirty");
+    expect(dirtyState?.textContent).toBe("Unsaved changes on this page.");
+  });
+});

@@ -35,10 +35,17 @@ import type {
   DesktopWindowControlsState,
   DiscoveryActivityEvent,
   DiscoveryFeedbackReason,
+  ApplicationAuthorityReadiness,
+  ApproveCurrentApplicationAnswersInput,
+  ApproveCurrentApplicationAnswersResult,
+  CreateApplicationAuthorityEnvelopeInput,
+  GetApplicationAuthorityEnvelopeInput,
+  GetApplicationAuthorityReadinessInput,
   InterviewExportFormat,
   InterviewExportResult,
   JobFinderInterviewFollowUpInput,
   ListApplicationDocumentsInput,
+  ListApplicationAuthorityEnvelopesInput,
   InterviewHotkeyAction,
   InterviewOverlayMoveInput,
   InterviewAudioTranscriptionInput,
@@ -81,7 +88,10 @@ import type {
   ResumeImportProgressEvent,
   ResumeImportRun,
   ResumeApplicationMode,
+  ResumePdfExportIntent,
   RemoveEmployerExclusionInput,
+  RevokeApplicationAuthorityEnvelopeInput,
+  ResolveSubmissionOutcomeInput,
   ResumeTimelineRepairAction,
   ResumeDocumentBundle,
   JobFinderResumeWorkspace,
@@ -118,14 +128,29 @@ import type {
   SetJobFinderActivityControlInput,
   SnoozeGroupedDecisionInput,
   UpdateApplicationDefaultsInput,
+  UpdateApplicationAuthorityEnvelopeInput,
   UpdateWorkspaceBehaviorInput,
   WorkspaceRevision,
   UserActionCommandInput,
 } from "@unemployed/contracts";
 import { SYSTEM_THEME_CHANGE_EVENT } from "../shared/system-theme";
 import {
+  ApplicationAuthorityEnvelopeMutationResultSchema,
+  ApplicationAuthorityReadinessSchema,
+  ApproveCurrentApplicationAnswersInputSchema,
+  ApproveCurrentApplicationAnswersResultSchema,
+  CreateApplicationAuthorityEnvelopeInputSchema,
+  GetApplicationAuthorityEnvelopeInputSchema,
+  GetApplicationAuthorityEnvelopeResultSchema,
+  GetApplicationAuthorityReadinessInputSchema,
+  ListApplicationAuthorityEnvelopesInputSchema,
+  ListApplicationAuthorityEnvelopesResultSchema,
   JobFinderStartupDatabaseRecoveryFactSchema,
   JobFinderStartupResetRecoveryFactSchema,
+  RevokeApplicationAuthorityEnvelopeInputSchema,
+  ResolveSubmissionOutcomeInputSchema,
+  ResolveSubmissionOutcomeResultSchema,
+  UpdateApplicationAuthorityEnvelopeInputSchema,
 } from "@unemployed/contracts";
 
 let activeAgentDiscoveryRequestId: string | null = null;
@@ -315,15 +340,13 @@ const desktopApi = {
         "window:toggle-maximize",
       ) as Promise<DesktopWindowControlsState>,
     setCloseGuardState: (input: DesktopWindowCloseGuardState) =>
-      ipcRenderer.invoke(
-        "window:set-close-guard-state",
-        input,
-      ) as Promise<{ ok: true }>,
+      ipcRenderer.invoke("window:set-close-guard-state", input) as Promise<{
+        ok: true;
+      }>,
     resolveCloseRequest: (input: DesktopWindowCloseResolution) =>
-      ipcRenderer.invoke(
-        "window:resolve-close-request",
-        input,
-      ) as Promise<{ ok: true }>,
+      ipcRenderer.invoke("window:resolve-close-request", input) as Promise<{
+        ok: true;
+      }>,
     onCloseRequest: (
       listener: (request: DesktopWindowCloseRequest) => void,
     ) => {
@@ -467,6 +490,88 @@ const desktopApi = {
       ) as Promise<JobFinderWorkspaceSnapshot>,
   },
   jobFinder: {
+    getApplicationAuthorityReadiness: (
+      input: GetApplicationAuthorityReadinessInput = {},
+    ): Promise<ApplicationAuthorityReadiness> =>
+      ipcRenderer
+        .invoke(
+          "job-finder:get-application-authority-readiness",
+          GetApplicationAuthorityReadinessInputSchema.parse(input),
+        )
+        .then((result) => ApplicationAuthorityReadinessSchema.parse(result)),
+    approveCurrentApplicationAnswers: (
+      input: ApproveCurrentApplicationAnswersInput,
+    ): Promise<ApproveCurrentApplicationAnswersResult> =>
+      ipcRenderer
+        .invoke(
+          "job-finder:approve-current-application-answers",
+          ApproveCurrentApplicationAnswersInputSchema.parse(input),
+        )
+        .then((result) =>
+          ApproveCurrentApplicationAnswersResultSchema.parse(result),
+        ),
+    listApplicationAuthorityEnvelopes: (
+      input: ListApplicationAuthorityEnvelopesInput = {},
+    ) =>
+      ipcRenderer
+        .invoke(
+          "job-finder:list-application-authority-envelopes",
+          ListApplicationAuthorityEnvelopesInputSchema.parse(input),
+        )
+        .then((result) =>
+          ListApplicationAuthorityEnvelopesResultSchema.parse(result),
+        ),
+    getApplicationAuthorityEnvelope: (
+      input: GetApplicationAuthorityEnvelopeInput,
+    ) =>
+      ipcRenderer
+        .invoke(
+          "job-finder:get-application-authority-envelope",
+          GetApplicationAuthorityEnvelopeInputSchema.parse(input),
+        )
+        .then((result) =>
+          GetApplicationAuthorityEnvelopeResultSchema.parse(result),
+        ),
+    createApplicationAuthorityEnvelope: (
+      input: CreateApplicationAuthorityEnvelopeInput,
+    ) =>
+      ipcRenderer
+        .invoke(
+          "job-finder:create-application-authority-envelope",
+          CreateApplicationAuthorityEnvelopeInputSchema.parse(input),
+        )
+        .then((result) =>
+          ApplicationAuthorityEnvelopeMutationResultSchema.parse(result),
+        ),
+    updateApplicationAuthorityEnvelope: (
+      input: UpdateApplicationAuthorityEnvelopeInput,
+    ) =>
+      ipcRenderer
+        .invoke(
+          "job-finder:update-application-authority-envelope",
+          UpdateApplicationAuthorityEnvelopeInputSchema.parse(input),
+        )
+        .then((result) =>
+          ApplicationAuthorityEnvelopeMutationResultSchema.parse(result),
+        ),
+    revokeApplicationAuthorityEnvelope: (
+      input: RevokeApplicationAuthorityEnvelopeInput,
+    ) =>
+      ipcRenderer
+        .invoke(
+          "job-finder:revoke-application-authority-envelope",
+          RevokeApplicationAuthorityEnvelopeInputSchema.parse(input),
+        )
+        .then((result) =>
+          ApplicationAuthorityEnvelopeMutationResultSchema.parse(result),
+        ),
+    resolveSubmissionOutcome: (input: ResolveSubmissionOutcomeInput) =>
+      ipcRenderer
+        .invoke(
+          "job-finder:resolve-submission-outcome",
+          ResolveSubmissionOutcomeInputSchema.parse(input),
+        )
+        .then((result) => ResolveSubmissionOutcomeResultSchema.parse(result)),
     listApplicationDocuments: (input: ListApplicationDocumentsInput) =>
       ipcRenderer.invoke(
         "job-finder:list-application-documents",
@@ -775,22 +880,52 @@ const desktopApi = {
           }
         : null;
 
-      if (progressHandler) {
-        ipcRenderer.on(progressChannel, progressHandler);
-      }
-
-      return (
-        ipcRenderer.invoke("job-finder:import-resume", {
-          requestId,
-        }) as Promise<JobFinderWorkspaceSnapshot>
-      ).finally(() => {
+      const cleanup = () => {
         if (progressHandler) {
           ipcRenderer.off(progressChannel, progressHandler);
         }
         if (activeResumeImportRequestId === requestId) {
           activeResumeImportRequestId = null;
         }
-      });
+      };
+
+      try {
+        if (progressHandler) {
+          ipcRenderer.on(progressChannel, progressHandler);
+        }
+
+        // Keep cleanup around the invoke itself as well as its promise. A
+        // renderer teardown or a test double can throw synchronously before
+        // Electron returns the IPC promise, which otherwise leaves the
+        // module-level single-flight lock and listener stranded.
+        return Promise.resolve(
+          ipcRenderer.invoke("job-finder:import-resume", {
+            requestId,
+          }) as Promise<JobFinderWorkspaceSnapshot>,
+        ).finally(cleanup);
+      } catch (error) {
+        cleanup();
+        return Promise.reject(
+          error instanceof Error
+            ? error
+            : new Error("Resume import could not start."),
+        );
+      }
+    },
+    cancelImportResume: () => {
+      const requestId = activeResumeImportRequestId;
+      if (!requestId) {
+        return;
+      }
+
+      // Keep the request identity in the payload so main can fence a late
+      // native file choice. Release the renderer single-flight lock after the
+      // send; the main handler will discard that old choice if the picker
+      // returns later, and its finally cannot clear a newer request.
+      ipcRenderer.send("job-finder:cancel-import-resume", { requestId });
+      if (activeResumeImportRequestId === requestId) {
+        activeResumeImportRequestId = null;
+      }
     },
     runDiscovery: () =>
       ipcRenderer.invoke(
@@ -1056,8 +1191,12 @@ const desktopApi = {
         jobId,
         sectionId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
-    exportResumePdf: (jobId: string) =>
+    exportResumePdf: (
+      jobId: string,
+      intent: ResumePdfExportIntent = "download",
+    ) =>
       ipcRenderer.invoke("job-finder:export-resume-pdf", {
+        intent,
         jobId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
     approveResume: (jobId: string, exportId: string) =>

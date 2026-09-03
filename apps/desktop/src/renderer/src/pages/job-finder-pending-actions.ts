@@ -21,16 +21,13 @@ export const jobFinderPendingActions = {
     `campaign-rule-funnel:${campaignId}`,
   companyIntelligenceMutation: (
     companyId: string,
-  ): `company-intelligence:${string}` =>
-    `company-intelligence:${companyId}`,
+  ): `company-intelligence:${string}` => `company-intelligence:${companyId}`,
   companyIntelligenceRefresh: (): "company-intelligence:refresh" =>
     "company-intelligence:refresh",
-  companyMergeReview: (
-    companyId: string,
-  ): `company-merge:${string}` => `company-merge:${companyId}`,
-  companyPreference: (
-    companyId: string,
-  ): `company-preference:${string}` => `company-preference:${companyId}`,
+  companyMergeReview: (companyId: string): `company-merge:${string}` =>
+    `company-merge:${companyId}`,
+  companyPreference: (companyId: string): `company-preference:${string}` =>
+    `company-preference:${companyId}`,
   groupedDecisionSnooze: (
     decisionId: string,
   ): `grouped-decision:snooze:${string}` =>
@@ -59,9 +56,8 @@ export const jobFinderPendingActions = {
     `profile:review:${reviewItemId}`,
   profileSetup: (): "profile:setup" => "profile:setup",
   rapidReview: (): "rapid-review" => "rapid-review",
-  safeguardsMutation: (
-    key: string,
-  ): `safeguards:${string}` => `safeguards:${key}`,
+  safeguardsMutation: (key: string): `safeguards:${string}` =>
+    `safeguards:${key}`,
   recordOutcome: (jobId: string): `outcome:record:${string}` =>
     `outcome:record:${jobId}`,
   outcomeSuggestion: (
@@ -70,14 +66,14 @@ export const jobFinderPendingActions = {
   ): `outcome:suggestion:${string}:${string}` =>
     `outcome:suggestion:${dimension}:${key}`,
   resumeJob: (jobId: string): `resume:${string}` => `resume:${jobId}`,
+  resumeExport: (jobId: string): `resume:export:${string}` =>
+    `resume:export:${jobId}`,
   resumeStrategySave: (): "resume-strategy:save" => "resume-strategy:save",
   resumeStrategyDisable: (
     strategyId: string,
   ): `resume-strategy:disable:${string}` =>
     `resume-strategy:disable:${strategyId}`,
-  resumeStrategySelect: (
-    jobId: string,
-  ): `resume-strategy:select:${string}` =>
+  resumeStrategySelect: (jobId: string): `resume-strategy:select:${string}` =>
     `resume-strategy:select:${jobId}`,
   resumeStrategyRecommend: (
     jobId: string,
@@ -104,6 +100,38 @@ type PendingActionFactory =
 
 export type PendingActionScope = ReturnType<PendingActionFactory>;
 export type PendingActionState = Partial<Record<PendingActionScope, number>>;
+
+// Pending counts are deliberately kept as the public state shape, but a
+// renderer route can outlive a native dialog. A generation lets that route
+// retire the old operation without allowing its late `finally` callback to
+// decrement a newer operation that reused the same scope.
+const pendingActionGenerations = new Map<PendingActionScope, number>();
+
+export function getPendingActionGeneration(scope: PendingActionScope): number {
+  return pendingActionGenerations.get(scope) ?? 0;
+}
+
+export function invalidatePendingActionScope(scope: PendingActionScope): void {
+  pendingActionGenerations.set(scope, getPendingActionGeneration(scope) + 1);
+}
+
+export function clearPendingActionScopes(
+  current: PendingActionState,
+  scopes: readonly PendingActionScope[],
+): PendingActionState {
+  let nextState: PendingActionState | null = null;
+
+  for (const scope of scopes) {
+    if (!(scope in current)) {
+      continue;
+    }
+
+    nextState ??= { ...current };
+    delete nextState[scope];
+  }
+
+  return nextState ?? current;
+}
 
 export function hasPendingAction(
   pendingActionState: PendingActionState,

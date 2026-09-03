@@ -87,10 +87,128 @@ const applicationKindCopy: Record<
   other: {
     titleVerb: "Complete the browser step",
     summaryStep: "manual",
-    instruction:
-      "Complete the described step yourself in the managed browser. Do not enter credentials or security answers anywhere except the browser page.",
+    instruction: "Finish this step yourself in the managed browser.",
   },
 };
+
+/**
+ * The concrete reason the application paused, in the user's words: the
+ * classified blocker's own summary plus its detail when that adds anything.
+ * This keeps the Needs-you card specific ("the site tried to save a field
+ * automatically") instead of a generic "complete the described step".
+ */
+/**
+ * Runtime details name the interrupted field, but fall back to the literal
+ * placeholder "application field" when none was captured. Quoting that
+ * placeholder to the user reads as a real field name they can go and find.
+ */
+const PLACEHOLDER_FIELD_QUOTE = /['"‘’“”]application field['"‘’“”]/gi;
+
+/**
+ * The no-submit boundary is owned once by the Needs-you page header, so the
+ * per-card reason does not restate it.
+ */
+const TRAILING_NO_SUBMIT_CLAUSE =
+  /,?\s*instead of risking a final (?:application )?submission\b\.?/i;
+
+/**
+ * Words that carry no meaning for the redundancy comparison below, so
+ * "The application page could not safely save a prepared field" is compared
+ * on `application/page/safely/save/prepared/field`.
+ */
+const REASON_STOP_WORDS = new Set([
+  "and",
+  "any",
+  "are",
+  "but",
+  "can",
+  "could",
+  "did",
+  "for",
+  "had",
+  "has",
+  "have",
+  "into",
+  "its",
+  "not",
+  "may",
+  "might",
+  "must",
+  "own",
+  "should",
+  "still",
+  "than",
+  "that",
+  "the",
+  "their",
+  "them",
+  "then",
+  "there",
+  "this",
+  "those",
+  "was",
+  "were",
+  "when",
+  "while",
+  "with",
+  "would",
+  "your",
+]);
+
+function readReasonContentWords(value: string): Set<string> {
+  return new Set(
+    value
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((word) => word.length > 2 && !REASON_STOP_WORDS.has(word)),
+  );
+}
+
+/**
+ * True when the detail already says what the summary says. A blocker summary
+ * is a short label and its detail is the same event told at length, so
+ * printing both produced cards that opened with two near-identical sentences
+ * ("... could not safely save a prepared field. The application site tried to
+ * save a field while it was being prepared."). When the detail's first
+ * sentence already carries most of the summary's meaning, the detail — which
+ * is strictly more specific — is the only sentence worth showing.
+ */
+const REASON_RESTATEMENT_OVERLAP = 0.6;
+
+function detailRestatesSummary(summary: string, detail: string): boolean {
+  const summaryWords = readReasonContentWords(summary);
+  if (summaryWords.size === 0) {
+    return true;
+  }
+
+  const detailOpening = detail.split(/(?<=[.!?])\s+/)[0] ?? detail;
+  const detailWords = readReasonContentWords(detailOpening);
+  const shared = [...summaryWords].filter((word) =>
+    detailWords.has(word),
+  ).length;
+
+  return shared / summaryWords.size >= REASON_RESTATEMENT_OVERLAP;
+}
+
+export function describeApplicationBlockerReason(
+  blocker: Pick<ApplicationAttemptBlocker, "summary" | "detail">,
+): string {
+  const summary = blocker.summary.trim();
+  const summarySentence = /[.!?]$/.test(summary) ? summary : `${summary}.`;
+  const detail = (blocker.detail?.trim() ?? "")
+    .replace(PLACEHOLDER_FIELD_QUOTE, "a field")
+    .replace(TRAILING_NO_SUBMIT_CLAUSE, "")
+    .trim();
+  const normalizedDetail =
+    detail.length > 0 && !/[.!?]$/.test(detail) ? `${detail}.` : detail;
+  if (normalizedDetail.length === 0 || normalizedDetail === summarySentence) {
+    return summarySentence;
+  }
+  if (detailRestatesSummary(summarySentence, normalizedDetail)) {
+    return normalizedDetail;
+  }
+  return `${summarySentence} ${normalizedDetail}`;
+}
 
 function stableFingerprint(value: string): string {
   let hash = 2_166_136_261;
@@ -399,13 +517,13 @@ export async function persistApplicationUserAction(input: {
           expectedPageFingerprint: null,
         },
     title: `${copy.titleVerb} to continue the ${input.job.company} application`,
-    summary: `This application is paused at a browser-owned ${copy.summaryStep} step. Complete it in the managed browser, then return so Job Finder can verify the exact blocker no longer appears.`,
+    summary: `${describeApplicationBlockerReason(input.blocker)} Complete this ${copy.summaryStep} step in the managed browser, then return so Job Finder can verify the exact blocker no longer appears.`,
     instructions: [
       copy.instruction,
-      "Return to the action inbox and confirm completion only after the browser step is complete.",
+      "Return to Needs you and confirm completion only after the browser step is complete.",
       isApplicationAuthenticationUserActionKind(kind)
-        ? "After access verification, Job Finder retries this exact application once and stops before final submission."
-        : "After confirmation, Job Finder runs one exact prepare-only retry to verify the blocker and stops before final submission.",
+        ? "After access verification, Job Finder retries this exact application once."
+        : "After confirmation, Job Finder runs one exact prepare-only retry to verify the blocker.",
     ],
     actionUrl: browserTarget?.actionUrl ?? null,
     displayOrigin: browserTarget?.expectedOrigin ?? null,

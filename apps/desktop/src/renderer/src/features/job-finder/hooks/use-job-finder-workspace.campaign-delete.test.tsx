@@ -135,9 +135,8 @@ describe("useJobFinderWorkspace campaign deletion", () => {
       if (result.current.status !== "ready") {
         throw new Error("Expected a ready Job Finder workspace.");
       }
-      deleted = await result.current.actions.deleteCampaign(
-        DELETED_CAMPAIGN_ID,
-      );
+      deleted =
+        await result.current.actions.deleteCampaign(DELETED_CAMPAIGN_ID);
     });
 
     expect(deleted).toBe(true);
@@ -150,9 +149,9 @@ describe("useJobFinderWorkspace campaign deletion", () => {
     if (result.current.status !== "ready") {
       throw new Error("unreachable");
     }
-    expect(
-      result.current.workspace.campaigns.map(({ id }) => id),
-    ).toEqual(["campaign-kept"]);
+    expect(result.current.workspace.campaigns.map(({ id }) => id)).toEqual([
+      "campaign-kept",
+    ]);
   });
 
   it("adopts the backend-selected fallback active campaign after deletion", async () => {
@@ -176,9 +175,7 @@ describe("useJobFinderWorkspace campaign deletion", () => {
     if (result.current.status !== "ready") {
       throw new Error("unreachable");
     }
-    expect(result.current.workspace.activeCampaignId).toBe(
-      "campaign-fallback",
-    );
+    expect(result.current.workspace.activeCampaignId).toBe("campaign-fallback");
     expect(result.current.workspace.generatedAt).toBe(
       "2026-08-09T10:06:00.000Z",
     );
@@ -194,9 +191,8 @@ describe("useJobFinderWorkspace campaign deletion", () => {
       if (result.current.status !== "ready") {
         throw new Error("Expected a ready Job Finder workspace.");
       }
-      deleted = await result.current.actions.deleteCampaign(
-        DELETED_CAMPAIGN_ID,
-      );
+      deleted =
+        await result.current.actions.deleteCampaign(DELETED_CAMPAIGN_ID);
     });
 
     expect(deleted).toBe(false);
@@ -207,9 +203,7 @@ describe("useJobFinderWorkspace campaign deletion", () => {
       throw new Error("unreachable");
     }
     expect(result.current.workspace).toBe(initialWorkspace);
-    expect(result.current.workspace.activeCampaignId).toBe(
-      DELETED_CAMPAIGN_ID,
-    );
+    expect(result.current.workspace.activeCampaignId).toBe(DELETED_CAMPAIGN_ID);
   });
 
   it("propagates a failed deletion without refreshing the workspace", async () => {
@@ -226,7 +220,10 @@ describe("useJobFinderWorkspace campaign deletion", () => {
       }
       failure = await result.current.actions
         .deleteCampaign(DELETED_CAMPAIGN_ID)
-        .then(() => null, (error: unknown) => error);
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
     });
 
     expect(failure).toBeInstanceOf(Error);
@@ -294,8 +291,8 @@ describe("useJobFinderWorkspace campaign deletion", () => {
       throw new Error("unreachable");
     }
     expect(result.current.workspace.activeCampaignId).toBe("campaign-newer");
-    expect(
-      result.current.workspace.campaigns.map(({ id }) => id),
-    ).toEqual(["campaign-newer"]);
+    expect(result.current.workspace.campaigns.map(({ id }) => id)).toEqual([
+      "campaign-newer",
+    ]);
   });
 });

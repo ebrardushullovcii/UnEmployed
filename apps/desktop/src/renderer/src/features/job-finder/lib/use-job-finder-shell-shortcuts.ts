@@ -21,6 +21,7 @@ export interface UseJobFinderShellShortcutsInput {
   isOverlayOpen: boolean;
   isSearchOpen: boolean;
   onOpenGlobalSearch: () => void;
+  onOpenShortcuts: () => void;
   onToggleSidebar: () => void;
 }
 
@@ -31,15 +32,21 @@ export interface UseJobFinderShellShortcutsInput {
  * fires outside editable, interactive, and modal contexts. Overlay surfaces
  * register with the shared LIFO ownership stack, so Task Center, menus,
  * dialogs, and screen modals block both aliases without prop threading, while
- * Cmd/Ctrl+K stays available as the summon. Every handler respects
- * defaultPrevented and IME composition.
+ * Cmd/Ctrl+K stays available as the summon. "?" opens the keyboard-shortcut
+ * reference under the same non-editable, non-overlay conditions as "/". Every
+ * handler respects defaultPrevented and IME composition.
  */
 export function useJobFinderShellShortcuts(
   input: UseJobFinderShellShortcutsInput,
 ): boolean {
   const [isWideLayout, setIsWideLayout] = useState(getInitialWideLayout);
-  const { isOverlayOpen, isSearchOpen, onOpenGlobalSearch, onToggleSidebar } =
-    input;
+  const {
+    isOverlayOpen,
+    isSearchOpen,
+    onOpenGlobalSearch,
+    onOpenShortcuts,
+    onToggleSidebar,
+  } = input;
   const hasRegisteredOverlays = useHasOpenJobFinderOverlays();
   const isAnyOverlayOpen = isOverlayOpen || hasRegisteredOverlays;
 
@@ -82,6 +89,17 @@ export function useJobFinderShellShortcuts(
       }
 
       if (
+        eventMatchesJobFinderShortcut(event, "?") &&
+        !isAnyOverlayOpen &&
+        !isEditableShortcutTarget(event.target) &&
+        !isInteractiveShortcutTarget(event.target)
+      ) {
+        event.preventDefault();
+        onOpenShortcuts();
+        return;
+      }
+
+      if (
         eventMatchesJobFinderShortcut(event, "mod+b") &&
         !isSearchOpen &&
         !isAnyOverlayOpen &&
@@ -102,6 +120,7 @@ export function useJobFinderShellShortcuts(
     isSearchOpen,
     isWideLayout,
     onOpenGlobalSearch,
+    onOpenShortcuts,
     onToggleSidebar,
   ]);
 

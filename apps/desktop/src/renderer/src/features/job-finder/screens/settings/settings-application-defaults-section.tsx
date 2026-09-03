@@ -5,12 +5,15 @@ import type {
   ResumeTemplateDefinition,
   UpdateApplicationDefaultsInput,
 } from "@unemployed/contracts";
-import { Badge } from "@renderer/components/ui/badge";
-import { Button } from "@renderer/components/ui/button";
 import { Field, FieldLabel } from "@renderer/components/ui/field";
 import { FormSelect } from "../../components/form-select";
 import { ResumeThemePicker } from "../../components/resume-theme-picker";
-import { useSettingsSectionSave } from "./settings-section-save";
+import { useRegisterSettingsDirtySection } from "./settings-dirty-sections";
+import { SettingsSectionSaveControl } from "./settings-section-save-control";
+import {
+  hasOutstandingSectionChanges,
+  useSettingsSectionSave,
+} from "./settings-section-save";
 
 const fontPresetOptions: ReadonlyArray<{
   description: string;
@@ -59,7 +62,8 @@ export function SettingsApplicationDefaultsSection({
   const [draftResumeTemplateId, setDraftResumeTemplateId] = useState(
     settings.resumeTemplateId,
   );
-  const { runSectionSave, saveState } = useSettingsSectionSave();
+  const { resetSectionSave, runSectionSave, saveState } =
+    useSettingsSectionSave();
 
   useEffect(() => {
     setSelectedResumeApplicationMode(savedResumeApplicationMode);
@@ -94,16 +98,9 @@ export function SettingsApplicationDefaultsSection({
       return;
     }
     updater();
+    resetSectionSave();
     onSettingsDraftEdited?.();
   };
-  const saveButtonLabel =
-    saveState.status === "saving"
-      ? "Saving resume preference"
-      : saveState.status === "failed"
-        ? "Retry resume preference"
-        : saveState.status === "saved" && !hasUnsavedChanges
-          ? "Resume preference saved"
-          : "Save resume preference";
   const saveApplicationDefaults = () => {
     if (!hasUnsavedChanges || isSavePending) {
       return;
@@ -121,46 +118,40 @@ export function SettingsApplicationDefaultsSection({
     });
   };
 
+  useRegisterSettingsDirtySection({
+    anchorId: "settings-application-defaults",
+    isDirty: hasOutstandingSectionChanges(hasUnsavedChanges, saveState),
+    isSaving: isSavePending,
+    label: "Application defaults",
+    onSave: saveApplicationDefaults,
+    order: 1,
+    saveLabel: "Save resume preference",
+  });
+
   return (
     <section className="surface-panel-shell relative grid min-w-0 content-start gap-3 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="grid min-w-0 max-w-[72ch] flex-1 gap-1">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <h3 className="min-w-0 text-[1.02rem] font-semibold text-(--text-headline)">
+            <h3 className="min-w-0 font-semibold text-(--text-headline)">
               Resume used for applications
             </h3>
-            <Badge variant="section">Default for newly shortlisted jobs</Badge>
           </div>
           <p className="text-(length:--text-description) leading-5 text-foreground-soft">
-            Choose whether each job gets a tailored resume or the exact file
-            you imported in Profile. You still decide job by job before Job
-            Finder opens the application.
+            Sets the starting choice for jobs you shortlist from now on. You
+            still decide job by job before Job Finder opens an application, and
+            jobs you already shortlisted keep their own choice.
           </p>
         </div>
-        <div className="grid min-w-0 max-w-full justify-items-end gap-1.5">
-          <Button
-            disabled={!hasUnsavedChanges || isSavePending}
-            onClick={saveApplicationDefaults}
-            pending={isSavePending}
-            type="button"
-            variant="primary"
-          >
-            {saveButtonLabel}
-          </Button>
-          {saveState.status === "idle" ? null : (
-            <p
-              className={
-                saveState.status === "failed"
-                  ? "min-w-0 max-w-80 break-words text-right text-xs leading-4 text-destructive"
-                  : "min-w-0 max-w-80 break-words text-right text-xs leading-4 text-foreground-soft"
-              }
-              data-settings-save-state={saveState.status}
-              role="status"
-            >
-              {saveState.message}
-            </p>
-          )}
-        </div>
+        {/* A greyed Save beside a card already chipped SAVED DEFAULT left the
+            state ambiguous: disabled because it saved, or because nothing
+            changed? The shared control always says which. */}
+        <SettingsSectionSaveControl
+          hasUnsavedChanges={hasUnsavedChanges}
+          onSave={saveApplicationDefaults}
+          saveState={saveState}
+          subject="resume preference"
+        />
       </div>
 
       <div
@@ -192,7 +183,7 @@ export function SettingsApplicationDefaultsSection({
               ? savedResumeApplicationMode === "tailored_per_job"
                 ? "Saved default"
                 : "Selected · save to apply"
-              : "Job-specific rewriting"}
+              : ""}
           </span>
         </button>
         <button
@@ -211,15 +202,15 @@ export function SettingsApplicationDefaultsSection({
             Use my original resume unchanged
           </span>
           <span className="text-(length:--text-description) leading-5 text-foreground-soft">
-            Skip resume generation. Shortlisted shows the imported file and
-            Job Finder attaches that same file.
+            Skip resume generation. Shortlisted shows the imported file and Job
+            Finder attaches that same file.
           </span>
           <span className="label-mono-xs">
             {selectedResumeApplicationMode === "original_resume"
               ? savedResumeApplicationMode === "original_resume"
-                ? "Saved default · no rewriting"
+                ? "Saved default"
                 : "Selected · save to apply"
-              : "No rewriting or job removal"}
+              : ""}
           </span>
         </button>
       </div>
@@ -245,13 +236,13 @@ export function SettingsApplicationDefaultsSection({
 
       <section className="grid min-w-0 gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-overlay-subtle) p-3.5">
         <div className="grid gap-1">
-          <h3 className="text-[1.02rem] font-semibold text-(--text-headline)">
-            Default template picker
+          <h3 className="font-semibold text-(--text-headline)">
+            Default resume template
           </h3>
           <p className="max-w-(--workspace-state-card-max-width) text-(length:--text-description) leading-5 text-foreground-soft">
-            Choose the starting resume template here. The preview uses sample
-            resume content rendered through the same template engine used for
-            exports. The resume font default sits just below.
+            Choose the resume design new tailored resumes start from. The
+            preview below uses example content so you can see the layout. Your
+            existing resumes are not changed.
           </p>
         </div>
 
@@ -260,10 +251,6 @@ export function SettingsApplicationDefaultsSection({
             Default resume template
           </FieldLabel>
           <div className="grid min-w-0 gap-2.5">
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="section">Applies to new drafts</Badge>
-              <Badge variant="section">Existing drafts unchanged</Badge>
-            </div>
             <ResumeThemePicker
               disabled={isSavePending}
               labelledBy={resumeTemplateLabelId}
@@ -303,8 +290,8 @@ export function SettingsApplicationDefaultsSection({
               value={draftFontPreset}
             />
             <p className="text-(length:--text-description) leading-5 text-foreground-soft">
-              Pick the default font pairing for exported resumes. This affects
-              PDF tone, not the editor schema.
+              Pick the default font pairing for exported resumes. It changes how
+              the exported PDF looks, not the wording in your resume.
             </p>
           </Field>
           <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-3.5 py-3 md:col-span-2">

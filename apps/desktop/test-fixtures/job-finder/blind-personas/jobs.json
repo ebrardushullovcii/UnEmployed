@@ -1,6 +1,116 @@
 {
   "schemaVersion": 1,
   "fixedTimestamp": "2026-08-20T14:00:00.000Z",
+  "corpusBindings": {
+    "P01": {
+      "matchJobId": "blind_p01_store_assistant",
+      "weakerJobId": "blind_p01_library_page",
+      "matchCriteria": {
+        "roleKeywords": ["store", "customer service"],
+        "locationKeywords": ["cedar falls", "iowa"],
+        "workModes": ["onsite"]
+      }
+    },
+    "P02": {
+      "matchJobId": "blind_p02_junior_web",
+      "weakerJobId": "blind_p02_qa_automation",
+      "matchCriteria": {
+        "roleKeywords": ["junior web", "developer"],
+        "locationKeywords": ["raleigh", "north carolina"],
+        "workModes": ["hybrid"]
+      }
+    },
+    "P03": {
+      "matchJobId": "blind_p03_frontend",
+      "weakerJobId": "blind_p03_design_system",
+      "matchCriteria": {
+        "roleKeywords": ["frontend", "software engineer"],
+        "locationKeywords": ["portland", "oregon", "remote"],
+        "workModes": ["remote"]
+      }
+    },
+    "P04": {
+      "matchJobId": "blind_p04_logistics_admin",
+      "weakerJobId": "blind_p04_dispatch_admin",
+      "matchCriteria": {
+        "roleKeywords": ["logistics", "administrative"],
+        "locationKeywords": ["tulsa", "oklahoma"],
+        "workModes": ["onsite"]
+      }
+    },
+    "P05": {
+      "matchJobId": "blind_p05_ops_manager",
+      "weakerJobId": "blind_p05_program",
+      "matchCriteria": {
+        "roleKeywords": ["operations", "manager"],
+        "locationKeywords": ["denver", "colorado"],
+        "workModes": ["hybrid"]
+      }
+    },
+    "P06": {
+      "matchJobId": "blind_p06_part_time_admin",
+      "weakerJobId": "blind_p06_remote_scheduler",
+      "matchCriteria": {
+        "roleKeywords": ["administrative", "coordinator", "scheduling"],
+        "locationKeywords": ["madison", "wisconsin"],
+        "workModes": ["hybrid", "remote"]
+      }
+    },
+    "P07": {
+      "matchJobId": "blind_p07_part_time_lead",
+      "weakerJobId": "blind_p07_sales_associate",
+      "matchCriteria": {
+        "roleKeywords": ["store lead", "retail"],
+        "locationKeywords": ["akron", "ohio"],
+        "workModes": ["onsite"]
+      }
+    },
+    "P08": {
+      "matchJobId": "blind_p08_support",
+      "weakerJobId": "blind_p08_bilingual",
+      "matchCriteria": {
+        "roleKeywords": ["customer support", "support"],
+        "locationKeywords": ["san antonio", "texas"],
+        "workModes": ["hybrid", "onsite"]
+      }
+    },
+    "P09": {
+      "matchJobId": "blind_p09_healthcare_admin",
+      "weakerJobId": "blind_p09_records_coordinator",
+      "matchCriteria": {
+        "roleKeywords": ["healthcare administrative", "administrative"],
+        "locationKeywords": ["sacramento", "california"],
+        "workModes": ["hybrid", "remote"]
+      }
+    },
+    "P10": {
+      "matchJobId": "blind_p10_bookkeeping",
+      "weakerJobId": "blind_p10_office_admin",
+      "matchCriteria": {
+        "roleKeywords": ["bookkeeping", "office"],
+        "locationKeywords": ["richmond", "virginia"],
+        "workModes": ["hybrid", "onsite"]
+      }
+    },
+    "P11": {
+      "matchJobId": "blind_p11_remote_qa",
+      "weakerJobId": "blind_p11_remote_support",
+      "matchCriteria": {
+        "roleKeywords": ["qa", "customer support"],
+        "locationKeywords": ["remote", "united states"],
+        "workModes": ["remote"]
+      }
+    },
+    "P12": {
+      "matchJobId": "blind_p12_payroll",
+      "weakerJobId": "blind_p12_office_admin",
+      "matchCriteria": {
+        "roleKeywords": ["payroll", "office administrator"],
+        "locationKeywords": ["cleveland", "ohio"],
+        "workModes": ["hybrid", "onsite"]
+      }
+    }
+  },
   "corpora": {
     "P01": [
       {
@@ -48,9 +158,11 @@
         "minimumQualifications": ["High school diploma"],
         "status": "discovered",
         "matchAssessment": {
-          "score": 91,
+          "score": 78,
           "reasons": ["Direct volunteer overlap"],
-          "gaps": []
+          "gaps": [
+            "Not a retail role and evening availability needs confirmation"
+          ]
         }
       }
     ],
@@ -315,7 +427,9 @@
         "matchAssessment": {
           "score": 90,
           "reasons": ["Predictable hours and direct scheduling evidence"],
-          "gaps": []
+          "gaps": [
+            "Remote-only setting uses less of the office-records experience"
+          ]
         }
       }
     ],
@@ -369,7 +483,9 @@
         "matchAssessment": {
           "score": 88,
           "reasons": ["Long retail and customer-service history"],
-          "gaps": []
+          "gaps": [
+            "Individual-contributor role does not use store-lead coordination"
+          ]
         }
       }
     ],
@@ -422,9 +538,11 @@
         "minimumQualifications": ["Fluent Spanish", "B1 English"],
         "status": "discovered",
         "matchAssessment": {
-          "score": 97,
+          "score": 86,
           "reasons": ["Spanish fluency and front desk service align"],
-          "gaps": []
+          "gaps": [
+            "English-language coaching may be needed before independent support work"
+          ]
         }
       }
     ],
@@ -532,7 +650,9 @@
         "matchAssessment": {
           "score": 86,
           "reasons": ["Prior scheduling and office records work"],
-          "gaps": []
+          "gaps": [
+            "Office role does not use the bookkeeping and reconciliation focus"
+          ]
         }
       }
     ],
@@ -586,9 +706,9 @@
         "minimumQualifications": ["Customer support experience"],
         "status": "discovered",
         "matchAssessment": {
-          "score": 90,
+          "score": 82,
           "reasons": ["Direct written support and troubleshooting evidence"],
-          "gaps": []
+          "gaps": ["Role has no dedicated QA ownership"]
         }
       }
     ],
@@ -640,7 +760,7 @@
         "matchAssessment": {
           "score": 82,
           "reasons": ["Strong office administration evidence"],
-          "gaps": []
+          "gaps": ["Office role does not include payroll responsibilities"]
         }
       }
     ]

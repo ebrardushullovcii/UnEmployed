@@ -7,9 +7,208 @@ import {
   buildDiscoveryJobs,
   buildReviewQueue,
   compareDiscoveryJobs,
+  isApprovedTailoredResumeReadyForApply,
+  isLikelyUtilityShortlistJob,
+  resolveApprovedResumeExportForApply,
 } from "./matching-review-queue";
 
 describe("discovery result fit ordering", () => {
+  test("excludes Wellfound navigation utility titles from discovery display", () => {
+    const base = createSeed().savedJobs[0]!;
+    const jobs = buildDiscoveryJobs([
+      {
+        ...base,
+        id: "job_real",
+        sourceJobId: "job_real",
+        title: "Product Designer",
+      },
+      {
+        ...base,
+        id: "job_utility",
+        sourceJobId: "job_utility",
+        title: "View all engineering jobs",
+      },
+    ]);
+
+    expect(jobs.map((job) => job.id)).toEqual(["job_real"]);
+  });
+
+  test("filters Wellfound footer and pagination junk from discovery display", () => {
+    expect(isLikelyUtilityShortlistJob({ title: "Sign up with Google" })).toBe(
+      true,
+    );
+    expect(isLikelyUtilityShortlistJob({ title: "11 open positions" })).toBe(
+      true,
+    );
+    expect(isLikelyUtilityShortlistJob({ title: "Pricing" })).toBe(true);
+    expect(
+      isLikelyUtilityShortlistJob({ title: "Software Engineer, Robotics" }),
+    ).toBe(false);
+  });
+
+  test("filters KosovaJob Albanian nav titles and social chrome", () => {
+    for (const title of [
+      "Kontakt",
+      "Krijo CV",
+      "Llogarite Pagën",
+      "PRODUKTET",
+      "Publiko Konkurs",
+      "www.fb.com/kosovajob",
+      "Politikë e Privatësisë",
+      "Politike e Privatesise",
+      "Privacy Policy",
+      "Cookie Policy",
+    ]) {
+      expect(isLikelyUtilityShortlistJob({ title })).toBe(true);
+    }
+    expect(
+      isLikelyUtilityShortlistJob({
+        title: "KosovaJob Social",
+        canonicalUrl: "https://fb.com/kosovajob",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelyUtilityShortlistJob({
+        title: "Legal notice",
+        canonicalUrl: "https://kosovajob.com/privacy-policy",
+      }),
+    ).toBe(true);
+  });
+
+  test("filters live Maya KosovaJob compound privacy page by title and path", () => {
+    const mayaLiveTitle =
+      "Politikë e Privatësisë dhe Mbrojtjes së të Dhënave Personale";
+    const mayaLiveUrl = "https://kosovajob.com/politika-e-privatesise";
+
+    expect(isLikelyUtilityShortlistJob({ title: mayaLiveTitle })).toBe(true);
+    expect(
+      isLikelyUtilityShortlistJob({
+        title: "Legal notice",
+        canonicalUrl: mayaLiveUrl,
+      }),
+    ).toBe(true);
+    expect(
+      isLikelyUtilityShortlistJob({
+        title: mayaLiveTitle,
+        canonicalUrl: mayaLiveUrl,
+      }),
+    ).toBe(true);
+    expect(
+      isLikelyUtilityShortlistJob({
+        title: "Legal notice",
+        canonicalUrl: "https://kosovajob.com/politike-e-privatesise",
+      }),
+    ).toBe(true);
+  });
+
+  test("filters Wellfound company hubs and marketing pages", () => {
+    expect(isLikelyUtilityShortlistJob({ title: "Why Wellfound" })).toBe(true);
+    expect(
+      isLikelyUtilityShortlistJob({
+        title: "Lamatic.ai",
+        canonicalUrl: "https://wellfound.com/company/lamatic",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelyUtilityShortlistJob({
+        title: "Collinear.ai",
+        canonicalUrl: "https://wellfound.com/company/collinear-ai",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelyUtilityShortlistJob({
+        title: "Software Engineer",
+        canonicalUrl:
+          "https://wellfound.com/company/signal-systems/jobs/123-software-engineer",
+      }),
+    ).toBe(false);
+  });
+
+  test("filters generic browse and hiring-data index paths", () => {
+    expect(
+      isLikelyUtilityShortlistJob({
+        title: "Remote jobs",
+        canonicalUrl: "https://jobs.example.com/browse/remote",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelyUtilityShortlistJob({
+        title: "Hiring trends",
+        canonicalUrl: "https://jobs.example.com/hiring-data",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelyUtilityShortlistJob({
+        title: "Data Engineer",
+        canonicalUrl: "https://wellfound.com/jobs",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelyUtilityShortlistJob({
+        title: "Software Engineer",
+        canonicalUrl: "https://jobs.example.com/jobs/123456-engineer",
+      }),
+    ).toBe(false);
+  });
+
+  test("excludes utility titles from discovery and mismatch-visible pools", () => {
+    const base = createSeed().savedJobs[0]!;
+    const jobs = buildDiscoveryJobs([
+      {
+        ...base,
+        id: "job_real",
+        sourceJobId: "job_real",
+        title: "AI Product Engineer",
+        matchAssessment: {
+          ...base.matchAssessment,
+          recommendation: "review_before_applying",
+        },
+      },
+      {
+        ...base,
+        id: "job_kontakt",
+        sourceJobId: "job_kontakt",
+        title: "Kontakt",
+        canonicalUrl: "https://kosovajob.com/kontakt",
+        matchAssessment: {
+          ...base.matchAssessment,
+          recommendation: "skip",
+        },
+      },
+      {
+        ...base,
+        id: "job_hub",
+        sourceJobId: "job_hub",
+        title: "RxGPT",
+        canonicalUrl: "https://wellfound.com/company/rxgpt",
+        matchAssessment: {
+          ...base.matchAssessment,
+          recommendation: "skip",
+        },
+      },
+    ]);
+
+    expect(jobs.map((job) => job.id)).toEqual(["job_real"]);
+  });
+
+  test("recovers employer from company-path URLs when stored as absence label", () => {
+    const base = createSeed().savedJobs[0]!;
+    const jobs = buildDiscoveryJobs([
+      {
+        ...base,
+        id: "job_inferred",
+        sourceJobId: "job_inferred",
+        title: "Software Engineer",
+        company: "Employer not stated",
+        location: "Location not stated",
+        canonicalUrl:
+          "https://wellfound.com/company/signal-systems/jobs/123-software-engineer",
+      },
+    ]);
+
+    expect(jobs[0]?.company).toBe("Signal Systems");
+  });
+
   test("orders reviewable jobs by descending displayed fit before recommendation", () => {
     const base = createSeed().savedJobs[0]!;
     const jobs = buildDiscoveryJobs([
@@ -508,5 +707,99 @@ describe("original resume readiness", () => {
       resumeAssetId: seed.profile.baseResume.id,
       resumeReview: { status: "original_resume" },
     });
+  });
+});
+
+describe("approved tailored resume apply readiness", () => {
+  test("falls back to the latest isApproved export when draft.approvedExportId is stale", () => {
+    const seed = createSeed();
+    const job = seed.savedJobs[0]!;
+    const readyPath = "/tmp/current-approved.pdf";
+    const stalePath = "/tmp/stale-approved.pdf";
+    const draft = {
+      id: "resume_draft_job",
+      jobId: job.id,
+      status: "approved" as const,
+      templateId: "classic_ats" as const,
+      identity: null,
+      sections: [],
+      targetPageCount: 2,
+      generationMethod: "deterministic" as const,
+      workHistoryReviewAcknowledgments: [],
+      claimConfirmations: [],
+      approvedAt: "2026-03-20T10:05:00.000Z",
+      approvedExportId: "export_stale",
+      staleReason: null,
+      createdAt: "2026-03-20T10:00:00.000Z",
+      updatedAt: "2026-03-20T10:05:00.000Z",
+    };
+    const exports = [
+      {
+        id: "export_stale",
+        draftId: draft.id,
+        jobId: job.id,
+        format: "pdf" as const,
+        filePath: stalePath,
+        pageCount: 2,
+        templateId: "classic_ats" as const,
+        exportedAt: "2026-03-20T10:03:00.000Z",
+        isApproved: false,
+      },
+      {
+        id: "export_current",
+        draftId: draft.id,
+        jobId: job.id,
+        format: "pdf" as const,
+        filePath: readyPath,
+        pageCount: 2,
+        templateId: "classic_ats" as const,
+        exportedAt: "2026-03-20T10:05:00.000Z",
+        isApproved: true,
+      },
+    ];
+    const asset = {
+      ...seed.tailoredAssets[0]!,
+      jobId: job.id,
+      status: "ready" as const,
+      storagePath: readyPath,
+    };
+
+    expect(
+      resolveApprovedResumeExportForApply({ draft, exports, asset })?.id,
+    ).toBe("export_current");
+    expect(
+      isApprovedTailoredResumeReadyForApply({ draft, exports, asset }).ready,
+    ).toBe(true);
+  });
+
+  test("filters utility navigation jobs out of the shortlisted review queue", () => {
+    const seed = createSeed();
+    const base = seed.savedJobs[0]!;
+    const queue = buildReviewQueue(
+      [
+        {
+          ...base,
+          id: "job_real",
+          title: "Product Designer",
+          status: "approved",
+        },
+        {
+          ...base,
+          id: "job_utility",
+          title: "View all engineering jobs",
+          status: "approved",
+        },
+      ],
+      seed.tailoredAssets,
+      seed.resumeDrafts,
+      seed.resumeExportArtifacts,
+      seed.profile,
+      seed.settings,
+    );
+
+    expect(queue.map((item) => item.jobId)).toEqual(["job_real"]);
+    expect(
+      isLikelyUtilityShortlistJob({ title: "View all engineering jobs" }),
+    ).toBe(true);
   });
 });

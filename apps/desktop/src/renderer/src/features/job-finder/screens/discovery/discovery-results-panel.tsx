@@ -17,33 +17,43 @@ import type {
   WorkMode,
 } from "@unemployed/contracts";
 import { fitRecommendationValues, workModeValues } from "@unemployed/contracts";
+import { ArrowDown, ArrowUp } from "lucide-react";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
+import { SelectableRow } from "@renderer/components/ui";
 import { EmptyState } from "@renderer/features/job-finder/components/empty-state";
 import {
   CollectionNoMatches,
-  CollectionSavedViews,
   CollectionSearchToolbar,
   matchesCollectionSearch,
 } from "@renderer/features/job-finder/components/collection-search-toolbar";
 import { StatusBadge } from "@renderer/features/job-finder/components/status-badge";
-import {
-  usePersistedCollectionView,
-  type SavedViewMetadata,
-} from "@renderer/features/job-finder/hooks/use-persisted-collection-view";
+import { usePersistedCollectionView } from "@renderer/features/job-finder/hooks/use-persisted-collection-view";
 import {
   focusCollectionItem,
   getAdjacentCollectionItemId,
 } from "@renderer/features/job-finder/lib/collection-keyboard-navigation";
 import { Link } from "react-router-dom";
 import { JOB_FINDER_ROUTE_PATHS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
+import {
+  formatJobEmployerLocationLine,
+  scrubJobAbsencePlaceholders,
+} from "@renderer/features/job-finder/lib/job-employer-location-display";
+import {
+  formatDiscoveryResultBandLabel,
+  formatDiscoveryResultBandTotal,
+} from "@renderer/features/job-finder/lib/discovery-run-count-label";
 import { cn } from "@renderer/lib/cn";
 import {
   formatStatusLabel,
+  formatWorkModeLabel,
   getApplicationTone,
   getPostedDateLabel,
 } from "@renderer/features/job-finder/lib/job-finder-utils";
-import { fitRecommendationCopy } from "@renderer/features/job-finder/lib/match-assessment-presentation";
+import {
+  fitRecommendationCopy,
+  getMatchAssessmentPresentation,
+} from "@renderer/features/job-finder/lib/match-assessment-presentation";
 import {
   listingActivityStatuses,
   presentListingActivity,
@@ -53,6 +63,7 @@ import {
   focusDiscoveryDetailAfterKeyboardSelection,
   revealDiscoveryDetailAfterPointerSelection,
 } from "./discovery-accessibility";
+import { buildDiscoveryResultGroupHeadings } from "./discovery-result-groups";
 import {
   compareDiscoveryResults,
   type DiscoveryResultsSortField,
@@ -61,9 +72,15 @@ import {
 import { getDiscoveryListingRecencyKey } from "@unemployed/job-finder/discovery-ordering";
 import type { DiscoveryLatestRunVerdict } from "./discovery-run-feedback";
 import { getDiscoverySourceLabels } from "./discovery-source-attribution";
+import {
+  DISCOVERY_OFFLINE_CATALOG_NOTICE,
+  DISCOVERY_OFFLINE_SETUP_NOTICE,
+  getDiscoveryRuntimeProjection,
+} from "./discovery-search-readiness";
 
 interface DiscoveryResultsPanelProps {
-  areHiddenJobsShown?: boolean;
+  alsoFoundCount?: number;
+  areAlsoFoundShown?: boolean;
   browserSession: BrowserSessionState;
   discoveryTargets?: readonly JobDiscoveryTarget[];
   emptyClassName?: string;
@@ -72,15 +89,14 @@ interface DiscoveryResultsPanelProps {
   // filters instead of leaking them across plans.
   facetScopeId?: string | null;
   hasCompletedSearch?: boolean;
-  hiddenJobCount?: number;
+  hiddenAlsoFoundCount?: number;
   isSearchInProgress?: boolean;
   jobs: readonly SavedJob[];
   latestRunVerdict?: DiscoveryLatestRunVerdict | null;
-  mismatchJobCount?: number;
   onDisplayedSelectedJobIdChange?: (selectedJobId: string | null) => void;
   onRecoveryAction?: (() => void) | null;
-  onShowHiddenJobs?: (() => void) | null;
-  onToggleHiddenJobs?: (() => void) | null;
+  onShowAlsoFound?: (() => void) | null;
+  onToggleAlsoFound?: (() => void) | null;
   onSelectJob: (jobId: string) => void;
   recoveryActionLabel?: string | null;
   recoveryActionNextStep?: string | null;
@@ -99,6 +115,11 @@ type DiscoveryResultJob = SavedJob &
   Partial<Pick<DiscoveryJobView, "listingActivity">>;
 
 export const DISCOVERY_RESULTS_PAGE_SIZE = 50;
+const DISCOVERY_RESULT_DENSITIES = ["compact", "comfortable"] as const;
+export const DISCOVERY_OFFLINE_CATALOG_NOTICE_ID =
+  "discovery-offline-catalog-notice";
+export const DISCOVERY_SEARCH_SETUP_BLOCKER_ID =
+  "discovery-search-setup-blocker";
 
 const DISCOVERY_RESULTS_SORT_OPTIONS = [
   { field: "fit", label: "Best match" },
@@ -190,17 +211,25 @@ function parseFacetPayload(
   }
   const candidate = value as Record<string, unknown>;
   return {
-    activity: readBoundedFacetValues(candidate.activity, ACTIVITY_FILTER_DOMAIN),
+    activity: readBoundedFacetValues(
+      candidate.activity,
+      ACTIVITY_FILTER_DOMAIN,
+    ),
     recommendation: readBoundedFacetValues(
       candidate.recommendation,
       RECOMMENDATION_FILTER_DOMAIN,
     ),
     source: readBoundedFacetValues(candidate.source),
-    workMode: readBoundedFacetValues(candidate.workMode, WORK_MODE_FILTER_DOMAIN),
+    workMode: readBoundedFacetValues(
+      candidate.workMode,
+      WORK_MODE_FILTER_DOMAIN,
+    ),
   };
 }
 
-function parsePersistedFacetScopes(raw: string): readonly PersistedFacetScope[] {
+function parsePersistedFacetScopes(
+  raw: string,
+): readonly PersistedFacetScope[] {
   const parsed = JSON.parse(raw) as { scopes?: unknown };
   if (!Array.isArray(parsed.scopes)) return [];
   return parsed.scopes
@@ -240,7 +269,10 @@ function readScopedFacetFilters(
       LEGACY_FACET_FILTERS_STORAGE_KEY,
     );
     if (legacyRaw) {
-      return parseFacetPayload(JSON.parse(legacyRaw)) ?? EMPTY_PERSISTED_FACET_FILTERS;
+      return (
+        parseFacetPayload(JSON.parse(legacyRaw)) ??
+        EMPTY_PERSISTED_FACET_FILTERS
+      );
     }
   } catch {
     // Unreadable snapshots fall back to unfiltered results.
@@ -282,47 +314,6 @@ function writeScopedFacetFilters(
 }
 
 /**
- * Reads the facet selections captured in a named view's optional metadata.
- * Keys other than the four known facets are ignored, and unknown or invalid
- * values drop out per facet; facets absent from the metadata are left
- * untouched by the caller.
- */
-function getFacetSelectionFromMetadata(
-  metadata: SavedViewMetadata | undefined,
-): PersistedDiscoveryFacetFilters | null {
-  if (!metadata) return null;
-  const hasAnyFacet =
-    metadata.activity !== undefined ||
-    metadata.recommendation !== undefined ||
-    metadata.source !== undefined ||
-    metadata.workMode !== undefined;
-  if (!hasAnyFacet) return null;
-  return {
-    activity: readBoundedFacetValues(metadata.activity, ACTIVITY_FILTER_DOMAIN),
-    recommendation: readBoundedFacetValues(
-      metadata.recommendation,
-      RECOMMENDATION_FILTER_DOMAIN,
-    ),
-    source: readBoundedFacetValues(metadata.source),
-    workMode: readBoundedFacetValues(metadata.workMode, WORK_MODE_FILTER_DOMAIN),
-  };
-}
-
-function getFacetMetadata(filters: {
-  readonly activity: ReadonlySet<string>;
-  readonly recommendation: ReadonlySet<string>;
-  readonly source: ReadonlySet<string>;
-  readonly workMode: ReadonlySet<string>;
-}): SavedViewMetadata {
-  return {
-    activity: [...filters.activity],
-    recommendation: [...filters.recommendation],
-    source: [...filters.source],
-    workMode: [...filters.workMode],
-  };
-}
-
-/**
  * Drops selected values that no longer appear among the visible options, so a
  * restored (or surviving) selection can never reference a value no current
  * result offers and silently blank the list. Returns the original reference
@@ -343,12 +334,6 @@ function pruneFilterSelection(
 
 function getListingActivity(job: DiscoveryResultJob): ListingActivity {
   return job.listingActivity ?? { status: "unknown" };
-}
-
-function formatWorkModeLabel(workMode: WorkMode): string {
-  return workMode === "onsite"
-    ? "On-site"
-    : `${workMode.charAt(0).toUpperCase()}${workMode.slice(1)}`;
 }
 
 function toggleFilterValue(
@@ -534,33 +519,22 @@ export function ResultsEmptyState(props: {
   );
 }
 
-function getApplyPathLabel(applyPath: SavedJob["applyPath"]): string {
-  switch (applyPath) {
-    case "easy_apply":
-      return "Easy Apply";
-    case "external_redirect":
-      return "Apply on company site";
-    default:
-      return "Manual application";
-  }
-}
-
 export function DiscoveryResultsPanel({
-  areHiddenJobsShown = false,
+  alsoFoundCount = 0,
+  areAlsoFoundShown = false,
   browserSession,
   discoveryTargets = [],
   emptyClassName,
   facetScopeId = null,
   hasCompletedSearch = false,
-  hiddenJobCount = 0,
+  hiddenAlsoFoundCount = 0,
   isSearchInProgress = false,
   jobs,
   latestRunVerdict = null,
-  mismatchJobCount = 0,
   onDisplayedSelectedJobIdChange,
   onRecoveryAction,
-  onShowHiddenJobs,
-  onToggleHiddenJobs,
+  onShowAlsoFound,
+  onToggleAlsoFound,
   onSelectJob,
   recoveryActionLabel,
   recoveryActionNextStep,
@@ -569,7 +543,13 @@ export function DiscoveryResultsPanel({
   selectedJob,
 }: DiscoveryResultsPanelProps) {
   const resultsScrollRegionRef = useRef<HTMLDivElement | null>(null);
+  const runtimeProjection = getDiscoveryRuntimeProjection(browserSession);
+  const isOfflineRuntime = runtimeProjection.isOffline;
   const view = usePersistedCollectionView("discovery-results", "comfortable");
+  // Two row shapes, two options. A third density produced a visibly different
+  // row layout for the same list, so a stored "detailed" normalizes back to
+  // the comfortable row instead of stranding an unreachable state.
+  const density = view.density === "detailed" ? "comfortable" : view.density;
   const deferredQuery = useDeferredValue(view.query);
   // One bounded snapshot read per mount feeds every facet's initial value;
   // route remounts re-read it, which is what makes selections survive
@@ -773,7 +753,6 @@ export function DiscoveryResultsPanel({
     page: getSelectedJobPage(orderedJobs, selectedJobId),
     selectedJobId,
   }));
-  const [showComparison, setShowComparison] = useState(false);
   // Tracks which plan scope the facet state currently mirrors so the restore
   // effect above only fires on real scope changes.
   const lastFacetScopeRef = useRef(facetScopeKey);
@@ -781,6 +760,16 @@ export function DiscoveryResultsPanel({
   const visibleJobs = useMemo(
     () => getDiscoveryResultsPage(orderedJobs, currentPage),
     [currentPage, orderedJobs],
+  );
+  // Band dividers only make sense while the list is in its canonical
+  // best-match order; any other sort re-interleaves the bands.
+  const groupHeadingsByJobId = useMemo(
+    () =>
+      buildDiscoveryResultGroupHeadings(
+        orderedJobs,
+        sortDirection === "desc" && sortField === "fit",
+      ),
+    [orderedJobs, sortDirection, sortField],
   );
   // The inspector is a sibling pane, so this panel owns the truth about which
   // job is actually on screen. When the selection falls off the visible page
@@ -861,13 +850,35 @@ export function DiscoveryResultsPanel({
   }, [facetScopeKey, moveToPage]);
 
   const sessionNeedsAttention =
-    browserSession.status === "login_required" ||
-    browserSession.status === "blocked";
+    !isOfflineRuntime &&
+    (browserSession.status === "login_required" ||
+      browserSession.status === "blocked");
   const sessionWaitingOnRuntime =
     browserSession.status === "unknown" &&
     browserSession.driver !== "catalog_seed" &&
     recoveryActionPending;
-  const allResultsHidden = jobs.length === 0 && hiddenJobCount > 0;
+  const allResultsHidden = jobs.length === 0 && hiddenAlsoFoundCount > 0;
+  // The honest headline: how many results are actually worth opening. Weaker
+  // rows and clear mismatches are one "also found" pool, never added into the
+  // number that describes the search.
+  const strongMatchCount =
+    jobs.length - (alsoFoundCount - hiddenAlsoFoundCount);
+  const bandCounts = {
+    worthOpening: strongMatchCount,
+    alsoFound: alsoFoundCount,
+  };
+  const isCountFiltered =
+    deferredQuery.trim().length > 0 || activeFilterCount > 0;
+  const resultCountLabel = isCountFiltered
+    ? `${filteredJobs.length} of ${jobs.length} results`
+    : formatDiscoveryResultBandLabel(bandCounts);
+  // Home and Search history describe the same run as "n new jobs saved". This
+  // states the total the bands add up to, so the two vocabularies visibly
+  // reconcile instead of reading as three different numbers.
+  const resultCountTotalLabel =
+    !isCountFiltered && alsoFoundCount > 0
+      ? formatDiscoveryResultBandTotal(bandCounts)
+      : null;
   // Terminal empty-state truth: prefer the explicit newest-run verdict; when a
   // caller does not provide one, fall back to the legacy completed-search flag
   // so existing behavior is unchanged.
@@ -876,14 +887,15 @@ export function DiscoveryResultsPanel({
     (hasCompletedSearch ? { kind: "completed" } : { kind: "none" });
   const showSearchingEmptyState =
     isSearchInProgress || emptyRunVerdict.kind === "running";
+  // Box metrics for a continuous list row. The shared `SelectableRow`
+  // primitive owns selection (tint plus an inset accent bar that consumes no
+  // layout space); these classes only turn its default card shape into this
+  // list's flush, bottom-ruled row. Nothing here varies with selection, which
+  // is what the primitive's dev-time guard enforces.
   const baseButtonClasses =
-    "grid border-b border-(--surface-panel-border) text-left transition-colors outline-none focus-visible:z-10 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/30";
+    "grid rounded-none border-x-0 border-t-0 border-b border-b-(--surface-panel-border) focus-visible:z-10";
   const densityClasses =
-    view.density === "compact"
-      ? "gap-2 p-3"
-      : view.density === "detailed"
-        ? "gap-4 p-6"
-        : "gap-3 p-5";
+    density === "compact" ? "gap-2 p-3" : "gap-2.5 px-4 py-3.5";
   const handleListKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>, jobId: string) => {
       const nextId = getAdjacentCollectionItemId(
@@ -917,7 +929,7 @@ export function DiscoveryResultsPanel({
       <header className="flex min-h-14 flex-wrap items-center justify-between gap-2 border-b border-(--surface-panel-border) px-4 py-3">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2
-            className="text-base font-semibold text-(--text-headline)"
+            className="text-(--text-headline)"
             id="discovery-job-results-heading"
           >
             Job results
@@ -925,38 +937,33 @@ export function DiscoveryResultsPanel({
           <span
             aria-atomic="true"
             aria-live="polite"
-            className="text-xs tabular-nums text-foreground-muted"
+            className="text-(length:--text-small) tabular-nums text-foreground-muted"
+            data-testid="discovery-result-count"
+            {...(resultCountTotalLabel ? { title: resultCountTotalLabel } : {})}
           >
-            {deferredQuery.trim().length > 0 || activeFilterCount > 0
-              ? `${filteredJobs.length} of ${jobs.length} results`
-              : hiddenJobCount > 0
-                ? `${jobs.length} shown · ${hiddenJobCount} mismatches hidden`
-                : `${jobs.length} ${jobs.length === 1 ? "job" : "jobs"}`}
+            {resultCountLabel}
+            {resultCountTotalLabel ? (
+              <span className="sr-only"> — {resultCountTotalLabel}</span>
+            ) : null}
           </span>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {filteredJobs.length >= 2 ? (
+          {/* One reveal control for one pool. Its accessible name is exactly
+              its visible label, so the state a user reads is the state
+              assistive technology and automation report. */}
+          {alsoFoundCount > 0 && jobs.length > 0 && onToggleAlsoFound ? (
             <Button
-              aria-expanded={showComparison}
-              onClick={() => setShowComparison((current) => !current)}
-              size="xs"
-              type="button"
-              variant="ghost"
-            >
-              {showComparison ? "Hide comparison" : "Compare"}
-            </Button>
-          ) : null}
-          {mismatchJobCount > 0 && jobs.length > 0 && onToggleHiddenJobs ? (
-            <Button
-              aria-label={`${mismatchJobCount} clear mismatch${mismatchJobCount === 1 ? "" : "es"}. ${areHiddenJobsShown ? "Hide mismatches" : "Show mismatches"}`}
-              aria-pressed={areHiddenJobsShown}
+              aria-pressed={areAlsoFoundShown}
               className="shrink-0 whitespace-nowrap"
-              onClick={onToggleHiddenJobs}
+              data-testid="discovery-toggle-also-found"
+              onClick={onToggleAlsoFound}
               size="xs"
               type="button"
-              variant="ghost"
+              variant={areAlsoFoundShown ? "secondary" : "outline"}
             >
-              {areHiddenJobsShown ? "Hide mismatches" : "Show mismatches"}
+              {areAlsoFoundShown
+                ? `Hide also found (${alsoFoundCount})`
+                : `Show also found (${alsoFoundCount})`}
             </Button>
           ) : null}
         </div>
@@ -966,7 +973,8 @@ export function DiscoveryResultsPanel({
         <>
           <CollectionSearchToolbar
             compact
-            density={view.density}
+            densities={DISCOVERY_RESULT_DENSITIES}
+            density={density}
             hideCompactCount
             label="Find a job"
             onDensityChange={view.setDensity}
@@ -974,80 +982,17 @@ export function DiscoveryResultsPanel({
               view.setQuery(query);
               moveToPage(0);
             }}
-            placeholder="Search roles or companies"
+            placeholder="Search results"
             placement="panel"
             query={view.query}
             totalCount={jobs.length}
-            viewActions={
-              <div className="flex min-w-0 items-center gap-1">
-                <select
-                  aria-label="Sort results"
-                  className="h-8 rounded-(--radius-button) border border-(--field-border) bg-(--field) px-2 text-xs text-foreground-soft outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
-                  onChange={(event) => {
-                    const match = DISCOVERY_RESULTS_SORT_OPTIONS.find(
-                      (option) => option.field === event.target.value,
-                    );
-                    if (!match) return;
-                    resultsSort.setSortField(match.field);
-                    moveToPage(0);
-                  }}
-                  value={sortField}
-                >
-                  {DISCOVERY_RESULTS_SORT_OPTIONS.map((option) => (
-                    <option key={option.field} value={option.field}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  aria-label={
-                    sortDirection === "desc"
-                      ? "Sort descending"
-                      : "Sort ascending"
-                  }
-                  onClick={() => {
-                    resultsSort.toggleSortDirection();
-                    moveToPage(0);
-                  }}
-                  size="xs"
-                  type="button"
-                  variant="ghost"
-                >
-                  {sortDirection === "desc" ? "↓" : "↑"}
-                </Button>
-                <CollectionSavedViews
-                  onApply={(id) => {
-                    // Restores query and density via the hook; facets come
-                    // back from the view's optional metadata payload when
-                    // this panel captured them at save time.
-                    const restoredFacets = getFacetSelectionFromMetadata(
-                      view.applySavedView(id),
-                    );
-                    if (!restoredFacets) return;
-                    setRecommendationFilters(
-                      new Set(restoredFacets.recommendation),
-                    );
-                    setSourceFilters(new Set(restoredFacets.source));
-                    setWorkModeFilters(new Set(restoredFacets.workMode));
-                    setActivityFilters(new Set(restoredFacets.activity));
-                    moveToPage(0);
-                  }}
-                  onDelete={view.deleteSavedView}
-                  onSave={view.saveCurrentView}
-                  savedViewMetadata={getFacetMetadata({
-                    activity: activityFilters,
-                    recommendation: recommendationFilters,
-                    source: sourceFilters,
-                    workMode: workModeFilters,
-                  })}
-                  views={view.savedViews}
-                />
-              </div>
-            }
             visibleCount={filteredJobs.length}
           />
-          <div className="border-b border-(--surface-panel-border) px-4 py-2">
-            <details className="group relative">
+          {/* Two control groups on one row instead of four spread over two:
+              the filter disclosure no longer sits alone with ~940px of empty
+              row beside it, and sorting is where the filtering is. */}
+          <div className="flex min-w-0 flex-wrap items-start justify-between gap-2 border-b border-(--surface-panel-border) px-4 py-2">
+            <details className="group relative min-w-0 [&[open]]:w-full [&[open]]:order-last">
               <summary className="flex min-h-8 w-fit cursor-pointer list-none items-center gap-2 rounded-(--radius-button) border border-(--surface-panel-border) px-3 text-xs font-medium text-foreground-soft outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/30 [&::-webkit-details-marker]:hidden">
                 Filters
                 {activeFilterCount > 0 ? (
@@ -1185,75 +1130,79 @@ export function DiscoveryResultsPanel({
                 ) : null}
               </div>
             </details>
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1">
+              <select
+                aria-label="Sort results"
+                className="h-8 min-w-0 max-w-full rounded-(--radius-button) border border-(--field-border) bg-(--field) px-2 text-xs text-foreground-soft outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                onChange={(event) => {
+                  const match = DISCOVERY_RESULTS_SORT_OPTIONS.find(
+                    (option) => option.field === event.target.value,
+                  );
+                  if (!match) return;
+                  resultsSort.setSortField(match.field);
+                  moveToPage(0);
+                }}
+                value={sortField}
+              >
+                {DISCOVERY_RESULTS_SORT_OPTIONS.map((option) => (
+                  <option key={option.field} value={option.field}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {/* A lone arrow says nothing about what it reorders, so the
+                    direction is spelled out beside it. */}
+              <Button
+                aria-label={
+                  sortDirection === "desc"
+                    ? "Sort direction: highest first. Select to sort lowest first."
+                    : "Sort direction: lowest first. Select to sort highest first."
+                }
+                className="whitespace-nowrap"
+                onClick={() => {
+                  resultsSort.toggleSortDirection();
+                  moveToPage(0);
+                }}
+                size="xs"
+                type="button"
+                variant="outline"
+              >
+                {sortDirection === "desc" ? (
+                  <ArrowDown aria-hidden="true" className="size-3.5" />
+                ) : (
+                  <ArrowUp aria-hidden="true" className="size-3.5" />
+                )}
+                <span aria-hidden="true">
+                  {sortDirection === "desc" ? "Highest first" : "Lowest first"}
+                </span>
+              </Button>
+            </div>
           </div>
         </>
-      ) : null}
-
-      {showComparison && filteredJobs.length >= 2 ? (
-        <section
-          aria-label="Top job comparison"
-          className="mx-5 mt-3 grid grid-cols-1 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-3 lg:grid-cols-2 2xl:grid-cols-3"
-        >
-          {filteredJobs.slice(0, 3).map((job) => {
-            const recommendation =
-              fitRecommendationCopy[
-                job.matchAssessment.recommendation ?? "review_before_applying"
-              ];
-            return (
-              <button
-                className="grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30"
-                key={job.id}
-                onClick={() => onSelectJob(job.id)}
-                type="button"
-              >
-                <span
-                  className="min-w-0 break-words font-semibold text-foreground"
-                  title={job.title}
-                >
-                  {job.title}
-                </span>
-                <span
-                  className="min-w-0 break-words text-sm text-foreground-soft"
-                  title={`${job.company} • ${job.location}`}
-                >
-                  {job.company} · {job.location}
-                </span>
-                <span className="text-sm font-medium text-foreground">
-                  {job.matchAssessment.score}% fit · {recommendation.label}
-                </span>
-                <span className="text-xs text-foreground-muted">
-                  {job.matchAssessment.reasons[0] ??
-                    job.matchAssessment.gaps[0] ??
-                    "Open the job to review the full evidence."}
-                </span>
-              </button>
-            );
-          })}
-        </section>
       ) : null}
 
       {allResultsHidden ? (
         <div className="px-5 pt-4">
           <ResultsEmptyState
-            className={emptyClassName ?? "min-h-72"}
-            description={`The ${hiddenJobCount === 1 ? "result has" : `${hiddenJobCount} results have`} a clear conflict with your saved role, location, or other requirements. Nothing was deleted.`}
-            {...(onShowHiddenJobs !== undefined
-              ? { onRecoveryAction: onShowHiddenJobs }
+            className={emptyClassName ?? "min-h-56"}
+            description={`The ${hiddenAlsoFoundCount === 1 ? "result scored" : `${hiddenAlsoFoundCount} results scored`} well below your saved targets, or conflict with them. Nothing was deleted.`}
+            {...(onShowAlsoFound !== undefined
+              ? { onRecoveryAction: onShowAlsoFound }
               : {})}
-            recoveryActionLabel={`Show ${hiddenJobCount === 1 ? "mismatch" : "mismatches"}`}
-            recoveryActionNextStep="Review the conflict evidence, then hide the mismatches again when you are done."
-            title="All results are hidden"
+            recoveryActionLabel={`Show also found (${hiddenAlsoFoundCount})`}
+            recoveryActionNextStep="Open one before trusting its score, then hide them again when you are done."
+            title="Nothing scored close to your targets"
           />
         </div>
       ) : null}
 
       {!allResultsHidden && searchSetupBlocker && jobs.length === 0 ? (
-        <div className="px-5 pt-4">
+        <div className="px-5 pt-4" id={DISCOVERY_SEARCH_SETUP_BLOCKER_ID}>
           <ResultsEmptyState
             actionHref={
               searchSetupBlocker.actionHref ?? JOB_FINDER_ROUTE_PATHS.profile
             }
-            className={emptyClassName ?? "min-h-72"}
+            className={emptyClassName ?? "min-h-56"}
             description={searchSetupBlocker.description}
             recoveryActionLabel={
               searchSetupBlocker.actionLabel ?? "Edit search in Profile"
@@ -1272,9 +1221,26 @@ export function DiscoveryResultsPanel({
       jobs.length === 0 ? (
         <div className="px-5 pt-4">
           <ResultsEmptyState
-            className={emptyClassName ?? "min-h-72"}
+            className={emptyClassName ?? "min-h-56"}
             description="Results will appear here as each saved source finishes. You can follow the live run in Search history."
             title="Searching your sources"
+          />
+        </div>
+      ) : null}
+
+      {!allResultsHidden &&
+      !searchSetupBlocker &&
+      !showSearchingEmptyState &&
+      isOfflineRuntime &&
+      jobs.length === 0 ? (
+        <div className="px-5 pt-4">
+          <ResultsEmptyState
+            actionHref={JOB_FINDER_ROUTE_PATHS.profileSources}
+            className="min-h-0 py-4"
+            description={DISCOVERY_OFFLINE_SETUP_NOTICE}
+            recoveryActionLabel="Review job sources"
+            recoveryActionNextStep="Review saved sources in Profile; this catalog cannot search current openings."
+            title="Live source search unavailable"
           />
         </div>
       ) : null}
@@ -1286,7 +1252,7 @@ export function DiscoveryResultsPanel({
       jobs.length === 0 ? (
         <div className="px-5 pt-4">
           <ResultsEmptyState
-            className={emptyClassName ?? "min-h-72"}
+            className={emptyClassName ?? "min-h-56"}
             description="Open the browser, sign in or fix the issue, then search again."
             title="Search blocked by browser"
             {...(onRecoveryAction !== undefined ? { onRecoveryAction } : {})}
@@ -1308,7 +1274,7 @@ export function DiscoveryResultsPanel({
       jobs.length === 0 ? (
         <div className="px-5 pt-4">
           <ResultsEmptyState
-            className={emptyClassName ?? "min-h-72"}
+            className={emptyClassName ?? "min-h-56"}
             description="New results will appear here after browser-based sources are ready."
             title="Browser is starting"
           />
@@ -1316,7 +1282,7 @@ export function DiscoveryResultsPanel({
       ) : null}
 
       {sessionNeedsAttention && jobs.length > 0 ? (
-        <div className="px-5 pt-4">
+        <div className="px-5 py-4">
           <RecoveryCallout
             description="You're viewing results from the last completed search. Open the browser when you're ready to run a new one."
             {...(onRecoveryAction !== undefined ? { onRecoveryAction } : {})}
@@ -1332,7 +1298,7 @@ export function DiscoveryResultsPanel({
       ) : null}
 
       {sessionWaitingOnRuntime && jobs.length > 0 ? (
-        <div className="px-5 pt-4">
+        <div className="px-5 py-4">
           <div
             aria-atomic="true"
             aria-live="polite"
@@ -1345,8 +1311,24 @@ export function DiscoveryResultsPanel({
         </div>
       ) : null}
 
+      {isOfflineRuntime && jobs.length > 0 ? (
+        <div className="px-5 py-4">
+          <div
+            aria-atomic="true"
+            aria-live="polite"
+            className="min-w-0 break-words rounded-(--radius-panel) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-(length:--text-description) leading-6 text-(--info-text)"
+            id={DISCOVERY_OFFLINE_CATALOG_NOTICE_ID}
+            role="status"
+          >
+            <strong>Offline catalog · review-only.</strong>{" "}
+            {DISCOVERY_OFFLINE_CATALOG_NOTICE} Enable a live source in Profile
+            to search current openings.
+          </div>
+        </div>
+      ) : null}
+
       {isSearchInProgress && jobs.length > 0 ? (
-        <div className="px-5 pt-4">
+        <div className="px-5 py-4">
           <div
             aria-atomic="true"
             aria-live="polite"
@@ -1365,13 +1347,14 @@ export function DiscoveryResultsPanel({
       {!allResultsHidden &&
       !searchSetupBlocker &&
       !showSearchingEmptyState &&
+      !isOfflineRuntime &&
       !sessionNeedsAttention &&
       !sessionWaitingOnRuntime &&
       emptyRunVerdict.kind === "interrupted" &&
       jobs.length === 0 ? (
         <div className="px-5 pt-4">
           <ResultsEmptyState
-            className={emptyClassName ?? "min-h-72"}
+            className={emptyClassName ?? "min-h-56"}
             description={
               emptyRunVerdict.interruptState === "cancelled"
                 ? "The newest search was cancelled before every enabled source was checked. An empty list here does not prove your sources have no matches. Select Search now to try again."
@@ -1406,12 +1389,13 @@ export function DiscoveryResultsPanel({
       !showSearchingEmptyState &&
       !sessionNeedsAttention &&
       !sessionWaitingOnRuntime &&
+      !isOfflineRuntime &&
       emptyRunVerdict.kind === "completed" &&
       jobs.length === 0 ? (
         <div className="px-5 pt-4">
           <ResultsEmptyState
             actionHref={JOB_FINDER_ROUTE_PATHS.profileTargetRoles}
-            className={emptyClassName ?? "min-h-72"}
+            className={emptyClassName ?? "min-h-56"}
             description="No saved source returned a role that met this search. Broaden a role or location, enable another source, then run it again."
             recoveryActionLabel="Broaden search"
             recoveryActionNextStep="Review roles, locations, and enabled sources, then return here and search again."
@@ -1425,11 +1409,12 @@ export function DiscoveryResultsPanel({
       !showSearchingEmptyState &&
       !sessionNeedsAttention &&
       !sessionWaitingOnRuntime &&
+      !isOfflineRuntime &&
       emptyRunVerdict.kind === "none" &&
       jobs.length === 0 ? (
         <div className="px-5 pt-4">
           <ResultsEmptyState
-            className={emptyClassName ?? "min-h-72"}
+            className={emptyClassName ?? "min-h-56"}
             description="Your search setup is ready. Select Search now to check every enabled source."
             title="Ready for your first search"
           />
@@ -1456,13 +1441,22 @@ export function DiscoveryResultsPanel({
       ) : null}
 
       {filteredJobs.length > 0 ? (
+        // Below the two-pane breakpoint the results panel and the inspector
+        // share one page scroller, so the list must take its content height:
+        // a short result set that stretches to the viewport leaves hundreds of
+        // pixels of empty bordered area that reads as a loading failure and
+        // pushes the inspector — and its primary action — off screen.
         <div
-          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+          className="flex min-h-0 flex-col overflow-hidden xl:flex-1"
           data-job-results-stack
         >
           <div
             aria-label="Job results list"
-            className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            // The scroll padding keeps the last card clear of the two-pane
+            // scroller's bottom edge. Below that breakpoint the list has no
+            // scroller of its own and takes its content height, so the same
+            // padding is only an empty grey strip under the last result.
+            className="min-h-0 overflow-y-auto overscroll-contain xl:flex-1 xl:pb-8"
             data-locked-pane-scroll-region
             data-job-results-scroll-region
             ref={resultsScrollRegionRef}
@@ -1471,7 +1465,7 @@ export function DiscoveryResultsPanel({
           >
             <ul
               aria-label="Results"
-              className="m-0 grid min-h-full list-none content-start p-0"
+              className="m-0 grid list-none content-start p-0 xl:min-h-full"
             >
               {visibleJobs.map((job) => {
                 const isSelected = displayedSelectedJobId === job.id;
@@ -1480,6 +1474,17 @@ export function DiscoveryResultsPanel({
                     job.matchAssessment.recommendation ??
                       "review_before_applying"
                   ];
+                const assessment = getMatchAssessmentPresentation(job);
+                // One sentence on the row saying why: what is missing when the
+                // score is withheld, otherwise the hard-conflict reason. Rows
+                // whose score stands on its own evidence stay quiet.
+                const rowReason =
+                  assessment.withheldReason ??
+                  (job.matchAssessment.recommendation === "skip"
+                    ? scrubJobAbsencePlaceholders(
+                        job.matchAssessment.recommendationRationale ?? "",
+                      ) || null
+                    : null);
                 const listingDateBadge = getDiscoveryListingDateBadge(job);
                 const listingDateExplanation = listingDateBadge.shown
                   ? listingDateBadge.rankable
@@ -1498,20 +1503,27 @@ export function DiscoveryResultsPanel({
                     ? `Not found in a source inventory observation on ${activity.observedDate}. This does not prove the listing is closed. ${listingActivity.explanation}`
                     : activity.description;
 
+                const groupHeading = groupHeadingsByJobId.get(job.id);
+
                 return (
                   <li key={job.id} className="min-w-0">
-                    <button
+                    {groupHeading ? (
+                      <div
+                        className="grid gap-1 border-y border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-2.5"
+                        data-testid={`discovery-results-group-${groupHeading.id}`}
+                      >
+                        <span className="text-(length:--text-small) font-semibold text-(--text-headline)">
+                          {groupHeading.label} ({groupHeading.count})
+                        </span>
+                        <span className="text-(length:--text-tiny) leading-5 text-foreground-soft">
+                          {groupHeading.description}
+                        </span>
+                      </div>
+                    ) : null}
+                    <SelectableRow
                       aria-controls={DISCOVERY_DETAIL_REGION_ID}
-                      aria-current={isSelected ? "true" : undefined}
                       data-job-result-id={job.id}
-                      className={cn(
-                        baseButtonClasses,
-                        densityClasses,
-                        "w-full min-w-0",
-                        isSelected
-                          ? "bg-accent"
-                          : "bg-transparent hover:bg-(--surface-panel-raised)",
-                      )}
+                      className={cn(baseButtonClasses, densityClasses)}
                       aria-keyshortcuts="ArrowUp ArrowDown Home End"
                       data-collection-item-id={job.id}
                       onClick={(event) => {
@@ -1523,90 +1535,144 @@ export function DiscoveryResultsPanel({
                         }
                       }}
                       onKeyDown={(event) => handleListKeyDown(event, job.id)}
-                      type="button"
+                      selected={isSelected}
                     >
                       <div className="flex min-w-0 items-start justify-between gap-3">
-                        <div className="grid min-w-0 gap-1">
-                          {view.density === "detailed" ? (
-                            <span className="text-[0.64rem] uppercase tracking-(--tracking-label) text-foreground-muted">
-                              Listing facts
-                            </span>
-                          ) : null}
+                        <div className="grid min-w-0 gap-1.5">
                           <strong
-                            className="min-w-0 break-words text-(length:--text-section-title) text-(--text-headline)"
+                            className="min-w-0 break-words text-(length:--text-heading-3) text-(--text-headline)"
                             title={job.title}
                           >
                             {job.title}
                           </strong>
-                          <span
-                            className="min-w-0 break-words text-(length:--text-description) text-foreground-muted"
-                            title={`${job.company} • ${job.location}`}
-                          >
-                            {job.company} • {job.location}
-                          </span>
-                          <span
-                            className="flex min-w-0 max-w-full text-(length:--text-tiny) text-foreground-muted"
-                            data-testid={`discovery-result-source-${job.id}`}
-                            title={`Found on ${sourceText}`}
-                          >
-                            <span className="sr-only">
-                              Found on {sourceText}
-                            </span>
-                            <span
-                              aria-hidden="true"
-                              className="min-w-0 truncate"
-                            >
-                              Source: {sourceText}
-                            </span>
-                          </span>
+                          {(() => {
+                            const employerLocationLine =
+                              formatJobEmployerLocationLine({
+                                company: job.company,
+                                location: job.location,
+                                canonicalUrl: job.canonicalUrl,
+                                separator: " • ",
+                              });
+                            if (employerLocationLine) {
+                              return (
+                                <>
+                                  <span
+                                    className="min-w-0 break-words text-(length:--text-small) font-medium text-foreground-soft"
+                                    title={employerLocationLine}
+                                  >
+                                    {employerLocationLine}
+                                  </span>
+                                  {/* Exactly one accessible source mention per
+                                      row: the visible prefix is decorative and
+                                      the sr-only prefix completes the sentence. */}
+                                  <span
+                                    className="flex min-w-0 max-w-full text-(length:--text-small) text-foreground-soft"
+                                    data-testid={`discovery-result-source-${job.id}`}
+                                    title={`Found on ${sourceText}`}
+                                  >
+                                    <span className="sr-only">Found on </span>
+                                    <span className="min-w-0 truncate">
+                                      {sourceText}
+                                    </span>
+                                  </span>
+                                </>
+                              );
+                            }
+                            // No usable employer: say so plainly and quietly
+                            // instead of a "Listing · {source}" line that reads
+                            // like a company named "Listing".
+                            return (
+                              <span
+                                className="flex min-w-0 max-w-full items-baseline gap-1 text-(length:--text-small) text-foreground-soft"
+                                data-testid={`discovery-result-source-${job.id}`}
+                                title={`Employer not listed · ${sourceText}`}
+                              >
+                                <span className="shrink-0">
+                                  Employer not listed ·
+                                </span>
+                                <span className="sr-only">Found on </span>
+                                <span className="min-w-0 truncate">
+                                  {sourceText}
+                                </span>
+                              </span>
+                            );
+                          })()}
                         </div>
-                        <span className="grid min-w-0 shrink-0 justify-items-end gap-0.5">
-                          {view.density === "detailed" ? (
-                            <span className="text-[0.64rem] uppercase tracking-(--tracking-label) text-foreground-muted">
-                              Model assessment
-                            </span>
-                          ) : null}
-                          <span
-                            aria-label={`Overall fit: ${job.matchAssessment.score} percent`}
-                            className="text-(length:--text-body) font-semibold text-(--text-headline)"
-                          >
-                            {job.matchAssessment.score}% fit
-                          </span>
-                        </span>
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        <StatusBadge tone={recommendation.tone}>
-                          {recommendation.label}
-                        </StatusBadge>
-                        <Badge
-                          aria-label={`${activity.label} listing status${activity.observedDate ? ` observed ${activity.observedDate}` : ""}. ${activityDescription}`}
-                          title={activityDescription}
-                          variant="outline"
+                      {/* The fit verdict belongs beside the title it is about,
+                          not ~500px away at the far edge of a wide row. When
+                          the evidence behind the number is only the listing
+                          title the number is withheld here and kept inside
+                          "How this was scored" with its evidence. */}
+                      <div className="grid min-w-0 gap-1">
+                        <span
+                          aria-label={assessment.headlineScoreAriaLabel}
+                          className={cn(
+                            "text-(length:--text-body) font-semibold",
+                            assessment.isScoreWithheld
+                              ? "text-foreground-soft"
+                              : "text-(--text-headline)",
+                          )}
+                          data-testid={`discovery-result-fit-${job.id}`}
                         >
-                          {activity.label}
-                          {activity.observedDate
-                            ? ` · ${activity.observedDate}`
-                            : ""}
-                        </Badge>
+                          {assessment.headlineScoreLabel}
+                        </span>
+                        {rowReason ? (
+                          <span
+                            className="min-w-0 break-words text-(length:--text-small) leading-5 text-foreground-soft"
+                            data-testid={`discovery-result-fit-reason-${job.id}`}
+                          >
+                            {rowReason}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5">
+                        {/* The default "review before applying" verdict is the
+                            baseline for every row, so only a stronger or
+                            weaker verdict earns a badge in the list; the
+                            inspector keeps the full assessment. */}
+                        {job.matchAssessment.recommendation !==
+                        "review_before_applying" ? (
+                          <StatusBadge
+                            tone={
+                              assessment.isProvisional
+                                ? "neutral"
+                                : recommendation.tone
+                            }
+                          >
+                            {recommendation.label}
+                          </StatusBadge>
+                        ) : null}
+                        {assessment.isProvisional ? (
+                          <Badge variant="outline">
+                            Provisional assessment
+                          </Badge>
+                        ) : null}
+                        {listingActivity.status !== "active" ? (
+                          <Badge
+                            aria-label={`${activity.label} listing status${activity.observedDate ? ` observed ${activity.observedDate}` : ""}. ${activityDescription}`}
+                            title={activityDescription}
+                            variant="outline"
+                          >
+                            {activity.label}
+                            {activity.observedDate
+                              ? ` · ${activity.observedDate}`
+                              : ""}
+                          </Badge>
+                        ) : (
+                          <span className="sr-only">
+                            {`${activity.label} listing status${activity.observedDate ? ` observed ${activity.observedDate}` : ""}. ${activityDescription}`}
+                          </span>
+                        )}
                         {job.status === "shortlisted" ||
                         job.status === "submitted" ? (
                           <StatusBadge tone={getApplicationTone(job.status)}>
                             {formatStatusLabel(job.status)}
                           </StatusBadge>
                         ) : null}
-                        <Badge variant="outline">
-                          {getApplyPathLabel(job.applyPath)}
-                        </Badge>
-                        {job.salaryText ? (
-                          <Badge variant="outline">{job.salaryText}</Badge>
-                        ) : null}
-                        {job.workMode.length > 0 ? (
-                          <Badge variant="outline">
-                            {job.workMode.join(", ")}
-                          </Badge>
-                        ) : null}
-                        {listingDateBadge.shown ? (
+                        {listingDateBadge.shown && density !== "compact" ? (
                           <Badge
                             {...(listingDateExplanation
                               ? { title: listingDateExplanation }
@@ -1617,7 +1683,7 @@ export function DiscoveryResultsPanel({
                           </Badge>
                         ) : null}
                       </div>
-                    </button>
+                    </SelectableRow>
                   </li>
                 );
               })}

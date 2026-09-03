@@ -194,13 +194,13 @@ describe("CampaignsScreen", () => {
 
     expect(screen.getByRole("heading", { name: "Search plans" })).toBeTruthy();
     expect(screen.getByText(/Search plans are optional\./)).toBeTruthy();
+    // Plain language, not product vocabulary: a job seeker should not have
+    // to learn "precision" and "scale" to pick one.
     expect(
-      screen.getByText("a smaller discovery pool focused on stronger matches."),
+      screen.getByText("fewer jobs each run, chosen for a closer match."),
     ).toBeTruthy();
     expect(
-      screen.getByText(
-        "a larger discovery pool with a higher retained-job target.",
-      ),
+      screen.getByText("more jobs each run, keeping more of them for review."),
     ).toBeTruthy();
     expect(screen.queryByText(/Prepare only/)).toBeNull();
     expect(screen.queryByText(/application/)).toBeNull();
@@ -437,7 +437,12 @@ describe("CampaignsScreen", () => {
 
     // The card shows the persisted next run instant instead of an estimate.
     expect(screen.getByText(/Next run/)).toBeTruthy();
-    expect(screen.getAllByText(/2026/).length).toBeGreaterThan(0);
+    // Minute precision, no seconds: the same instant is not printed twice
+    // as a machine-shaped locale string.
+    expect(
+      screen.getAllByText(/\d{1,2}:\d{2}\s?(AM|PM|am|pm)?/).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText(/:\d{2}:\d{2}/)).toBeNull();
     expect(screen.getByText(/partially completed/)).toBeTruthy();
     expect(screen.getByText(/2 consecutive failed runs recorded/)).toBeTruthy();
 
@@ -485,10 +490,12 @@ describe("CampaignsScreen", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText(/Latest digest/));
-    expect(screen.getByText("3")).toBeTruthy();
-    expect(screen.getByText("9")).toBeTruthy();
-    expect(screen.getByText("4")).toBeTruthy();
+    const digest = screen.getByText("What the last run found")
+      .parentElement as HTMLElement;
+    fireEvent.click(screen.getByText("What the last run found"));
+    expect(within(digest).getByText("3")).toBeTruthy();
+    expect(within(digest).getByText("9")).toBeTruthy();
+    expect(within(digest).getByText("4")).toBeTruthy();
     expect(screen.getByText(/The source stopped responding/)).toBeTruthy();
   });
 
@@ -855,16 +862,16 @@ describe("CampaignsScreen", () => {
     const dialog = screen.getByRole("alertdialog", {
       name: "Discard unsaved search-plan changes?",
     });
-    expect(dialog.textContent).toContain(
-      "still has edits that were not saved",
-    );
+    expect(dialog.textContent).toContain("still has edits that were not saved");
     expect(confirmNeverSpy).not.toHaveBeenCalled();
     expect(
       screen.getByRole("heading", { name: "Edit search plan" }),
     ).toBeTruthy();
 
     // Staying keeps the dirty editor open.
-    fireEvent.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Keep editing" }),
+    );
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(
       screen.getByRole("heading", { name: "Edit search plan" }),
@@ -1064,7 +1071,7 @@ describe("CampaignsScreen", () => {
       />,
     );
 
-    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete plan" })).toBeNull();
   });
 
   it("deletes a non-current plan only after confirmation", async () => {
@@ -1084,7 +1091,7 @@ describe("CampaignsScreen", () => {
       />,
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[1]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete plan" })[1]!);
     const region = screen.getByRole("group", {
       name: "Confirm deleting Broad engineering",
     });
@@ -1098,7 +1105,7 @@ describe("CampaignsScreen", () => {
       }),
     ).toBeNull();
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[1]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete plan" })[1]!);
     fireEvent.click(
       within(
         screen.getByRole("group", {
@@ -1130,7 +1137,7 @@ describe("CampaignsScreen", () => {
       />,
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete plan" })[0]!);
     const region = screen.getByRole("group", {
       name: "Confirm deleting Remote TypeScript",
     });
@@ -1154,7 +1161,7 @@ describe("CampaignsScreen", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete plan" })[0]!);
     const region = screen.getByRole("group", {
       name: "Confirm deleting Remote TypeScript",
     });
@@ -1180,7 +1187,7 @@ describe("CampaignsScreen", () => {
       />,
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Delete" })[1]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete plan" })[1]!);
     fireEvent.click(
       within(
         screen.getByRole("group", {
@@ -1215,15 +1222,15 @@ describe("CampaignsScreen", () => {
     expect(guide).toBeTruthy();
     expect(guide?.hasAttribute("open")).toBe(false);
     // The mode explanations stay reachable behind one toggle.
-    expect(screen.getByText("How volumes differ")).toBeTruthy();
+    expect(screen.getByText("How much a plan searches")).toBeTruthy();
     // Collapsed content remains available for assistive tech queries.
     expect(
-      screen.getByText("a smaller discovery pool focused on stronger matches."),
+      screen.getByText("fewer jobs each run, chosen for a closer match."),
     ).toBeTruthy();
   });
 
-  it("aligns saved views with the density controls in the toolbar controls row", () => {
-    render(
+  it("offers no collection toolbar for a single plan", () => {
+    const view = render(
       <CampaignsScreen
         activeCampaignId="one"
         campaigns={[campaign("one", "Remote TypeScript", "precision")]}
@@ -1233,12 +1240,34 @@ describe("CampaignsScreen", () => {
       />,
     );
 
-    const densityGroup = screen.getByRole("group", { name: "List density" });
-    const savedViewsSlot = screen
-      .getByRole("button", { name: /Saved views/ })
-      .closest("div");
-    expect(savedViewsSlot).toBeTruthy();
-    expect(densityGroup.parentElement).toBe(savedViewsSlot?.parentElement);
+    // Search field, density switch, saved views and "1 result" is the full
+    // collection toolbar for one card.
+    expect(screen.queryByRole("group", { name: "List density" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Saved views/u })).toBeNull();
+    expect(
+      screen.queryByPlaceholderText(/Search a plan by name or status/u),
+    ).toBeNull();
+
+    view.rerender(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          campaign("one", "Remote TypeScript", "precision"),
+          campaign("two", "Broad engineering", "scale"),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    // With something to search, the search field returns — the density
+    // switch and named views do not.
+    expect(
+      screen.getByPlaceholderText("Search a plan by name or status"),
+    ).toBeTruthy();
+    expect(screen.queryByRole("group", { name: "List density" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Saved views/u })).toBeNull();
   });
 
   it("spans a lone plan across the full row instead of a dead half column", () => {

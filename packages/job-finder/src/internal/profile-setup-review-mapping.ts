@@ -4,6 +4,10 @@ import type {
   ResumeDocumentBundle,
   ResumeImportFieldCandidate,
 } from "@unemployed/contracts";
+import {
+  isSearchLocationCandidateTarget,
+  sanitizeSearchLocationCandidateValue,
+} from "./profile-setup-location-suggestions";
 import { normalizeText } from "./shared";
 
 export type DerivedReviewDraft = {
@@ -35,7 +39,13 @@ function humanizeRecordFieldKey(key: string): string {
     case "dateEarned":
       return "Date earned";
     default:
-      return key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, " $1").trim();
+      return (
+        key.charAt(0).toUpperCase() +
+        key
+          .slice(1)
+          .replace(/([A-Z])/g, " $1")
+          .trim()
+      );
   }
 }
 
@@ -68,7 +78,9 @@ export function summarizeValue(value: unknown): string | null {
     const entries = Object.entries(value)
       .flatMap(([key, entry]) => {
         const summarized = summarizeValue(entry);
-        return summarized ? [`${humanizeRecordFieldKey(key)}: ${summarized}`] : [];
+        return summarized
+          ? [`${humanizeRecordFieldKey(key)}: ${summarized}`]
+          : [];
       })
       .filter(Boolean);
     return entries.length > 0 ? entries.join(" · ") : null;
@@ -101,13 +113,24 @@ function getSourceSnippet(
   documentBundle: ResumeDocumentBundle | null,
 ): string | null {
   if (candidate.evidenceText && candidate.evidenceText.trim().length > 0) {
-    return uniqueEvidenceFragments(candidate.evidenceText.split(/\r?\n/)).join(" ").slice(0, 400) || null;
+    return (
+      uniqueEvidenceFragments(candidate.evidenceText.split(/\r?\n/))
+        .join(" ")
+        .slice(0, 400) || null
+    );
   }
 
   const blockTexts = uniqueEvidenceFragments(
     candidate.sourceBlockIds
-      .map((blockId) => documentBundle?.blocks.find((block) => block.id === blockId)?.text ?? null)
-      .filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0),
+      .map(
+        (blockId) =>
+          documentBundle?.blocks.find((block) => block.id === blockId)?.text ??
+          null,
+      )
+      .filter(
+        (entry): entry is string =>
+          typeof entry === "string" && entry.trim().length > 0,
+      ),
   );
 
   if (blockTexts.length === 0) {
@@ -148,13 +171,12 @@ function mapCandidateToStep(
   candidate: ResumeImportFieldCandidate,
 ): ProfileReviewItem["step"] | null {
   switch (candidate.target.section) {
+    // The summary field lives on Basics in both guided setup and Profile, so
+    // its review item belongs to the step that actually edits it.
     case "identity":
-      return candidate.target.key === "summary" ? "narrative" : "essentials";
     case "contact":
     case "location":
       return "essentials";
-    case "application_identity":
-      return "answers";
     case "experience":
     case "education":
     case "certification":
@@ -164,11 +186,13 @@ function mapCandidateToStep(
       return "background";
     case "search_preferences":
       return "targeting";
+    // Story, proof, reusable answers, and application identity all live on
+    // the merged optional Extras step.
     case "narrative":
     case "proof_point":
-      return "narrative";
     case "answer_bank":
-      return "answers";
+    case "application_identity":
+      return "extras";
     default:
       return null;
   }
@@ -177,7 +201,10 @@ function mapCandidateToStep(
 function mapCandidateToSeverity(
   candidate: ResumeImportFieldCandidate,
 ): ProfileReviewItem["severity"] {
-  if (candidate.target.section === "experience" || candidate.target.section === "education") {
+  if (
+    candidate.target.section === "experience" ||
+    candidate.target.section === "education"
+  ) {
     return "critical";
   }
 
@@ -271,7 +298,11 @@ export function toReviewDraft(
     label: candidate.label,
     reason: buildCandidateReason(candidate),
     severity: mapCandidateToSeverity(candidate),
-    proposedValue: summarizeValue(candidate.value),
+    proposedValue: summarizeValue(
+      isSearchLocationCandidateTarget(candidate.target)
+        ? sanitizeSearchLocationCandidateValue(candidate.value)
+        : candidate.value,
+    ),
     sourceSnippet: getSourceSnippet(candidate, documentBundle),
     sourceCandidateId: candidate.id,
     sourceRunId: candidate.runId,

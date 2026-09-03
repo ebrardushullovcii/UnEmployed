@@ -3,6 +3,8 @@ import type {
   JobFinderApplyRunActionInput,
   JobFinderExactApplicationTarget,
 } from "@unemployed/contracts";
+import { cn } from "@renderer/lib/cn";
+import { APPLICATION_DETAIL_FACT_LABEL_CLASS } from "./applications-detail-fact-strip";
 import { Button } from "@renderer/components/ui";
 import {
   formatTimestamp,
@@ -42,7 +44,11 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
     <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-1">
-          <h3 className="label-mono-xs text-primary">Preparation approval</h3>
+          <h3
+            className={cn(APPLICATION_DETAIL_FACT_LABEL_CLASS, "text-primary")}
+          >
+            Preparation approval
+          </h3>
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
             Approve preparation for this exact run and its already approved
             resume choices. This does not authorize account creation or a final

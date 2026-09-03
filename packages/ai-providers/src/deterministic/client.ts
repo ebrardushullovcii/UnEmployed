@@ -24,13 +24,33 @@ function buildDeterministicStatus(detail: string) {
   });
 }
 
+export interface DeterministicJobFinderAiClientOptions {
+  /**
+   * Why this client, rather than a configured model, owns generation. The
+   * environment factory passes `no_provider_configured`; the desktop test API
+   * passes `forced_deterministic`. Recorded on generated drafts so the UI can
+   * explain the path truthfully instead of guessing from note prose.
+   */
+  generationReason?: DeterministicGenerationReason;
+}
+
+export type DeterministicGenerationReason =
+  | "no_provider_configured"
+  | "forced_deterministic";
+
 export function createDeterministicJobFinderAiClient(
   detail?: string,
+  options: DeterministicJobFinderAiClientOptions = {},
 ): JobFinderAiClient {
   const status = buildDeterministicStatus(
     detail ??
       "Deterministic fallback is active. Set UNEMPLOYED_AI_API_KEY to use the configured OpenAI-compatible provider for resume extraction and tailoring.",
   );
+  const generationProvenance = {
+    method: "deterministic" as const,
+    reason: options.generationReason ?? "no_provider_configured",
+    detail: status.detail ?? null,
+  };
   const visualProvider = createDeterministicBrowserVisualAnalysisProvider(
     "Deterministic AI client fallback provides browser visual observations from page text and runtime metadata.",
   );
@@ -77,7 +97,10 @@ export function createDeterministicJobFinderAiClient(
       });
     },
     createResumeDraft(input) {
-      return Promise.resolve(buildDeterministicStructuredResumeDraft(input));
+      return Promise.resolve({
+        ...buildDeterministicStructuredResumeDraft(input),
+        generationProvenance,
+      });
     },
     reviseResumeDraft(input) {
       return Promise.resolve(buildDeterministicResumeAssistantReply(input));
@@ -86,7 +109,10 @@ export function createDeterministicJobFinderAiClient(
       return Promise.resolve(buildDeterministicProfileCopilotReply(input));
     },
     tailorResume(input) {
-      return Promise.resolve(buildDeterministicTailoredResume(input));
+      return Promise.resolve({
+        ...buildDeterministicTailoredResume(input),
+        generationProvenance,
+      });
     },
     assessJobFit() {
       return Promise.resolve(null);

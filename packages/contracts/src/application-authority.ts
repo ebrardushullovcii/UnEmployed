@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { IsoDateTimeSchema, NonEmptyStringSchema, UrlStringSchema } from "./base";
+import {
+  IsoDateTimeSchema,
+  NonEmptyStringSchema,
+  UrlStringSchema,
+} from "./base";
 
 /**
  * ADR 0012 / ADR 0013 application-authority contracts.
@@ -20,7 +24,10 @@ import { IsoDateTimeSchema, NonEmptyStringSchema, UrlStringSchema } from "./base
 /** Lowercase hex SHA-256 digest used for every content binding in this file. */
 export const Sha256HexSchema = z
   .string()
-  .regex(/^[a-f0-9]{64}$/, "SHA-256 must be 64 lowercase hexadecimal characters.");
+  .regex(
+    /^[a-f0-9]{64}$/,
+    "SHA-256 must be 64 lowercase hexadecimal characters.",
+  );
 export type Sha256Hex = z.infer<typeof Sha256HexSchema>;
 
 /**
@@ -88,6 +95,30 @@ export type ApplicationAuthorityOrigin = z.infer<
   typeof ApplicationAuthorityOriginSchema
 >;
 
+/**
+ * Canonical HTTP(S) origin persisted on a preflight. Unlike the broader
+ * envelope origin input, this value must already equal `URL.origin`, so
+ * default ports, host casing, paths, queries, credentials, and fragments
+ * cannot be smuggled into a transactional origin binding.
+ */
+export const ApplicationAuthorityCanonicalOriginSchema =
+  ApplicationAuthorityOriginSchema.refine(
+    (value) => {
+      try {
+        return value === new URL(value).origin;
+      } catch {
+        return false;
+      }
+    },
+    {
+      message:
+        "Origin must be the canonical HTTP(S) origin without a path, query, fragment, credentials, or default port.",
+    },
+  );
+export type ApplicationAuthorityCanonicalOrigin = z.infer<
+  typeof ApplicationAuthorityCanonicalOriginSchema
+>;
+
 /** Redacted absolute path without query or fragment (privacy-receipt rule). */
 const AuthoritySafePathSchema = z
   .string()
@@ -109,6 +140,117 @@ export const ApplicationAuthorityScopeSchema = z
 export type ApplicationAuthorityScope = z.infer<
   typeof ApplicationAuthorityScopeSchema
 >;
+
+/** Digest-bound answer-set identity; raw answers never enter an authority record. */
+export const SubmissionAnswerSnapshotIdentitySchema = z
+  .object({
+    revision: z.number().int().positive(),
+    digest: Sha256HexSchema,
+  })
+  .strict();
+export type SubmissionAnswerSnapshotIdentity = z.infer<
+  typeof SubmissionAnswerSnapshotIdentitySchema
+>;
+
+/**
+ * Explicit answer decisions for an elevated authority envelope.
+ *
+ * Every stop value is a literal rather than a configurable string. This keeps
+ * guessing, skipping, silent continuation, and invented answers
+ * structurally unrepresentable. The snapshot binds the authority to the
+ * exact user-approved answer set; raw answers never cross this contract.
+ */
+export const ApplicationAuthorityAnswerPolicySchema = z
+  .object({
+    approvedAnswerSnapshot: SubmissionAnswerSnapshotIdentitySchema,
+    unknownRequiredQuestion: z.literal("pause_for_user"),
+    unknownEligibility: z.literal("pause_for_user"),
+    unknownLegalRequirement: z.literal("pause_for_user"),
+  })
+  .strict();
+export type ApplicationAuthorityAnswerPolicy = z.infer<
+  typeof ApplicationAuthorityAnswerPolicySchema
+>;
+
+/**
+ * Explicit technical and outcome stops for elevated authority.
+ *
+ * These are intentionally fixed fail-closed actions. In particular,
+ * credentials, authentication challenges, account creation, stale or
+ * ambiguous controls, and origin drift always pause for a person. An
+ * uncertain final outcome is permanently non-retryable.
+ */
+export const ApplicationAuthorityStopConditionsSchema = z
+  .object({
+    unavailableCredentials: z.literal("pause_for_user"),
+    loginRequired: z.literal("pause_for_user"),
+    mfaRequired: z.literal("pause_for_user"),
+    captcha: z.literal("pause_for_user"),
+    antiBot: z.literal("pause_for_user"),
+    accountCreation: z.literal("pause_for_user"),
+    staleObservation: z.literal("pause_for_user"),
+    ambiguousFinalControl: z.literal("pause_for_user"),
+    originDrift: z.literal("pause_for_user"),
+    outcomeUncertain: z.literal("stop_no_retry"),
+  })
+  .strict();
+export type ApplicationAuthorityStopConditions = z.infer<
+  typeof ApplicationAuthorityStopConditionsSchema
+>;
+
+/** Schema version for the exact decision-policy document in force. */
+export const ApplicationAuthorityDecisionPolicyVersionSchema = z.literal(1);
+export type ApplicationAuthorityDecisionPolicyVersion = z.infer<
+  typeof ApplicationAuthorityDecisionPolicyVersionSchema
+>;
+
+export const ApplicationAuthorityDecisionPolicyIdentitySchema = z
+  .object({
+    version: ApplicationAuthorityDecisionPolicyVersionSchema,
+    revision: z.number().int().positive(),
+    digest: Sha256HexSchema,
+  })
+  .strict();
+export type ApplicationAuthorityDecisionPolicyIdentity = z.infer<
+  typeof ApplicationAuthorityDecisionPolicyIdentitySchema
+>;
+
+/** The complete immutable decision-policy document when authority is elevated. */
+export const ApplicationAuthorityDecisionPolicySchema = z
+  .object({
+    version: ApplicationAuthorityDecisionPolicyVersionSchema,
+    revision: z.number().int().positive(),
+    digest: Sha256HexSchema,
+    answerPolicy: ApplicationAuthorityAnswerPolicySchema,
+    stopConditions: ApplicationAuthorityStopConditionsSchema,
+  })
+  .strict();
+export type ApplicationAuthorityDecisionPolicy = z.infer<
+  typeof ApplicationAuthorityDecisionPolicySchema
+>;
+
+/**
+ * Canonical privacy-safe bytes for the decision-policy digest.
+ *
+ * Revision and digest are identity metadata and are deliberately excluded.
+ * The payload contains only the schema version, approved answer-snapshot
+ * identity, and fixed fail-closed actions; it never contains raw answers,
+ * credentials, page content, or DOM data. Callers hash this exact UTF-8 string
+ * with SHA-256 at the trusted persistence boundary.
+ */
+export function serializeApplicationAuthorityDecisionPolicyForDigest(
+  policy: Pick<
+    ApplicationAuthorityDecisionPolicy,
+    "version" | "answerPolicy" | "stopConditions"
+  >,
+): string {
+  const parsed = ApplicationAuthorityDecisionPolicySchema.pick({
+    version: true,
+    answerPolicy: true,
+    stopConditions: true,
+  }).parse(policy);
+  return JSON.stringify(parsed);
+}
 
 /**
  * Explicit, inspectable, revocable, scoped authority envelope (ADR 0012).
@@ -136,11 +278,7 @@ export const ApplicationAuthorityEnvelopeSchema = z
     status: ApplicationAuthorityStatusSchema,
     revision: z.number().int().positive(),
     scope: ApplicationAuthorityScopeSchema,
-    maxApplicationsPerRun: z
-      .number()
-      .int()
-      .min(1)
-      .max(Number.MAX_SAFE_INTEGER),
+    maxApplicationsPerRun: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
     maxApplicationsPerLocalDay: z
       .number()
       .int()
@@ -160,6 +298,10 @@ export const ApplicationAuthorityEnvelopeSchema = z
     createdAt: IsoDateTimeSchema,
     expiresAt: IsoDateTimeSchema.nullable(),
     revokedAt: IsoDateTimeSchema.nullable(),
+    // Legacy prepare-only envelopes may omit policy and normalize to null.
+    // Elevated authority must carry this exact immutable policy document.
+    decisionPolicy:
+      ApplicationAuthorityDecisionPolicySchema.nullable().default(null),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -240,6 +382,61 @@ export const ApplicationAuthorityEnvelopeSchema = z
       }
     }
 
+    const hasDecisionPolicy = value.decisionPolicy !== null;
+    const elevated =
+      value.mode === "confirm_before_submit" ||
+      value.mode === "autonomous_submit";
+    if (elevated && !hasDecisionPolicy) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Confirm and autonomous authority require an explicit decision-policy identity and rules.",
+        path: ["decisionPolicy"],
+      });
+    }
+    if (value.intermediateMutationsAuthorized && !hasDecisionPolicy) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Intermediate external mutation capability requires an explicit decision-policy identity and rules.",
+        path: ["decisionPolicy"],
+      });
+    }
+    if (value.intermediateMutationsAuthorized && value.expiresAt === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Intermediate external mutation capability requires an explicit expiry.",
+        path: ["expiresAt"],
+      });
+    }
+    if (value.intermediateMutationsAuthorized) {
+      if (value.scope.campaignId !== null || value.scope.jobIds.length !== 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Intermediate external mutation capability requires exactly one job and no campaign scope.",
+          path: ["scope"],
+        });
+      }
+      if (value.allowedResumeSha256.length !== 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Intermediate external mutation capability requires exactly one resume SHA-256 digest.",
+          path: ["allowedResumeSha256"],
+        });
+      }
+      if (value.allowedOrigins.length !== 1) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "Intermediate external mutation capability requires exactly one canonical origin.",
+          path: ["allowedOrigins"],
+        });
+      }
+    }
+
     if (new Set(value.scope.jobIds).size !== value.scope.jobIds.length) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -277,9 +474,27 @@ export const ApplicationAuthorityEnvelopeSchema = z
 export type ApplicationAuthorityEnvelope = z.infer<
   typeof ApplicationAuthorityEnvelopeSchema
 >;
+
 export type ApplicationAuthorityEnvelopeInput = z.input<
   typeof ApplicationAuthorityEnvelopeSchema
 >;
+
+/**
+ * Exact answer-snapshot binding for a future policy executor. A null policy
+ * (the compatibility shape for prepare-only workspaces) authorizes no
+ * elevated answer set, and any revision or digest drift fails closed.
+ */
+export function isApprovedApplicationAnswerSnapshot(
+  envelope: Pick<ApplicationAuthorityEnvelope, "decisionPolicy">,
+  answers: SubmissionAnswerSnapshotIdentity,
+): boolean {
+  const approved = envelope.decisionPolicy?.answerPolicy.approvedAnswerSnapshot;
+  return (
+    approved !== undefined &&
+    approved.revision === answers.revision &&
+    approved.digest === answers.digest
+  );
+}
 
 /**
  * Deterministic use-site gate: anything that is not explicitly active and
@@ -319,17 +534,6 @@ export type SubmissionObservationIdentity = z.infer<
   typeof SubmissionObservationIdentitySchema
 >;
 
-/** Digest-bound answer-set identity; raw answers never enter the record. */
-export const SubmissionAnswerSnapshotIdentitySchema = z
-  .object({
-    revision: z.number().int().positive(),
-    digest: Sha256HexSchema,
-  })
-  .strict();
-export type SubmissionAnswerSnapshotIdentity = z.infer<
-  typeof SubmissionAnswerSnapshotIdentitySchema
->;
-
 /** Stable final-control reference plus a digest signature of its identity. */
 export const SubmissionFinalControlIdentitySchema = z
   .object({
@@ -361,8 +565,16 @@ export const SubmissionPreflightRecordSchema = z
     jobId: NonEmptyStringSchema,
     resultId: NonEmptyStringSchema,
     applicationRecordId: NonEmptyStringSchema,
+    // Nullable defaults keep legacy prepare-only records readable. New
+    // authority execution must stamp the exact campaign and canonical page
+    // origin so repository transactions can verify scope and origin without
+    // retaining raw URLs.
+    campaignId: NonEmptyStringSchema.nullable().default(null),
+    origin: ApplicationAuthorityCanonicalOriginSchema.nullable().default(null),
     authorityEnvelopeId: NonEmptyStringSchema,
     authorityRevision: z.number().int().positive(),
+    decisionPolicy:
+      ApplicationAuthorityDecisionPolicyIdentitySchema.nullable().default(null),
     formObservation: SubmissionObservationIdentitySchema,
     resumeSha256: Sha256HexSchema,
     answers: SubmissionAnswerSnapshotIdentitySchema,
@@ -378,6 +590,27 @@ export type SubmissionPreflightRecord = z.infer<
 export type SubmissionPreflightRecordInput = z.input<
   typeof SubmissionPreflightRecordSchema
 >;
+
+/**
+ * Exact policy identity check for repository/executor transactions. Legacy
+ * prepare-only preflights with no decision policy remain representable, while
+ * a policy-bearing envelope can never match a preflight missing or changing
+ * its revision/digest.
+ */
+export function isSubmissionPreflightBoundToDecisionPolicy(
+  preflight: Pick<SubmissionPreflightRecord, "decisionPolicy">,
+  envelope: Pick<ApplicationAuthorityEnvelope, "decisionPolicy">,
+): boolean {
+  const identity = envelope.decisionPolicy;
+  if (identity === null) {
+    return preflight.decisionPolicy === null;
+  }
+  return (
+    preflight.decisionPolicy?.version === identity.version &&
+    preflight.decisionPolicy.revision === identity.revision &&
+    preflight.decisionPolicy.digest === identity.digest
+  );
+}
 
 export const submissionExecutionGrantStatusValues = [
   "active",
@@ -440,9 +673,7 @@ export const SubmissionExecutionGrantSchema = z
   .superRefine((value, ctx) => {
     const grantedAtTime = Date.parse(value.grantedAt);
 
-    if (
-      Date.parse(value.expiresAt) <= grantedAtTime
-    ) {
+    if (Date.parse(value.expiresAt) <= grantedAtTime) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "expiresAt must be strictly after grantedAt.",
@@ -622,7 +853,223 @@ export const submissionOutcomeValues = [
   "outcome_uncertain",
 ] as const;
 export const SubmissionOutcomeValueSchema = z.enum(submissionOutcomeValues);
-export type SubmissionOutcomeValue = z.infer<typeof SubmissionOutcomeValueSchema>;
+export type SubmissionOutcomeValue = z.infer<
+  typeof SubmissionOutcomeValueSchema
+>;
+
+/**
+ * Durable lifecycle for one final-submission idempotency key.
+ *
+ * `armed` is the crash-recovery boundary: it is written immediately before
+ * the executor gets permission to perform the one external action. An armed
+ * record without a matching outcome is therefore never retryable; recovery
+ * converts it to `outcome_uncertain`. The record is deliberately separate
+ * from the outcome so an outcome can only be committed after the armed
+ * transition has been durably observed.
+ */
+export const submissionIdempotencyStatusValues = [
+  "available",
+  "armed",
+  "resolved",
+  "outcome_uncertain",
+  "revoked",
+] as const;
+export const SubmissionIdempotencyStatusSchema = z.enum(
+  submissionIdempotencyStatusValues,
+);
+export type SubmissionIdempotencyStatus = z.infer<
+  typeof SubmissionIdempotencyStatusSchema
+>;
+
+export const SubmissionIdempotencyRecordSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    idempotencyKey: NonEmptyStringSchema,
+    preflightId: NonEmptyStringSchema,
+    authorityEnvelopeId: NonEmptyStringSchema,
+    authorityRevision: z.number().int().positive(),
+    runId: NonEmptyStringSchema,
+    jobId: NonEmptyStringSchema,
+    resultId: NonEmptyStringSchema,
+    applicationRecordId: NonEmptyStringSchema,
+    status: SubmissionIdempotencyStatusSchema,
+    revision: z.number().int().positive(),
+    createdAt: IsoDateTimeSchema,
+    updatedAt: IsoDateTimeSchema,
+    armedAt: IsoDateTimeSchema.nullable(),
+    outcomeId: NonEmptyStringSchema.nullable(),
+    outcome: SubmissionOutcomeValueSchema.nullable(),
+    revokedAt: IsoDateTimeSchema.nullable(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const createdAt = Date.parse(value.createdAt);
+    const updatedAt = Date.parse(value.updatedAt);
+    if (updatedAt < createdAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "updatedAt cannot precede createdAt.",
+        path: ["updatedAt"],
+      });
+    }
+    if (value.armedAt !== null && Date.parse(value.armedAt) < createdAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "armedAt cannot precede createdAt.",
+        path: ["armedAt"],
+      });
+    }
+    if (value.revokedAt !== null && Date.parse(value.revokedAt) < createdAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "revokedAt cannot precede createdAt.",
+        path: ["revokedAt"],
+      });
+    }
+
+    switch (value.status) {
+      case "available":
+        if (
+          value.armedAt !== null ||
+          value.outcomeId !== null ||
+          value.outcome !== null ||
+          value.revokedAt !== null
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "An available idempotency record cannot carry lifecycle markers.",
+            path: ["status"],
+          });
+        }
+        break;
+      case "armed":
+        if (value.armedAt === null) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "An armed idempotency record must record armedAt.",
+            path: ["armedAt"],
+          });
+        }
+        if (
+          value.outcomeId !== null ||
+          value.outcome !== null ||
+          value.revokedAt !== null
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "An armed idempotency record cannot carry an outcome or revocation.",
+            path: ["status"],
+          });
+        }
+        break;
+      case "resolved":
+        if (value.armedAt === null || value.outcomeId === null) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "A resolved idempotency record must bind its armed and outcome records.",
+            path: ["status"],
+          });
+        }
+        if (
+          value.outcome !== "submitted" &&
+          value.outcome !== "not_submitted"
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "A resolved idempotency record must carry a terminal outcome.",
+            path: ["outcome"],
+          });
+        }
+        if (value.revokedAt !== null) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "A resolved idempotency record cannot be revoked.",
+            path: ["revokedAt"],
+          });
+        }
+        break;
+      case "outcome_uncertain":
+        if (value.armedAt === null || value.outcomeId === null) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "An uncertain idempotency record must bind its armed and outcome records.",
+            path: ["status"],
+          });
+        }
+        if (value.outcome !== "outcome_uncertain") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "An uncertain idempotency record must carry outcome_uncertain.",
+            path: ["outcome"],
+          });
+        }
+        if (value.revokedAt !== null) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "An uncertain idempotency record cannot be revoked.",
+            path: ["revokedAt"],
+          });
+        }
+        break;
+      case "revoked":
+        if (value.revokedAt === null) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "A revoked idempotency record must record revokedAt.",
+            path: ["revokedAt"],
+          });
+        }
+        if (
+          value.armedAt !== null ||
+          value.outcomeId !== null ||
+          value.outcome !== null
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "A revoked idempotency record cannot carry an armed or outcome marker.",
+            path: ["status"],
+          });
+        }
+        break;
+    }
+  });
+export type SubmissionIdempotencyRecord = z.infer<
+  typeof SubmissionIdempotencyRecordSchema
+>;
+export type SubmissionIdempotencyRecordInput = z.input<
+  typeof SubmissionIdempotencyRecordSchema
+>;
+
+/**
+ * The separate durable one-shot marker written alongside an `armed`
+ * idempotency transition. It contains only lineage and authority bindings;
+ * no page data, credentials, or raw answers are persisted.
+ */
+export const SubmissionArmedMarkerSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    idempotencyKey: NonEmptyStringSchema,
+    preflightId: NonEmptyStringSchema,
+    authorityEnvelopeId: NonEmptyStringSchema,
+    authorityRevision: z.number().int().positive(),
+    runId: NonEmptyStringSchema,
+    jobId: NonEmptyStringSchema,
+    resultId: NonEmptyStringSchema,
+    applicationRecordId: NonEmptyStringSchema,
+    armedAt: IsoDateTimeSchema,
+  })
+  .strict();
+export type SubmissionArmedMarker = z.infer<typeof SubmissionArmedMarkerSchema>;
+export type SubmissionArmedMarkerInput = z.input<
+  typeof SubmissionArmedMarkerSchema
+>;
 
 export const submissionOutcomeEvidenceKindValues = [
   "employer_site_state",
@@ -813,4 +1260,74 @@ export type SubmissionOutcomeRecord = z.infer<
 >;
 export type SubmissionOutcomeRecordInput = z.input<
   typeof SubmissionOutcomeRecordSchema
+>;
+
+/**
+ * Explicit operator transition for a previously uncertain outcome.
+ *
+ * This is intentionally separate from the executor-facing outcome commit:
+ * only a human-supplied, externally observed resolution may move an
+ * `outcome_uncertain` idempotency key to a terminal outcome. The original
+ * uncertainty record remains in the durable history and the replacement
+ * outcome must use a fresh identity while retaining the same key/lineage.
+ */
+export const SubmissionOutcomeResolutionInputSchema = z
+  .object({
+    expectedOutcomeId: NonEmptyStringSchema,
+    expectedIdempotencyRevision: z.number().int().positive(),
+    outcome: SubmissionOutcomeRecordSchema,
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.outcome.id === value.expectedOutcomeId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "An operator resolution must append a new outcome record identity.",
+        path: ["outcome", "id"],
+      });
+    }
+    if (value.outcome.outcome === "outcome_uncertain") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "An operator resolution must establish submitted or not_submitted.",
+        path: ["outcome", "outcome"],
+      });
+    }
+    if (value.outcome.verifiedAt === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "An operator resolution requires a verification timestamp.",
+        path: ["outcome", "verifiedAt"],
+      });
+    }
+    if (value.outcome.evidence.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "An operator resolution requires external evidence.",
+        path: ["outcome", "evidence"],
+      });
+    }
+    if (value.outcome.outcome === "not_submitted") {
+      if (value.outcome.retry.eligible) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "An operator not_submitted resolution must not enable automatic retry.",
+          path: ["outcome", "retry", "eligible"],
+        });
+      }
+      if (value.outcome.retry.blockReason === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            "A not_submitted operator resolution requires an explicit retry block reason.",
+          path: ["outcome", "retry", "blockReason"],
+        });
+      }
+    }
+  });
+export type SubmissionOutcomeResolutionInput = z.infer<
+  typeof SubmissionOutcomeResolutionInputSchema
 >;

@@ -66,6 +66,7 @@ function createContext(
     actionState: { message: null },
     isPending: vi.fn(() => false),
     assistantMessages: [],
+    onApproveCurrentResume: vi.fn(),
     onApproveResume: vi.fn(),
     onBack: vi.fn(),
     onClearResumeApproval: vi.fn(),

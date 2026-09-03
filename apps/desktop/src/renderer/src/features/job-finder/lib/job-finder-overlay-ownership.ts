@@ -27,6 +27,16 @@ const overlayLayers = new Map<string, JobFinderOverlayLayer>();
 const changeListeners = new Set<() => void>();
 let layerSequence = 0;
 
+/**
+ * Modal layers are the strict subset of overlays that own the whole window:
+ * they paint a scrim and mark `#root` inert. Floating, modeless surfaces
+ * (Profile Copilot, Guided edits) portal to `document.body`, so `#root`
+ * inertness alone never reaches them and they would otherwise stay opaque and
+ * clickable above a modal's scrim. They subscribe to this count instead and
+ * drop below the scrim, aria-hidden and inert, while any modal is open.
+ */
+const modalLayers = new Set<string>();
+
 function emitChange(): void {
   for (const listener of changeListeners) {
     listener();
@@ -72,9 +82,26 @@ export function hasOpenJobFinderOverlays(): boolean {
   return overlayLayers.size > 0;
 }
 
-export function subscribeToJobFinderOverlays(
-  listener: () => void,
+export function hasOpenJobFinderModal(): boolean {
+  return modalLayers.size > 0;
+}
+
+/** Marks one already-acquired overlay layer as window-owning (modal). */
+export function markJobFinderOverlayAsModal(
+  ownership: JobFinderOverlayOwnership,
 ): () => void {
+  modalLayers.add(ownership.id);
+  emitChange();
+
+  return () => {
+    if (!modalLayers.delete(ownership.id)) {
+      return;
+    }
+    emitChange();
+  };
+}
+
+export function subscribeToJobFinderOverlays(listener: () => void): () => void {
   changeListeners.add(listener);
   return () => {
     changeListeners.delete(listener);
@@ -84,6 +111,7 @@ export function subscribeToJobFinderOverlays(
 /** Test seam: drop every live layer without relying on unmount ordering. */
 export function resetJobFinderOverlaysForTests(): void {
   overlayLayers.clear();
+  modalLayers.clear();
   emitChange();
 }
 
@@ -96,8 +124,10 @@ export function resetJobFinderOverlaysForTests(): void {
 export function useJobFinderOverlayOwnership(input: {
   active: boolean;
   close: () => void;
+  /** True for window-owning surfaces that paint a scrim and inert the app. */
+  modal?: boolean;
 }): { isTopmost: () => boolean } {
-  const { active } = input;
+  const { active, modal = false } = input;
   const ownershipRef = useRef<JobFinderOverlayOwnership | null>(null);
   const closeRef = useRef(input.close);
 
@@ -111,11 +141,15 @@ export function useJobFinderOverlayOwnership(input: {
     }
     const ownership = acquireJobFinderOverlay(() => closeRef.current());
     ownershipRef.current = ownership;
+    const releaseModal = modal
+      ? markJobFinderOverlayAsModal(ownership)
+      : undefined;
     return () => {
       ownershipRef.current = null;
+      releaseModal?.();
       ownership.release();
     };
-  }, [active]);
+  }, [active, modal]);
 
   const isTopmost = useRef(() => ownershipRef.current?.isTopmost() ?? false);
 
@@ -132,5 +166,17 @@ export function useHasOpenJobFinderOverlays(): boolean {
     subscribeToOverlayCount,
     hasOpenJobFinderOverlays,
     hasOpenJobFinderOverlays,
+  );
+}
+
+/**
+ * Reactive signal read by body-portalled floating surfaces so they can step
+ * under an open modal's scrim instead of floating above it.
+ */
+export function useHasOpenJobFinderModal(): boolean {
+  return useSyncExternalStore(
+    subscribeToOverlayCount,
+    hasOpenJobFinderModal,
+    hasOpenJobFinderModal,
   );
 }

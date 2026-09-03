@@ -15,6 +15,11 @@ import { _electron as electron } from "playwright";
 
 const execFileAsync = promisify(execFile);
 
+const gracefulCloseTimeoutMs = 5_000;
+const processTreeExitTimeoutMs = 5_000;
+const termExitTimeoutMs = 2_000;
+const processTreePollIntervalMs = 100;
+
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const desktopDir = path.resolve(currentDir, "..");
 const artifactRoot = path.resolve(desktopDir, "test-artifacts", "ui");
@@ -114,21 +119,193 @@ async function cleanCaptureArtifacts() {
   }
 }
 
-async function stopOwnedElectronProcessTree(app) {
-  const appProcess = app.process();
-  if (!appProcess?.pid) return;
+function hasExited(processHandle) {
+  return processHandle.exitCode !== null || processHandle.signalCode !== null;
+}
 
+function waitForProcessExit(processHandle, timeoutMs) {
+  if (!processHandle || hasExited(processHandle)) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId;
+    const finish = (exited) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutId);
+      processHandle.removeListener("exit", onExit);
+      resolve(exited);
+    };
+    const onExit = () => finish(true);
+    processHandle.once("exit", onExit);
+    timeoutId = setTimeout(() => finish(false), timeoutMs);
+    if (hasExited(processHandle)) finish(true);
+  });
+}
+
+async function readPosixProcessTable() {
+  const { stdout } = await execFileAsync(
+    "ps",
+    ["-axww", "-o", "pid=,ppid=,command="],
+    { maxBuffer: 8 * 1024 * 1024 },
+  );
+  return stdout
+    .split("\n")
+    .map((line) => {
+      const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+      return match
+        ? {
+            pid: Number(match[1]),
+            parentPid: Number(match[2]),
+            command: match[3],
+          }
+        : null;
+    })
+    .filter((row) => row !== null);
+}
+
+async function snapshotOwnedProcessTree(rootPid) {
   if (process.platform === "win32") {
-    await execFileAsync("taskkill", [
-      "/PID",
-      String(appProcess.pid),
-      "/T",
-      "/F",
-    ]);
+    return [{ pid: rootPid, command: "" }];
+  }
+
+  const table = await readPosixProcessTable();
+  const byPid = new Map(table.map((row) => [row.pid, row]));
+  if (!byPid.has(rootPid)) return [];
+
+  const pending = [rootPid];
+  const seen = new Set();
+  const owned = [];
+  while (pending.length > 0) {
+    const pid = pending.pop();
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    const row = byPid.get(pid);
+    if (row) owned.push({ pid: row.pid, command: row.command });
+    for (const child of table) {
+      if (child.parentPid === pid) pending.push(child.pid);
+    }
+  }
+  return owned;
+}
+
+async function getSurvivingOwnedProcesses(ownedProcesses) {
+  if (ownedProcesses.length === 0) return [];
+  if (process.platform === "win32") {
+    return ownedProcesses.filter((entry) => {
+      try {
+        process.kill(entry.pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  }
+
+  const table = await readPosixProcessTable();
+  const byPid = new Map(table.map((row) => [row.pid, row]));
+  return ownedProcesses.filter((entry) => {
+    const current = byPid.get(entry.pid);
+    return current !== undefined && current.command === entry.command;
+  });
+}
+
+async function waitForProcessTreeExit(ownedProcesses, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() <= deadline) {
+    try {
+      if ((await getSurvivingOwnedProcesses(ownedProcesses)).length === 0) {
+        return true;
+      }
+    } catch {
+      return false;
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, processTreePollIntervalMs),
+    );
+  }
+  return false;
+}
+
+async function signalOwnedProcessTree(ownedProcesses, processHandle, signal) {
+  if (process.platform === "win32") {
+    const args = ["/PID", String(processHandle.pid), "/T"];
+    if (signal === "SIGKILL") args.push("/F");
+    try {
+      await execFileAsync("taskkill", args);
+    } catch {
+      // The owned process tree may have exited between graceful close and fallback.
+    }
     return;
   }
 
-  appProcess.kill("SIGTERM");
+  let survivors;
+  try {
+    survivors = await getSurvivingOwnedProcesses(ownedProcesses);
+  } catch {
+    survivors = [{ pid: processHandle.pid, command: "" }];
+  }
+  if (survivors.length === 0 && !hasExited(processHandle)) {
+    survivors = [{ pid: processHandle.pid, command: "" }];
+  }
+  for (const entry of survivors) {
+    try {
+      process.kill(entry.pid, signal);
+    } catch {
+      // The owned process may have exited between the table read and signal.
+    }
+  }
+}
+
+async function stopOwnedElectronProcessTree(app) {
+  const appProcess = app.process();
+  if (!appProcess?.pid) return true;
+  const ownedProcesses = await snapshotOwnedProcessTree(appProcess.pid);
+
+  const gracefulClose = Promise.resolve()
+    .then(() => app.close())
+    .then(
+      () => "completed",
+      () => "failed",
+    );
+  const gracefulOutcome = await Promise.race([
+    gracefulClose,
+    new Promise((resolve) =>
+      setTimeout(() => resolve("timed-out"), gracefulCloseTimeoutMs),
+    ),
+  ]);
+  const processExited = await waitForProcessExit(
+    appProcess,
+    processTreeExitTimeoutMs,
+  );
+  const treeExited = await waitForProcessTreeExit(
+    ownedProcesses,
+    processTreeExitTimeoutMs,
+  );
+  if (gracefulOutcome === "completed" && processExited && treeExited)
+    return true;
+
+  await signalOwnedProcessTree(ownedProcesses, appProcess, "SIGTERM");
+  const termExited = await waitForProcessExit(appProcess, termExitTimeoutMs);
+  const termTreeExited = await waitForProcessTreeExit(
+    ownedProcesses,
+    termExitTimeoutMs,
+  );
+  if (!termExited || !termTreeExited) {
+    await signalOwnedProcessTree(ownedProcesses, appProcess, "SIGKILL");
+    await waitForProcessExit(appProcess, processTreeExitTimeoutMs);
+    await waitForProcessTreeExit(ownedProcesses, processTreeExitTimeoutMs);
+  }
+
+  const survivors = await getSurvivingOwnedProcesses(ownedProcesses);
+  if (survivors.length > 0) {
+    throw new Error(
+      `Electron teardown left owned processes alive: ${survivors
+        .map((entry) => entry.pid)
+        .join(", ")}`,
+    );
+  }
+  return true;
 }
 
 function workspaceDemoFilePaths(snapshot) {
@@ -1518,31 +1695,31 @@ async function run() {
       await setViewport(page, browserWindow, viewport);
       if (viewport.slug === "zoom-200") {
         const moreButton = page.getByRole("button", {
-          name: /^Planning and settings/,
+          name: /^More/,
           exact: false,
         });
         await moreButton.waitFor({ state: "visible", timeout: 10_000 });
         await moreButton.click();
         const moreMenu = page.getByRole("navigation", {
-          name: "Planning and settings",
+          name: "More",
           exact: true,
         });
         await moreMenu.waitFor({ state: "visible", timeout: 10_000 });
         const moreMenuLayout = await moreMenu.evaluate((element) => {
           const rect = element.getBoundingClientRect();
-          const items = Array.from(
-            element.querySelectorAll("button"),
-          ).map((item) => {
-            const itemRect = item.getBoundingClientRect();
-            return {
-              label: item.textContent?.replace(/\s+/g, " ").trim() ?? "",
-              visible:
-                itemRect.left >= 0 &&
-                itemRect.right <= window.innerWidth + 1 &&
-                itemRect.top >= 0 &&
-                itemRect.bottom <= window.innerHeight + 1,
-            };
-          });
+          const items = Array.from(element.querySelectorAll("button")).map(
+            (item) => {
+              const itemRect = item.getBoundingClientRect();
+              return {
+                label: item.textContent?.replace(/\s+/g, " ").trim() ?? "",
+                visible:
+                  itemRect.left >= 0 &&
+                  itemRect.right <= window.innerWidth + 1 &&
+                  itemRect.top >= 0 &&
+                  itemRect.bottom <= window.innerHeight + 1,
+              };
+            },
+          );
           return {
             visible:
               rect.left >= 0 &&
@@ -1556,7 +1733,7 @@ async function run() {
           moreMenuLayout.visible &&
             moreMenuLayout.items.length > 0 &&
             moreMenuLayout.items.every((item) => item.visible),
-          "200% Planning and settings menu is clipped or has unreachable items.",
+          "200% More menu is clipped or has unreachable items.",
         );
         await capture(page, "zoom-200-more-menu", {
           surface: "shell-navigation",
@@ -1638,18 +1815,30 @@ async function run() {
       `Saved ${report.captures.length} phase-two captures to ${outputDir}\n`,
     );
   } finally {
-    for (const filePath of demoFilesCreatedByHarness) {
-      await rm(filePath, { force: true });
-      report.safety.demoFilesRemoved.push(filePath);
-    }
+    let electronTeardownVerified = !app;
+    let electronTeardownFailure = null;
     if (app) {
       try {
         await stopOwnedElectronProcessTree(app);
-      } catch {
-        // Preserve the original failure.
+        electronTeardownVerified = true;
+      } catch (error) {
+        electronTeardownVerified = false;
+        electronTeardownFailure =
+          error instanceof Error ? error.message : String(error);
       }
     }
-    await rm(userDataDirectory, { recursive: true, force: true });
+    if (electronTeardownVerified) {
+      for (const filePath of demoFilesCreatedByHarness) {
+        await rm(filePath, { force: true });
+        report.safety.demoFilesRemoved.push(filePath);
+      }
+      await rm(userDataDirectory, { recursive: true, force: true });
+    }
+    report.cleanup = {
+      electronTeardownVerified,
+      userDataDirectoryRemoved: electronTeardownVerified,
+      ...(electronTeardownFailure ? { error: electronTeardownFailure } : {}),
+    };
     try {
       await writeReport();
     } catch {

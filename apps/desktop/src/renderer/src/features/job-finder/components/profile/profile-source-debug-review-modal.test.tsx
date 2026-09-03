@@ -18,9 +18,8 @@ function stubElementLayout() {
 }
 
 function restoreElementLayout() {
-  delete (
-    HTMLElement.prototype as unknown as { offsetParent?: unknown }
-  ).offsetParent;
+  delete (HTMLElement.prototype as unknown as { offsetParent?: unknown })
+    .offsetParent;
 }
 
 afterEach(() => {

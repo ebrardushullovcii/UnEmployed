@@ -252,6 +252,54 @@ describe("workspace listing activity snapshots", () => {
     );
   });
 
+  test("promotes a discovery-only staged job into the durable review queue", async () => {
+    const seed = createSeed();
+    const pendingJob = {
+      ...seed.savedJobs[0]!,
+      id: "pending-shortlist-job",
+      sourceJobId: "pending-shortlist-job",
+      canonicalUrl: "https://jobs.example.test/pending-shortlist-job",
+      applicationUrl: "https://jobs.example.test/pending-shortlist-job/apply",
+      status: "discovered" as const,
+    };
+    seed.discovery = JobFinderDiscoveryStateSchema.parse({
+      ...seed.discovery,
+      pendingDiscoveryJobs: [pendingJob],
+    });
+    const repository = createInMemoryJobFinderRepository(seed);
+    const service = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime: createBrowserRuntime(),
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager(),
+    });
+
+    await service.getWorkspaceSnapshot();
+    const campaignState = await repository.getCampaignState();
+    expect(campaignState).not.toBeNull();
+    await repository.saveCampaignState({
+      ...campaignState!,
+      campaigns: campaignState!.campaigns.map((campaign) =>
+        campaign.id === campaignState!.activeCampaignId
+          ? { ...campaign, jobIds: [...campaign.jobIds, pendingJob.id] }
+          : campaign,
+      ),
+    });
+
+    const snapshot = await service.queueJobForReview(pendingJob.id);
+
+    expect((await repository.getDiscoveryState()).pendingDiscoveryJobs).toEqual(
+      [],
+    );
+    expect(
+      (await repository.listSavedJobs()).find((job) => job.id === pendingJob.id)
+        ?.status,
+    ).toBe("drafting");
+    expect(snapshot.reviewQueue.map((item) => item.jobId)).toContain(
+      pendingJob.id,
+    );
+  });
+
   test.each(["unknown", "stale", "inactive"] as const)(
     "allows a listing with %s activity through the shortlist service gate",
     async (activity) => {

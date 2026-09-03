@@ -246,6 +246,9 @@ describe("prepare-only smoke strict outcome contract", () => {
     );
     expect(source).toContain("expectedBlockerCode,");
     expect(source).toContain('"passed_expected_human_handoff_without_submit"');
+    expect(source).toMatch(
+      /expectedBlockerCode[\s\S]*!truthfulWriteGuardHandoff/u,
+    );
   });
 });
 
@@ -450,6 +453,53 @@ describe.each(Object.keys(WRAPPERS) as WrapperName[])(
 );
 
 describe("binding-variable handoff to the prepare-only smoke", () => {
+  it("initializes every lexical binding before capturing ambient acceptance intent", async () => {
+    const source = await readSmokeSource();
+    const captureIndex = source.indexOf(
+      "acceptanceInput = resolveAcceptanceInput(process.env);",
+    );
+
+    expect(captureIndex).toBeGreaterThan(-1);
+    for (const dependency of [
+      "class AcceptanceBindingError",
+      "const ACCEPTANCE_INTENT_ENV_VARS",
+      "const SHA256_DIGEST_PATTERN",
+      "export function resolveAcceptanceInput",
+    ]) {
+      const dependencyIndex = source.indexOf(dependency);
+      expect(dependencyIndex, dependency).toBeGreaterThan(-1);
+      expect(dependencyIndex, dependency).toBeLessThan(captureIndex);
+    }
+  });
+
+  it("unwraps the typed discovery result before reading workspace state", async () => {
+    const source = await readSmokeSource();
+    const runIndex = source.indexOf(
+      'const discoveryResult = await runPhase(\n      "fast_configured_source_discovery"',
+    );
+    const unwrapIndex = source.indexOf(
+      "latestWorkspace = discoveryResult.snapshot;",
+    );
+    const summarizeIndex = source.indexOf(
+      "report.discovery = buildDiscoverySummary(latestWorkspace);",
+    );
+
+    expect(runIndex).toBeGreaterThan(-1);
+    expect(unwrapIndex).toBeGreaterThan(runIndex);
+    expect(summarizeIndex).toBeGreaterThan(unwrapIndex);
+  });
+
+  it("passes the typed apply-copilot action object through the preload bridge", async () => {
+    const source = await readSmokeSource();
+
+    expect(source).toContain(
+      "window.unemployed.jobFinder.startApplyCopilotRun({\n              jobId,\n              visualCheckpointsEnabled: false,\n            })",
+    );
+    expect(source).not.toContain(
+      "window.unemployed.jobFinder.startApplyCopilotRun(jobId,",
+    );
+  });
+
   it("executes the wrappers' contract against the real acceptance-env rules", async () => {
     const smoke = await loadSmokeModule();
 
@@ -546,9 +596,7 @@ describe("ATS wrappers validate local binding before the live fetch", () => {
   it("keeps Greenhouse and Ashby board tokens encoded as in unbound runs", async () => {
     for (const name of ["greenhouse", "ashby"] as const) {
       const source = await readWrapper(name);
-      expect(source).toMatch(
-        /encodeURIComponent\(board(Token|Slug)\)/u,
-      );
+      expect(source).toMatch(/encodeURIComponent\(board(Token|Slug)\)/u);
     }
   });
 });

@@ -25,7 +25,8 @@ import path from "node:path";
 //             atomically (exclusive temp file -> rename, mode 0644 preserved)
 //   aggregate verify every persona has a valid, wave-bound record, emit the
 //             synthesis input JSON into the evidence root, and exit nonzero
-//             when anything is missing/invalid or any P0 finding exists
+//             when anything is missing/invalid, a visual lens is incomplete,
+//             or any P0 finding exists
 //
 // Protocol guarantees enforced here:
 //   - Complete canonical wave: custody must carry waveComplete:true and
@@ -44,7 +45,7 @@ import path from "node:path";
 
 type JsonRecord = Record<string, unknown>;
 
-export const BLIND_PERSONA_EVIDENCE_SCHEMA_VERSION = 1;
+export const BLIND_PERSONA_EVIDENCE_SCHEMA_VERSION = 2;
 
 export const EVIDENCE_RECORD_FILENAME = "blind-persona-evidence-record.json";
 
@@ -56,6 +57,41 @@ export type EvidenceSeverityLevel = (typeof EVIDENCE_SEVERITY_LEVELS)[number];
 
 export const EVIDENCE_VERDICTS = ["complete", "blocked", "partial"] as const;
 export type EvidencePersonaVerdict = (typeof EVIDENCE_VERDICTS)[number];
+
+export const VISUAL_REVIEW_STATUSES = [
+  "clear",
+  "issue",
+  "not_observed",
+] as const;
+export type VisualReviewStatus = (typeof VISUAL_REVIEW_STATUSES)[number];
+
+export const VISUAL_REVIEW_LENS_KEYS = [
+  "firstStableViewport",
+  "hierarchyDensityAndStateChange",
+  "loadingState",
+  "brandAndNavigation",
+  "clippingAndOverlap",
+] as const;
+
+export type VisualReviewLens = (typeof VISUAL_REVIEW_LENS_KEYS)[number];
+
+/** An inspectable non-screenshot source for a visual observation, such as a
+ * saved DOM/geometry probe or interaction trace. The path is validated with
+ * the same containment rules as screenshots, but may be any regular file. */
+export const VISUAL_REVIEW_OBSERVATION_SOURCE_KINDS = [
+  "accessibility_probe",
+  "dom_probe",
+  "interaction_trace",
+  "live_ui",
+] as const;
+
+export type VisualReviewObservationSourceKind =
+  (typeof VISUAL_REVIEW_OBSERVATION_SOURCE_KINDS)[number];
+
+export interface EvidenceVisualObservationSource {
+  kind: VisualReviewObservationSourceKind;
+  path: string;
+}
 
 /** Ordered top-level keys of one evidence record; order doubles as the
  * canonical on-disk serialization order. */
@@ -73,6 +109,7 @@ export const EVIDENCE_RECORD_KEYS = [
   "inaccessibleControls",
   "trustConcerns",
   "expectedNextAction",
+  "visualReview",
   "screenshotPaths",
   "rendererErrors",
   "horizontalOverflowFindings",
@@ -115,6 +152,22 @@ export interface EvidenceOverflowFinding {
   summary: string;
 }
 
+export interface EvidenceVisualReviewItem {
+  note: string;
+  observationSource?: EvidenceVisualObservationSource;
+  screenshotPaths: string[];
+  severity: EvidenceSeverityLevel | null;
+  status: VisualReviewStatus;
+}
+
+export interface EvidenceVisualReview {
+  brandAndNavigation: EvidenceVisualReviewItem;
+  clippingAndOverlap: EvidenceVisualReviewItem;
+  firstStableViewport: EvidenceVisualReviewItem;
+  hierarchyDensityAndStateChange: EvidenceVisualReviewItem;
+  loadingState: EvidenceVisualReviewItem;
+}
+
 export interface BlindPersonaEvidenceRecord {
   backtracks: number;
   blockers: EvidenceBlockerEntry[];
@@ -132,6 +185,7 @@ export interface BlindPersonaEvidenceRecord {
   severities: EvidenceSeverityFinding[];
   trustConcerns: string[];
   verdict: EvidencePersonaVerdict;
+  visualReview: EvidenceVisualReview;
   waveCustodyPath: string;
 }
 
@@ -221,6 +275,7 @@ export interface SynthesisPersonaProjection {
   severities: EvidenceSeverityFinding[];
   trustConcerns: string[];
   verdict: EvidencePersonaVerdict;
+  visualReview: EvidenceVisualReview;
 }
 
 export interface EvidenceSynthesisSummary {
@@ -230,6 +285,9 @@ export interface EvidenceSynthesisSummary {
   p2Count: number;
   personasWithP0: string[];
   rendererErrorCount: number;
+  visualReviewIssueCount: number;
+  visualReviewNotObservedCount: number;
+  visualReviewIncompletePersonaIds: string[];
   verdictBlocked: number;
   verdictComplete: number;
   verdictPartial: number;
@@ -450,6 +508,55 @@ function readNonEmptyStringArray(
     entries.push(entry);
   });
   return entries;
+}
+
+function readVisualReviewSeverity(
+  source: JsonRecord,
+  problems: string[],
+): EvidenceSeverityLevel | null {
+  const raw = source.severity;
+  if (raw === null) return null;
+  if (
+    typeof raw === "string" &&
+    EVIDENCE_SEVERITY_LEVELS.includes(raw as EvidenceSeverityLevel)
+  ) {
+    return raw as EvidenceSeverityLevel;
+  }
+  problems.push(
+    `severity must be null or one of ${EVIDENCE_SEVERITY_LEVELS.join("|")}.`,
+  );
+  return null;
+}
+
+function readVisualReviewObservationSource(
+  source: JsonRecord,
+  problems: string[],
+): EvidenceVisualObservationSource | null {
+  const raw = source.observationSource;
+  if (raw === undefined || raw === null) return null;
+  if (!isPlainObject(raw)) {
+    problems.push("observationSource must be null or an object.");
+    return null;
+  }
+  const sourceProblems: string[] = [];
+  const kind = readEnum(
+    raw,
+    "kind",
+    VISUAL_REVIEW_OBSERVATION_SOURCE_KINDS,
+    sourceProblems,
+  );
+  const sourcePath = readNonEmptyString(raw, "path", sourceProblems);
+  collectUnknownFieldProblems(
+    raw,
+    ["kind", "path"],
+    "observationSource",
+    sourceProblems,
+  );
+  for (const sourceProblem of sourceProblems) {
+    problems.push(`observationSource: ${sourceProblem}`);
+  }
+  if (sourceProblems.length > 0) return null;
+  return { kind, path: sourcePath };
 }
 
 /** Validates one screenshot-path list: relative-only, no upward traversal,
@@ -674,6 +781,105 @@ export async function validateEvidenceRecordValue(
     problems,
   );
 
+  const visualReviewRaw = value.visualReview;
+  const visualReview = {} as EvidenceVisualReview;
+  if (!isPlainObject(visualReviewRaw)) {
+    problems.push("visualReview must be an object.");
+  } else {
+    collectUnknownFieldProblems(
+      visualReviewRaw,
+      VISUAL_REVIEW_LENS_KEYS,
+      "visualReview",
+      problems,
+    );
+    for (const key of VISUAL_REVIEW_LENS_KEYS) {
+      const item = visualReviewRaw[key];
+      const label = `visualReview.${key}`;
+      if (!isPlainObject(item)) {
+        problems.push(`${label} must be an object.`);
+        continue;
+      }
+      const itemProblems: string[] = [];
+      const status = readEnum(
+        item,
+        "status",
+        VISUAL_REVIEW_STATUSES,
+        itemProblems,
+      );
+      const note = readNonEmptyString(item, "note", itemProblems);
+      const screenshotPaths = readNonEmptyStringArray(
+        item,
+        "screenshotPaths",
+        itemProblems,
+      );
+      const observationSource = readVisualReviewObservationSource(
+        item,
+        itemProblems,
+      );
+      const severity = readVisualReviewSeverity(item, itemProblems);
+      if (typeof note === "string" && note.startsWith("REPLACE:")) {
+        itemProblems.push(
+          "note must replace the scaffold guidance with the tester's own observation.",
+        );
+      }
+      if (status === "issue" && screenshotPaths.length === 0) {
+        itemProblems.push("issue must reference at least one screenshot path.");
+      }
+      if (
+        status === "clear" &&
+        screenshotPaths.length === 0 &&
+        observationSource === null
+      ) {
+        itemProblems.push(
+          "clear must reference at least one screenshot path or an inspectable observationSource.",
+        );
+      }
+      if (status === "not_observed" && observationSource !== null) {
+        itemProblems.push(
+          "observationSource must be omitted unless status is clear or issue.",
+        );
+      }
+      if (status === "issue" && severity === null) {
+        itemProblems.push("issue must include a P0, P1, or P2 severity.");
+      }
+      if (status !== "issue" && severity !== null) {
+        itemProblems.push("severity must be null unless status is issue.");
+      }
+      await validateScreenshotPathList(
+        screenshotPaths,
+        screenshotBaseDir,
+        `${label}.screenshotPaths`,
+        itemProblems,
+      );
+      if (observationSource !== null) {
+        await validateScreenshotPathList(
+          [observationSource.path],
+          screenshotBaseDir,
+          `${label}.observationSource.path`,
+          itemProblems,
+        );
+      }
+      collectUnknownFieldProblems(
+        item,
+        ["status", "note", "observationSource", "screenshotPaths", "severity"],
+        label,
+        itemProblems,
+      );
+      for (const itemProblem of itemProblems) {
+        problems.push(`${label}: ${itemProblem}`);
+      }
+      if (itemProblems.length === 0) {
+        visualReview[key] = {
+          ...(observationSource === null ? {} : { observationSource }),
+          note,
+          screenshotPaths,
+          severity,
+          status,
+        };
+      }
+    }
+  }
+
   const screenshotPaths = readNonEmptyStringArray(
     value,
     "screenshotPaths",
@@ -685,6 +891,17 @@ export async function validateEvidenceRecordValue(
     "screenshotPaths",
     problems,
   );
+  for (const key of VISUAL_REVIEW_LENS_KEYS) {
+    const item = visualReview[key];
+    if (!item) continue;
+    for (const [index, screenshotPath] of item.screenshotPaths.entries()) {
+      if (!screenshotPaths.includes(screenshotPath)) {
+        problems.push(
+          `visualReview.${key}.screenshotPaths[${index}] must reference a path listed in the top-level screenshotPaths: ${screenshotPath}`,
+        );
+      }
+    }
+  }
 
   const rendererErrors: EvidenceRendererError[] = [];
   const rendererErrorsRaw = value.rendererErrors;
@@ -810,6 +1027,7 @@ export async function validateEvidenceRecordValue(
     severities,
     trustConcerns,
     verdict,
+    visualReview,
     waveCustodyPath,
   };
 }
@@ -881,6 +1099,38 @@ export function scaffoldEvidenceRecord(
     inaccessibleControls: [],
     trustConcerns: [],
     expectedNextAction: "",
+    visualReview: {
+      firstStableViewport: {
+        status: "not_observed",
+        note: "REPLACE: describe the first stable viewport or why it was not observed.",
+        screenshotPaths: [],
+        severity: null,
+      },
+      hierarchyDensityAndStateChange: {
+        status: "not_observed",
+        note: "REPLACE: describe hierarchy, density, and whether tabs/actions changed the visible state clearly.",
+        screenshotPaths: [],
+        severity: null,
+      },
+      loadingState: {
+        status: "not_observed",
+        note: "REPLACE: describe the loading state or why it was not observed.",
+        screenshotPaths: [],
+        severity: null,
+      },
+      brandAndNavigation: {
+        status: "not_observed",
+        note: "REPLACE: describe brand and navigation persistence or why it was not observed.",
+        screenshotPaths: [],
+        severity: null,
+      },
+      clippingAndOverlap: {
+        status: "not_observed",
+        note: "REPLACE: describe clipping or overlap, or state that none was observed.",
+        screenshotPaths: [],
+        severity: null,
+      },
+    },
     screenshotPaths: [],
     rendererErrors: [],
     horizontalOverflowFindings: [],
@@ -1192,6 +1442,27 @@ export async function recordBlindPersonaEvidence(
   };
 }
 
+function cloneVisualReviewItem(
+  item: EvidenceVisualReviewItem,
+): EvidenceVisualReviewItem {
+  return {
+    ...item,
+    ...(item.observationSource === undefined
+      ? {}
+      : { observationSource: { ...item.observationSource } }),
+    screenshotPaths: [...item.screenshotPaths],
+  };
+}
+
+function visualReviewItems(
+  visualReview: EvidenceVisualReview,
+): Array<{ lens: VisualReviewLens; item: EvidenceVisualReviewItem }> {
+  return VISUAL_REVIEW_LENS_KEYS.map((lens) => ({
+    item: visualReview[lens],
+    lens,
+  }));
+}
+
 function projectSynthesisPersona(
   record: BlindPersonaEvidenceRecord,
 ): SynthesisPersonaProjection {
@@ -1223,6 +1494,21 @@ function projectSynthesisPersona(
     })),
     trustConcerns: [...record.trustConcerns],
     verdict: record.verdict,
+    visualReview: {
+      brandAndNavigation: cloneVisualReviewItem(
+        record.visualReview.brandAndNavigation,
+      ),
+      clippingAndOverlap: cloneVisualReviewItem(
+        record.visualReview.clippingAndOverlap,
+      ),
+      firstStableViewport: cloneVisualReviewItem(
+        record.visualReview.firstStableViewport,
+      ),
+      hierarchyDensityAndStateChange: cloneVisualReviewItem(
+        record.visualReview.hierarchyDensityAndStateChange,
+      ),
+      loadingState: cloneVisualReviewItem(record.visualReview.loadingState),
+    },
   };
 }
 
@@ -1270,9 +1556,9 @@ async function resolveContainedSynthesisOutput(
  * invalid records produce a failed outcome with per-persona reasons and no
  * synthesis; a stale default synthesis inside the evidence root is removed so
  * it cannot be mistaken for current output. When every record is valid but
- * any P0 finding exists, the synthesis is still written and the outcome stays
- * failed so the caller cannot silently proceed. Personas are always ordered
- * P01..P14 by custody-entry sort. */
+ * any P0 finding or incomplete visual review exists, the synthesis is still
+ * written and the outcome stays failed so the caller cannot silently proceed.
+ * Personas are always ordered P01..P14 by custody-entry sort. */
 export async function aggregateBlindPersonaEvidence(
   options: AggregateBlindPersonaEvidenceOptions,
 ): Promise<AggregateBlindPersonaEvidenceOutcome> {
@@ -1364,17 +1650,69 @@ export async function aggregateBlindPersonaEvidence(
     };
   }
 
-  const p0Findings = projections.flatMap((projection) =>
-    projection.severities
-      .filter((finding) => finding.level === "P0")
-      .map((finding) => ({ finding, personaId: projection.personaId })),
+  const visualReviewIssueCount = projections.reduce(
+    (total, projection) =>
+      total +
+      visualReviewItems(projection.visualReview).filter(
+        ({ item }) => item.status === "issue",
+      ).length,
+    0,
   );
+  const visualReviewNotObservedCount = projections.reduce(
+    (total, projection) =>
+      total +
+      visualReviewItems(projection.visualReview).filter(
+        ({ item }) => item.status === "not_observed",
+      ).length,
+    0,
+  );
+  const visualReviewIncompletePersonaIds = projections
+    .filter((projection) =>
+      visualReviewItems(projection.visualReview).some(
+        ({ item }) => item.status !== "clear",
+      ),
+    )
+    .map((projection) => projection.personaId);
+  const p0Findings = [
+    ...projections.flatMap((projection) =>
+      projection.severities
+        .filter((finding) => finding.level === "P0")
+        .map((finding) => ({ finding, personaId: projection.personaId })),
+    ),
+    ...projections.flatMap((projection) =>
+      visualReviewItems(projection.visualReview).flatMap(({ item, lens }) =>
+        item.status === "issue" && item.severity === "P0"
+          ? [
+              {
+                finding: {
+                  area: `visualReview.${lens}`,
+                  evidenceRefs: [...item.screenshotPaths],
+                  level: "P0" as const,
+                  summary: item.note,
+                },
+                personaId: projection.personaId,
+              },
+            ]
+          : [],
+      ),
+    ),
+  ];
   const exitReasons: string[] = [];
   if (p0Findings.length > 0) {
     exitReasons.push(
       `${p0Findings.length} P0 finding(s) present across persona(s): ${[
         ...new Set(p0Findings.map((entry) => entry.personaId)),
       ].join(", ")}.`,
+    );
+  }
+  if (visualReviewIssueCount > 0) {
+    exitReasons.push(
+      `${visualReviewIssueCount} visual review issue(s) require triage; the aggregate is incomplete.`,
+    );
+  }
+  if (visualReviewNotObservedCount > 0) {
+    exitReasons.push(
+      `${visualReviewNotObservedCount} visual review lens(es) were not observed; the aggregate is incomplete.`,
     );
   }
 
@@ -1390,6 +1728,9 @@ export async function aggregateBlindPersonaEvidence(
       (total, projection) => total + projection.rendererErrors.length,
       0,
     ),
+    visualReviewIncompletePersonaIds,
+    visualReviewIssueCount,
+    visualReviewNotObservedCount,
     verdictBlocked: projections.filter((p) => p.verdict === "blocked").length,
     verdictComplete: projections.filter((p) => p.verdict === "complete").length,
     verdictPartial: projections.filter((p) => p.verdict === "partial").length,
@@ -1399,6 +1740,13 @@ export async function aggregateBlindPersonaEvidence(
       if (finding.level === "P0") summary.p0Count += 1;
       else if (finding.level === "P1") summary.p1Count += 1;
       else summary.p2Count += 1;
+    }
+    for (const { item } of visualReviewItems(projection.visualReview)) {
+      if (item.status === "issue" && item.severity !== null) {
+        if (item.severity === "P0") summary.p0Count += 1;
+        else if (item.severity === "P1") summary.p1Count += 1;
+        else summary.p2Count += 1;
+      }
     }
   }
 
@@ -1531,7 +1879,9 @@ init scaffolds one directory per custody-index persona containing an empty
 record prefilled with personaId and waveCustodyPath into a FRESH evidence
 root (the root must not exist yet; its parent must be an existing
 directory). It refuses existing persona directories instead of clobbering
-them and rolls back everything it created if scaffolding fails midway.
+them and rolls back everything it created if scaffolding fails midway. The
+visualReview notes contain explicit REPLACE guidance: choose clear|issue|not_observed
+for each lens and replace every guidance note with the tester's own observation.
 
 Canonical complete wave only: this harness serves the canonical complete
 wave, so init and aggregate fail closed when custody waveComplete is not
@@ -1549,7 +1899,14 @@ relative paths inside the persona record directory that must exist on disk --
 nested subdirectories are allowed, but ".." segments and symlinks escaping
 the directory are rejected; rendererErrors as message/scenarioHint pairs;
 structured horizontalOverflowFindings with surface/summary/screenshotPath
-instead of a bare boolean; firstPersonVerdict). A blocked verdict requires at
+instead of a bare boolean; visualReview with clear|issue|not_observed status,
+a non-empty note, screenshotPaths, and nullable P0|P1|P2 severity for each of
+firstStableViewport,
+hierarchyDensityAndStateChange, loadingState, brandAndNavigation, and
+clippingAndOverlap. A visual issue requires at least one screenshot that is
+also listed in top-level screenshotPaths and a triaged severity; a clear
+lens requires a top-level screenshot or an inspectable contained
+observationSource; a not_observed lens remains incomplete. A blocked verdict requires at
 least one blocker and one severity; a complete verdict requires no blockers;
 every blocker screenshot and overflow-finding screenshot must also appear in
 the top-level screenshotPaths. Unknown fields are rejected. On success the
@@ -1567,8 +1924,10 @@ of the evidence root (never a custody path, persona subpath, evidence record,
 or existing symlink). On missing/invalid records no synthesis is written and
 a stale default synthesis inside the evidence root is removed so it cannot be
 mistaken for current. Exit code is nonzero when any record is missing or
-invalid, or when any P0 finding exists, so a parent session cannot silently
-proceed past a blocked wave. Aggregation produces the INPUT to independent
-synthesis; it is not final acceptance. Unrecognized input -- an unknown
+invalid, any visual issue or not_observed lens remains, or any P0 finding
+exists, so a parent session cannot silently proceed past an incomplete wave.
+Visual issue severity is counted without upgrading every visual incompleteness
+to P0. Aggregation produces the INPUT to independent synthesis; it is not
+final acceptance. Unrecognized input -- an unknown
 subcommand or flags-first arguments such as --foo -- exits nonzero with an
 error instead of printing help as success.`;

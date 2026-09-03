@@ -49,6 +49,14 @@ import {
   type ServiceWorkerSafetyFinding,
 } from "./playwright-application-flow";
 import {
+  executeExactlyOneFinalAction as executeExactlyOneFinalActionOnPage,
+  observeApplicationForm as observeApplicationFormOnPage,
+} from "./application-submission-browser-hands";
+import type {
+  ExecuteExactlyOneFinalActionInput,
+  ObserveApplicationFormOptions,
+} from "./application-submission-browser-hands";
+import {
   createInconclusiveSourceAccessProbeResult,
   inspectSourceAccessPage,
 } from "./source-access-probe";
@@ -307,6 +315,25 @@ export function createAgentChatWithToolsBridge(
   return {
     chatWithTools,
   };
+}
+
+/**
+ * ADR 0013 compact-first discovery can finish without model tools. When the
+ * configured client lacks `chatWithTools`, keep a rejecting stub so escalation
+ * fails with the same honest warning instead of skipping the page scan.
+ */
+export function resolveAgentDiscoveryChatWithTools(
+  chatWithTools: JobFinderAiClient["chatWithTools"] | undefined,
+): NonNullable<JobFinderAiClient["chatWithTools"]> {
+  return (
+    chatWithTools ??
+    (() =>
+      Promise.reject(
+        new Error(
+          "AI client does not support tool calling. Cannot run agent discovery.",
+        ),
+      ))
+  );
 }
 
 function buildUnsupportedApplyResult(input: {
@@ -988,6 +1015,7 @@ export function createBrowserAgentRuntime(
   let browserPromise: Promise<Browser> | null = null;
   let launchedChromeProcess: ChildProcess | null = null;
   let ownsChromeProcess = false;
+  let applicationExecutionTail: Promise<void> = Promise.resolve();
   const windowBoundsPath = join(
     options.userDataDir,
     "unemployed-browser-window-bounds.json",
@@ -1304,6 +1332,16 @@ export function createBrowserAgentRuntime(
           "--no-default-browser-check",
           "--disable-session-crashed-bubble",
           "--hide-crash-restore-bubble",
+          // Extension service workers can observe or mutate application pages
+          // outside the typed runtime boundary. Keep the managed profile's
+          // ordinary cookies/session state, but never activate installed
+          // extensions in an automation-owned Chrome process.
+          "--disable-extensions",
+          // Chrome can still start bundled component-extension background
+          // workers when ordinary extensions are disabled. Those workers are
+          // unrelated to an ATS page but must not make the fail-closed active
+          // worker gate reject every fresh managed profile.
+          "--disable-component-extensions-with-background-pages",
           "--new-window",
           "about:blank",
         ];
@@ -1542,6 +1580,38 @@ export function createBrowserAgentRuntime(
     return captureVisualSnapshotForPage(await getReadyPage(source), request);
   }
 
+  async function observeApplicationFormForSource(
+    source: JobSource,
+    observeOptions?: ObserveApplicationFormOptions,
+  ) {
+    return observeApplicationFormOnPage(
+      await getReadyPage(source),
+      observeOptions,
+    );
+  }
+
+  async function executeExactlyOneFinalActionForSource(
+    source: JobSource,
+    actionInput: ExecuteExactlyOneFinalActionInput,
+  ) {
+    actionInput.signal?.throwIfAborted();
+    return executeExactlyOneFinalActionOnPage(
+      await getReadyPage(source),
+      actionInput,
+    );
+  }
+
+  function withApplicationExecutionLock<TResult>(
+    operation: () => Promise<TResult>,
+  ): Promise<TResult> {
+    const run = applicationExecutionTail.then(operation, operation);
+    applicationExecutionTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   return {
     getSessionState(source) {
       return Promise.resolve(
@@ -1611,6 +1681,8 @@ export function createBrowserAgentRuntime(
         ? inspectSourceAccessPage(page, input)
         : createInconclusiveSourceAccessProbeResult(input);
     },
+    observeApplicationForm: observeApplicationFormForSource,
+    executeExactlyOneFinalAction: executeExactlyOneFinalActionForSource,
     runDiscovery(source, searchPreferences) {
       const timestamp = new Date().toISOString();
 
@@ -1644,293 +1716,295 @@ export function createBrowserAgentRuntime(
         }),
       );
     },
-    async executeApplicationFlow(
+    executeApplicationFlow(
       source,
       input: ExecuteApplicationFlowInput,
       options,
     ): Promise<ApplyExecutionResult> {
-      const executionStartedAtMs = Date.now();
-      const startedAt = new Date(executionStartedAtMs).toISOString();
-      const executionTimings: ApplyExecutionTiming[] = [];
-      const recordExecutionTiming = (
-        stage: ApplyExecutionStage,
-        stageStartedAtMs: number,
-      ): void => {
-        const completedAtMs = Date.now();
-        executionTimings.push({
-          stage,
-          startedAt: new Date(stageStartedAtMs).toISOString(),
-          completedAt: new Date(completedAtMs).toISOString(),
-          durationMs: Math.max(0, completedAtMs - stageStartedAtMs),
-        });
-      };
-      const targetUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
-      const resumeFilePath = input.resumeArtifact.filePath.trim();
-      const approvedResumeFileExists = resumeFilePath
-        ? await pathExists(resumeFilePath)
-        : false;
-      let executionResult: ApplyExecutionResult;
-      let applicationPageOpened = false;
-
-      if (
-        input.resumeArtifact.jobId !== input.job.id ||
-        !approvedResumeFileExists
-      ) {
-        const detail =
-          "The production runtime refused to open the application because the approved application resume is missing or does not belong to this job.";
-        executionResult = buildPreparationResult({
-          executionInput: input,
-          state: "failed",
-          summary: "Approved resume export is missing",
-          detail,
-          questions: [],
-          blocker: {
-            code: "missing_resume",
-            summary: "A current approved resume export is required.",
-            detail,
-            questionIds: [],
-            sourceDebugEvidenceRefIds: [],
-            url: isHttpUrlLike(targetUrl) ? targetUrl : null,
-          },
-          checkpoints: [],
-          checkpointLabel: "Stopped before opening the application",
-          checkpointDetail: detail,
-          checkpointUrls: isHttpUrlLike(targetUrl) ? [targetUrl] : [],
-          lastUrl: isHttpUrlLike(targetUrl) ? targetUrl : null,
-          now: startedAt,
-          nextActionLabel: "Export and approve the tailored resume",
-        });
-      } else if (!isHttpUrlLike(targetUrl)) {
-        executionResult = buildUnsupportedApplyResult({
-          job: input.job,
-          startedAt,
-          mode: input.mode,
-          targetUrl: null,
-        });
-      } else {
-        const browserPreparationStartedAtMs = Date.now();
-        let formPreparationStartedAtMs: number | null = null;
-        let workingPage: Page | null = null;
-        const closeWorkingPageOnAbort = () => {
-          if (workingPage) {
-            void workingPage.close().catch(() => undefined);
-          }
-        };
-        options?.signal?.addEventListener("abort", closeWorkingPageOnAbort, {
-          once: true,
-        });
-        try {
-          const context = await getContext();
-          assertNoActiveServiceWorkerControlsApplicationOrigin({
-            context,
-            targetUrl,
+      return withApplicationExecutionLock(async () => {
+        const executionStartedAtMs = Date.now();
+        const startedAt = new Date(executionStartedAtMs).toISOString();
+        const executionTimings: ApplyExecutionTiming[] = [];
+        const recordExecutionTiming = (
+          stage: ApplyExecutionStage,
+          stageStartedAtMs: number,
+        ): void => {
+          const completedAtMs = Date.now();
+          executionTimings.push({
+            stage,
+            startedAt: new Date(stageStartedAtMs).toISOString(),
+            completedAt: new Date(completedAtMs).toISOString(),
+            durationMs: Math.max(0, completedAtMs - stageStartedAtMs),
           });
-          const runSentinel = createApplicationRunServiceWorkerSentinel({
-            context,
-            targetUrl,
+        };
+        const targetUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
+        const resumeFilePath = input.resumeArtifact.filePath.trim();
+        const approvedResumeFileExists = resumeFilePath
+          ? await pathExists(resumeFilePath)
+          : false;
+        let executionResult: ApplyExecutionResult;
+        let applicationPageOpened = false;
+
+        if (
+          input.resumeArtifact.jobId !== input.job.id ||
+          !approvedResumeFileExists
+        ) {
+          const detail =
+            "The production runtime refused to open the application because the approved application resume is missing or does not belong to this job.";
+          executionResult = buildPreparationResult({
+            executionInput: input,
+            state: "failed",
+            summary: "Approved resume export is missing",
+            detail,
+            questions: [],
+            blocker: {
+              code: "missing_resume",
+              summary: "A current approved resume export is required.",
+              detail,
+              questionIds: [],
+              sourceDebugEvidenceRefIds: [],
+              url: isHttpUrlLike(targetUrl) ? targetUrl : null,
+            },
+            checkpoints: [],
+            checkpointLabel: "Stopped before opening the application",
+            checkpointDetail: detail,
+            checkpointUrls: isHttpUrlLike(targetUrl) ? [targetUrl] : [],
+            lastUrl: isHttpUrlLike(targetUrl) ? targetUrl : null,
+            now: startedAt,
+            nextActionLabel: "Export and approve the tailored resume",
+          });
+        } else if (!isHttpUrlLike(targetUrl)) {
+          executionResult = buildUnsupportedApplyResult({
+            job: input.job,
+            startedAt,
+            mode: input.mode,
+            targetUrl: null,
+          });
+        } else {
+          const browserPreparationStartedAtMs = Date.now();
+          let formPreparationStartedAtMs: number | null = null;
+          let workingPage: Page | null = null;
+          const closeWorkingPageOnAbort = () => {
+            if (workingPage) {
+              void workingPage.close().catch(() => undefined);
+            }
+          };
+          options?.signal?.addEventListener("abort", closeWorkingPageOnAbort, {
+            once: true,
           });
           try {
-            const preNavigationFinding = await runSentinel.check(
-              "browser_preparation",
-            );
-            if (preNavigationFinding) {
-              executionResult = buildServiceWorkerSafetyStopResult({
-                executionInput: input,
-                finding: preNavigationFinding,
-              });
-            } else {
-              const prepared = await prepareAutomationPageForTarget(context, {
-                targetUrl,
-                bringToFront: true,
-                closeOtherPages: true,
-                ...(options?.signal ? { signal: options.signal } : {}),
-                onPageResolved: (page) => {
-                  workingPage = page;
-                  runSentinel.attachPage(page);
-                  if (options?.signal?.aborted) {
-                    closeWorkingPageOnAbort();
-                  }
-                },
-                setBlockedState: (detail) => {
-                  setSessionState(
-                    source,
-                    "blocked",
-                    "Application navigation failed",
-                    detail,
-                  );
-                },
-              });
-              options?.signal?.throwIfAborted();
-              const postNavigationFinding =
-                await runSentinel.check("post_navigation");
-              if (postNavigationFinding) {
-                applicationPageOpened = true;
-                recordExecutionTiming(
-                  "browser_preparation",
-                  browserPreparationStartedAtMs,
-                );
+            const context = await getContext();
+            assertNoActiveServiceWorkerControlsApplicationOrigin({
+              context,
+              targetUrl,
+            });
+            const runSentinel = createApplicationRunServiceWorkerSentinel({
+              context,
+              targetUrl,
+            });
+            try {
+              const preNavigationFinding = await runSentinel.check(
+                "browser_preparation",
+              );
+              if (preNavigationFinding) {
                 executionResult = buildServiceWorkerSafetyStopResult({
                   executionInput: input,
-                  finding: postNavigationFinding,
+                  finding: preNavigationFinding,
                 });
               } else {
-                applicationPageOpened = true;
-                recordExecutionTiming(
-                  "browser_preparation",
-                  browserPreparationStartedAtMs,
-                );
-                setSessionState(
-                  source,
-                  "ready",
-                  "Application preparation paused safely",
-                  "The dedicated browser profile is open at the current application checkpoint. Final submission remains disabled.",
-                );
-                formPreparationStartedAtMs = Date.now();
-                executionResult = await runGenericApplicationPreparation({
-                  context,
-                  page: prepared.page,
-                  executionInput: input,
-                  startedAt,
+                const prepared = await prepareAutomationPageForTarget(context, {
+                  targetUrl,
+                  bringToFront: true,
+                  closeOtherPages: true,
                   ...(options?.signal ? { signal: options.signal } : {}),
-                  sentinel: runSentinel,
+                  onPageResolved: (page) => {
+                    workingPage = page;
+                    runSentinel.attachPage(page);
+                    if (options?.signal?.aborted) {
+                      closeWorkingPageOnAbort();
+                    }
+                  },
+                  setBlockedState: (detail) => {
+                    setSessionState(
+                      source,
+                      "blocked",
+                      "Application navigation failed",
+                      detail,
+                    );
+                  },
                 });
                 options?.signal?.throwIfAborted();
-                recordExecutionTiming(
-                  "form_preparation",
-                  formPreparationStartedAtMs,
-                );
+                const postNavigationFinding =
+                  await runSentinel.check("post_navigation");
+                if (postNavigationFinding) {
+                  applicationPageOpened = true;
+                  recordExecutionTiming(
+                    "browser_preparation",
+                    browserPreparationStartedAtMs,
+                  );
+                  executionResult = buildServiceWorkerSafetyStopResult({
+                    executionInput: input,
+                    finding: postNavigationFinding,
+                  });
+                } else {
+                  applicationPageOpened = true;
+                  recordExecutionTiming(
+                    "browser_preparation",
+                    browserPreparationStartedAtMs,
+                  );
+                  setSessionState(
+                    source,
+                    "ready",
+                    "Application preparation paused safely",
+                    "The dedicated browser profile is open at the current application checkpoint. Final submission remains disabled.",
+                  );
+                  formPreparationStartedAtMs = Date.now();
+                  executionResult = await runGenericApplicationPreparation({
+                    context,
+                    page: prepared.page,
+                    executionInput: input,
+                    startedAt,
+                    ...(options?.signal ? { signal: options.signal } : {}),
+                    sentinel: runSentinel,
+                  });
+                  options?.signal?.throwIfAborted();
+                  recordExecutionTiming(
+                    "form_preparation",
+                    formPreparationStartedAtMs,
+                  );
+                }
               }
+            } finally {
+              runSentinel.detach();
+            }
+          } catch (error) {
+            if (options?.signal?.aborted) {
+              throw error;
+            }
+            if (!applicationPageOpened) {
+              recordExecutionTiming(
+                "browser_preparation",
+                browserPreparationStartedAtMs,
+              );
+            } else if (formPreparationStartedAtMs !== null) {
+              recordExecutionTiming(
+                "form_preparation",
+                formPreparationStartedAtMs,
+              );
+            }
+            const errorDetail =
+              error instanceof Error
+                ? error.message
+                : "The application page could not be inspected safely.";
+            if (error instanceof ApplicationNavigationError) {
+              // The employer page never opened, so this is a technical failure,
+              // not a Needs-you step: report it failed with causal-free copy.
+              // Raw transport detail stays in session diagnostics only.
+              const unreachableDetail = `${error.userDetail}`;
+              executionResult = buildPreparationResult({
+                executionInput: input,
+                state: "failed",
+                summary: error.userSummary,
+                detail: unreachableDetail,
+                questions: [],
+                blocker: {
+                  code: "application_page_unreachable",
+                  summary: `${error.userSummary}.`,
+                  detail: unreachableDetail,
+                  questionIds: [],
+                  sourceDebugEvidenceRefIds: [],
+                  url: isHttpUrlLike(targetUrl) ? targetUrl : null,
+                },
+                checkpoints: [],
+                checkpointLabel: "Failed before the application page opened",
+                checkpointDetail: unreachableDetail,
+                checkpointUrls: isHttpUrlLike(targetUrl) ? [targetUrl] : [],
+                lastUrl: isHttpUrlLike(targetUrl) ? targetUrl : null,
+                now: new Date().toISOString(),
+                nextActionLabel: "Retry preparation",
+              });
+            } else {
+              const detail = `The runtime stopped without submitting after browser preparation failed: ${errorDetail}`;
+              executionResult = buildPreparationResult({
+                executionInput: input,
+                summary: "Application preparation stopped safely",
+                detail,
+                questions: [],
+                blocker: {
+                  code: "requires_manual_review",
+                  summary: "The live application page needs manual review.",
+                  detail,
+                  questionIds: [],
+                  sourceDebugEvidenceRefIds: [],
+                  url: targetUrl,
+                },
+                checkpoints: [],
+                checkpointLabel: "Stopped after a safe browser failure",
+                checkpointDetail: detail,
+                checkpointUrls: [targetUrl],
+                lastUrl: targetUrl,
+                now: new Date().toISOString(),
+                nextActionLabel: "Inspect the application page manually",
+              });
             }
           } finally {
-            runSentinel.detach();
-          }
-        } catch (error) {
-          if (options?.signal?.aborted) {
-            throw error;
-          }
-          if (!applicationPageOpened) {
-            recordExecutionTiming(
-              "browser_preparation",
-              browserPreparationStartedAtMs,
+            options?.signal?.removeEventListener(
+              "abort",
+              closeWorkingPageOnAbort,
             );
-          } else if (formPreparationStartedAtMs !== null) {
-            recordExecutionTiming(
-              "form_preparation",
-              formPreparationStartedAtMs,
-            );
-          }
-          const errorDetail =
-            error instanceof Error
-              ? error.message
-              : "The application page could not be inspected safely.";
-          if (error instanceof ApplicationNavigationError) {
-            // The employer page never opened, so this is a technical failure,
-            // not a Needs-you step: report it failed with causal-free copy.
-            // Raw transport detail stays in session diagnostics only.
-            const unreachableDetail = `${error.userDetail}`;
-            executionResult = buildPreparationResult({
-              executionInput: input,
-              state: "failed",
-              summary: error.userSummary,
-              detail: unreachableDetail,
-              questions: [],
-              blocker: {
-                code: "application_page_unreachable",
-                summary: `${error.userSummary}.`,
-                detail: unreachableDetail,
-                questionIds: [],
-                sourceDebugEvidenceRefIds: [],
-                url: isHttpUrlLike(targetUrl) ? targetUrl : null,
-              },
-              checkpoints: [],
-              checkpointLabel: "Failed before the application page opened",
-              checkpointDetail: unreachableDetail,
-              checkpointUrls: isHttpUrlLike(targetUrl) ? [targetUrl] : [],
-              lastUrl: isHttpUrlLike(targetUrl) ? targetUrl : null,
-              now: new Date().toISOString(),
-              nextActionLabel: "Retry preparation",
-            });
-          } else {
-            const detail = `The runtime stopped without submitting after browser preparation failed: ${errorDetail}`;
-            executionResult = buildPreparationResult({
-              executionInput: input,
-              summary: "Application preparation stopped safely",
-              detail,
-              questions: [],
-              blocker: {
-                code: "requires_manual_review",
-                summary: "The live application page needs manual review.",
-                detail,
-                questionIds: [],
-                sourceDebugEvidenceRefIds: [],
-                url: targetUrl,
-              },
-              checkpoints: [],
-              checkpointLabel: "Stopped after a safe browser failure",
-              checkpointDetail: detail,
-              checkpointUrls: [targetUrl],
-              lastUrl: targetUrl,
-              now: new Date().toISOString(),
-              nextActionLabel: "Inspect the application page manually",
-            });
-          }
-        } finally {
-          options?.signal?.removeEventListener(
-            "abort",
-            closeWorkingPageOnAbort,
-          );
-          const pageToClose = workingPage as Page | null;
-          if (
-            options?.signal?.aborted &&
-            pageToClose &&
-            !pageToClose.isClosed()
-          ) {
-            await pageToClose.close().catch(() => undefined);
+            const pageToClose = workingPage as Page | null;
+            if (
+              options?.signal?.aborted &&
+              pageToClose &&
+              !pageToClose.isClosed()
+            ) {
+              await pageToClose.close().catch(() => undefined);
+            }
           }
         }
-      }
 
-      const visualDiagnosticsStartedAtMs = Date.now();
-      const visualDiagnostics = applicationPageOpened
-        ? await buildApplyVisualDiagnostics({
-            job: input.job,
-            mode: input.mode,
-            targetUrl: executionResult.replay.lastUrl ?? targetUrl,
-            ...(input.captureVisualSnapshot
-              ? { captureVisualSnapshot: input.captureVisualSnapshot }
-              : {}),
-            ...(input.analyzeVisualSnapshot
-              ? { analyzeVisualSnapshot: input.analyzeVisualSnapshot }
-              : {}),
-          })
-        : {
-            visualEvidence: [],
-            visualObservationSets: [],
-            visualCheckpoints: [],
-          };
-      if (applicationPageOpened) {
-        recordExecutionTiming(
-          "visual_diagnostics",
-          visualDiagnosticsStartedAtMs,
-        );
-      }
-      recordExecutionTiming("total", executionStartedAtMs);
-      const lastCheckpointIndex = executionResult.checkpoints.length - 1;
+        const visualDiagnosticsStartedAtMs = Date.now();
+        const visualDiagnostics = applicationPageOpened
+          ? await buildApplyVisualDiagnostics({
+              job: input.job,
+              mode: input.mode,
+              targetUrl: executionResult.replay.lastUrl ?? targetUrl,
+              ...(input.captureVisualSnapshot
+                ? { captureVisualSnapshot: input.captureVisualSnapshot }
+                : {}),
+              ...(input.analyzeVisualSnapshot
+                ? { analyzeVisualSnapshot: input.analyzeVisualSnapshot }
+                : {}),
+            })
+          : {
+              visualEvidence: [],
+              visualObservationSets: [],
+              visualCheckpoints: [],
+            };
+        if (applicationPageOpened) {
+          recordExecutionTiming(
+            "visual_diagnostics",
+            visualDiagnosticsStartedAtMs,
+          );
+        }
+        recordExecutionTiming("total", executionStartedAtMs);
+        const lastCheckpointIndex = executionResult.checkpoints.length - 1;
 
-      return ApplyExecutionResultSchema.parse({
-        ...executionResult,
-        checkpoints: executionResult.checkpoints.map((checkpoint, index) =>
-          index === lastCheckpointIndex
-            ? {
-                ...checkpoint,
-                visualEvidence: visualDiagnostics.visualEvidence,
-              }
-            : checkpoint,
-        ),
-        visualEvidence: visualDiagnostics.visualEvidence,
-        visualObservationSets: visualDiagnostics.visualObservationSets,
-        visualCheckpoints: visualDiagnostics.visualCheckpoints,
-        executionTimings,
+        return ApplyExecutionResultSchema.parse({
+          ...executionResult,
+          checkpoints: executionResult.checkpoints.map((checkpoint, index) =>
+            index === lastCheckpointIndex
+              ? {
+                  ...checkpoint,
+                  visualEvidence: visualDiagnostics.visualEvidence,
+                }
+              : checkpoint,
+          ),
+          visualEvidence: visualDiagnostics.visualEvidence,
+          visualObservationSets: visualDiagnostics.visualObservationSets,
+          visualCheckpoints: visualDiagnostics.visualCheckpoints,
+          executionTimings,
+        });
       });
     },
     async captureVisualSnapshot(source, request: BrowserVisualSnapshotRequest) {
@@ -1942,23 +2016,6 @@ export function createBrowserAgentRuntime(
     ): Promise<DiscoveryRunResult> {
       const startedAt = new Date().toISOString();
       const aiClient = agentOptions.aiClient ?? runtimeAiClient;
-
-      if (!aiClient?.chatWithTools) {
-        return DiscoveryRunResultSchema.parse({
-          source,
-          startedAt,
-          completedAt: new Date().toISOString(),
-          querySummary: buildQuerySummary(
-            agentOptions.searchPreferences.targetRoles,
-            agentOptions.searchPreferences.locations,
-            agentOptions.siteLabel,
-          ),
-          warning:
-            "AI client does not support tool calling. Cannot run agent discovery.",
-          inventoryCompleteness: "unknown",
-          jobs: [],
-        });
-      }
 
       if (!jobExtractor) {
         return DiscoveryRunResultSchema.parse({
@@ -1976,7 +2033,13 @@ export function createBrowserAgentRuntime(
         });
       }
 
-      const ensuredAiClient = aiClient;
+      // ADR 0013: compact-first observation can finish without any model.
+      // Missing or tool-less AI must therefore reach the page scan. Escalation
+      // alone uses the rejecting stub below and preserves the honest warning
+      // when deterministic observation cannot finish the requested inventory.
+      const chatWithTools = resolveAgentDiscoveryChatWithTools(
+        aiClient?.chatWithTools,
+      );
 
       let page: Page | null = null;
 
@@ -2054,8 +2117,8 @@ export function createBrowserAgentRuntime(
                       request,
                     ),
                   analyzeSnapshot: ({ snapshot, context }) =>
-                    ensuredAiClient.analyzeBrowserVisualSnapshot
-                      ? ensuredAiClient.analyzeBrowserVisualSnapshot({
+                    aiClient?.analyzeBrowserVisualSnapshot
+                      ? aiClient.analyzeBrowserVisualSnapshot({
                           snapshot,
                           context,
                         })
@@ -2101,7 +2164,7 @@ export function createBrowserAgentRuntime(
             },
             modelContextWindowTokens:
               agentOptions.modelContextWindowTokens ??
-              ensuredAiClient.getStatus().modelContextWindowTokens ??
+              aiClient?.getStatus().modelContextWindowTokens ??
               null,
             compactionWorkflowKey:
               agentOptions.compactionHints?.workflowKey ??
@@ -2121,7 +2184,7 @@ export function createBrowserAgentRuntime(
         const result = await runAgentDiscovery(
           page,
           agentConfig,
-          createAgentChatWithToolsBridge(ensuredAiClient.chatWithTools!),
+          createAgentChatWithToolsBridge(chatWithTools),
           {
             extractJobsFromPage: async (input: {
               pageText: string;
@@ -2192,6 +2255,7 @@ export function createBrowserAgentRuntime(
               result.incomplete
                 ? `Agent discovery stopped after ${result.steps} steps. Found ${result.jobs.length} jobs.`
                 : null,
+              result.warning ?? null,
               result.error
                 ? `Discovery encountered an error: ${result.error}`
                 : null,

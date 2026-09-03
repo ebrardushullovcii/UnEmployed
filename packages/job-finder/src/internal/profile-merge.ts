@@ -16,6 +16,7 @@ import {
   scoreExperienceRecordCompleteness,
 } from "./resume-record-identity";
 import { inferAdministrativeAreaCountry } from "./location-normalization";
+import { partitionStrengthsAndSkills } from "./profile-setup-strengths-partition";
 import { normalizeText, uniqueStrings } from "./shared";
 
 const KNOWN_COUNTRY_LIKE_LOCATION_PARTS = new Set([
@@ -179,6 +180,23 @@ export function toValidUrlOrNull(
   }
 }
 
+const POSTAL_CODE_SUFFIX_PATTERN =
+  /\s+(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d|\d{4,6})$/;
+
+/**
+ * Removes a trailing postal code from an administrative-area token so an
+ * imported line such as "Cedar Park, TX 78613" yields the region "TX" instead
+ * of "TX 78613". The unsplit line stays available as the displayed location.
+ */
+function stripPostalCodeSuffix(part: string | null | undefined): string | null {
+  if (!part) {
+    return part ?? null;
+  }
+
+  const stripped = part.replace(POSTAL_CODE_SUFFIX_PATTERN, "").trim();
+  return stripped.length > 0 ? stripped : part;
+}
+
 export function parseLocationParts(location: string | null | undefined): {
   currentCity: string | null;
   currentRegion: string | null;
@@ -224,16 +242,18 @@ export function parseLocationParts(location: string | null | undefined): {
       };
     }
 
+    const region = stripPostalCodeSuffix(parts[1]);
+
     return {
       currentCity: parts[0] ?? null,
-      currentRegion: parts[1] ?? null,
-      currentCountry: inferAdministrativeAreaCountry([parts[1]]),
+      currentRegion: region,
+      currentCountry: inferAdministrativeAreaCountry([region]),
     };
   }
 
   return {
     currentCity: parts[0] ?? null,
-    currentRegion: parts[1] ?? null,
+    currentRegion: stripPostalCodeSuffix(parts[1]),
     currentCountry: parts[parts.length - 1] ?? null,
   };
 }
@@ -582,7 +602,7 @@ export function mergeResumeExtractionIntoWorkspace(
   const locationParts = parseLocationParts(
     extraction.currentLocation ?? profile.currentLocation,
   );
-  const mergedSkills = uniqueStrings([
+  const extractedSkills = uniqueStrings([
     ...extraction.skills,
     ...extraction.skillGroups.coreSkills,
     ...extraction.skillGroups.tools,
@@ -590,6 +610,25 @@ export function mergeResumeExtractionIntoWorkspace(
     ...extraction.skillGroups.highlightedSkills,
     ...extraction.skillGroups.softSkills,
   ]);
+  const mergedStrengths =
+    extraction.professionalSummary.strengths.length > 0
+      ? uniqueStrings(extraction.professionalSummary.strengths)
+      : profile.professionalSummary.strengths;
+  // Named technologies belong in Skills, which is what the profile tells the
+  // user; relocate them instead of leaving the imported data contradicting
+  // its own helper text.
+  const partitionedSkills = partitionStrengthsAndSkills({
+    skillGroupValues: [
+      ...extraction.skillGroups.coreSkills,
+      ...extraction.skillGroups.tools,
+      ...extraction.skillGroups.languagesAndFrameworks,
+      ...extraction.skillGroups.highlightedSkills,
+      ...profile.skills,
+    ],
+    skills: extractedSkills,
+    strengths: mergedStrengths,
+  });
+  const mergedSkills = partitionedSkills.skills;
 
   return {
     profile: CandidateProfileSchema.parse({
@@ -632,10 +671,7 @@ export function mergeResumeExtractionIntoWorkspace(
         domainFocusSummary:
           extraction.professionalSummary.domainFocusSummary ??
           profile.professionalSummary.domainFocusSummary,
-        strengths:
-          extraction.professionalSummary.strengths.length > 0
-            ? uniqueStrings(extraction.professionalSummary.strengths)
-            : profile.professionalSummary.strengths,
+        strengths: partitionedSkills.strengths,
       },
       skillGroups: {
         coreSkills:

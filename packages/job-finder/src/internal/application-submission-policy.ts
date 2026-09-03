@@ -1,7 +1,10 @@
 import {
   isActiveApplicationAuthorityEnvelope,
   isActiveSubmissionExecutionGrant,
+  ApplicationAuthorityDecisionPolicyIdentitySchema,
+  SubmissionAnswerSnapshotIdentitySchema,
   type ApplicationAuthorityEnvelope,
+  type ApplicationAuthorityDecisionPolicyIdentity,
   type ApplicationAutomationMode,
   type Sha256Hex,
   type SubmissionAnswerSnapshotIdentity,
@@ -44,19 +47,75 @@ export const submissionPolicyBlockReasonValues = [
   "mode_mismatch",
   "prepare_only",
   "authority_inactive",
+  "decision_policy_missing",
+  "decision_policy_mismatch",
+  "current_policy_facts_invalid",
+  "answer_policy_mismatch",
   "preflight_authority_mismatch",
   "preflight_lineage_mismatch",
+  "preflight_scope_mismatch",
+  "preflight_origin_mismatch",
   "scope_excluded",
   "origin_not_allowed",
   "resume_not_allowed",
   "observation_stale",
+  "ambiguous_final_control",
+  "unavailable_credentials",
+  "login_required",
+  "mfa_required",
+  "captcha",
+  "anti_bot",
+  "account_creation",
+  "unknown_required_question",
+  "unknown_eligibility",
+  "unknown_legal_requirement",
+  "origin_drift",
   "capacity_invalid",
   "idempotency_already_executed",
   "idempotency_outcome_uncertain",
   "execution_grant_invalid",
+  "unexpected_execution_grant",
 ] as const;
 export type SubmissionPolicyBlockReason =
   (typeof submissionPolicyBlockReasonValues)[number];
+
+/**
+ * Finite, content-free facts that can veto a final action. These values are
+ * deliberately codes rather than page text, question text, credentials, or
+ * model explanations. A caller may persist or transport them safely.
+ */
+export const submissionMandatoryStopCodeValues = [
+  "unavailable_credentials",
+  "login_required",
+  "mfa_required",
+  "captcha",
+  "anti_bot",
+  "account_creation",
+  "unknown_required_question",
+  "unknown_eligibility",
+  "unknown_legal_requirement",
+  "stale_observation",
+  "ambiguous_final_control",
+  "origin_drift",
+  "outcome_uncertain",
+] as const;
+export type SubmissionMandatoryStopCode =
+  (typeof submissionMandatoryStopCodeValues)[number];
+
+export interface SubmissionMandatoryStopFact {
+  code: SubmissionMandatoryStopCode;
+}
+
+/**
+ * Current policy facts are intentionally exact: the current policy identity,
+ * current answer identity, and finite mandatory-stop facts. No untrusted page
+ * text, question text, credentials, or model explanation crosses this seam.
+ */
+export interface CurrentApplicationSubmissionPolicyFacts {
+  policy: ApplicationAuthorityDecisionPolicyIdentity | null;
+  answers: SubmissionAnswerSnapshotIdentity;
+  mandatoryStops: readonly SubmissionMandatoryStopFact[];
+}
 
 /** Modes whose authorization this gate can ever produce. */
 export type AuthorizableSubmissionMode = Extract<
@@ -93,6 +152,8 @@ export interface EvaluateApplicationSubmissionPolicyInput {
   remainingDailyCapacity: number;
   /** Idempotency state of the preflight's bound key. */
   idempotency: SubmissionIdempotencyState;
+  /** Exact current policy identity, answer identity, and finite stop facts. */
+  currentPolicyFacts: CurrentApplicationSubmissionPolicyFacts;
   /**
    * Optional one-time execution grant. Consulted only by
    * `confirm_before_submit`; autonomous authority ignores it entirely and is
@@ -226,26 +287,115 @@ function describeGrantRejection(
   return "Execution grant does not bind this attempt's exact preflight, idempotency key, lineage, or authority revision.";
 }
 
+function collectMandatoryStopCodes(
+  input: EvaluateApplicationSubmissionPolicyInput,
+): readonly SubmissionMandatoryStopCode[] {
+  return [
+    ...new Set(
+      input.currentPolicyFacts.mandatoryStops.map((fact) => fact.code),
+    ),
+  ];
+}
+
+function hasValidCurrentPolicyFacts(
+  facts: unknown,
+): facts is CurrentApplicationSubmissionPolicyFacts {
+  if (typeof facts !== "object" || facts === null || Array.isArray(facts)) {
+    return false;
+  }
+  try {
+    const candidate = facts as Record<string, unknown>;
+    if (
+      Object.keys(candidate).length !== 3 ||
+      !Object.prototype.hasOwnProperty.call(candidate, "policy") ||
+      !Object.prototype.hasOwnProperty.call(candidate, "answers") ||
+      !Object.prototype.hasOwnProperty.call(candidate, "mandatoryStops")
+    ) {
+      return false;
+    }
+    ApplicationAuthorityDecisionPolicyIdentitySchema.nullable().parse(
+      candidate.policy,
+    );
+    SubmissionAnswerSnapshotIdentitySchema.parse(candidate.answers);
+    if (!Array.isArray(candidate.mandatoryStops)) {
+      return false;
+    }
+    return (candidate.mandatoryStops as readonly unknown[]).every(
+      (fact: unknown) =>
+        typeof fact === "object" &&
+        fact !== null &&
+        !Array.isArray(fact) &&
+        Object.keys(fact).length === 1 &&
+        submissionMandatoryStopCodeValues.includes(
+          (fact as { code?: unknown }).code as SubmissionMandatoryStopCode,
+        ),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function decisionPolicyIdentityMatches(
+  left: ApplicationAuthorityDecisionPolicyIdentity | null,
+  right: ApplicationAuthorityDecisionPolicyIdentity | null,
+): boolean {
+  return (
+    left?.version === right?.version &&
+    left?.revision === right?.revision &&
+    left?.digest === right?.digest
+  );
+}
+
+function mandatoryStopReason(
+  code: SubmissionMandatoryStopCode,
+): SubmissionPolicyBlockReason {
+  switch (code) {
+    case "stale_observation":
+      return "observation_stale";
+    case "origin_drift":
+      return "origin_drift";
+    case "outcome_uncertain":
+      return "idempotency_outcome_uncertain";
+    default:
+      return code;
+  }
+}
+
+function mandatoryStopDetail(code: SubmissionMandatoryStopCode): string {
+  switch (code) {
+    case "stale_observation":
+      return "The current form observation is stale; pause for user review.";
+    case "origin_drift":
+      return "The page origin changed; pause for user review.";
+    case "outcome_uncertain":
+      return "The prior submission outcome is uncertain; automatic retry is permanently blocked.";
+    default:
+      return `Mandatory stop ${code} is present; pause for user review.`;
+  }
+}
+
 /**
  * One deterministic auditable decision point for the final-submission action.
  *
  * Checks fail closed in a fixed order (first failure wins):
  * 1. saved mode vs envelope mode
  * 2. prepare_only
- * 3. envelope active and unexpired at the caller's clock
- * 4. preflight binds the current envelope id + revision
- * 5. current job matches the preflight lineage
- * 6. job or exact campaign scope
- * 7. semantic equality with an allowed canonical origin
- * 8. resume digest allowlist + preflight match
- * 9. fresh observation/answer/final-control identity matches preflight
- * 10. capacity is integral, envelope-bounded, unchanged, and positive
- * 11. idempotency key unused (executed and uncertain block distinctly)
- * 12. confirm-mode only: the one-time user grant passes its contract gate
+ * 3. elevated authority carries the decision policy
+ * 4. envelope active and unexpired at the caller's clock
+ * 5. preflight binds the current envelope id + revision + policy identity
+ * 6. current job matches the preflight lineage
+ * 7. current campaign/origin match the preflight binding
+ * 8. job or exact campaign scope
+ * 9. semantic equality with an allowed canonical origin
+ * 10. resume digest allowlist + preflight match
+ * 11. approved answer snapshot and fresh observation identities match
+ * 12. finite mandatory stop facts are absent
+ * 13. capacity is integral, envelope-bounded, unchanged, and positive
+ * 14. idempotency key unused (executed and uncertain block distinctly)
+ * 15. confirm-mode only: the one-time user grant passes its contract gate
  *
- * In autonomous mode a provided grant is ignored — it can never strengthen or
- * substitute for envelope authority, and an authorized result never reports
- * grant-derived facts.
+ * Autonomous mode rejects any supplied grant so confirm-mode authority cannot
+ * be confused with or used to strengthen an autonomous envelope.
  */
 export function evaluateApplicationSubmissionPolicy(
   input: EvaluateApplicationSubmissionPolicyInput,
@@ -273,6 +423,23 @@ export function evaluateApplicationSubmissionPolicy(
       describeAuthorityInactivity(input.envelope),
     );
   }
+  if (!hasValidCurrentPolicyFacts(input.currentPolicyFacts)) {
+    return blocked(
+      "current_policy_facts_invalid",
+      "Current policy facts are missing or contain an unsupported stop code.",
+    );
+  }
+  const decisionPolicy = input.envelope.decisionPolicy;
+  if (
+    (input.savedMode === "confirm_before_submit" ||
+      input.savedMode === "autonomous_submit") &&
+    decisionPolicy === null
+  ) {
+    return blocked(
+      "decision_policy_missing",
+      "Elevated authority has no decision policy and authorizes nothing.",
+    );
+  }
   if (
     input.preflight.authorityEnvelopeId !== input.envelope.id ||
     input.preflight.authorityRevision !== input.envelope.revision
@@ -282,10 +449,29 @@ export function evaluateApplicationSubmissionPolicy(
       `Preflight binds authority ${input.preflight.authorityEnvelopeId}@${input.preflight.authorityRevision} but the current envelope is ${input.envelope.id}@${input.envelope.revision}.`,
     );
   }
+  if (
+    !decisionPolicyIdentityMatches(
+      input.preflight.decisionPolicy,
+      decisionPolicy,
+    )
+  ) {
+    return blocked(
+      "decision_policy_mismatch",
+      "The preflight decision-policy identity does not match the current authority policy.",
+    );
+  }
   if (input.jobId !== input.preflight.jobId) {
     return blocked(
       "preflight_lineage_mismatch",
       `Current job ${input.jobId} does not match preflight job ${input.preflight.jobId}.`,
+    );
+  }
+
+  const observedOrigin = canonicalHttpOrigin(input.origin);
+  if (input.preflight.campaignId !== input.campaignId) {
+    return blocked(
+      "preflight_scope_mismatch",
+      "The current campaign does not match the campaign bound in the preflight.",
     );
   }
 
@@ -302,20 +488,60 @@ export function evaluateApplicationSubmissionPolicy(
     );
   }
 
-  const observedOrigin = canonicalHttpOrigin(input.origin);
   const allowedCanonicalOrigins = new Set(
     input.envelope.allowedOrigins.flatMap((allowed) => {
       const canonical = canonicalHttpOrigin(allowed);
       return canonical === null ? [] : [canonical];
     }),
   );
-  if (
-    observedOrigin === null ||
-    !allowedCanonicalOrigins.has(observedOrigin)
-  ) {
+  if (observedOrigin === null || !allowedCanonicalOrigins.has(observedOrigin)) {
     return blocked(
       "origin_not_allowed",
       "Current page origin is not semantically equal to any allowed canonical origin.",
+    );
+  }
+  if (
+    input.preflight.origin === null ||
+    input.preflight.origin !== observedOrigin
+  ) {
+    return blocked(
+      "preflight_origin_mismatch",
+      "The current canonical page origin does not match the origin bound in the preflight.",
+    );
+  }
+
+  if (
+    decisionPolicy !== null &&
+    !decisionPolicyIdentityMatches(
+      input.currentPolicyFacts.policy,
+      decisionPolicy,
+    )
+  ) {
+    return blocked(
+      "decision_policy_mismatch",
+      "The current policy fact does not match the authority decision policy.",
+    );
+  }
+  if (
+    input.currentPolicyFacts.answers.revision !== input.answers.revision ||
+    input.currentPolicyFacts.answers.digest !== input.answers.digest
+  ) {
+    return blocked(
+      "answer_policy_mismatch",
+      "The current answer identity does not match the answer identity being evaluated.",
+    );
+  }
+
+  if (
+    decisionPolicy !== null &&
+    (decisionPolicy.answerPolicy.approvedAnswerSnapshot.revision !==
+      input.answers.revision ||
+      decisionPolicy.answerPolicy.approvedAnswerSnapshot.digest !==
+        input.answers.digest)
+  ) {
+    return blocked(
+      "answer_policy_mismatch",
+      "The current answers are not the exact user-approved answer snapshot in the decision policy.",
     );
   }
 
@@ -344,15 +570,22 @@ export function evaluateApplicationSubmissionPolicy(
     return blocked("observation_stale", describeStaleObservations(input));
   }
 
+  const stopCodes = collectMandatoryStopCodes(input);
+  const firstMandatoryStop = stopCodes[0];
+  if (firstMandatoryStop !== undefined) {
+    return blocked(
+      mandatoryStopReason(firstMandatoryStop),
+      mandatoryStopDetail(firstMandatoryStop),
+    );
+  }
+
   if (
     !Number.isSafeInteger(input.remainingRunCapacity) ||
     !Number.isSafeInteger(input.remainingDailyCapacity) ||
     input.remainingRunCapacity > input.envelope.maxApplicationsPerRun ||
-    input.remainingDailyCapacity >
-      input.envelope.maxApplicationsPerLocalDay ||
+    input.remainingDailyCapacity > input.envelope.maxApplicationsPerLocalDay ||
     input.remainingRunCapacity !== preflight.remainingRunCapacityBefore ||
-    input.remainingDailyCapacity !==
-      preflight.remainingDailyCapacityBefore ||
+    input.remainingDailyCapacity !== preflight.remainingDailyCapacityBefore ||
     input.remainingRunCapacity <= 0 ||
     input.remainingDailyCapacity <= 0
   ) {
@@ -388,6 +621,11 @@ export function evaluateApplicationSubmissionPolicy(
         describeGrantRejection(input.executionGrant, input.now),
       );
     }
+  } else if (input.executionGrant !== null) {
+    return blocked(
+      "unexpected_execution_grant",
+      "Autonomous authority cannot be strengthened by an execution grant.",
+    );
   }
 
   return {

@@ -1,4 +1,5 @@
 import type {
+  DiscoveryRunRecord,
   EditableSourceInstructionArtifact,
   SourceAccessPrompt,
   SourceDebugRunDetails,
@@ -25,6 +26,9 @@ import type { ProfileSection } from "../../lib/profile-screen-progress";
 interface ProfileActiveSectionContentProps {
   activeSection: ProfileSection;
   backgroundArrays: ProfileBackgroundArrays;
+  /** Discovery runs used to classify source health exactly like Home does. */
+  activeDiscoveryRun?: DiscoveryRunRecord | null;
+  discoveryRuns?: readonly DiscoveryRunRecord[];
   experienceArray: UseFieldArrayReturn<
     ProfileEditorValues,
     "records.experiences",
@@ -55,6 +59,8 @@ interface ProfileActiveSectionContentProps {
 export function ProfileActiveSectionContent({
   activeSection,
   backgroundArrays,
+  activeDiscoveryRun = null,
+  discoveryRuns = [],
   experienceArray,
   isBrowserSessionPending,
   isProfileMutationPending,
@@ -98,6 +104,8 @@ export function ProfileActiveSectionContent({
     ),
     sources: (
       <ProfileJobSourcesTab
+        activeDiscoveryRun={activeDiscoveryRun}
+        discoveryRuns={discoveryRuns}
         isBrowserSessionPending={isBrowserSessionPending}
         isSourceDebugPending={isSourceDebugPending}
         isSourceInstructionPending={isSourceInstructionPending}

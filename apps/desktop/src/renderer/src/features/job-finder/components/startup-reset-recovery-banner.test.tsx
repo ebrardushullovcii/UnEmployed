@@ -196,9 +196,13 @@ describe("StartupResetRecoveryBanner", () => {
 
     const banner = await screen.findByRole("status");
     expect(banner.getAttribute("aria-live")).toBe("polite");
-    expect(banner.getAttribute("data-startup-reset-recovery-banner")).not.toBeNull();
     expect(
-      banner.textContent?.includes("An interrupted workspace reset was completed during startup."),
+      banner.getAttribute("data-startup-reset-recovery-banner"),
+    ).not.toBeNull();
+    expect(
+      banner.textContent?.includes(
+        "An interrupted workspace reset was completed during startup.",
+      ),
     ).toBe(true);
   });
 });

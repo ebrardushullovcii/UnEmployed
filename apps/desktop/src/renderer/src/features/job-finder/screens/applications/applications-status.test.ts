@@ -1,3 +1,4 @@
+import { FINISH_IN_JOB_FINDER_BROWSER_LIST_NEXT_STEP } from "../../lib/job-finder-browser-handoff-copy";
 import { describe, expect, it } from "vitest";
 import { ApplicationRecordSchema } from "@unemployed/contracts";
 import {
@@ -70,6 +71,61 @@ describe("applications status helpers", () => {
     });
     expect(getApplicationLatestActivityLabel(record)).toBe(
       "Review the prepared application.",
+    );
+  });
+
+  it("rewrites site-blocked inspect-manually pauses onto the Safeguards finish path", () => {
+    const record = createRecord({
+      status: "approved",
+      consentSummary: { status: "none", pendingCount: 0 },
+      lastAttemptState: "paused",
+      lastActionLabel: "Inspect the application page manually.",
+      nextActionLabel: "Inspect the application page manually",
+      latestBlocker: {
+        code: "requires_manual_review",
+        summary:
+          "A service worker blocked automated preparation on this job site.",
+      },
+    });
+
+    expect(getApplicationStagePresentation(record)).toEqual({
+      label: "Needs you",
+      tone: "warning",
+    });
+    expect(getApplicationLatestActivityLabel(record)).toBe(
+      "Automatic prep paused",
+    );
+    expect(getApplicationNextStepLabel(record)).toMatch(
+      /Open Safeguards to reset the Job Finder browser/i,
+    );
+    expect(
+      getApplicationReadableNextStepLabel(
+        "Inspect the application page manually",
+      ),
+    ).toMatch(/Open Safeguards to reset the Job Finder browser/i);
+  });
+
+  it("reads an autosave pause with the same truthful step as the detail panel", () => {
+    const record = createRecord({
+      lastAttemptState: "paused",
+      lastActionLabel:
+        "The application page could not safely save a prepared field",
+      nextActionLabel:
+        "Complete the affected step manually in the open application, or cancel",
+    });
+
+    // List rows carry the compact one-line hand-off; the detail pane carries
+    // the full instruction naming the window and the confirm action.
+    expect(
+      getApplicationReadableNextStepLabel(getApplicationNextStepLabel(record)),
+    ).toBe(FINISH_IN_JOB_FINDER_BROWSER_LIST_NEXT_STEP);
+    expect(
+      getApplicationReadableNextStepLabel(
+        "Complete the resume step manually in the open application, or cancel",
+      ),
+    ).toBe(FINISH_IN_JOB_FINDER_BROWSER_LIST_NEXT_STEP);
+    expect(FINISH_IN_JOB_FINDER_BROWSER_LIST_NEXT_STEP).toMatch(
+      /the Job Finder browser/,
     );
   });
 
@@ -160,7 +216,7 @@ describe("applications status helpers", () => {
 
     expect(getApplicationStagePresentation(record)).toEqual({
       label: "Manual apply only",
-      tone: "critical",
+      tone: "warning",
     });
     expect(getApplicationLatestActivityLabel(record)).toBe("Manual apply only");
     expect(getApplicationNextStepLabel(record)).toBe("Manual apply only");

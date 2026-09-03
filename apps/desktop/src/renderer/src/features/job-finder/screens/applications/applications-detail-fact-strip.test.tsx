@@ -13,6 +13,9 @@ import type {
   ApplyJobResultSummary,
   ApplyRunSummary,
 } from "@unemployed/contracts";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApplicationsDetailFactStrip } from "./applications-detail-fact-strip";
 import { ApplicationsDetailPanel } from "./applications-detail-panel";
@@ -103,60 +106,117 @@ function renderStrip(
 }
 
 describe("ApplicationsDetailFactStrip", () => {
-  it("renders one semantic dl whose labels cover each lifecycle fact exactly once", () => {
-    const { container } = renderStrip();
-    const dl = container.querySelector("dl");
-    expect(dl).toBeTruthy();
+  it("prefers a durable tri-state outcome over the legacy run state", () => {
+    renderStrip({
+      visibleApplyResult: {
+        ...baseApplyResult,
+        state: "submitting",
+        privacyReceipt: {
+          schemaVersion: 1,
+          generatedAt: "2026-08-28T10:01:00.000Z",
+          lineage: {
+            runId: baseApplyResult.runId,
+            jobId: baseApplyResult.jobId,
+            resultId: baseApplyResult.id,
+            applicationRecordId: baseRecord.id,
+          },
+          destination: { origin: "https://jobs.example", safePath: "/apply" },
+          resume: {
+            source: "tailored_export",
+            sourceDocumentId: null,
+            exportArtifactId: "export_1",
+            fileName: "Resume.pdf",
+            sha256: null,
+          },
+          stayedLocal: [],
+          modelUse: [],
+          externalWrites: [],
+          accountCreationAuthorized: false,
+          finalSubmitAuthorized: true,
+          finalSubmitOccurred: false,
+          submissionOutcome: {
+            id: "outcome_1",
+            preflightId: "preflight_1",
+            idempotencyKey: "idempotency_1",
+            authorityEnvelopeId: "authority_1",
+            authorityRevision: 1,
+            runId: baseApplyResult.runId,
+            jobId: baseApplyResult.jobId,
+            resultId: baseApplyResult.id,
+            applicationRecordId: baseRecord.id,
+            outcome: "not_submitted",
+            attemptedAt: "2026-08-28T10:00:00.000Z",
+            verifiedAt: null,
+            evidence: [],
+            retry: { eligible: true, blockReason: null },
+          },
+        },
+      },
+    });
 
-    const termLabels = within(dl as HTMLElement)
+    expect(screen.getByText("Final action not submitted")).toBeTruthy();
+    expect(screen.queryByText("Submitting")).toBeNull();
+  });
+
+  it("renders primary status facts upfront and tucks technical details behind More details", () => {
+    const { container } = renderStrip();
+    expect(container.firstElementChild?.getAttribute("aria-label")).toBe(
+      "Application status",
+    );
+
+    const primaryDl = container.querySelector("dl");
+    if (!(primaryDl instanceof HTMLElement)) {
+      throw new Error("Expected primary fact list");
+    }
+
+    const primaryLabels = within(primaryDl)
       .getAllByRole("term")
       .map((term) => term.textContent);
-    expect(termLabels).toEqual([
-      "Last updated",
+    expect(primaryLabels).toEqual([
       "Latest activity",
-      "Preparation",
-      "Questions",
-      "Blocker",
-      "Consent",
-      "Replay memory",
-      "Preparation run",
+      "Preparation status",
+      "What stopped progress",
     ]);
 
-    expect(
-      within(dl as HTMLElement).getAllByText("Needs follow-up"),
-    ).toHaveLength(1);
-    expect(
-      within(dl as HTMLElement).getAllByText(/^Preparation abcdefgh • /),
-    ).toHaveLength(1);
-    expect(dl?.textContent).toContain("2 answered • 1 required left");
+    fireEvent.click(screen.getByText("More about this application"));
+
+    const detailDl = container.querySelector("details dl");
+    if (!(detailDl instanceof HTMLElement)) {
+      throw new Error("Expected detail fact list");
+    }
+
+    const detailLabels = within(detailDl)
+      .getAllByRole("term")
+      .map((term) => term.textContent);
+    expect(detailLabels).toEqual([
+      "Last updated",
+      "Form questions",
+      "Consent decisions",
+      "Saved progress",
+      "Latest preparation run",
+    ]);
   });
 
   it("uses a pane-width container contract of two columns with three only where fitting", () => {
     const { container } = renderStrip();
+    const section = container.firstElementChild;
     const dl = container.querySelector("dl");
 
-    expect(dl?.className).toContain("grid-cols-2");
+    expect(section?.className).toContain("border-(--border-strong)");
+    expect(dl?.className).toContain("grid-cols-1");
+    expect(dl?.className).toContain("sm:grid-cols-2");
     expect(dl?.className).toContain("@[32rem]/detail:grid-cols-3");
-    expect(dl?.className).toContain("gap-y-2");
-    expect(container.firstElementChild?.getAttribute("aria-label")).toBe(
-      "Application facts",
-    );
+    expect(dl?.className).toContain("gap-y-3");
   });
 
-  it("keeps every fact to a deterministic single-line cell so the region stays under the height budget", () => {
+  it("lets fact values wrap so site-block and blocker copy stay readable", () => {
     const { container } = renderStrip();
     const dl = container.querySelector("dl");
 
     const valueCells = Array.from((dl as HTMLElement).querySelectorAll("dd"));
     for (const valueCell of valueCells) {
-      expect(valueCell.className).toContain("truncate");
-    }
-
-    const noteLines = Array.from((dl as HTMLElement).querySelectorAll("p"));
-    expect(noteLines.length).toBeGreaterThan(0);
-    for (const noteLine of noteLines) {
-      expect(noteLine.className).toContain("truncate");
-      expect(noteLine.getAttribute("title")).toBeTruthy();
+      expect(valueCell.className).toContain("break-words");
+      expect(valueCell.className).not.toContain("truncate");
     }
   });
 
@@ -186,10 +246,8 @@ describe("ApplicationsDetailFactStrip", () => {
 
     expect(mutedValues).toEqual([
       "No recent activity",
-      "No preparation yet",
-      "No blocker",
-      "None",
-      "No checkpoints",
+      "Not started",
+      "Nothing blocking",
     ]);
     expect(container.querySelectorAll('[data-slot="badge"]')).toHaveLength(0);
   });
@@ -231,9 +289,135 @@ describe("ApplicationsDetailFactStrip", () => {
     const runCell = container.querySelector('dd[title="run_abcdefgh"]');
     expect(runCell?.textContent).toContain("Failed");
   });
+
+  it("treats LinkedIn service-worker apply results as site-blocked even when the blocker code is generic", () => {
+    const swRecord: ApplicationRecord = {
+      ...baseRecord,
+      lastActionLabel: "Application preparation stopped safely",
+      latestBlocker: {
+        code: "requires_manual_review",
+        summary: "The live application page needs manual review.",
+      },
+    };
+    const swResult: ApplyJobResultSummary = {
+      ...baseApplyResult,
+      state: "blocked",
+      summary: "A LinkedIn service worker blocked automated preparation.",
+      blockerReason: "site_protection",
+      blockerSummary: "Service worker interference on this job site.",
+    };
+
+    renderStrip({
+      record: swRecord,
+      visibleApplyResult: swResult,
+    });
+
+    // The Next step callout directly above owns this event in full, so the
+    // strip no longer relabels its two halves as "Latest activity" and
+    // "What stopped progress" beside it.
+    expect(screen.queryByText("Latest activity")).toBeNull();
+    expect(screen.queryByText("What stopped progress")).toBeNull();
+    expect(screen.getByText("Preparation status")).toBeTruthy();
+    expect(screen.queryByText(/Requires Manual Review/i)).toBeNull();
+    expect(screen.queryByText(/service worker/i)).toBeNull();
+  });
+
+  it("lets Next step own the autosave pause instead of relabelling its halves", () => {
+    const pauseSentence =
+      "The application page could not safely save a prepared field";
+    renderStrip({
+      record: {
+        ...baseRecord,
+        lastActionLabel: pauseSentence,
+        latestBlocker: {
+          code: "requires_manual_review",
+          summary: `${pauseSentence}.`,
+        },
+      },
+      visibleApplyResult: {
+        ...baseApplyResult,
+        state: "blocked",
+        summary: pauseSentence,
+        blockerReason: null,
+        blockerSummary: `${pauseSentence}.`,
+      },
+    });
+
+    // One event, one place. Next step already prints "the job site tried to
+    // save a field automatically … finish in the open browser", so the strip
+    // keeps only the fact that callout does not carry.
+    expect(
+      screen.queryByText("The job site tried to save a field automatically"),
+    ).toBeNull();
+    expect(
+      screen.queryByText("Job Finder stopped before that save"),
+    ).toBeNull();
+    expect(screen.queryByText("Latest activity")).toBeNull();
+    expect(screen.queryByText("What stopped progress")).toBeNull();
+    expect(screen.getByText("Preparation status")).toBeTruthy();
+    expect(screen.queryByText(/could not safely save/i)).toBeNull();
+    expect(screen.queryByText(/requires manual review/i)).toBeNull();
+  });
 });
 
 describe("ApplicationsDetailPanelOverviewSections dedupe", () => {
+  it("uses the newer declined record next step instead of a stale consent attempt label", () => {
+    const declinedRecord: ApplicationRecord = {
+      ...baseRecord,
+      nextActionLabel: null,
+      lastUpdatedAt: "2026-08-09T09:00:00.000Z",
+      consentSummary: { status: "declined", pendingCount: 0 },
+    };
+    const staleConsentAttempt: ApplicationAttempt = {
+      id: "attempt_stale_consent",
+      jobId: declinedRecord.jobId,
+      applicationRecordId: declinedRecord.id,
+      state: "paused",
+      summary: "Consent was declined.",
+      detail: "The consent request was declined before the run continued.",
+      startedAt: "2026-08-09T07:00:00.000Z",
+      updatedAt: "2026-08-09T08:00:00.000Z",
+      completedAt: null,
+      outcome: null,
+      checkpoints: [],
+      questions: [],
+      blocker: null,
+      listingSignalEvidence: null,
+      consentDecisions: [],
+      replay: {
+        sourceDebugEvidenceRefIds: [],
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointUrls: [],
+      },
+      visualEvidence: [],
+      visualObservationSets: [],
+      visualCheckpoints: [],
+      nextActionLabel:
+        "Review the consent request and decide whether to continue or skip this job",
+      executionTimings: [],
+    };
+
+    render(
+      <ApplicationsDetailPanelOverviewSections
+        selectedAttempt={staleConsentAttempt}
+        selectedRecord={declinedRecord}
+        visibleApplyResult={null}
+        visibleApplyRunId={null}
+        showFactStrip={false}
+      />,
+    );
+
+    expect(
+      screen.getByText("Restart the run if you want to try again later."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Review the consent request and decide whether to continue or skip this job",
+      ),
+    ).toBeNull();
+  });
+
   it("owns title and next step once and leaves company, stage, and state to other regions", () => {
     const attempt: ApplicationAttempt = {
       id: "attempt_1",
@@ -243,7 +427,7 @@ describe("ApplicationsDetailPanelOverviewSections dedupe", () => {
       summary: "Paused before final review.",
       detail: "Application detail",
       startedAt: "2026-08-09T07:00:00.000Z",
-      updatedAt: "2026-08-09T08:00:00.000Z",
+      updatedAt: "2026-08-09T09:00:00.000Z",
       completedAt: null,
       outcome: null,
       checkpoints: [],
@@ -411,11 +595,14 @@ describe("ApplicationsDetailPanelRunHistorySection", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: "Preparation history" }),
+      screen.getByRole("heading", { name: "Current preparation run" }),
     ).toBeTruthy();
     expect(screen.getByTitle("run_latest01").getAttribute("aria-pressed")).toBe(
       "true",
     );
+
+    fireEvent.click(screen.getByText("1 earlier preparation run"));
+
     expect(
       screen.getByTitle("run_older0202").getAttribute("aria-pressed"),
     ).toBe("false");
@@ -434,6 +621,8 @@ describe("ApplicationsDetailPanelRunHistorySection", () => {
       />,
     );
 
+    fireEvent.click(screen.getByText("1 earlier preparation run"));
+
     const row = screen.getByTitle("run_older0202");
     expect(row.className).toContain("py-2.5");
 
@@ -441,7 +630,29 @@ describe("ApplicationsDetailPanelRunHistorySection", () => {
     expect(rowLines).toHaveLength(3);
     expect(rowLines[2]).toContain("• Cancelled");
     expect(rowLines[2]).toContain("• Needed input");
-    expect(rowLines[2]).toContain("• Preparation lder0202");
+    // Internal run ids stay on the title attribute only; people never read
+    // "Run lder0202" in the row copy.
+    expect(rowLines[2]).not.toContain("Run lder0202");
+    expect(rowLines[2]).not.toMatch(/• Run /);
+    expect(rowLines[0]).toContain("Automatic preparation (several jobs)");
+  });
+
+  it("writes run states for people instead of title-cased status codes", () => {
+    const history = buildHistory().map((entry) => ({
+      ...entry,
+      run: { ...entry.run, state: "paused_for_user_review" as const },
+    }));
+    render(
+      <ApplicationsDetailPanelRunHistorySection
+        applyRunHistory={history}
+        onSelectApplyRun={vi.fn()}
+        selectedApplyRunId="run_latest01"
+      />,
+    );
+
+    const row = screen.getByTitle("run_latest01");
+    expect(row.textContent).toContain("Paused for your review");
+    expect(row.textContent).not.toContain("Paused For User Review");
   });
 });
 
@@ -512,18 +723,89 @@ describe("ApplicationsDetailPanel container contract", () => {
     expect(panel?.className).toContain("@container/detail");
     expect(container.querySelector('div[class*="34rem"]')).toBeTruthy();
     expect(
-      screen.getByRole("region", { name: "Application facts" }),
+      screen.getByRole("region", { name: "Application status" }),
     ).toBeTruthy();
     expect(screen.getAllByText("Waiting on consent")).toHaveLength(1);
 
     // The selected-record body is the pane's single bounded primary scroll
     // region, so the locked layout routes wheel and keyboard scrolling to it.
-    expect(
-      container.querySelectorAll("[data-locked-pane-scroll-region]"),
-    ).toHaveLength(1);
     const detailRegion = container.querySelector<HTMLElement>(
       "[data-locked-pane-scroll-region]",
     );
+    expect(
+      container.querySelectorAll("[data-locked-pane-scroll-region]"),
+    ).toHaveLength(1);
+    if (!detailRegion) {
+      throw new Error("Expected the selected-record detail scroll region");
+    }
+
+    const nextStep = within(detailRegion).getByRole("heading", {
+      name: "Next step",
+    });
+    const recoveryActions = within(detailRegion).getByTestId(
+      "applications-recovery-actions",
+    );
+    const statusFacts = within(detailRegion).getByRole("region", {
+      name: "Application status",
+    });
+    expect(nextStep.compareDocumentPosition(recoveryActions)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(recoveryActions.compareDocumentPosition(statusFacts)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     expect(detailRegion?.className).toContain("overflow-y-auto");
+
+    // Diagnostics collapse into one closed "Run details and history" block that
+    // owns the run history, review data, and preparation details.
+    const technicalDetails = within(detailRegion).getByTestId(
+      "applications-technical-details",
+    );
+    expect(technicalDetails.tagName).toBe("DETAILS");
+    expect(technicalDetails.hasAttribute("open")).toBe(false);
+    expect(
+      within(technicalDetails).getByText("Run details and history"),
+    ).toBeTruthy();
+    expect(
+      within(technicalDetails).getByRole("heading", {
+        name: "Current preparation run",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(technicalDetails).getByText("What this run recorded"),
+    ).toBeTruthy();
+    expect(
+      within(technicalDetails).getByText("Preparation details"),
+    ).toBeTruthy();
+    // The stacked (below-xl) pane sizes to its content instead of holding a
+    // fixed minimum height; only the xl two-pane layout is full height.
+    expect(panel?.className).not.toContain("min-h-124");
+    expect(panel?.className).toContain("xl:h-full");
+  });
+});
+
+describe("Applications detail heading weight", () => {
+  it("never dresses a heading in the 700-weight label class", () => {
+    // The published scale puts every heading at weight 600. `.label-mono-xs`
+    // is a 700-weight *label* class, correct on a `<p>`, `<dt>` or `<span>`
+    // but not on an `<h3>`: two Applications section eyebrows rendered at 700
+    // beside neighbouring 600-weight eyebrows saying the same kind of thing.
+    // They now share `APPLICATION_DETAIL_FACT_LABEL_CLASS` with those
+    // neighbours.
+    const directory = dirname(fileURLToPath(import.meta.url));
+    const offenders: string[] = [];
+
+    for (const entry of readdirSync(directory)) {
+      if (!entry.endsWith(".tsx") || entry.includes(".test.")) {
+        continue;
+      }
+
+      const source = readFileSync(join(directory, entry), "utf8");
+      for (const match of source.matchAll(/<h[1-6][^>]*label-mono-xs[^>]*>/g)) {
+        offenders.push(`${entry}: ${match[0]}`);
+      }
+    }
+
+    expect(offenders).toEqual([]);
   });
 });

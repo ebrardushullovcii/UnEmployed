@@ -29,6 +29,12 @@ import {
   genericCompanyNameValues,
   groupedDecisionForbiddenAuthorityValues,
   isGenericCompanyName,
+  isListableCompanyName,
+  isLikelyUtilitySiteChromeName,
+  isUrlDerivedEmployerLabel,
+  formatEmployerLabelFromSlug,
+  sanitizeEmployerLabel,
+  sanitizeObservedEmployerLabel,
   normalizeCompanyName,
   outcomeBucketDimensionValues,
 } from "./job-finder-intelligence";
@@ -637,13 +643,82 @@ describe("conservative company entities", () => {
   it("bounds generic placeholders without rejecting named agencies", () => {
     for (const name of genericCompanyNameValues) {
       expect(isGenericCompanyName(name)).toBe(true);
+      expect(isListableCompanyName(name)).toBe(false);
     }
     for (const name of [
       "Named Staffing Agency",
       "Recruiting Agency Partners",
     ]) {
       expect(isGenericCompanyName(name)).toBe(false);
+      expect(isListableCompanyName(name)).toBe(true);
     }
+    expect(isListableCompanyName("")).toBe(false);
+    expect(isListableCompanyName("   ")).toBe(false);
+  });
+
+  it("excludes privacy-policy and site chrome shells from listable companies", () => {
+    const priyaPrivacyShell = "Politikë e Privatësisë";
+    expect(isLikelyUtilitySiteChromeName(priyaPrivacyShell)).toBe(true);
+    expect(isListableCompanyName(priyaPrivacyShell)).toBe(false);
+    expect(
+      isListableCompanyName(
+        "Politikë e Privatësisë dhe Mbrojtjes së të Dhënave Personale",
+      ),
+    ).toBe(false);
+    expect(isListableCompanyName("Privacy Policy")).toBe(false);
+    expect(isListableCompanyName("Cookie Policy")).toBe(false);
+    expect(isListableCompanyName("Why Wellfound")).toBe(false);
+    expect(isListableCompanyName("Sign up with Google")).toBe(false);
+    expect(isListableCompanyName("Acme Robotics")).toBe(true);
+  });
+
+  it("rejects URL-derived and low-quality slug-inferred employer labels", () => {
+    expect(isUrlDerivedEmployerLabel("https://therichmondmarketing.com")).toBe(
+      true,
+    );
+    expect(isUrlDerivedEmployerLabel("Https Therichmondmarketing Com")).toBe(
+      true,
+    );
+    expect(isUrlDerivedEmployerLabel("www.example.com")).toBe(true);
+    expect(isUrlDerivedEmployerLabel("Signal Systems")).toBe(false);
+
+    // Strong TLD tails (case-insensitive) drop hostname leftovers without a
+    // length-only short-slug ban that would also kill real brands.
+    expect(isUrlDerivedEmployerLabel("Dearhiringmanager IO")).toBe(true);
+    expect(isUrlDerivedEmployerLabel("Scan Com")).toBe(true);
+    expect(isUrlDerivedEmployerLabel("Scan COM")).toBe(true);
+    expect(isUrlDerivedEmployerLabel("Scale AI")).toBe(false);
+    expect(isUrlDerivedEmployerLabel("Acme Co")).toBe(false);
+    expect(isUrlDerivedEmployerLabel("Tennr")).toBe(false);
+    expect(isUrlDerivedEmployerLabel("Stockx")).toBe(false);
+
+    expect(formatEmployerLabelFromSlug("signal-systems")).toBe(
+      "Signal Systems",
+    );
+    expect(formatEmployerLabelFromSlug("scale-ai")).toBe("Scale AI");
+    expect(formatEmployerLabelFromSlug("tennr")).toBe("Tennr");
+    expect(formatEmployerLabelFromSlug("stockx")).toBe("Stockx");
+    expect(formatEmployerLabelFromSlug("green-usd")).toBeNull();
+    expect(formatEmployerLabelFromSlug("strongholdpay")).toBeNull();
+    expect(formatEmployerLabelFromSlug("therichmondmarketing-com")).toBeNull();
+    expect(formatEmployerLabelFromSlug("scan-com")).toBeNull();
+    expect(formatEmployerLabelFromSlug("dearhiringmanager-io")).toBeNull();
+
+    expect(sanitizeEmployerLabel("Employer not stated")).toBeNull();
+    expect(sanitizeEmployerLabel("Https Therichmondmarketing Com")).toBeNull();
+    expect(sanitizeEmployerLabel("Dearhiringmanager IO")).toBeNull();
+    expect(sanitizeEmployerLabel("Scan Com")).toBeNull();
+    expect(sanitizeEmployerLabel("Strongholdpay")).toBeNull();
+    expect(sanitizeEmployerLabel("Tennr")).toBe("Tennr");
+    expect(sanitizeEmployerLabel("Stockx")).toBe("Stockx");
+    expect(sanitizeEmployerLabel("Scale AI")).toBe("Scale AI");
+    expect(sanitizeObservedEmployerLabel("Confidential")).toBe("Confidential");
+    expect(sanitizeObservedEmployerLabel("Confidential Careers")).toBe(
+      "Confidential Careers",
+    );
+    expect(sanitizeObservedEmployerLabel("Scan Com")).toBeNull();
+    expect(isListableCompanyName("Https Therichmondmarketing Com")).toBe(false);
+    expect(isListableCompanyName("Dearhiringmanager IO")).toBe(false);
   });
 
   it("defaults legacy alias identity authority to unknown", () => {

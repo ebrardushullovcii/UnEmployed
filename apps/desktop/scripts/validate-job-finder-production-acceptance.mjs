@@ -425,6 +425,8 @@ assert(
       harnessSource.includes("!visibleSummary?.contains(element)") &&
       harnessSource.includes("clippingValues.has(ancestorStyle.overflowX)") &&
       harnessSource.includes("clippingValues.has(ancestorStyle.overflowY)") &&
+      harnessSource.includes("clickablePointScopeSelector") &&
+      harnessSource.includes("scope.querySelectorAll(selector)") &&
       harnessSource.includes("visibleWidth >= 2") &&
       harnessSource.includes("visibleHeight >= 2"),
     "Clickable-point evidence must exclude hidden closed-details descendants and content clipped by overflow ancestors.",
@@ -2837,6 +2839,11 @@ const FINGERPRINT_EXCLUDE_PARITY_PROBES = Object.freeze([
   },
   { path: "node_modules/pkg/index.js", excluded: true },
   { path: "test-artifacts/release/run/log.txt", excluded: true },
+  {
+    path: "apps/test-artifacts/persona-wave/run/evidence.json",
+    excluded: true,
+  },
+  { path: "packages/browser-agent/tsconfig.tsbuildinfo", excluded: true },
   { path: ".git/config", excluded: true },
   { path: "dist/bundle.js", excluded: true },
   // Included by both algorithms: human-authored docs stay fully bound.
@@ -3598,13 +3605,15 @@ const wrapper = await readFile(
     "prefers-color-scheme: dark",
     '[role="group"][aria-label="Notifications and actions"]',
     '[role="group"][aria-label="Window controls"]',
-    'a[aria-label="Open Interview Helper"]',
-    'button[aria-label^="Planning and settings"]',
+    'a[aria-label="Open Interview Helper"],button[aria-label="Open Interview Helper"]',
+    'button[aria-label^="More"]',
     'button[aria-label^="Needs you"]',
     'button[aria-label="Search current plan and workspace"]',
     'summary[aria-label^="Task center"]',
     'a[href], button:not([disabled]), summary:not([disabled]), [tabindex]:not([tabindex="-1"])',
     'element.tagName.toLowerCase() === "a"',
+    'element.closest("details:not([open])")',
+    '":scope > summary"',
     'element.getAttribute("href")',
     'style.opacity !== "0"',
     'style.pointerEvents !== "none"',
@@ -3692,7 +3701,7 @@ const wrapper = await readFile(
     }),
     layoutTrio: {
       planning: usableShellControl(304, 64, 346, 100, {
-        ariaLabel: "Planning and settings",
+        ariaLabel: "More",
       }),
       routeScroller: {
         present: true,
@@ -5236,13 +5245,181 @@ const scaleSource = await readFile(
   path.join(scriptDir, "capture-scale-500.mjs"),
   "utf8",
 );
+const paginationClickSlice = topLevelFunctionSlice(
+  scaleSource,
+  "clickPaginationNextInPage",
+);
 assert(
-  scaleSource.indexOf("const headingReady = waitForHeading") <
-    scaleSource.indexOf("button.click({ timeout: 10_000 })") &&
+  paginationClickSlice.includes("page.evaluate(") &&
+    paginationClickSlice.includes('candidate.getAttribute("aria-label")') &&
+    paginationClickSlice.includes('"Next page"') &&
+    paginationClickSlice.includes("nextButton.click();") &&
+    !paginationClickSlice.includes(".click({"),
+  "Scale pagination must dispatch Next through an in-page HTMLElement.click without Playwright actionability scrolling.",
+);
+const paginationFindJobsProbeStart =
+  paginationClickSlice.indexOf("if (isFindJobs) {");
+const paginationFindJobsProbeEnd = paginationClickSlice.indexOf(
+  "nextButton.click();",
+  paginationFindJobsProbeStart,
+);
+const paginationFindJobsProbe =
+  paginationFindJobsProbeStart >= 0 &&
+  paginationFindJobsProbeEnd > paginationFindJobsProbeStart
+    ? paginationClickSlice.slice(
+        paginationFindJobsProbeStart,
+        paginationFindJobsProbeEnd,
+      )
+    : "";
+assert(
+  paginationClickSlice.includes("const isFindJobs =") &&
+    paginationClickSlice.includes("{ paginationLabel, heading, isFindJobs }") &&
+    paginationFindJobsProbe.includes('"[data-locked-screen-scroll-area]"') &&
+    paginationFindJobsProbe.includes('document.querySelectorAll("h1")') &&
+    paginationClickSlice.includes(
+      "return geometry\n        ? { ok: true, reason: null, before: geometry }\n        : { ok: true, reason: null };",
+    ) &&
+    paginationClickSlice.lastIndexOf("if (isFindJobs) {") >
+      paginationClickSlice.indexOf("nextButton.click();"),
+  "Scale pagination must require and return outer-scroll/H1 geometry only for Find Jobs while allowing other surfaces to use the same in-page click helper.",
+);
+const paginationAdvanceSlice = topLevelFunctionSlice(
+  scaleSource,
+  "advancePagination",
+);
+assert(
+  paginationAdvanceSlice.includes(
+    "await clickPaginationNextInPage(page, config);",
+  ) && paginationAdvanceSlice.includes("await waitForPaginationPage("),
+  "Scale pagination advances must use the in-page click helper and settle each expected page before continuing.",
+);
+const paginationWaitSlice = topLevelFunctionSlice(
+  scaleSource,
+  "waitForPaginationPage",
+);
+assert(
+  paginationWaitSlice.includes("page.waitForFunction(") &&
+    paginationWaitSlice.includes("expectedRows") &&
+    paginationWaitSlice.includes("expectedText") &&
+    paginationWaitSlice.includes("paginationLabel"),
+  "Scale pagination clicks must wait for the expected row count and range text.",
+);
+const paginationGeometryReadSlice = topLevelFunctionSlice(
+  scaleSource,
+  "readFindJobsPaginationGeometry",
+);
+const paginationGeometryDiffSlice = topLevelFunctionSlice(
+  scaleSource,
+  "paginationGeometryDifferences",
+);
+assert(
+  paginationGeometryReadSlice.includes('"[data-locked-screen-scroll-area]"') &&
+    paginationGeometryReadSlice.includes("outerScrollTop") &&
+    paginationGeometryReadSlice.includes("findJobsH1") &&
+    paginationGeometryReadSlice.includes("getBoundingClientRect()") &&
+    paginationGeometryDiffSlice.includes("outerScrollTop") &&
+    paginationGeometryDiffSlice.includes("Find Jobs H1"),
+  "Scale Find Jobs pagination evidence must read the real outer scrollTop and H1 geometry.",
+);
+assert(
+  scaleSource.includes(
+    "const native125PaginationGeometry = assertFindJobsPaginationGeometryStable(",
+  ) &&
+    scaleSource.includes("native125Page1Geometry") &&
+    scaleSource.includes("native125Page2Geometry") &&
+    /clickPaginationNextInPage\(\s*page,\s*native125FindJobsPagination,\s*\)/u.test(
+      scaleSource,
+    ) &&
     scaleSource.includes(
-      "const [, headingObservedLatencyMs] = await Promise.all",
+      "await waitForPaginationPage(page, native125FindJobsPagination, 2);",
     ),
-  "Scale route timing must observe external heading readiness concurrently with click dispatch, not after driver post-action settling.",
+  "Scale native125 page 1 -> page 2 must use semantic pagination settlement and the same geometry guard.",
+);
+assert(
+  scaleSource.includes("planningMenuScrollRegion:") &&
+    scaleSource.includes('"[data-job-finder-more-menu-scroll-region]"'),
+  "Scale acceptance must bind expanded Planning shortcuts geometry to the explicit inner scroll region.",
+);
+assert(
+  scaleSource.includes(
+    `applications: '[aria-label="Applications"] [data-collection-item-id]'`,
+  ),
+  "Scale acceptance must collect mounted Application row identities from the tested full-row action, not its id-less list-item parent.",
+);
+const headingWaitStart = scaleSource.indexOf("async function waitForHeading");
+const headingWaitEnd = scaleSource.indexOf(
+  "async function waitForWorkspaceHydrationComplete",
+);
+const headingWaitSource = scaleSource.slice(headingWaitStart, headingWaitEnd);
+const switchRouteStart = scaleSource.indexOf("async function switchRoute");
+const switchRouteEnd = scaleSource.indexOf("async function setViewportAndZoom");
+const switchRouteSource = scaleSource.slice(switchRouteStart, switchRouteEnd);
+const headingReadyAt = switchRouteSource.indexOf(
+  "const headingReady = waitForHeading(",
+);
+const clickAt = switchRouteSource.indexOf("button.click({ timeout: 10_000 })");
+assert(
+  headingWaitStart >= 0 &&
+    headingWaitEnd > headingWaitStart &&
+    switchRouteStart >= 0 &&
+    switchRouteEnd > switchRouteStart &&
+    headingReadyAt >= 0 &&
+    clickAt > headingReadyAt &&
+    switchRouteSource.includes(
+      "const [, headingReadiness] = await Promise.all",
+    ),
+  "Scale route timing must install external heading readiness before click dispatch and await both concurrently.",
+);
+assert(
+  headingWaitSource.includes("return await page.evaluate(") &&
+    headingWaitSource.includes("new Promise((resolve, reject)") &&
+    headingWaitSource.includes("new MutationObserver") &&
+    headingWaitSource.includes("requestAnimationFrame") &&
+    !headingWaitSource.includes(".getByRole(") &&
+    !headingWaitSource.includes(".waitFor("),
+  "Scale route heading readiness must use a renderer page-context observer instead of Playwright locator polling.",
+);
+assert(
+  headingWaitSource.includes('document.querySelectorAll("h1")') &&
+    headingWaitSource.includes(
+      "candidate.textContent?.trim() === expectedHeading",
+    ) &&
+    headingWaitSource.includes("candidate.getClientRects().length > 0") &&
+    headingWaitSource.includes("bounds.width > 0") &&
+    headingWaitSource.includes("bounds.height > 0") &&
+    headingWaitSource.includes('style.visibility !== "hidden"') &&
+    headingWaitSource.includes('headingElement.tagName === "H1"') &&
+    switchRouteSource.includes(
+      "headingReadiness.headingText === definition.heading",
+    ) &&
+    switchRouteSource.includes(
+      "headingReadiness.observedRoute === `#${definition.route}`",
+    ),
+  "Scale route heading readiness must check the exact visible destination level-1 heading.",
+);
+assert(
+  headingWaitSource.indexOf("if (startMark) performance.mark(startMark);") >=
+    0 &&
+    headingWaitSource.indexOf("const startTime = performance.now();") >
+      headingWaitSource.indexOf(
+        "if (startMark) performance.mark(startMark);",
+      ) &&
+    headingWaitSource.includes("const observedAt = performance.now();") &&
+    headingWaitSource.includes("elapsedMs: observedAt - startTime") &&
+    switchRouteSource.includes(
+      "const headingObservedLatencyMs = headingReadiness.elapsedMs",
+    ) &&
+    switchRouteSource.includes("durationMs: headingReadiness.elapsedMs") &&
+    switchRouteSource.includes("const latencyMs = rendererTiming.durationMs") &&
+    !switchRouteSource.includes("const startedAt = performance.now()") &&
+    !switchRouteSource.includes("() => performance.now() - startedAt"),
+  "Scale route elapsed time must come from renderer performance.now() at exact h1 visibility, not a post-driver timing calculation or optimistic feedback mark.",
+);
+assert(
+  headingWaitSource.includes("Renderer heading readiness timed out") &&
+    headingWaitSource.includes("report.routeDebug") &&
+    headingWaitSource.includes("debugError"),
+  "Scale route heading readiness must retain timeout and route-debug diagnostics.",
 );
 assert(
   scaleSource.includes("const requiredJobCount = 5_000") &&
@@ -5307,6 +5484,10 @@ assert(
 );
 assert(
   wrapper.includes('{ level: 1, name: "Search plans", exact: true }') &&
+    wrapper.includes('.locator("[data-job-finder-shell]")') &&
+    wrapper.includes(
+      "Accepted-app lazy-route heading did not become visible",
+    ) &&
     wrapper.includes('observedText: "Search plans"') &&
     wrapper.includes('"#/job-finder/campaigns"'),
   "Lazy-route probe must observe the campaigns screen h1 (Search plans) while keeping its route pinned exactly.",
@@ -5329,9 +5510,9 @@ assert(
 );
 assert(
   scaleSource.includes('"Applications workspace view"') &&
-    scaleSource.includes('"Tracker", exact: true') &&
+    scaleSource.includes('"Stages", exact: true') &&
     scaleSource.includes('"Preparation", exact: true'),
-  "Scale applications lifecycle capture must switch through the Tracker workspace view and restore Preparation afterwards.",
+  "Scale applications lifecycle capture must switch through the Stages workspace view and restore Preparation afterwards.",
 );
 assert(
   scaleSource.includes("resolvePrimaryRunError("),
@@ -5345,6 +5526,31 @@ assert(
 assert(
   scaleSource.includes('!document.querySelector("[data-job-sources-library]")'),
   "Scale sidebar evidence does not prove the sources library detached before capture.",
+);
+assert(
+  scaleSource.includes('scenarioId: "scale-sidebar-1440"') &&
+    scaleSource.includes('screenshotStateId: "1440-profile-baseline"'),
+  "Scale sidebar evidence must retain its completion scenario while binding the shared profile-shell screenshot to the baseline visual state.",
+);
+for (const [captureName, screenshotStateId] of [
+  ["findJobs-p1-native125", "findJobs-p1-native125"],
+  ["final-native125-overview", "findJobs-p1-native125"],
+]) {
+  const captureBlock =
+    scaleSource.match(
+      new RegExp(
+        `captureScreenshot\\(page, "${captureName}", \\{([\\s\\S]*?)\\n    \\}\\);`,
+        "u",
+      ),
+    )?.[1] ?? "";
+  assert(
+    captureBlock.includes(`screenshotStateId: "${screenshotStateId}",`),
+    `Scale capture ${captureName} must bind to screenshot state ${screenshotStateId} while retaining its distinct capture scenario ID.`,
+  );
+}
+assert(
+  scaleSource.includes('completeScenario("scale-find-jobs-native125")'),
+  "Scale Find Jobs native125 capture must retain its existing completion scenario.",
 );
 
 // The two scale acceptance scenarios added for rapid review and review-queue
@@ -5496,6 +5702,46 @@ assert(
   ) === stableJson([1, 2]),
   "Scale sampled pagination walk must clamp out-of-range pages, deduplicate, and sort.",
 );
+const paginationGeometryDifferences = extractTopLevelFunction(
+  scaleSource,
+  "paginationGeometryDifferences",
+);
+const stablePaginationGeometry = {
+  outerScrollTop: 0,
+  findJobsH1: {
+    left: 280,
+    top: 32,
+    right: 520,
+    bottom: 68,
+    width: 240,
+    height: 36,
+  },
+};
+assert(
+  stableJson(
+    paginationGeometryDifferences(
+      stablePaginationGeometry,
+      stablePaginationGeometry,
+    ),
+  ) === stableJson([]),
+  "Scale pagination geometry helper must accept an unchanged outer scrollTop and Find Jobs H1 rect.",
+);
+const scrollDrift = paginationGeometryDifferences(stablePaginationGeometry, {
+  ...stablePaginationGeometry,
+  outerScrollTop: 24,
+});
+assert(
+  scrollDrift.length === 1 && scrollDrift[0].includes("outer scrollTop"),
+  "Scale pagination geometry helper must report outer scrollTop drift.",
+);
+const headingDrift = paginationGeometryDifferences(stablePaginationGeometry, {
+  ...stablePaginationGeometry,
+  findJobsH1: { ...stablePaginationGeometry.findJobsH1, top: 56 },
+});
+assert(
+  headingDrift.length === 1 && headingDrift[0].includes("Find Jobs H1 top"),
+  "Scale pagination geometry helper must report Find Jobs H1 drift.",
+);
 const fastForwardBudgetMatch = scaleSource.match(
   /MAX_PAGINATION_FAST_FORWARD_CLICKS = (\d+)/,
 );
@@ -5584,7 +5830,7 @@ assert(
   "The shipped rapid-review visit plan must yield head pages [1, 2] plus the boundary page 125.",
 );
 // Review-queue batch actions: eligibility strip, generation cap, remainder,
-// enabled-but-unclicked Generate action, disabled per-row Select-for-batch
+// enabled-but-unclicked Prepare action, disabled per-row Select-for-batch
 // controls carrying the exact ready-resume reason, and no Select-all control.
 // The no-click invariant is enforced structurally inside the batch helper
 // slice instead of by a global token absence.
@@ -5605,14 +5851,14 @@ const reviewQueueReasonMatch = scaleSource.match(
 assert(
   reviewQueueReasonMatch !== null &&
     reviewQueueReasonMatch[1] ===
-      "Batch preparation needs a ready resume file: an approved tailored PDF or unchanged original CV.",
+      "Batch preparation needs a ready resume file: an approved tailored PDF or unchanged original resume.",
   "Scale batch gating lost the exact ready-resume reason string.",
 );
 for (const requiredToken of [
-  "`${counts.shortlisted} eligible · 0 ready to queue`",
+  "`${counts.shortlisted} eligible · 0 ready to prepare`",
   "counts.shortlisted - REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT",
   "`Only the next ${REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT} eligible jobs run now, in list order; ${draftRemainder} more remain.`",
-  "`Generate up to ${REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT} drafts (review required)`",
+  "`Prepare up to ${REVIEW_QUEUE_DRAFT_PREPARATION_LIMIT} drafts (review required)`",
   'details[data-testid="batch-actions"]',
   '[data-testid="tailored-draft-preparation"]',
   'normalize(label.textContent) === "Select for batch"',
@@ -5622,8 +5868,8 @@ for (const requiredToken of [
   "batchActionsEvidence.panelMounted",
   "batchActionsEvidence.countsText === expectedCountsText",
   "batchActionsEvidence.capNoteText === expectedCapNoteText",
-  "batchActionsEvidence.generateButtonLabel === expectedGenerateLabel",
-  "batchActionsEvidence.generateButtonDisabled === false",
+  "batchActionsEvidence.prepareButtonLabel === expectedPrepareLabel",
+  "batchActionsEvidence.prepareButtonDisabled === false",
   "batchActionsEvidence.rowSelectionCount > 0",
   "selection.disabled === true",
   "selection.describedByReason",
@@ -5638,10 +5884,10 @@ for (const requiredToken of [
   );
 }
 assert(
-  `${scaleBoundaryTotal} eligible · 0 ready to queue` ===
-    "1001 eligible · 0 ready to queue" &&
+  `${scaleBoundaryTotal} eligible · 0 ready to prepare` ===
+    "1001 eligible · 0 ready to prepare" &&
     scaleBoundaryTotal - Number(reviewQueueLimitMatch[1]) === 991,
-  "Batch eligibility accounting must read exactly 1001 eligible · 0 ready to queue with a 10-job cap leaving 991 remaining.",
+  "Batch eligibility accounting must read exactly 1001 eligible · 0 ready to prepare with a 10-job cap leaving 991 remaining.",
 );
 const batchClickReceivers = [
   ...batchActionsSlice.matchAll(/([A-Za-z_$][\w$]*)\.click\(/g),
@@ -5655,7 +5901,7 @@ assert(
   !/\.dispatchEvent\(|\.check\(|\.setChecked\(|keyboard\.press\(/.test(
     batchActionsSlice,
   ),
-  "The batch-actions scenario must never trigger the Generate action through synthetic events or keyboard input.",
+  "The batch-actions scenario must never trigger the Prepare action through synthetic events or keyboard input.",
 );
 {
   // Canonical scale screenshot accounting derived from the shipped structure:
@@ -5773,14 +6019,14 @@ assert(
     'content: "[data-job-finder-compact-navigation-content]",',
     'fadeStart: "[data-job-finder-compact-navigation-fade-start]",',
     'fadeEnd: "[data-job-finder-compact-navigation-fade-end]",',
-    "planningButton: 'button[aria-label^=\"Planning and settings\"]',",
+    "planningButton: 'button[aria-label^=\"More\"]',",
     "interviewHelperLink: 'a[aria-label=\"Open Interview Helper\"]',",
     '\'[role="group"][aria-label="Notifications and actions"]\',',
     'windowControlsGroup: \'[role="group"][aria-label="Window controls"]\',',
-    'planningMenu: \'[role="navigation"][aria-label="Planning and settings"]\',',
-    'shortcutsDisclosure: "[data-job-finder-planning-shortcuts-disclosure]",',
-    'shortcutsExpandedGroup: \'[role="group"][aria-label="Keyboard shortcuts"]\',',
-    "collapsedShortcutsMaxHeightPx: 480,",
+    'planningMenu: \'[role="navigation"][aria-label="More"]\',',
+    'shortcutsMenuEntry: "[data-job-finder-more-menu-shortcuts-entry]",',
+    'shortcutsDialog: "[data-job-finder-shortcuts-dialog]",',
+    'shortcutsDialogRow: "[data-job-finder-shortcut-row]",',
     "viewportEpsilonPx: 2,",
     "containmentEpsilonPx: 2,",
     "edgeFadeEpsilonPx: 1,",
@@ -5799,12 +6045,11 @@ assert(
     return Number(match[1]);
   };
   assert(
-    compactNumericToken("collapsedShortcutsMaxHeightPx") === 480 &&
-      compactNumericToken("viewportEpsilonPx") === 2 &&
+    compactNumericToken("viewportEpsilonPx") === 2 &&
       compactNumericToken("containmentEpsilonPx") === 2 &&
       compactNumericToken("edgeFadeEpsilonPx") === 1 &&
       compactNumericToken("overlapTolerancePx") === 1,
-    "Compact-navigation evidence limits drifted from the accepted 480/2/2/1/1 contract.",
+    "Compact-navigation evidence limits drifted from the accepted 2/2/1/1 contract.",
   );
 
   const jobFinderShellSource = await readFile(
@@ -5822,10 +6067,27 @@ assert(
     "utf8",
   );
   assert(
-    jobFinderShellSource.includes(
-      "const MORE_MENU_COMPACT_SHORTCUTS_MAX_HEIGHT_PX = 480;",
-    ),
-    "The shell source no longer pins the 480px compact Planning-menu shortcuts height threshold.",
+    jobFinderShellSource.includes("data-job-finder-more-menu-shortcuts-entry"),
+    "The shell source no longer renders the More menu's keyboard-shortcuts entry, so the scale harness cannot reach the shortcuts dialog.",
+  );
+  // The >=1440 sidebar lists every destination inline. A dropdown inside a
+  // persistent navigation column only added a click and a second mental model,
+  // so the sidebar must own no More trigger, must render the shortcuts entry
+  // itself, and must own its own vertical scrolling instead of clipping rows.
+  assert(
+    !jobFinderShellSource.includes("data-job-finder-sidebar-more") &&
+      jobFinderShellSource.includes(
+        "data-job-finder-sidebar-shortcuts-entry",
+      ) &&
+      jobFinderShellSource.includes("data-job-finder-sidebar-scroll-region") &&
+      jobFinderShellSource.includes("data-job-finder-sidebar-secondary"),
+    "The expanded sidebar must list every secondary destination inline with its own scroll region and no More trigger.",
+  );
+  assert(
+    scaleSource.includes("moreTriggerCount") &&
+      scaleSource.includes("data-job-finder-sidebar-scroll-region") &&
+      scaleSource.includes('"Keyboard shortcuts",'),
+    "Scale acceptance must bind the inline wide-sidebar navigation contract (no More trigger, own scroll owner, shortcuts entry).",
   );
   const shellFadeStartMatch = jobFinderShellSource.match(
     /start: element\.scrollLeft > (\d+)/u,
@@ -5924,36 +6186,48 @@ assert(
   );
   for (const requiredToken of [
     "menu.style.maxHeight",
-    "maxHeightPx < tokens.collapsedShortcutsMaxHeightPx",
-    '"collapsed"',
-    '"expanded"',
-    "observedMode === expectedMode",
-    "collectCollapsedShortcutsEvidence(page, label)",
-    "collectExpandedShortcutsEvidence(page, label)",
+    "collectShortcutsEntryEvidence(page, label)",
   ]) {
     assert(
       shortcutsSlice.includes(requiredToken),
       `Planning shortcuts verification lost a required pin: ${requiredToken}`,
     );
   }
-  const collapsedShortcutsSlice = topLevelFunctionSlice(
+  // The shortcut table left the More menu for a dedicated dialog, so the
+  // evidence is now: exactly one entry, no keycaps left behind in the menu,
+  // and a real modal dialog with keycapped rows inside the viewport.
+  const shortcutsEntrySlice = topLevelFunctionSlice(
     scaleSource,
-    "collectCollapsedShortcutsEvidence",
+    "collectShortcutsEntryEvidence",
   );
-  const endPressAt = collapsedShortcutsSlice.indexOf(
+  for (const requiredToken of [
+    "selectors.shortcutsMenuEntry",
+    "selectors.shortcutsDialog",
+    "selectors.shortcutsDialogRow",
+    "residualTable.kbdCount === 0",
+    'dialogEvidence.role === "dialog" && dialogEvidence.ariaModal === "true"',
+    "dialogEvidence.withinViewport",
+    "escapeClosedDialog: true",
+  ]) {
+    assert(
+      shortcutsEntrySlice.includes(requiredToken),
+      `Shortcuts entry verification lost a required pin: ${requiredToken}`,
+    );
+  }
+  const endPressAt = shortcutsEntrySlice.indexOf(
     'await page.keyboard.press("End");',
   );
-  const endSettleAt = collapsedShortcutsSlice.indexOf(
-    "${disclosureSelector} > summary",
+  const endSettleAt = shortcutsEntrySlice.indexOf(
+    "document.activeElement === document.querySelector(entrySelector)",
   );
   assert(
     endPressAt !== -1 &&
       endSettleAt > endPressAt &&
-      collapsedShortcutsSlice
+      shortcutsEntrySlice
         .slice(endPressAt, endSettleAt)
         .includes("waitForFunction(") &&
-      collapsedShortcutsSlice.slice(endPressAt).includes("timeout: 5_000"),
-    "Collapsed shortcuts focus proof must deterministically wait for the disclosure summary after pressing End.",
+      shortcutsEntrySlice.slice(endPressAt).includes("timeout: 5_000"),
+    "Shortcuts focus proof must deterministically wait for the More menu's shortcuts entry after pressing End.",
   );
 
   const activeRouteSlice = topLevelFunctionSlice(
@@ -6024,28 +6298,42 @@ assert(
     "Compact rail verification must run at exactly CSS 1152x736 (native125) and 1024x768 (minimum-width).",
   );
   assert(
-    /verifyPlanningShortcutsEvidence\(page, \{\s*label: "native125",\s*expectedMode: "expanded",\s*expectedCssViewport: \{ width: 1152, height: 736 \},\s*\}\);/u.test(
+    /verifyPlanningShortcutsEvidence\(page, \{\s*label: "native125",\s*expectedCssViewport: \{ width: 1152, height: 736 \},\s*\}\);/u.test(
       scaleSource,
     ) &&
-      /verifyPlanningShortcutsEvidence\(page, \{\s*label: "minimum-width",\s*expectedMode: "expanded",\s*expectedCssViewport: \{ width: 1024, height: 768 \},\s*\}\);/u.test(
+      /verifyPlanningShortcutsEvidence\(page, \{\s*label: "minimum-width",\s*expectedCssViewport: \{ width: 1024, height: 768 \},\s*\}\);/u.test(
         scaleSource,
       ),
-    "Planning shortcuts evidence must prove expanded mode at CSS 1152x736 (native125 keeps the desktop-like layout) and expanded mode at CSS 1024x768 (minimum-width).",
+    "Planning shortcuts evidence must run at exactly CSS 1152x736 (native125 keeps the desktop-like layout) and CSS 1024x768 (minimum-width).",
   );
 }
 const findScreenshotStateCollisions = extractTopLevelFunction(
   scaleSource,
   "findScreenshotStateCollisions",
 );
+const digestEntryStart = scaleSource.indexOf("const digestEntry = {");
+const digestEntryEnd = scaleSource.indexOf("  };", digestEntryStart);
+assert(
+  digestEntryStart >= 0 &&
+    digestEntryEnd > digestEntryStart &&
+    scaleSource
+      .slice(digestEntryStart, digestEntryEnd)
+      .includes(
+        "screenshotStateId: meta.screenshotStateId ?? meta.scenarioId ?? name,",
+      ),
+  "Scale capture must carry each capture's semantic screenshot state into collision detection; scenario-only metadata cannot bind shared-shell evidence to its host state.",
+);
 {
   const collisions = findScreenshotStateCollisions([
     {
       scenarioId: "applications-crm-final-p26",
+      screenshotStateId: "state-a",
       fileName: "07-a.png",
       digest: "sha-x",
     },
     {
       scenarioId: "applications-lifecycle-open",
+      screenshotStateId: "state-b",
       fileName: "08-b.png",
       digest: "sha-x",
     },
@@ -6061,7 +6349,9 @@ const findScreenshotStateCollisions = extractTopLevelFunction(
         stableJson([
           "applications-crm-final-p26",
           "applications-lifecycle-open",
-        ]),
+        ]) &&
+      stableJson(collisions[0].distinctScreenshotStateIds) ===
+        stableJson(["state-a", "state-b"]),
     "Scale capture must reject byte-identical screenshots claiming distinct scenario states and report both IDs/files.",
   );
   assert(
@@ -6070,6 +6360,23 @@ const findScreenshotStateCollisions = extractTopLevelFunction(
       { scenarioId: "b", fileName: "02.png", digest: "sha-b" },
     ]).length === 0,
     "Scale capture must not reject genuinely distinct screenshots.",
+  );
+  assert(
+    findScreenshotStateCollisions([
+      {
+        scenarioId: "1440-profile-baseline",
+        screenshotStateId: "1440-profile-baseline",
+        fileName: "01-profile.png",
+        digest: "shared-profile",
+      },
+      {
+        scenarioId: "scale-sidebar-1440",
+        screenshotStateId: "1440-profile-baseline",
+        fileName: "15-sidebar.png",
+        digest: "shared-profile",
+      },
+    ]).length === 0,
+    "Scale capture must allow a shared-shell assertion to reuse its host screenshot state while retaining a distinct completion scenario.",
   );
 }
 const findCrossComponentScreenshotCollisions = extractTopLevelFunction(
@@ -6118,6 +6425,24 @@ const findCrossComponentScreenshotCollisions = extractTopLevelFunction(
     }).collisions.length === 0,
     "Acceptance wrapper collision scan must pass genuinely distinct evidence.",
   );
+  assert(
+    findCrossComponentScreenshotCollisions({
+      scale: [
+        {
+          scenarioId: "1440-profile-baseline",
+          fileName: "01-profile.png",
+          screenshot: { sha256: "shared-profile" },
+        },
+        {
+          scenarioId: "scale-sidebar-1440",
+          screenshotStateId: "1440-profile-baseline",
+          fileName: "15-sidebar.png",
+          screenshot: { sha256: "shared-profile" },
+        },
+      ],
+    }).collisions.length === 0,
+    "Acceptance wrapper collision scan must allow shared-shell evidence bound to one screenshot state.",
+  );
 }
 const freshSource = await readFile(
   path.join(scriptDir, "capture-fresh-flows.mjs"),
@@ -6138,6 +6463,129 @@ assert(
 assert(
   freshSource.includes('getByRole("heading", { level: 1, name: "Home" })'),
   "Fresh acceptance home waits do not target the product-rendered h1 Home heading.",
+);
+assert(
+  freshSource.includes(
+    `clickablePointScopeSelector: '[role="navigation"][aria-label="More"]'`,
+  ),
+  "Open More-menu acceptance must scope clickable-point evidence to the foreground navigation instead of covered background controls.",
+);
+assert(
+  freshSource.includes("moreTriggerCount") &&
+    freshSource.includes("data-job-finder-sidebar-scroll-region") &&
+    freshSource.includes('"Keyboard shortcuts",'),
+  "Fresh acceptance must bind the inline wide-sidebar navigation contract (no More trigger, own scroll owner, shortcuts entry).",
+);
+assert(
+  freshSource.includes("collectWordmarkEvidence") &&
+    freshSource.includes('"[data-desktop-brand-wordmark]"') &&
+    freshSource.includes('text !== "UNEMPLOYED"') &&
+    freshSource.includes("expectWordmark: true") &&
+    freshSource.includes(
+      "wordmarkEvidence: await collectWordmarkEvidence(page)",
+    ),
+  "Fresh minimum-width acceptance must prove the actual UNEMPLOYED wordmark remains visible and contained when navigation collapses.",
+);
+assert(
+  freshSource.includes("collectWorkspaceStateGeometry") &&
+    freshSource.includes('"[data-workspace-state-screen]"') &&
+    freshSource.includes('"[data-workspace-state-title]"') &&
+    freshSource.includes('"[data-workspace-state-message]"') &&
+    freshSource.includes('scenarioId: "opening-workspace-desktop"') &&
+    freshSource.includes("expectWorkspaceStateGeometry: true") &&
+    freshSource.includes('UNEMPLOYED_TEST_WORKSPACE_OPENING_HOLD_MS: "750"'),
+  "Fresh acceptance must capture and geometry-gate the centered opening workspace state.",
+);
+assert(
+  freshSource.includes("collectOpeningHeaderEvidence") &&
+    freshSource.includes('"[data-job-finder-opening-shell]"') &&
+    freshSource.includes('"[data-desktop-brand-wordmark]"') &&
+    freshSource.includes("isMac && macControlClearancePx < 88") &&
+    freshSource.includes("navigationCenterDelta > 2") &&
+    freshSource.includes("expectOpeningHeader: true") &&
+    freshSource.includes("openingHeaderEvidence"),
+  "Fresh acceptance must prove the opening shell uses the production wordmark, clears macOS controls, and keeps module navigation centered.",
+);
+assert(
+  freshSource.includes("collectProfileFirstViewportEvidence") &&
+    freshSource.includes('"[data-profile-resume-summary]"') &&
+    freshSource.includes("profile-section-panel[aria-labelledby") &&
+    freshSource.includes("firstViewport: true") &&
+    freshSource.includes("resumePopulated") &&
+    freshSource.includes("activeHeadingAboveFold") &&
+    freshSource.includes("expectProfileFirstViewport") &&
+    freshSource.includes("profileFirstViewportEvidence") &&
+    freshSource.includes(
+      'scenarioId: "profile-basics-populated-first-viewport"',
+    ) &&
+    freshSource.includes(
+      'scenarioId: "profile-experience-populated-first-viewport"',
+    ),
+  "Fresh acceptance must capture populated Profile Basics plus a populated non-Basics tab with deterministic first-viewport resume/content evidence.",
+);
+assert(
+  freshSource.includes("collectGuidedSetupPrimaryActionEvidence") &&
+    freshSource.includes('"Choose my resume file…"') &&
+    freshSource.includes('"Enter details manually"') &&
+    freshSource.includes("clippingValues.has(style.overflowY)") &&
+    freshSource.includes("fullyInsideViewport") &&
+    freshSource.includes("fullyUnclipped") &&
+    freshSource.includes("hitTestInsideTarget") &&
+    freshSource.includes("elementFromPoint") &&
+    freshSource.includes(
+      "Guided setup primary-action visibility evidence failed",
+    ),
+  "Fresh acceptance must prove both pristine Guided setup primary actions are rendered, unobscured, and fully inside the native-125 viewport rather than merely reachable in a nested scroller.",
+);
+const guidedSetupNative125CaptureStart = freshSource.indexOf(
+  'await capture(page, "guided-setup-empty-native125", {',
+);
+const guidedSetupNative125CaptureEnd = freshSource.indexOf(
+  "    });",
+  guidedSetupNative125CaptureStart,
+);
+assert(
+  guidedSetupNative125CaptureStart >= 0 &&
+    guidedSetupNative125CaptureEnd > guidedSetupNative125CaptureStart &&
+    freshSource
+      .slice(guidedSetupNative125CaptureStart, guidedSetupNative125CaptureEnd)
+      .includes("expectGuidedSetupPrimaryActions: true"),
+  "The pristine Guided setup native-125 capture must opt into the primary-action viewport gate.",
+);
+assert(
+  freshSource.includes("async function clickNavigationControl(page, name)") &&
+    freshSource.includes("async function ensureLocatorText(page, text)"),
+  "Fresh acceptance profile captures must define their local navigation and text-wait helpers.",
+);
+const freshCaptureResetAt = freshSource.indexOf("await resetScroll(page);");
+const freshProfileEvidenceAt = freshSource.indexOf(
+  "await collectProfileFirstViewportEvidence(\n        page,\n        profileFirstViewportOptions,",
+);
+const freshCaptureScreenshotAt = freshSource.indexOf(
+  'await page.screenshot({ animations: "disabled", path: fullPath });',
+);
+assert(
+  freshCaptureResetAt >= 0 &&
+    freshProfileEvidenceAt > freshCaptureResetAt &&
+    freshCaptureScreenshotAt > freshProfileEvidenceAt,
+  "Fresh profile first-viewport evidence must be collected after capture scroll reset and before its screenshot.",
+);
+assert(
+  !freshSource.includes(
+    "profileFirstViewportEvidence: await collectProfileFirstViewportEvidence(",
+  ),
+  "Fresh profile first-viewport evidence must not be collected before capture performs its scroll reset.",
+);
+assert(
+  freshSource.includes('"collapsed-shell-wordmark-minimum"') &&
+    freshSource.includes(
+      'completeScenario("collapsed-shell-wordmark-minimum", freshHomeMinimum)',
+    ) &&
+    freshSource.includes("expectWordmark: true") &&
+    freshSource.includes(
+      "wordmarkEvidence: await collectWordmarkEvidence(page)",
+    ),
+  "Fresh acceptance must name and complete a dedicated collapsed-shell wordmark assertion.",
 );
 assert(
   !freshSource.includes('customInstructions: ""'),
@@ -6221,6 +6669,25 @@ assert(
     freshSource.includes("buildSyntheticTargets(") &&
     freshSource.includes("resetWorkspaceState("),
   "Fresh acceptance long-label scenarios must use isolated synthetic data through the harness reset path.",
+);
+const longLabelCaptureLoopStart = freshSource.indexOf(
+  "for (const target of longLabelViewports) {",
+);
+const longLabelCaptureLoopEnd = freshSource.indexOf(
+  "report.scenarios.longLabelsFindJobs",
+  longLabelCaptureLoopStart,
+);
+const longLabelCaptureLoop =
+  longLabelCaptureLoopStart >= 0 &&
+  longLabelCaptureLoopEnd > longLabelCaptureLoopStart
+    ? freshSource.slice(longLabelCaptureLoopStart, longLabelCaptureLoopEnd)
+    : "";
+const longLabelContentTargetBlock = longLabelCaptureLoop.match(
+  /contentTarget:\s*\{[\s\S]*?block:\s*"([^"]+)"/,
+);
+assert(
+  longLabelContentTargetBlock?.[1] === "nearest",
+  "Fresh acceptance long-label capture must use nearest alignment after clicking the already-visible first result; center alignment can scroll the outer route under the fixed app header.",
 );
 assert(
   /slug:\s*"native-125",\s*width:\s*1440,\s*height:\s*920,\s*zoomFactor:\s*1\.25/.test(
@@ -6311,12 +6778,12 @@ assert(
   ),
   "Deliberate duplicate fresh screenshots must be narrowly declared through an explicitly frozen, empty-by-default pair list.",
 );
-// Expected fresh capture/scenario accounting: 15 literal capture scenario IDs
-// (one capture per required scenario except the two shared shell-navigation
+// Expected fresh capture/scenario accounting: 17 literal capture scenario IDs
+// (one capture per required scenario except the three shared shell-navigation
 // completions) plus the templated long-label loop site executed once per
-// long-label viewport (3) equals 17 runtime captures, which complete 19
-// required scenario IDs together with wide-sidebar-1440 and
-// compact-planning-settings-minimum.
+// long-label viewport (3) equals 20 runtime captures, which complete 23
+// required scenario IDs together with wide-sidebar-1440,
+// compact-planning-settings-minimum, and collapsed-shell-wordmark-minimum.
 const freshScenarioIdLiterals = [
   ...freshSource.matchAll(/scenarioId:\s*"([^"]+)"/g),
 ].map((match) => match[1]);
@@ -6338,8 +6805,8 @@ assert(
 const FRESH_EXPECTED_CAPTURE_COUNT =
   freshCaptureScenarioIds.length + longLabelViewportLoopScenarioIds.length;
 assert(
-  FRESH_EXPECTED_CAPTURE_COUNT === 17,
-  `Fresh acceptance capture accounting changed: derived ${FRESH_EXPECTED_CAPTURE_COUNT} runtime captures instead of the required 17.`,
+  FRESH_EXPECTED_CAPTURE_COUNT === 20,
+  `Fresh acceptance capture accounting changed: derived ${FRESH_EXPECTED_CAPTURE_COUNT} runtime captures instead of the required 20.`,
 );
 assert(
   new Set(freshCaptureScenarioIds).size === freshCaptureScenarioIds.length,
@@ -6349,9 +6816,9 @@ const freshRequiredScenarioIds = (
   requiredScenarioMatch[1].match(/"[^"]+"/g) ?? []
 ).map((value) => value.slice(1, -1));
 assert(
-  freshRequiredScenarioIds.length === 19 &&
-    new Set(freshRequiredScenarioIds).size === 19,
-  `Fresh acceptance must declare exactly 19 unique required scenario completion IDs; found ${freshRequiredScenarioIds.length}.`,
+  freshRequiredScenarioIds.length === 23 &&
+    new Set(freshRequiredScenarioIds).size === 23,
+  `Fresh acceptance must declare exactly 23 unique required scenario completion IDs; found ${freshRequiredScenarioIds.length}.`,
 );
 for (const scenarioId of freshCaptureScenarioIds) {
   assert(
@@ -6362,6 +6829,7 @@ for (const scenarioId of freshCaptureScenarioIds) {
 for (const sharedScenarioId of [
   "wide-sidebar-1440",
   "compact-planning-settings-minimum",
+  "collapsed-shell-wordmark-minimum",
 ]) {
   assert(
     freshRequiredScenarioIds.includes(sharedScenarioId) &&
@@ -6370,8 +6838,8 @@ for (const sharedScenarioId of [
   );
 }
 assert(
-  FRESH_EXPECTED_CAPTURE_COUNT + 2 === freshRequiredScenarioIds.length,
-  "Fresh acceptance required-scenario accounting must equal its capture count plus the two shared navigation completions.",
+  FRESH_EXPECTED_CAPTURE_COUNT + 3 === freshRequiredScenarioIds.length,
+  "Fresh acceptance required-scenario accounting must equal its capture count plus the three shared navigation completions.",
 );
 assert(
   safetySource.includes("Notifications and actions"),

@@ -219,22 +219,21 @@ describe("listing recency versus displayed posted label", () => {
   // own instant, and a relative label never gains a fabricated date.
   it.each([
     ["50", { postedAtText: "2026-08-20" }, Date.parse("2026-08-20")],
-    [
-      "51",
-      { postedAtText: "Aug 20, 2026" },
-      Date.parse("Aug 20, 2026"),
-    ],
-  ] as const)("sorts by the exact instant the absolute label %s shows", (id, overrides, expected) => {
-    const entry = createJob(id, { ...overrides });
-    const badge = getPostedDateLabel({
-      postedAt: entry.job.postedAt,
-      postedAtText: entry.job.postedAtText,
-      providerUpdatedAt: entry.job.providerUpdatedAt,
-    });
+    ["51", { postedAtText: "Aug 20, 2026" }, Date.parse("Aug 20, 2026")],
+  ] as const)(
+    "sorts by the exact instant the absolute label %s shows",
+    (id, overrides, expected) => {
+      const entry = createJob(id, { ...overrides });
+      const badge = getPostedDateLabel({
+        postedAt: entry.job.postedAt,
+        postedAtText: entry.job.postedAtText,
+        providerUpdatedAt: entry.job.providerUpdatedAt,
+      });
 
-    expect(badge.label).toBe("Posted");
-    expect(getListingRecencyTimestamp(entry.job)).toBe(expected);
-  });
+      expect(badge.label).toBe("Posted");
+      expect(getListingRecencyTimestamp(entry.job)).toBe(expected);
+    },
+  );
 
   it("keeps a relative label unsorted instead of inventing its instant", () => {
     const relativeOnly = createJob("52", { postedAtText: "3 days ago" });
@@ -293,18 +292,12 @@ describe("listing recency versus displayed posted label", () => {
     // 61's absolute label (Aug 20) outranks the older structured dates; 62
     // follows its own parsed postedAt (Jul 20); 63 has only a relative label
     // and sinks as unknown in both directions.
-    expect(sortEntries(entries, { direction: "desc", field: "recent" })).toEqual([
-      "61",
-      "62",
-      "60",
-      "63",
-    ]);
-    expect(sortEntries(entries, { direction: "asc", field: "recent" })).toEqual([
-      "60",
-      "62",
-      "61",
-      "63",
-    ]);
+    expect(
+      sortEntries(entries, { direction: "desc", field: "recent" }),
+    ).toEqual(["61", "62", "60", "63"]);
+    expect(sortEntries(entries, { direction: "asc", field: "recent" })).toEqual(
+      ["60", "62", "61", "63"],
+    );
   });
 
   it("sinks the three-field contradiction pair below dated rows in both directions", () => {

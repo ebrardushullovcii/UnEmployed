@@ -75,6 +75,16 @@ export function getPostedDateLabel(input: {
   };
 }
 
+/**
+ * Work modes are stored as enum values ("remote"), so any surface that prints
+ * them raw shows a lowercase word beside sentence-case siblings.
+ */
+export function formatWorkModeLabel(workMode: string): string {
+  return workMode === "onsite"
+    ? "On-site"
+    : `${workMode.charAt(0).toUpperCase()}${workMode.slice(1)}`;
+}
+
 export function formatStatusLabel(value: string): string {
   return value
     .replace(/_/g, " ")
@@ -232,7 +242,13 @@ export function joinListInput(values: readonly string[]): string {
   return values.join("\n");
 }
 
-export function parseListInput(value: string): string[] {
+export function parseListInput(value: string | null | undefined): string[] {
+  // RHF watch()/getValues() can briefly return undefined while a sibling field
+  // updates; treating that as an empty list keeps setup renders crash-free.
+  if (typeof value !== "string" || value.length === 0) {
+    return [];
+  }
+
   return value
     .split(/\r?\n/)
     .map((entry) => entry.trim())

@@ -113,10 +113,11 @@ export function ResumeIdentityEditor(props: ResumeIdentityEditorProps) {
       onToggle={(event) => setIsOpen(event.currentTarget.open)}
       open={isOpen}
       ref={containerRef}
+      tabIndex={-1}
     >
       <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-2 rounded-(--radius-field) px-3 py-2 outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-2 focus-visible:ring-ring">
         <span className="grid min-w-0 gap-0.5">
-          <h3 className="font-display text-(length:--text-item) font-semibold text-(--text-headline)">
+          <h3 className="font-display text-(--text-headline)">
             Resume identity
           </h3>
           <p className="text-(length:--text-small) leading-5 text-foreground-soft">

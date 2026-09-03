@@ -1,83 +1,94 @@
-import { ArrowLeft, RefreshCcw } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import type { ResumeDraft } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
-import { StatusBadge } from "../../components/status-badge";
+import { formatRelativeTimestamp } from "./resume-workspace-time";
 import {
-  formatDraftStatusLabel,
-  formatTimestamp,
-  toDraftStatusTone,
-} from "./resume-workspace-utils";
+  resolveJobEmployerDisplay,
+  resolveJobLocationDisplay,
+} from "../../lib/job-employer-location-display";
 
 interface ResumeWorkspaceHeaderProps {
   draft: ResumeDraft;
-  hasUnsavedChanges: boolean;
   jobCompany: string;
   jobLocation: string;
+  jobCanonicalUrl?: string | null;
   jobTitle: string;
   onBack: () => void;
-  onRefresh: () => void;
 }
 
 export function ResumeWorkspaceHeader({
   draft,
-  hasUnsavedChanges,
   jobCompany,
   jobLocation,
+  jobCanonicalUrl = null,
   jobTitle,
   onBack,
-  onRefresh,
 }: ResumeWorkspaceHeaderProps) {
-  const metaParts = [
-    [jobCompany, jobLocation].filter(Boolean).join(" • "),
-    `Updated ${formatTimestamp(draft.updatedAt)}`,
-    draft.approvedAt ? `Approved ${formatTimestamp(draft.approvedAt)}` : null,
-  ].filter(Boolean);
-  const companyLocationDisplay = metaParts[0] ?? "";
-  const dateMetaDisplay = metaParts.slice(1).join(" • ");
+  const employerLocation = [
+    resolveJobEmployerDisplay({
+      company: jobCompany,
+      canonicalUrl: jobCanonicalUrl,
+    }),
+    resolveJobLocationDisplay(jobLocation),
+  ]
+    .filter(Boolean)
+    .join(" • ");
+  const updated = formatRelativeTimestamp(draft.updatedAt);
+  const approved = draft.approvedAt
+    ? formatRelativeTimestamp(draft.approvedAt)
+    : null;
 
   return (
-    <section className="surface-panel-shell relative grid gap-0.5 rounded-(--radius-field) border border-(--surface-panel-border) px-3.5 py-1.5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 flex-wrap gap-1.5">
-          <Button onClick={onBack} size="compact" type="button" variant="ghost">
-            <ArrowLeft className="size-4" />
-            Back to Shortlisted
-          </Button>
-          <Button
-            onClick={onRefresh}
-            size="compact"
-            type="button"
-            variant="secondary"
-          >
-            <RefreshCcw className="size-4" />
-            Reload workspace
-          </Button>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-          <StatusBadge tone={toDraftStatusTone(draft.status)}>
-            {formatDraftStatusLabel(draft.status)}
-          </StatusBadge>
-          {hasUnsavedChanges ? (
-            <StatusBadge tone="active">Unsaved draft</StatusBadge>
-          ) : null}
-        </div>
-      </div>
+    /* One row, and one owner of draft state. This header used to stack a Back
+       row carrying an `Approved` / `Unsaved draft` badge above the title row,
+       directly on top of the studio's own state banner, which says the same
+       two things in the same words plus the next step and its action. Two
+       stacked approval banners cost ~110px of a 640px-tall window, so the
+       badges are gone: the studio banner owns state, and this row owns
+       navigation, identity and timestamps. */
+    <section className="surface-panel-shell relative flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 rounded-(--radius-field) border border-(--surface-panel-border) px-5 py-2">
+      <Button
+        className="-ml-2 self-center text-foreground-soft"
+        onClick={onBack}
+        size="xs"
+        type="button"
+        variant="ghost"
+      >
+        <ArrowLeft className="size-3.5" />
+        Back to Shortlisted
+      </Button>
 
-      <div className="grid min-w-0 gap-0">
-        <h1 className="max-w-[20ch] font-display text-[clamp(1.42rem,2.05vw,1.95rem)] font-semibold tracking-[-0.05em] text-(--headline-primary)">
+      <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+        {/* Same compact page title as every other Job Finder route. The
+            element defaults in `globals.css` now live in `@layer base`, so
+            these utilities win on their own and no important modifier is
+            needed here. */}
+        <h1 className="min-w-0 break-words font-display text-(length:--text-page-title-compact) font-semibold leading-tight tracking-(--tracking-page-title-compact) text-(--headline-primary)">
           {jobTitle}
         </h1>
-        {companyLocationDisplay ? (
-          <p className="truncate text-[0.78rem] leading-4 text-foreground-soft">
-            {companyLocationDisplay}
-            {dateMetaDisplay ? (
-              <span className="text-foreground-muted">
-                {" "}
-                · {dateMetaDisplay}
+        <p className="min-w-0 break-words text-(length:--text-small) leading-5 text-foreground-soft">
+          {employerLocation ? <span>{employerLocation}</span> : null}
+          {employerLocation ? (
+            <span className="text-foreground-muted"> · </span>
+          ) : null}
+          <span
+            className="text-foreground-muted"
+            {...(updated.absolute ? { title: updated.absolute } : {})}
+          >
+            Updated {updated.label}
+          </span>
+          {approved ? (
+            <>
+              <span className="text-foreground-muted"> · </span>
+              <span
+                className="text-foreground-muted"
+                {...(approved.absolute ? { title: approved.absolute } : {})}
+              >
+                Approved {approved.label}
               </span>
-            ) : null}
-          </p>
-        ) : null}
+            </>
+          ) : null}
+        </p>
       </div>
     </section>
   );

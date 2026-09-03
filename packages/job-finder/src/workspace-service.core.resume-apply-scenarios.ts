@@ -1,13 +1,23 @@
+import { createHash } from "node:crypto";
+
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
+  ApplicationAuthorityDecisionPolicySchema,
+  ApplicationAuthorityEnvelopeSchema,
+  ApprovedApplicationAnswerSnapshotSchema,
+  deriveApprovedApplicationAnswerSnapshotContent,
   JobPostingSchema,
   ResumeDraftSchema,
   ResumeValidationResultSchema,
   type ResumeTemplateId,
   ResumeTemplateDefinitionSchema,
   SavedJobSchema,
+  serializeApplicationAuthorityDecisionPolicyForDigest,
+  serializeApprovedApplicationAnswerSnapshotForDigest,
 } from "@unemployed/contracts";
+import type { JobFinderRepository } from "@unemployed/db";
 import type { JobFinderDocumentManager } from "./internal/workspace-service-contracts";
+import { isApprovedTailoredResumeReadyForApply } from "./internal/matching-review-queue";
 import { describe, expect, test, vi } from "vitest";
 import { createAiClient } from "./workspace-service.test-runtimes";
 import {
@@ -27,6 +37,98 @@ function buildRecordQuery(input: {
     ...(input.runId ? { runId: input.runId } : {}),
     ...(input.resultId ? { resultId: input.resultId } : {}),
   };
+}
+
+async function installExactPrepareOnlyAutosaveAuthority(input: {
+  jobId: string;
+  origin: string;
+  repository: JobFinderRepository;
+  resumeSha256: string;
+}) {
+  const now = new Date();
+  const createdAt = now.toISOString();
+  const expiresAt = new Date(now.getTime() + 60 * 60 * 1_000).toISOString();
+  const profileState = await input.repository.getProfileWithRevision();
+  const derived = deriveApprovedApplicationAnswerSnapshotContent(
+    profileState.profile,
+  );
+  if (derived.content === null) {
+    throw new Error("Expected reusable answer fixture content.");
+  }
+  const snapshotDigest = createHash("sha256")
+    .update(
+      serializeApprovedApplicationAnswerSnapshotForDigest(derived.content),
+      "utf8",
+    )
+    .digest("hex");
+  const snapshot = ApprovedApplicationAnswerSnapshotSchema.parse({
+    ...derived.content,
+    id: "answer_snapshot_autosave",
+    revision: 1,
+    digest: snapshotDigest,
+    sourceProfileRevision: profileState.revision,
+    approvedAt: createdAt,
+  });
+  await input.repository.commitApplicationAnswerSnapshot({
+    expectedLatestRevision: null,
+    snapshot,
+  });
+  const policyContent = {
+    version: 1 as const,
+    answerPolicy: {
+      approvedAnswerSnapshot: {
+        revision: snapshot.revision,
+        digest: snapshot.digest,
+      },
+      unknownRequiredQuestion: "pause_for_user" as const,
+      unknownEligibility: "pause_for_user" as const,
+      unknownLegalRequirement: "pause_for_user" as const,
+    },
+    stopConditions: {
+      unavailableCredentials: "pause_for_user" as const,
+      loginRequired: "pause_for_user" as const,
+      mfaRequired: "pause_for_user" as const,
+      captcha: "pause_for_user" as const,
+      antiBot: "pause_for_user" as const,
+      accountCreation: "pause_for_user" as const,
+      staleObservation: "pause_for_user" as const,
+      ambiguousFinalControl: "pause_for_user" as const,
+      originDrift: "pause_for_user" as const,
+      outcomeUncertain: "stop_no_retry" as const,
+    },
+  };
+  const decisionPolicy = ApplicationAuthorityDecisionPolicySchema.parse({
+    ...policyContent,
+    revision: 1,
+    digest: createHash("sha256")
+      .update(
+        serializeApplicationAuthorityDecisionPolicyForDigest(policyContent),
+        "utf8",
+      )
+      .digest("hex"),
+  });
+  const envelope = ApplicationAuthorityEnvelopeSchema.parse({
+    id: "authority_autosave",
+    mode: "prepare_only",
+    status: "active",
+    revision: 1,
+    scope: { campaignId: null, jobIds: [input.jobId] },
+    maxApplicationsPerRun: 1,
+    maxApplicationsPerLocalDay: 1,
+    intermediateMutationsAuthorized: true,
+    accountCreationAuthorized: false,
+    allowedResumeSha256: [input.resumeSha256],
+    allowedOrigins: [input.origin],
+    createdAt,
+    expiresAt,
+    revokedAt: null,
+    decisionPolicy,
+  });
+  await input.repository.commitApplicationAuthorityEnvelope({
+    envelope,
+    expectedRevision: null,
+  });
+  return envelope;
 }
 
 describe("createJobFinderWorkspaceService", () => {
@@ -171,6 +273,51 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.applyRuns[0]?.state).toBe("paused_for_user_review");
   });
 
+  test("activates bounded autosave only for an exact authority and rechecks revocation before each field", async () => {
+    const seed = createSeed();
+    seed.settings = {
+      ...seed.settings,
+      resumeApplicationMode: "original_resume",
+    };
+    const catalogRuntime = createBrowserRuntime();
+    const executeApplicationFlow = vi.fn(
+      catalogRuntime.executeApplicationFlow.bind(catalogRuntime),
+    );
+    const { workspaceService, repository } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: { ...catalogRuntime, executeApplicationFlow },
+    });
+    const job = seed.savedJobs.find((entry) => entry.id === "job_ready")!;
+    const origin = new URL(job.applicationUrl!).origin;
+    const envelope = await installExactPrepareOnlyAutosaveAuthority({
+      jobId: job.id,
+      origin,
+      repository,
+      resumeSha256: seed.profile.baseResume.sha256!,
+    });
+
+    await workspaceService.startApplyCopilotRun(job.id);
+    const executionInput = executeApplicationFlow.mock.calls[0]?.[1];
+    expect(executionInput).toMatchObject({
+      intermediateMutationsAuthorized: true,
+      intermediateMutationAllowedOrigins: [origin],
+      accountCreationAuthorized: false,
+      submitAuthorized: false,
+    });
+    await expect(
+      executionInput?.recheckIntermediateMutationAuthority?.(origin),
+    ).resolves.toBe(true);
+
+    await repository.revokeApplicationAuthorityEnvelope({
+      id: envelope.id,
+      expectedRevision: envelope.revision,
+      revokedAt: new Date().toISOString(),
+    });
+    await expect(
+      executionInput?.recheckIntermediateMutationAuthority?.(origin),
+    ).resolves.toBe(false);
+  });
+
   test("blocks original-CV mode when the imported file is missing on disk", async () => {
     const seed = createSeed();
     seed.settings = {
@@ -300,6 +447,105 @@ describe("createJobFinderWorkspaceService", () => {
     });
   });
 
+  test("clears a stale missing-resume blocker after resume approval", async () => {
+    const baseRuntime = createBrowserRuntime();
+    if (!baseRuntime.executeApplicationFlow) {
+      throw new Error(
+        "Expected catalog browser runtime to support apply flows.",
+      );
+    }
+    const executeApplicationFlow = vi.fn(
+      baseRuntime.executeApplicationFlow.bind(baseRuntime),
+    );
+    const { workspaceService, repository } = createWorkspaceServiceHarness({
+      exportFileVerifier: { exists: () => Promise.resolve(true) },
+      browserRuntime: { ...baseRuntime, executeApplicationFlow },
+    });
+
+    await workspaceService.startApplyCopilotRun("job_ready");
+    expect(
+      (await workspaceService.getWorkspaceSnapshot()).applicationRecords[0]
+        ?.latestBlocker?.code,
+    ).toBe("missing_resume");
+
+    await workspaceService.generateResume("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
+    const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+    expect(approvedExport).toBeTruthy();
+
+    const approvedSnapshot = await workspaceService.approveResume(
+      "job_ready",
+      approvedExport!.id,
+    );
+    const approvedDraft = approvedSnapshot.resumeDrafts.find(
+      (entry) => entry.jobId === "job_ready",
+    );
+    const approvedAsset = approvedSnapshot.tailoredAssets.find(
+      (entry) => entry.jobId === "job_ready",
+    );
+    const approvedExportsAfter = approvedSnapshot.resumeExportArtifacts.filter(
+      (entry) => entry.jobId === "job_ready" && entry.isApproved,
+    );
+    expect(approvedDraft?.status).toBe("approved");
+    expect(approvedExportsAfter.length).toBeGreaterThan(0);
+    expect(approvedAsset?.storagePath).toBeTruthy();
+    expect(approvedSnapshot.applicationRecords[0]?.latestBlocker).toBeNull();
+
+    const [retryDraft, retryExports, retryAssets] = await Promise.all([
+      repository.getResumeDraftByJobId("job_ready"),
+      repository.listResumeExportArtifacts({ jobId: "job_ready" }),
+      repository.listTailoredAssets(),
+    ]);
+    const retryAsset =
+      retryAssets.find((entry) => entry.jobId === "job_ready") ?? null;
+    expect(
+      isApprovedTailoredResumeReadyForApply({
+        draft: retryDraft,
+        exports: retryExports,
+        asset: retryAsset,
+      }).ready,
+    ).toBe(true);
+    expect(approvedSnapshot.applicationRecords[0]?.nextActionLabel).toBe(
+      "Retry preparation when you are ready.",
+    );
+
+    const retrySnapshot =
+      await workspaceService.startApplyCopilotRun("job_ready");
+    expect(executeApplicationFlow).toHaveBeenCalledTimes(1);
+    const latestJobResult = retrySnapshot.applyJobResults.find(
+      (result) => result.jobId === "job_ready",
+    );
+    expect(latestJobResult?.blockerReason).not.toBe("resume_missing");
+    expect(retrySnapshot.applicationRecords[0]?.latestBlocker?.code).not.toBe(
+      "missing_resume",
+    );
+  });
+
+  test("starts apply copilot after resume approval without resume_missing blocker", async () => {
+    const { workspaceService } = createWorkspaceServiceHarness({
+      exportFileVerifier: { exists: () => Promise.resolve(true) },
+    });
+
+    await workspaceService.generateResume("job_ready");
+    const exportedSnapshot =
+      await workspaceService.exportResumePdf("job_ready");
+    const approvedExport = exportedSnapshot.resumeExportArtifacts.find(
+      (artifact) => artifact.jobId === "job_ready",
+    );
+    expect(approvedExport).toBeTruthy();
+    await workspaceService.approveResume("job_ready", approvedExport!.id);
+
+    const retrySnapshot =
+      await workspaceService.startApplyCopilotRun("job_ready");
+    const latestJobResult = retrySnapshot.applyJobResults.find(
+      (result) => result.jobId === "job_ready",
+    );
+    expect(latestJobResult?.blockerReason).not.toBe("resume_missing");
+  });
+
   test("starts a non-submitting apply copilot run when the job has an approved resume", async () => {
     const { workspaceService } = createWorkspaceServiceHarness();
 
@@ -359,6 +605,76 @@ describe("createJobFinderWorkspaceService", () => {
         answered: number;
       },
     });
+  });
+
+  test("starts apply copilot when draft export binding is stale but the ready asset matches the latest approved export", async () => {
+    const seed = createSeed();
+    const jobId = "job_ready";
+    const readyPath = "/tmp/generated-classic_ats.pdf";
+    const stalePath = "/tmp/stale-export.pdf";
+    seed.resumeDrafts = [
+      {
+        id: `resume_draft_${jobId}`,
+        jobId,
+        status: "approved",
+        templateId: "classic_ats",
+        identity: null,
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
+        approvedAt: "2026-03-20T10:05:00.000Z",
+        approvedExportId: "resume_export_stale",
+        staleReason: null,
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:05:00.000Z",
+      },
+    ];
+    seed.resumeExportArtifacts = [
+      {
+        id: "resume_export_stale",
+        draftId: `resume_draft_${jobId}`,
+        jobId,
+        format: "pdf",
+        filePath: stalePath,
+        pageCount: 2,
+        templateId: "classic_ats",
+        exportedAt: "2026-03-20T10:03:00.000Z",
+        isApproved: false,
+      },
+      {
+        id: "resume_export_current",
+        draftId: `resume_draft_${jobId}`,
+        jobId,
+        format: "pdf",
+        filePath: readyPath,
+        pageCount: 2,
+        templateId: "classic_ats",
+        exportedAt: "2026-03-20T10:05:00.000Z",
+        isApproved: true,
+      },
+    ];
+    seed.tailoredAssets = seed.tailoredAssets.map((asset) =>
+      asset.jobId === jobId
+        ? {
+            ...asset,
+            status: "ready",
+            storagePath: readyPath,
+          }
+        : asset,
+    );
+
+    const { workspaceService } = createWorkspaceServiceHarness({ seed });
+    const snapshot = await workspaceService.startApplyCopilotRun(jobId);
+
+    expect(snapshot.applyJobResults[0]).toMatchObject({
+      jobId,
+      state: "awaiting_review",
+    });
+    expect(snapshot.applyJobResults[0]?.blockerReason).not.toBe(
+      "resume_missing",
+    );
   });
 
   test("records explicit Interview Helper follow-up actions on application records", async () => {

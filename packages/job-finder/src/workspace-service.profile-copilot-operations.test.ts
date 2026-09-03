@@ -755,7 +755,10 @@ async function runProfileCopilotOperationCase(
   expect(assistantMessage?.context).toEqual(testCase.context);
   expect(assistantMessage?.patchGroups).toHaveLength(1);
   const storedPatchGroup = assistantMessage?.patchGroups[0];
-  expect(storedPatchGroup?.id).toBe(patchGroupId);
+  expect(storedPatchGroup?.id).not.toBe(patchGroupId);
+  expect(storedPatchGroup?.id).toMatch(
+    new RegExp(`^${assistantMessage?.id}_patch_1$`),
+  );
   // 2. The misleading "applied" flag is normalized to review-only.
   expect(storedPatchGroup?.applyMode).toBe("needs_review");
   expect(storedPatchGroup?.operations).toEqual([parsedOperation]);
@@ -768,12 +771,13 @@ async function runProfileCopilotOperationCase(
   expect(testCase.observe(afterProposal)).toEqual(baselineObserved);
 
   // 4. Explicit Apply goes through the real production apply path.
-  const appliedSnapshot =
-    await workspaceService.applyProfileCopilotPatchGroup(patchGroupId);
+  const appliedSnapshot = await workspaceService.applyProfileCopilotPatchGroup(
+    storedPatchGroup!.id,
+  );
   expect(appliedSnapshot.profileRevisions[0]).toEqual(
     expect.objectContaining({
       trigger: "assistant_patch",
-      patchGroupId,
+      patchGroupId: storedPatchGroup!.id,
     }),
   );
   const storedMessagesAfterApply =
@@ -781,7 +785,7 @@ async function runProfileCopilotOperationCase(
   expect(
     storedMessagesAfterApply
       .flatMap((message) => message.patchGroups)
-      .find((group) => group.id === patchGroupId)?.applyMode,
+      .find((group) => group.id === storedPatchGroup!.id)?.applyMode,
   ).toBe("applied");
 
   // 5. Exact authoritative state after Apply.

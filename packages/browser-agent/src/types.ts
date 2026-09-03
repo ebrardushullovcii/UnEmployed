@@ -182,6 +182,7 @@ export interface AgentResult {
   jobs: JobPosting[];
   steps: number;
   incomplete?: boolean;
+  warning?: string;
   error?: string;
   transcriptMessageCount: number;
   reviewTranscript?: string[];

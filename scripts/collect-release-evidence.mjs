@@ -62,7 +62,8 @@ const stageKeys = ["test:correctness", "test:performance"];
 const sourceExcludes = [
   /^node_modules(?:[\\/]|$)/,
   /^(?:out|dist|build|release|coverage|\.tmp|\.turbo)(?:[\\/]|$)/,
-  /^test-artifacts(?:[\\/]|$)/,
+  /(?:^|[\\/])test-artifacts(?:[\\/]|$)/,
+  /\.tsbuildinfo$/,
   /^(?:\.git)(?:[\\/]|$)/,
   // Generated evidence mirrors are collector output, not product input: they
   // become durable only through an authorized Git commit. Including them would
@@ -434,9 +435,8 @@ function resolvePackageManagerInvocation({
     repositoryRoot,
     fileExists,
     readFirstBytes,
-    resolveFromRoot: createRequire(
-      path.join(repositoryRoot, "package.json"),
-    ).resolve,
+    resolveFromRoot: createRequire(path.join(repositoryRoot, "package.json"))
+      .resolve,
     corepackCandidates: [],
   });
 }

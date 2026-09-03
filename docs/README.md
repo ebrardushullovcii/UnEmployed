@@ -29,13 +29,17 @@ Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior.
 - `docs/exec-plans/active/`: detailed active plans
 - `docs/exec-plans/queued/`: detailed ready plans
 
-The active acceptance plan is
-`docs/exec-plans/active/job-finder-sealed-acceptance-and-blind-personas.md`.
-It owns the remaining chain for the current source: hard freeze, broad-gate and
-source-bound evidence reruns, one immutable-snapshot sealed acceptance run,
-external seal custody, strict post-seal ATS binding checks, the 14-persona blind
-wave, and evidence synthesis. Current truth lives in `docs/STATUS.md` and
-`docs/TRACKS.md`.
+The current driver is the lightweight product-iteration loop recorded in
+`docs/STATUS.md`, `docs/TRACKS.md`, and `docs/TESTING.md`: a small group of
+independent testers uses the current built app, records screenshots and candid
+product feedback, related defects are fixed as one batch, and the batch gets
+focused validation plus one rebuild before a fresh testing round.
+
+`docs/exec-plans/active/job-finder-sealed-acceptance-and-blind-personas.md` is
+deferred release-candidate guidance. Do not run fingerprints, source custody,
+sealed acceptance, broad `pnpm verify`, or a canonical 14-persona wave during
+ordinary product iteration. Use that chain only after the user explicitly
+declares a settled release candidate.
 
 `docs/exec-plans/active/job-finder-campaigns-dashboard-crm-scale.md` remains
 the implementation baseline: campaign/dashboard/CRM phase-two behavior is
@@ -44,9 +48,9 @@ production-Electron harness, but that plan is no longer the current acceptance
 driver. Its initial broad-gate attempt stopped before repository scripts ran
 when Corepack could not verify/fetch the pinned pnpm 10.8 package; that
 environment failure was superseded by the later passing integrated `pnpm
-verify` run recorded in `docs/STATUS.md` and `docs/TESTING.md`. The current
-source still owes fresh `pnpm verify` and `pnpm test:evidence` runs under the
-hard freeze.
+verify` run recorded in `docs/STATUS.md` and `docs/TESTING.md`. Fresh broad and
+source-bound release gates are intentionally deferred until release-candidate
+freeze.
 
 The completed AI capability reliability work is recorded in `docs/HISTORY.md`, the
 model-routing ADRs, and

@@ -164,9 +164,9 @@ export function SettingsEditableDefaults({
                 </Badge>
               </div>
               <p className="text-(length:--text-description) leading-5 text-foreground-soft">
-                Choose whether each job gets a tailored resume or the exact
-                file you imported in Profile. You still decide job by job
-                before Apply Copilot opens the application.
+                Choose whether each job gets a tailored resume or the exact file
+                you imported in Profile. You still decide job by job before
+                Apply Copilot opens the application.
               </p>
             </div>
             <div className="grid min-w-0 max-w-full justify-items-end gap-1.5">
@@ -362,8 +362,8 @@ export function SettingsEditableDefaults({
                 value={settingsForm.fontPreset}
               />
               <p className="text-(length:--text-description) leading-5 text-foreground-soft">
-                Pick the default font pairing for exported resumes. This affects
-                PDF tone, not the editor schema.
+                Pick the default font pairing for exported resumes. It changes
+                how the exported PDF looks, not the wording in your resume.
               </p>
             </Field>
             <div className="surface-card-tint min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) px-3.5 py-3">

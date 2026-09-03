@@ -8,6 +8,7 @@ import { JobFinderShell } from "./job-finder-shell";
 
 const windowControlsState = {
   isClosable: true,
+  isFullScreen: false,
   isMaximized: false,
   isMinimizable: true,
 } as const;
@@ -79,8 +80,8 @@ describe("JobFinderShell rapid review route", () => {
       </MemoryRouter>,
     );
 
-    expect(document.title).toBe("Rapid review | Job Finder | UnEmployed");
-    expect(screen.getByRole("main", { name: "Rapid review" })).toBeTruthy();
+    expect(document.title).toBe("Quick review | Job Finder | UnEmployed");
+    expect(screen.getByRole("main", { name: "Quick review" })).toBeTruthy();
 
     const navigation = screen.getByRole("navigation", {
       name: "Job Finder sections",

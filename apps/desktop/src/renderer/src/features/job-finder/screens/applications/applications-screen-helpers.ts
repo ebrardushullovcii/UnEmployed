@@ -35,8 +35,19 @@ export function resolveVisibleRouteActionMessage(input: {
     return null;
   }
 
+  // The detail already confirms this exact click inline, directly under the
+  // button that made it ("Opened in the Job Finder browser. Switch to that
+  // window…"). A route-wide banner saying the same thing put two
+  // confirmations of one click on screen, one of them far from the control.
+  if (BROWSER_HANDOFF_CONFIRMATION_PATTERN.test(actionMessage)) {
+    return null;
+  }
+
   return actionMessage;
 }
+
+const BROWSER_HANDOFF_CONFIRMATION_PATTERN =
+  /^Opened (?:the page|this application) in the Job Finder browser\b/i;
 
 export function resolveUnambiguousApplicationRecordIdByJobId(
   records: readonly ApplicationRecord[],

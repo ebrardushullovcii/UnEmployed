@@ -52,14 +52,14 @@ function renderCenter(
 describe("CampaignNotificationCenter", () => {
   it("shows an empty state when there are no notifications", () => {
     renderCenter();
-    expect(screen.getByText(/No campaign notifications yet/)).toBeTruthy();
+    expect(screen.getByText(/Nothing here yet/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Mark all read" })).toBeNull();
   });
 
   it("shows a loading state without an empty-state claim", () => {
     renderCenter({ loading: true });
-    expect(screen.getByText(/Loading campaign notifications/)).toBeTruthy();
-    expect(screen.queryByText(/No campaign notifications yet/)).toBeNull();
+    expect(screen.getByText(/Loading notifications/)).toBeTruthy();
+    expect(screen.queryByText(/Nothing here yet/)).toBeNull();
   });
 
   it("shows an error message with an alert role", () => {
@@ -104,14 +104,14 @@ describe("CampaignNotificationCenter", () => {
       pendingMarkAll: true,
     });
     expect(
-      screen.getByRole("button", { name: "Mark all read" }).getAttribute(
-        "aria-disabled",
-      ),
+      screen
+        .getByRole("button", { name: "Mark all read" })
+        .getAttribute("aria-disabled"),
     ).toBe("true");
     expect(
-      screen.getByRole("button", { name: "Mark all read" }).getAttribute(
-        "aria-busy",
-      ),
+      screen
+        .getByRole("button", { name: "Mark all read" })
+        .getAttribute("aria-busy"),
     ).toBe("true");
   });
 

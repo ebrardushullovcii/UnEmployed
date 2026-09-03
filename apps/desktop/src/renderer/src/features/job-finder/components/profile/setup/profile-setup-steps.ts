@@ -1,81 +1,90 @@
-import type { ProfileSetupStep } from '@unemployed/contracts'
+import {
+  normalizeProfileSetupStep,
+  profileSetupVisibleStepValues,
+  type ProfileSetupStep,
+} from "@unemployed/contracts";
 
-export const profileSetupSteps: readonly ProfileSetupStep[] = [
-  'import',
-  'essentials',
-  'background',
-  'targeting',
-  'narrative',
-  'answers',
-  'ready_check'
-]
+/**
+ * Guided setup is five steps. "Your story" and "Screener answers" merged into
+ * one optional Extras step, and the old Ready check screen became the finish
+ * action on Job targets instead of a step of its own.
+ */
+export const profileSetupSteps: readonly ProfileSetupStep[] =
+  profileSetupVisibleStepValues;
 
 export const profileSetupStepDefinitions: Array<{
-  id: ProfileSetupStep
-  label: string
-  summary: string
+  id: ProfileSetupStep;
+  label: string;
+  /** Nothing on this step blocks finishing setup; the stepper must say so. */
+  optional?: boolean;
+  summary: string;
 }> = [
   {
-    id: 'import',
-    label: 'Import',
-    summary: 'Bring in a resume first, then focus only on the important follow-up questions.'
+    id: "import",
+    label: "Import",
+    summary:
+      "Bring in a resume first, then focus only on the important follow-up questions.",
   },
   {
-    id: 'essentials',
-    label: 'Essentials',
-    summary: 'Confirm your identity, contact path, headline, and location before discovery relies on them.'
+    id: "essentials",
+    label: "Basics",
+    summary:
+      "Confirm your identity, contact path, headline, and location before discovery relies on them.",
   },
   {
-    id: 'background',
-    label: 'Background',
-    summary: 'Review work history and supporting records so resumes and fit scoring stay grounded.'
+    id: "background",
+    label: "Work history",
+    summary:
+      "Review work history and supporting records so resumes and fit scoring stay grounded.",
   },
   {
-    id: 'targeting',
-    label: 'Targeting',
-    summary: 'Set roles, locations, work mode, and eligibility so search is not generic.'
+    id: "targeting",
+    label: "Job targets",
+    summary:
+      "Set roles, locations, work mode, and sources — then finish setup from here.",
   },
   {
-    id: 'narrative',
-    label: 'Narrative',
-    summary: 'Capture the story and strongest proof the rest of the product can reuse.'
+    id: "extras",
+    label: "Extras",
+    optional: true,
+    summary:
+      "Optional: your story in your own words, and the screener answers you reuse.",
   },
-  {
-    id: 'answers',
-    label: 'Answers',
-    summary: 'Save common screener answers so you do not rewrite them for every application.'
-  },
-  {
-    id: 'ready_check',
-    label: 'Ready check',
-    summary: 'See what is ready, what still needs review, and what could weaken downstream quality.'
-  }
-]
+];
 
 export function formatProfileSetupStepLabel(step: ProfileSetupStep): string {
-  return profileSetupStepDefinitions.find((entry) => entry.id === step)?.label ?? step
+  const visibleStep = normalizeProfileSetupStep(step);
+
+  return (
+    profileSetupStepDefinitions.find((entry) => entry.id === visibleStep)
+      ?.label ?? visibleStep
+  );
 }
 
 export function getNextProfileSetupStep(
   currentStep: ProfileSetupStep,
 ): ProfileSetupStep | null {
-  const currentIndex = profileSetupSteps.indexOf(currentStep)
+  const currentIndex = profileSetupSteps.indexOf(
+    normalizeProfileSetupStep(currentStep),
+  );
 
   if (currentIndex < 0 || currentIndex >= profileSetupSteps.length - 1) {
-    return null
+    return null;
   }
 
-  return profileSetupSteps[currentIndex + 1] ?? null
+  return profileSetupSteps[currentIndex + 1] ?? null;
 }
 
 export function getPreviousProfileSetupStep(
   currentStep: ProfileSetupStep,
 ): ProfileSetupStep | null {
-  const currentIndex = profileSetupSteps.indexOf(currentStep)
+  const currentIndex = profileSetupSteps.indexOf(
+    normalizeProfileSetupStep(currentStep),
+  );
 
   if (currentIndex <= 0) {
-    return null
+    return null;
   }
 
-  return profileSetupSteps[currentIndex - 1] ?? null
+  return profileSetupSteps[currentIndex - 1] ?? null;
 }

@@ -15,6 +15,10 @@ export const JOB_FINDER_FIXED_HEADER_HEIGHT_PX = 116;
 export const JOB_FINDER_WIDE_HEADER_HEIGHT_PX = 56;
 // Shared breathing gap between a revealed target and whatever sits above it.
 export const JOB_FINDER_REVEAL_TOP_GAP_PX = 16;
+// A route header is allowed to be at either rest position only: fully shown
+// at the top of the page or fully above the fixed shell. A fractional scroll
+// position between those boundaries leaves the h1 painted underneath chrome.
+export const JOB_FINDER_ROUTE_HEADER_SCROLL_TOLERANCE_PX = 1;
 
 // Tailwind scale: `scroll-mt-4` = 16px gap; the sm band adds the fixed-header
 // height (116px + 16px = 132px = 8.25rem); the wide band adds the short fixed
@@ -54,6 +58,53 @@ export function resolveJobFinderRevealClearancePx(
     default:
       return JOB_FINDER_REVEAL_TOP_GAP_PX;
   }
+}
+
+/**
+ * Resolves the nearest stable page position for a locked route header. During
+ * a first-results layout change, native scrolling can leave the outer page
+ * between the header's two resting positions. Choosing the nearest boundary
+ * preserves the user's scroll direction while guaranteeing the header is not
+ * partially occluded by the fixed shell.
+ */
+export function resolveJobFinderRouteHeaderScrollTop(
+  scrollTop: number,
+  headerHeightPx: number,
+): number {
+  const currentTop = Math.max(0, scrollTop);
+  const boundary = Math.max(0, headerHeightPx);
+
+  if (boundary === 0 || currentTop <= 0 || currentTop >= boundary) {
+    return currentTop;
+  }
+
+  return currentTop < boundary / 2 ? 0 : boundary;
+}
+
+/**
+ * Settles one outer page scrollport at a whole-header boundary. Returns true
+ * only when the scroll position changed, which keeps callers' layout effects
+ * cheap and makes the geometry contract directly testable.
+ */
+export function settleJobFinderRouteHeaderScroll(
+  scrollArea: HTMLElement,
+  headerHeightPx: number,
+): boolean {
+  const currentTop = Math.max(0, scrollArea.scrollTop);
+  const nextTop = resolveJobFinderRouteHeaderScrollTop(
+    currentTop,
+    headerHeightPx,
+  );
+
+  if (
+    Math.abs(nextTop - currentTop) <=
+    JOB_FINDER_ROUTE_HEADER_SCROLL_TOLERANCE_PX
+  ) {
+    return false;
+  }
+
+  scrollArea.scrollTop = nextTop;
+  return scrollArea.scrollTop !== currentTop;
 }
 
 function isVerticalScrollport(
@@ -146,8 +197,8 @@ export function findCollectionItemWithinRegion(
   const scope: ParentNode = region ?? document;
 
   return (
-    Array.from(scope.querySelectorAll<HTMLElement>("[data-collection-item-id]"))
-      .find((item) => item.dataset.collectionItemId === itemId)
-      ?? null
+    Array.from(
+      scope.querySelectorAll<HTMLElement>("[data-collection-item-id]"),
+    ).find((item) => item.dataset.collectionItemId === itemId) ?? null
   );
 }

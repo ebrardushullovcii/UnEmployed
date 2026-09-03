@@ -86,6 +86,7 @@ function createDiscoveryFeedbackHarness(input: {
       setActionState: applyActionState,
       setPendingActionState: vi.fn(),
     });
+  const setSelectedReviewJobId = vi.fn();
   const pageActions = createPrimaryPageActions({
     actions: {
       refreshWorkspace: vi
@@ -104,6 +105,7 @@ function createDiscoveryFeedbackHarness(input: {
     ) => {
       liveEvents = typeof next === "function" ? next(liveEvents) : next;
     },
+    setSelectedReviewJobId,
     withPendingScope,
     workspace: input.workspace ?? workspace,
   } as unknown as PrimaryPageActionArgs);
@@ -113,6 +115,7 @@ function createDiscoveryFeedbackHarness(input: {
       return actionState;
     },
     feedbackUpdates,
+    setSelectedReviewJobId,
     pageActions,
   };
 }
@@ -211,9 +214,49 @@ describe("shared discovery run feedback handler", () => {
     expect(harness.feedbackUpdates.at(-1)?.headline).toBe(
       "Search finished and results were saved on this device.",
     );
-    expect(harness.actionState.message).toBe(
-      "Search finished and results were saved on this device.",
+    expect(harness.actionState.message).toBeNull();
+  });
+
+  it("explains zero-new repeat searches from the refreshed run summary", async () => {
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockResolvedValue(
+        createAgentDiscoveryResult("completed", {
+          // Intentionally stale/empty so feedback must prefer the refreshed
+          // workspace returned by flushFinal/refreshWorkspace.
+          recentDiscoveryRuns: [],
+        }),
+      );
+    const refreshWorkspace = vi
+      .fn<JobFinderShellActions["refreshWorkspace"]>()
+      .mockResolvedValue({
+        recentDiscoveryRuns: [
+          {
+            id: "run_repeat",
+            state: "completed",
+            startedAt: "2026-08-27T01:00:00.000Z",
+            summary: {
+              validJobsFound: 0,
+              duplicatesMerged: 12,
+              sourceHealth: [],
+            },
+          },
+        ],
+      } as unknown as JobFinderWorkspaceSnapshot);
+    const harness = createDiscoveryFeedbackHarness({
+      runAgentDiscovery,
+      actions: { refreshWorkspace },
+    });
+
+    harness.pageActions.onRunAgentDiscovery();
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("succeeded");
+    });
+    expect(harness.feedbackUpdates.at(-1)?.headline).toContain(
+      "12 listings were already saved",
     );
+    expect(harness.feedbackUpdates.at(-1)?.headline).toContain("unchanged");
   });
 
   it("names the configured source in single-source outcome feedback", async () => {
@@ -312,9 +355,7 @@ describe("shared discovery run feedback handler", () => {
     });
     expect(harness.feedbackUpdates[0]?.status).toBe("started");
     expect(harness.feedbackUpdates.at(-1)?.status).toBe("succeeded");
-    expect(harness.actionState.message).toContain(
-      "could not refresh automatically",
-    );
+    expect(harness.actionState.message).toBeNull();
   });
 
   it("reports cancelled feedback — never success — after stopping a run that had committed jobs", async () => {
@@ -334,13 +375,9 @@ describe("shared discovery run feedback handler", () => {
       "Search stopped. Jobs found so far were kept on this device.",
     );
     expect(harness.feedbackUpdates.at(-1)?.recovery).toBeNull();
-    // The finished/saved status copy never appears, not even transiently as
-    // the terminal message; the stopped wording is the final truth.
-    expect(harness.actionState.message).toBe(
-      "Search stopped. Jobs found so far were kept on this device.",
-    );
-    expect(harness.actionState.message).not.toContain("finished");
-    expect(harness.actionState.message).not.toContain("saved");
+    // Terminal discovery copy lives in discoveryRunFeedback only.
+    expect(harness.actionState.message).toBeNull();
+    expect(harness.feedbackUpdates.at(-1)?.headline).not.toContain("finished");
   });
 
   it("keeps stop-before-finish wording for a cancel with no committed jobs", async () => {
@@ -401,9 +438,7 @@ describe("shared discovery run feedback handler", () => {
       expect(harness.feedbackUpdates.at(-1)?.status).toBe("cancelled");
     });
     expect(harness.feedbackUpdates.at(-1)?.status).not.toBe("succeeded");
-    expect(harness.actionState.message).not.toContain(
-      "could not refresh automatically",
-    );
+    expect(harness.actionState.message).toBeNull();
   });
 
   it("keeps could-not-start wording only for a rejection before any progress", async () => {
@@ -451,6 +486,44 @@ describe("shared discovery run feedback handler", () => {
     );
     expect(harness.feedbackUpdates.at(-1)?.detail).toBe("fetch failed");
     expect(harness.feedbackUpdates.at(-1)?.recovery?.kind).toBe("connection");
+    expect(harness.feedbackUpdates.at(-1)?.recovery?.headline).not.toBe(
+      harness.feedbackUpdates.at(-1)?.headline,
+    );
+  });
+
+  it("classifies a tool-calling gap after progress without duplicating stopped copy", async () => {
+    const progressEvent = DiscoveryActivityEventSchema.parse({
+      id: "event_progress_tools",
+      runId: "run_progress_tools",
+      timestamp: "2026-08-27T10:00:00.000Z",
+      kind: "progress",
+      stage: "navigation",
+      targetId: null,
+      message: "Starting browser",
+    });
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockImplementation((onEvent) => {
+        onEvent?.(progressEvent);
+        return Promise.reject(
+          new Error(
+            "AI client does not support tool calling. Cannot run agent discovery.",
+          ),
+        );
+      });
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunAgentDiscovery();
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("failed");
+    });
+    const terminal = harness.feedbackUpdates.at(-1);
+    expect(terminal?.recovery?.headline).toContain("AI provider");
+    expect(terminal?.recovery?.headline).not.toBe(terminal?.headline);
+    expect(`${terminal?.headline} ${terminal?.recovery?.headline}`).not.toMatch(
+      /The search stopped before it could finish\..*The search stopped before it could finish\./,
+    );
   });
 });
 
@@ -476,6 +549,7 @@ describe("onQueueJob request-local shortlist outcome", () => {
     });
 
     expect(queueJobForReview).toHaveBeenCalledWith("job_1");
+    expect(harness.setSelectedReviewJobId).toHaveBeenCalledWith("job_1");
     expect(harness.actionState.message).toBe("Job added to Shortlisted.");
   });
 
@@ -551,7 +625,10 @@ describe("onRegenerateResumeSection proposal-only truth", () => {
       regenerateResumeSection,
     });
 
-    harness.pageActions.onRegenerateResumeSection("job_ready", "section_summary");
+    harness.pageActions.onRegenerateResumeSection(
+      "job_ready",
+      "section_summary",
+    );
 
     await vi.waitFor(() => {
       expect(harness.actionState.message).toBe(
@@ -584,7 +661,10 @@ describe("onRegenerateResumeSection proposal-only truth", () => {
       regenerateResumeSection,
     });
 
-    harness.pageActions.onRegenerateResumeSection("job_ready", "section_summary");
+    harness.pageActions.onRegenerateResumeSection(
+      "job_ready",
+      "section_summary",
+    );
 
     await vi.waitFor(() => {
       expect(harness.actionState.message).toBe(
@@ -607,7 +687,10 @@ describe("onRegenerateResumeSection proposal-only truth", () => {
       regenerateResumeSection,
     });
 
-    harness.pageActions.onRegenerateResumeSection("job_ready", "section_locked");
+    harness.pageActions.onRegenerateResumeSection(
+      "job_ready",
+      "section_locked",
+    );
 
     await vi.waitFor(() => {
       expect(harness.actionState.message).toBe(

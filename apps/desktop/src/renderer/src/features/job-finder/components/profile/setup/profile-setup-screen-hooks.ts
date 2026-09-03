@@ -8,7 +8,6 @@ import type {
 } from "@unemployed/contracts";
 import type { ProfileBackgroundArrays } from "../profile-field-array-types";
 import {
-  buildProfilePayload,
   buildSearchPreferencesPayload,
   createProfileEditorValues,
   createSearchPreferencesEditorValues,
@@ -19,6 +18,7 @@ import {
 } from "../../../lib/profile-editor";
 import { buildComparableValueFingerprint } from "../../../lib/profile-editor-review-candidates";
 import { buildDraftAwareSetupReviewItems } from "./profile-setup-screen-helpers";
+import { buildProfileSetupPayload } from "./profile-setup-screen-actions";
 
 export const backgroundMergedNoticeMessage =
   "Profile was updated in the background. Your unsaved edits were kept; review the merged fields before saving.";
@@ -383,17 +383,14 @@ export function useProfileSetupForms(input: {
   // for synchronous reset notifications; the name filter below carries the
   // primary semantics.
   const suppressDraftEditSignalRef = useRef(false);
-  const runWithoutDraftEditSignal = useCallback(
-    <T,>(run: () => T): T => {
-      suppressDraftEditSignalRef.current = true;
-      try {
-        return run();
-      } finally {
-        suppressDraftEditSignalRef.current = false;
-      }
-    },
-    [],
-  );
+  const runWithoutDraftEditSignal = useCallback(<T>(run: () => T): T => {
+    suppressDraftEditSignalRef.current = true;
+    try {
+      return run();
+    } finally {
+      suppressDraftEditSignalRef.current = false;
+    }
+  }, []);
 
   // Every user-authored value mutation — including edits made while the
   // surface was already dirty, when no dirty transition fires — must retire
@@ -484,7 +481,7 @@ export function useProfileSetupForms(input: {
   });
   // One signal per user-invoked structural mutation; the wrapper preserves
   // the full field-array shape (fields, registered methods) screens expect.
-  const wrapUserFieldArray = <TFieldArray,>(
+  const wrapUserFieldArray = <TFieldArray>(
     fieldArray: TFieldArray,
   ): TFieldArray =>
     wrapFieldArrayStructuralMutators(fieldArray, () => {
@@ -581,7 +578,8 @@ export function useProfileSetupForms(input: {
     ],
   });
   const draftProfileResult = useMemo(
-    () => buildProfilePayload(currentProfileBaseline, profileForm.getValues()),
+    () =>
+      buildProfileSetupPayload(currentProfileBaseline, profileForm.getValues()),
     [
       applicationIdentityValues,
       answerBankValues,
@@ -682,11 +680,11 @@ export function useProfileSetupForms(input: {
     // they have seen, so the echo is matched against both the loaded baseline
     // and that pending canonical before anything else decides.
     const draftValues = profileForm.getValues();
-    const savedDraftPayload = buildProfilePayload(
+    const savedDraftPayload = buildProfileSetupPayload(
       latestProfileRef.current,
       draftValues,
     ).payload;
-    const pendingCanonicalPayload = buildProfilePayload(
+    const pendingCanonicalPayload = buildProfileSetupPayload(
       pendingCanonicalProfileRef.current,
       draftValues,
     ).payload;

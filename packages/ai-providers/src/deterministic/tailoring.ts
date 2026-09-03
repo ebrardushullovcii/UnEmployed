@@ -15,10 +15,53 @@ import {
   TailoredResumeDraftSchema,
 } from "../shared";
 import { clampScore, uniqueStrings } from "./utils";
-import { filterGroundedVisibleSkills } from "./resume-skill-grounding";
+import {
+  compactNarrativeToSentences,
+  dropTruncatedVariants,
+  orderSkillsByJobRelevance,
+  splitInlineBulletSummary,
+  stripLeadingBulletGlyphs,
+  summaryDuplicatesBullets,
+} from "./resume-narrative-presentation";
+import {
+  filterCandidateFacingResumeKeywords,
+  filterGroundedVisibleSkills,
+} from "./resume-skill-grounding";
 import { inferSkills } from "./resume-parser-skills";
 import { deriveResumeCoveragePlan } from "./resume-coverage";
 import type { ResumeCoverageClassification } from "../shared";
+
+/**
+ * Purely typographic repair of dotted technology tokens carried out of an
+ * extracted resume, where "ASP.NET Core" often arrives as "ASP .NET Core" and
+ * a comma list arrives as "C#,.NET". A keyword-matching ATS reads those as
+ * different tokens from the SKILLS block, which spells the same technology
+ * canonically.
+ *
+ * This never adds, removes, or reinterprets a claim: it only closes a stray
+ * space before a dotted suffix and opens a missing space after a comma. The
+ * grounding comparison normalizes every non-alphanumeric run to a single
+ * space, so the repaired text stays exactly as supported by saved evidence as
+ * the text it replaces.
+ */
+export function normalizeTechnologyTokenSpacing(value: string): string {
+  return (
+    value
+      // Only exact product names are closed up. A general "word + dotted
+      // suffix" rule would also eat the ordinary space in "Migrated .NET
+      // services", which is a different, correct token.
+      .replace(/\b(ASP|VB)[ \t]+(\.NET)\b/gi, "$1$2")
+      .replace(
+        /\b(Node|Vue|Next|Nuxt|Nest|Ember|Backbone|Three)[ \t]+(\.js)\b/gi,
+        "$1$2",
+      )
+      // A missing space after a comma between two words. The lookahead
+      // excludes digits so thousands separators ("1,000") stay intact.
+      .replace(/([A-Za-z#+)\]]|\d)[ \t]*,[ \t]*(?=[A-Za-z.#+])/g, "$1, ")
+      .replace(/[ \t]{2,}/g, " ")
+      .trim()
+  );
+}
 
 function tokenizeForQuality(value: string | null | undefined): string[] {
   return (value ?? "")
@@ -240,6 +283,13 @@ function formatDateRange(
 }
 
 const QUALITY_OVERLAP_THRESHOLD = 0.72;
+/**
+ * Visible skill budgets. Grounding decides eligibility; these only decide
+ * how many grounded skills the one-page layout shows before the rest are
+ * reported as "not shown".
+ */
+export const VISIBLE_CORE_SKILL_LIMIT = 10;
+export const VISIBLE_ADDITIONAL_SKILL_LIMIT = 14;
 const EXPERIENCE_IMPACT_SIGNAL_PATTERN =
   /\b(?:accelerated|cut|decreased|delivered|eliminated|grew|improved|increased|lowered|optimized|outperformed|raised|reduced|saved|scaled|shortened)\b/i;
 const EXPERIENCE_GENERIC_OPENING_PATTERN =
@@ -348,7 +398,9 @@ function buildExperienceBullets(input: {
   targetTerms?: readonly string[];
   usedBulletSignatures?: Set<string>;
 }): string[] {
-  const canonicalBullets = uniqueStrings(input.experience.achievements);
+  const canonicalBullets = dropTruncatedVariants(
+    input.experience.achievements.map(stripLeadingBulletGlyphs).filter(Boolean),
+  );
   const narrativeBullets = canonicalBullets.filter(
     (bullet) => !looksLikeProjectHeading(bullet),
   );
@@ -419,7 +471,7 @@ function buildExperienceBullets(input: {
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .map(({ bullet }) => bullet);
 
-  for (const bullet of uniqueStrings([
+  for (const bullet of dropTruncatedVariants([
     ...rankedEnrichedBullets,
     ...supportingContextBullets,
   ])) {
@@ -438,7 +490,7 @@ function buildExperienceBullets(input: {
     }
   }
 
-  return selectedBullets;
+  return selectedBullets.map(normalizeTechnologyTokenSpacing);
 }
 
 function shouldExportCoverageClassification(
@@ -447,6 +499,13 @@ function shouldExportCoverageClassification(
   return classification === "detailed" || classification === "compact";
 }
 
+const COMPACT_SUMMARY_BUDGET = 150;
+
+/**
+ * Compacts a role narrative to whole sentences under the budget. A sentence
+ * is never cut mid-clause: the earlier character slice produced fragments
+ * such as "…connecting modern UIs to secure APIs that." in exported PDFs.
+ */
 function compactExperienceSummary(
   value: string | null | undefined,
 ): string | null {
@@ -455,13 +514,39 @@ function compactExperienceSummary(
     return null;
   }
 
-  if (trimmed.length <= 150) {
-    return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+  return compactNarrativeToSentences(trimmed, COMPACT_SUMMARY_BUDGET);
+}
+
+/**
+ * Legacy profiles can carry an inline "● item ● item" list, or a long
+ * paragraph, inside the role summary while the role has no real bullets.
+ * Present that content as bullets with at most one short lead sentence so
+ * neither the deterministic draft nor the PDF prints glyph-laden prose.
+ */
+function presentExperienceNarrative(
+  experience: CandidateProfile["experiences"][number],
+): CandidateProfile["experiences"][number] {
+  const achievements = uniqueStrings(
+    experience.achievements.map(stripLeadingBulletGlyphs).filter(Boolean),
+  );
+  const split = splitInlineBulletSummary(
+    experience.summary,
+    achievements.length,
+  );
+  if (!split) {
+    return achievements.length === experience.achievements.length &&
+      achievements.every(
+        (value, index) => value === experience.achievements[index],
+      )
+      ? experience
+      : { ...experience, achievements };
   }
 
-  const candidate = trimmed.slice(0, 150);
-  const clipped = candidate.replace(/\s+\S*$/, "").trim();
-  return clipped ? `${clipped}.` : null;
+  return {
+    ...experience,
+    summary: split.summary,
+    achievements: uniqueStrings([...achievements, ...split.bullets]),
+  };
 }
 
 function parseChronologyMonth(value: string | null | undefined): number | null {
@@ -692,6 +777,8 @@ export function buildDeterministicResumeText(
   languages: readonly string[] = [],
   headline: string | null = profile.headline,
 ): string {
+  const candidateFacingTargetedKeywords =
+    filterCandidateFacingResumeKeywords(targetedKeywords);
   const formatHeading = (
     parts: readonly (string | null)[],
     right?: string | null,
@@ -775,8 +862,8 @@ export function buildDeterministicResumeText(
           "",
         ]
       : []),
-    targetedKeywords.length > 0
-      ? `Keywords: ${targetedKeywords.join(", ")}`
+    candidateFacingTargetedKeywords.length > 0
+      ? `Keywords: ${candidateFacingTargetedKeywords.join(", ")}`
       : null,
   ]
     .filter((value): value is string =>
@@ -796,28 +883,40 @@ export function buildDeterministicTailoredResume(
         tailoringMode: input.strategy.tailoringStrength,
       }
     : input.searchPreferences;
+  // Job-named skills claim the visible slots first so a grounded, relevant
+  // skill such as Docker or xUnit is not pushed out by profile ordering.
+  const orderedSkillCandidates = orderSkillsByJobRelevance(
+    strategySkillCandidates(input),
+    input.job,
+  );
   const coreSkills = input.strategy
-    ? filterStrategyVisibleSkills(input, strategySkillCandidates(input), 8)
+    ? filterStrategyVisibleSkills(
+        input,
+        orderedSkillCandidates,
+        VISIBLE_CORE_SKILL_LIMIT,
+      )
     : filterGroundedVisibleSkills(
         input.profile,
-        strategySkillCandidates(input),
-        8,
+        orderedSkillCandidates,
+        VISIBLE_CORE_SKILL_LIMIT,
       );
-  const targetedKeywords = input.strategy
-    ? input.strategy.skillsPolicy === "per_job_tailored"
-      ? filterStrategyVisibleSkills(input, input.job.keySkills, 6)
-      : input.strategy.skillsPolicy === "role_family_expanded"
-        ? filterStrategyVisibleSkills(
-            input,
-            [
-              ...input.profile.skillGroups.coreSkills,
-              ...input.profile.skillGroups.tools,
-              ...input.profile.skillGroups.languagesAndFrameworks,
-            ],
-            6,
-          )
-        : []
-    : uniqueStrings(input.job.keySkills).slice(0, 6);
+  const targetedKeywords = filterCandidateFacingResumeKeywords(
+    input.strategy
+      ? input.strategy.skillsPolicy === "per_job_tailored"
+        ? filterStrategyVisibleSkills(input, input.job.keySkills, 6)
+        : input.strategy.skillsPolicy === "role_family_expanded"
+          ? filterStrategyVisibleSkills(
+              input,
+              [
+                ...input.profile.skillGroups.coreSkills,
+                ...input.profile.skillGroups.tools,
+                ...input.profile.skillGroups.languagesAndFrameworks,
+              ],
+              6,
+            )
+          : []
+      : uniqueStrings(input.job.keySkills).slice(0, 6),
+  );
   const additionalSkillCandidates =
     input.strategy?.skillsPolicy === "base_only"
       ? []
@@ -830,16 +929,28 @@ export function buildDeterministicTailoredResume(
             ? input.job.keySkills
             : []),
         ];
+  const orderedAdditionalSkillCandidates = orderSkillsByJobRelevance(
+    additionalSkillCandidates,
+    input.job,
+  );
   const additionalSkills = input.strategy
-    ? filterStrategyVisibleSkills(input, additionalSkillCandidates, 12)
-    : filterGroundedVisibleSkills(input.profile, additionalSkillCandidates, 12)
+    ? filterStrategyVisibleSkills(
+        input,
+        orderedAdditionalSkillCandidates,
+        VISIBLE_ADDITIONAL_SKILL_LIMIT,
+      )
+    : filterGroundedVisibleSkills(
+        input.profile,
+        orderedAdditionalSkillCandidates,
+        VISIBLE_ADDITIONAL_SKILL_LIMIT + VISIBLE_CORE_SKILL_LIMIT,
+      )
         .filter(
           (skill) =>
             !coreSkills.some(
               (coreSkill) => coreSkill.toLowerCase() === skill.toLowerCase(),
             ),
         )
-        .slice(0, 8);
+        .slice(0, VISIBLE_ADDITIONAL_SKILL_LIMIT);
   const languages = uniqueStrings(
     input.profile.spokenLanguages
       .map((entry) =>
@@ -886,10 +997,16 @@ export function buildDeterministicTailoredResume(
     coverageMetadata.map((decision) => [decision.profileRecordId, decision]),
   );
   const usedBulletSignatures = new Set<string>();
+  // The most recent detailed role is the one a recruiter reads first and the
+  // one closest to the target, so it gets the widest budget of its own saved
+  // achievements instead of tying with older roles and rendering as the
+  // thinnest block on the page. Only that role's own evidence is used; no
+  // bullet is invented to fill the extra slot.
+  let hasSeenDetailedRole = false;
   const experienceEntries = [...input.profile.experiences]
     .sort(compareExperienceReverseChronology)
-    .flatMap((experience) => {
-      const coverage = coverageByRecordId.get(experience.id);
+    .flatMap((storedExperience) => {
+      const coverage = coverageByRecordId.get(storedExperience.id);
       if (
         !coverage ||
         !shouldExportStrategyCoverage(coverage.classification, input.strategy)
@@ -897,14 +1014,27 @@ export function buildDeterministicTailoredResume(
         return [];
       }
 
+      const experience = presentExperienceNarrative(storedExperience);
       const isCompact = coverage.classification === "compact";
+      const isLeadDetailedRole = !isCompact && !hasSeenDetailedRole;
+      if (!isCompact) {
+        hasSeenDetailedRole = true;
+      }
       const bullets = buildExperienceBullets({
         experience,
         proofBank: input.profile.proofBank,
-        maxBullets: isCompact ? 1 : 3,
+        maxBullets: isCompact ? 1 : isLeadDetailedRole ? 4 : 3,
         targetTerms,
         usedBulletSignatures,
       });
+      const candidateSummary = isCompact
+        ? compactExperienceSummary(experience.summary)
+        : shouldKeepExperienceSummary({
+              summary: experience.summary,
+              bullets,
+            })
+          ? experience.summary
+          : null;
 
       return [
         {
@@ -915,13 +1045,10 @@ export function buildDeterministicTailoredResume(
             experience.startDate,
             experience.isCurrent ? "Present" : experience.endDate,
           ),
-          summary: isCompact
-            ? compactExperienceSummary(experience.summary)
-            : shouldKeepExperienceSummary({
-                  summary: experience.summary,
-                  bullets,
-                })
-              ? experience.summary
+          summary:
+            candidateSummary &&
+            !summaryDuplicatesBullets(candidateSummary, bullets)
+              ? candidateSummary
               : null,
           bullets,
           profileRecordId: experience.id,
@@ -1062,6 +1189,9 @@ export function composeDeterministicFullText(input: {
 }) {
   const stringifyEntry = (parts: readonly (string | null | undefined)[]) =>
     parts.filter(Boolean).join(" | ");
+  const candidateFacingTargetedKeywords = filterCandidateFacingResumeKeywords(
+    input.targetedKeywords,
+  );
 
   return [
     input.label ?? null,
@@ -1103,8 +1233,8 @@ export function composeDeterministicFullText(input: {
     ...(input.certificationEntries ?? []).map((entry) =>
       stringifyEntry([entry.name, entry.issuer, entry.dateRange]),
     ),
-    input.targetedKeywords.length > 0
-      ? `Targeted keywords: ${input.targetedKeywords.join(", ")}`
+    candidateFacingTargetedKeywords.length > 0
+      ? `Targeted keywords: ${candidateFacingTargetedKeywords.join(", ")}`
       : null,
     ...(input.notes ?? []),
   ]
@@ -1134,16 +1264,21 @@ export function buildDeterministicStructuredResumeDraft(
     ? baseDraft.coreSkills
     : filterGroundedVisibleSkills(
         input.profile,
-        [...(evidence?.skills ?? []), ...baseDraft.coreSkills],
-        8,
+        orderSkillsByJobRelevance(
+          [...(evidence?.skills ?? []), ...baseDraft.coreSkills],
+          input.job,
+        ),
+        VISIBLE_CORE_SKILL_LIMIT,
       );
-  const targetedKeywords = input.strategy
-    ? baseDraft.targetedKeywords
-    : uniqueStrings([
-        ...(evidence?.keywords ?? []),
-        ...researchTerms,
-        ...baseDraft.targetedKeywords,
-      ]).slice(0, 8);
+  const targetedKeywords = filterCandidateFacingResumeKeywords(
+    input.strategy
+      ? baseDraft.targetedKeywords
+      : uniqueStrings([
+          ...(evidence?.keywords ?? []),
+          ...researchTerms,
+          ...baseDraft.targetedKeywords,
+        ]).slice(0, 8),
+  );
   const notes = uniqueStrings([
     ...baseDraft.notes,
     ...(researchTerms.length > 0
@@ -1313,7 +1448,9 @@ export function buildDeterministicResumeAssistantReply(
   }
 
   const content = patches.length
-    ? `Prepared ${patches.length} grounded resume edit${patches.length === 1 ? "" : "s"} for your review.`
+    ? // Grounded-ness is decided by the export gate in Job Finder, not here: the
+      // provider only reports how many edits it proposed.
+      `Prepared ${patches.length} proposed resume edit${patches.length === 1 ? "" : "s"} for your review.`
     : "I could not safely turn that request into a grounded patch, so no changes were applied.";
 
   return ResumeAssistantReplySchema.parse({

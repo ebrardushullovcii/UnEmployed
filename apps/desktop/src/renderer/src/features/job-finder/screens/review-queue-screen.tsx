@@ -1,1 +1,1 @@
-export { ReviewQueueScreen } from './review-queue/review-queue-screen'
+export { ReviewQueueScreen } from "./review-queue/review-queue-screen";

@@ -18,11 +18,17 @@ import type {
   JobFinderApplyRunDetailsQuery,
   JobFinderExactApplicationTarget,
 } from "@unemployed/contracts";
+import { isListableCompanyName } from "@unemployed/contracts";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@renderer/components/ui/button";
 import { LockedScreenLayout } from "../../components/locked-screen-layout";
 import { EmptyState } from "../../components/empty-state";
-import { PageHeaderStack, PageSubnav } from "../../components/page-header";
+import { PageHeaderStack } from "../../components/page-header";
 import { ApplicationsDetailPanel } from "./applications-detail-panel";
+import type {
+  ConfirmFinishedInBrowserStatus,
+  FinishInBrowserInput,
+} from "./applications-detail-panel-recovery-actions-section";
 import {
   APPLICATION_FILTER_LABELS,
   APPLICATION_FILTERS,
@@ -38,7 +44,6 @@ import {
 import { useApplicationsApplyRunDetails } from "./use-applications-apply-run-details";
 import { ApplicationsRecordsPanel } from "./applications-records-panel";
 import { StatusBadge } from "../../components/status-badge";
-import { formatStatusLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
 import {
   ApplicationsCrmViews,
   type ApplicationCrmView,
@@ -71,6 +76,10 @@ export function ApplicationsScreen(props: {
   onExportApplicationPacket: (
     input: JobFinderApplyRunDetailsQuery,
   ) => Promise<void>;
+  onResolveSubmissionOutcome?: (
+    uncertainOutcomeId: string,
+    resolution: "submitted" | "not_submitted",
+  ) => Promise<void>;
   onResolveApplyConsentRequest: (
     input: JobFinderApplyConsentActionInput,
   ) => void;
@@ -100,6 +109,24 @@ export function ApplicationsScreen(props: {
   getOutcomeResumeStrategyId?: (jobId: string) => string | null;
   safeguardsBlockerCount?: number;
   onOpenSafeguards?: () => void;
+  /**
+   * Opens or focuses the managed Job Finder browser on the paused application
+   * so the user can finish a field the site tried to save on its own.
+   */
+  onFinishInBrowser?: (input: FinishInBrowserInput) => void;
+  /**
+   * Confirms the browser-owned step the user was sent out to finish, running
+   * the same verification Needs you runs. The screen that sends the user to
+   * the browser is the screen that takes them back in.
+   */
+  onConfirmFinishedInBrowser?: (input: FinishInBrowserInput) => void;
+  /** True while a pending browser step exists for the visible result. */
+  canConfirmFinishedInBrowser?: boolean;
+  confirmFinishedInBrowserStatus?: ConfirmFinishedInBrowserStatus;
+  confirmFinishedInBrowserBlockerText?: string | null;
+  /** Route-owned tracker mode, so "Open tracker" is a link, not a tab. */
+  workspaceView?: "workflow" | "crm";
+  onWorkspaceViewChange?: (view: "workflow" | "crm") => void;
 }) {
   const {
     applicationAttempts,
@@ -117,6 +144,7 @@ export function ApplicationsScreen(props: {
     onSaveApplicationAnswer,
     onClearApplicationAnswer,
     onExportApplicationPacket,
+    onResolveSubmissionOutcome,
     onResolveApplyConsentRequest,
     onRevokeApplyRunApproval,
     onStartAutoApplyQueue,
@@ -129,9 +157,17 @@ export function ApplicationsScreen(props: {
   } = props;
   const [activeFilter, setActiveFilter] =
     useState<ApplicationsViewFilter>("all");
-  const [workspaceView, setWorkspaceView] = useState<"workflow" | "crm">(
-    "workflow",
-  );
+  // Preparation is the product; the stage tracker is a deferred power surface
+  // reached explicitly, not a peer tab that splits one application into two
+  // competing screens. The route owns the mode so the tracker keeps a link.
+  const [localWorkspaceView, setLocalWorkspaceView] = useState<
+    "workflow" | "crm"
+  >("workflow");
+  const workspaceView = props.workspaceView ?? localWorkspaceView;
+  const setWorkspaceView = (view: "workflow" | "crm") => {
+    setLocalWorkspaceView(view);
+    props.onWorkspaceViewChange?.(view);
+  };
   const [crmView, setCrmView] = useState<ApplicationCrmView>("table");
   const [crmVisibleRecordIds, setCrmVisibleRecordIds] = useState<
     readonly string[] | null
@@ -140,6 +176,23 @@ export function ApplicationsScreen(props: {
     selectedApplyRunIdByApplicationRecordId,
     setSelectedApplyRunIdByApplicationRecordId,
   ] = useState<Record<string, string>>({});
+  const selectRecordAndRevealDetails = useCallback(
+    (recordId: string) => {
+      onSelectRecord(recordId);
+      if (
+        typeof window.matchMedia !== "function" ||
+        window.matchMedia("(min-width: 1280px)").matches
+      ) {
+        return;
+      }
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById("applications-detail-content")
+          ?.scrollIntoView({ block: "start" });
+      });
+    },
+    [onSelectRecord],
+  );
   const handleCrmVisibleRecordIdsChange = useCallback(
     (recordIds: readonly string[]) => {
       setCrmVisibleRecordIds((current) =>
@@ -473,37 +526,42 @@ export function ApplicationsScreen(props: {
       contentClassName="xl:overflow-hidden"
       topContent={
         <>
+          {/* One list, one state per application. The stage tracker — table,
+              board, calendar, saved views, columns, export — is a separate
+              destination reached by name, not a peer tab that renders a CRM
+              beside a single record. */}
           <PageHeaderStack
-            description="Review progress, resolve blockers, and continue applications."
-            subnav={
-              <PageSubnav
-                aria-label="Applications workspace view"
-                className="w-fit gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-1"
-                role="group"
-              >
+            actions={
+              workspaceView === "crm" ? (
                 <Button
-                  aria-controls="applications-workspace-content"
-                  aria-pressed={workspaceView === "workflow"}
+                  data-testid="applications-close-tracker"
                   onClick={() => setWorkspaceView("workflow")}
                   size="sm"
                   type="button"
-                  variant={workspaceView === "workflow" ? "secondary" : "ghost"}
+                  variant="secondary"
                 >
-                  Preparation
+                  <ArrowLeft aria-hidden="true" className="size-4" />
+                  Back to Applications
                 </Button>
+              ) : applicationRecords.length > 0 ? (
                 <Button
-                  aria-controls="applications-workspace-content"
-                  aria-pressed={workspaceView === "crm"}
+                  className="border-(--control-border)"
+                  data-testid="applications-open-tracker"
                   onClick={() => setWorkspaceView("crm")}
                   size="sm"
                   type="button"
-                  variant={workspaceView === "crm" ? "secondary" : "ghost"}
+                  variant="ghost"
                 >
-                  Stages
+                  Open tracker
                 </Button>
-              </PageSubnav>
+              ) : null
             }
-            title="Applications"
+            description={
+              workspaceView === "crm"
+                ? "Stages you record yourself, plus notes, reminders and export. Recording a stage is a local note; it never submits anything."
+                : "Review progress, resolve blockers, and continue applications."
+            }
+            title={workspaceView === "crm" ? "Tracker" : "Applications"}
           />
           {props.safeguardsBlockerCount !== undefined &&
           props.safeguardsBlockerCount > 0 ? (
@@ -514,7 +572,9 @@ export function ApplicationsScreen(props: {
               <p className="min-w-0 text-(length:--text-small) leading-6 text-foreground">
                 {props.safeguardsBlockerCount} active safeguard{" "}
                 {props.safeguardsBlockerCount === 1 ? "blocker" : "blockers"}{" "}
-                are pausing discovery and application preparation.
+                {props.safeguardsBlockerCount === 1 ? "needs" : "need"}{" "}
+                attention. Affected work is paused; job discovery may still be
+                available.
               </p>
               {props.onOpenSafeguards ? (
                 <Button
@@ -528,7 +588,12 @@ export function ApplicationsScreen(props: {
               ) : null}
             </section>
           ) : null}
-          {latestFinishedAutomaticRun ? (
+          {/* The completion banner used to persist as page furniture and
+              re-render on every return from the tracker as if it were a fresh
+              event. It now appears only while it still asks something of the
+              user; once nothing needs attention the same run is history and
+              lives in the record's own run history. */}
+          {latestFinishedAutomaticRun && latestRunAttentionCount > 0 ? (
             <section className="flex flex-wrap items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) px-4 py-3">
               <div className="min-w-0">
                 <p className="label-mono-xs">Latest automatic run</p>
@@ -539,20 +604,10 @@ export function ApplicationsScreen(props: {
                   {latestRunSkippedCount} skipped
                 </p>
               </div>
-              <StatusBadge
-                tone={
-                  latestRunAttentionCount > 0
-                    ? "critical"
-                    : latestFinishedAutomaticRun.state === "completed"
-                      ? "positive"
-                      : "muted"
-                }
-              >
-                {latestRunAttentionCount > 0
-                  ? `${latestRunAttentionCount} unusual ${latestRunAttentionCount === 1 ? "case" : "cases"}`
-                  : latestFinishedAutomaticRun.state === "completed"
-                    ? "No unusual cases"
-                    : formatStatusLabel(latestFinishedAutomaticRun.state)}
+              <StatusBadge tone="critical">
+                {`${latestRunAttentionCount} unusual ${
+                  latestRunAttentionCount === 1 ? "case" : "cases"
+                }`}
               </StatusBadge>
             </section>
           ) : null}
@@ -578,7 +633,7 @@ export function ApplicationsScreen(props: {
       }
     >
       <div
-        className="grid min-h-124 min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,0.95fr)_minmax(30rem,1.45fr)] xl:overflow-hidden"
+        className="grid min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,0.95fr)_minmax(30rem,1.45fr)] xl:items-start xl:overflow-hidden"
         id="applications-workspace-content"
       >
         {workspaceView === "crm" ? (
@@ -614,6 +669,7 @@ export function ApplicationsScreen(props: {
             onViewChange={setCrmView}
             onVisibleRecordIdsChange={handleCrmVisibleRecordIdsChange}
             records={applicationRecords}
+            discoveryJobs={discoveryJobs}
             selectedRecordId={effectiveSelectedRecord?.id ?? null}
             view={crmView}
           />
@@ -624,8 +680,9 @@ export function ApplicationsScreen(props: {
             filterCounts={filterCounts}
             hasAnyApplications={applicationRecords.length > 0}
             onFilterChange={setActiveFilter}
-            onSelectRecord={onSelectRecord}
+            onSelectRecord={selectRecordAndRevealDetails}
             selectedRecord={effectiveSelectedRecord}
+            discoveryJobs={discoveryJobs}
           />
         )}
         {workspaceView === "crm" ? (
@@ -657,6 +714,11 @@ export function ApplicationsScreen(props: {
                 }
                 outcomeCampaignId={props.outcomeCampaignId ?? null}
                 record={effectiveSelectedRecord}
+                relatedJobCanonicalUrl={
+                  discoveryJobs.find(
+                    (job) => job.id === effectiveSelectedRecord.jobId,
+                  )?.canonicalUrl ?? null
+                }
                 settings={props.crmSettings}
               />
             </div>
@@ -669,7 +731,7 @@ export function ApplicationsScreen(props: {
             </div>
           )
         ) : shouldPreserveHiddenSelection ? (
-          <section className="surface-panel-shell relative flex min-h-124 min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-5 xl:h-full xl:min-h-0">
+          <section className="surface-panel-shell relative flex min-w-0 flex-col gap-6 overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) px-8 py-5 xl:h-full xl:min-h-0">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="grid gap-1">
                 <p className="label-mono-xs">Details</p>
@@ -711,14 +773,19 @@ export function ApplicationsScreen(props: {
               : {})}
             selectedRecordCompanyId={
               effectiveSelectedRecord
-                ? ((props.companies ?? []).find((company) =>
-                    company.applicationRecordIds.includes(
-                      effectiveSelectedRecord.id,
-                    ),
+                ? ((props.companies ?? []).find(
+                    (company) =>
+                      isListableCompanyName(company.canonicalName) &&
+                      company.applicationRecordIds.includes(
+                        effectiveSelectedRecord.id,
+                      ),
                   )?.id ?? null)
                 : null
             }
             onExportApplicationPacket={onExportApplicationPacket}
+            {...(onResolveSubmissionOutcome
+              ? { onResolveSubmissionOutcome }
+              : {})}
             onSaveApplicationAnswer={async (command) => {
               replaceApplyRunDetails(await onSaveApplicationAnswer(command));
             }}
@@ -731,6 +798,26 @@ export function ApplicationsScreen(props: {
             onSelectApplyRun={handleSelectApplyRun}
             onStartApplyCopilot={onStartApplyCopilot}
             onStartAutoApply={onStartAutoApply}
+            {...(props.onOpenSafeguards
+              ? { onOpenSafeguards: props.onOpenSafeguards }
+              : {})}
+            canConfirmFinishedInBrowser={
+              props.canConfirmFinishedInBrowser ?? false
+            }
+            confirmFinishedInBrowserStatus={
+              props.confirmFinishedInBrowserStatus ?? "idle"
+            }
+            confirmFinishedInBrowserBlockerText={
+              props.confirmFinishedInBrowserBlockerText ?? null
+            }
+            {...(props.onConfirmFinishedInBrowser
+              ? {
+                  onConfirmFinishedInBrowser: props.onConfirmFinishedInBrowser,
+                }
+              : {})}
+            {...(props.onFinishInBrowser
+              ? { onFinishInBrowser: props.onFinishInBrowser }
+              : {})}
             selectedApplyRunId={effectiveSelectedApplyRunId}
             selectedAttempt={
               showLatestAttemptDetails ? effectiveSelectedAttempt : null

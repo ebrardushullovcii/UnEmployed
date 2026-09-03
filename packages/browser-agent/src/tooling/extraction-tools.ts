@@ -45,6 +45,7 @@ interface SearchResultCardCandidate {
   headingText: string | null;
   lines: string[];
   companyText?: string | null;
+  companyHref?: string | null;
   locationText?: string | null;
   sourceJobIdHint?: string | null;
   captureMeta?: SearchResultCardCaptureMeta | null;
@@ -128,6 +129,7 @@ const RawSearchResultCardCandidateSchema = z.object({
   headingText: z.string().nullable(),
   lines: z.array(z.string()),
   companyText: z.string().optional().nullable(),
+  companyHref: z.string().optional().nullable(),
   locationText: z.string().optional().nullable(),
   sourceJobIdHint: z.string().optional().nullable(),
   captureMeta: CardCaptureMetaSchema.optional().nullable(),
@@ -452,6 +454,8 @@ function mergeRawCardCandidate(
     lines: uniqueCardStrings([...current.lines, ...next.lines]).slice(0, 12),
     companyText:
       selectLongerCardText(current.companyText, next.companyText) ?? null,
+    companyHref:
+      selectLongerCardText(current.companyHref, next.companyHref) ?? null,
     locationText:
       selectLongerCardText(current.locationText, next.locationText) ?? null,
     ...(sourceJobIdHint !== undefined ? { sourceJobIdHint } : {}),
@@ -1386,9 +1390,120 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   );
                   return value && value.length <= 120 ? value : null;
                 };
-                const companyText = readScopedCardText(
+                const companyTextFromScoped = readScopedCardText(
                   '[data-company], [itemprop="hiringOrganization"], .job-card-container__primary-description, .artdeco-entity-lockup__subtitle, [class*="company-name"], [class*="employer-name"]',
                 );
+                const EMPLOYER_PROFILE_PATH_MARKERS = new Set([
+                  "company",
+                  "employer",
+                ]);
+                const isCompanyProfileAnchor = (
+                  descendantAnchor: HTMLAnchorElement,
+                ): boolean => {
+                  const parsedHref = parseAbsoluteUrl(
+                    descendantAnchor.getAttribute("href"),
+                  );
+                  if (!parsedHref) {
+                    return false;
+                  }
+                  try {
+                    const segments = new URL(parsedHref).pathname
+                      .split("/")
+                      .map((segment) => segment.trim())
+                      .filter(Boolean);
+                    const profileIndex = segments.findIndex((segment) =>
+                      EMPLOYER_PROFILE_PATH_MARKERS.has(segment.toLowerCase()),
+                    );
+                    return (
+                      profileIndex >= 0 &&
+                      Boolean(segments[profileIndex + 1]) &&
+                      !/^(jobs|job|careers|career|search|apply)$/i.test(
+                        segments[profileIndex + 1] ?? "",
+                      )
+                    );
+                  } catch {
+                    return false;
+                  }
+                };
+                // Boards that nest multiple jobs under one employer card often
+                // place several job titles under a single employer container.
+                // Accept an ancestor only when it scopes exactly one employer
+                // profile (multi-job same-employer OK; results-list with many
+                // employers is not).
+                const findUniqueCompanyProfileAnchor = (
+                  root: Element,
+                ): HTMLAnchorElement | null => {
+                  const anchors = Array.from(
+                    root.querySelectorAll<HTMLAnchorElement>("a[href]"),
+                  ).filter(isCompanyProfileAnchor);
+                  const seenSlugs = new Set<string>();
+                  let unique: HTMLAnchorElement | null = null;
+                  for (const anchor of anchors) {
+                    const parsedHref = parseAbsoluteUrl(
+                      anchor.getAttribute("href"),
+                    );
+                    if (!parsedHref) {
+                      continue;
+                    }
+                    try {
+                      const segments = new URL(parsedHref).pathname
+                        .split("/")
+                        .map((segment) => segment.trim())
+                        .filter(Boolean);
+                      const profileIndex = segments.findIndex((segment) =>
+                        EMPLOYER_PROFILE_PATH_MARKERS.has(
+                          segment.toLowerCase(),
+                        ),
+                      );
+                      const slug =
+                        profileIndex >= 0
+                          ? (segments[profileIndex + 1] ?? "").toLowerCase()
+                          : "";
+                      if (!slug || seenSlugs.has(slug)) {
+                        continue;
+                      }
+                      seenSlugs.add(slug);
+                      if (seenSlugs.size > 1) {
+                        return null;
+                      }
+                      unique = anchor;
+                    } catch {
+                      // Ignore malformed employer profile hrefs.
+                    }
+                  }
+                  return unique;
+                };
+                let companyAnchor = findUniqueCompanyProfileAnchor(element);
+                if (!companyAnchor) {
+                  let ancestor: Element | null = element.parentElement;
+                  for (let depth = 0; depth < 8 && ancestor; depth += 1) {
+                    companyAnchor = findUniqueCompanyProfileAnchor(ancestor);
+                    if (companyAnchor) {
+                      break;
+                    }
+                    ancestor = ancestor.parentElement;
+                  }
+                }
+                const companyHrefParsed = companyAnchor
+                  ? parseAbsoluteUrl(companyAnchor.getAttribute("href"))
+                  : null;
+                const companyHref = companyHrefParsed
+                  ? companyHrefParsed.toString()
+                  : null;
+                const companyLinkText = toText(
+                  companyAnchor?.innerText ??
+                    companyAnchor?.textContent ??
+                    null,
+                );
+                const companyText =
+                  companyTextFromScoped ||
+                  (companyLinkText &&
+                  companyLinkText.length <= 120 &&
+                  !/^(view|see|about|company|profile|jobs?|careers?)\b/i.test(
+                    companyLinkText,
+                  )
+                    ? companyLinkText
+                    : null);
                 const locationText = readScopedCardText(
                   '[data-location], [itemprop="jobLocation"], .job-card-container__metadata-item, .artdeco-entity-lockup__caption, [class*="job-location"], [class*="location-name"]',
                 );
@@ -1462,6 +1577,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   headingText,
                   lines,
                   companyText,
+                  companyHref,
                   locationText,
                   sourceJobIdHint,
                   captureMeta: {

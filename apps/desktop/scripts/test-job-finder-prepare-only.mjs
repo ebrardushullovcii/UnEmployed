@@ -86,20 +86,6 @@ const resumeApplicationMode =
   process.env.JOB_FINDER_PREPARE_ONLY_RESUME_MODE === "original_resume"
     ? "original_resume"
     : "tailored_per_job";
-let acceptanceInput = null;
-let acceptanceInputError = null;
-try {
-  acceptanceInput = resolveAcceptanceInput(process.env);
-} catch (error) {
-  // Surfaced during the bind phase so a partial environment fails the run
-  // loudly instead of silently degrading to unbound diagnostic mode.
-  acceptanceInputError = error;
-}
-// Bound runs launch the sealed accepted app; unbound strict/diagnostic runs
-// keep launching the worktree output. The flag also forces intermediate ATS
-// writes off in bound mode regardless of ambient diagnostic variables.
-const boundSealedMode = acceptanceInput !== null;
-
 class SmokeBlocker extends Error {
   constructor(stage, message, cause) {
     super(message, cause ? { cause } : undefined);
@@ -151,7 +137,8 @@ function truncateForDiagnostic(value) {
   return text.length > 80 ? `${text.slice(0, 77)}...` : text;
 }
 
-const HOSTNAME_LABEL_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/u;
+const HOSTNAME_LABEL_PATTERN =
+  /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/u;
 const SAFE_PATH_SEGMENT_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{0,127})?$/u;
 
 // Workday host must be a bare hostname: no scheme, userinfo, port, path,
@@ -326,6 +313,25 @@ export function resolveAcceptanceInput(env = process.env) {
     expectedSealSha256: values.JOB_FINDER_ACCEPTANCE_EXPECTED_SEAL_SHA256,
   };
 }
+
+// Capture ambient binding intent only after every lexical dependency used by
+// resolveAcceptanceInput has initialized. Bound wrappers import this module a
+// second time without the no-launch query, so evaluating the capture above the
+// constants/classes would turn a valid sealed run into a temporal-dead-zone
+// blocker before Electron starts.
+let acceptanceInput = null;
+let acceptanceInputError = null;
+try {
+  acceptanceInput = resolveAcceptanceInput(process.env);
+} catch (error) {
+  // Surfaced during the bind phase so a partial environment fails the run
+  // loudly instead of silently degrading to unbound diagnostic mode.
+  acceptanceInputError = error;
+}
+// Bound runs launch the sealed accepted app; unbound strict/diagnostic runs
+// keep launching the worktree output. The flag also forces intermediate ATS
+// writes off in bound mode regardless of ambient diagnostic variables.
+const boundSealedMode = acceptanceInput !== null;
 
 function restoreEnv(name, value) {
   if (value === undefined) {
@@ -1296,9 +1302,13 @@ export function collectStrictAcceptanceViolations({
       );
     }
   }
+  const truthfulWriteGuardHandoff =
+    report?.outcome === "passed_safe_blocker_without_submit" &&
+    isIntermediateWriteGuardHandoff(report?.application);
   if (
     expectedBlockerCode &&
-    report?.outcome !== "passed_expected_human_handoff_without_submit"
+    report?.outcome !== "passed_expected_human_handoff_without_submit" &&
+    !truthfulWriteGuardHandoff
   ) {
     problems.push(
       `acceptance required blocker '${expectedBlockerCode}', but the run ended as '${report?.outcome}' with '${report?.application?.blocker?.code ?? "no blocker"}'`,
@@ -1754,21 +1764,27 @@ async function runPrepareOnlySmoke() {
       );
     }
 
-    latestWorkspace = await runPhase("fast_configured_source_discovery", () =>
-      withTimeout(
-        page.evaluate(
-          (targetId) =>
-            window.unemployed.jobFinder.runAgentDiscovery(undefined, targetId),
-          target.id,
-        ),
-        discoveryTimeoutMs,
-        `${target.label} fast discovery`,
-        () =>
-          page.evaluate(() =>
-            window.unemployed.jobFinder.cancelAgentDiscovery(),
+    const discoveryResult = await runPhase(
+      "fast_configured_source_discovery",
+      () =>
+        withTimeout(
+          page.evaluate(
+            (targetId) =>
+              window.unemployed.jobFinder.runAgentDiscovery(
+                undefined,
+                targetId,
+              ),
+            target.id,
           ),
-      ),
+          discoveryTimeoutMs,
+          `${target.label} fast discovery`,
+          () =>
+            page.evaluate(() =>
+              window.unemployed.jobFinder.cancelAgentDiscovery(),
+            ),
+        ),
     );
+    latestWorkspace = discoveryResult.snapshot;
     report.discovery = buildDiscoverySummary(latestWorkspace);
     selectedJob = selectTargetJob(latestWorkspace.discoveryJobs ?? []);
 
@@ -1911,7 +1927,8 @@ async function runPrepareOnlySmoke() {
       withTimeout(
         page.evaluate(
           (jobId) =>
-            window.unemployed.jobFinder.startApplyCopilotRun(jobId, {
+            window.unemployed.jobFinder.startApplyCopilotRun({
+              jobId,
               visualCheckpointsEnabled: false,
             }),
           selectedJob.id,

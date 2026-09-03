@@ -98,7 +98,40 @@ export function getClearMismatchPenalty(job: SavedJob): number {
 }
 
 /**
- * Tie-breaks applied after the clear-mismatch penalty and fit score:
+ * A fit score is authoritative only when it is bound to both the candidate
+ * context and the posting it describes. Catalog-seeded rows are always
+ * provisional: they are offline fixtures/catalog output and must not be
+ * promoted as current source-backed matches, even when an older fixture has
+ * fingerprints attached.
+ *
+ * The runtime guard for `discoveryMethod` keeps older renderer fixtures that
+ * were cast to `SavedJob` without the field from changing their historical
+ * ordering while real schema-validated rows remain covered.
+ */
+export function isProvisionalMatchAssessment(
+  job: Pick<SavedJob, "discoveryMethod" | "matchAssessment">,
+): boolean {
+  if (job.discoveryMethod === "catalog_seed") {
+    return true;
+  }
+
+  if (typeof job.discoveryMethod !== "string") {
+    return false;
+  }
+
+  const contextFingerprint = job.matchAssessment.contextFingerprint;
+  const postingFingerprint = job.matchAssessment.postingFingerprint;
+  return !(
+    typeof contextFingerprint === "string" &&
+    contextFingerprint.trim().length > 0 &&
+    typeof postingFingerprint === "string" &&
+    postingFingerprint.trim().length > 0
+  );
+}
+
+/**
+ * Tie-breaks applied after the clear-mismatch penalty, assessment confidence,
+ * and (for authoritative assessments) fit score:
  * detail-enriched listings first, then newest listing timestamp (postedAt,
  * then firstSeenAt, then discoveredAt; undated last), then title, company,
  * and id as the stable terminal key.
@@ -137,11 +170,13 @@ export function compareDiscoveryFitTieBreaks(
  * ends in the job id, so the sequence is a pure function of the candidate set:
  *
  * 1. clear mismatches (`recommendation: "skip"`) sink below reviewable jobs;
- * 2. higher fit score wins — no dimension or recommendation label may invert it;
- * 3. detail-enriched listings outrank card-only listings;
- * 4. newer listings (postedAt, then firstSeenAt, then discoveredAt; undated
+ * 2. authoritative assessments outrank provisional/unbound assessments;
+ * 3. higher authoritative fit score wins — provisional scores never promote a
+ *    row as the Best match;
+ * 4. detail-enriched listings outrank card-only listings;
+ * 5. newer listings (postedAt, then firstSeenAt, then discoveredAt; undated
  *    last) outrank older ones;
- * 5. title, then company, then id keep ties stable.
+ * 6. title, then company, then id keep ties stable.
  */
 export function compareDiscoveryJobs(left: SavedJob, right: SavedJob): number {
   const mismatchDelta =
@@ -150,9 +185,18 @@ export function compareDiscoveryJobs(left: SavedJob, right: SavedJob): number {
     return mismatchDelta;
   }
 
-  const scoreDelta = right.matchAssessment.score - left.matchAssessment.score;
-  if (scoreDelta !== 0) {
-    return scoreDelta;
+  const leftProvisional = isProvisionalMatchAssessment(left);
+  const rightProvisional = isProvisionalMatchAssessment(right);
+  const confidenceDelta = Number(leftProvisional) - Number(rightProvisional);
+  if (confidenceDelta !== 0) {
+    return confidenceDelta;
+  }
+
+  if (!leftProvisional) {
+    const scoreDelta = right.matchAssessment.score - left.matchAssessment.score;
+    if (scoreDelta !== 0) {
+      return scoreDelta;
+    }
   }
 
   return compareDiscoveryFitTieBreaks(left, right);

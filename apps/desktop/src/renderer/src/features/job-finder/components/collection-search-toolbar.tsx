@@ -22,6 +22,21 @@ import type {
 export type CollectionDensity = "compact" | "comfortable" | "detailed";
 
 /**
+ * One label per density for both the visible text and the accessible name,
+ * so what a screen reader announces is exactly what the button shows.
+ */
+export function getCollectionDensityLabel(density: CollectionDensity): string {
+  switch (density) {
+    case "compact":
+      return "Compact";
+    case "comfortable":
+      return "Comfortable";
+    case "detailed":
+      return "Detailed";
+  }
+}
+
+/**
  * Search fields must never slice their hint mid-word at narrow widths.
  * Chromium ignores `text-overflow` on `::placeholder` itself (the
  * pseudo-element only accepts a limited property subset), so the ellipsis
@@ -75,6 +90,11 @@ export function CollectionSearchToolbar(props: {
   className?: string;
   compact?: boolean;
   density?: CollectionDensity;
+  /**
+   * The density options this collection actually offers. Defaults to all
+   * three; a list whose rows only have two useful shapes offers two.
+   */
+  densities?: readonly CollectionDensity[];
   hideCompactCount?: boolean;
   label: string;
   onDensityChange?: (density: CollectionDensity) => void;
@@ -87,6 +107,8 @@ export function CollectionSearchToolbar(props: {
   visibleCount: number;
 }) {
   const inputId = useId();
+  const densities =
+    props.densities ?? (["compact", "comfortable", "detailed"] as const);
   const showingSubset = props.visibleCount !== props.totalCount;
   const countLabel = showingSubset
     ? `${props.visibleCount} of ${props.totalCount} results`
@@ -100,7 +122,7 @@ export function CollectionSearchToolbar(props: {
     return (
       <div
         className={cn(
-          "relative z-20 flex min-w-0 flex-wrap items-center gap-2 border-b border-(--surface-panel-border) px-4 py-2.5",
+          "relative z-20 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-(--surface-panel-border) px-4 py-2.5",
           topSeam,
           props.className,
         )}
@@ -124,29 +146,23 @@ export function CollectionSearchToolbar(props: {
             className="flex shrink-0 items-center overflow-hidden rounded-(--radius-button) border border-(--surface-panel-border)"
             role="group"
           >
-            {(["compact", "comfortable", "detailed"] as const).map(
-              (density) => (
-                <Button
-                  aria-label={density[0]?.toUpperCase() + density.slice(1)}
-                  aria-pressed={props.density === density}
-                  className="rounded-none border-0 px-2.5 text-xs"
-                  key={density}
-                  onClick={() => props.onDensityChange?.(density)}
-                  size="sm"
-                  type="button"
-                  variant={props.density === density ? "secondary" : "ghost"}
-                >
-                  {density === "comfortable"
-                    ? "Comfort"
-                    : density === "detailed"
-                      ? "Detail"
-                      : "Compact"}
-                </Button>
-              ),
-            )}
+            {densities.map((density) => (
+              <Button
+                aria-label={getCollectionDensityLabel(density)}
+                aria-pressed={props.density === density}
+                className="rounded-none border-0 px-2.5 text-xs"
+                key={density}
+                onClick={() => props.onDensityChange?.(density)}
+                size="sm"
+                type="button"
+                variant={props.density === density ? "secondary" : "ghost"}
+              >
+                {getCollectionDensityLabel(density)}
+              </Button>
+            ))}
           </div>
         ) : null}
-        <div className="flex min-w-0 shrink-0 items-center gap-1">
+        <div className="flex min-w-0 max-w-full shrink-0 flex-wrap items-center gap-1">
           {!props.hideCompactCount ? (
             <span
               aria-atomic="true"
@@ -219,21 +235,19 @@ export function CollectionSearchToolbar(props: {
         </div>
         {!props.compact && props.density && props.onDensityChange ? (
           <div aria-label="List density" className="flex gap-1" role="group">
-            {(["compact", "comfortable", "detailed"] as const).map(
-              (density) => (
-                <Button
-                  aria-pressed={props.density === density}
-                  key={density}
-                  onClick={() => props.onDensityChange?.(density)}
-                  size="sm"
-                  type="button"
-                  variant={props.density === density ? "secondary" : "ghost"}
-                >
-                  {density[0]?.toUpperCase()}
-                  {density.slice(1)}
-                </Button>
-              ),
-            )}
+            {densities.map((density) => (
+              <Button
+                aria-pressed={props.density === density}
+                key={density}
+                onClick={() => props.onDensityChange?.(density)}
+                size="sm"
+                type="button"
+                variant={props.density === density ? "secondary" : "ghost"}
+              >
+                {density[0]?.toUpperCase()}
+                {density.slice(1)}
+              </Button>
+            ))}
           </div>
         ) : null}
         {!props.compact ? props.viewActions : null}
@@ -247,28 +261,20 @@ export function CollectionSearchToolbar(props: {
                 className="flex gap-1"
                 role="group"
               >
-                {(["compact", "comfortable", "detailed"] as const).map(
-                  (density) => (
-                    <Button
-                      aria-label={density[0]?.toUpperCase() + density.slice(1)}
-                      aria-pressed={props.density === density}
-                      className="px-2 text-xs"
-                      key={density}
-                      onClick={() => props.onDensityChange?.(density)}
-                      size="sm"
-                      type="button"
-                      variant={
-                        props.density === density ? "secondary" : "ghost"
-                      }
-                    >
-                      {density === "comfortable"
-                        ? "Comfort"
-                        : density === "detailed"
-                          ? "Detail"
-                          : "Compact"}
-                    </Button>
-                  ),
-                )}
+                {densities.map((density) => (
+                  <Button
+                    aria-label={getCollectionDensityLabel(density)}
+                    aria-pressed={props.density === density}
+                    className="px-2 text-xs"
+                    key={density}
+                    onClick={() => props.onDensityChange?.(density)}
+                    size="sm"
+                    type="button"
+                    variant={props.density === density ? "secondary" : "ghost"}
+                  >
+                    {getCollectionDensityLabel(density)}
+                  </Button>
+                ))}
               </div>
             ) : null}
             {props.viewActions}
@@ -421,7 +427,9 @@ export function CollectionSavedViews(props: {
       <button
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        className="flex h-8 cursor-pointer items-center whitespace-nowrap rounded-(--radius-button) px-2 text-xs text-foreground-soft hover:bg-secondary"
+        // Bordered like the controls beside it: unstyled grey text among real
+        // controls reads as a caption, not something you can press.
+        className="flex h-8 cursor-pointer items-center whitespace-nowrap rounded-(--radius-button) border border-(--border-strong) px-2.5 text-xs text-foreground-soft hover:bg-secondary hover:text-foreground"
         onClick={() => setIsOpen((open) => !open)}
         ref={anchorRef}
         type="button"

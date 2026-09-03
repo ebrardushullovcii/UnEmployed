@@ -1,3 +1,9 @@
+import {
+  getResumeEntryBulletTargetId,
+  getResumeEntryFieldTargetId,
+  getResumeSectionBulletTargetId,
+  getResumeSectionTextTargetId,
+} from "@unemployed/contracts";
 import type {
   ResumeClaimAssessment,
   ResumeClaimAssessmentStatus,
@@ -92,9 +98,8 @@ export function findResumeClaimLocatorTarget(
   locator: ResumeClaimLocator,
 ): ResolvedProposalPatchTarget {
   const section =
-    draft.sections.find(
-      (candidate) => candidate.id === locator.sectionId,
-    ) ?? null;
+    draft.sections.find((candidate) => candidate.id === locator.sectionId) ??
+    null;
   const entry =
     section?.entries.find((candidate) => candidate.id === locator.entryId) ??
     null;
@@ -122,6 +127,48 @@ export function findProposalPatchTarget(
   });
 }
 
+/**
+ * The exact editor field a proposed change lands on, so "Edit this wording
+ * myself" can open that field instead of leaving the user to find it. Returns
+ * `null` for structural operations (ordering, include/lock) that have no single
+ * text field to edit.
+ */
+export function getProposalPatchEditorTargetId(
+  patch: ResumeDraftPatch,
+): string | null {
+  switch (patch.operation) {
+    case "replace_section_text":
+      return getResumeSectionTextTargetId(patch.targetSectionId);
+    case "replace_entry_summary":
+      return patch.targetEntryId
+        ? getResumeEntryFieldTargetId(
+            patch.targetSectionId,
+            patch.targetEntryId,
+            "summary",
+          )
+        : null;
+    case "insert_bullet":
+    case "update_bullet":
+    case "remove_bullet":
+      if (!patch.targetBulletId) {
+        return null;
+      }
+
+      return patch.targetEntryId
+        ? getResumeEntryBulletTargetId(
+            patch.targetSectionId,
+            patch.targetEntryId,
+            patch.targetBulletId,
+          )
+        : getResumeSectionBulletTargetId(
+            patch.targetSectionId,
+            patch.targetBulletId,
+          );
+    default:
+      return null;
+  }
+}
+
 function humanizeFallbackLabel(value: string): string {
   return value
     .replaceAll("_", " ")
@@ -129,7 +176,9 @@ function humanizeFallbackLabel(value: string): string {
 }
 
 function formatEntryLabel(entry: ResumeDraftEntry): string {
-  return entry.title ?? entry.subtitle ?? humanizeFallbackLabel(entry.entryType);
+  return (
+    entry.title ?? entry.subtitle ?? humanizeFallbackLabel(entry.entryType)
+  );
 }
 
 export function formatProposalTargetLabel(input: {

@@ -1,3 +1,7 @@
+import {
+  CONFIRM_STEP_DONE_ACTION,
+  JOB_FINDER_BROWSER_NAME,
+} from "@renderer/features/job-finder/lib/job-finder-browser-handoff-copy";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type {
   ApplicationCrmBulkStageMutationInput,
@@ -49,9 +53,7 @@ type BuildJobFinderPageContextArgs = {
   activeRouteResumeAssistantPending: boolean;
   activeRouteResumeWorkspace: JobFinderResumeWorkspace | null;
   canImportResume: boolean;
-  confirmLeaveDirtyResumeWorkspace: (
-    pendingAction: string,
-  ) => Promise<boolean>;
+  confirmLeaveDirtyResumeWorkspace: (pendingAction: string) => Promise<boolean>;
   importResumeGuardMessage: string | null;
   isAnyPendingAction: (scopes: readonly PendingActionScope[]) => boolean;
   isPendingAction: (scope: PendingActionScope) => boolean;
@@ -75,6 +77,10 @@ type BuildJobFinderPageContextArgs = {
   profileCopilotRequestTokenRef: MutableRefObject<number>;
   requestApplyCopilotVisualCheckpoints: (request: {
     jobId: string;
+    /** Identity of the exact application the prepare dialog is asking about. */
+    subject: string | null;
+    /** Honest statement of what preparation will do, prepare-only boundary included. */
+    description: string;
     onResolve: (visualCheckpointsEnabled: boolean) => void;
   }) => void;
   profileSetupState: ProfileSetupState | null;
@@ -116,6 +122,7 @@ type BuildJobFinderPageContextArgs = {
   onSettingsDraftEdited: () => void;
   /** Notifies the save coordinator that a profile/setup draft was edited. */
   onProfileSurfaceDraftEdited: () => void;
+  onCancelImportResume: () => void;
   /** Notifies the save coordinator that a Resume Studio draft was edited. */
   onResumeWorkspaceDraftEdited: () => void;
   setSelectedApplicationRecordId: (recordId: string) => void;
@@ -185,6 +192,7 @@ export function buildJobFinderPageContext(
     setResumeWorkspaceDirty,
     onSettingsDraftEdited,
     onProfileSurfaceDraftEdited,
+    onCancelImportResume,
     onResumeWorkspaceDraftEdited,
     setSelectedApplicationRecordId,
     setSelectedDiscoveryJobId,
@@ -264,6 +272,7 @@ export function buildJobFinderPageContext(
     ...primaryActions,
     onProfileSurfaceDirtyChange: setProfileSurfaceDirty,
     onProfileSurfaceDraftEdited,
+    onCancelImportResume,
     onSettingsDraftEdited,
     onNavigateSafely: navigateSafely,
     profileCopilotPendingContextKey,
@@ -320,6 +329,28 @@ export function buildJobFinderPageContext(
           result.status === "saved"
             ? "Application packet saved."
             : "Application packet export cancelled.",
+      );
+    },
+    onResolveSubmissionOutcome: async (uncertainOutcomeId, resolution) => {
+      await runAction(
+        async () => {
+          const result = await actions.resolveSubmissionOutcome({
+            uncertainOutcomeId,
+            resolution,
+            confirmedOnEmployerSite: true,
+          });
+          if (result.status !== "recorded" && result.status !== "duplicate") {
+            throw new Error(
+              "The submission record changed before verification could be saved.",
+            );
+          }
+          await actions.refreshWorkspace();
+          return result;
+        },
+        () => undefined,
+        resolution === "submitted"
+          ? "Employer-site verification saved: submitted."
+          : "Employer-site verification saved: not submitted.",
       );
     },
     onExportApplicationCrm: async (format, recordId) => {
@@ -425,8 +456,8 @@ export function buildJobFinderPageContext(
         () => actions.mutateRapidReview(input),
         () => undefined,
         input.type === "decide"
-          ? "Rapid review decision saved."
-          : "Rapid review decision undone.",
+          ? "Quick review decision saved."
+          : "Quick review decision undone.",
         { scope: jobFinderPendingActions.rapidReview() },
       );
       if (!completed) {
@@ -479,9 +510,21 @@ export function buildJobFinderPageContext(
       void runAction(
         () => actions.performUserAction(command),
         () => undefined,
+        // "Action inbox" is not a destination this app has — the page is
+        // called Needs you — and the opened-page case has a destination the
+        // user actually needs to be told about.
+        //
+        // `confirm_done` deliberately raises NO banner. The check reports
+        // itself in place, beside the control that started it (checking ->
+        // done / not done yet). A "Verification started…" banner outlived the
+        // result it announced, so the top of the screen claimed the check was
+        // still running while the body already showed it had finished and
+        // failed.
         command.action === "confirm_done"
-          ? "Verification started. Job Finder will only continue after the browser state is checked."
-          : "Action inbox updated.",
+          ? null
+          : command.action === "open_page"
+            ? `Opened this application in ${JOB_FINDER_BROWSER_NAME}, a separate window outside this app. Finish the step there, then come back and choose "${CONFIRM_STEP_DONE_ACTION}".`
+            : "Saved. Needs you is up to date.",
         { scope: jobFinderPendingActions.userAction(command.requestId) },
       ),
     onPreviewResumeDraft: actions.previewResumeDraft,
@@ -533,7 +576,9 @@ export function buildJobFinderPageContext(
       runAction(
         () => actions.saveCampaignRule(campaignId, rule),
         () => undefined,
-        rule.id === null ? "Search plan rule added." : "Search plan rule updated.",
+        rule.id === null
+          ? "Search plan rule added."
+          : "Search plan rule updated.",
         { scope: jobFinderPendingActions.campaignRule(campaignId, rule.id) },
       ),
     onDeleteCampaignRule: (campaignId: string, ruleId: string) =>
@@ -551,9 +596,7 @@ export function buildJobFinderPageContext(
       runAction(
         () => actions.toggleCampaignRule(campaignId, ruleId, enabled),
         () => undefined,
-        enabled
-          ? "Search plan rule enabled."
-          : "Search plan rule disabled.",
+        enabled ? "Search plan rule enabled." : "Search plan rule disabled.",
         { scope: jobFinderPendingActions.campaignRule(campaignId, ruleId) },
       ),
     onProjectCampaignRuleFunnel: (
@@ -606,14 +649,15 @@ export function buildJobFinderPageContext(
     onResumeWorkspaceDraftEdited,
     onSelectApplicationRecord: setSelectedApplicationRecordId,
     onSelectCampaign: (campaignId: string) =>
-      confirmLeaveDirtyResumeWorkspace("switch search plans").then((mayLeave) =>
-        mayLeave
-          ? runAction(
-              () => actions.selectCampaign(campaignId),
-              () => undefined,
-              "Active search plan updated.",
-            )
-          : false,
+      confirmLeaveDirtyResumeWorkspace("switch search plans").then(
+        (mayLeave) =>
+          mayLeave
+            ? runAction(
+                () => actions.selectCampaign(campaignId),
+                () => undefined,
+                "Active search plan updated.",
+              )
+            : false,
       ),
     onSelectDiscoveryJob: setSelectedDiscoveryJobId,
     onSelectReviewItem: setSelectedReviewJobId,

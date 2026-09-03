@@ -157,6 +157,26 @@ function normalizedComparableText(value: string): string {
     .trim();
 }
 
+function findStrictPrefixCanonical(
+  generated: string,
+  canonicalCandidates: readonly string[],
+): string | null {
+  const normalizedGenerated = normalizedComparableText(generated);
+  if (!normalizedGenerated) {
+    return null;
+  }
+
+  return (
+    canonicalCandidates.find((candidate) => {
+      const normalizedCandidate = normalizedComparableText(candidate);
+      return (
+        normalizedCandidate.length > normalizedGenerated.length &&
+        normalizedCandidate.startsWith(`${normalizedGenerated} `)
+      );
+    }) ?? null
+  );
+}
+
 function phraseAppears(value: string, phrase: string): boolean {
   const normalizedValue = normalizedComparableText(value);
   const normalizedPhrase = normalizedComparableText(phrase);
@@ -667,7 +687,10 @@ export function classifyResumeClaimGrounding(
 
   const anchorCoverage = new Map<string, boolean>();
   const recordAnchor = (anchor: string, covered: boolean) => {
-    anchorCoverage.set(anchor, (anchorCoverage.get(anchor) ?? false) || covered);
+    anchorCoverage.set(
+      anchor,
+      (anchorCoverage.get(anchor) ?? false) || covered,
+    );
   };
   Array.from(new Set(normalizedMetrics(trimmed))).forEach((metric) => {
     recordAnchor(metric, evidenceMetrics.has(metric));
@@ -737,7 +760,8 @@ export function classifyResumeClaimGrounding(
     // unmatched content is bounded to explicitly safe prose.
     const evidenceGateUnits = new Set(gateUnits(evidenceText));
     const unsafeUnits = gateUnits(trimmed).filter(
-      (unit) => !evidenceGateUnits.has(unit) && !SAFE_ELABORATION_TOKENS.has(unit),
+      (unit) =>
+        !evidenceGateUnits.has(unit) && !SAFE_ELABORATION_TOKENS.has(unit),
     );
     if (unsafeUnits.length > 0) {
       pushGap("unsafe_elaboration", unsafeUnits);
@@ -1455,6 +1479,24 @@ export function selectResumeRewrite(input: {
       text: canonical,
       kind: "canonical",
       referencedEvidenceText: [canonical],
+      inferred: false,
+    };
+  }
+
+  // A provider can stop after a grounded prefix of a canonical bullet. Keep
+  // the complete candidate fact rather than persisting an incomplete rewrite.
+  const strictPrefixCanonical = findStrictPrefixCanonical(
+    parsed.text,
+    input.canonicalCandidates,
+  );
+  if (strictPrefixCanonical) {
+    if (input.allowExactClaims === false) {
+      return null;
+    }
+    return {
+      text: strictPrefixCanonical,
+      kind: "canonical",
+      referencedEvidenceText: [strictPrefixCanonical],
       inferred: false,
     };
   }

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
   buildStructuredCandidateJobs,
+  inferEmployerFromCompanyProfileHref,
   isJobPreferenceAligned,
+  isLikelyJobListingHubUrl,
+  isLikelySiteUtilityJob,
   observeLearnedSearchSurfaceRoutes,
   shouldCanonicalizeSearchSurfaceDetailRoute,
   type SearchResultCardCandidate,
@@ -44,6 +47,112 @@ describe("buildStructuredCandidateJobs", () => {
         summary: "Build product interfaces for customer workflows.",
       }),
     ]);
+  });
+
+  test("infers employer from /company/{slug}/ listing URLs (Wellfound-style)", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://wellfound.com/jobs",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://wellfound.com/company/signal-systems/jobs/123456-software-engineer",
+          anchorText: "Software Engineer",
+          headingText: null,
+          lines: [
+            "Software Engineer",
+            "Remote",
+            "Build backend services for hiring workflows.",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        title: "Software Engineer",
+        company: "Signal Systems",
+      }),
+    ]);
+  });
+
+  test("infers employer from company profile href when job URL is /jobs/{id}-…", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://wellfound.com/role/r/software-engineer",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://wellfound.com/jobs/4634158-ai-product-engineer",
+          anchorText: "AI Product Engineer",
+          headingText: "AI Product Engineer",
+          companyHref: "https://wellfound.com/company/signal-systems",
+          lines: [
+            "AI Product Engineer",
+            "Remote",
+            "Ship AI product workflows for hiring teams.",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        title: "AI Product Engineer",
+        company: "Signal Systems",
+        canonicalUrl: "https://wellfound.com/jobs/4634158-ai-product-engineer",
+      }),
+    ]);
+  });
+
+  test("does not invent an employer from a bare /jobs/{id}-… URL alone", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://wellfound.com/role/r/software-engineer",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://wellfound.com/jobs/4634158-ai-product-engineer",
+          anchorText: "AI Product Engineer",
+          headingText: "AI Product Engineer",
+          lines: [
+            "AI Product Engineer",
+            "Remote · Full-time",
+            "Ship AI product workflows for hiring teams.",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toHaveLength(1);
+    // Without company-path evidence, never invent from the numeric job id or
+    // title slug in the URL.
+    expect(jobs[0]?.company).not.toMatch(/4634158|Ai Product Engineer/i);
+    expect(jobs[0]?.company).not.toBe("Signal Systems");
+  });
+
+  test("inferEmployerFromCompanyProfileHref accepts hubs and rejects noise", () => {
+    expect(
+      inferEmployerFromCompanyProfileHref(
+        "https://wellfound.com/company/signal-systems",
+      ),
+    ).toBe("Signal Systems");
+    expect(
+      inferEmployerFromCompanyProfileHref(
+        "https://wellfound.com/company/signal-systems/jobs/1-role",
+      ),
+    ).toBe("Signal Systems");
+    expect(
+      inferEmployerFromCompanyProfileHref(
+        "https://wellfound.com/company/sigma-computing-2",
+      ),
+    ).toBe("Sigma Computing");
+    expect(
+      inferEmployerFromCompanyProfileHref("https://wellfound.com/jobs/1-role"),
+    ).toBeNull();
+    expect(
+      inferEmployerFromCompanyProfileHref("https://wellfound.com/company/jobs"),
+    ).toBeNull();
   });
 
   test("prefers richer structured data when it is available on the page", () => {
@@ -1982,5 +2091,207 @@ describe("shouldCanonicalizeSearchSurfaceDetailRoute", () => {
         evidence: unrelatedEvidence,
       }),
     ).toBe(false);
+  });
+});
+
+describe("isLikelySiteUtilityJob", () => {
+  test("flags KosovaJob-style navigation pages", () => {
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/blog",
+        title: "Blog",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/kontakt",
+        title: "Kontakt",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/krijo-cv",
+        title: "Krijo CV",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/privacy-policy",
+        title: "Politikë e Privatësisë",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/politika-e-privatesise",
+        title: "Politikë e Privatësisë dhe Mbrojtjes së të Dhënave Personale",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://example.com/legal/privacy",
+        title: "Privacy Policy",
+      }),
+    ).toBe(true);
+  });
+
+  test("flags live Maya KosovaJob compound privacy title and Albanian path", () => {
+    const mayaLiveTitle =
+      "Politikë e Privatësisë dhe Mbrojtjes së të Dhënave Personale";
+    const mayaLiveUrl = "https://kosovajob.com/politika-e-privatesise";
+
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/jobs",
+        title: mayaLiveTitle,
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: mayaLiveUrl,
+        title: "Unrelated chrome label",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: mayaLiveUrl,
+        title: mayaLiveTitle,
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/politike-e-privatesise",
+        title: "Politike e Privatesise",
+      }),
+    ).toBe(true);
+  });
+
+  test("does not flag real job detail routes", () => {
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl:
+          "https://kosovajob.com/jobs/view/software-engineer-remote",
+        title: "Software Engineer",
+      }),
+    ).toBe(false);
+  });
+
+  test("flags Wellfound-style view-all navigation links", () => {
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/jobs",
+        title: "View all engineering jobs",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/jobs",
+        title: "Sign up with Google",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/jobs",
+        title: "11 open positions",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl:
+          "https://wellfound.com/company/signal-systems/jobs/123456-engineer",
+        title: "Software Engineer",
+      }),
+    ).toBe(false);
+  });
+
+  test("flags Maya-wave KosovaJob and Wellfound company-hub chrome", () => {
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/llogaritja-e-pages",
+        title: "Llogarite Pagën",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/publiko",
+        title: "Publiko Konkurs",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/company/lamatic",
+        title: "Lamatic.ai",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/candidates/overview",
+        title: "Why Wellfound",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://fb.com/kosovajob",
+        title: "www.fb.com/kosovajob",
+      }),
+    ).toBe(true);
+  });
+
+  test("flags bare /jobs hub and browse/hiring-data chrome regardless of title", () => {
+    expect(isLikelyJobListingHubUrl("https://wellfound.com/jobs")).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/jobs",
+        title: "Data Engineer",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/hiring-data",
+        title: "Engineering hiring trends",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/browse/remote-engineering-jobs",
+        title: "Remote engineering jobs",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/jobs/4505800-data-engineer",
+        title: "Data Engineer",
+      }),
+    ).toBe(false);
+  });
+
+  test("excludes navigation capture metadata from structured results", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://kosovajob.com/jobs",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl: "https://kosovajob.com/blog",
+          anchorText: "Blog",
+          headingText: "Blog",
+          lines: ["Blog", "KosovaJob", "Remote", "Read company news."],
+          captureMeta: {
+            domOrder: 0,
+            rootTagName: "a",
+            rootRole: null,
+            rootClassName: null,
+            hasJobDataset: false,
+            sameRootJobAnchorCount: 1,
+            inLikelyResultsList: false,
+            inAside: false,
+            inHeader: false,
+            inNavigation: true,
+            inDetailPane: false,
+            hasDismissLabel: false,
+          },
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([]);
   });
 });

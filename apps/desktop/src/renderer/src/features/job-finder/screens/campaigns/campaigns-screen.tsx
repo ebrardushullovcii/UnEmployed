@@ -9,19 +9,22 @@ import {
   type SaveCampaignRuleInput,
   type SaveJobSearchCampaignInput,
 } from "@unemployed/contracts";
+import { ChevronRight } from "lucide-react";
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CollectionNoMatches,
   CollectionSearchToolbar,
-  CollectionSavedViews,
   matchesCollectionSearch,
 } from "../../components/collection-search-toolbar";
 import { PageHeader } from "../../components/page-header";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 import { CampaignConfirmDialog } from "./campaign-confirm-dialog";
 import { CampaignRuleBuilder } from "./campaign-rule-builder";
+import { getJobFinderDateInputLocale } from "../../lib/job-finder-date-input-locale";
+
+const jobFinderDateInputLocale = getJobFinderDateInputLocale();
 
 const splitList = (value: string) =>
   value
@@ -39,11 +42,21 @@ const runOutcomeLabels: Record<
   skipped: "skipped",
 };
 
+/**
+ * Minute precision, no seconds: a plan card repeated the same
+ * "9/2/2026, 9:14:02 PM" string twice, which read as machine output rather
+ * than a fact about the run.
+ */
 function formatDateTime(iso: string | null): string | null {
   if (!iso) return null;
   const parsed = Date.parse(iso);
   if (Number.isNaN(parsed)) return null;
-  return new Date(parsed).toLocaleString();
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  }).format(new Date(parsed));
 }
 
 function describeNextRun(schedule: JobSearchCampaignSchedule): string {
@@ -180,8 +193,7 @@ function CampaignEditor(props: {
     "archived" | "failed" | null
   >(null);
   const [saveOutcome, setSaveOutcome] = useState<"saved" | null>(null);
-  const [discardConfirmationOpen, setDiscardConfirmationOpen] =
-    useState(false);
+  const [discardConfirmationOpen, setDiscardConfirmationOpen] = useState(false);
   const dirty = draft !== initialCampaign;
   useEffect(() => {
     props.onDirtyChange?.(dirty);
@@ -300,754 +312,764 @@ function CampaignEditor(props: {
           saveDraft();
         }}
       >
-      <div>
-        <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-          Search plan setup
-        </p>
-        <h2 className="mt-1 text-xl font-semibold text-(--text-headline)">
-          {draft.id ? "Edit search plan" : "Create search plan"}
-        </h2>
-      </div>
+        <div>
+          <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+            Search plan setup
+          </p>
+          <h2 className="mt-1 font-semibold text-(--text-headline)">
+            {draft.id ? "Edit search plan" : "Create search plan"}
+          </h2>
+        </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-3">
+          <label className="grid gap-1 text-sm">
+            <span className="font-medium">Name</span>
+            <Input
+              maxLength={120}
+              onChange={(event) =>
+                setDraft({ ...draft, name: event.target.value })
+              }
+              required
+              value={draft.name}
+            />
+          </label>
+          <label className="grid gap-1 text-sm">
+            <span className="font-medium">Volume</span>
+            <select
+              aria-label="Volume"
+              className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              onChange={(event) =>
+                updateMode(event.target.value as JobSearchCampaignMode)
+              }
+              value={draft.mode}
+            >
+              <option value="precision">
+                Precision — a smaller discovery pool
+              </option>
+              <option value="scale">Scale — a larger discovery pool</option>
+            </select>
+            <span className="text-xs text-foreground-muted">
+              {draft.mode === "scale"
+                ? "Use Scale to discover and retain a larger pool of matching jobs."
+                : "Use Precision for a smaller discovery pool focused on the strongest matches."}
+            </span>
+          </label>
+          <label className="grid gap-1 text-sm">
+            <span className="font-medium">Status</span>
+            <select
+              className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              onChange={(event) =>
+                setDraft({
+                  ...draft,
+                  status: event.target
+                    .value as SaveJobSearchCampaignInput["status"],
+                })
+              }
+              value={draft.status}
+            >
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
+              <option value="completed">Completed</option>
+              <option value="archived">Archived</option>
+            </select>
+          </label>
+        </div>
+        {props.isCurrentPlan && draft.status === "archived" ? (
+          <p className="text-sm text-foreground-muted">
+            Archiving your current plan is allowed. When other non-archived
+            plans remain, one of them becomes your current plan automatically.
+          </p>
+        ) : null}
+        {archiveOutcome === "archived" && draft.status === "archived" ? (
+          <p className="text-sm text-foreground" role="status">
+            Search plan archived.
+          </p>
+        ) : null}
+        {archiveOutcome === "failed" && draft.status === "archived" ? (
+          <p className="text-sm text-destructive" role="alert">
+            Archiving failed. Your search plan is unchanged.
+          </p>
+        ) : null}
+        {saveOutcome === "saved" ? (
+          <p className="text-sm text-foreground" role="status">
+            Search plan saved.
+          </p>
+        ) : null}
         <label className="grid gap-1 text-sm">
-          <span className="font-medium">Name</span>
-          <Input
-            maxLength={120}
+          <span className="font-medium">Plan purpose</span>
+          <textarea
+            className="min-h-20 rounded-(--radius-field) border border-(--field-border) bg-(--field) p-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            maxLength={2_000}
             onChange={(event) =>
-              setDraft({ ...draft, name: event.target.value })
+              setDraft({ ...draft, description: event.target.value })
             }
-            required
-            value={draft.name}
+            placeholder="Example: Remote TypeScript roles with strong product ownership"
+            value={draft.description}
           />
         </label>
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium">Volume</span>
-          <select
-            aria-label="Volume"
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
-            onChange={(event) =>
-              updateMode(event.target.value as JobSearchCampaignMode)
-            }
-            value={draft.mode}
-          >
-            <option value="precision">
-              Precision — a smaller discovery pool
-            </option>
-            <option value="scale">Scale — a larger discovery pool</option>
-          </select>
-          <span className="text-xs text-foreground-muted">
-            {draft.mode === "scale"
-              ? "Use Scale to discover and retain a larger pool of matching jobs."
-              : "Use Precision for a smaller discovery pool focused on the strongest matches."}
-          </span>
-        </label>
-        <label className="grid gap-1 text-sm">
-          <span className="font-medium">Status</span>
-          <select
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
-            onChange={(event) =>
-              setDraft({
-                ...draft,
-                status: event.target
-                  .value as SaveJobSearchCampaignInput["status"],
-              })
-            }
-            value={draft.status}
-          >
-            <option value="active">Active</option>
-            <option value="paused">Paused</option>
-            <option value="completed">Completed</option>
-            <option value="archived">Archived</option>
-          </select>
-        </label>
-      </div>
-      {props.isCurrentPlan && draft.status === "archived" ? (
-        <p className="text-sm text-foreground-muted">
-          Archiving your current plan is allowed. When other non-archived plans
-          remain, one of them becomes your current plan automatically.
-        </p>
-      ) : null}
-      {archiveOutcome === "archived" && draft.status === "archived" ? (
-        <p className="text-sm text-foreground" role="status">
-          Search plan archived.
-        </p>
-      ) : null}
-      {archiveOutcome === "failed" && draft.status === "archived" ? (
-        <p className="text-sm text-destructive" role="alert">
-          Archiving failed. Your search plan is unchanged.
-        </p>
-      ) : null}
-      {saveOutcome === "saved" ? (
-        <p className="text-sm text-foreground" role="status">
-          Search plan saved.
-        </p>
-      ) : null}
-      <label className="grid gap-1 text-sm">
-        <span className="font-medium">Plan purpose</span>
-        <textarea
-          className="min-h-20 rounded-(--radius-field) border border-(--field-border) bg-(--field) p-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
-          maxLength={2_000}
-          onChange={(event) =>
-            setDraft({ ...draft, description: event.target.value })
-          }
-          placeholder="Example: Remote TypeScript roles with strong product ownership"
-          value={draft.description}
-        />
-      </label>
 
-      <details
-        className="rounded-(--radius-field) border border-border-subtle p-4"
-        open
-      >
-        <summary className="cursor-pointer font-semibold text-(--text-headline)">
-          Roles, locations, and work style
-        </summary>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <label className="grid gap-1 text-sm">
-            <span>Target roles</span>
-            <Input
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  searchPreferences: {
-                    ...draft.searchPreferences,
-                    targetRoles: splitList(event.target.value),
-                  },
-                })
-              }
-              placeholder="Software engineer, Frontend engineer"
-              value={draft.searchPreferences.targetRoles.join(", ")}
-            />
-          </label>
-          <label className="grid gap-1 text-sm">
-            <span>Preferred locations</span>
-            <Input
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  searchPreferences: {
-                    ...draft.searchPreferences,
-                    locations: splitList(event.target.value),
-                  },
-                })
-              }
-              placeholder="Worldwide remote, Prishtina"
-              value={draft.searchPreferences.locations.join(", ")}
-            />
-          </label>
-          <label className="grid gap-1 text-sm">
-            <span>Excluded locations</span>
-            <Input
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  searchPreferences: {
-                    ...draft.searchPreferences,
-                    excludedLocations: splitList(event.target.value),
-                  },
-                })
-              }
-              placeholder="Locations that cannot work"
-              value={draft.searchPreferences.excludedLocations.join(", ")}
-            />
-          </label>
-          <label className="grid gap-1 text-sm">
-            <span>Excluded companies</span>
-            <Input
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  searchPreferences: {
-                    ...draft.searchPreferences,
-                    companyBlacklist: splitList(event.target.value),
-                  },
-                })
-              }
-              placeholder="Companies to skip"
-              value={draft.searchPreferences.companyBlacklist.join(", ")}
-            />
-          </label>
-          <fieldset className="grid gap-2 sm:col-span-2">
-            <legend className="text-sm">Work modes</legend>
-            <div className="flex flex-wrap gap-4">
-              {(["remote", "hybrid", "onsite", "flexible"] as const).map(
-                (mode) => (
-                  <label
-                    className="flex items-center gap-2 text-sm capitalize"
-                    key={mode}
-                  >
-                    <input
-                      checked={draft.searchPreferences.workModes.includes(mode)}
-                      onChange={(event) =>
-                        setDraft({
-                          ...draft,
-                          searchPreferences: {
-                            ...draft.searchPreferences,
-                            workModes: event.target.checked
-                              ? [...draft.searchPreferences.workModes, mode]
-                              : draft.searchPreferences.workModes.filter(
-                                  (item) => item !== mode,
-                                ),
-                          },
-                        })
-                      }
-                      type="checkbox"
-                    />
-                    {mode}
-                  </label>
-                ),
-              )}
-            </div>
-          </fieldset>
-        </div>
-      </details>
-
-      <details className="rounded-(--radius-field) border border-border-subtle p-4">
-        <summary className="cursor-pointer font-semibold text-(--text-headline)">
-          Sources and compensation
-        </summary>
-        <div className="mt-4 grid gap-4">
-          <fieldset className="grid gap-2">
-            <legend className="text-sm">Included sources</legend>
-            <div className="grid max-h-44 gap-2 overflow-y-auto rounded-(--radius-field) border border-border-subtle p-3 sm:grid-cols-2">
-              {draft.searchPreferences.discovery.targets.map((target) => (
-                <label
-                  className="flex items-center gap-2 text-sm"
-                  key={target.id}
-                >
-                  <input
-                    checked={target.enabled}
-                    onChange={(event) => {
-                      const nextTargets =
-                        draft.searchPreferences.discovery.targets.map(
-                          (candidate) =>
-                            candidate.id === target.id
-                              ? {
-                                  ...candidate,
-                                  enabled: event.target.checked,
-                                }
-                              : candidate,
-                        );
-                      setDraft({
-                        ...draft,
-                        searchPreferences: {
-                          ...draft.searchPreferences,
-                          discovery: {
-                            ...draft.searchPreferences.discovery,
-                            targets: nextTargets,
-                          },
-                        },
-                        // Keep the saved projection aligned with the plan's
-                        // own targets; the service derives the same ids from
-                        // `target.enabled`.
-                        sourceTargetIds: nextTargets
-                          .filter((candidate) => candidate.enabled)
-                          .map((candidate) => candidate.id),
-                      });
-                    }}
-                    type="checkbox"
-                  />
-                  {target.label}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <div className="grid gap-3 sm:grid-cols-4">
+        <details
+          className="rounded-(--radius-field) border border-border-subtle p-4"
+          open
+        >
+          <summary className="cursor-pointer font-semibold text-(--text-headline)">
+            Roles, locations, and work style
+          </summary>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <label className="grid gap-1 text-sm">
-              <span>Minimum compensation</span>
+              <span>Target roles</span>
               <Input
-                min={0}
                 onChange={(event) =>
                   setDraft({
                     ...draft,
                     searchPreferences: {
                       ...draft.searchPreferences,
-                      compensation: {
-                        ...draft.searchPreferences.compensation,
-                        minimum: event.target.value
-                          ? Number(event.target.value)
-                          : null,
-                      },
+                      targetRoles: splitList(event.target.value),
                     },
                   })
                 }
-                type="number"
-                value={draft.searchPreferences.compensation.minimum ?? ""}
+                placeholder="Software engineer, Frontend engineer"
+                value={draft.searchPreferences.targetRoles.join(", ")}
               />
             </label>
             <label className="grid gap-1 text-sm">
-              <span>Currency</span>
+              <span>Preferred locations</span>
               <Input
-                maxLength={3}
-                onChange={(event) => {
-                  const currency = event.target.value.trim().toUpperCase();
-                  setDraft({
-                    ...draft,
-                    searchPreferences: {
-                      ...draft.searchPreferences,
-                      compensation: {
-                        ...draft.searchPreferences.compensation,
-                        currency: currency || null,
-                        currencyStatus: currency
-                          ? "explicit"
-                          : "needs_clarification",
-                      },
-                    },
-                  });
-                }}
-                placeholder="USD"
-                value={draft.searchPreferences.compensation.currency ?? ""}
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              <span>Target compensation</span>
-              <Input
-                min={0}
                 onChange={(event) =>
                   setDraft({
                     ...draft,
                     searchPreferences: {
                       ...draft.searchPreferences,
-                      compensation: {
-                        ...draft.searchPreferences.compensation,
-                        maximum: event.target.value
-                          ? Number(event.target.value)
-                          : null,
-                      },
+                      locations: splitList(event.target.value),
                     },
                   })
                 }
-                type="number"
-                value={draft.searchPreferences.compensation.maximum ?? ""}
+                placeholder="Worldwide remote, Prishtina"
+                value={draft.searchPreferences.locations.join(", ")}
               />
             </label>
             <label className="grid gap-1 text-sm">
-              <span>Pay interval</span>
-              <select
-                className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              <span>Excluded locations</span>
+              <Input
                 onChange={(event) =>
                   setDraft({
                     ...draft,
                     searchPreferences: {
                       ...draft.searchPreferences,
-                      compensation: {
-                        ...draft.searchPreferences.compensation,
-                        interval: event.target
-                          .value as typeof draft.searchPreferences.compensation.interval,
-                      },
+                      excludedLocations: splitList(event.target.value),
                     },
                   })
                 }
-                value={draft.searchPreferences.compensation.interval}
-              >
-                <option value="hour">Hourly</option>
-                <option value="day">Daily</option>
-                <option value="week">Weekly</option>
-                <option value="month">Monthly</option>
-                <option value="year">Yearly</option>
-              </select>
+                placeholder="Locations that cannot work"
+                value={draft.searchPreferences.excludedLocations.join(", ")}
+              />
             </label>
-          </div>
-        </div>
-      </details>
-
-      <section className="grid gap-3 rounded-(--radius-field) border border-border-subtle p-4">
-        <div>
-          <h3 className="font-semibold text-(--text-headline)">
-            Discovery volume and review threshold
-          </h3>
-          <p className="text-xs text-foreground-muted">
-            Minimum fit and retention shape which discovered jobs stay in this
-            plan.
-          </p>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="grid gap-1 text-sm">
-            <span>Minimum fit score</span>
-            <Input
-              max={100}
-              min={0}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  minimumFitScore: Number(event.target.value),
-                })
-              }
-              type="number"
-              value={draft.minimumFitScore ?? 0}
-            />
-          </label>
-          <label className="grid gap-1 text-sm">
-            <span>Jobs to retain</span>
-            <Input
-              max={10_000}
-              min={1}
-              onChange={(event) =>
-                setDraft({
-                  ...draft,
-                  limits: {
-                    ...draft.limits,
-                    retainedJobTarget: Number(event.target.value),
-                  },
-                })
-              }
-              type="number"
-              value={draft.limits.retainedJobTarget}
-            />
-          </label>
-        </div>
-      </section>
-
-      <details className="rounded-(--radius-field) border border-border-subtle p-4">
-        <summary className="cursor-pointer font-semibold text-(--text-headline)">
-          Saved safety and automation policy
-        </summary>
-        <div className="mt-4 grid gap-3">
-          <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1 text-sm">
-              <span>Pause above failure rate (%)</span>
+              <span>Excluded companies</span>
               <Input
-                max={100}
-                min={1}
                 onChange={(event) =>
                   setDraft({
                     ...draft,
-                    stopRules: {
-                      ...draft.stopRules,
-                      pauseOnFailureRatePercent: Number(event.target.value),
+                    searchPreferences: {
+                      ...draft.searchPreferences,
+                      companyBlacklist: splitList(event.target.value),
                     },
                   })
                 }
-                type="number"
-                value={draft.stopRules.pauseOnFailureRatePercent}
+                placeholder="Companies to skip"
+                value={draft.searchPreferences.companyBlacklist.join(", ")}
               />
             </label>
-            <label className="grid gap-1 text-sm">
-              <span>After at least this many attempts</span>
-              <Input
-                min={1}
-                onChange={(event) =>
-                  setDraft({
-                    ...draft,
-                    stopRules: {
-                      ...draft.stopRules,
-                      failureRateMinimumSample: Number(event.target.value),
-                    },
-                  })
-                }
-                type="number"
-                value={draft.stopRules.failureRateMinimumSample}
-              />
-            </label>
-          </div>
-          <p className="text-xs text-foreground-muted">
-            Failure-rate and page-change stop rules are enforced by the
-            preparation runner: it pauses on configured login blockers, changed
-            or unexpected forms, unresolved eligibility, and a configured
-            cumulative blocked/failed rate after its minimum sample.
-          </p>
-          {(
-            [
-              ["pauseOnChangedForm", "Pause if an application form changes"],
-              [
-                "pauseOnUncertainEligibility",
-                "Pause when eligibility is uncertain",
-              ],
-              ["pauseOnLoginRequired", "Pause when a source needs sign-in"],
-            ] as const
-          ).map(([key, label]) => (
-            <label className="flex items-center gap-2 text-sm" key={key}>
-              <input
-                checked={draft.stopRules[key]}
-                onChange={(event) =>
-                  setDraft({
-                    ...draft,
-                    stopRules: {
-                      ...draft.stopRules,
-                      [key]: event.target.checked,
-                    },
-                  })
-                }
-                type="checkbox"
-              />
-              {label}
-            </label>
-          ))}
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                checked={draft.schedule.enabled}
-                onChange={(event) =>
-                  updateSchedule({ enabled: event.target.checked })
-                }
-                type="checkbox"
-              />
-              Enable schedule
-            </label>
-            <label className="grid gap-1 text-sm">
-              <span>Schedule mode</span>
-              <select
-                className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
-                disabled={!draft.schedule.enabled}
-                onChange={(event) =>
-                  updateSchedule({
-                    mode: event.target
-                      .value as JobSearchCampaignSchedule["mode"],
-                  })
-                }
-                value={draft.schedule.mode}
-              >
-                <option value="manual">Manual only</option>
-                <option value="daily">Daily</option>
-                <option value="selected_days">Selected days</option>
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm">
-              <span>Local start time</span>
-              <Input
-                disabled={!draft.schedule.enabled}
-                onChange={(event) =>
-                  updateSchedule({
-                    localStartTime: event.target.value || null,
-                  })
-                }
-                type="time"
-                value={draft.schedule.localStartTime ?? ""}
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              <span>Time zone</span>
-              <Input
-                disabled={!draft.schedule.enabled}
-                onChange={(event) =>
-                  updateSchedule({ timeZone: event.target.value || null })
-                }
-                placeholder="Europe/Belgrade"
-                value={draft.schedule.timeZone ?? ""}
-              />
-            </label>
-          </div>
-          {draft.schedule.enabled && draft.schedule.mode === "selected_days" ? (
-            <fieldset className="grid gap-2">
-              <legend className="text-sm">Schedule days</legend>
-              <div className="flex flex-wrap gap-3">
-                {[
-                  [1, "Mon"],
-                  [2, "Tue"],
-                  [3, "Wed"],
-                  [4, "Thu"],
-                  [5, "Fri"],
-                  [6, "Sat"],
-                  [0, "Sun"],
-                ].map(([day, label]) => (
-                  <label
-                    className="flex items-center gap-1.5 text-sm"
-                    key={day}
-                  >
-                    <input
-                      checked={draft.schedule.daysOfWeek.includes(
-                        day as number,
-                      )}
-                      onChange={(event) =>
-                        updateSchedule({
-                          daysOfWeek: event.target.checked
-                            ? [...draft.schedule.daysOfWeek, day as number]
-                            : draft.schedule.daysOfWeek.filter(
-                                (savedDay) => savedDay !== day,
-                              ),
-                        })
-                      }
-                      type="checkbox"
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          ) : null}
-          {draft.schedule.enabled && draft.schedule.mode !== "manual" ? (
-            <p className="text-xs text-foreground-muted">
-              The local scheduler runs this search plan automatically when its
-              next run time is due, then persists the new next run. Pause
-              windows and the global activity pause hold the run until they end.
-            </p>
-          ) : null}
-          <fieldset className="grid gap-2">
-            <legend className="text-sm">Pause windows</legend>
-            <p className="text-xs text-foreground-muted">
-              While any enabled pause window is active, a due scheduled run is
-              held and executes once when the window ends. Manual Run now is not
-              blocked by pause windows.
-            </p>
-            {draft.schedule.pauseWindows.length === 0 ? (
-              <p className="text-xs text-foreground-muted">
-                No pause windows yet.
-              </p>
-            ) : (
-              <ul className="grid gap-2">
-                {draft.schedule.pauseWindows.map((window) => (
-                  <li
-                    className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
-                    key={window.id}
-                  >
-                    <label className="flex items-center gap-1.5 text-sm">
+            <fieldset className="grid gap-2 sm:col-span-2">
+              <legend className="text-sm">Work modes</legend>
+              <div className="flex flex-wrap gap-4">
+                {(["remote", "hybrid", "onsite", "flexible"] as const).map(
+                  (mode) => (
+                    <label
+                      className="flex items-center gap-2 text-sm capitalize"
+                      key={mode}
+                    >
                       <input
-                        checked={window.enabled}
+                        checked={draft.searchPreferences.workModes.includes(
+                          mode,
+                        )}
                         onChange={(event) =>
-                          updatePauseWindow(window.id, {
-                            enabled: event.target.checked,
+                          setDraft({
+                            ...draft,
+                            searchPreferences: {
+                              ...draft.searchPreferences,
+                              workModes: event.target.checked
+                                ? [...draft.searchPreferences.workModes, mode]
+                                : draft.searchPreferences.workModes.filter(
+                                    (item) => item !== mode,
+                                  ),
+                            },
                           })
                         }
                         type="checkbox"
                       />
-                      {window.enabled ? "Active" : "Disabled"}
+                      {mode}
                     </label>
-                    <div className="text-sm text-foreground-soft">
-                      {formatDateTime(window.startsAt) ?? window.startsAt} →{" "}
-                      {formatDateTime(window.endsAt) ?? window.endsAt}
-                      {window.reason ? ` · ${window.reason}` : ""}
-                    </div>
-                    <Button
-                      onClick={() => removePauseWindow(window.id)}
-                      size="xs"
-                      type="button"
-                      variant="ghost"
-                    >
-                      Remove
-                    </Button>
-                  </li>
+                  ),
+                )}
+              </div>
+            </fieldset>
+          </div>
+        </details>
+
+        <details className="rounded-(--radius-field) border border-border-subtle p-4">
+          <summary className="cursor-pointer font-semibold text-(--text-headline)">
+            Sources and compensation
+          </summary>
+          <div className="mt-4 grid gap-4">
+            <fieldset className="grid gap-2">
+              <legend className="text-sm">Included sources</legend>
+              <div className="grid max-h-44 gap-2 overflow-y-auto rounded-(--radius-field) border border-border-subtle p-3 sm:grid-cols-2">
+                {draft.searchPreferences.discovery.targets.map((target) => (
+                  <label
+                    className="flex items-center gap-2 text-sm"
+                    key={target.id}
+                  >
+                    <input
+                      checked={target.enabled}
+                      onChange={(event) => {
+                        const nextTargets =
+                          draft.searchPreferences.discovery.targets.map(
+                            (candidate) =>
+                              candidate.id === target.id
+                                ? {
+                                    ...candidate,
+                                    enabled: event.target.checked,
+                                  }
+                                : candidate,
+                          );
+                        setDraft({
+                          ...draft,
+                          searchPreferences: {
+                            ...draft.searchPreferences,
+                            discovery: {
+                              ...draft.searchPreferences.discovery,
+                              targets: nextTargets,
+                            },
+                          },
+                          // Keep the saved projection aligned with the plan's
+                          // own targets; the service derives the same ids from
+                          // `target.enabled`.
+                          sourceTargetIds: nextTargets
+                            .filter((candidate) => candidate.enabled)
+                            .map((candidate) => candidate.id),
+                        });
+                      }}
+                      type="checkbox"
+                    />
+                    {target.label}
+                  </label>
                 ))}
-              </ul>
-            )}
+              </div>
+            </fieldset>
             <div className="grid gap-3 sm:grid-cols-4">
               <label className="grid gap-1 text-sm">
-                <span>Starts</span>
+                <span>Minimum compensation</span>
                 <Input
-                  aria-label="Pause window starts"
-                  aria-describedby={
-                    pauseWindowValidationMessage
-                      ? "pause-window-validation"
-                      : undefined
-                  }
-                  aria-invalid={
-                    pauseWindowValidationMessage !== null &&
-                    (pauseWindowStart === null || pauseWindowEnd !== null)
-                  }
+                  min={0}
                   onChange={(event) =>
-                    setPauseWindowStartsAt(event.target.value)
+                    setDraft({
+                      ...draft,
+                      searchPreferences: {
+                        ...draft.searchPreferences,
+                        compensation: {
+                          ...draft.searchPreferences.compensation,
+                          minimum: event.target.value
+                            ? Number(event.target.value)
+                            : null,
+                        },
+                      },
+                    })
                   }
-                  type="datetime-local"
-                  value={pauseWindowStartsAt}
+                  type="number"
+                  value={draft.searchPreferences.compensation.minimum ?? ""}
                 />
               </label>
               <label className="grid gap-1 text-sm">
-                <span>Ends</span>
+                <span>Currency</span>
                 <Input
-                  aria-label="Pause window ends"
-                  aria-describedby={
-                    pauseWindowValidationMessage
-                      ? "pause-window-validation"
-                      : undefined
-                  }
-                  aria-invalid={
-                    pauseWindowValidationMessage !== null &&
-                    (pauseWindowEnd === null || pauseWindowStart !== null)
-                  }
-                  onChange={(event) => setPauseWindowEndsAt(event.target.value)}
-                  type="datetime-local"
-                  value={pauseWindowEndsAt}
+                  maxLength={3}
+                  onChange={(event) => {
+                    const currency = event.target.value.trim().toUpperCase();
+                    setDraft({
+                      ...draft,
+                      searchPreferences: {
+                        ...draft.searchPreferences,
+                        compensation: {
+                          ...draft.searchPreferences.compensation,
+                          currency: currency || null,
+                          currencyStatus: currency
+                            ? "explicit"
+                            : "needs_clarification",
+                        },
+                      },
+                    });
+                  }}
+                  placeholder="USD"
+                  value={draft.searchPreferences.compensation.currency ?? ""}
                 />
               </label>
               <label className="grid gap-1 text-sm">
-                <span>Reason</span>
+                <span>Target compensation</span>
                 <Input
-                  aria-label="Pause window reason"
-                  onChange={(event) => setPauseWindowReason(event.target.value)}
-                  placeholder="Vacation, meetings…"
-                  value={pauseWindowReason}
+                  min={0}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      searchPreferences: {
+                        ...draft.searchPreferences,
+                        compensation: {
+                          ...draft.searchPreferences.compensation,
+                          maximum: event.target.value
+                            ? Number(event.target.value)
+                            : null,
+                        },
+                      },
+                    })
+                  }
+                  type="number"
+                  value={draft.searchPreferences.compensation.maximum ?? ""}
                 />
               </label>
-              <Button
-                className="self-end"
-                disabled={
-                  pauseWindowStartsAt.trim().length === 0 ||
-                  pauseWindowEndsAt.trim().length === 0 ||
-                  pauseWindowValidationMessage !== null
-                }
-                onClick={addPauseWindow}
-                type="button"
-                variant="outline"
-              >
-                Add pause window
-              </Button>
+              <label className="grid gap-1 text-sm">
+                <span>Pay interval</span>
+                <select
+                  className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      searchPreferences: {
+                        ...draft.searchPreferences,
+                        compensation: {
+                          ...draft.searchPreferences.compensation,
+                          interval: event.target
+                            .value as typeof draft.searchPreferences.compensation.interval,
+                        },
+                      },
+                    })
+                  }
+                  value={draft.searchPreferences.compensation.interval}
+                >
+                  <option value="hour">Hourly</option>
+                  <option value="day">Daily</option>
+                  <option value="week">Weekly</option>
+                  <option value="month">Monthly</option>
+                  <option value="year">Yearly</option>
+                </select>
+              </label>
             </div>
-            {pauseWindowValidationMessage ? (
-              <p
-                className="text-sm text-destructive"
-                id="pause-window-validation"
-                role="alert"
-              >
-                {pauseWindowValidationMessage}
-              </p>
-            ) : null}
-          </fieldset>
-          <div className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-3">
-            <h4 className="text-sm font-semibold text-(--text-headline)">
-              Run status
-            </h4>
-            <dl className="grid gap-1 text-sm text-foreground-soft sm:grid-cols-2">
-              <div>
-                <dt className="text-xs text-foreground-muted">Next run</dt>
-                <dd>{describeNextRun(draft.schedule)}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-foreground-muted">Last run</dt>
-                <dd>{describeLastRun(draft.schedule)}</dd>
-              </div>
-            </dl>
-            {draft.schedule.runFacts.lastRunSummary ? (
-              <p className="text-xs text-foreground-muted">
-                {draft.schedule.runFacts.lastRunSummary}
-              </p>
-            ) : null}
-            {draft.schedule.runFacts.consecutiveFailures > 0 ? (
-              <p className="text-xs text-foreground-muted">
-                {draft.schedule.runFacts.consecutiveFailures} consecutive failed
-                run
-                {draft.schedule.runFacts.consecutiveFailures === 1
-                  ? ""
-                  : "s"}{" "}
-                recorded.
-              </p>
-            ) : null}
           </div>
-        </div>
-      </details>
+        </details>
 
-      <p className="text-xs text-foreground-muted">
-        Uses{" "}
-        {
-          draft.searchPreferences.discovery.targets.filter(
-            (target) => target.enabled,
-          ).length
-        }{" "}
-        sources and{" "}
-        {draft.searchPreferences.targetRoles.length} target roles from its saved
-        search scope.
-      </p>
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button onClick={requestCancel} type="button" variant="ghost">
-          Cancel
-        </Button>
-        <Button
-          disabled={draft.name.trim().length === 0}
-          pending={props.pending}
-          type="submit"
-        >
-          Save search plan
-        </Button>
-      </div>
+        <section className="grid gap-3 rounded-(--radius-field) border border-border-subtle p-4">
+          <div>
+            <h3 className="font-semibold text-(--text-headline)">
+              Discovery volume and review threshold
+            </h3>
+            <p className="text-xs text-foreground-muted">
+              Minimum fit and retention shape which discovered jobs stay in this
+              plan.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1 text-sm">
+              <span>Minimum fit score</span>
+              <Input
+                max={100}
+                min={0}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    minimumFitScore: Number(event.target.value),
+                  })
+                }
+                type="number"
+                value={draft.minimumFitScore ?? 0}
+              />
+            </label>
+            <label className="grid gap-1 text-sm">
+              <span>Jobs to retain</span>
+              <Input
+                max={10_000}
+                min={1}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    limits: {
+                      ...draft.limits,
+                      retainedJobTarget: Number(event.target.value),
+                    },
+                  })
+                }
+                type="number"
+                value={draft.limits.retainedJobTarget}
+              />
+            </label>
+          </div>
+        </section>
+
+        <details className="rounded-(--radius-field) border border-border-subtle p-4">
+          <summary className="cursor-pointer font-semibold text-(--text-headline)">
+            Saved safety and automation policy
+          </summary>
+          <div className="mt-4 grid gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="grid gap-1 text-sm">
+                <span>Pause above failure rate (%)</span>
+                <Input
+                  max={100}
+                  min={1}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      stopRules: {
+                        ...draft.stopRules,
+                        pauseOnFailureRatePercent: Number(event.target.value),
+                      },
+                    })
+                  }
+                  type="number"
+                  value={draft.stopRules.pauseOnFailureRatePercent}
+                />
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span>After at least this many attempts</span>
+                <Input
+                  min={1}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      stopRules: {
+                        ...draft.stopRules,
+                        failureRateMinimumSample: Number(event.target.value),
+                      },
+                    })
+                  }
+                  type="number"
+                  value={draft.stopRules.failureRateMinimumSample}
+                />
+              </label>
+            </div>
+            <p className="text-xs text-foreground-muted">
+              Failure-rate and page-change stop rules are enforced by the
+              preparation runner: it pauses on configured login blockers,
+              changed or unexpected forms, unresolved eligibility, and a
+              configured cumulative blocked/failed rate after its minimum
+              sample.
+            </p>
+            {(
+              [
+                ["pauseOnChangedForm", "Pause if an application form changes"],
+                [
+                  "pauseOnUncertainEligibility",
+                  "Pause when eligibility is uncertain",
+                ],
+                ["pauseOnLoginRequired", "Pause when a source needs sign-in"],
+              ] as const
+            ).map(([key, label]) => (
+              <label className="flex items-center gap-2 text-sm" key={key}>
+                <input
+                  checked={draft.stopRules[key]}
+                  onChange={(event) =>
+                    setDraft({
+                      ...draft,
+                      stopRules: {
+                        ...draft.stopRules,
+                        [key]: event.target.checked,
+                      },
+                    })
+                  }
+                  type="checkbox"
+                />
+                {label}
+              </label>
+            ))}
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  checked={draft.schedule.enabled}
+                  onChange={(event) =>
+                    updateSchedule({ enabled: event.target.checked })
+                  }
+                  type="checkbox"
+                />
+                Enable schedule
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span>Schedule mode</span>
+                <select
+                  className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                  disabled={!draft.schedule.enabled}
+                  onChange={(event) =>
+                    updateSchedule({
+                      mode: event.target
+                        .value as JobSearchCampaignSchedule["mode"],
+                    })
+                  }
+                  value={draft.schedule.mode}
+                >
+                  <option value="manual">Manual only</option>
+                  <option value="daily">Daily</option>
+                  <option value="selected_days">Selected days</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span>Local start time</span>
+                <Input
+                  disabled={!draft.schedule.enabled}
+                  onChange={(event) =>
+                    updateSchedule({
+                      localStartTime: event.target.value || null,
+                    })
+                  }
+                  type="time"
+                  value={draft.schedule.localStartTime ?? ""}
+                />
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span>Time zone</span>
+                <Input
+                  disabled={!draft.schedule.enabled}
+                  onChange={(event) =>
+                    updateSchedule({ timeZone: event.target.value || null })
+                  }
+                  placeholder="Europe/Belgrade"
+                  value={draft.schedule.timeZone ?? ""}
+                />
+              </label>
+            </div>
+            {draft.schedule.enabled &&
+            draft.schedule.mode === "selected_days" ? (
+              <fieldset className="grid gap-2">
+                <legend className="text-sm">Schedule days</legend>
+                <div className="flex flex-wrap gap-3">
+                  {[
+                    [1, "Mon"],
+                    [2, "Tue"],
+                    [3, "Wed"],
+                    [4, "Thu"],
+                    [5, "Fri"],
+                    [6, "Sat"],
+                    [0, "Sun"],
+                  ].map(([day, label]) => (
+                    <label
+                      className="flex items-center gap-1.5 text-sm"
+                      key={day}
+                    >
+                      <input
+                        checked={draft.schedule.daysOfWeek.includes(
+                          day as number,
+                        )}
+                        onChange={(event) =>
+                          updateSchedule({
+                            daysOfWeek: event.target.checked
+                              ? [...draft.schedule.daysOfWeek, day as number]
+                              : draft.schedule.daysOfWeek.filter(
+                                  (savedDay) => savedDay !== day,
+                                ),
+                          })
+                        }
+                        type="checkbox"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ) : null}
+            {draft.schedule.enabled && draft.schedule.mode !== "manual" ? (
+              <p className="text-xs text-foreground-muted">
+                The local scheduler runs this search plan automatically when its
+                next run time is due, then persists the new next run. Pause
+                windows and the global activity pause hold the run until they
+                end.
+              </p>
+            ) : null}
+            <fieldset className="grid gap-2">
+              <legend className="text-sm">Pause windows</legend>
+              <p className="text-xs text-foreground-muted">
+                While any enabled pause window is active, a due scheduled run is
+                held and executes once when the window ends. Manual Run now is
+                not blocked by pause windows.
+              </p>
+              {draft.schedule.pauseWindows.length === 0 ? (
+                <p className="text-xs text-foreground-muted">
+                  No pause windows yet.
+                </p>
+              ) : (
+                <ul className="grid gap-2">
+                  {draft.schedule.pauseWindows.map((window) => (
+                    <li
+                      className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+                      key={window.id}
+                    >
+                      <label className="flex items-center gap-1.5 text-sm">
+                        <input
+                          checked={window.enabled}
+                          onChange={(event) =>
+                            updatePauseWindow(window.id, {
+                              enabled: event.target.checked,
+                            })
+                          }
+                          type="checkbox"
+                        />
+                        {window.enabled ? "Active" : "Disabled"}
+                      </label>
+                      <div className="text-sm text-foreground-soft">
+                        {formatDateTime(window.startsAt) ?? window.startsAt} →{" "}
+                        {formatDateTime(window.endsAt) ?? window.endsAt}
+                        {window.reason ? ` · ${window.reason}` : ""}
+                      </div>
+                      <Button
+                        onClick={() => removePauseWindow(window.id)}
+                        size="xs"
+                        type="button"
+                        variant="ghost"
+                      >
+                        Remove
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="grid gap-3 sm:grid-cols-4">
+                <label className="grid gap-1 text-sm">
+                  <span>Starts</span>
+                  <Input
+                    aria-label="Pause window starts"
+                    aria-describedby={
+                      pauseWindowValidationMessage
+                        ? "pause-window-validation"
+                        : undefined
+                    }
+                    aria-invalid={
+                      pauseWindowValidationMessage !== null &&
+                      (pauseWindowStart === null || pauseWindowEnd !== null)
+                    }
+                    onChange={(event) =>
+                      setPauseWindowStartsAt(event.target.value)
+                    }
+                    lang={jobFinderDateInputLocale}
+                    type="datetime-local"
+                    value={pauseWindowStartsAt}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span>Ends</span>
+                  <Input
+                    aria-label="Pause window ends"
+                    aria-describedby={
+                      pauseWindowValidationMessage
+                        ? "pause-window-validation"
+                        : undefined
+                    }
+                    aria-invalid={
+                      pauseWindowValidationMessage !== null &&
+                      (pauseWindowEnd === null || pauseWindowStart !== null)
+                    }
+                    onChange={(event) =>
+                      setPauseWindowEndsAt(event.target.value)
+                    }
+                    lang={jobFinderDateInputLocale}
+                    type="datetime-local"
+                    value={pauseWindowEndsAt}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span>Reason</span>
+                  <Input
+                    aria-label="Pause window reason"
+                    onChange={(event) =>
+                      setPauseWindowReason(event.target.value)
+                    }
+                    placeholder="Vacation, meetings…"
+                    value={pauseWindowReason}
+                  />
+                </label>
+                <Button
+                  className="self-end"
+                  disabled={
+                    pauseWindowStartsAt.trim().length === 0 ||
+                    pauseWindowEndsAt.trim().length === 0 ||
+                    pauseWindowValidationMessage !== null
+                  }
+                  onClick={addPauseWindow}
+                  type="button"
+                  variant="outline"
+                >
+                  Add pause window
+                </Button>
+              </div>
+              {pauseWindowValidationMessage ? (
+                <p
+                  className="text-sm text-destructive"
+                  id="pause-window-validation"
+                  role="alert"
+                >
+                  {pauseWindowValidationMessage}
+                </p>
+              ) : null}
+            </fieldset>
+            <div className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-3">
+              <h4 className="text-sm font-semibold text-(--text-headline)">
+                Run status
+              </h4>
+              <dl className="grid gap-1 text-sm text-foreground-soft sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-foreground-muted">Next run</dt>
+                  <dd>{describeNextRun(draft.schedule)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-foreground-muted">Last run</dt>
+                  <dd>{describeLastRun(draft.schedule)}</dd>
+                </div>
+              </dl>
+              {draft.schedule.runFacts.lastRunSummary ? (
+                <p className="text-xs text-foreground-muted">
+                  {draft.schedule.runFacts.lastRunSummary}
+                </p>
+              ) : null}
+              {draft.schedule.runFacts.consecutiveFailures > 0 ? (
+                <p className="text-xs text-foreground-muted">
+                  {draft.schedule.runFacts.consecutiveFailures} consecutive
+                  failed run
+                  {draft.schedule.runFacts.consecutiveFailures === 1
+                    ? ""
+                    : "s"}{" "}
+                  recorded.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </details>
+
+        <p className="text-xs text-foreground-muted">
+          Uses{" "}
+          {
+            draft.searchPreferences.discovery.targets.filter(
+              (target) => target.enabled,
+            ).length
+          }{" "}
+          sources and {draft.searchPreferences.targetRoles.length} target roles
+          from its saved search scope.
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button onClick={requestCancel} type="button" variant="ghost">
+            Cancel
+          </Button>
+          <Button
+            disabled={draft.name.trim().length === 0}
+            pending={props.pending}
+            type="submit"
+          >
+            Save search plan
+          </Button>
+        </div>
       </form>
       <CampaignConfirmDialog
         cancelLabel="Keep editing"
@@ -1219,11 +1241,15 @@ export function CampaignsScreen(props: {
     <section className="grid gap-5 pb-8">
       <PageHeader
         actions={
+          // The banner below says most people should stay on the default
+          // plan, so creating one is a secondary action, not the only filled
+          // button on the page.
           <Button
             onClick={() =>
               beginEditing(newCampaignFrom(activeCampaign ?? null))
             }
             type="button"
+            variant="secondary"
           >
             New search plan
           </Button>
@@ -1236,33 +1262,42 @@ export function CampaignsScreen(props: {
         aria-labelledby="search-plans-guide"
         className="group rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-2.5 [&_summary::-webkit-details-marker]:hidden"
       >
-        <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-          <span
-            className="font-semibold text-(--text-headline)"
-            id="search-plans-guide"
-          >
-            Search plans are optional.
+        {/* The toggle used to sit as bare grey text at the far right edge of
+            the banner, where it read as a stray label. It now sits under the
+            explanation as a bordered control with a rotating chevron. */}
+        <summary className="grid cursor-pointer gap-2 text-sm">
+          <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            <span
+              className="font-semibold text-(--text-headline)"
+              id="search-plans-guide"
+            >
+              Search plans are optional.
+            </span>
+            <span className="min-w-0 flex-1 text-foreground-soft">
+              The current default plan is already enough to use Find jobs.
+              Create another plan when you want a reusable search setup with its
+              own roles, sources, discovery volume, and progress.
+            </span>
           </span>
-          <span className="min-w-0 flex-1 text-foreground-soft">
-            The current default plan is already enough to use Find jobs. Create
-            another plan when you want a reusable search setup with its own
-            roles, sources, discovery volume, and progress.
-          </span>
-          <span className="shrink-0 text-xs font-medium text-foreground-muted group-open:hidden">
-            How volumes differ
-          </span>
-          <span className="hidden shrink-0 text-xs font-medium text-foreground-muted group-open:inline">
-            Hide volume differences
+          <span className="inline-flex w-fit items-center gap-1.5 rounded-(--radius-button) border border-(--surface-panel-border) px-2.5 py-1 text-xs font-medium text-foreground">
+            <ChevronRight
+              aria-hidden="true"
+              className="size-3.5 shrink-0 transition-transform group-open:rotate-90"
+            />
+            <span className="group-open:hidden">How much a plan searches</span>
+            <span className="hidden group-open:inline">
+              Hide how much a plan searches
+            </span>
           </span>
         </summary>
         <div className="grid gap-2 pt-2.5 text-sm text-foreground-soft sm:grid-cols-2">
           <p>
-            <span className="font-medium text-foreground">Precision:</span> a
-            smaller discovery pool focused on stronger matches.
+            <span className="font-medium text-foreground">Focused:</span> fewer
+            jobs each run, chosen for a closer match.
           </p>
           <p>
-            <span className="font-medium text-foreground">Scale:</span> a larger
-            discovery pool with a higher retained-job target.
+            <span className="font-medium text-foreground">Wide:</span> more jobs
+            each run, keeping more of them for review.
           </p>
         </div>
       </details>
@@ -1331,25 +1366,19 @@ export function CampaignsScreen(props: {
         />
       ) : null}
 
-      <CollectionSearchToolbar
-        className="border-y-0 px-0"
-        density={view.density}
-        label="Search plans"
-        onDensityChange={view.setDensity}
-        onQueryChange={view.setQuery}
-        placeholder="Search plan name, volume, or status"
-        query={view.query}
-        totalCount={props.campaigns.length}
-        viewActions={
-          <CollectionSavedViews
-            onApply={view.applySavedView}
-            onDelete={view.deleteSavedView}
-            onSave={(name) => view.saveCurrentView(name)}
-            views={view.savedViews}
-          />
-        }
-        visibleCount={filteredCampaigns.length}
-      />
+      {/* Two rows of list chrome for a single plan is chrome, not a list.
+          The search field returns once there is something to search. */}
+      {props.campaigns.length > 1 ? (
+        <CollectionSearchToolbar
+          className="border-y-0 px-0"
+          label="Search plans"
+          onQueryChange={view.setQuery}
+          placeholder="Search a plan by name or status"
+          query={view.query}
+          totalCount={props.campaigns.length}
+          visibleCount={filteredCampaigns.length}
+        />
+      ) : null}
 
       {filteredCampaigns.length === 0 ? (
         <CollectionNoMatches
@@ -1377,7 +1406,7 @@ export function CampaignsScreen(props: {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2
-                        className="min-w-0 break-words text-lg font-semibold text-(--text-headline)"
+                        className="min-w-0 break-words font-semibold text-(--text-headline)"
                         title={campaign.name}
                       >
                         {campaign.name}
@@ -1393,35 +1422,54 @@ export function CampaignsScreen(props: {
                         </span>
                       ) : null}
                     </div>
+                    {/* "Precision volume" is internal vocabulary; the card
+                        says what the setting actually does. */}
                     <p className="mt-1 text-sm capitalize text-foreground-soft">
                       {campaign.mode === "scale"
-                        ? "Scale volume"
-                        : "Precision volume"}{" "}
+                        ? "Wider search"
+                        : "Focused search"}{" "}
                       · {campaign.status}
                     </p>
                   </div>
-                  <strong className="shrink-0 text-sm text-(--text-headline)">
-                    {campaign.progress.jobsRetained} retained
-                  </strong>
+                  <div className="grid shrink-0 justify-items-end">
+                    <strong className="text-sm text-(--text-headline)">
+                      {campaign.progress.jobsRetained}
+                    </strong>
+                    <span className="text-xs text-foreground-muted">
+                      {campaign.progress.jobsRetained === 1
+                        ? "job kept for review"
+                        : "jobs kept for review"}
+                    </span>
+                  </div>
                 </div>
                 <p className="text-sm text-foreground-soft">
                   {campaign.description || "No description yet."}
                 </p>
                 <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                  {/* Each number says what it counts; bare "Blocked 1" beside
+                      "Remaining 1" explained neither. */}
                   <div>
-                    <dt className="text-xs text-foreground-muted">Found</dt>
+                    <dt className="text-xs text-foreground-muted">
+                      Jobs found
+                    </dt>
                     <dd>{campaign.progress.jobsFound}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-foreground-muted">Prepared</dt>
+                    <dt className="text-xs text-foreground-muted">
+                      Applications prepared
+                    </dt>
                     <dd>{campaign.progress.applicationsPrepared}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-foreground-muted">Blocked</dt>
+                    <dt className="text-xs text-foreground-muted">
+                      Waiting for you
+                    </dt>
                     <dd>{campaign.progress.blockedCount}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs text-foreground-muted">Remaining</dt>
+                    <dt className="text-xs text-foreground-muted">
+                      Still to review
+                    </dt>
                     <dd>{campaign.progress.remainingQueueSize}</dd>
                   </div>
                   <div className="col-span-2">
@@ -1446,9 +1494,7 @@ export function CampaignsScreen(props: {
                 {campaign.latestDigest ? (
                   <details className="rounded-(--radius-field) border border-(--surface-panel-border) px-3 py-2">
                     <summary className="cursor-pointer text-sm font-medium text-foreground">
-                      Latest digest ·{" "}
-                      {formatDateTime(campaign.latestDigest.generatedAt) ??
-                        "recent"}
+                      What the last run found
                     </summary>
                     <dl className="mt-3 grid grid-cols-3 gap-2 text-sm text-foreground-soft sm:grid-cols-6">
                       <div>
@@ -1609,20 +1655,26 @@ export function CampaignsScreen(props: {
                       Make current
                     </Button>
                   ) : null}
-                  {props.onDeleteCampaign ? (
+                </div>
+                {/* Delete is not one of the safe actions. It sits on its own
+                    row, at the opposite end, one deliberate reach away from
+                    Edit. */}
+                {props.onDeleteCampaign ? (
+                  <div className="flex flex-wrap justify-start gap-2 border-t border-(--surface-panel-border) pt-2">
                     <Button
+                      className="border-destructive/45 text-destructive hover:border-destructive hover:text-destructive"
                       onClick={() => {
                         setDeleteCandidateId(campaign.id);
                         setDeleteFailedId(null);
                       }}
+                      size="sm"
                       type="button"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
+                      variant="outline"
                     >
-                      Delete
+                      Delete plan
                     </Button>
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
               </article>
             );
           })}

@@ -45,9 +45,8 @@ describe("ProfileCopilotComposer", () => {
       onInputChange: vi.fn(),
       onKeyDown: vi.fn(),
       onSend: vi.fn(),
-      placeholder: "Ask for a structured edit",
+      placeholder: "Message the Assistant…",
       sendDisabledReason: null,
-      starterQuestion: null,
     };
 
     act(() => {
@@ -64,10 +63,8 @@ describe("ProfileCopilotComposer", () => {
     expect(textarea).not.toBeNull();
     expect(textarea?.disabled).toBe(false);
     expect(textarea?.value).toBe("Draft next request while Copilot works.");
-    expect(container?.textContent).toContain(
-      "Reviewing your request… You can keep editing or draft your next message.",
-    );
-    expect(button?.textContent).toContain("Preparing...");
+    expect(container?.textContent).toContain("Assistant is thinking…");
+    expect(button?.getAttribute("aria-label")).toBe("Send message");
     expect(button?.hasAttribute("disabled")).toBe(true);
   });
 
@@ -76,7 +73,7 @@ describe("ProfileCopilotComposer", () => {
       input: "Please update my preferences.",
       isPendingHere: false,
       sendDisabledReason:
-        "Save this page before asking Profile Copilot to edit it so your current profile draft does not get overwritten.",
+        "Save this page before asking the Assistant to edit it so your current profile draft does not get overwritten.",
     });
 
     const textarea = container?.querySelector("textarea");
@@ -84,10 +81,93 @@ describe("ProfileCopilotComposer", () => {
 
     expect(textarea?.disabled).toBe(false);
     expect(container?.textContent).toContain(
-      "Save this page before asking Profile Copilot to edit it so your current profile draft does not get overwritten.",
+      "Save this page before asking the Assistant to edit it so your current profile draft does not get overwritten.",
     );
-    expect(button?.textContent).toContain("Send request");
+    expect(button?.getAttribute("aria-label")).toBe("Send message");
     expect(button?.hasAttribute("disabled")).toBe(true);
+  });
+
+  test("keeps provider disclosure behind one compact AI settings detail", () => {
+    renderComposer({ isPendingHere: false });
+    expect(container?.textContent).toContain("AI settings");
+    expect(container?.textContent).not.toContain("Keyboard & movement help");
+    expect(container?.textContent).not.toContain("Ask for an edit");
+    expect(container?.textContent).not.toContain("Send request");
+    expect(
+      container?.querySelector(
+        '[data-profile-copilot-provider-disclosure="true"]',
+      ),
+    ).not.toBeNull();
+  });
+
+  test("uses a compact chat input with keyboard shortcuts", () => {
+    renderComposer({
+      input: "Please update my headline.",
+      isPendingHere: false,
+    });
+
+    const composer = container?.querySelector<HTMLElement>(
+      '[data-profile-copilot-composer="true"]',
+    );
+    const textarea = container?.querySelector<HTMLTextAreaElement>("textarea");
+    const sendRow = container?.querySelector<HTMLElement>(
+      '[data-profile-copilot-send-row="true"]',
+    );
+    const movementHelp = container?.querySelector<HTMLElement>(
+      '[data-profile-copilot-movement-help="true"]',
+    );
+    const providerDisclosure = container?.querySelector<HTMLElement>(
+      '[data-profile-copilot-provider-disclosure="true"]',
+    );
+
+    expect(composer?.className).toContain("shrink-0");
+    expect(textarea?.getAttribute("rows")).toBe("1");
+    expect(textarea?.getAttribute("aria-label")).toBe("Message the Assistant");
+    expect(textarea?.getAttribute("aria-keyshortcuts")).toBe(
+      "Enter Shift+Enter",
+    );
+    expect(textarea?.className).toContain("min-h-10");
+    expect(textarea?.className).toContain("overflow-y-hidden");
+    expect(textarea?.style.height).toBe("40px");
+    expect(sendRow?.className).toContain("flex");
+    expect(sendRow?.className).not.toContain("sticky");
+    expect(movementHelp).toBeNull();
+    expect(providerDisclosure).not.toBeNull();
+    expect(container?.textContent).not.toContain("Send request");
+  });
+
+  test("keeps multiline composer input inside an 80px budget", () => {
+    const input = "A long multiline request with more detail";
+    renderComposer({ input });
+
+    const textarea = container?.querySelector<HTMLTextAreaElement>("textarea");
+    expect(textarea).not.toBeNull();
+    if (!textarea) {
+      throw new Error("Expected the Copilot composer textarea.");
+    }
+
+    Object.defineProperty(textarea, "scrollHeight", {
+      configurable: true,
+      value: 240,
+    });
+    act(() => {
+      root?.render(
+        <ProfileCopilotComposer
+          busy={false}
+          composerId="profile-copilot-composer"
+          input={`${input}\nwith another line`}
+          isPendingHere={false}
+          onInputChange={vi.fn()}
+          onKeyDown={vi.fn()}
+          onSend={vi.fn()}
+          placeholder="Message the Assistant…"
+          sendDisabledReason={null}
+        />,
+      );
+    });
+
+    expect(textarea.style.height).toBe("80px");
+    expect(textarea.style.overflowY).toBe("auto");
   });
 });
 
@@ -121,9 +201,8 @@ describe("ProfileCopilotTranscript", () => {
 
     const defaultProps: ComponentProps<typeof ProfileCopilotTranscript> = {
       busy: false,
-      actionsDisabledReason: null,
       emptyStateDescription: "No transcript yet.",
-      emptyStateTitle: "Ask Profile Copilot",
+      emptyStateTitle: "Ask the Assistant",
       isPendingHere: false,
       messages: [
         {
@@ -148,11 +227,8 @@ describe("ProfileCopilotTranscript", () => {
           createdAt: "2026-04-15T16:00:00.000Z",
         },
       ],
-      onApplyPatchGroup: vi.fn(),
-      onRejectPatchGroup: vi.fn(),
       onUsePrompt: vi.fn(),
       suggestedPrompts: [],
-      starterQuestion: null,
       transcriptRef: createRef<HTMLDivElement>(),
     };
 
@@ -187,14 +263,32 @@ describe("ProfileCopilotTranscript", () => {
     );
     expect(inlineCode?.textContent).toBe("LinkedIn Jobs");
     expect(codeBlock?.textContent).toContain('"applyMode": "needs_review"');
+    expect(container?.textContent).toContain("Profile - Preferences");
   });
 
-  test("explains that a pending request cannot change the saved profile without acceptance", () => {
+  test("wraps long suggested prompts within the transcript width", () => {
+    const longPrompt =
+      "What should I save for my background when the answer includes several sentences and a detailed explanation?";
+    renderTranscript({ messages: [], suggestedPrompts: [longPrompt] });
+
+    const suggestion = [...(container?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent?.includes(longPrompt),
+    );
+
+    expect(suggestion).not.toBeUndefined();
+    expect(suggestion?.className).toContain("min-w-0");
+    expect(suggestion?.className).toContain("max-w-full");
+    expect(suggestion?.className).toContain("whitespace-normal");
+    expect(suggestion?.className).toContain("break-words");
+  });
+
+  test("shows a quiet assistant typing row while a reply is pending", () => {
     renderTranscript({ isPendingHere: true });
 
-    expect(container?.textContent).toContain(
-      "Your saved profile stays unchanged unless you accept a proposed change.",
-    );
+    expect(container?.textContent).toContain("Thinking");
+    expect(
+      container?.querySelector('[data-profile-copilot-pending="true"]'),
+    ).not.toBeNull();
   });
 
   test("shows exact proposed scalar, list, and compensation values before approval", () => {
@@ -246,19 +340,17 @@ describe("ProfileCopilotTranscript", () => {
     expect(container?.textContent).toContain(
       "Set compensation to 3,000–4,000 / month (currency not set — confirmation needed)",
     );
-    expect(container?.textContent).toContain("Nothing changed yet.");
-    expect(container?.textContent).toContain("Apply changes");
+    expect(container?.textContent).not.toContain("Nothing changed yet.");
   });
 
   test.each([
     {
       applyMode: "applied" as const,
-      expectedStatus: "Current status: This change is applied to your profile.",
+      expectedStatus: "Applied",
     },
     {
       applyMode: "rejected" as const,
-      expectedStatus:
-        "Current status: This proposal was rejected. Your profile was not changed.",
+      expectedStatus: "Rejected",
     },
   ])(
     "replaces stale pending-only wording after a proposal is $applyMode",
@@ -292,7 +384,7 @@ describe("ProfileCopilotTranscript", () => {
 
       expect(container?.textContent).not.toContain("Nothing changed yet");
       expect(container?.textContent).toContain(expectedStatus);
-      expect(container?.textContent).not.toContain("Apply changes");
+      expect(container?.textContent).not.toContain("Current status:");
     },
   );
 
@@ -336,10 +428,8 @@ describe("ProfileCopilotTranscript", () => {
     });
 
     expect(container?.textContent).not.toContain("Nothing changed yet");
-    expect(container?.textContent).toContain(
-      "Current status: 1 applied, 1 awaiting review.",
-    );
-    expect(container?.textContent).toContain("Apply changes");
+    expect(container?.textContent).toContain("Applied");
+    expect(container?.textContent).toContain("Needs review");
   });
 
   test("does not claim applied after revision undo — transcript shows undone status", () => {
@@ -348,7 +438,8 @@ describe("ProfileCopilotTranscript", () => {
         {
           id: "assistant_message_applied",
           role: "assistant",
-          content: "I prepared this change for your review. Nothing changed yet.",
+          content:
+            "I prepared this change for your review. Nothing changed yet.",
           context: { surface: "profile", section: "basics" },
           patchGroups: [
             {
@@ -387,12 +478,262 @@ describe("ProfileCopilotTranscript", () => {
           restoredFromRevisionId: "profile_revision_applied",
         },
       ] as never,
-    })
+    });
 
-    expect(container?.textContent).not.toContain("This change is applied")
-    expect(container?.textContent).not.toContain("These changes are applied")
-    expect(container?.textContent).toContain("undone")
-    expect(container?.textContent).toContain("no longer applied")
+    expect(container?.textContent).not.toContain("This change is applied");
+    expect(container?.textContent).not.toContain("These changes are applied");
+    expect(container?.textContent).toContain("Undone");
+  });
+});
+
+describe("ProfileCopilotTranscript inline proposals", () => {
+  let container: HTMLDivElement | null = null;
+  let root: Root | null = null;
+
+  (
+    globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+
+  afterEach(() => {
+    if (root) {
+      act(() => {
+        root?.unmount();
+      });
+    }
+
+    root = null;
+    container?.remove();
+    container = null;
+    vi.clearAllMocks();
+  });
+
+  function renderProposal(
+    applyMode: "needs_review" | "applied" | "rejected" = "needs_review",
+    revisions: ComponentProps<
+      typeof ProfileCopilotTranscript
+    >["revisions"] = [],
+    busy = false,
+  ) {
+    const onApplyPatchGroup = vi.fn();
+    const onRejectPatchGroup = vi.fn();
+    const onUndoRevision = vi.fn();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileCopilotTranscript
+          busy={busy}
+          context={{ surface: "profile", section: "basics" }}
+          emptyStateDescription="Ask a question."
+          emptyStateTitle="What would you like to improve?"
+          isPendingHere={false}
+          messages={[
+            {
+              id: "assistant_message_proposal",
+              role: "assistant",
+              content: "I can make this change for you. Nothing changed yet.",
+              context: { surface: "profile", section: "basics" },
+              patchGroups: [
+                {
+                  id: "patch_group_proposal",
+                  summary: "Update headline",
+                  applyMode,
+                  operations: [
+                    {
+                      operation: "replace_identity_fields",
+                      value: { headline: "Product Designer" },
+                    },
+                  ],
+                  createdAt: "2026-04-15T16:00:00.000Z",
+                },
+              ],
+              createdAt: "2026-04-15T16:00:00.000Z",
+            },
+          ]}
+          onApplyPatchGroup={onApplyPatchGroup}
+          onRejectPatchGroup={onRejectPatchGroup}
+          onUndoRevision={onUndoRevision}
+          onUsePrompt={vi.fn()}
+          revisions={revisions}
+          suggestedPrompts={[]}
+          transcriptRef={createRef<HTMLDivElement>()}
+        />,
+      );
+    });
+
+    return { onApplyPatchGroup, onRejectPatchGroup, onUndoRevision };
+  }
+
+  test("keeps proposal actions inline with the assistant message", () => {
+    const { onApplyPatchGroup, onRejectPatchGroup } = renderProposal();
+    const proposal = container?.querySelector<HTMLElement>(
+      '[data-profile-copilot-proposal="true"]',
+    );
+    const applyButton = proposal?.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Apply & save:"]',
+    );
+    const rejectButton = proposal?.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Reject:"]',
+    );
+
+    expect(proposal).not.toBeNull();
+    expect(proposal?.getAttribute("data-profile-copilot-proposal-status")).toBe(
+      "needs_review",
+    );
+    expect(proposal?.textContent).toContain(
+      "Set headline to “Product Designer”",
+    );
+    expect(proposal?.textContent).toContain("No changes made yet.");
+    const statusLabel = proposal?.querySelector<HTMLElement>(
+      '[data-profile-copilot-proposal-status-label="true"]',
+    );
+    expect(statusLabel).not.toBeNull();
+    expect(statusLabel?.className).toContain("absolute");
+    expect(statusLabel?.className).toContain("right-0");
+    expect(proposal?.textContent).not.toContain("Saves immediately");
+    expect(applyButton?.textContent).toContain("Apply & save");
+    expect(proposal?.textContent).not.toContain("Nothing changed yet");
+    expect(
+      container?.querySelector("[data-profile-copilot-review-actions]"),
+    ).toBeNull();
+    expect(
+      container?.querySelector("[data-profile-copilot-history]"),
+    ).toBeNull();
+
+    act(() => {
+      applyButton?.click();
+      rejectButton?.click();
+    });
+
+    expect(onApplyPatchGroup).toHaveBeenCalledWith("patch_group_proposal");
+    expect(onRejectPatchGroup).toHaveBeenCalledWith("patch_group_proposal");
+  });
+
+  test("shows a compact undo on the applied proposal using its assistant revision", () => {
+    const { onUndoRevision } = renderProposal("applied", [
+      {
+        id: "profile_revision_applied",
+        createdAt: "2026-04-15T16:00:10.000Z",
+        reason: "Assistant patch: Update headline",
+        trigger: "assistant_patch",
+        messageId: "assistant_message_proposal",
+        patchGroupId: "patch_group_proposal",
+        restoredFromRevisionId: null,
+      },
+    ] as never);
+    const proposal = container?.querySelector<HTMLElement>(
+      '[data-profile-copilot-proposal="true"]',
+    );
+    const undoButton = proposal?.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Undo applied change:"]',
+    );
+
+    expect(proposal?.textContent).toContain("Applied");
+    expect(proposal?.textContent).toContain("Saved to your profile");
+    expect(undoButton).not.toBeNull();
+
+    act(() => undoButton?.click());
+    expect(onUndoRevision).toHaveBeenCalledWith("profile_revision_applied");
+  });
+
+  test("disables apply, reject, and undo while profile mutation is pending", () => {
+    const { onApplyPatchGroup, onRejectPatchGroup } = renderProposal(
+      "needs_review",
+      [],
+      true,
+    );
+    const proposal = container?.querySelector<HTMLElement>(
+      '[data-profile-copilot-proposal="true"]',
+    );
+    const applyButton = proposal?.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Apply & save:"]',
+    );
+    const rejectButton = proposal?.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Reject:"]',
+    );
+
+    expect(applyButton?.disabled).toBe(true);
+    expect(rejectButton?.disabled).toBe(true);
+
+    act(() => {
+      applyButton?.click();
+      rejectButton?.click();
+    });
+
+    expect(onApplyPatchGroup).not.toHaveBeenCalled();
+    expect(onRejectPatchGroup).not.toHaveBeenCalled();
+  });
+
+  test("hides undo when a newer profile revision supersedes the proposal", () => {
+    renderProposal("applied", [
+      {
+        id: "profile_revision_applied",
+        createdAt: "2026-04-15T16:00:10.000Z",
+        reason: "Assistant patch: Update headline",
+        trigger: "assistant_patch",
+        messageId: "assistant_message_proposal",
+        patchGroupId: "patch_group_proposal",
+        restoredFromRevisionId: null,
+      },
+      {
+        id: "profile_revision_newer",
+        createdAt: "2026-04-15T16:01:10.000Z",
+        reason: "Assistant patch: Update location",
+        trigger: "assistant_patch",
+        messageId: "assistant_message_newer",
+        patchGroupId: "patch_group_newer",
+        restoredFromRevisionId: null,
+      },
+    ] as never);
+
+    expect(
+      container?.querySelector('button[aria-label^="Undo applied change:"]'),
+    ).toBeNull();
+    expect(container?.textContent).toContain("Applied");
+  });
+
+  test("renders failed turns inline with a retry action", () => {
+    const onRetryFailedRequest = vi.fn();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileCopilotTranscript
+          busy={false}
+          emptyStateDescription="Ask a question."
+          emptyStateTitle="What would you like to improve?"
+          failedRequest={{
+            content: "Please update my headline.",
+            context: { surface: "profile", section: "basics" },
+            message: "Copilot could not complete that message.",
+          }}
+          isPendingHere={false}
+          messages={[]}
+          onRetryFailedRequest={onRetryFailedRequest}
+          onUsePrompt={vi.fn()}
+          suggestedPrompts={[]}
+          transcriptRef={createRef<HTMLDivElement>()}
+        />,
+      );
+    });
+
+    const failedTurn = container.querySelector<HTMLElement>(
+      '[data-profile-copilot-failed-turn="true"]',
+    );
+    const retry = failedTurn?.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry failed message"]',
+    );
+
+    expect(failedTurn?.textContent).toContain("Please update my headline.");
+    expect(failedTurn?.textContent).toContain(
+      "Copilot could not complete that message.",
+    );
+    act(() => retry?.click());
+    expect(onRetryFailedRequest).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -400,53 +741,87 @@ describe("describePatchOperation compensation clear truth", () => {
   test.each([
     {
       name: "clear minimum only",
-      value: { minimum: null, interval: "year", currency: "USD", currencyStatus: "explicit" as const },
+      value: {
+        minimum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "explicit" as const,
+      },
       expected: "Clear compensation minimum",
       notExpected: "Set compensation to range",
     },
     {
       name: "clear maximum only",
-      value: { maximum: null, interval: "year", currency: "USD", currencyStatus: "explicit" as const },
+      value: {
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "explicit" as const,
+      },
       expected: "Clear compensation maximum",
       notExpected: "Set compensation to range",
     },
     {
       name: "clear range (both bounds)",
-      value: { minimum: null, maximum: null, interval: "year", currency: "USD", currencyStatus: "explicit" as const },
+      value: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "explicit" as const,
+      },
       expected: "Clear compensation range",
       notExpected: "Set compensation to range",
     },
     {
       name: "clear minimum with maximum set",
-      value: { minimum: null, maximum: 4000, interval: "month", currency: null, currencyStatus: "needs_clarification" as const },
+      value: {
+        minimum: null,
+        maximum: 4000,
+        interval: "month",
+        currency: null,
+        currencyStatus: "needs_clarification" as const,
+      },
       expected: "Clear compensation minimum",
       notExpected: "Set compensation to range",
     },
-  ])("renders explicit clear wording for $name", async ({ value, expected, notExpected }) => {
-    const { describePatchOperation } = await import("./profile-copilot-rail.shared")
-    const operation = {
-      operation: "replace_compensation_preferences_fields" as const,
-      value,
-    }
-    const description = describePatchOperation(operation as never)
-    expect(description).toContain(expected)
-    expect(description).not.toContain(notExpected)
-    expect(description).toContain("Clear")
-  })
+  ])(
+    "renders explicit clear wording for $name",
+    async ({ value, expected, notExpected }) => {
+      const { describePatchOperation } =
+        await import("./profile-copilot-rail.shared");
+      const operation = {
+        operation: "replace_compensation_preferences_fields" as const,
+        value,
+      };
+      const description = describePatchOperation(operation as never);
+      expect(description).toContain(expected);
+      expect(description).not.toContain(notExpected);
+      expect(description).toContain("Clear");
+    },
+  );
 
   test("still renders range correctly for non-clear values", async () => {
-    const { describePatchOperation } = await import("./profile-copilot-rail.shared")
+    const { describePatchOperation } =
+      await import("./profile-copilot-rail.shared");
     const description = describePatchOperation({
       operation: "replace_compensation_preferences_fields",
-      value: { minimum: 3000, maximum: 4000, interval: "month", currency: null, currencyStatus: "needs_clarification" },
-    } as never)
-    expect(description).toContain("Set compensation to 3,000–4,000")
-  })
-})
+      value: {
+        minimum: 3000,
+        maximum: 4000,
+        interval: "month",
+        currency: null,
+        currencyStatus: "needs_clarification",
+      },
+    } as never);
+    expect(description).toContain("Set compensation to 3,000–4,000");
+  });
+});
 
 describe("getProfileCopilotDisplayContent undone truth", () => {
   test("does not claim applied after revision undo — shows undone status", async () => {
-    const { getProfileCopilotDisplayContent } = await import("./profile-copilot-rail.shared")
+    const { getProfileCopilotDisplayContent } =
+      await import("./profile-copilot-rail.shared");
     const message = {
       id: "assistant_message_applied",
       role: "assistant" as const,
@@ -457,20 +832,25 @@ describe("getProfileCopilotDisplayContent undone truth", () => {
           id: "patch_group_applied",
           summary: "Update headline",
           applyMode: "applied" as const,
-          operations: [{ operation: "replace_identity_fields" as const, value: { headline: "Senior Product Engineer" } }],
+          operations: [
+            {
+              operation: "replace_identity_fields" as const,
+              value: { headline: "Senior Product Engineer" },
+            },
+          ],
           createdAt: "2026-04-15T16:00:00.000Z",
         },
       ],
       createdAt: "2026-04-15T16:00:00.000Z",
-    }
+    };
     const revisions: Array<{
-      id: string
-      createdAt: string
-      reason: string | null
-      trigger: "assistant_patch" | "undo"
-      messageId: string | null
-      patchGroupId: string | null
-      restoredFromRevisionId: string | null
+      id: string;
+      createdAt: string;
+      reason: string | null;
+      trigger: "assistant_patch" | "undo";
+      messageId: string | null;
+      patchGroupId: string | null;
+      restoredFromRevisionId: string | null;
     }> = [
       {
         id: "profile_revision_applied",
@@ -490,20 +870,24 @@ describe("getProfileCopilotDisplayContent undone truth", () => {
         patchGroupId: null,
         restoredFromRevisionId: "profile_revision_applied",
       },
-    ]
+    ];
 
-    const withoutRevisions = getProfileCopilotDisplayContent(message as never)
-    expect(withoutRevisions).toContain("This change is applied")
+    const withoutRevisions = getProfileCopilotDisplayContent(message as never);
+    expect(withoutRevisions).toContain("This change is applied");
 
-    const withUndo = getProfileCopilotDisplayContent(message as never, revisions as never)
-    expect(withUndo).not.toContain("This change is applied")
-    expect(withUndo).not.toContain("These changes are applied")
-    expect(withUndo).toContain("undone")
-    expect(withUndo).toContain("no longer applied")
-  })
+    const withUndo = getProfileCopilotDisplayContent(
+      message as never,
+      revisions as never,
+    );
+    expect(withUndo).not.toContain("This change is applied");
+    expect(withUndo).not.toContain("These changes are applied");
+    expect(withUndo).toContain("undone");
+    expect(withUndo).toContain("no longer applied");
+  });
 
   test("handles indirect undo via timestamp — later patches reverted when undo targets earlier snapshot", async () => {
-    const { getUndonePatchGroupIds } = await import("./profile-copilot-rail.shared")
+    const { getUndonePatchGroupIds } =
+      await import("./profile-copilot-rail.shared");
     const revisions = [
       {
         id: "rev_a",
@@ -532,13 +916,13 @@ describe("getProfileCopilotDisplayContent undone truth", () => {
         patchGroupId: null,
         restoredFromRevisionId: "rev_a",
       },
-    ]
-    const undone = getUndonePatchGroupIds(revisions as never)
+    ];
+    const undone = getUndonePatchGroupIds(revisions as never);
     // rev_a is direct target, rev_b is after rev_a but before undo, so both should be undone
-    expect(undone.has("patch_a")).toBe(true)
-    expect(undone.has("patch_b")).toBe(true)
-  })
-})
+    expect(undone.has("patch_a")).toBe(true);
+    expect(undone.has("patch_b")).toBe(true);
+  });
+});
 
 describe("ProfileCopilotCollapsedBubble", () => {
   let container: HTMLDivElement | null = null;
@@ -602,11 +986,11 @@ describe("ProfileCopilotCollapsedBubble", () => {
     expect(button?.getAttribute("type")).toBe("button");
     expect(button?.getAttribute("aria-haspopup")).toBe("dialog");
     expect(button?.getAttribute("aria-label")).toBe(
-      "Profile Copilot: Continue this thread",
+      "the Assistant: Continue this thread",
     );
     expect(button?.className).toContain("size-12");
     expect(button?.getAttribute("title")).toBe(
-      "Profile Copilot: Continue this thread",
+      "the Assistant: Continue this thread",
     );
   });
 });

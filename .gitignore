@@ -23,6 +23,8 @@ apps/desktop/.tmp/
 apps/desktop/.vite/
 apps/desktop/test-artifacts/
 /test-artifacts/
+**/test-artifacts/
+*.tsbuildinfo
 apps/desktop/.computer-audit/
 apps/desktop/test-fixtures/local/
 .cursor/*

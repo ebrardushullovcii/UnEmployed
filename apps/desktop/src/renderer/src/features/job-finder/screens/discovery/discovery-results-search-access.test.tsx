@@ -82,29 +82,29 @@ function getDetailRegion(): HTMLElement {
 }
 
 describe("DiscoveryResultsPanel narrow search access", () => {
-  it("keeps mismatch controls inside the aligned results panel", () => {
-    const onToggleHiddenJobs = vi.fn();
+  it("keeps the also-found control inside the aligned results panel", () => {
+    const onToggleAlsoFound = vi.fn();
 
     render(
       <DiscoveryResultsPanel
         browserSession={browserSession}
-        hiddenJobCount={6}
+        hiddenAlsoFoundCount={6}
         jobs={[resultJob]}
-        mismatchJobCount={6}
+        alsoFoundCount={6}
         onSelectJob={vi.fn()}
-        onToggleHiddenJobs={onToggleHiddenJobs}
+        onToggleAlsoFound={onToggleAlsoFound}
         selectedJob={resultJob}
       />,
     );
 
     const resultsPanel = screen.getByRole("region", { name: "Job results" });
     expect(
-      within(resultsPanel).getByText("1 shown · 6 mismatches hidden"),
+      within(resultsPanel).getByText("1 worth opening · 6 also found"),
     ).toBeTruthy();
     fireEvent.click(
-      within(resultsPanel).getByRole("button", { name: /Show mismatches/ }),
+      within(resultsPanel).getByRole("button", { name: /Show also found/u }),
     );
-    expect(onToggleHiddenJobs).toHaveBeenCalledOnce();
+    expect(onToggleAlsoFound).toHaveBeenCalledOnce();
   });
 
   it("leaves the route-level search action to the page header", () => {
@@ -285,8 +285,7 @@ describe("DiscoveryResultsPanel narrow search access", () => {
     ).toBeNull();
   });
 
-  it("compares the strongest jobs side by side and opens the chosen job", () => {
-    const onSelectJob = vi.fn();
+  it("offers no list-management chrome beside the two controls that matter", () => {
     const secondJob = {
       ...resultJob,
       id: "job_backend_compare",
@@ -303,20 +302,17 @@ describe("DiscoveryResultsPanel narrow search access", () => {
         browserSession={browserSession}
         hasCompletedSearch
         jobs={[resultJob, secondJob]}
-        onSelectJob={onSelectJob}
+        onSelectJob={vi.fn()}
         selectedJob={resultJob}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Compare" }));
-    const comparison = screen.getByRole("region", {
-      name: "Top job comparison",
-    });
-    expect(comparison.textContent).toContain("88% fit");
-    expect(comparison.textContent).toContain("81% fit");
-    fireEvent.click(
-      within(comparison).getByRole("button", { name: /Backend Engineer/i }),
-    );
-    expect(onSelectJob).toHaveBeenCalledWith("job_backend_compare");
+    // Compare and Saved views were list-management chrome for a workspace
+    // holding a handful of rows; both are deleted rather than restyled.
+    expect(screen.queryByRole("button", { name: "Compare" })).toBeNull();
+    expect(
+      screen.queryByRole("region", { name: "Top job comparison" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /Saved views/u })).toBeNull();
   });
 });

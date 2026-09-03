@@ -116,16 +116,16 @@ function renderScreen(props: {
   return render(
     <MemoryRouter>
       <OutcomeAnalyticsScreen
-      actionMessage={props.actionMessage ?? null}
-      activeCampaignId="campaign-1"
-      campaigns={campaigns}
-      events={props.events ?? []}
-      generatedAt={now}
-      isSuggestionPending={props.isSuggestionPending ?? (() => false)}
-      onSetOutcomeSuggestionEnabled={
-        props.onSetOutcomeSuggestionEnabled ?? (() => Promise.resolve(true))
-      }
-      overview={props.overview ?? null}
+        actionMessage={props.actionMessage ?? null}
+        activeCampaignId="campaign-1"
+        campaigns={campaigns}
+        events={props.events ?? []}
+        generatedAt={now}
+        isSuggestionPending={props.isSuggestionPending ?? (() => false)}
+        onSetOutcomeSuggestionEnabled={
+          props.onSetOutcomeSuggestionEnabled ?? (() => Promise.resolve(true))
+        }
+        overview={props.overview ?? null}
         resumeStrategies={resumeStrategies}
       />
     </MemoryRouter>,

@@ -88,7 +88,7 @@ describe("ProfileListEditor", () => {
     expect(tray?.className).not.toContain("min-h-46");
   });
 
-  it("keeps full scrollable sizing once chips are populated", () => {
+  it("lets a populated chip tray grow instead of clipping rows", () => {
     renderEditor({ values: ["Figma", "React"] });
 
     const tray = [...(container?.querySelectorAll("section > div") ?? [])].find(
@@ -96,17 +96,21 @@ describe("ProfileListEditor", () => {
     );
     expect(tray?.textContent).toContain("Figma");
     expect(tray?.textContent).not.toContain("No items added yet.");
-    expect(tray?.className).toContain("min-h-[8.6rem]");
-    expect(tray?.className).toContain("max-h-[8.6rem]");
+    // The tray grows with its chips; the old 8.6rem floor left ~100px of
+    // empty space under a single row.
+    expect(tray?.className).toContain("min-h-16");
+    expect(tray?.className).not.toContain("8.6rem");
+    expect(tray?.className).not.toContain("overflow-auto");
   });
 
-  it("keeps full scrollable sizing once rows are populated", () => {
+  it("lets a populated rows tray grow instead of clipping entries", () => {
     renderEditor({ displayMode: "rows", values: ["Figma", "React"] });
 
     const tray = [...(container?.querySelectorAll("section > div") ?? [])].find(
       (element) => element.className.includes("min-h-"),
     );
     expect(tray?.className).toContain("min-h-46");
-    expect(tray?.className).toContain("max-h-46");
+    expect(tray?.className).not.toContain("max-h-46");
+    expect(tray?.className).not.toContain("overflow-auto");
   });
 });

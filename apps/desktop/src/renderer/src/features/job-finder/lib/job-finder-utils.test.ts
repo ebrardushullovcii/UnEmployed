@@ -129,6 +129,12 @@ describe("list input parsers", () => {
     ]);
   });
 
+  test("treats nullish watch values as empty lists instead of throwing", () => {
+    expect(parseListInput(undefined)).toEqual([]);
+    expect(parseListInput(null)).toEqual([]);
+    expect(parseListInput("")).toEqual([]);
+  });
+
   test("parses role-family tokens from commas and newlines together", () => {
     expect(parseTokenListInput("frontend, fullstack\ndesign systems")).toEqual([
       "frontend",

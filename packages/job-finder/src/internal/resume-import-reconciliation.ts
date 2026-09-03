@@ -32,6 +32,10 @@ import {
   PROFILE_PLACEHOLDER_LOCATION,
   PROFILE_PLACEHOLDER_SUMMARY,
 } from "./workspace-defaults";
+import {
+  findResumeImportIdentityConflicts,
+  isLikelyPersonName as isLikelyPersonNameFromIdentity,
+} from "./resume-identity";
 
 export function candidateScore(candidate: ResumeImportFieldCandidate): number {
   const sourceBonus = (() => {
@@ -118,6 +122,10 @@ function existingScalarValueForCandidate(
       return profile.githubUrl;
     case "contact.personalWebsiteUrl":
       return profile.personalWebsiteUrl;
+    case "application_identity.preferredEmail":
+      return profile.applicationIdentity.preferredEmail;
+    case "application_identity.preferredPhone":
+      return profile.applicationIdentity.preferredPhone;
     case "search_preferences.salaryCurrency":
       return searchPreferences.salaryCurrency;
     default:
@@ -594,7 +602,13 @@ function hasSufficientEvidence(candidate: ResumeImportFieldCandidate): boolean {
 function isLikelyPersonNamePart(value: string): boolean {
   const trimmed = value.trim();
 
-  return trimmed.length > 0 && /^[A-Z][A-Za-z.'-]*$/.test(trimmed);
+  return (
+    trimmed.length > 0 &&
+    /^\p{Lu}[\p{L}\p{M}.'’ʼ-]*$/u.test(trimmed) &&
+    !/\b(?:senior|junior|staff|principal|lead|head|chief|associate|intern|engineer|developer|designer|manager|director|analyst|consultant|specialist|architect|technical|product|platform|frontend|front[- ]end|backend|back[- ]end|full[- ]stack)\b/iu.test(
+      trimmed,
+    )
+  );
 }
 
 function shouldAutoApplyPlaceholderReplacement(
@@ -710,33 +724,7 @@ function canAutoApplyDespiteWorkspaceConflict(
 }
 
 function isLikelyPersonName(value: string): boolean {
-  const trimmed = value.trim();
-
-  if (!trimmed || trimmed.length > 48) {
-    return false;
-  }
-
-  if (/[@\d]|https?:\/\//i.test(trimmed)) {
-    return false;
-  }
-
-  if (
-    /(about me|about|summary|profile|skills|experience|education|language skills|work experience)/i.test(
-      trimmed,
-    )
-  ) {
-    return false;
-  }
-
-  const parts = trimmed.split(/\s+/).filter(Boolean);
-  return (
-    parts.length >= 2 &&
-    parts.length <= 4 &&
-    /^[A-Za-z][A-Za-z\s.'-]+$/.test(trimmed) &&
-    parts.every(
-      (part) => /^[A-Z][A-Za-z.'-]*$/.test(part) || /^[A-Z]{2,}$/.test(part),
-    )
-  );
+  return isLikelyPersonNameFromIdentity(value);
 }
 
 function isStrongLiteralIdentityCandidate(
@@ -1328,6 +1316,7 @@ function applyCandidateResolution(
   searchPreferences: JobSearchPreferences,
   candidate: ResumeImportFieldCandidate,
   resolution: ResumeImportFieldCandidate["resolution"],
+  resolutionReasonOverride?: string,
 ): ResumeImportFieldCandidate {
   const resolvedAt =
     resolution === "auto_applied" ? new Date().toISOString() : null;
@@ -1342,12 +1331,14 @@ function applyCandidateResolution(
         ? Math.min(candidate.confidence, candidateOverallConfidence(candidate))
         : candidate.confidence,
     resolution,
-    resolutionReason: resolutionReasonForCandidate(
-      profile,
-      searchPreferences,
-      candidate,
-      resolution,
-    ),
+    resolutionReason:
+      resolutionReasonOverride ??
+      resolutionReasonForCandidate(
+        profile,
+        searchPreferences,
+        candidate,
+        resolution,
+      ),
     resolvedAt,
   });
 }
@@ -1418,14 +1409,35 @@ function hasTextVisionMaterialConflict(
   );
   const normalizedValues = new Set(
     relevantCandidates.map((candidate) =>
-      normalizeText(
-        candidate.valuePreview ??
-          buildValuePreview(candidate.value) ??
-          JSON.stringify(candidate.value),
-      ),
+      candidate.target.section === "identity" &&
+      candidate.target.key === "fullName" &&
+      typeof candidate.value === "string"
+        ? candidate.value
+            .normalize("NFKD")
+            .replace(/\p{M}/gu, "")
+            .toLocaleLowerCase()
+            .replace(/\s+/g, " ")
+            .trim()
+        : normalizeText(
+            candidate.valuePreview ??
+              buildValuePreview(candidate.value) ??
+              JSON.stringify(candidate.value),
+          ),
     ),
   );
   return normalizedValues.size > 1;
+}
+
+function candidateSharesMaterialTextVisionConflict(
+  candidate: ResumeImportFieldCandidate,
+  candidates: readonly ResumeImportFieldCandidate[],
+): boolean {
+  const sameTargetCandidates = candidates.filter(
+    (other) =>
+      stringifyCandidateTarget(other) === stringifyCandidateTarget(candidate),
+  );
+
+  return hasTextVisionMaterialConflict(sameTargetCandidates);
 }
 
 function isTextVisionWinner(candidate: ResumeImportFieldCandidate): boolean {
@@ -1567,9 +1579,33 @@ export function reconcileCandidates(
   const normalizedCandidates = candidates.map(
     normalizeRecordCandidateForReconciliation,
   );
+  const identityConflicts = findResumeImportIdentityConflicts(
+    profile,
+    normalizedCandidates,
+  );
   const candidatesForGrouping: ResumeImportFieldCandidate[] = [];
 
   for (const candidate of normalizedCandidates) {
+    const identityConflict = identityConflicts.get(candidate.id);
+    if (
+      identityConflict &&
+      !candidateSharesMaterialTextVisionConflict(
+        candidate,
+        normalizedCandidates,
+      )
+    ) {
+      resolved.push(
+        applyCandidateResolution(
+          profile,
+          searchPreferences,
+          candidate,
+          "needs_review",
+          `identity_mismatch_requires_review: ${identityConflict}`,
+        ),
+      );
+      continue;
+    }
+
     if (candidateMatchesWorkspace(profile, searchPreferences, candidate)) {
       resolved.push(
         applyCandidateResolution(

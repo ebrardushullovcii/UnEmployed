@@ -99,12 +99,16 @@ describe("profile setup work history empty state", () => {
     }
 
     const onContinueWithoutWorkHistory = vi.fn();
-    render(<Harness onContinueWithoutWorkHistory={onContinueWithoutWorkHistory} />);
+    render(
+      <Harness onContinueWithoutWorkHistory={onContinueWithoutWorkHistory} />,
+    );
 
     // Plain user-facing copy replaces internal "structured experience" wording
     // and states plainly that having no formal experience is valid.
     expect(container?.textContent).toContain("No work history yet");
-    expect(container?.textContent).not.toContain("No structured experience yet");
+    expect(container?.textContent).not.toContain(
+      "No structured experience yet",
+    );
     expect(container?.textContent).toContain(
       "No formal roles yet is a fine place to start.",
     );

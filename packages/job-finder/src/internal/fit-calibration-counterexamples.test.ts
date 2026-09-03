@@ -25,6 +25,7 @@ const EXPECTED_COUNTEREXAMPLE_IDS = [
   "session_semantic_equivalence",
   "reversed_input_stability",
   "talent_pool_not_actionable",
+  "early_careers_programme_excludes_senior_profile",
 ] as const;
 
 describe("fit calibration counterexamples", () => {

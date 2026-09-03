@@ -51,7 +51,9 @@ function createJob(
       reasons: ["Relevant experience"],
       gaps: [],
     },
-    ...(overrides?.postedAt !== undefined ? { postedAt: overrides.postedAt } : {}),
+    ...(overrides?.postedAt !== undefined
+      ? { postedAt: overrides.postedAt }
+      : {}),
     ...(overrides?.postedAtText !== undefined
       ? { postedAtText: overrides.postedAtText }
       : {}),
@@ -62,12 +64,12 @@ function createJob(
 }
 
 function visibleRowIds(): string[] {
-  return Array.from(
-    document.querySelectorAll("[data-job-result-id]"),
-  ).flatMap((element) => {
-    const id = element.getAttribute("data-job-result-id");
-    return id === null ? [] : [id];
-  });
+  return Array.from(document.querySelectorAll("[data-job-result-id]")).flatMap(
+    (element) => {
+      const id = element.getAttribute("data-job-result-id");
+      return id === null ? [] : [id];
+    },
+  );
 }
 
 function sortByRecent() {

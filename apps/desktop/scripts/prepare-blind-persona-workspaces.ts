@@ -21,19 +21,25 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import {
+  CandidateProfileSchema,
   JobFinderRepositoryStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
   ProfileSetupStateSchema,
   createFreshStartCandidateProfile,
+  createStarterJobDiscoveryTargets,
+  deriveProfileSetupState,
 } from "@unemployed/contracts";
 import { _electron as electron } from "playwright";
 
 import {
   buildBlindPersonaRepositoryStates,
+  getBlindPersonaJobsForSession,
   loadBlindPersonaSeedData,
+  parseBlindPersonaVisualReviewTemplate,
   stableBlindPersonaSerialization,
   type BlindPersonaSession,
+  type BlindPersonaVisualReviewTemplate,
 } from "./blind-persona-seed-data";
 import { stableJson } from "./release-acceptance-harness.mjs";
 
@@ -157,6 +163,7 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(scriptDirectory, "..");
 const repositoryRoot = path.resolve(desktopRoot, "../..");
 const manifestName = "blind-persona-seed-manifest.json";
+const browserManagedTransientSidecarNames = ["DIPS-shm", "DIPS-wal"] as const;
 const custodyName = "blind-persona-wave-custody-index.json";
 const testerRecordName = "blind-persona-tester-launch-record.json";
 const testerIntentName = "blind-persona-tester-launch-intent.json";
@@ -199,8 +206,10 @@ const credentialKeyPattern =
 const sourceExcludes = [
   /^node_modules(?:[\\/]|$)/u,
   /^(?:out|dist|build|release|coverage|\.tmp|\.turbo)(?:[\\/]|$)/u,
-  /^test-artifacts(?:[\\/]|$)/u,
+  /(?:^|[\\/])test-artifacts(?:[\\/]|$)/u,
+  /\.tsbuildinfo$/u,
   /^(?:\.git)(?:[\\/]|$)/u,
+  /^docs\/audits\/evidence-manifests(?:\/|$)/u,
 ];
 
 // Single canonical serializer for every custody digest this module writes or
@@ -214,6 +223,15 @@ const sourceExcludes = [
 // custody/seal rejections.
 export function stableSeedSerialization(value: unknown): string {
   return stableJson(value);
+}
+
+/**
+ * Compare strings by UTF-16 code unit, matching the repository's canonical
+ * stableJson ordering. Custody inventories must not depend on ICU collation or
+ * the host locale.
+ */
+export function compareCodeUnitOrder(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 export function sha256(value: Buffer | string): string {
@@ -241,7 +259,7 @@ export async function currentSourcePathSetDigest(
       (relativePath) =>
         !sourceExcludes.some((pattern) => pattern.test(relativePath)),
     )
-    .sort();
+    .sort(compareCodeUnitOrder);
   return sha256(stableSeedSerialization(paths));
 }
 
@@ -259,7 +277,7 @@ export async function dependencyIdentity(
     const visit = async (directory: string): Promise<void> => {
       for (const entry of (
         await readdir(directory, { withFileTypes: true })
-      ).sort((left, right) => left.name.localeCompare(right.name))) {
+      ).sort((left, right) => compareCodeUnitOrder(left.name, right.name))) {
         if (entry.name === ".vite" || entry.name === ".cache") continue;
         const filePath = path.join(directory, entry.name);
         const fileStat = await lstat(filePath);
@@ -294,11 +312,9 @@ export async function dependencyIdentity(
   // full-path UTF-16 code-unit comparison — not per-root concatenation order,
   // and never ambient-locale collation, which would diverge from the harness
   // on mixed-case and non-ASCII paths.
-  files.sort((left, right) => {
-    const leftPath = String(left.path);
-    const rightPath = String(right.path);
-    return leftPath < rightPath ? -1 : leftPath > rightPath ? 1 : 0;
-  });
+  files.sort((left, right) =>
+    compareCodeUnitOrder(String(left.path), String(right.path)),
+  );
   return {
     digest: sha256(
       files.map((entry) => `${stableSeedSerialization(entry)}\n`).join(""),
@@ -406,21 +422,44 @@ async function readJson(filePath: string): Promise<JsonRecord> {
   }
 }
 
+async function readBoundVisualReviewTemplate(
+  seedManifestPath: string,
+): Promise<BlindPersonaVisualReviewTemplate> {
+  const seedManifest = await readJson(seedManifestPath);
+  const template = parseBlindPersonaVisualReviewTemplate(
+    seedManifest.visualReviewTemplate,
+    `${seedManifestPath}.visualReviewTemplate`,
+  );
+  const canonical = (await loadBlindPersonaSeedData()).manifest
+    .visualReviewTemplate;
+  if (
+    stableBlindPersonaSerialization(template) !==
+    stableBlindPersonaSerialization(canonical)
+  ) {
+    throw new Error(
+      `Persona seed visual-review template differs from the canonical blind-persona manifest: ${seedManifestPath}`,
+    );
+  }
+  return template;
+}
+
 async function walkFiles(
   root: string,
   excluded = new Set<string>(),
+  shouldExclude?: (relativePath: string) => boolean,
 ): Promise<string[]> {
   const files: string[] = [];
   const visit = async (directory: string) => {
     for (const entry of (
       await readdir(directory, { withFileTypes: true })
-    ).sort((a, b) => a.name.localeCompare(b.name))) {
+    ).sort((a, b) => compareCodeUnitOrder(a.name, b.name))) {
       const filePath = path.join(directory, entry.name);
       const relativePath = path
         .relative(root, filePath)
         .split(path.sep)
         .join("/");
-      if (excluded.has(relativePath)) continue;
+      if (excluded.has(relativePath) || shouldExclude?.(relativePath) === true)
+        continue;
       const current = await lstat(filePath);
       if (current.isSymbolicLink())
         throw new Error(`Symlinks are not accepted: ${filePath}`);
@@ -433,21 +472,37 @@ async function walkFiles(
   return files;
 }
 
+/**
+ * Chromium can create these top-level sidecars while the persona workspace is
+ * being seeded. They are browser-managed transient state, not durable persona
+ * payload. Keep this exact-name check narrow: the durable `DIPS` file and
+ * nested/arbitrary `*-shm` files remain part of the sealed inventory.
+ */
+export function isBrowserManagedTransientSidecar(
+  relativePath: string,
+): boolean {
+  return (browserManagedTransientSidecarNames as readonly string[]).includes(
+    relativePath,
+  );
+}
+
 export async function inventoryTree(
   root: string,
   excluded = new Set<string>(),
 ): Promise<{ digest: string; files: FileInventoryEntry[] }> {
   const files = await Promise.all(
-    (await walkFiles(root, excluded)).map(async (filePath) => {
-      const content = await readFile(filePath);
-      return {
-        bytes: content.byteLength,
-        path: path.relative(root, filePath).split(path.sep).join("/"),
-        sha256: sha256(content),
-      };
-    }),
+    (await walkFiles(root, excluded, isBrowserManagedTransientSidecar)).map(
+      async (filePath) => {
+        const content = await readFile(filePath);
+        return {
+          bytes: content.byteLength,
+          path: path.relative(root, filePath).split(path.sep).join("/"),
+          sha256: sha256(content),
+        };
+      },
+    ),
   );
-  files.sort((left, right) => left.path.localeCompare(right.path));
+  files.sort((left, right) => compareCodeUnitOrder(left.path, right.path));
   return {
     digest: sha256(
       files.map((entry) => `${stableSeedSerialization(entry)}\n`).join(""),
@@ -531,8 +586,8 @@ async function verifyAcceptedAppInventory(
   );
   const expectedPaths = expectedEntries.map((entry) => String(entry.path));
   if (
-    stableSeedSerialization(actualPaths.sort()) !==
-    stableSeedSerialization(expectedPaths.sort())
+    stableSeedSerialization(actualPaths.sort(compareCodeUnitOrder)) !==
+    stableSeedSerialization(expectedPaths.sort(compareCodeUnitOrder))
   ) {
     throw new Error("Accepted app has extra, missing, or aliased files.");
   }
@@ -1197,12 +1252,20 @@ export function scanCrossPersonaPaths(
   value: unknown,
   personaId: string,
 ): string[] {
+  // Workspace roots are named P##-<uuid>. Keep the legacy bare P## segment
+  // form too: older persisted paths are still cross-persona contamination,
+  // while ordinary values such as a job slug P14-manager are not paths to a
+  // persona workspace and should not be rejected.
+  const personaRootPattern =
+    /(?:^|[\\/])(P(?:0[1-9]|1[0-4]))(?:-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?(?=[\\/]|$)/giu;
+  const expectedPersonaId = personaId.toUpperCase();
   const violations: string[] = [];
   const visit = (entry: unknown, parts: string[]) => {
     if (typeof entry === "string") {
-      const ids =
-        entry.match(/(?:^|[\\/])P(?:0[1-9]|1[0-4])(?:[\\/]|$)/gu) ?? [];
-      if (ids.some((match) => !match.includes(personaId)))
+      const ids = [...entry.matchAll(personaRootPattern)].map((match) =>
+        String(match[1]).toUpperCase(),
+      );
+      if (ids.some((id) => id !== expectedPersonaId))
         violations.push(parts.join("."));
     } else if (Array.isArray(entry)) {
       entry.forEach((item, index) => visit(item, [...parts, String(index)]));
@@ -1224,66 +1287,132 @@ function personaShortId(session: BlindPersonaSession): string {
 }
 
 async function buildPersonaState(
-  personaId: string,
+  session: BlindPersonaSession,
   resumeStoragePath: string,
+  resumeSha256?: string,
 ): Promise<JsonRecord> {
+  const personaId = personaShortId(session);
   const data = await loadBlindPersonaSeedData();
+  let parsedState: JsonRecord;
   if (personaId === "P13" || personaId === "P14") {
     const states = await buildBlindPersonaRepositoryStates();
     const state = structuredClone(states[personaId]);
     state.profile.baseResume.storagePath = resumeStoragePath;
-    return JobFinderRepositoryStateSchema.parse(state) as JsonRecord;
+    if (resumeSha256) state.profile.baseResume.sha256 = resumeSha256;
+    parsedState = JobFinderRepositoryStateSchema.parse(state) as JsonRecord;
+  } else {
+    parsedState = JobFinderRepositoryStateSchema.parse({
+      profile: createFreshStartCandidateProfile(),
+      profileSetupState: ProfileSetupStateSchema.parse({
+        status: "not_started",
+        currentStep: "import",
+      }),
+      savedJobs: getBlindPersonaJobsForSession(data, session),
+      searchPreferences: JobSearchPreferencesSchema.parse({
+        targetRoles: [],
+        jobFamilies: [],
+        locations: [],
+        excludedLocations: [],
+        workModes: [],
+        seniorityLevels: [],
+        minimumSalaryUsd: null,
+        targetSalaryUsd: null,
+        salaryCurrency: "USD",
+        targetIndustries: [],
+        targetCompanyStages: [],
+        employmentTypes: [],
+        approvalMode: "review_before_submit",
+        tailoringMode: "balanced",
+        companyBlacklist: [],
+        companyWhitelist: [],
+        discovery: { historyLimit: 5, targets: [] },
+      }),
+      settings: JobFinderSettingsSchema.parse({
+        resumeTemplateId: "classic_ats",
+        resumeFormat: "pdf",
+        fontPreset: "inter_requisite",
+        appearanceTheme: "system",
+        humanReviewRequired: true,
+        keepSessionAlive: false,
+        allowAutoSubmitOverride: false,
+        discoveryOnly: false,
+      }),
+    }) as JsonRecord;
   }
-  return JobFinderRepositoryStateSchema.parse({
-    profile: createFreshStartCandidateProfile(),
-    profileSetupState: ProfileSetupStateSchema.parse({
-      status: "not_started",
-      currentStep: "import",
-    }),
-    savedJobs: data.jobsByPersona[personaId] ?? [],
-    searchPreferences: JobSearchPreferencesSchema.parse({
-      targetRoles: [],
-      jobFamilies: [],
-      locations: [],
-      excludedLocations: [],
-      workModes: [],
-      seniorityLevels: [],
-      minimumSalaryUsd: null,
-      targetSalaryUsd: null,
-      salaryCurrency: "USD",
-      targetIndustries: [],
-      targetCompanyStages: [],
-      employmentTypes: [],
-      approvalMode: "review_before_submit",
-      tailoringMode: "balanced",
-      companyBlacklist: [],
-      companyWhitelist: [],
-      discovery: { historyLimit: 5, targets: [] },
-    }),
-    settings: JobFinderSettingsSchema.parse({
-      resumeTemplateId: "classic_ats",
-      resumeFormat: "pdf",
-      fontPreset: "inter_requisite",
-      appearanceTheme: "system",
-      humanReviewRequired: true,
-      keepSessionAlive: false,
-      allowAutoSubmitOverride: false,
-      discoveryOnly: false,
-    }),
-  }) as JsonRecord;
+  const searchPreferences = requireRecord(
+    parsedState.searchPreferences,
+    "Seed search preferences",
+  );
+  const discovery = requireRecord(
+    searchPreferences.discovery,
+    "Seed discovery",
+  );
+  if (!Array.isArray(discovery.targets) || discovery.targets.length === 0) {
+    discovery.targets = createStarterJobDiscoveryTargets();
+  }
+  parsedState.settings = JobFinderSettingsSchema.parse({
+    ...requireRecord(parsedState.settings, "Seed settings"),
+    applicationCrm:
+      requireRecord(parsedState.settings, "Seed settings").applicationCrm ?? {},
+    resumeApplicationMode:
+      requireRecord(parsedState.settings, "Seed settings")
+        .resumeApplicationMode ?? "tailored_per_job",
+  });
+  return JobFinderRepositoryStateSchema.parse(parsedState) as JsonRecord;
 }
 
-const defaultLaunch: LaunchSeedElectron = async (input) => {
+interface PlaywrightElectronApplicationLike {
+  close(): Promise<void>;
+  evaluate<R>(pageFunction: (electron: unknown) => R): Promise<R>;
+  firstWindow(): Promise<ElectronWindow>;
+  process(): ElectronSeedProcess["process"] extends () => infer P ? P : never;
+}
+
+/**
+ * Keep Playwright's per-launch, ephemeral Node inspector as the sole
+ * main-process evaluation transport, but adapt its public `evaluate` method to
+ * the launcher's explicit `evaluateInMain` capability. Returning the raw
+ * ElectronApplication loses that capability at runtime (despite the compile
+ * cast) and makes every real geometry launch fail closed. A fresh adapter is
+ * created for every Playwright launch, so concurrent persona launchers never
+ * share evaluation state or a fixed inspector port.
+ */
+export function adaptPlaywrightElectronApplication(
+  application: PlaywrightElectronApplicationLike,
+): ElectronSeedProcess {
+  return {
+    close: () => application.close(),
+    evaluateInMain: (pageFunction) => application.evaluate(pageFunction),
+    firstWindow: () => application.firstWindow(),
+    process: () => application.process(),
+  };
+}
+
+export async function launchElectronWithMainEvaluation(
+  input: Parameters<LaunchSeedElectron>[0],
+  launch: (options: {
+    args: string[];
+    cwd: string;
+    env: Record<string, string>;
+    executablePath?: string;
+  }) => Promise<PlaywrightElectronApplicationLike> = (options) =>
+    electron.launch(
+      options,
+    ) as unknown as Promise<PlaywrightElectronApplicationLike>,
+): Promise<ElectronSeedProcess> {
   const env = Object.fromEntries(
     Object.entries(input.env).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string",
     ),
   );
-  return (await electron.launch({
+  const application = await launch({
     ...input,
     env,
-  })) as unknown as ElectronSeedProcess;
-};
+  });
+  return adaptPlaywrightElectronApplication(application);
+}
+
+const defaultLaunch: LaunchSeedElectron = launchElectronWithMainEvaluation;
 
 async function readProcessTable(): Promise<ProcessRow[]> {
   if (process.platform === "win32") {
@@ -1458,11 +1587,35 @@ async function assertAcceptedApp(binding: BuildBinding): Promise<void> {
 }
 
 function expectedStateProjection(state: JsonRecord): JsonRecord {
+  const discovery = requireRecord(state.discovery, "Seed discovery state");
   return {
     profile: state.profile,
-    profileSetupState: state.profileSetupState,
+    // Startup derives setup status/step and may materialize missing-field
+    // review items with a wall-clock createdAt. Compare only the stable
+    // derived fields here; restart parity below still proves that the full
+    // returned state (including generated review items) is durable.
+    profileSetupState: expectedProfileSetupStateProjection(state),
     searchPreferences: state.searchPreferences,
     settings: state.settings,
+    sourceDebugLineage: {
+      activeSourceDebugRun: discovery.activeSourceDebugRun ?? null,
+      recentSourceDebugRuns: discovery.recentSourceDebugRuns ?? [],
+    },
+  };
+}
+
+function expectedProfileSetupStateProjection(state: JsonRecord): JsonRecord {
+  const profile = CandidateProfileSchema.parse(state.profile);
+  const searchPreferences = JobSearchPreferencesSchema.parse(
+    state.searchPreferences,
+  );
+  const persistedState = ProfileSetupStateSchema.parse(state.profileSetupState);
+  const derivedState = deriveProfileSetupState(profile, searchPreferences, {
+    currentState: persistedState,
+  });
+  return {
+    status: derivedState.status,
+    currentStep: derivedState.currentStep,
   };
 }
 
@@ -1497,6 +1650,14 @@ function snapshotSemanticProjection(snapshot: unknown): JsonRecord {
     profileSetupState: value.profileSetupState,
     searchPreferences: value.searchPreferences,
     settings: value.settings,
+    activeSourceDebugRun: value.activeSourceDebugRun ?? null,
+    recentSourceDebugRuns: value.recentSourceDebugRuns ?? [],
+    // This is the complete durable restart projection. Keep intelligence here
+    // so P13 outcome events and batch safeguards cannot disappear between the
+    // reset and production restart unnoticed. It intentionally stays out of
+    // resetIntentSnapshotProjection, whose contract is the relaxed reset
+    // intent rather than every startup-derived/durable field.
+    intelligence: value.intelligence ?? {},
     applicationAttempts: value.applicationAttempts ?? [],
     applicationRecords: value.applicationRecords ?? [],
     applyJobResults: value.applyJobResults ?? [],
@@ -1509,6 +1670,28 @@ function snapshotSemanticProjection(snapshot: unknown): JsonRecord {
     tailoredAssets: value.tailoredAssets ?? [],
     userActionEvents: value.userActionEvents ?? [],
     userActionRequests: value.userActionRequests ?? [],
+  };
+}
+
+function resetIntentSnapshotProjection(snapshot: unknown): JsonRecord {
+  const value = requireRecord(snapshot, "Workspace snapshot");
+  const profileSetupState = ProfileSetupStateSchema.parse(
+    value.profileSetupState,
+  );
+  return {
+    profile: value.profile,
+    // The setup review list is derived by getWorkspaceSnapshot() and its
+    // generated timestamps are intentionally not part of reset intent.
+    profileSetupState: {
+      status: profileSetupState.status,
+      currentStep: profileSetupState.currentStep,
+    },
+    searchPreferences: value.searchPreferences,
+    settings: value.settings,
+    sourceDebugLineage: {
+      activeSourceDebugRun: value.activeSourceDebugRun ?? null,
+      recentSourceDebugRuns: value.recentSourceDebugRuns ?? [],
+    },
   };
 }
 
@@ -1568,16 +1751,49 @@ async function seedPersona(
     );
     await mkdir(path.dirname(resumeDestination), { recursive: true });
     await copyFile(sourceResume, resumeDestination);
+    let resumeStoragePath = path
+      .relative(userDataRoot, resumeDestination)
+      .split(path.sep)
+      .join("/");
+    let resumeSha256: string | undefined;
+    if (personaId === "P13" || personaId === "P14") {
+      resumeSha256 = sha256(await readFile(resumeDestination));
+      // The persona input is retained for custody/debugging, but production
+      // startup validates persisted original-CV paths against the app-owned
+      // documents directory. Materialize that same byte content there and
+      // bind the returning-persona state to its real digest so restart
+      // validation is a truthful no-op rather than a missing/changed-source
+      // recovery. Fresh personas intentionally keep only their import input.
+      const appOwnedResumeDirectory = path.join(
+        userDataRoot,
+        "documents",
+        "resumes",
+      );
+      const appOwnedResumePath = path.join(
+        appOwnedResumeDirectory,
+        path.basename(sourceResume),
+      );
+      await mkdir(appOwnedResumeDirectory, { recursive: true });
+      await copyFile(resumeDestination, appOwnedResumePath);
+      if (sha256(await readFile(appOwnedResumePath)) !== resumeSha256) {
+        throw new Error(
+          "Materialized persona resume bytes failed integrity verification.",
+        );
+      }
+      resumeStoragePath = appOwnedResumePath;
+    }
     const seedData = await loadBlindPersonaSeedData();
+    const seededJobs = getBlindPersonaJobsForSession(seedData, session);
     const jobsDestination = resolveConfinedPath(assetsRoot, "jobs.json");
     await writeFile(
       jobsDestination,
-      `${stableBlindPersonaSerialization(seedData.jobsByPersona[personaId] ?? [])}\n`,
+      `${stableBlindPersonaSerialization(seededJobs)}\n`,
       "utf8",
     );
     const state = await buildPersonaState(
-      personaId,
-      path.relative(userDataRoot, resumeDestination).split(path.sep).join("/"),
+      session,
+      resumeStoragePath,
+      resumeSha256,
     );
     const authorityViolations = scanSeedAuthority(state);
     const crossPersonaPaths = scanCrossPersonaPaths(state, personaId);
@@ -1609,16 +1825,21 @@ async function seedPersona(
         undefined,
         { timeout: 30_000 },
       );
-      resetSnapshot = await page.evaluate((repositoryState) => {
-        const api = (globalThis as unknown as SeedWindowGlobal).unemployed
-          ?.jobFinder?.test?.resetWorkspaceState;
-        if (!api) throw new Error("Seed-only desktop test API is unavailable.");
-        return api(repositoryState);
+      resetSnapshot = await page.evaluate(async (repositoryState) => {
+        const jobFinder = (globalThis as unknown as SeedWindowGlobal).unemployed
+          ?.jobFinder;
+        const workspaceApi = jobFinder?.getWorkspace;
+        if (!workspaceApi)
+          throw new Error("Job Finder workspace API is unavailable.");
+        await workspaceApi();
+        const resetApi = jobFinder?.test?.resetWorkspaceState;
+        if (!resetApi)
+          throw new Error("Seed-only desktop test API is unavailable.");
+        return resetApi(repositoryState);
       }, state);
-      const resetProjection = snapshotSemanticProjection(resetSnapshot);
       if (
         stableSeedSerialization(expectedStateProjection(state)) !==
-        stableSeedSerialization(expectedStateProjection(resetProjection))
+        stableSeedSerialization(resetIntentSnapshotProjection(resetSnapshot))
       ) {
         throw new Error(
           "Reset-returned workspace does not match intended semantic state.",
@@ -1678,6 +1899,7 @@ async function seedPersona(
       personaId,
       blindPersonaDigest: seedData.digestSha256,
       build: binding,
+      visualReviewTemplate: seedData.manifest.visualReviewTemplate,
       input: {
         importRequired: session.resumeInput.importRequired,
         presentation: session.resumeInput.presentation,
@@ -1709,7 +1931,7 @@ async function seedPersona(
       },
       payloadInventory: payload,
       contaminationProof: {
-        excludedFiles: [manifestName],
+        excludedFiles: [manifestName, ...browserManagedTransientSidecarNames],
         verification: "exact raw-byte inventory plus external custody digest",
       },
     };
@@ -1896,7 +2118,7 @@ async function classifyWorkspaceTree(
   const visit = async (directory: string, prefix: string): Promise<void> => {
     for (const entry of (
       await readdir(directory, { withFileTypes: true })
-    ).sort((left, right) => left.name.localeCompare(right.name))) {
+    ).sort((left, right) => compareCodeUnitOrder(left.name, right.name))) {
       const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
       const filePath = path.join(directory, entry.name);
       if (relativePath === manifestName) continue;
@@ -2159,11 +2381,11 @@ export async function verifyPreparedPersonaWorkspace(
   }
   const sealedPayloadDigest = sealedDigestFromEntries;
   const runtimeVolatileFiles = [...classified.runtimeVolatileFiles].sort(
-    (left, right) => left.localeCompare(right),
+    compareCodeUnitOrder,
   );
   const runtimeVolatileSpecialEntries = [
     ...classified.runtimeVolatileSpecialEntries,
-  ].sort((left, right) => left.path.localeCompare(right.path));
+  ].sort((left, right) => compareCodeUnitOrder(left.path, right.path));
   if (custodyIndexPath) {
     const custody = await loadCustodyEntry(custodyIndexPath, personaId);
     if (
@@ -2421,14 +2643,32 @@ function parseDevToolsActivePortFile(contents: string): number | null {
   return port >= 1 && port <= 65535 ? port : null;
 }
 
-async function readResolvedDriverPortOnce(
+type DriverPortFileState =
+  | { status: "invalid" }
+  | { status: "missing" }
+  | { port: number; status: "valid" };
+
+async function readDriverPortFileStateOnce(
   userDataRoot: string,
-): Promise<number | null> {
+): Promise<DriverPortFileState> {
   const contents = await readFile(
     path.join(userDataRoot, devToolsActivePortFileName),
     "utf8",
-  ).catch(() => null);
-  return contents === null ? null : parseDevToolsActivePortFile(contents);
+  ).catch((error: unknown) => {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return null;
+    }
+    return undefined;
+  });
+  if (contents === null) return { status: "missing" };
+  if (contents === undefined) return { status: "invalid" };
+  const port = parseDevToolsActivePortFile(contents);
+  return port === null ? { status: "invalid" } : { port, status: "valid" };
 }
 
 async function waitForEphemeralDriverPort(
@@ -2437,8 +2677,8 @@ async function waitForEphemeralDriverPort(
 ): Promise<number | null> {
   const deadline = Date.now() + Math.max(0, timeoutMs);
   for (;;) {
-    const port = await readResolvedDriverPortOnce(userDataRoot);
-    if (port !== null) return port;
+    const fileState = await readDriverPortFileStateOnce(userDataRoot);
+    if (fileState.status === "valid") return fileState.port;
     if (Date.now() >= deadline) return null;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
@@ -2448,22 +2688,65 @@ function cdpVersionUrl(port: number): string {
   return `http://${driverBindAddress}:${port}/json/version`;
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/gu, "");
+  if (normalized === "localhost" || normalized === "::1") return true;
+  const octets = normalized.split(".");
+  return (
+    octets.length === 4 &&
+    octets[0] === "127" &&
+    octets.every(
+      (octet) => /^(?:0|[1-9][0-9]{0,2})$/u.test(octet) && Number(octet) <= 255,
+    )
+  );
+}
+
+function isVerifiedCdpWebSocketUrl(
+  value: unknown,
+  expectedPort: number,
+): boolean {
+  if (typeof value !== "string" || value.trim() === "") return false;
+  try {
+    const endpoint = new URL(value);
+    const port = Number(endpoint.port);
+    return (
+      (endpoint.protocol === "ws:" || endpoint.protocol === "wss:") &&
+      isLoopbackHostname(endpoint.hostname) &&
+      Number.isInteger(port) &&
+      port >= 1 &&
+      port <= 65535 &&
+      port === expectedPort
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function cdpEndpointHasRequiredKeys(
   url: string,
+  expectedPort: number,
   timeoutMs: number,
 ): Promise<boolean> {
   try {
     const response = await fetch(url, {
       cache: "no-store",
+      redirect: "error",
       signal: AbortSignal.timeout(Math.max(1, timeoutMs)),
     });
     if (!response.ok) return false;
     const parsed: unknown = await response.json();
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return false;
+    }
+    const record = parsed as Record<string, unknown>;
     return (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "Browser" in parsed &&
-      "webSocketDebuggerUrl" in parsed
+      typeof record.Browser === "string" &&
+      record.Browser.trim() !== "" &&
+      isVerifiedCdpWebSocketUrl(record.webSocketDebuggerUrl, expectedPort)
     );
   } catch {
     return false;
@@ -2478,19 +2761,21 @@ async function confirmFixedDriverPort(input: {
   const deadline = Date.now() + Math.max(0, input.timeoutMs);
   for (;;) {
     const remaining = Math.max(1, deadline - Date.now());
-    const filePort = await readResolvedDriverPortOnce(input.userDataRoot);
-    const fileMatches = filePort === input.port;
+    const fileState = await readDriverPortFileStateOnce(input.userDataRoot);
+    const fileMatches =
+      fileState.status === "valid" && fileState.port === input.port;
     // A DevToolsActivePort file that disagrees with the requested fixed port
     // never succeeds; keep polling until the deadline in case the file is
     // still settling (fail-safe direction preserved).
     if (
       await cdpEndpointHasRequiredKeys(
         cdpVersionUrl(input.port),
+        input.port,
         Math.min(750, remaining),
       )
     ) {
       if (fileMatches) return "devtools-active-port-file";
-      if (!filePort) return "http-json-version-probe";
+      if (fileState.status === "missing") return "http-json-version-probe";
     }
     if (Date.now() >= deadline) return null;
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -2543,6 +2828,7 @@ async function establishDriverCdpChannel(
     ephemeralPort !== null &&
     (await cdpEndpointHasRequiredKeys(
       cdpVersionUrl(ephemeralPort),
+      ephemeralPort,
       Math.min(750, Math.max(1, plan.timeoutMs)),
     ));
   if (ephemeralPort !== null && ephemeralConfirmed) {
@@ -2886,12 +3172,38 @@ async function measureAppliedTesterGeometry(
   };
 }
 
+export const BLIND_PERSONA_TESTER_BRIEF_SCHEMA_VERSION = 1 as const;
+
+export interface BlindPersonaTesterBrief {
+  checklist: BlindPersonaVisualReviewTemplate;
+  kind: "blind-persona-tester-brief";
+  postJourneyCheckpoint: string;
+  routeFreedom: "outcome_only";
+  schemaVersion: typeof BLIND_PERSONA_TESTER_BRIEF_SCHEMA_VERSION;
+}
+
+const testerPostJourneyCheckpoint =
+  "POST-JOURNEY OPTIONAL CHECKPOINT - after the primary outcome is complete or safely blocked, if Profile Copilot is reachable, open it once and judge its discoverability, prompt wrapping, keyboard/focus behavior, form/Save overlap, conversation continuity, and proposal status clarity. Keep this checkpoint separate from your chosen route.";
+
+function buildTesterBrief(
+  visualReviewTemplate: BlindPersonaVisualReviewTemplate,
+): BlindPersonaTesterBrief {
+  return {
+    checklist: visualReviewTemplate,
+    kind: "blind-persona-tester-brief",
+    postJourneyCheckpoint: testerPostJourneyCheckpoint,
+    routeFreedom: "outcome_only",
+    schemaVersion: BLIND_PERSONA_TESTER_BRIEF_SCHEMA_VERSION,
+  };
+}
+
 export interface TesterSession {
   attempt: number;
   close(): Promise<CleanupEvidence>;
   driverChannel: DriverChannelRecord;
   launchRecordPath: string;
   pid: number | null;
+  testerBrief: BlindPersonaTesterBrief;
 }
 
 export async function launchBlindPersonaTester(
@@ -2972,6 +3284,10 @@ export async function launchBlindPersonaTester(
     );
   }
   await assertAcceptedApp(currentBinding);
+  const visualReviewTemplate = await readBoundVisualReviewTemplate(
+    custody.entry.seedManifestPath,
+  );
+  const testerBrief = buildTesterBrief(visualReviewTemplate);
   const env = hardenTesterEnvironment(process.env, userDataRoot);
   const startupGeometry = applyTesterStartupGeometry(env, {
     ...(startupWindowHeight === undefined ? {} : { startupWindowHeight }),
@@ -2999,6 +3315,8 @@ export async function launchBlindPersonaTester(
       manifestSha256: custody.entry.seedManifestSha256,
       workspaceDigest: custody.entry.workspaceDigest,
     },
+    visualReviewTemplate,
+    testerBrief,
     driverCdp: input.driverCdp === true,
     zeroNetwork: {
       hostResolverArg: zeroNetworkHostResolverArg,
@@ -3085,6 +3403,8 @@ export async function launchBlindPersonaTester(
         manifestSha256: custody.entry.seedManifestSha256,
         workspaceDigest: custody.entry.workspaceDigest,
       },
+      visualReviewTemplate,
+      testerBrief,
       environment: env,
       intent: {
         aiCalls: 0,
@@ -3109,6 +3429,7 @@ export async function launchBlindPersonaTester(
       driverChannel,
       launchRecordPath,
       pid,
+      testerBrief,
       close: async () => {
         if (!app) throw new Error("Tester app ownership was lost.");
         const evidence = await closeOwnedProcess(app);
@@ -3193,8 +3514,10 @@ P06) and retests never hit EEXIST and every prior attempt remains archived
 evidence. An immutable P##-blind-persona-tester-launch-intent(-attempt-<n>)
 record is written after all verification passed and immediately before the
 first process spawns, binding persona, attempt, build/seed custody, requested
-geometry, driver flag, and zero-network intent; the final launch record
-references its digest and path. Verification follows this launch evidence:
+geometry, driver flag, zero-network intent, and an inspectable testerBrief
+containing the bound visual checklist plus a clearly labeled post-journey
+Profile Copilot checkpoint; the final launch record and CLI stdout expose the
+same brief and reference its intent digest and path. Verification follows this launch evidence:
 strict before any archived launch record exists (tamper-before-first-launch
 fully enforced), consumed afterward (presence and special-entry checks
 preserved; byte drift tolerated so reseeding is not required for relaunch);

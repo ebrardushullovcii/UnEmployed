@@ -132,7 +132,10 @@ describe("ReviewQueueListPanel", () => {
         isJobPending={() => false}
         onSelectItem={vi.fn()}
         onToggleQueueSelection={vi.fn()}
-        queue={[createEligibleItem("job_draft")]}
+        queue={[
+          createEligibleItem("job_draft"),
+          createEligibleItem("job_draft_two"),
+        ]}
         queueSelection={[]}
         selectedItem={null}
       />,
@@ -213,14 +216,14 @@ describe("ReviewQueueListPanel", () => {
         onPrepareTailoredDrafts={onPrepareTailoredDrafts}
         onSelectItem={vi.fn()}
         onToggleQueueSelection={vi.fn()}
-        queue={[item]}
+        queue={[item, createReadyItem("job_second")]}
         queueSelection={[]}
         selectedItem={item}
       />,
     );
 
     openBatchActions();
-    expect(screen.getByText("1 eligible · 0 ready to prepare")).toBeTruthy();
+    expect(screen.getByText("1 eligible · 1 ready to prepare")).toBeTruthy();
     expect(
       screen.getByText(/nothing was approved, queued, submitted, or sent/i),
     ).toBeTruthy();
@@ -237,7 +240,7 @@ describe("ReviewQueueListPanel", () => {
     ).toContain("normal-case");
   });
 
-  it("keeps the toolbar light with an untruncated placeholder", () => {
+  it("keeps the compact toolbar hint short while preserving its full accessible label", () => {
     const item = createReadyItem("job_toolbar");
 
     render(
@@ -245,13 +248,16 @@ describe("ReviewQueueListPanel", () => {
         isJobPending={() => false}
         onSelectItem={vi.fn()}
         onToggleQueueSelection={vi.fn()}
-        queue={[item]}
+        queue={[item, createReadyItem("job_toolbar_two")]}
         queueSelection={[]}
         selectedItem={item}
       />,
     );
 
-    expect(screen.getByPlaceholderText("Search role or company")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Search jobs")).toBeTruthy();
+    expect(
+      screen.getByRole("searchbox", { name: "Find a shortlisted job" }),
+    ).toBeTruthy();
 
     const toolbar = screen
       .getByRole("searchbox", { name: "Find a shortlisted job" })
@@ -278,7 +284,7 @@ describe("ReviewQueueListPanel", () => {
         onPrepareTailoredDrafts={onPrepareTailoredDrafts}
         onSelectItem={vi.fn()}
         onToggleQueueSelection={vi.fn()}
-        queue={[item]}
+        queue={[item, createReadyItem("job_draft_action_two")]}
         queueSelection={[]}
         selectedItem={item}
       />,
@@ -291,7 +297,7 @@ describe("ReviewQueueListPanel", () => {
       name: "Prepare up to 10 drafts (review required)",
     });
     expect(
-      within(strip).getByText("1 eligible · 0 ready to prepare"),
+      within(strip).getByText("1 eligible · 1 ready to prepare"),
     ).toBeTruthy();
 
     fireEvent.click(action);
@@ -325,7 +331,7 @@ describe("ReviewQueueListPanel", () => {
         onSelectItem={vi.fn()}
         onStopTailoredDraftPreparation={vi.fn()}
         onToggleQueueSelection={vi.fn()}
-        queue={[item]}
+        queue={[item, createReadyItem("job_running_two")]}
         queueSelection={[]}
         selectedItem={item}
       />,
@@ -361,16 +367,16 @@ describe("ReviewQueueListPanel", () => {
         isJobPending={() => false}
         onSelectItem={vi.fn()}
         onToggleQueueSelection={vi.fn()}
-        queue={[item]}
+        queue={[item, createReadyItem("job_2")]}
         queueSelection={[]}
         selectedItem={item}
       />,
     );
 
     openBatchActions();
-    const checkbox = screen.getByRole("checkbox", {
+    const checkbox = screen.getAllByRole("checkbox", {
       name: "Select for batch",
-    });
+    })[0]!;
     const descriptionId = checkbox.getAttribute("aria-describedby");
     expect(checkbox).toHaveProperty("disabled", true);
     expect(descriptionId).toBeTruthy();
@@ -735,7 +741,7 @@ describe("ReviewQueueListPanel", () => {
         onSelectItem={vi.fn()}
         onPrepareTailoredDrafts={vi.fn()}
         onToggleQueueSelection={vi.fn()}
-        queue={[createReadyItem("job_ready")]}
+        queue={[createReadyItem("job_ready"), createReadyItem("job_ready_two")]}
         queueSelection={[]}
         selectedItem={null}
       />,
@@ -744,7 +750,7 @@ describe("ReviewQueueListPanel", () => {
     openBatchActions();
     const strip = screen.getByTestId("tailored-draft-preparation");
     expect(
-      within(strip).getByText("0 eligible · 1 ready to prepare"),
+      within(strip).getByText("0 eligible · 2 ready to prepare"),
     ).toBeTruthy();
     const prepareButton = within(strip).getByRole("button", {
       name: "Prepare up to 10 drafts (review required)",
@@ -935,7 +941,10 @@ describe("ReviewQueueListPanel", () => {
         onSelectItem={vi.fn()}
         onPrepareTailoredDrafts={vi.fn()}
         onToggleQueueSelection={vi.fn()}
-        queue={[createEligibleItem("job_single")]}
+        queue={[
+          createEligibleItem("job_single"),
+          createReadyItem("job_single_ready"),
+        ]}
         queueSelection={[]}
         selectedItem={null}
       />,
@@ -953,7 +962,7 @@ describe("ReviewQueueListPanel", () => {
     expect(resultMessage.textContent).toMatch(/fix the failed job and rerun/i);
   });
 
-  it("shows the same policy-intent line for not-started and approved tailored jobs", () => {
+  it("shows state-aware resume captions instead of always promising a future draft", () => {
     render(
       <ReviewQueueListPanel
         isJobPending={() => false}
@@ -968,13 +977,12 @@ describe("ReviewQueueListPanel", () => {
       />,
     );
 
-    expect(
-      screen.getAllByText("A tailored resume will be created for this job"),
-    ).toHaveLength(2);
+    expect(screen.getByText("Needs a tailored resume")).toBeTruthy();
+    expect(screen.getByText("Approved resume ready")).toBeTruthy();
     expect(screen.queryByText("Job-specific tailored resume")).toBeNull();
   });
 
-  it("surfaces the single-job backlog cue outside the closed batch disclosure", () => {
+  it("offers no list-management chrome for a single shortlisted job", () => {
     render(
       <ReviewQueueListPanel
         isJobPending={() => false}
@@ -986,10 +994,18 @@ describe("ReviewQueueListPanel", () => {
       />,
     );
 
-    expect(screen.getByTestId("batch-actions")).toHaveProperty("open", false);
+    // One card needs no search field, no density switch, and no batch
+    // actions: the toolbar used to eat the first ~290px of the panel.
+    expect(screen.queryByTestId("batch-actions")).toBeNull();
+    expect(screen.queryByPlaceholderText("Search jobs")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Comfortable" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Saved views/u })).toBeNull();
+    expect(screen.queryByText(/still needs? their first tailored draft/)).toBe(
+      null,
+    );
     expect(
-      screen.getByText("1 job still needs its first tailored draft"),
-    ).toBeTruthy();
+      screen.queryByText("1 job still needs its first tailored draft"),
+    ).toBeNull();
     expect(screen.queryByTestId("tailored-draft-preparation")).toBeNull();
   });
 
@@ -1133,8 +1149,61 @@ describe("ReviewQueueListPanel", () => {
     expect(
       getReviewQueueWorkflowStatus(restoredItem, restoredAsset),
     ).toMatchObject({ label: "Needs approval" });
-    expect(getReviewQueueWorkflowStatus(failedItem, failedAsset)).toMatchObject({
-      label: "Resume issue",
+    expect(getReviewQueueWorkflowStatus(failedItem, failedAsset)).toMatchObject(
+      {
+        label: "Resume issue",
+      },
+    );
+  });
+  it("keeps identical row box metrics and reserved lines when the selection moves", () => {
+    const first = createReadyItem("job_first");
+    const second = createReadyItem("job_second");
+    const readBoxes = (container: HTMLElement) =>
+      Array.from(
+        container.querySelectorAll<HTMLElement>('[data-slot="selectable-row"]'),
+      ).map((row) => ({
+        className: row.className,
+        lineCount: row.querySelectorAll('[data-slot="selectable-row-line"]')
+          .length,
+      }));
+
+    const unselected = render(
+      <ReviewQueueListPanel
+        isJobPending={() => false}
+        onSelectItem={vi.fn()}
+        onToggleQueueSelection={vi.fn()}
+        queue={[first, second]}
+        queueSelection={[]}
+        selectedItem={null}
+      />,
+    );
+    const unselectedBoxes = readBoxes(unselected.container);
+    unselected.unmount();
+
+    const selected = render(
+      <ReviewQueueListPanel
+        isJobPending={() => false}
+        onSelectItem={vi.fn()}
+        onToggleQueueSelection={vi.fn()}
+        queue={[first, second]}
+        queueSelection={[]}
+        selectedItem={first}
+      />,
+    );
+    const selectedBoxes = readBoxes(selected.container);
+
+    // Selection may only change the tint and the inset accent bar, never the
+    // row's own classes or how many content lines it reserves — that is what
+    // used to move every row below the selection by tens of pixels.
+    expect(selectedBoxes.length).toBe(unselectedBoxes.length);
+    selectedBoxes.forEach((box, index) => {
+      expect(box.className).toBe(unselectedBoxes[index]!.className);
+      expect(box.lineCount).toBe(unselectedBoxes[index]!.lineCount);
     });
+    expect(
+      selected.container
+        .querySelector('[data-slot="selectable-row"]')
+        ?.getAttribute("data-selected"),
+    ).toBe("true");
   });
 });

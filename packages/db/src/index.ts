@@ -11,6 +11,7 @@ export type {
   JobFinderRepositorySeed,
   ProfileCommitOutcome,
   ProfileCopilotMessagePatchFlag,
+  ResumeImportFinalizationOutcome,
   WorkspaceDatabaseRecoveryRequiredDetails,
   WorkspaceDatabaseRestoreTelemetryEvent,
   WorkspaceRotationReconciliationEvent,
@@ -27,6 +28,31 @@ export type {
   CommitGroupedManualAnswerResult,
   GroupedManualAnswerCommitFailure,
 } from "./grouped-manual-answer-types";
+export type {
+  ApplicationAnswerSnapshotCommitResult,
+  ApplicationAnswerSnapshotQuery,
+  ApplicationAnswerSnapshotRepository,
+  CommitApplicationAnswerSnapshotInput,
+} from "./application-answer-snapshot-repository-types";
+export type {
+  ApplicationAuthorityEnvelopeCommitResult,
+  ApplicationAuthorityEnvelopeReplacementResult,
+  ApplicationAuthorityRepository,
+  AuthorizeAndArmSubmissionAttemptInput,
+  ReplaceApplicationAuthorityEnvelopeInput,
+  SubmissionAttemptArmBlockReason,
+  SubmissionAttemptArmMode,
+  SubmissionAttemptArmResult,
+  SubmissionExecutionGrantCommitResult,
+  SubmissionExecutionGrantQuery,
+  SubmissionExecutionGrantTransitionResult,
+  SubmissionIdempotencyQuery,
+  SubmissionOutcomeCommitResult,
+  SubmissionOutcomeResolutionResult,
+  SubmissionOutcomeQuery,
+  SubmissionPreflightCommitResult,
+  SubmissionPreflightQuery,
+} from "./application-authority-repository-types";
 export { createInMemoryJobFinderRepository } from "./in-memory-repository";
 export {
   createFileJobFinderRepository,

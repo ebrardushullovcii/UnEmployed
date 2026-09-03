@@ -288,4 +288,58 @@ describe("resume entry ordering", () => {
       true,
     );
   });
+
+  describe("date-overlap tolerance for adjacent roles", () => {
+    function buildOverlapDraft(ranges: readonly [string, string]) {
+      return {
+        id: "resume_draft_overlap",
+        jobId: "job_overlap",
+        status: "needs_review" as const,
+        templateId: "classic_ats" as const,
+        identity: null,
+        sections: [
+          buildSection([
+            buildEntry({ id: "older", dateRange: ranges[0], sortOrder: 0 }),
+            buildEntry({ id: "newer", dateRange: ranges[1], sortOrder: 1 }),
+          ]),
+        ],
+        targetPageCount: 2,
+        generationMethod: "manual" as const,
+        approvedAt: null,
+        approvedExportId: null,
+        staleReason: null,
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+    }
+
+    function listOverlapIssueIds(ranges: readonly [string, string]) {
+      return buildResumeEntryDateQualityIssues(
+        buildOverlapDraft(ranges),
+        new Date("2026-03-20T00:00:00.000Z"),
+      )
+        .map((issue) => issue.id)
+        .filter((id) => id.startsWith("issue_date_overlap_"));
+    }
+
+    test("stays quiet when adjacent roles do not share any month", () => {
+      expect(
+        listOverlapIssueIds(["Nov 2019 - Nov 2021", "Dec 2021 - Feb 2026"]),
+      ).toEqual([]);
+    });
+
+    test("stays quiet for a one-month handover boundary", () => {
+      expect(
+        listOverlapIssueIds(["Nov 2019 - Dec 2021", "Dec 2021 - Feb 2026"]),
+      ).toEqual([]);
+    });
+
+    test("flags a genuine two-month concurrent stretch", () => {
+      expect(
+        listOverlapIssueIds(["Nov 2019 - Jan 2022", "Dec 2021 - Feb 2026"]),
+      ).toEqual(["issue_date_overlap_older", "issue_date_overlap_newer"]);
+    });
+  });
 });

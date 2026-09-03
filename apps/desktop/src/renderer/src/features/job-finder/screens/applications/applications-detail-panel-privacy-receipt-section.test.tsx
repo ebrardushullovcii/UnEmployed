@@ -7,6 +7,80 @@ import { ApplicationsDetailPanelPrivacyReceiptSection } from "./applications-det
 afterEach(cleanup);
 
 describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
+  it("requires a second explicit confirmation before recording employer-site verification", () => {
+    const onResolveOutcome = vi.fn(() => Promise.resolve());
+    render(
+      <ApplicationsDetailPanelPrivacyReceiptSection
+        onExport={vi.fn()}
+        onResolveOutcome={onResolveOutcome}
+        receipt={{
+          schemaVersion: 1,
+          generatedAt: "2026-08-28T10:00:00.000Z",
+          lineage: {
+            applicationRecordId: "application-uncertain",
+            runId: "run-uncertain",
+            jobId: "job-uncertain",
+            resultId: "result-uncertain",
+          },
+          destination: {
+            origin: "https://jobs.example.com",
+            safePath: "/apply",
+          },
+          resume: {
+            source: "original_upload",
+            sourceDocumentId: "resume-uncertain",
+            exportArtifactId: null,
+            fileName: "Resume.pdf",
+            sha256: null,
+          },
+          stayedLocal: [],
+          modelUse: [],
+          externalWrites: [],
+          accountCreationAuthorized: false,
+          finalSubmitAuthorized: true,
+          finalSubmitOccurred: false,
+          submissionOutcome: {
+            id: "outcome-uncertain",
+            preflightId: "preflight-uncertain",
+            idempotencyKey: "idempotency-uncertain",
+            authorityEnvelopeId: "authority-uncertain",
+            authorityRevision: 1,
+            runId: "run-uncertain",
+            jobId: "job-uncertain",
+            resultId: "result-uncertain",
+            applicationRecordId: "application-uncertain",
+            outcome: "outcome_uncertain",
+            attemptedAt: "2026-08-28T10:00:00.000Z",
+            verifiedAt: null,
+            evidence: [],
+            retry: {
+              eligible: false,
+              blockReason: "outcome_uncertain",
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /Submission outcome is uncertain.*Verify this application.*automatic retry is blocked/i,
+    );
+    expect(
+      screen.getByRole("region", { name: "Verify submission outcome" }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "I verified it was submitted" }),
+    );
+    expect(onResolveOutcome).not.toHaveBeenCalled();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm verification" }),
+    );
+    expect(onResolveOutcome).toHaveBeenCalledWith(
+      "outcome-uncertain",
+      "submitted",
+    );
+  });
+
   it("shows the exact destination, CV, data handling, writes, and safety boundary", () => {
     const onExport = vi.fn().mockResolvedValue(undefined);
     render(
@@ -51,15 +125,18 @@ describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
       />,
     );
 
-    expect(screen.getByText("Preparation receipt")).not.toBeNull();
-    expect(
-      screen.queryByText("Historical application data receipt"),
-    ).toBeNull();
+    expect(screen.getByText("What Job Finder prepared")).not.toBeNull();
+    expect(screen.queryByText("Earlier preparation record")).toBeNull();
+
+    fireEvent.click(screen.getByText("Show details"));
+    // The summary names the document in the user's terms; the generated
+    // file name stays inside the expanded technical detail.
     expect(
       screen.getByText(
-        "https://boards.greenhouse.io/example/jobs/123 · Ebrar-CV.pdf",
+        "https://boards.greenhouse.io/example/jobs/123 · Your approved resume (PDF)",
       ),
     ).not.toBeNull();
+    expect(screen.getByText("Ebrar-CV.pdf")).not.toBeNull();
     expect(
       screen.getByText(/contains personal application answers/i),
     ).not.toBeNull();
@@ -77,17 +154,15 @@ describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
     ).not.toBeNull();
     expect(
       screen.getByText(
-        /records what Job Finder stored during this preparation/i,
+        /This record shows what Job Finder stored during preparation/i,
       ),
     ).not.toBeNull();
     expect(
-      screen.getByText(/do not grant or describe current authority/i),
+      screen.getByText(/Job Finder never submits applications/i),
     ).not.toBeNull();
-    expect(screen.getByText(/Current product boundary/)).not.toBeNull();
-    expect(document.body.textContent ?? "").not.toMatch(
-      /No application was submitted/i,
+    fireEvent.click(
+      screen.getByRole("button", { name: "Download preparation record" }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Export packet" }));
     expect(onExport).toHaveBeenCalledTimes(1);
   });
 
@@ -124,8 +199,10 @@ describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
       />,
     );
 
+    fireEvent.click(screen.getByText("Show details"));
+
     const exportButton = screen.getByRole("button", {
-      name: "Export packet",
+      name: "Download preparation record",
     });
     if (!(exportButton instanceof HTMLButtonElement)) {
       throw new Error("Export packet control should be a real button element");
@@ -173,6 +250,8 @@ describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
       />,
     );
 
+    fireEvent.click(screen.getByText("Show details"));
+
     expect(
       screen.getByText(
         /This receipt records a final-submit action for this run/,
@@ -182,7 +261,7 @@ describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
       screen.getByText(/do not represent a capability in the current product/),
     ).not.toBeNull();
     expect(document.body.textContent ?? "").toMatch(
-      /Job Finder cannot submit applications/i,
+      /Job Finder never submits applications/i,
     );
   });
 
@@ -326,7 +405,7 @@ describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
     );
     const modernText = modern.container.textContent ?? "";
     expect(modernText).not.toMatch(/legacy/i);
-    expect(screen.getByText("Preparation receipt")).not.toBeNull();
+    expect(screen.getByText("What Job Finder prepared")).not.toBeNull();
     modern.unmount();
 
     render(
@@ -339,7 +418,7 @@ describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
       />,
     );
     const text = document.body.textContent ?? "";
-    expect(text).toMatch(/Historical application data receipt/);
+    expect(text).toMatch(/Earlier preparation record/);
     expect(text).toMatch(
       /This legacy receipt predates exact application-record linking/,
     );

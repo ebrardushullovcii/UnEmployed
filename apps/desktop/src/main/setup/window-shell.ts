@@ -354,6 +354,7 @@ export function bindMainWindowNavigationGuards(
 
 export function getWindowControlsState(window: BrowserWindow) {
   return DesktopWindowControlsStateSchema.parse({
+    isFullScreen: window.isFullScreen(),
     isMaximized: window.isMaximized() || window.isFullScreen(),
     isMinimizable: window.isMinimizable(),
     isClosable: window.isClosable(),

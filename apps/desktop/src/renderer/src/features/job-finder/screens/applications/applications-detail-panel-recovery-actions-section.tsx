@@ -3,7 +3,7 @@ import type {
   JobFinderExactApplicationTarget,
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Button } from "@renderer/components/ui";
 import { formatStatusLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
 import {
@@ -11,9 +11,23 @@ import {
   formatDailyPreparationCapacityReachedText,
   isDailyPreparationCapacityExhausted,
 } from "@renderer/features/job-finder/lib/job-finder-daily-capacity";
+import {
+  CONFIRM_STEP_DONE_ACTION,
+  CONFIRM_STEP_DONE_PENDING_LABEL,
+  JOB_FINDER_BROWSER_NAME,
+  JOB_FINDER_BROWSER_UNAVAILABLE_NOTE,
+  OPEN_JOB_FINDER_BROWSER_ACTION,
+  REOPEN_JOB_FINDER_BROWSER_ACTION,
+  RUN_PREPARATION_AGAIN_ACTION,
+  RUN_PREPARATION_AGAIN_LATER_ACTION,
+} from "../../lib/job-finder-browser-handoff-copy";
 import { StatusBadge } from "../../components/status-badge";
 import {
+  applyResultIsServiceWorkerBlocked,
+  applyResultNeedsManualFieldFinish,
   applyResultNeedsResumeAttachment,
+  FINISH_IN_BROWSER_OPENED_STATUS,
+  getApplyResultDestinationUrl,
   getCustomerFacingApplyText,
   getQueueRecoveryTone,
   getQueueStateExplanation,
@@ -21,8 +35,39 @@ import {
   type QueueEntry,
 } from "./applications-detail-panel-helpers";
 
+/**
+ * Exact lineage handed to the page route so it can open or focus the managed
+ * Job Finder browser on the paused application (the same browser-owned
+ * "open page" step Needs you exposes for this result's pending request).
+ */
+export type FinishInBrowserInput = {
+  jobId: string;
+  resultId: string;
+  runId: string;
+  applicationRecordId: string;
+  destinationUrl: string | null;
+};
+
+/**
+ * Resolution state of the "I finished this step" verification, derived from
+ * the exact pending browser-step request rather than from the fire-and-forget
+ * command that starts it.
+ */
+export type ConfirmFinishedInBrowserStatus =
+  | "idle"
+  | "checking"
+  | "still_blocked";
+
+/**
+ * Every control in the recovery row shares one box metric so the row cannot
+ * render at three heights and three tops the way it did in the round-eight
+ * captures. Weight and fill carry the hierarchy; geometry does not.
+ */
+const RECOVERY_ACTION_CLASS_NAME =
+  "h-auto min-h-11 w-fit min-w-0 max-w-full whitespace-normal px-4 py-2.5 text-(length:--text-body) leading-5";
+const RECOVERY_PRIMARY_ACTION_CLASS_NAME = `${RECOVERY_ACTION_CLASS_NAME} font-semibold`;
+
 export function ApplicationsDetailPanelRecoveryActionsSection(props: {
-  applyRunHistoryCount: number;
   canRestageAutoRun: boolean;
   canRestageQueueRun: boolean;
   dailyPreparationCapacity: GlobalDailyApplicationPreparationCapacity | null;
@@ -31,6 +76,25 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   onStartApplyCopilot: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApply: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
+  onOpenSafeguards?: () => void;
+  onFinishInBrowser?: (input: FinishInBrowserInput) => void;
+  /**
+   * Runs the exact verification Needs you runs for the pending browser step on
+   * this result. Without it the loop had two homes: Applications sent the user
+   * to the browser and only Needs you — a page they were never told to visit —
+   * could take them back in.
+   */
+  onConfirmFinishedInBrowser?: (input: FinishInBrowserInput) => void;
+  canConfirmFinishedInBrowser?: boolean;
+  /**
+   * Live state of the verification this section starts, read from the exact
+   * pending browser-step request. `checking` while the check runs and
+   * `still_blocked` once it came back without the step being complete; without
+   * it the click produced a "Verification started…" banner and then nothing
+   * changed in place for the rest of the wait.
+   */
+  confirmFinishedInBrowserStatus?: ConfirmFinishedInBrowserStatus;
+  confirmFinishedInBrowserBlockerText?: string | null;
   selectedQueueOutcomeEntries: QueueEntry[];
   selectedQueueRecoveryEntries: QueueEntry[];
   selectedQueueRecoveryJobIds: string[];
@@ -42,7 +106,6 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     | null;
 }) {
   const {
-    applyRunHistoryCount,
     canRestageAutoRun,
     canRestageQueueRun,
     dailyPreparationCapacity,
@@ -51,6 +114,12 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     onStartApplyCopilot,
     onStartAutoApply,
     onStartAutoApplyQueue,
+    onOpenSafeguards,
+    onFinishInBrowser,
+    onConfirmFinishedInBrowser,
+    canConfirmFinishedInBrowser,
+    confirmFinishedInBrowserStatus = "idle",
+    confirmFinishedInBrowserBlockerText,
     selectedQueueOutcomeEntries,
     selectedQueueRecoveryEntries,
     selectedQueueRecoveryJobIds,
@@ -65,6 +134,28 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
     visibleApplyResult?.blockerReason === "application_page_unreachable";
   const needsResumeAttachment =
     applyResultNeedsResumeAttachment(visibleApplyResult);
+  const isServiceWorkerBlocked =
+    applyResultIsServiceWorkerBlocked(visibleApplyResult);
+  const needsManualFieldFinish =
+    applyResultNeedsManualFieldFinish(visibleApplyResult);
+  const requiresSubmissionOutcomeVerification =
+    visibleApplyResult?.blockerReason === "submission_outcome_uncertain" ||
+    visibleApplyResult?.privacyReceipt?.submissionOutcome?.outcome ===
+      "outcome_uncertain";
+  // Finish-yourself pauses (site block or field conflicts) own the primary
+  // path — never show an in-progress spinner that contradicts Next step.
+  const needsUserFinishPath = isServiceWorkerBlocked || needsManualFieldFinish;
+  const showPreparingState =
+    isApplyPending &&
+    !needsUserFinishPath &&
+    !requiresSubmissionOutcomeVerification;
+  // The queue action is meaningful only when the selected run produced a
+  // recoverable queue. Keep an empty or non-queue selection out of the action
+  // group instead of leaving a disabled control without a target.
+  const showQueueRecoveryAction =
+    !needsUserFinishPath &&
+    canRestageQueueRun &&
+    selectedQueueRecoveryJobIds.length > 0;
   const externalWriteRecoveryText = getVerifiedExternalWriteRecoveryText(
     visibleApplyResult?.privacyReceipt,
   );
@@ -72,8 +163,9 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   // service. When nothing remains, every start control is disabled here so no
   // dialog or run can begin, and the reached state is stated in plain text
   // with the exact usage and reset timing instead of a silent no-op.
-  const isDailyCapacityExhausted =
-    isDailyPreparationCapacityExhausted(dailyPreparationCapacity);
+  const isDailyCapacityExhausted = isDailyPreparationCapacityExhausted(
+    dailyPreparationCapacity,
+  );
   const dailyCapacityReachedText =
     dailyPreparationCapacity && isDailyCapacityExhausted
       ? formatDailyPreparationCapacityReachedText(dailyPreparationCapacity)
@@ -84,6 +176,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   // exhaustion, which stays owned by the reached summary below. Single-job
   // retry keeps working while any slot remains.
   const selectedQueueRecoveryExceedsDailyRemaining =
+    showQueueRecoveryAction &&
     dailyPreparationCapacity !== null &&
     !isDailyCapacityExhausted &&
     selectedQueueRecoveryJobIds.length > dailyPreparationCapacity.remaining;
@@ -95,87 +188,348 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
           selectedCount: selectedQueueRecoveryJobIds.length,
         })
       : null;
+  const secondaryRecoveryActionCount =
+    Number(canRestageAutoRun) + Number(showQueueRecoveryAction);
+  const secondaryRecoveryActionsClassName =
+    "flex min-w-0 max-w-full flex-wrap items-start justify-start gap-2";
+
+  // Finish-first pauses already own the Next step callout above, which is in
+  // the accessibility tree. This section used to restate the same sentence in
+  // an sr-only paragraph as well, so the instruction arrived three times
+  // (list row, Next step, and here). It is action-only now.
+  // Confirmation after the managed browser was asked to show the paused
+  // application page; reset whenever a different result is selected.
+  const [finishInBrowserStatusResultId, setFinishInBrowserStatusResultId] =
+    useState<string | null>(null);
+  /**
+   * True once this exact result has been handed off to the Job Finder
+   * browser. Pressing the primary action used to leave the button identical
+   * and still primary, so the only proof anything had happened was a passive
+   * grey box; the hand-off now visibly demotes the open action and promotes
+   * the confirm action in its place.
+   */
+  const hasHandedOffToBrowser = Boolean(
+    needsManualFieldFinish &&
+    visibleApplyResult &&
+    finishInBrowserStatusResultId === visibleApplyResult.id,
+  );
+  const finishInBrowserStatus = hasHandedOffToBrowser
+    ? FINISH_IN_BROWSER_OPENED_STATUS
+    : null;
+  const finishInBrowserUnavailableNoteId = useId();
+  const canFinishInBrowser = Boolean(onFinishInBrowser && visibleApplyResult);
+  const handleFinishInBrowser = () => {
+    if (!onFinishInBrowser || !visibleApplyResult) {
+      return;
+    }
+
+    onFinishInBrowser({
+      jobId: visibleApplyResult.jobId,
+      resultId: visibleApplyResult.id,
+      runId: visibleApplyResult.runId,
+      applicationRecordId:
+        visibleApplyResult.applicationRecordId ?? selectedApplicationRecordId,
+      destinationUrl: getApplyResultDestinationUrl(
+        visibleApplyResult.privacyReceipt,
+      ),
+    });
+    setFinishInBrowserStatusResultId(visibleApplyResult.id);
+  };
+  const canConfirmFinished = Boolean(
+    onConfirmFinishedInBrowser &&
+    canConfirmFinishedInBrowser &&
+    visibleApplyResult,
+  );
+  // The verification runs in the background after the click. Until it settles,
+  // the button says so in place and stays disabled; when it comes back without
+  // the step complete, the same place says why and offers the check again.
+  const isCheckingFinishedInBrowser =
+    canConfirmFinished && confirmFinishedInBrowserStatus === "checking";
+  const isStillBlockedAfterCheck =
+    canConfirmFinished && confirmFinishedInBrowserStatus === "still_blocked";
+  const confirmFinishedInBrowserStatusBaseId = useId();
+  const confirmFinishedInBrowserStatusId =
+    isCheckingFinishedInBrowser || isStillBlockedAfterCheck
+      ? confirmFinishedInBrowserStatusBaseId
+      : null;
+  const handleConfirmFinishedInBrowser = () => {
+    if (!onConfirmFinishedInBrowser || !visibleApplyResult) {
+      return;
+    }
+
+    onConfirmFinishedInBrowser({
+      jobId: visibleApplyResult.jobId,
+      resultId: visibleApplyResult.id,
+      runId: visibleApplyResult.runId,
+      applicationRecordId:
+        visibleApplyResult.applicationRecordId ?? selectedApplicationRecordId,
+      destinationUrl: getApplyResultDestinationUrl(
+        visibleApplyResult.privacyReceipt,
+      ),
+    });
+  };
 
   return (
     <>
-      <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="grid gap-1">
-            <h3 className="label-mono-xs text-primary">Recovery</h3>
+      <section className="surface-card-tint grid gap-5 rounded-(--radius-field) border border-(--surface-panel-border) px-5 py-5">
+        {/* The saved-run count adds nothing above the one recovery action;
+            run history stays in its own section below. */}
+        <div className="grid min-w-0 max-w-prose gap-1.5">
+          {/* The Next step callout above already says "finish this application
+              in the open browser". Repeating it as a heading here made one
+              instruction arrive in four stacked layers, so on that path the
+              section keeps only its accessible name and its action. */}
+          <h3
+            className={
+              needsUserFinishPath && !requiresSubmissionOutcomeVerification
+                ? "sr-only"
+                : "text-(length:--text-eyebrow) font-semibold uppercase tracking-(--tracking-badge) text-muted-foreground"
+            }
+          >
+            {requiresSubmissionOutcomeVerification
+              ? "Manual verification required"
+              : needsUserFinishPath
+                ? "Finish this application"
+                : "Try again"}
+          </h3>
+          {requiresSubmissionOutcomeVerification ? (
+            <p
+              className="text-(length:--text-small) leading-6 text-foreground-soft"
+              data-testid="submission-outcome-verification-guidance"
+            >
+              Check this application on the employer site before doing anything
+              else. Automatic retry and preparation stay unavailable until you
+              record what the employer site shows.
+            </p>
+          ) : needsUserFinishPath ? null : (
             <p className="text-(length:--text-small) leading-6 text-foreground-soft">
               {isDailyCapacityExhausted
-                ? "Retry preparation stays available after today's application slots reset."
+                ? `"${RUN_PREPARATION_AGAIN_ACTION}" stays available after today's application slots reset.`
                 : isWaitingForSignIn
-                ? "Job Finder is waiting while you sign in in the open browser. It never handles or stores your credentials. Return here after sign-in and retry this application. Retrying creates a fresh run and uses one of today's remaining application slots."
-                : isNavigationUnreachable
-                  ? "Last time, the dedicated browser could not open this employer page, so preparation stopped before anything was filled or submitted. That failed attempt did not count against today's application slots. Retry below when you are ready."
-                  : needsResumeAttachment
-                    ? `The approved resume was not attached. ${externalWriteRecoveryText} Retry below to approve that attachment. Job Finder will prepare the page and stop before the final submit control.`
-                    : "Start a fresh safe run for this job without leaving Applications. Each recovery action creates a new run, uses one of today's remaining application slots, and still stops before any final submit click."}
+                  ? `Job Finder is waiting while you sign in in ${JOB_FINDER_BROWSER_NAME}, a separate window outside this app. It never handles or stores your credentials. Come back here after sign-in and run preparation again. That creates a fresh run and uses one of today's remaining application slots.`
+                  : isNavigationUnreachable
+                    ? `Last time, ${JOB_FINDER_BROWSER_NAME} could not open this employer page, so preparation stopped before anything was filled or submitted. That failed attempt did not count against today's application slots. Run preparation again below when you are ready.`
+                    : needsResumeAttachment
+                      ? `The approved resume was not attached. ${externalWriteRecoveryText} Use the action below to approve that attachment. Job Finder will prepare the page and stop before the final submit control.`
+                      : "Start a fresh safe run for this job without leaving Applications. Each recovery action creates a new run, uses one of today's remaining application slots, and still stops before any final submit click."}
             </p>
+          )}
+        </div>
+        {requiresSubmissionOutcomeVerification ? null : (
+          <div
+            aria-label="Application recovery actions"
+            className="flex min-w-0 max-w-full flex-wrap items-start justify-start gap-2"
+            data-testid="applications-recovery-actions"
+            role="group"
+          >
+            <div
+              aria-label="Primary application recovery action"
+              className="flex min-w-0 max-w-full flex-wrap items-stretch gap-2"
+              data-testid="applications-recovery-primary-action"
+              role="group"
+            >
+              {isServiceWorkerBlocked && onOpenSafeguards ? (
+                <Button
+                  className={RECOVERY_PRIMARY_ACTION_CLASS_NAME}
+                  data-testid="site-blocked-safeguards-primary"
+                  onClick={onOpenSafeguards}
+                  type="button"
+                  variant="primary"
+                >
+                  {`Open Safeguards to reset ${JOB_FINDER_BROWSER_NAME}`}
+                </Button>
+              ) : null}
+              {needsManualFieldFinish ? (
+                <Button
+                  aria-describedby={
+                    canFinishInBrowser
+                      ? undefined
+                      : finishInBrowserUnavailableNoteId
+                  }
+                  className={
+                    hasHandedOffToBrowser
+                      ? RECOVERY_ACTION_CLASS_NAME
+                      : RECOVERY_PRIMARY_ACTION_CLASS_NAME
+                  }
+                  data-testid="manual-field-finish-primary"
+                  disabled={!canFinishInBrowser}
+                  onClick={handleFinishInBrowser}
+                  type="button"
+                  variant={hasHandedOffToBrowser ? "secondary" : "primary"}
+                >
+                  {hasHandedOffToBrowser
+                    ? REOPEN_JOB_FINDER_BROWSER_ACTION
+                    : OPEN_JOB_FINDER_BROWSER_ACTION}
+                </Button>
+              ) : null}
+              {needsUserFinishPath && canConfirmFinished ? (
+                <Button
+                  aria-describedby={
+                    confirmFinishedInBrowserStatusId ?? undefined
+                  }
+                  className={
+                    hasHandedOffToBrowser
+                      ? RECOVERY_PRIMARY_ACTION_CLASS_NAME
+                      : RECOVERY_ACTION_CLASS_NAME
+                  }
+                  data-testid="confirm-finished-in-browser"
+                  disabled={isApplyPending || isCheckingFinishedInBrowser}
+                  onClick={handleConfirmFinishedInBrowser}
+                  pending={isApplyPending || isCheckingFinishedInBrowser}
+                  type="button"
+                  variant={hasHandedOffToBrowser ? "primary" : "secondary"}
+                >
+                  {/* One name, always. The round-eight build renamed this
+                      control in place twice ("I finished this step" ->
+                      "Check again" -> "Step is complete"), so the same
+                      action looked like three. A running check is a pending
+                      state and a failed check is reported beside the row. */}
+                  {isCheckingFinishedInBrowser
+                    ? CONFIRM_STEP_DONE_PENDING_LABEL
+                    : CONFIRM_STEP_DONE_ACTION}
+                </Button>
+              ) : null}
+              {!needsUserFinishPath || needsManualFieldFinish ? (
+                <Button
+                  className={
+                    needsUserFinishPath
+                      ? RECOVERY_ACTION_CLASS_NAME
+                      : RECOVERY_PRIMARY_ACTION_CLASS_NAME
+                  }
+                  onClick={() =>
+                    onStartApplyCopilot({
+                      jobId: selectedRecordJobId,
+                      applicationRecordId: selectedApplicationRecordId,
+                    })
+                  }
+                  pending={showPreparingState}
+                  type="button"
+                  variant={needsUserFinishPath ? "ghost" : "primary"}
+                  disabled={
+                    showPreparingState ||
+                    isDailyCapacityExhausted ||
+                    isServiceWorkerBlocked
+                  }
+                >
+                  {showPreparingState
+                    ? "Preparing safely..."
+                    : isWaitingForSignIn
+                      ? "I'm signed in — run preparation again"
+                      : needsResumeAttachment
+                        ? "Approve and reattach the resume"
+                        : needsManualFieldFinish
+                          ? RUN_PREPARATION_AGAIN_LATER_ACTION
+                          : RUN_PREPARATION_AGAIN_ACTION}
+                </Button>
+              ) : null}
+            </div>
+            {confirmFinishedInBrowserStatusId ? (
+              <p
+                className={
+                  isCheckingFinishedInBrowser
+                    ? "flex w-full min-w-0 items-center gap-2 text-(length:--text-small) leading-6 text-foreground-soft"
+                    : "flex w-full min-w-0 items-start gap-2 text-(length:--text-small) leading-6 text-(--warning-text)"
+                }
+                data-testid="confirm-finished-in-browser-status"
+                id={confirmFinishedInBrowserStatusId}
+                role="status"
+              >
+                {isCheckingFinishedInBrowser ? (
+                  <>
+                    <span
+                      aria-hidden="true"
+                      className="size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none"
+                      data-testid="confirm-finished-in-browser-spinner"
+                    />
+                    <span>
+                      {`Checking the application page in ${JOB_FINDER_BROWSER_NAME}… Job Finder only reads what that page shows and never submits.`}
+                    </span>
+                  </>
+                ) : (
+                  <span>
+                    {`Not done yet — ${
+                      confirmFinishedInBrowserBlockerText?.trim() ||
+                      "the application page still shows the step you need to finish."
+                    } Switch to ${JOB_FINDER_BROWSER_NAME}, finish that step, then choose "${CONFIRM_STEP_DONE_ACTION}" again.`}
+                  </span>
+                )}
+              </p>
+            ) : null}
+            {!needsUserFinishPath && secondaryRecoveryActionCount > 0 ? (
+              <div
+                aria-label="Optional application preparation actions"
+                className="flex min-w-0 max-w-full flex-wrap items-start gap-2"
+                data-testid="applications-recovery-secondary-actions"
+                role="group"
+              >
+                <div
+                  className={secondaryRecoveryActionsClassName}
+                  data-testid="applications-recovery-secondary-action-list"
+                >
+                  {canRestageAutoRun ? (
+                    <Button
+                      className={RECOVERY_ACTION_CLASS_NAME}
+                      onClick={() =>
+                        onStartAutoApply({
+                          jobId: selectedRecordJobId,
+                          applicationRecordId: selectedApplicationRecordId,
+                        })
+                      }
+                      pending={showPreparingState}
+                      type="button"
+                      variant="secondary"
+                      disabled={showPreparingState || isDailyCapacityExhausted}
+                    >
+                      Prepare this job automatically
+                    </Button>
+                  ) : null}
+                  {showQueueRecoveryAction ? (
+                    <Button
+                      aria-describedby={
+                        dailyQueueRecoveryExceedsRemainingReason
+                          ? queueRecoveryExceedsNoteId
+                          : undefined
+                      }
+                      className={RECOVERY_ACTION_CLASS_NAME}
+                      onClick={() =>
+                        onStartAutoApplyQueue(selectedQueueRecoveryJobIds)
+                      }
+                      pending={showPreparingState}
+                      type="button"
+                      variant="secondary"
+                      disabled={
+                        showPreparingState ||
+                        isDailyCapacityExhausted ||
+                        selectedQueueRecoveryExceedsDailyRemaining
+                      }
+                    >
+                      Prepare remaining jobs
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </div>
-          <StatusBadge tone={visibleApplyResult ? "active" : "muted"}>
-            {applyRunHistoryCount} run{applyRunHistoryCount === 1 ? "" : "s"}{" "}
-            saved
-          </StatusBadge>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            onClick={() =>
-              onStartApplyCopilot({
-                jobId: selectedRecordJobId,
-                applicationRecordId: selectedApplicationRecordId,
-              })
-            }
-            pending={isApplyPending}
-            type="button"
-            variant="secondary"
-            disabled={isApplyPending || isDailyCapacityExhausted}
+        )}
+        {needsManualFieldFinish && !canFinishInBrowser ? (
+          <p
+            className="text-(length:--text-small) leading-6 text-foreground-soft"
+            data-testid="manual-field-finish-unavailable-note"
+            id={finishInBrowserUnavailableNoteId}
           >
-            {isApplyPending
-              ? "Preparing safely..."
-              : isWaitingForSignIn
-                ? "I'm signed in — retry preparation"
-                : needsResumeAttachment
-                  ? "Approve and retry resume attachment"
-                  : "Retry preparation"}
-          </Button>
-          <Button
-            onClick={() =>
-              onStartAutoApply({
-                jobId: selectedRecordJobId,
-                applicationRecordId: selectedApplicationRecordId,
-              })
-            }
-            pending={isApplyPending}
-            type="button"
-            variant="ghost"
-            disabled={
-              isApplyPending || !canRestageAutoRun || isDailyCapacityExhausted
-            }
+            {JOB_FINDER_BROWSER_UNAVAILABLE_NOTE}
+          </p>
+        ) : null}
+        {finishInBrowserStatus ? (
+          <p
+            aria-live="polite"
+            className="rounded-(--radius-field) border border-primary/25 bg-primary/5 px-3 py-2 text-(length:--text-small) leading-6 text-foreground"
+            data-testid="manual-field-finish-status"
+            role="status"
           >
-            Queue automatic preparation
-          </Button>
-          <Button
-            aria-describedby={
-              dailyQueueRecoveryExceedsRemainingReason
-                ? queueRecoveryExceedsNoteId
-                : undefined
-            }
-            onClick={() => onStartAutoApplyQueue(selectedQueueRecoveryJobIds)}
-            pending={isApplyPending}
-            type="button"
-            variant="ghost"
-            disabled={
-              isApplyPending ||
-              !canRestageQueueRun ||
-              isDailyCapacityExhausted ||
-              selectedQueueRecoveryExceedsDailyRemaining
-            }
-          >
-            Queue remaining jobs
-          </Button>
-        </div>
+            {finishInBrowserStatus}
+          </p>
+        ) : null}
         {dailyQueueRecoveryExceedsRemainingReason ? (
           <p
             aria-live="polite"
@@ -195,25 +549,26 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             {dailyCapacityReachedText}
           </p>
         ) : null}
-        {isApplyPending ? (
+        {showPreparingState ? (
           <p
             aria-live="polite"
             className="text-(length:--text-small) leading-6 text-foreground-soft"
             role="status"
           >
-            Preparing the application in the dedicated browser now. This can
-            take up to a minute while Job Finder verifies every retained field.
-            It will stop before the final submit control.
+            {/* The guidance paragraph above already ends on "still stops
+                before any final submit click"; two no-submit sentences at
+                once made the boundary read as boilerplate. */}
+            {`Preparing the application in ${JOB_FINDER_BROWSER_NAME} now. This can take up to a minute while Job Finder verifies every retained field.`}
           </p>
         ) : null}
         <div className="grid gap-1 text-(length:--text-small) leading-6 text-foreground-soft">
-          {!canRestageAutoRun ? (
+          {!needsUserFinishPath && !canRestageAutoRun ? (
             <p>
               Staging an automatic preparation stays available only while this
               job is still review-ready.
             </p>
           ) : null}
-          {selectedRun?.mode === "queue_auto" ? (
+          {!needsUserFinishPath && selectedRun?.mode === "queue_auto" ? (
             <div className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
               <p>
                 Run recovery targets {selectedQueueRecoveryJobIds.length}
@@ -239,11 +594,11 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
           ) : null}
         </div>
       </section>
-      {selectedRun?.mode === "queue_auto" ? (
+      {!needsUserFinishPath && selectedRun?.mode === "queue_auto" ? (
         <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="grid gap-1">
-              <h3 className="label-mono-xs text-primary">
+              <h3 className="text-(length:--text-eyebrow) font-semibold uppercase tracking-(--tracking-badge) text-muted-foreground">
                 Run outcome summary
               </h3>
               <p className="text-(length:--text-small) leading-6 text-foreground-soft">
@@ -330,7 +685,9 @@ function QueueEntryList(props: {
 
   return (
     <div className="grid gap-2">
-      <p className="label-mono-xs">{heading}</p>
+      <p className="text-(length:--text-eyebrow) font-semibold uppercase tracking-(--tracking-badge) text-muted-foreground">
+        {heading}
+      </p>
       {entries.length ? (
         entries.map((entry) =>
           (() => {

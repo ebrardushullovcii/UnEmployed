@@ -561,6 +561,10 @@ describe("playwright browser runtime", () => {
       expect(spawnMock.mock.calls[0]?.[1]).toContain(
         "--hide-crash-restore-bubble",
       );
+      expect(spawnMock.mock.calls[0]?.[1]).toContain("--disable-extensions");
+      expect(spawnMock.mock.calls[0]?.[1]).toContain(
+        "--disable-component-extensions-with-background-pages",
+      );
       expect(normalizedPreferences).toMatchObject({
         account_info: [{ email: "preserved@example.test" }],
         profile: {
@@ -1309,7 +1313,7 @@ describe("playwright browser runtime", () => {
     }
   });
 
-  test("runAgentDiscovery navigates the visible blank startup tab to the starting url before agent work", async () => {
+  test("runAgentDiscovery without AI still navigates the visible blank tab so compact observation can run", async () => {
     const userDataDir = await mkdtemp(
       join(tmpdir(), "unemployed-browser-runtime-agent-visible-blank-"),
     );
@@ -1374,28 +1378,10 @@ describe("playwright browser runtime", () => {
 
       const { createBrowserAgentRuntime } =
         await import("./playwright-browser-runtime");
-      const mockAiClient = {
-        chatWithTools: vi
-          .fn()
-          .mockResolvedValue({ content: "done", toolCalls: [] }),
-        getStatus: () => ({
-          kind: "deterministic",
-          role: "chat",
-          ready: true,
-          label: "Test AI client ready",
-          model: null,
-          baseUrl: null,
-          modelContextWindowTokens: null,
-          reservedHeadroomTokens: null,
-          requestTimeoutMs: null,
-          detail: null,
-        }),
-      } satisfies Pick<JobFinderAiClient, "chatWithTools" | "getStatus">;
       const runtime = createBrowserAgentRuntime({
         userDataDir,
         chromeExecutablePath,
         debugPort,
-        aiClient: mockAiClient as unknown as JobFinderAiClient,
         jobExtractor: vi.fn().mockResolvedValue([]),
       });
 

@@ -7,12 +7,12 @@ import {
   render,
   screen,
   waitFor,
-  within,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MatchAssessmentChangeAuditSchema,
+  MatchAssessmentSchema,
   type ListingActivity,
   type SavedJob,
 } from "@unemployed/contracts";
@@ -206,7 +206,13 @@ describe("DiscoveryDetailPanel", () => {
     const primaryActionRegion = getByTestId("discovery-detail-primary-action");
     const detailScrollArea = getByTestId("discovery-detail-scroll-area");
 
-    const fitBreakdown = getByRole("region", { name: "Fit breakdown" });
+    // The breakdown is behind "How this was scored" now, so it is opened
+    // explicitly before it can be located.
+    const scoringDisclosure = getByText("How this was scored").closest(
+      "details",
+    ) as HTMLDetailsElement;
+    scoringDisclosure.open = true;
+    const fitBreakdown = getByRole("region", { name: "Score and evidence" });
     const detailRegion = getByRole("region", { name: "Job details" });
     const detailHeading = getByRole("heading", {
       name: "Senior Frontend Engineer",
@@ -248,8 +254,8 @@ describe("DiscoveryDetailPanel", () => {
     ).toBeTruthy();
     expect(getAllByRole("button", { name: "Shortlist job" })).toHaveLength(1);
     const shortlistAction = getByRole("button", { name: "Shortlist job" });
-    expect(actionRegion.contains(shortlistAction)).toBe(true);
-    expect(within(primaryActionRegion).queryByRole("button")).toBeNull();
+    expect(primaryActionRegion.contains(shortlistAction)).toBe(true);
+    expect(actionRegion.contains(shortlistAction)).toBe(false);
     expect(shortlistAction.getAttribute("aria-describedby")).toBe(
       DISCOVERY_DETAIL_HEADING_ID,
     );
@@ -259,20 +265,16 @@ describe("DiscoveryDetailPanel", () => {
     expect(detailScrollArea.contains(actionRegion)).toBe(false);
     expect(actionRegion.className).not.toContain("grid-cols-3");
     expect(actionRegion.className).not.toContain("absolute");
-    expect(actionRegion.previousElementSibling?.className).toContain("pb-5");
+    expect(detailScrollArea.className).toContain("pb-6");
     expect(actionRegion.previousElementSibling?.contains(fitBreakdown)).toBe(
       true,
     );
-    const assessmentCard = getByText("Overall assessment").closest("div");
-    const assessmentGrid = assessmentCard?.parentElement;
+    const whyItFits = getByTestId("discovery-detail-why-it-fits");
 
     expect(window.innerWidth).toBe(1024);
-    expect(assessmentGrid?.className).toContain("sm:grid-cols-2");
-    expect(assessmentCard?.className).toContain("sm:col-span-2");
-    expect(assessmentCard?.className).toContain("min-w-0");
     const recommendationBadge = getByText("Review before applying");
 
-    expect(assessmentCard?.contains(recommendationBadge)).toBe(true);
+    expect(whyItFits.contains(recommendationBadge)).toBe(true);
     expect(recommendationBadge.className).toContain("max-w-full");
     expect(recommendationBadge.className).toContain("inline-block");
     expect(recommendationBadge.className).toContain("w-auto");
@@ -288,11 +290,18 @@ describe("DiscoveryDetailPanel", () => {
       /(?:^|\s)shrink-0(?:\s|$)/u,
     );
 
-    expect(getByText("Overall assessment")).toBeTruthy();
-    expect(getByLabelText("Overall fit: 82 percent")).toBeTruthy();
+    // The job comes first: listing text, pay and place sit above the score.
+    const listingText = getByTestId("discovery-detail-listing-text");
+    expect(
+      listingText.compareDocumentPosition(whyItFits) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(getByText("Build accessible interfaces.")).toBeTruthy();
+    expect(getByText("Salary")).toBeTruthy();
+    expect(getByText("Location and work mode")).toBeTruthy();
+    expect(getByLabelText("Overall fit: not assessed")).toBeTruthy();
     expect(getByText("Review before applying")).toBeTruthy();
     expect(getByText("Duplicate role reason")).toBeTruthy();
-    expect(getByText("Duplicate role gap")).toBeTruthy();
     fireEvent.click(getByRole("button", { name: "Not interested" }));
     expect(
       getByText(
@@ -309,10 +318,39 @@ describe("DiscoveryDetailPanel", () => {
       "hide_job",
       null,
     );
-    expect(
-      getByRole("button", { name: "Copy original listing link" }),
-    ).toBeTruthy();
+    expect(getByRole("button", { name: "Copy listing link" })).toBeTruthy();
     expect(getByRole("status")).toBeTruthy();
+  });
+
+  it("confirms the exact job identity after a shortlist outcome", () => {
+    const selectedJob = createSelectedJob({
+      id: "job_office",
+      title: "Office Administrative Assistant",
+      company: "Cardinal Field Services",
+    });
+
+    render(
+      <DiscoveryDetailPanel
+        discoveryTargets={[]}
+        isJobPending={() => false}
+        onDismissJob={vi.fn()}
+        onQueueJob={vi.fn()}
+        queueFeedback={{
+          message: "Job added to Shortlisted.",
+          status: "success",
+        }}
+        selectedJob={selectedJob}
+      />,
+    );
+
+    expect(
+      screen.getByTestId("discovery-detail-queue-feedback").textContent,
+    ).toBe("Job added to Shortlisted.");
+    expect(
+      screen.getByTestId("discovery-detail-queue-identity").textContent,
+    ).toBe(
+      "Selected for Shortlisted: Office Administrative Assistant at Cardinal Field Services.",
+    );
   });
 
   it("offers exact employer exclusion after Company feedback without disabling job-only", async () => {
@@ -632,6 +670,115 @@ describe("DiscoveryDetailPanel", () => {
     expect(onDismissJob).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the scroller clear of the shortlist block and the not-interested footer", () => {
+    // The live walkthrough showed a half-height fact card butted straight
+    // against the Shortlist block, and "How this was scored" cut off flush at
+    // the Not interested footer, so the clipped rows read as a collision.
+    const selectedJob = createSelectedJob({ id: "job_scroll_boundaries" });
+    const { getByTestId } = render(
+      <MemoryRouter>
+        <DiscoveryDetailPanel
+          discoveryTargets={[]}
+          isJobPending={() => false}
+          onDismissJob={vi.fn()}
+          onQueueJob={vi.fn()}
+          selectedJob={selectedJob}
+        />
+      </MemoryRouter>,
+    );
+
+    const scrollArea = getByTestId("discovery-detail-scroll-area");
+    const primaryAction = getByTestId("discovery-detail-primary-action");
+    const actions = getByTestId("discovery-detail-actions");
+
+    // Both bars are siblings of the scroller, never its ancestors, so no
+    // detail row can ever render underneath either of them.
+    expect(scrollArea.contains(primaryAction)).toBe(false);
+    expect(scrollArea.contains(actions)).toBe(false);
+    expect(primaryAction.contains(scrollArea)).toBe(false);
+    expect(actions.contains(scrollArea)).toBe(false);
+    expect(primaryAction.className).toContain("shrink-0");
+    expect(actions.className).toContain("shrink-0");
+
+    // Top and bottom padding keep the first and last rows off both edges, and
+    // the matching scroll padding keeps programmatic reveals off them too.
+    for (const token of [
+      "pt-6",
+      "pb-6",
+      "scroll-pt-6",
+      "scroll-pb-6",
+      "overflow-y-auto",
+      "min-h-0",
+    ]) {
+      expect(scrollArea.className).toContain(token);
+    }
+    expect(scrollArea.className).not.toContain("pt-5");
+    expect(scrollArea.className).not.toContain("pb-5");
+
+    // Each clipped edge gets one decorative, non-interactive boundary that is
+    // hidden while nothing is clipped on that side.
+    const topEdge = getByTestId("discovery-detail-scroll-edge-top");
+    const bottomEdge = getByTestId("discovery-detail-scroll-edge-bottom");
+    for (const edge of [topEdge, bottomEdge]) {
+      expect(edge.getAttribute("aria-hidden")).toBe("true");
+      expect(edge.className).toContain("pointer-events-none");
+      expect(edge.className).toContain("absolute");
+      expect(scrollArea.contains(edge)).toBe(false);
+    }
+    // jsdom reports zero scroll geometry, so nothing is clipped and no edge
+    // treatment is shown.
+    expect(topEdge.hasAttribute("hidden")).toBe(true);
+    expect(bottomEdge.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("shows the top boundary once the scroller has moved away from its first row", () => {
+    const selectedJob = createSelectedJob({ id: "job_scroll_edge_state" });
+    const { getByTestId } = render(
+      <MemoryRouter>
+        <DiscoveryDetailPanel
+          discoveryTargets={[]}
+          isJobPending={() => false}
+          onDismissJob={vi.fn()}
+          onQueueJob={vi.fn()}
+          selectedJob={selectedJob}
+        />
+      </MemoryRouter>,
+    );
+
+    const scrollArea = getByTestId("discovery-detail-scroll-area");
+    Object.defineProperty(scrollArea, "scrollHeight", {
+      configurable: true,
+      value: 900,
+    });
+    Object.defineProperty(scrollArea, "clientHeight", {
+      configurable: true,
+      value: 400,
+    });
+    scrollArea.scrollTop = 120;
+    act(() => {
+      fireEvent.scroll(scrollArea);
+    });
+
+    expect(
+      getByTestId("discovery-detail-scroll-edge-top").hasAttribute("hidden"),
+    ).toBe(false);
+    expect(
+      getByTestId("discovery-detail-scroll-edge-bottom").hasAttribute("hidden"),
+    ).toBe(false);
+
+    scrollArea.scrollTop = 500;
+    act(() => {
+      fireEvent.scroll(scrollArea);
+    });
+
+    expect(
+      getByTestId("discovery-detail-scroll-edge-top").hasAttribute("hidden"),
+    ).toBe(false);
+    expect(
+      getByTestId("discovery-detail-scroll-edge-bottom").hasAttribute("hidden"),
+    ).toBe(true);
+  });
+
   it("returns the independent detail scroller to the top only when the selected job changes", () => {
     const firstJob = {
       id: "job_first",
@@ -710,7 +857,7 @@ describe("DiscoveryDetailPanel", () => {
     expect(screen.getByText("Shortlisted")).toBeTruthy();
     const openLink = screen.getByRole("link", { name: "Open in Shortlisted" });
     expect(
-      screen.getByTestId("discovery-detail-actions").contains(openLink),
+      screen.getByTestId("discovery-detail-primary-action").contains(openLink),
     ).toBe(true);
     expect(openLink.getAttribute("href")).toBe(
       "/job-finder/review-queue?jobId=job_shortlisted",
@@ -798,6 +945,16 @@ describe("DiscoveryDetailPanel", () => {
     );
 
     expect(screen.getByText("Last seen on source 23 Aug 2026.")).toBeTruthy();
+    const listingActivityCard = screen.getByTestId(
+      "discovery-detail-listing-activity",
+    );
+    const listingActivityLabel = screen.getByText("Listing activity");
+    const activeBadge = screen.getByText("Active");
+    expect(listingActivityCard.contains(listingActivityLabel)).toBe(true);
+    expect(listingActivityCard.contains(activeBadge)).toBe(true);
+    expect(listingActivityLabel.parentElement).toBe(activeBadge.parentElement);
+    expect(activeBadge.className).toContain("text-(length:--text-tiny)");
+    expect(activeBadge.className).toContain("tracking-[0.04em]");
     expect(
       screen
         .getByRole("button", { name: "Shortlist job" })
@@ -918,7 +1075,7 @@ describe("DiscoveryDetailPanel", () => {
     ).toBe(true);
     expect(screen.getByText(canonicalUrl)).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Copy original listing link" }),
+      screen.getByRole("button", { name: "Copy listing link" }),
     ).toBeTruthy();
   });
 
@@ -1014,5 +1171,141 @@ describe("DiscoveryDetailPanel", () => {
     expect(screen.getByText("Auto · Fallback search")).toBeTruthy();
     expect(screen.queryByText(/private/iu)).toBeNull();
     expect(screen.queryByText("Saved source")).toBeNull();
+  });
+});
+
+describe("DiscoveryDetailPanel listing facts", () => {
+  afterEach(cleanup);
+
+  it("hides the date fact when neither a posted nor an updated date exists", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <DiscoveryDetailPanel
+          discoveryTargets={[]}
+          isJobPending={() => false}
+          onDismissJob={vi.fn()}
+          onQueueJob={vi.fn()}
+          selectedJob={createSelectedJob({
+            id: "job_no_dates",
+            title: "Undated role",
+          })}
+        />
+      </MemoryRouter>,
+    );
+
+    const factGrid = container.querySelector("[data-job-fact-grid]");
+    expect(factGrid).not.toBeNull();
+    expect(screen.queryByText("Updated")).toBeNull();
+    expect(screen.queryByText("Posted")).toBeNull();
+    // A bare "Updated — Unknown" date fact must not reappear; only the
+    // listing-activity card may legitimately report unknown availability.
+    expect(factGrid?.textContent).not.toContain("UpdatedUnknown");
+    expect(
+      container.querySelector("[data-job-detail-fact-grid]")?.textContent,
+    ).toContain("Listing activityUnknown");
+  });
+
+  it("keeps a known listing date visible", () => {
+    render(
+      <MemoryRouter>
+        <DiscoveryDetailPanel
+          discoveryTargets={[]}
+          isJobPending={() => false}
+          onDismissJob={vi.fn()}
+          onQueueJob={vi.fn()}
+          selectedJob={createSelectedJob({
+            id: "job_posted",
+            title: "Dated role",
+            postedAtText: "01 Jun 2026",
+          } as Partial<SavedJob> & Pick<SavedJob, "id">)}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Posted")).toBeTruthy();
+    expect(screen.getByText("01 Jun 2026")).toBeTruthy();
+  });
+
+  it("presents the application method under the original listing instead of as a bare fact card", () => {
+    const { container } = render(
+      <MemoryRouter>
+        <DiscoveryDetailPanel
+          discoveryTargets={[]}
+          isJobPending={() => false}
+          onDismissJob={vi.fn()}
+          onQueueJob={vi.fn()}
+          selectedJob={createSelectedJob({
+            id: "job_method",
+            title: "Method role",
+          })}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Application method")).toBeNull();
+    const method = screen.getByTestId("discovery-detail-application-method");
+    expect(method.textContent).toBe("Application method: Manual application");
+
+    const listingCard = container.querySelector(
+      "[data-job-detail-fact-grid] > div:last-child",
+    );
+    expect(listingCard?.textContent).toContain("Original listing");
+    expect(listingCard?.contains(method)).toBe(true);
+  });
+});
+
+describe("job inspector fit honesty", () => {
+  it("withholds the percentage in the inspector headline for a title-only listing", () => {
+    // The third surface that reads the shared rule. Locking the rendered
+    // string here means Find jobs, Shortlisted and the inspector cannot drift
+    // apart about the same job again.
+    render(
+      <DiscoveryDetailPanel
+        discoveryTargets={[]}
+        isJobPending={() => false}
+        onDismissJob={vi.fn()}
+        onQueueJob={vi.fn()}
+        selectedJob={createSelectedJob({
+          id: "job_inspector_title_only",
+          location: "Location not stated",
+          // The shape `createMatchAssessment` emits for a card-only listing:
+          // the title matched, and a saved-preference location requirement
+          // exists but was never decided.
+          matchAssessment: MatchAssessmentSchema.parse({
+            score: 54,
+            contextFingerprint: "match_context_v4_candidate",
+            postingFingerprint: "match_posting_v4_listing",
+            compensationFit: { state: "unknown" },
+            dimensions: {
+              roleSuitability: {
+                state: "adjacent",
+                explanation:
+                  "The title matches, but the listing text was not captured, so nothing beyond the title could be checked.",
+              },
+              preferenceAlignment: { state: "unknown" },
+              evidenceConfidence: { level: "unavailable" },
+            },
+            requirements: [
+              {
+                id: "location_not_stated",
+                category: "location",
+                label: "Location (not stated in listing)",
+                importance: "required",
+                status: "unknown",
+                jobEvidence: "The listing does not state a location.",
+                resumeEvidence: [],
+                explanation:
+                  "The listing does not state a location, so it could not be compared with the saved search areas.",
+              },
+            ],
+          }),
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("discovery-detail-fit-score").textContent).toBe(
+      "Title match only",
+    );
+    expect(screen.queryByText(/^54% fit$/)).toBeNull();
   });
 });

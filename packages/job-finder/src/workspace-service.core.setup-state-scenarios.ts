@@ -197,6 +197,8 @@ describe("createJobFinderWorkspaceService", () => {
 
     const updatedSnapshot = await workspaceService.saveProfileSetupState({
       status: "in_progress",
+      // A retired step id from an older workspace: the schema migrates it
+      // onto the visible step that owns its content.
       currentStep: "answers",
       completedAt: null,
       reviewItems: [],
@@ -204,7 +206,7 @@ describe("createJobFinderWorkspaceService", () => {
     });
 
     expect(updatedSnapshot.profileSetupState.status).toBe("in_progress");
-    expect(updatedSnapshot.profileSetupState.currentStep).toBe("answers");
+    expect(updatedSnapshot.profileSetupState.currentStep).toBe("extras");
     expect(updatedSnapshot.profileSetupState.lastResumedAt).toBe(
       "2026-04-11T12:00:00.000Z",
     );
@@ -220,12 +222,14 @@ describe("createJobFinderWorkspaceService", () => {
           targetRoles: [],
           baseResume: {
             ...createSeed().profile.baseResume,
+            // The stored resume belongs to the seeded candidate: this scenario
+            // covers unresolved review items, not an identity replacement.
             textContent: [
-              "Jamie Rivers",
+              "Alex Vanguard",
               "Senior Product Designer",
               "Berlin, Germany",
-              "jamie@example.com",
-              "+49 555 1234",
+              "alex@example.com",
+              "+44 7700 900123",
             ].join("\n"),
             extractionStatus: "not_started",
             lastAnalyzedAt: null,
@@ -261,7 +265,7 @@ describe("createJobFinderWorkspaceService", () => {
     ).toEqual(expect.arrayContaining(["Headline", "Work history"]));
   });
 
-  test("reopens setup after completion when a later import produces blocking review items", async () => {
+  test("keeps setup completed when a later import only produces optional suggestions", async () => {
     const seed = createSeed();
     const { workspaceService } = createWorkspaceServiceHarness({
       seed: {
@@ -345,12 +349,20 @@ describe("createJobFinderWorkspaceService", () => {
       },
     });
 
-    expect(snapshot.profileSetupState.status).toBe("in_progress");
-    expect(snapshot.profileSetupState.currentStep).toBe("essentials");
+    // Recommended import suggestions never gate completion: the user keeps
+    // their finished setup and reviews the suggestions later in Profile.
+    expect(snapshot.profileSetupState.status).toBe("completed");
+    // Finishing setup now parks on Job targets, the step that owns Finish.
+    expect(snapshot.profileSetupState.currentStep).toBe("targeting");
     expect(
       snapshot.profileSetupState.reviewItems.some(
         (item) => item.status === "pending",
       ),
     ).toBe(true);
+    expect(
+      snapshot.profileSetupState.reviewItems.some(
+        (item) => item.status === "pending" && item.severity === "critical",
+      ),
+    ).toBe(false);
   });
 });

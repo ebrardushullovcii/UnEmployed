@@ -60,9 +60,7 @@ export function DiscoveryTargetActionHeader(
   return (
     <header className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
       <div className="grid gap-1">
-        <h3 className="text-(length:--text-body) font-semibold text-(--text-headline)">
-          {displayName}
-        </h3>
+        <h3 className="font-semibold text-(--text-headline)">{displayName}</h3>
         <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
           Source {index + 1}
         </p>

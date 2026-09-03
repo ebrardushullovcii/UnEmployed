@@ -3,19 +3,17 @@ import { ChevronDown } from "lucide-react";
 
 export function ResumeWorkspaceContextDisclosure(props: {
   children: ReactNode;
-  claimCount: number;
 }) {
   return (
     <details className="group min-w-0" id="resume-proof-details">
       <summary className="surface-panel-shell flex min-h-12 cursor-pointer list-none items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-2 outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-[3px] focus-visible:ring-ring/40">
         <span className="grid min-w-0 gap-0.5">
-          <span className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
-            Resume proof details (optional)
+          <span className="text-(length:--text-small) font-semibold text-(--text-headline)">
+            About this tailored resume
           </span>
           <span className="text-(length:--text-small) leading-5 text-foreground-soft">
-            {props.claimCount > 0
-              ? `${props.claimCount} claims checked. This is supporting evidence, not another approval step.`
-              : "Supporting evidence for the resume. This is not another approval step."}
+            See the target job and the evidence Job Finder used. You do not need
+            this to approve.
           </span>
         </span>
         <ChevronDown

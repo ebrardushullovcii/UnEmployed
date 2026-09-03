@@ -263,6 +263,47 @@ describe("focusProfileDeepLink", () => {
     expect(document.activeElement).toBe(heading);
   });
 
+  it("reveals the Work modes destination inside Preferences", () => {
+    stubViewportWidth(PROFILE_XL_MIN_VIEWPORT_WIDTH_PX);
+    document.body.innerHTML = `
+      <div class="screen-scroll-area">
+        <div id="${PROFILE_SECTION_SCROLL_AREA_ID}">
+          <article id="profile-work-modes">
+            <h3 id="profile-work-modes-heading" tabindex="-1">Work mode and compensation</h3>
+          </article>
+        </div>
+      </div>
+    `;
+    const sectionScroller = document.getElementById(
+      PROFILE_SECTION_SCROLL_AREA_ID,
+    );
+    const section = document.getElementById("profile-work-modes");
+    const heading = document.getElementById("profile-work-modes-heading");
+
+    if (!sectionScroller || !section || !heading) {
+      throw new Error("Expected the Work modes deep-link fixture to render");
+    }
+
+    const sectionScrollTo = vi.fn();
+    sectionScroller.scrollTo = sectionScrollTo;
+    sectionScroller.scrollIntoView = vi.fn();
+    sectionScroller.scrollTop = 0;
+    vi.spyOn(sectionScroller, "getBoundingClientRect").mockReturnValue({
+      top: 200,
+    } as DOMRect);
+    vi.spyOn(section, "getBoundingClientRect").mockReturnValue({
+      top: 480,
+    } as DOMRect);
+
+    expect(focusProfileDeepLink("work-modes")).toBe(true);
+    expect(sectionScrollTo).toHaveBeenCalledWith({
+      behavior: "auto",
+      left: 0,
+      top: 264,
+    });
+    expect(document.activeElement).toBe(heading);
+  });
+
   it("clears the fixed shell header when the page scrolls at zoom2 widths between sm and xl", () => {
     stubViewportWidth(720);
     const { pageScroller, section, heading } = setupPageScrollFixture();

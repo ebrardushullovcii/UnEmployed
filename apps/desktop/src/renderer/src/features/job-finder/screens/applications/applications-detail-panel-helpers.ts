@@ -5,6 +5,15 @@ import type {
   ApplySubmitApproval,
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
+import {
+  CONFIRM_STEP_DONE_ACTION,
+  FINISH_IN_JOB_FINDER_BROWSER_INSTRUCTION,
+  JOB_FINDER_BROWSER_NAME,
+  JOB_FINDER_BROWSER_OPENED_STATUS,
+  RUN_PREPARATION_AGAIN_ACTION,
+} from "../../lib/job-finder-browser-handoff-copy";
+import { formatApplicationEmployerAriaLabel } from "../../lib/job-employer-location-display";
+import { formatStatusLabel } from "../../lib/job-finder-utils";
 
 export type QueueEntry = {
   jobId: string;
@@ -15,6 +24,211 @@ export type QueueEntry = {
 
 const APPLY_TRANSPORT_LANGUAGE =
   /\b(?:post|xhr|xmlhttprequest|fetch|network request|mutating page action|prepare-only (?:safety )?guard)\b/i;
+
+const SERVICE_WORKER_BLOCK_PATTERN = /service worker/i;
+
+const MANUAL_FIELD_FINISH_PATTERN =
+  /prefilled application values need manual review|conflicting (?:application )?fields|mismatched prefilled|could not safely save (?:a |this )?prepared (?:field|step)|complete the affected step manually|review the conflicting|finish (?:this |the )?application(?: step)? yourself|finish .+ manually in the open application/i;
+
+/**
+ * A prepare-only autosave / intermediate-write pause: the job site tried to
+ * persist a field on its own and Job Finder had no authority for that write.
+ * Nothing conflicted with the saved profile; the user simply finishes in the
+ * open browser.
+ */
+const FIELD_SAVE_PAUSE_PATTERN =
+  /could not safely save (?:a |this )?prepared (?:field|step)|did not have permission for that external save|tried to save .+ while it was being prepared|paused before the application field could be saved|intermediate[_ -]write|autosave|field[_ -]save/i;
+
+const FIELD_CONFLICT_PATTERN =
+  /prefilled application values need manual review|conflicting (?:application )?fields|mismatched prefilled|do not match the exact saved candidate profile|review the conflicting/i;
+
+/** Plain-language next action when a job site blocks automatic preparation. */
+export const SITE_BLOCKED_AUTOMATIC_PREP_NEXT_STEP = `This job site blocked automatic prep. Reset ${JOB_FINDER_BROWSER_NAME} in Safeguards, then finish the application on the site yourself.`;
+
+/** Compact list-row next step for the same site-blocked pause. */
+export const SITE_BLOCKED_AUTOMATIC_PREP_LIST_NEXT_STEP = `Open Safeguards to reset ${JOB_FINDER_BROWSER_NAME}, then finish on the site`;
+
+export const SITE_BLOCKED_AUTOMATIC_PREP_GUIDANCE =
+  SITE_BLOCKED_AUTOMATIC_PREP_NEXT_STEP;
+
+/**
+ * Detects site-blocked finish-yourself pauses from persisted application
+ * record fields when the matching apply result is not in scope (list rows).
+ */
+export function applicationRecordLooksSiteBlocked(
+  record: Pick<
+    ApplicationRecord,
+    "lastActionLabel" | "latestBlocker" | "nextActionLabel"
+  >,
+): boolean {
+  const corpus = [
+    record.nextActionLabel,
+    record.lastActionLabel,
+    record.latestBlocker?.summary,
+  ]
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" ");
+
+  return (
+    SERVICE_WORKER_BLOCK_PATTERN.test(corpus) ||
+    /job site blocked|inspect the application page manually|reset (?:the (?:job finder )?)?browser in safeguards/i.test(
+      corpus,
+    )
+  );
+}
+
+/**
+ * Plain-language next action when field conflicts or a blocked save need the
+ * user. It names the window, says it is separate, and names the exact confirm
+ * action they come back to — the round-eight review found the instruction
+ * pointing at a window the user was never told existed.
+ */
+export const MANUAL_FIELD_FINISH_NEXT_STEP = `Review and fix the conflicting or unfinished fields in ${JOB_FINDER_BROWSER_NAME} — a separate window outside this app — then come back here and choose "${CONFIRM_STEP_DONE_ACTION}".`;
+
+export const MANUAL_FIELD_FINISH_GUIDANCE = `${MANUAL_FIELD_FINISH_NEXT_STEP} Use "${RUN_PREPARATION_AGAIN_ACTION}" only if you want a fresh run after that.`;
+
+/** One-line reason shown directly under the Next step heading for field conflicts. */
+export const MANUAL_FIELD_CONFLICT_REASON =
+  "Some prefilled values on the job site do not match your saved profile.";
+
+/** One-line reason shown directly under the Next step heading for an autosave pause. */
+export const FIELD_SAVE_PAUSE_REASON =
+  "The job site tried to save a field automatically. Job Finder stopped to keep everything in your hands.";
+
+/** The action that follows the autosave-pause reason. */
+export const FIELD_SAVE_PAUSE_ACTION = FINISH_IN_JOB_FINDER_BROWSER_INSTRUCTION;
+
+/**
+ * One event, one cause. The runtime's own wording ("the page could not safely
+ * save a prepared field") reads as a site failure, while Next step says the
+ * site acted and Job Finder stopped it — and the blocker code renders as
+ * "Requires manual review", a third phrasing. These two short labels keep the
+ * fact strip on the exact story Next step tells.
+ */
+export const FIELD_SAVE_PAUSE_CAUSE =
+  "The job site tried to save a field automatically";
+
+export const FIELD_SAVE_PAUSE_ACTIVITY = "Job Finder stopped before that save";
+
+/** Plain-language next action when the job site tried an automatic field save. */
+export const FIELD_SAVE_PAUSE_NEXT_STEP = `${FIELD_SAVE_PAUSE_REASON} ${FINISH_IN_JOB_FINDER_BROWSER_INSTRUCTION}`;
+
+export const FIELD_SAVE_PAUSE_GUIDANCE = `${FIELD_SAVE_PAUSE_NEXT_STEP} Use "${RUN_PREPARATION_AGAIN_ACTION}" only if you want a fresh run after that.`;
+
+/**
+ * Local status beside the action after the managed browser was asked to show
+ * the application page. The shell banner already confirms that the page
+ * opened and where it went, so this line says what is true now rather than
+ * restating the same sentence a second way.
+ */
+export const FINISH_IN_BROWSER_OPENED_STATUS = JOB_FINDER_BROWSER_OPENED_STATUS;
+
+function getApplyResultCorpus(
+  result: JobFinderWorkspaceSnapshot["applyJobResults"][number],
+): string {
+  return [result.summary, result.detail, result.blockerSummary]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * True only for the autosave / intermediate-write pause. Field conflicts
+ * with the saved profile keep the existing conflicting-fields copy.
+ */
+export function applyResultIsFieldSavePause(
+  result: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null,
+): boolean {
+  if (!result || !applyResultNeedsManualFieldFinish(result)) {
+    return false;
+  }
+
+  const corpus = getApplyResultCorpus(result);
+  if (FIELD_CONFLICT_PATTERN.test(corpus)) {
+    return false;
+  }
+
+  return FIELD_SAVE_PAUSE_PATTERN.test(corpus);
+}
+
+/** One-line reason for a manual-finish pause, or null when not a manual finish. */
+export function getManualFieldFinishReason(
+  result: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null,
+): string | null {
+  if (!applyResultNeedsManualFieldFinish(result)) {
+    return null;
+  }
+
+  return applyResultIsFieldSavePause(result)
+    ? FIELD_SAVE_PAUSE_REASON
+    : MANUAL_FIELD_CONFLICT_REASON;
+}
+
+export function getManualFieldFinishNextStep(
+  result: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null,
+): string {
+  return applyResultIsFieldSavePause(result)
+    ? FIELD_SAVE_PAUSE_NEXT_STEP
+    : MANUAL_FIELD_FINISH_NEXT_STEP;
+}
+
+export function getManualFieldFinishGuidance(
+  result: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null,
+): string {
+  return applyResultIsFieldSavePause(result)
+    ? FIELD_SAVE_PAUSE_GUIDANCE
+    : MANUAL_FIELD_FINISH_GUIDANCE;
+}
+
+/**
+ * Query-free application destination recorded in the privacy receipt, or null
+ * when the run never reached an employer page.
+ */
+export function getApplyResultDestinationUrl(
+  receipt: ApplicationPrivacyReceipt | null | undefined,
+): string | null {
+  const destination = receipt?.destination;
+  if (!destination?.origin) {
+    return null;
+  }
+
+  try {
+    return new URL(destination.safePath || "/", destination.origin).toString();
+  } catch {
+    return null;
+  }
+}
+
+const APPLY_RUN_STATE_LABELS: Partial<
+  Record<JobFinderWorkspaceSnapshot["applyRuns"][number]["state"], string>
+> = {
+  paused_for_user_review: "Paused for your review",
+  paused_for_consent: "Paused for a consent decision",
+  awaiting_submit_approval: "Waiting for preparation approval",
+};
+
+const APPLY_RUN_MODE_LABELS: Partial<
+  Record<JobFinderWorkspaceSnapshot["applyRuns"][number]["mode"], string>
+> = {
+  // "Guided preparation" is a name used nowhere else in the product; every
+  // other surface says preparation or "Prepare application".
+  copilot: "Preparation",
+  single_job_auto: "Automatic preparation",
+  queue_auto: "Automatic preparation (several jobs)",
+};
+
+/** Sentence-case run state for people instead of a title-cased status code. */
+export function formatApplyRunStateLabel(
+  state: JobFinderWorkspaceSnapshot["applyRuns"][number]["state"],
+): string {
+  return APPLY_RUN_STATE_LABELS[state] ?? formatStatusLabel(state);
+}
+
+/** Sentence-case run mode for people instead of a title-cased mode code. */
+export function formatApplyRunModeLabel(
+  mode: JobFinderWorkspaceSnapshot["applyRuns"][number]["mode"],
+): string {
+  return APPLY_RUN_MODE_LABELS[mode] ?? formatStatusLabel(mode);
+}
 
 const EXTERNAL_WRITE_CATEGORY_LABELS: Record<
   ApplicationPrivacyReceipt["externalWrites"][number]["category"],
@@ -39,10 +253,10 @@ export function getVerifiedExternalWriteRecoveryText(
   ];
 
   if (verifiedCategories.length === 0) {
-    return "No verified site writes are recorded for this run. Review what remains on the employer page before retrying.";
+    return "No verified writes to the employer page were recorded for this run. Check what remains on the employer site before retrying.";
   }
 
-  return `The receipt verifies writes to the employer page for ${verifiedCategories.join(", ")}. It does not confirm how the site stored them or what remains; review the employer page before retrying.`;
+  return `Job Finder recorded writes to the employer page for ${verifiedCategories.join(", ")}. That does not confirm what the site kept — review the page before retrying.`;
 }
 
 export function getCustomerFacingApplyText(
@@ -53,6 +267,11 @@ export function getCustomerFacingApplyText(
   if (!text) {
     return null;
   }
+
+  if (SERVICE_WORKER_BLOCK_PATTERN.test(text)) {
+    return SITE_BLOCKED_AUTOMATIC_PREP_NEXT_STEP;
+  }
+
   if (!APPLY_TRANSPORT_LANGUAGE.test(text)) {
     return text;
   }
@@ -92,6 +311,78 @@ export function applyResultNeedsResumeAttachment(
   }
 
   return false;
+}
+
+export function applyResultIsServiceWorkerBlocked(
+  result: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null,
+): boolean {
+  if (!result) {
+    return false;
+  }
+
+  return SERVICE_WORKER_BLOCK_PATTERN.test(
+    [result.summary, result.detail, result.blockerSummary]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
+/**
+ * Paused because fields conflict with the saved profile or a prepare-only save
+ * stopped for manual finish — not a site-block, and not a resume-attachment
+ * retry path where preparation is still the right primary action.
+ */
+export function applyResultNeedsManualFieldFinish(
+  result: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null,
+): boolean {
+  if (!result) {
+    return false;
+  }
+
+  if (
+    applyResultIsServiceWorkerBlocked(result) ||
+    applyResultNeedsResumeAttachment(result)
+  ) {
+    return false;
+  }
+
+  return MANUAL_FIELD_FINISH_PATTERN.test(
+    [result.summary, result.detail, result.blockerSummary]
+      .filter(Boolean)
+      .join(" "),
+  );
+}
+
+/**
+ * When preparation is paused or blocked and the user must act, recovery is the
+ * primary Applications action — cover letters and other optional docs demote.
+ */
+export function applicationNeedsPrimaryRecovery(input: {
+  lastAttemptState: ApplicationRecord["lastAttemptState"] | null | undefined;
+  visibleApplyResult:
+    | JobFinderWorkspaceSnapshot["applyJobResults"][number]
+    | null;
+}): boolean {
+  const { lastAttemptState, visibleApplyResult } = input;
+
+  if (applyResultIsServiceWorkerBlocked(visibleApplyResult)) {
+    return true;
+  }
+
+  if (applyResultNeedsManualFieldFinish(visibleApplyResult)) {
+    return true;
+  }
+
+  if (
+    lastAttemptState === "paused" ||
+    lastAttemptState === "failed" ||
+    lastAttemptState === "unsupported"
+  ) {
+    return true;
+  }
+
+  const state = visibleApplyResult?.state;
+  return state === "blocked" || state === "failed" || state === "skipped";
 }
 
 export function buildQueueEntries(input: {
@@ -136,9 +427,19 @@ export function buildQueueEntries(input: {
     return {
       jobId,
       label: relatedRecord
-        ? `${relatedRecord.title} at ${relatedRecord.company}`
+        ? formatApplicationEmployerAriaLabel({
+            title: relatedRecord.title,
+            company: relatedRecord.company,
+            ...(relatedSavedJob?.canonicalUrl
+              ? { canonicalUrl: relatedSavedJob.canonicalUrl }
+              : {}),
+          })
         : relatedSavedJob
-          ? `${relatedSavedJob.title} at ${relatedSavedJob.company}`
+          ? formatApplicationEmployerAriaLabel({
+              title: relatedSavedJob.title,
+              company: relatedSavedJob.company,
+              canonicalUrl: relatedSavedJob.canonicalUrl,
+            })
           : jobId,
       runResult,
       includeInRecovery,
@@ -200,7 +501,7 @@ export function getQueueStateExplanation(
   // A stop-rule pause holds no pending decision to resolve, so the run can
   // never resume; finishing the remaining jobs requires a fresh recovery run.
   if (input.runState === "paused_for_user_review") {
-    return "Job Finder paused this run on one of its stop rules. It will not continue on its own and no consent decision is holding it here. Use Queue remaining jobs to finish the unfinished jobs in a fresh safe recovery run.";
+    return "Job Finder paused this run on one of its stop rules. It will not continue on its own and no consent decision is holding it here. Use Prepare remaining jobs to finish the unfinished jobs in a fresh safe recovery run.";
   }
 
   if (input.runState === "awaiting_submit_approval") {

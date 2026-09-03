@@ -48,11 +48,11 @@ export function SettingsRuntimeSummary({
       <div className="grid gap-0.5">
         <div className="flex items-center gap-3">
           <ShieldCheck className="size-4 text-primary" />
-          <p className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">
+          <p className="font-display text-(length:--text-eyebrow) font-semibold uppercase tracking-(--tracking-badge) text-foreground">
             Live status
           </p>
         </div>
-        <h2 className="text-[1.02rem] font-semibold text-(--text-headline)">
+        <h2 className="font-semibold text-(--text-headline)">
           Runtime guardrails
         </h2>
         <p className="text-(length:--text-description) leading-5 text-foreground-soft">
@@ -106,13 +106,18 @@ export function SettingsRuntimeSummary({
       <section className="surface-card-tint grid gap-2.5 rounded-(--radius-field) border border-(--surface-panel-border) px-3.5 py-3.5">
         <div className="flex items-center gap-3">
           <ShieldAlert className="size-4 text-destructive" />
-          <h2 className="font-display text-sm font-bold uppercase tracking-(--tracking-badge) text-foreground">
+          {/* This was an <h2> styled as a 14px uppercase badge, so it sat
+              below the 19px "Runtime guardrails" <h2> it belongs under and
+              inverted the scale. An eyebrow is never a heading: the label is
+              a div at the eyebrow token, and the card's real title carries
+              the heading level under it. */}
+          <div className="font-display text-(length:--text-eyebrow) font-semibold uppercase tracking-(--tracking-badge) text-foreground">
             Apply safeguard
-          </h2>
+          </div>
         </div>
-        <strong className="text-(length:--text-body) font-semibold text-foreground">
+        <h3 className="font-semibold text-foreground">
           {applySafeguardCopy.title}
-        </strong>
+        </h3>
         <p className="text-(length:--text-description) leading-5 text-foreground-soft">
           {applySafeguardCopy.description}
         </p>

@@ -98,7 +98,10 @@ function createWorkspace(recentSessions: InterviewLiveSession[] = []) {
   } as unknown as InterviewWorkspaceSnapshot;
 }
 
-function installDesktopApi(workspace: InterviewWorkspaceSnapshot) {
+function installDesktopApi(
+  workspace: InterviewWorkspaceSnapshot,
+  isFullScreen = false,
+) {
   Object.defineProperty(window, "unemployed", {
     configurable: true,
     value: {
@@ -110,7 +113,8 @@ function installDesktopApi(workspace: InterviewWorkspaceSnapshot) {
       window: {
         getControlsState: vi.fn().mockResolvedValue({
           isClosable: true,
-          isMaximized: false,
+          isFullScreen,
+          isMaximized: isFullScreen,
           isMinimizable: true,
         }),
         onControlsStateChange: vi.fn().mockReturnValue(() => undefined),
@@ -148,6 +152,18 @@ afterEach(() => {
 });
 
 describe("Interview Helper section navigation", () => {
+  test("moves the suite wordmark fully left in native macOS fullscreen", async () => {
+    installDesktopApi(createWorkspace(), true);
+    const rendered = renderInterviewShell();
+
+    await rendered.findByRole("heading", { name: "Start interview" });
+
+    const brand = rendered.container.querySelector<HTMLElement>(
+      "[data-desktop-brand]",
+    );
+    expect(brand?.style.paddingInlineStart).toBe("");
+  });
+
   test("marks exactly one section as current and moves it when switching sections", async () => {
     installDesktopApi(createWorkspace([createEndedSession()]));
     const rendered = renderInterviewShell();

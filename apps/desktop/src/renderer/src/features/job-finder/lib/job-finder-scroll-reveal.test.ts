@@ -7,10 +7,13 @@ import {
   JOB_FINDER_FIXED_HEADER_HEIGHT_PX,
   JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES,
   JOB_FINDER_REVEAL_TOP_GAP_PX,
+  JOB_FINDER_ROUTE_HEADER_SCROLL_TOLERANCE_PX,
   JOB_FINDER_WIDE_HEADER_HEIGHT_PX,
   resolveJobFinderRevealChromeMode,
   resolveJobFinderRevealClearancePx,
+  resolveJobFinderRouteHeaderScrollTop,
   revealBelowShellHeader,
+  settleJobFinderRouteHeaderScroll,
   type JobFinderRevealView,
 } from "./job-finder-scroll-reveal";
 
@@ -62,9 +65,11 @@ function createScrollChain(levels: 1 | 2): {
 
   document.body.appendChild(outer.element);
 
-  const targetRects = vi.spyOn(target, "getBoundingClientRect").mockReturnValue({
-    top: 0,
-  } as DOMRect);
+  const targetRects = vi
+    .spyOn(target, "getBoundingClientRect")
+    .mockReturnValue({
+      top: 0,
+    } as DOMRect);
 
   return {
     target,
@@ -119,6 +124,32 @@ describe("resolveJobFinderRevealClearancePx", () => {
   });
 });
 
+describe("route header scroll settling", () => {
+  it("chooses a whole-header boundary for a partially occluded route title", () => {
+    expect(resolveJobFinderRouteHeaderScrollTop(0, 120)).toBe(0);
+    expect(resolveJobFinderRouteHeaderScrollTop(40, 120)).toBe(0);
+    expect(resolveJobFinderRouteHeaderScrollTop(80, 120)).toBe(120);
+    expect(resolveJobFinderRouteHeaderScrollTop(120, 120)).toBe(120);
+    expect(resolveJobFinderRouteHeaderScrollTop(-10, 120)).toBe(0);
+  });
+
+  it("writes only when the page scrollport is between its resting positions", () => {
+    const scrollArea = document.createElement("div");
+    document.body.appendChild(scrollArea);
+
+    scrollArea.scrollTop = 72;
+    expect(settleJobFinderRouteHeaderScroll(scrollArea, 120)).toBe(true);
+    expect(scrollArea.scrollTop).toBe(120);
+
+    expect(
+      Math.abs(120 - 120) <= JOB_FINDER_ROUTE_HEADER_SCROLL_TOLERANCE_PX,
+    ).toBe(true);
+    expect(settleJobFinderRouteHeaderScroll(scrollArea, 120)).toBe(false);
+
+    scrollArea.remove();
+  });
+});
+
 describe("findNearestVerticalScrollportFrom", () => {
   it("skips the start node itself and requires a real vertical scrollport", () => {
     const outer = createScrollChain(1).outer;
@@ -133,7 +164,9 @@ describe("findNearestVerticalScrollportFrom", () => {
       outer.element,
     );
     // Starting inside the scrollport itself must not return it.
-    expect(findNearestVerticalScrollportFrom(outer.element, createView())).toBeNull();
+    expect(
+      findNearestVerticalScrollportFrom(outer.element, createView()),
+    ).toBeNull();
 
     outer.element.remove();
   });
@@ -227,6 +260,8 @@ describe("findCollectionItemWithinRegion", () => {
 
     expect(findCollectionItemWithinRegion(null, "missing_id")).toBeNull();
     expect(findCollectionItemWithinRegion(undefined, "orphan_id")).toBe(orphan);
-    expect(findCollectionItemWithinRegion(document.body, "other_id")).toBeNull();
+    expect(
+      findCollectionItemWithinRegion(document.body, "other_id"),
+    ).toBeNull();
   });
 });

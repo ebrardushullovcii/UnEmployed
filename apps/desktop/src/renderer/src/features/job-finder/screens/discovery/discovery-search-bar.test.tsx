@@ -1,0 +1,216 @@
+// @vitest-environment jsdom
+
+import type {
+  BrowserSessionState,
+  JobDiscoveryTarget,
+  JobSearchPreferences,
+} from "@unemployed/contracts";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  DiscoverySearchBar,
+  getDiscoverySearchChips,
+} from "./discovery-search-bar";
+
+afterEach(() => {
+  cleanup();
+});
+
+const browserSession: BrowserSessionState = {
+  driver: "chrome_profile_agent",
+  detail: "",
+  label: "Managed browser",
+  lastCheckedAt: "2026-09-01T00:00:00.000Z",
+  source: "target_site",
+  status: "unknown",
+};
+
+function target(
+  overrides: Partial<JobDiscoveryTarget> = {},
+): JobDiscoveryTarget {
+  return {
+    id: "target_wellfound",
+    label: "Wellfound",
+    startingUrl: "https://wellfound.com/jobs",
+    enabled: true,
+    adapterKind: "auto",
+    customInstructions: null,
+    instructionStatus: "draft",
+    validatedInstructionId: null,
+    draftInstructionId: null,
+    lastDebugRunId: null,
+    lastVerifiedAt: null,
+    staleReason: null,
+    ...overrides,
+  } as JobDiscoveryTarget;
+}
+
+function preferences(
+  overrides: Partial<JobSearchPreferences> = {},
+): JobSearchPreferences {
+  return {
+    targetRoles: ["Senior Robotics Software Engineer", "Backend Engineer"],
+    jobFamilies: [],
+    locations: [],
+    excludedLocations: [],
+    workModes: ["remote"],
+    seniorityLevels: [],
+    targetIndustries: [],
+    targetCompanyStages: [],
+    employmentTypes: [],
+    minimumSalaryUsd: null,
+    targetSalaryUsd: null,
+    salaryCurrency: "USD",
+    compensation: {
+      minimum: null,
+      maximum: null,
+      interval: "year",
+      currency: "USD",
+      currencyStatus: "inherited",
+    },
+    approvalMode: "review_before_submit",
+    tailoringMode: "balanced",
+    companyBlacklist: [],
+    companyWhitelist: [],
+    discovery: { historyLimit: 5, targets: [target()] },
+    ...overrides,
+  } as unknown as JobSearchPreferences;
+}
+
+function renderBar(
+  overrides: Partial<Parameters<typeof DiscoverySearchBar>[0]> = {},
+) {
+  const onToggleSetup = vi.fn();
+  const onRunAgentDiscovery = vi.fn();
+  const onOpenBrowserSession = vi.fn();
+  render(
+    <DiscoverySearchBar
+      browserSession={browserSession}
+      isBrowserSessionPending={false}
+      isSearchDisabled={false}
+      isSearchPending={false}
+      isSearchRunning={false}
+      isSetupOpen={false}
+      onOpenBrowserSession={onOpenBrowserSession}
+      onRunAgentDiscovery={onRunAgentDiscovery}
+      onToggleSetup={onToggleSetup}
+      searchPreferences={preferences()}
+      {...overrides}
+    />,
+  );
+  return { onOpenBrowserSession, onRunAgentDiscovery, onToggleSetup };
+}
+
+describe("getDiscoverySearchChips", () => {
+  it("summarizes the search in three chips a job seeker can read", () => {
+    expect(getDiscoverySearchChips(preferences())).toEqual([
+      { id: "roles", label: "2 search targets" },
+      { id: "places", label: "Remote only" },
+      { id: "sources", label: "1 enabled source" },
+    ]);
+  });
+
+  it("says plainly when a search has nothing to search for", () => {
+    const chips = getDiscoverySearchChips(
+      preferences({
+        targetRoles: [],
+        jobFamilies: [],
+        workModes: [],
+        discovery: { historyLimit: 5, targets: [] },
+      } as unknown as Partial<JobSearchPreferences>),
+    );
+    expect(chips.map((chip) => chip.label)).toEqual([
+      "No search targets",
+      "Anywhere",
+      "No enabled sources",
+    ]);
+  });
+});
+
+describe("DiscoverySearchBar", () => {
+  it("opens the setup editor in place from any chip, with no route change", () => {
+    const { onToggleSetup } = renderBar();
+
+    const rolesChip = screen.getByRole("button", { name: "2 search targets" });
+    expect(rolesChip.getAttribute("aria-controls")).toBe(
+      "discovery-search-setup-panel",
+    );
+    expect(rolesChip.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(rolesChip);
+    expect(onToggleSetup).toHaveBeenCalledWith("roles");
+
+    fireEvent.click(screen.getByRole("button", { name: "1 enabled source" }));
+    expect(onToggleSetup).toHaveBeenLastCalledWith("sources");
+  });
+
+  it("closes an open editor from the same chip", () => {
+    const { onToggleSetup } = renderBar({
+      isSetupOpen: true,
+      openSetupChipId: "places",
+    });
+
+    const placesChip = screen.getByRole("button", { name: "Remote only" });
+    expect(placesChip.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(placesChip);
+    expect(onToggleSetup).toHaveBeenCalledWith(null);
+  });
+
+  it("switches to another chip's section instead of closing the panel", () => {
+    const { onToggleSetup } = renderBar({
+      isSetupOpen: true,
+      openSetupChipId: "places",
+    });
+
+    // Only the chip that owns the open section reports itself as expanded;
+    // before, all three lit up whenever any section was open.
+    const sourcesChip = screen.getByRole("button", {
+      name: "1 enabled source",
+    });
+    expect(sourcesChip.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(sourcesChip);
+    expect(onToggleSetup).toHaveBeenCalledWith("sources");
+  });
+
+  it("keeps one search command and demotes the browser to a small link", () => {
+    const { onOpenBrowserSession, onRunAgentDiscovery } = renderBar();
+
+    // One label, one home: the action used to appear as "Search now" in the
+    // page header, "Search jobs" inside the setup card, and again on compact.
+    expect(screen.getAllByRole("button", { name: "Search now" })).toHaveLength(
+      1,
+    );
+    expect(screen.queryByRole("button", { name: "Search jobs" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Search now" }));
+    expect(onRunAgentDiscovery).toHaveBeenCalledTimes(1);
+
+    const browserLink = screen.getByTestId("discovery-search-bar-browser");
+    expect(browserLink.textContent).toBe("Browser not open");
+    fireEvent.click(browserLink);
+    expect(onOpenBrowserSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits the browser link on the offline catalog runtime", () => {
+    // The setup panel already owns the "Offline catalog" fact, and there is
+    // no live browser to open, so the bar shows no second copy of it.
+    renderBar({
+      browserSession: {
+        ...browserSession,
+        driver: "catalog_seed",
+        status: "ready",
+      },
+    });
+
+    expect(screen.queryByTestId("discovery-search-bar-browser")).toBeNull();
+    expect(screen.queryByText("Offline catalog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Search now" })).toBeTruthy();
+  });
+
+  it("offers Stop beside a running search instead of a second Search", () => {
+    const onStopSearch = vi.fn();
+    renderBar({ isSearchRunning: true, onStopSearch });
+
+    expect(screen.getByRole("button", { name: "Searching" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stop search" }));
+    expect(onStopSearch).toHaveBeenCalledTimes(1);
+  });
+});

@@ -8,6 +8,7 @@
     "./discovery-ordering": "./src/discovery-ordering.ts",
     "./resume-record-identity": "./src/resume-record-identity.ts",
     "./source-health": "./src/source-health.ts",
+    "./application-submission-runtime-main": "./src/application-submission-runtime-main.ts",
     "./source-instruction-review": "./src/source-instruction-review.ts"
   },
   "scripts": {
