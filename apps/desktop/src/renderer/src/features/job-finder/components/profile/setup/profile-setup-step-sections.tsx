@@ -601,13 +601,20 @@ export function ProfileSetupTargetingStep(props: {
               aria-label="Show job sources to enable"
               data-profile-setup-jump-to-sources
               onClick={() => {
+                const firstUsableSourceToggle =
+                  document.querySelector<HTMLElement>(
+                    "[data-profile-setup-source-enable]:not(:disabled)",
+                  );
                 const heading = document.getElementById(
                   "profile-setup-job-sources-heading",
                 );
-                // Instant scroll: smooth animation can still be in flight when
-                // Enable is clicked, which raced sticky-footer layout updates.
-                heading?.scrollIntoView({ behavior: "auto", block: "start" });
-                heading?.focus({ preventScroll: true });
+                const target = firstUsableSourceToggle ?? heading;
+
+                // Land on the action the call-to-action promises, centered
+                // clear of the shell header and pinned setup footer. Instant
+                // scroll avoids racing a second click against an animation.
+                target?.scrollIntoView({ behavior: "auto", block: "center" });
+                target?.focus({ preventScroll: true });
               }}
               size="sm"
               type="button"

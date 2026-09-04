@@ -517,7 +517,10 @@ export function ReviewQueueListPanel({
                     <div className={jobFinderListRowBadgeSlotClassName}>
                       <SelectableRowLine className="flex justify-end">
                         {selectedItem?.jobId === item.jobId ? null : (
-                          <StatusBadge tone={workflowStatus.tone}>
+                          <StatusBadge
+                            className="min-w-24 shrink-0 whitespace-normal break-normal [overflow-wrap:normal]"
+                            tone={workflowStatus.tone}
+                          >
                             {workflowStatus.label}
                           </StatusBadge>
                         )}

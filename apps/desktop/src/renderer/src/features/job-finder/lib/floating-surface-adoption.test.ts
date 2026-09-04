@@ -76,13 +76,6 @@ const PENDING_ADOPTION: ReadonlyArray<{
     rule: "viewport-max-height",
   },
   {
-    owner: "PKG-09",
-    path: "features/job-finder/screens/applications/applications-crm-views.tsx",
-    reason:
-      "The Applications filter popover derives its own `max-h-[min(24rem,calc(100vh-4rem))]` instead of taking a solved height.",
-    rule: "viewport-max-height",
-  },
-  {
     owner: "PKG-07",
     path: "features/job-finder/screens/discovery/discovery-activity-panel.tsx",
     reason:

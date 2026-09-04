@@ -21,11 +21,11 @@ export function ProfileSaveFooter({
 
   return (
     <div
-      className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) px-4 py-4 sm:px-5"
+      className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) px-4 py-2 sm:px-5"
       data-profile-workspace-actions
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="grid gap-2">
+        <div className="grid gap-1">
           {/* Same two states as every guided-setup footer: report what is
               true, do not instruct. The state is carried by a dot and its
               own colour as well as the words, so a glance at the footer
@@ -33,7 +33,7 @@ export function ProfileSaveFooter({
               and it is the stated reason the clean Save is disabled. */}
           <p
             className={cn(
-              "flex items-center gap-2 text-(length:--text-description) leading-6",
+              "flex items-center gap-2 text-(length:--text-description) leading-5",
               hasUnsavedChanges
                 ? "font-medium text-(--warning-text)"
                 : "text-foreground-muted",
@@ -58,7 +58,7 @@ export function ProfileSaveFooter({
             <p
               aria-atomic="true"
               aria-live="polite"
-              className="text-(length:--text-description) leading-6 text-foreground-muted"
+              className="text-(length:--text-description) leading-5 text-foreground-muted"
               role="status"
             >
               {validationMessage}
@@ -68,7 +68,7 @@ export function ProfileSaveFooter({
             <p
               aria-atomic="true"
               aria-live="polite"
-              className="text-(length:--text-description) leading-6 text-primary"
+              className="text-(length:--text-description) leading-5 text-primary"
               role="status"
             >
               {actionMessage}

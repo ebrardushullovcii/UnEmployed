@@ -9,6 +9,7 @@ export const JOB_FINDER_ROUTE_PATHS = {
   profileWorkModes: "/job-finder/profile?section=preferences&focus=work-modes",
   profileSources: "/job-finder/profile?section=sources&focus=job-sources",
   discovery: "/job-finder/discovery",
+  campaigns: "/job-finder/campaigns",
   reviewQueue: "/job-finder/review-queue",
   applications: "/job-finder/applications",
   documents: "/job-finder/documents",

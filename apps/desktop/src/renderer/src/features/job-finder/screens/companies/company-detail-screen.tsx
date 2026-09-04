@@ -34,6 +34,7 @@ import {
   companyPreferenceLabels,
   companyPreferenceScopeDescription,
   companySalaryOfferEvidenceKindLabels,
+  companySourceHistoryLabel,
   describeCompanySalaryOfferEvidence,
 } from "./company-presentation";
 
@@ -1191,7 +1192,7 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
                   key={ref.id}
                 >
                   <p className="text-sm font-medium text-foreground">
-                    {ref.sourceId}
+                    {companySourceHistoryLabel(ref.sourceId)}
                   </p>
                   <p className="text-(length:--text-tiny) text-foreground-muted">
                     First seen {ref.firstSeenAt.slice(0, 10)} · Last seen{" "}

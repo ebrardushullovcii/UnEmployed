@@ -211,6 +211,25 @@ describe("CompanyDetailScreen", () => {
     expect(onOpenApplication).toHaveBeenCalledWith("app_1");
   });
 
+  it("presents internal source history identifiers as user-facing labels", () => {
+    renderDetail({
+      company: makeCompany({
+        sourceHistory: [
+          {
+            id: "source_ref_1",
+            sourceId: "target_site",
+            firstSeenAt: now,
+            lastSeenAt: now,
+            applicationRecordIds: ["app_1"],
+          },
+        ],
+      }),
+    });
+
+    expect(screen.getByText("Job source")).toBeTruthy();
+    expect(screen.queryByText("target_site")).toBeNull();
+  });
+
   it("labels provider-only listing freshness as updated", () => {
     renderDetail({
       discoveryJobs: [

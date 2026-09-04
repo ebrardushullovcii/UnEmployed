@@ -445,6 +445,10 @@ describe("OutcomeAnalyticsScreen", () => {
     );
 
     expect(screen.getByText(/Loading outcome analytics/i)).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "No outcomes recorded yet" }),
+    ).toBeNull();
+    expect(screen.queryByLabelText("Search plan scope")).toBeNull();
   });
 
   it("styles the campaign scope select with canonical field tokens and focus hierarchy", () => {

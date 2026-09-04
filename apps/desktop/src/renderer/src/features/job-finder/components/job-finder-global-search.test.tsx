@@ -169,6 +169,19 @@ describe("JobFinderGlobalSearchDialog", () => {
     expect(appRoot.getAttribute("aria-hidden")).toBe("true");
   });
 
+  it("keeps modal results in normal flow so the dialog grows before it scrolls", () => {
+    renderDialog();
+
+    typeQuery("typescript");
+    const results = document.querySelector<HTMLElement>(
+      "[data-job-finder-global-search-results]",
+    );
+
+    expect(results?.className).toContain("relative");
+    expect(results?.className).not.toContain("absolute");
+    expect(screen.getByText("2 results")).toBeTruthy();
+  });
+
   it("keeps Tab cycling inside the dialog", () => {
     renderDialog();
 
@@ -293,6 +306,11 @@ describe("JobFinderGlobalSearch", () => {
 
     typeQuery("typescript");
     expect(screen.getByText("2 results")).toBeTruthy();
+    expect(
+      document.querySelector<HTMLElement>(
+        "[data-job-finder-global-search-results]",
+      )?.className,
+    ).toContain("absolute");
     fireEvent.click(
       screen.getByRole("option", { name: /Platform Engineer Acme/i }),
     );

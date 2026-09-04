@@ -1929,20 +1929,23 @@ export function JobFinderShell({
       </span>
 
       {/* Content passes under the fixed header with no seam, so a title or a
-          card sitting at the boundary paints sliced through its glyphs. A
-          fade in the header's own colour ends the page there instead.
-          The first 12px of it are fully opaque, not faded: that band is
-          exactly the shell's own `pt-3` gutter, the strip a route's sticky
-          sub-navigation cannot cover because sticky is clamped to its
-          containing block. A 4px fade left a readable half-line of the page
-          floating in it between two chromes. Beyond the gutter the fade
-          resumes, so the first row at scroll 0 is not dimmed by a hard edge. */}
+          card sitting at the boundary paints sliced through its glyphs. On a
+          scrolling route the shell owns the 12px top gutter and can spend the
+          remaining 8px on a soft edge. Locked routes own their own nested
+          scroller and begin live controls immediately after that gutter, so
+          their mask must stop at 12px: fading beyond it literally paints over
+          the top of those controls. */}
       <div
         aria-hidden="true"
         className={cn(
-          "pointer-events-none fixed inset-x-0 top-[7.25rem] z-30 hidden bg-gradient-to-b from-(--shell-header-bg) to-transparent sm:block min-[1440px]:top-14 min-[1440px]:left-(--job-finder-side-width)",
-          SHELL_HEADER_MASK_HEIGHT_CLASS,
-          SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
+          "pointer-events-none fixed inset-x-0 top-[7.25rem] z-30 hidden sm:block min-[1440px]:top-14 min-[1440px]:left-(--job-finder-side-width)",
+          usesLockedScreenLayout
+            ? "h-3 bg-(--shell-header-bg)"
+            : cn(
+                "bg-gradient-to-b from-(--shell-header-bg) to-transparent",
+                SHELL_HEADER_MASK_HEIGHT_CLASS,
+                SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
+              ),
         )}
         data-job-finder-shell-header-mask
       />

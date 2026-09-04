@@ -18,7 +18,7 @@ import {
   getDiscoveryRunCountEvidence,
 } from "../../lib/discovery-run-count-label";
 import type { JobFinderGlobalSearchEntry } from "../../lib/job-finder-global-search";
-import { DISCOVERY_OFFLINE_CATALOG_NOTICE } from "../discovery/discovery-search-readiness";
+import { DISCOVERY_OFFLINE_SETUP_NOTICE } from "../discovery/discovery-search-readiness";
 import { DiscoveryRunFeedbackCallout } from "../discovery/discovery-run-feedback-callout";
 import {
   getDiscoveryLatestRunNotices,
@@ -565,8 +565,7 @@ export function JobSearchHomeScreen(props: {
           role="status"
         >
           <strong>Offline catalog · review-only.</strong>{" "}
-          {DISCOVERY_OFFLINE_CATALOG_NOTICE} Enable a live source in Profile to
-          search current openings.
+          {DISCOVERY_OFFLINE_SETUP_NOTICE}
         </div>
       ) : null}
 

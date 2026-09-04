@@ -1315,7 +1315,7 @@ describe("DiscoveryFiltersPanel", () => {
       "Offline catalog · review-only.",
     );
     expect(offlineCatalogStatus?.textContent).toContain(
-      "Enable a live source in Profile to search current openings.",
+      "Filters are complete, but live source search is unavailable in this build.",
     );
     expect(offlineCatalogStatus?.parentElement?.className).toContain("py-4");
     expect(getAllByText("Source unavailable").length).toBeGreaterThan(0);

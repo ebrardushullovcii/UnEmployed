@@ -297,6 +297,7 @@ describe("ProfileScreen ready-state density and save-bar footprint", () => {
 
     const summary = document.querySelector("[data-profile-resume-summary]");
     expect(summary).toBeTruthy();
+    expect(summary?.parentElement?.className).not.toContain("pb-[4.5rem]");
     expect(
       screen
         .getByRole("tab", { name: /Work history/ })

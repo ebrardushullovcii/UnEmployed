@@ -17,6 +17,15 @@ import { Button } from "@renderer/components/ui";
 const LEGACY_LINEAGE_EXPORT_UNAVAILABLE_REASON =
   "This legacy receipt predates exact application-record linking, so Job Finder cannot export its packet.";
 
+function formatReceiptDestination(origin: string, safePath: string): string {
+  const normalizedOrigin = origin.replace(/\/+$/, "");
+  const normalizedPath = safePath.replace(/^\/+/, "");
+
+  return normalizedPath
+    ? `${normalizedOrigin}/${normalizedPath}`
+    : normalizedOrigin;
+}
+
 function ReceiptGroup(props: {
   icon: typeof Monitor;
   label: string;
@@ -84,8 +93,11 @@ export function ApplicationsDetailPanelPrivacyReceiptSection(props: {
               {/* The generated artifact basename is an epoch-prefixed internal
                   name, not something the user chose or can act on. It stays
                   inside the expanded details. */}
-              {receipt.destination.origin}
-              {receipt.destination.safePath} · Your approved resume (PDF)
+              {formatReceiptDestination(
+                receipt.destination.origin,
+                receipt.destination.safePath,
+              )}{" "}
+              · Your approved resume (PDF)
             </p>
           </div>
           <span className="text-(length:--text-small) text-primary">

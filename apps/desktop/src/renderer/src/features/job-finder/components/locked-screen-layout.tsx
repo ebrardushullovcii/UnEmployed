@@ -807,7 +807,10 @@ export function LockedScreenLayout({
     >
       <div
         className={cn(
-          "screen-scroll-area overflow-y-auto overflow-x-hidden pr-1",
+          // Leave enough room between route chrome and the native window edge
+          // that controls do not read as clipped by the overlaid scrollbar or
+          // the window shadow at non-fullscreen sizes.
+          "screen-scroll-area overflow-y-auto overflow-x-hidden pr-3",
           bottomContent ? "min-h-0 flex-1" : "h-full",
         )}
         data-locked-screen-scroll-area

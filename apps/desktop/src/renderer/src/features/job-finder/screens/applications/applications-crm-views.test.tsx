@@ -539,14 +539,21 @@ describe("ApplicationsCrmViews locked pane scroll regions", () => {
     );
 
     const region = expectSingleLeafScrollRegion(container);
-    expect(region.className).toContain("min-h-0 flex-1 overflow-auto");
+    expect(region.className).toContain("overflow-x-hidden");
+    expect(region.className).toContain("overflow-y-auto");
     expect(screen.getByText("Frontend Engineer")).toBeTruthy();
-    // Stage columns keep their own native scrolling and stay unmarked inside
-    // the marked board scroller.
+    expect(screen.queryByRole("heading", { name: "Discovered" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Show empty stages/ }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Show empty stages/ }));
+    expect(screen.getByRole("list", { name: "Empty stages" })).toBeTruthy();
+    expect(screen.getByText("Discovered")).toBeTruthy();
     const stageColumn = screen
       .getByText("Frontend Engineer")
       .closest("section");
     expect(stageColumn).toBeTruthy();
+    expect(stageColumn?.className).not.toContain("overflow-y-auto");
     expect(stageColumn?.hasAttribute("data-locked-pane-scroll-region")).toBe(
       false,
     );

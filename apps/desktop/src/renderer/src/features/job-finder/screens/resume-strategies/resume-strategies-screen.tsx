@@ -724,17 +724,19 @@ export function ResumeStrategiesScreen(props: {
         strategies={props.strategies}
       />
 
-      <div className="min-w-[min(100%,24rem)] flex-1">
-        <CollectionSearchToolbar
-          className="px-0"
-          label="Search approaches"
-          onQueryChange={setQuery}
-          placeholder="Search name, role family, template, or policy"
-          query={query}
-          totalCount={props.strategies.length}
-          visibleCount={filteredStrategies.length}
-        />
-      </div>
+      {props.strategies.length > 0 ? (
+        <div className="min-w-[min(100%,24rem)] flex-1">
+          <CollectionSearchToolbar
+            className="px-0"
+            label="Search approaches"
+            onQueryChange={setQuery}
+            placeholder="Search name, role family, template, or policy"
+            query={query}
+            totalCount={props.strategies.length}
+            visibleCount={filteredStrategies.length}
+          />
+        </div>
+      ) : null}
 
       {!props.loadError && props.strategies.length === 0 ? (
         <div className="grid gap-3">

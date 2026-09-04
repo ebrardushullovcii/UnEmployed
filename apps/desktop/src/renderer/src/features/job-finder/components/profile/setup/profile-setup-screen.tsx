@@ -53,9 +53,11 @@ const pristineSetupSummaryClassName = "grid min-w-0 w-full gap-6";
 const setupScreenInlineReviewClassName = "grid min-w-0 gap-6 pb-4 xl:pb-6";
 const pristineSetupTopClassName = "grid min-w-0 gap-4 overflow-visible pb-4";
 const activeSetupTopClassName = "grid min-w-0 gap-3 overflow-visible pb-3";
-// Sticky footer height plus the floating Copilot launcher that docks above it,
-// so the last field of a step is never permanently under either one.
-export const PROFILE_SETUP_FOOTER_CLEARANCE_CLASS_NAME = "pb-32 xl:pb-36";
+// The sticky footer is a flex sibling of the route scroller and the collapsed
+// Assistant is portalled into that footer. Neither overlays the editor, so an
+// extra content tail only creates a blank scroll range after review cards
+// collapse.
+export const PROFILE_SETUP_FOOTER_CLEARANCE_CLASS_NAME = "";
 const unsavedSetupCopilotMessage =
   "Save this step before asking the Assistant to edit it so your current setup draft does not get overwritten.";
 const unsavedSetupCopilotActionsMessage =

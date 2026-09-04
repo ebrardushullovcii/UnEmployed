@@ -438,6 +438,38 @@ export function OutcomeAnalyticsScreen(props: {
     void props.onSetOutcomeSuggestionEnabled(input);
   };
 
+  if (props.loading) {
+    return (
+      <section className="grid gap-4 pb-8">
+        <PageHeader
+          description="Compare response and interview rates from outcomes you record. Suggestions are never applied automatically and never change job facts."
+          title="Outcomes"
+        />
+
+        {props.actionMessage ? (
+          <p
+            aria-atomic="true"
+            aria-live="polite"
+            className="rounded-(--radius-field) border border-border/50 bg-(--surface-panel-tint) px-3 py-2 text-(length:--text-small) leading-5 text-foreground-soft"
+            role="status"
+          >
+            {props.actionMessage}
+          </p>
+        ) : null}
+
+        <div
+          aria-busy="true"
+          className="grid min-h-40 place-items-center rounded-(--radius-field) border border-dashed border-border/70 bg-(--surface-panel-tint) px-5 py-8 text-center"
+          role="status"
+        >
+          <p className="text-(length:--text-small) text-foreground-soft">
+            Loading outcome analytics…
+          </p>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="grid gap-4 pb-8">
       <PageHeader
@@ -454,18 +486,6 @@ export function OutcomeAnalyticsScreen(props: {
         >
           {props.actionMessage}
         </p>
-      ) : null}
-
-      {props.loading ? (
-        <div
-          aria-busy="true"
-          className="grid min-h-40 place-items-center rounded-(--radius-field) border border-dashed border-border/70 bg-(--surface-panel-tint) px-5 py-8 text-center"
-          role="status"
-        >
-          <p className="text-(length:--text-small) text-foreground-soft">
-            Loading outcome analytics…
-          </p>
-        </div>
       ) : null}
 
       <div className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-4 sm:grid-cols-[minmax(14rem,0.8fr)_repeat(3,minmax(0,1fr))] sm:items-end">

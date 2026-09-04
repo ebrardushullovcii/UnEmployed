@@ -18,6 +18,7 @@ import {
   CollectionSearchToolbar,
   matchesCollectionSearch,
 } from "../../components/collection-search-toolbar";
+import { EmptyState } from "../../components/empty-state";
 import { PageHeader } from "../../components/page-header";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 import { CampaignConfirmDialog } from "./campaign-confirm-dialog";
@@ -1380,7 +1381,23 @@ export function CampaignsScreen(props: {
         />
       ) : null}
 
-      {filteredCampaigns.length === 0 ? (
+      {props.campaigns.length === 0 && view.query.trim() === "" ? (
+        <EmptyState
+          description="Create a search plan to save a reusable setup for roles, sources, discovery volume, and progress."
+          title="No search plans yet"
+        >
+          <div className="flex justify-center">
+            <Button
+              onClick={() =>
+                beginEditing(newCampaignFrom(activeCampaign ?? null))
+              }
+              type="button"
+            >
+              Create your first search plan
+            </Button>
+          </div>
+        </EmptyState>
+      ) : filteredCampaigns.length === 0 ? (
         <CollectionNoMatches
           noun="search plans"
           onClear={() => view.setQuery("")}

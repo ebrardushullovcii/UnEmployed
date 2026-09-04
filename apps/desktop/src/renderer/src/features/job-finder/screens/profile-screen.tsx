@@ -537,18 +537,11 @@ export function ProfileScreen(props: {
               data-locked-pane-scroll-region
               id={PROFILE_SECTION_SCROLL_AREA_ID}
             >
-              {/* Bottom clearance for the collapsed Copilot launcher
-                  (48px pill + 24px gap) so the last control in this pane is
-                  reachable even when the launcher falls back to floating. Job
-                  sources renders no Copilot, so reserving the space there only
-                  left a ~90px empty band above the section heading. */}
-              <div
-                className={
-                  activeSection === "sources"
-                    ? "p-3 sm:px-4 sm:py-3"
-                    : "p-3 pb-[4.5rem] sm:px-4 sm:pb-[4.5rem] sm:pt-3"
-                }
-              >
+              {/* The collapsed Assistant is portalled into the pinned save
+                  footer, so the compact resume strip needs no launcher
+                  clearance. Keeping that old 4.5rem reservation here pushed
+                  the selected editor out of Profile's first compact viewport. */}
+              <div className="p-3 sm:px-4 sm:py-3">
                 {/* F80/F17: the strip repeated on all five tabs, including
                     Job sources where the resume is irrelevant, and cost ~100px
                     of the first viewport on every one of them. It belongs to

@@ -56,6 +56,32 @@ function openBatchActions(): void {
 }
 
 describe("ReviewQueueListPanel", () => {
+  it("keeps shortlist status words intact beside long job titles", () => {
+    render(
+      <ReviewQueueListPanel
+        isJobPending={() => false}
+        onSelectItem={vi.fn()}
+        onToggleQueueSelection={vi.fn()}
+        queue={[
+          {
+            ...createEligibleItem("job_long_title"),
+            title: "Senior Full Stack Developer (Remote)",
+          },
+        ]}
+        queueSelection={[]}
+        selectedItem={null}
+      />,
+    );
+
+    const status = screen.getByText("Needs resume");
+    expect(status.className).toContain("min-w-24");
+    expect(status.className).toContain("shrink-0");
+    expect(status.className).toContain("break-normal");
+    expect(status.className).not.toContain("break-words");
+    expect(status.className).toContain("[overflow-wrap:normal]");
+    expect(status.className).not.toContain("[overflow-wrap:anywhere]");
+  });
+
   it("keeps the empty shortlist focused on finding jobs with one recovery action", () => {
     render(
       <MemoryRouter>

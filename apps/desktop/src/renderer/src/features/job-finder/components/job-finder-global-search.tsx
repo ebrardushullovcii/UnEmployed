@@ -33,6 +33,7 @@ export function JobFinderGlobalSearch(props: {
   campaignId?: string | null;
   entries: readonly JobFinderGlobalSearchEntry[];
   onNavigate: (entry: JobFinderGlobalSearchEntry) => void;
+  resultsLayout?: "overlay" | "in-flow";
 }) {
   const inputId = useId();
   const listboxId = `${inputId}-listbox`;
@@ -190,7 +191,14 @@ export function JobFinderGlobalSearch(props: {
         value={query}
       />
       {isPopupOpen ? (
-        <div className="surface-panel-shell absolute left-0 right-0 top-full z-40 mt-2 max-h-[min(32rem,calc(100dvh-14rem))] overflow-y-auto rounded-(--radius-panel) border border-(--surface-panel-border) p-3 shadow-(--modal-shadow)">
+        <div
+          className={`surface-panel-shell z-40 mt-2 max-h-[min(32rem,calc(100dvh-14rem))] overflow-y-auto rounded-(--radius-panel) border border-(--surface-panel-border) p-3 shadow-(--modal-shadow) ${
+            props.resultsLayout === "in-flow"
+              ? "relative"
+              : "absolute left-0 right-0 top-full"
+          }`}
+          data-job-finder-global-search-results
+        >
           <p
             aria-live="polite"
             className="px-2 pb-2 text-xs text-foreground-muted"
@@ -405,6 +413,7 @@ export function JobFinderGlobalSearchDialog(props: {
             : {})}
           entries={props.entries}
           onNavigate={handleNavigate}
+          resultsLayout="in-flow"
         />
       </section>
     </div>,

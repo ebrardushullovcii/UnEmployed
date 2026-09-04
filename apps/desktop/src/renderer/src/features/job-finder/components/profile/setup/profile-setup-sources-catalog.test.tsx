@@ -213,19 +213,18 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
     });
     expect(jumpCta).toBeTruthy();
     expect(screen.getByText(/Saved job sources are still off/i)).toBeTruthy();
-    const heading = document.getElementById(
-      "profile-setup-job-sources-heading",
-    );
-    expect(heading).toBeTruthy();
+    const firstUsableSourceToggle = screen.getByRole("checkbox", {
+      name: "Include LinkedIn Jobs in searches",
+    });
     const scrollSpy = vi.fn();
-    if (heading) {
-      heading.scrollIntoView = scrollSpy;
-    }
+    firstUsableSourceToggle.scrollIntoView = scrollSpy;
+    const focusSpy = vi.spyOn(firstUsableSourceToggle, "focus");
     fireEvent.click(jumpCta);
     expect(scrollSpy).toHaveBeenCalledWith({
       behavior: "auto",
-      block: "start",
+      block: "center",
     });
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
 
     const kosovaRowCandidate = screen.getByText("KosovaJob").closest("article");
     expect(kosovaRowCandidate).toBeTruthy();

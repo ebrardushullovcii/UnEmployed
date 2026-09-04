@@ -599,106 +599,111 @@ export function ReviewQueueMissionPanel({
               </label>
             </fieldset>
           ) : null}
-          <Button
-            // A page-wide bar is not a button: the one primary keeps its
-            // natural width beside its secondary.
-            className="h-11 w-fit max-w-full justify-start px-5 text-sm font-semibold normal-case tracking-normal"
-            pending={
-              primaryApplicationAction.kind === "waiting" ||
-              (primaryApplicationAction.kind === "start_apply" &&
-                isPrimaryApplyPending)
-            }
-            variant="primary"
-            disabled={
-              !primaryApplicationAction.enabled ||
-              (primaryApplicationAction.kind === "start_apply" &&
-                dailyCapacityExhausted) ||
-              (requiresApplicationChoice && !selectedApplicationChoice)
-            }
-            onClick={() => {
-              if (primaryApplicationAction.kind === "generate_resume") {
-                void onGenerateResume(selectedItem.jobId);
-                return;
-              }
-
-              if (primaryApplicationAction.kind === "approve_resume") {
-                onEditResumeWorkspace(selectedItem.jobId);
-                return;
-              }
-
-              if (primaryApplicationAction.kind === "start_apply") {
-                onStartApplyCopilot(
-                  requiresApplicationChoice
-                    ? selectedApplicationChoice === "new"
-                      ? {
-                          jobId: selectedItem.jobId,
-                          startNewApplication: true,
-                        }
-                      : {
-                          jobId: selectedItem.jobId,
-                          applicationRecordId: selectedApplicationChoice,
-                        }
-                    : { jobId: selectedItem.jobId },
-                );
-              }
-            }}
-            type="button"
+          <div
+            className="flex min-w-0 flex-wrap items-center gap-2"
+            data-testid="application-action-row"
           >
-            {primaryApplicationAction.label}
-          </Button>
-          {selectedQueueReadyItems.length > 0 ? (
             <Button
-              aria-describedby={
-                dailyCapacityBatchExceededDescription
-                  ? `${batchLimitDescriptionId} ${dailyCapacityLimitDescriptionId}`
-                  : batchLimitDescriptionId
+              // A page-wide bar is not a button: the one primary keeps its
+              // natural width beside its secondary.
+              className="h-11 w-fit max-w-full justify-start px-5 text-sm font-semibold normal-case tracking-normal"
+              pending={
+                primaryApplicationAction.kind === "waiting" ||
+                (primaryApplicationAction.kind === "start_apply" &&
+                  isPrimaryApplyPending)
               }
-              className="h-10 w-fit max-w-full justify-start border-(--border-strong) px-4 text-sm font-medium normal-case tracking-normal"
-              pending={isApplyPending || isSelectedQueuePending}
+              variant="primary"
               disabled={
-                isApplyPending ||
-                isSelectedQueuePending ||
-                !canStageSelectedQueue ||
-                selectedBatchExceedsDailyCapacity
+                !primaryApplicationAction.enabled ||
+                (primaryApplicationAction.kind === "start_apply" &&
+                  dailyCapacityExhausted) ||
+                (requiresApplicationChoice && !selectedApplicationChoice)
               }
-              onClick={() => onStartAutoApplyQueue(queuedApplicationJobIds)}
+              onClick={() => {
+                if (primaryApplicationAction.kind === "generate_resume") {
+                  void onGenerateResume(selectedItem.jobId);
+                  return;
+                }
+
+                if (primaryApplicationAction.kind === "approve_resume") {
+                  onEditResumeWorkspace(selectedItem.jobId);
+                  return;
+                }
+
+                if (primaryApplicationAction.kind === "start_apply") {
+                  onStartApplyCopilot(
+                    requiresApplicationChoice
+                      ? selectedApplicationChoice === "new"
+                        ? {
+                            jobId: selectedItem.jobId,
+                            startNewApplication: true,
+                          }
+                        : {
+                            jobId: selectedItem.jobId,
+                            applicationRecordId: selectedApplicationChoice,
+                          }
+                      : { jobId: selectedItem.jobId },
+                  );
+                }
+              }}
               type="button"
-              variant="ghost"
             >
-              Prepare selected jobs ({queuedApplicationJobIds.length})
+              {primaryApplicationAction.label}
             </Button>
-          ) : null}
-          {showSecondaryActions ? (
-            <div className="flex flex-wrap gap-2">
-              {primaryApplicationAction.recovery !== null ? (
-                <Button
-                  className="h-10 min-w-0 justify-start px-4 text-sm font-medium normal-case tracking-normal"
-                  onClick={runPrimaryRecovery}
-                  type="button"
-                  variant="secondary"
-                >
-                  {primaryApplicationAction.recovery.label}
-                </Button>
-              ) : null}
-              {wantsResumeWorkspace && !workspaceRecoveryActive ? (
-                <Button
-                  className="h-10 min-w-0 justify-start px-4 text-sm font-medium normal-case tracking-normal"
-                  onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
-                  type="button"
-                  variant="secondary"
-                >
-                  <Pencil
-                    aria-hidden="true"
-                    className="size-4"
-                    focusable="false"
-                  />
-                  {isSelectedJobPendingTooLong
-                    ? "Open workspace to reload"
-                    : "Open resume workspace"}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
+            {selectedQueueReadyItems.length > 0 ? (
+              <Button
+                aria-describedby={
+                  dailyCapacityBatchExceededDescription
+                    ? `${batchLimitDescriptionId} ${dailyCapacityLimitDescriptionId}`
+                    : batchLimitDescriptionId
+                }
+                className="h-10 w-fit max-w-full justify-start border-(--border-strong) px-4 text-sm font-medium normal-case tracking-normal"
+                pending={isApplyPending || isSelectedQueuePending}
+                disabled={
+                  isApplyPending ||
+                  isSelectedQueuePending ||
+                  !canStageSelectedQueue ||
+                  selectedBatchExceedsDailyCapacity
+                }
+                onClick={() => onStartAutoApplyQueue(queuedApplicationJobIds)}
+                type="button"
+                variant="ghost"
+              >
+                Prepare selected jobs ({queuedApplicationJobIds.length})
+              </Button>
+            ) : null}
+            {showSecondaryActions ? (
+              <>
+                {primaryApplicationAction.recovery !== null ? (
+                  <Button
+                    className="h-10 min-w-0 justify-start px-4 text-sm font-medium normal-case tracking-normal"
+                    onClick={runPrimaryRecovery}
+                    type="button"
+                    variant="secondary"
+                  >
+                    {primaryApplicationAction.recovery.label}
+                  </Button>
+                ) : null}
+                {wantsResumeWorkspace && !workspaceRecoveryActive ? (
+                  <Button
+                    className="h-10 min-w-0 justify-start px-4 text-sm font-medium normal-case tracking-normal"
+                    onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
+                    type="button"
+                    variant="secondary"
+                  >
+                    <Pencil
+                      aria-hidden="true"
+                      className="size-4"
+                      focusable="false"
+                    />
+                    {isSelectedJobPendingTooLong
+                      ? "Open workspace to reload"
+                      : "Open resume workspace"}
+                  </Button>
+                ) : null}
+              </>
+            ) : null}
+          </div>
           {/* Quiet capacity fact below the actions, and only where it can
               change a decision: while the resume is still being written or
               approved, the daily application limit is not the user's
@@ -769,7 +774,7 @@ function PreparationReadinessCard({
             <strong className="font-semibold text-(--text-headline)">
               Prepare application
             </strong>{" "}
-            below — final submit stays disabled for this run.
+            when you're ready — final submit stays disabled for this run.
           </p>
         ) : (
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
@@ -871,11 +876,11 @@ function PreparationChecklistCard({
       </div>
       {isReadyToPrepare ? (
         <p className="m-0 text-(length:--text-small) leading-6 text-foreground-soft">
-          Resume and apply path are ready. Use{" "}
+          Resume and apply path are ready. Choose{" "}
           <strong className="font-semibold text-(--text-headline)">
             Prepare application
           </strong>{" "}
-          below as the next step.
+          when you're ready.
         </p>
       ) : (
         <ul className="m-0 grid gap-2 list-none p-0" role="list">

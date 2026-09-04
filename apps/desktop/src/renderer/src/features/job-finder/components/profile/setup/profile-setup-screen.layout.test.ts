@@ -18,8 +18,9 @@ describe("profile setup responsive layout", () => {
     expect(layout.summary).not.toContain("max-w-");
     expect(layout.summary).not.toContain("xl:grid-cols-[");
     expect(layout.content).toContain("xl:grid-cols-1");
-    // Sticky footer plus the collapsed Copilot launcher docked above it.
-    expect(PROFILE_SETUP_FOOTER_CLEARANCE_CLASS_NAME).toBe("pb-32 xl:pb-36");
+    // The footer is a flex sibling and the collapsed Assistant docks inside
+    // it, so no artificial blank content tail is needed.
+    expect(PROFILE_SETUP_FOOTER_CLEARANCE_CLASS_NAME).toBe("");
     expect(layout.reviewRail).toContain("pb-4");
     expect(layout.reviewRail).not.toContain("h-full");
   });
@@ -50,13 +51,9 @@ describe("profile setup responsive layout", () => {
     expect(layout.reviewRail).toContain("xl:pb-6");
   });
 
-  it("reserves footer clearance only while a sticky step footer is rendered", () => {
-    // The pristine entry screen renders no footer, so reserving ~7rem beneath
-    // it only pushed a page that otherwise fits past the viewport.
+  it("does not reserve content space for a sibling footer", () => {
     expect(getProfileSetupContentClassName(true)).toBe("");
-    expect(getProfileSetupContentClassName(false)).toBe(
-      PROFILE_SETUP_FOOTER_CLEARANCE_CLASS_NAME,
-    );
+    expect(getProfileSetupContentClassName(false)).toBe("");
   });
 
   it("lets the pristine import card use its natural height instead of a nested viewport scroller", () => {

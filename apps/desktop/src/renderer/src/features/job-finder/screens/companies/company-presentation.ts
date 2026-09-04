@@ -15,6 +15,20 @@ export const companyPreferenceLabels: Record<CompanyPreference, string> = {
 export const companyPreferenceScopeDescription =
   "Local company tracking only. This does not change job search or matching.";
 
+export function companySourceHistoryLabel(sourceId: string): string {
+  const normalized = sourceId
+    .trim()
+    .replace(/[_-]+/gu, " ")
+    .replace(/\s+/gu, " ");
+  if (
+    normalized.length === 0 ||
+    normalized.toLocaleLowerCase() === "target site"
+  ) {
+    return "Job source";
+  }
+  return normalized.charAt(0).toLocaleUpperCase() + normalized.slice(1);
+}
+
 export const companyPreferenceTones: Record<
   CompanyPreference,
   "neutral" | "active" | "positive" | "critical" | "muted"

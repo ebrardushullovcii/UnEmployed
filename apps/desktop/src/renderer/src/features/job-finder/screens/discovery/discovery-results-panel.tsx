@@ -90,7 +90,6 @@ import { getDiscoveryListingRecencyKey } from "@unemployed/job-finder/discovery-
 import type { DiscoveryLatestRunVerdict } from "./discovery-run-feedback";
 import { getDiscoverySourceLabels } from "./discovery-source-attribution";
 import {
-  DISCOVERY_OFFLINE_CATALOG_NOTICE,
   DISCOVERY_OFFLINE_SETUP_NOTICE,
   getDiscoveryRuntimeProjection,
 } from "./discovery-search-readiness";
@@ -1418,8 +1417,7 @@ export function DiscoveryResultsPanel({
             role="status"
           >
             <strong>Offline catalog · review-only.</strong>{" "}
-            {DISCOVERY_OFFLINE_CATALOG_NOTICE} Enable a live source in Profile
-            to search current openings.
+            {DISCOVERY_OFFLINE_SETUP_NOTICE}
           </div>
         </div>
       ) : null}

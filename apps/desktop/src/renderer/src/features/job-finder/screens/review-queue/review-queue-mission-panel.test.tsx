@@ -163,6 +163,10 @@ describe("ReviewQueueMissionPanel", () => {
     expect(screen.getByText("Authorized for preparation")).toBeTruthy();
     expect(screen.getByText("Disabled for this run")).toBeTruthy();
     expect(
+      screen.getByRole("heading", { name: "Application readiness" })
+        .parentElement?.textContent,
+    ).toContain("Prepare application when you're ready");
+    expect(
       screen.getByRole("button", { name: "Prepare application" }),
     ).toBeTruthy();
     expect(
@@ -610,6 +614,10 @@ describe("ReviewQueueMissionPanel", () => {
     const workspaceButton = screen.getByRole("button", {
       name: "Open resume workspace",
     });
+    const primaryButton = screen.getByRole("button", {
+      name: "Prepare application",
+    });
+    expect(primaryButton.parentElement).toBe(workspaceButton.parentElement);
     expect(recoveryButton.parentElement).toBe(workspaceButton.parentElement);
     expect(workspaceButton.parentElement?.className).toContain("flex-wrap");
     // Secondary actions keep their natural width so they never read as a
@@ -1445,6 +1453,8 @@ describe("ReviewQueueMissionPanel", () => {
     // checklist card does not print a third identical chip.
     expect(within(checklist).queryByText("Ready to prepare")).toBeNull();
     expect(within(checklist).getByText(/Prepare application/i)).toBeTruthy();
+    expect(within(checklist).getByText(/when you're ready/i)).toBeTruthy();
+    expect(within(checklist).queryByText(/below as the next step/i)).toBeNull();
     expect(
       screen.getByRole("button", { name: "Prepare application" }),
     ).toBeTruthy();

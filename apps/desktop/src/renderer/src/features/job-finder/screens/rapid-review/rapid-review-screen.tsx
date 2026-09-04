@@ -14,6 +14,7 @@ import type {
   SavedJob,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
+import { Link } from "react-router-dom";
 import {
   CollectionPagination,
   COLLECTION_PAGE_SIZE,
@@ -26,6 +27,7 @@ import {
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 import { getAdjacentCollectionItemId } from "../../lib/collection-keyboard-navigation";
 import { getPostedDateLabel } from "../../lib/job-finder-utils";
+import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
 import { hasOpenJobFinderOverlays } from "../../lib/job-finder-overlay-ownership";
 import { getMatchAssessmentPresentation } from "../../lib/match-assessment-presentation";
 
@@ -381,11 +383,18 @@ export function RapidReviewScreen(props: {
     return (
       <section className="grid min-h-96 place-items-center p-8 text-center">
         <div className="max-w-lg space-y-2">
-          <h1 className="font-semibold">Rapid review</h1>
+          <h1 className="font-semibold">Quick review</h1>
           <p className="text-foreground-soft">
             {props.campaignName} has no discovered jobs to review yet. Run the
             campaign first; no browser or application work starts here.
           </p>
+          <div className="flex justify-center pt-2">
+            <Button asChild type="button">
+              <Link to={JOB_FINDER_ROUTE_PATHS.campaigns}>
+                Open Search plans
+              </Link>
+            </Button>
+          </div>
         </div>
       </section>
     );
@@ -403,7 +412,7 @@ export function RapidReviewScreen(props: {
           <p className="text-xs uppercase tracking-widest text-foreground-muted">
             {props.campaignName}
           </p>
-          <h1 className="font-semibold">Rapid review</h1>
+          <h1 className="font-semibold">Quick review</h1>
           <p className="text-sm text-foreground-soft">
             Review local job evidence only. Nothing here opens a browser or
             starts an application.

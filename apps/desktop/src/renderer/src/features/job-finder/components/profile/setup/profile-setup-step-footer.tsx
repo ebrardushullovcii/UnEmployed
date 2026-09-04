@@ -119,7 +119,7 @@ export function ProfileSetupStepFooter(props: {
     // One stated rule now: the action cluster is always the rightmost item on
     // the footer's first row, and the status text wraps inside its own column.
     <div
-      className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:flex-nowrap sm:items-center sm:justify-between sm:px-5"
+      className="flex flex-col gap-2 px-4 py-2 sm:flex-row sm:flex-nowrap sm:items-center sm:justify-between sm:px-5"
       data-profile-workspace-actions
     >
       <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
@@ -130,8 +130,8 @@ export function ProfileSetupStepFooter(props: {
           <p
             className={
               props.hasUnsavedChanges
-                ? "flex items-center gap-2 text-sm font-medium leading-6 text-(--warning-text)"
-                : "flex items-center gap-2 text-sm leading-6 text-foreground-soft"
+                ? "flex items-center gap-2 text-sm font-medium leading-5 text-(--warning-text)"
+                : "flex items-center gap-2 text-sm leading-5 text-foreground-soft"
             }
             data-profile-save-state={
               props.hasUnsavedChanges ? "dirty" : "clean"
@@ -155,7 +155,7 @@ export function ProfileSetupStepFooter(props: {
               : "No unsaved changes."}
           </p>
           <p
-            className="min-w-0 break-words text-sm leading-6 text-foreground-soft"
+            className="min-w-0 break-words text-sm leading-5 text-foreground-soft"
             data-profile-setup-finish-readiness
             id="profile-setup-finish-blocker-summary"
           >
@@ -163,7 +163,7 @@ export function ProfileSetupStepFooter(props: {
           </p>
           {props.validationMessage ? (
             <p
-              className="text-sm leading-6 text-destructive"
+              className="text-sm leading-5 text-destructive"
               id={PROFILE_SETUP_VALIDATION_ALERT_ID}
               role="alert"
             >

@@ -137,7 +137,7 @@ function campaign(id: string, name: string, mode: "precision" | "scale") {
 }
 
 describe("CampaignsScreen", () => {
-  it("opens a new search-plan editor even when no plans exist yet", () => {
+  it("shows onboarding when no search plans exist yet", () => {
     render(
       <CampaignsScreen
         activeCampaignId="missing"
@@ -148,12 +148,52 @@ describe("CampaignsScreen", () => {
       />,
     );
 
+    expect(
+      screen.getByRole("heading", { name: "No search plans yet" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Create your first search plan" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+
     fireEvent.click(screen.getByRole("button", { name: "New search plan" }));
 
     expect(
       screen.getByRole("heading", { name: "Create search plan" }),
     ).toBeTruthy();
     expect(screen.getByDisplayValue("New search plan")).toBeTruthy();
+  });
+
+  it("keeps no-match copy for a real persisted query even with no plans", () => {
+    window.localStorage.setItem(
+      "unemployed.job-finder.collection.campaigns.v1",
+      JSON.stringify({
+        density: "comfortable",
+        query: "backend",
+        savedViews: [],
+      }),
+    );
+
+    render(
+      <CampaignsScreen
+        activeCampaignId="missing"
+        campaigns={[]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        (_content, element) =>
+          element?.textContent === "No search plans match “backend”",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "No search plans yet" }),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Clear search" })).toBeTruthy();
   });
 
   it("searches plans without changing the active plan", () => {

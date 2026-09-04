@@ -96,7 +96,7 @@ describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
             resultId: "result-1",
           },
           destination: {
-            origin: "https://boards.greenhouse.io",
+            origin: "https://boards.greenhouse.io/",
             safePath: "/example/jobs/123",
           },
           resume: {

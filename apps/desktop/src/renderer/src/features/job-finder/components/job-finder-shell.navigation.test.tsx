@@ -3398,6 +3398,19 @@ describe("compact navigation shares the header switcher's axis", () => {
     );
   });
 
+  it("stops the locked-layout header mask before the route's live controls", () => {
+    renderShellFor("darwin", "/job-finder/applications");
+
+    const mask = document.querySelector<HTMLElement>(
+      "[data-job-finder-shell-header-mask]",
+    );
+
+    expect(mask?.className).toContain("h-3");
+    expect(mask?.className).toContain("bg-(--shell-header-bg)");
+    expect(mask?.className).not.toContain("bg-gradient-to-b");
+    expect(mask?.className).not.toContain(SHELL_HEADER_MASK_HEIGHT_CLASS);
+  });
+
   it("leaves the sub-900px reserve exactly as it was", () => {
     // Below the module switcher's own breakpoint there is no axis to share,
     // and this band is under the 1024px minimum supported width. It must not

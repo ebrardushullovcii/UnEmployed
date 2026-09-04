@@ -15,6 +15,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   acquireJobFinderOverlay,
@@ -80,6 +81,28 @@ function createLog(entries: Array<Record<string, unknown>>) {
 afterEach(cleanup);
 
 describe("RapidReviewScreen readability", () => {
+  it("labels the empty screen as Quick review and links to Search plans", () => {
+    render(
+      <MemoryRouter>
+        <RapidReviewScreen
+          campaignId="campaign_1"
+          campaignName="Posted campaign"
+          jobs={[]}
+          log={null}
+          onInspectJob={vi.fn()}
+          onMutate={() => Promise.resolve()}
+          pending={false}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Quick review" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Rapid review" })).toBeNull();
+
+    const link = screen.getByRole("link", { name: "Open Search plans" });
+    expect(link.getAttribute("href")).toBe("/job-finder/campaigns");
+  });
+
   it("formats the posted date instead of exposing a raw ISO timestamp", () => {
     renderRapidReview([createJob()]);
 

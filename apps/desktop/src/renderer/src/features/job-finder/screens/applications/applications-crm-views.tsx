@@ -229,6 +229,7 @@ export function ApplicationsCrmViews(props: {
     },
   );
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
+  const [showEmptyKanbanStages, setShowEmptyKanbanStages] = useState(false);
   const [bulkPending, setBulkPending] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const selectedIdsRef = useRef(selectedIds);
@@ -354,6 +355,20 @@ export function ApplicationsCrmViews(props: {
   const groupedTotals = useMemo(
     () => groupApplicationRecordsByStage(filteredRecords),
     [filteredRecords],
+  );
+  const populatedKanbanStages = useMemo(
+    () =>
+      APPLICATION_CRM_STAGE_ORDER.filter(
+        (stage) => (grouped.get(stage)?.length ?? 0) > 0,
+      ),
+    [grouped],
+  );
+  const emptyKanbanStages = useMemo(
+    () =>
+      APPLICATION_CRM_STAGE_ORDER.filter(
+        (stage) => (grouped.get(stage)?.length ?? 0) === 0,
+      ),
+    [grouped],
   );
   const pagedCalendar = useMemo(
     () =>
@@ -789,15 +804,31 @@ export function ApplicationsCrmViews(props: {
 
       {props.view === "kanban" && filteredRecords.length > 0 ? (
         <div
-          className="min-h-0 flex-1 overflow-auto p-4"
+          className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-4"
           data-locked-pane-scroll-region
         >
-          <div className="flex min-w-max items-start gap-3">
-            {APPLICATION_CRM_STAGE_ORDER.map((stage) => {
+          <div className="grid min-w-0 gap-3">
+            {emptyKanbanStages.length > 0 ? (
+              <div className="flex min-w-0 justify-end">
+                <Button
+                  onClick={() =>
+                    setShowEmptyKanbanStages((current) => !current)
+                  }
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  {showEmptyKanbanStages
+                    ? "Hide empty stages"
+                    : `Show empty stages (${emptyKanbanStages.length})`}
+                </Button>
+              </div>
+            ) : null}
+            {populatedKanbanStages.map((stage) => {
               const stageRecords = grouped.get(stage) ?? [];
               return (
                 <section
-                  className="grid max-h-[min(24rem,calc(100vh-4rem))] w-[min(18rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] shrink-0 gap-3 overflow-y-auto rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-3"
+                  className="grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-3"
                   key={stage}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -832,6 +863,26 @@ export function ApplicationsCrmViews(props: {
                 </section>
               );
             })}
+            {showEmptyKanbanStages ? (
+              <div
+                aria-label="Empty stages"
+                className="grid min-w-0 grid-cols-2 gap-2"
+                role="list"
+              >
+                {emptyKanbanStages.map((stage) => (
+                  <div
+                    className="flex min-w-0 items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) px-3 py-2"
+                    key={stage}
+                    role="listitem"
+                  >
+                    <span className="min-w-0 break-words text-xs font-medium text-foreground-soft">
+                      {APPLICATION_CRM_STAGE_NAMES[stage]}
+                    </span>
+                    <Badge variant="section">0</Badge>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

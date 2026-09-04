@@ -167,6 +167,9 @@ describe("ResumeStrategiesScreen", () => {
     );
 
     expect(screen.getByText("No resume approaches yet")).toBeTruthy();
+    expect(
+      screen.queryByRole("searchbox", { name: "Search approaches" }),
+    ).toBeNull();
   });
 
   it("repeats the New strategy action inside the strategies empty state", () => {
