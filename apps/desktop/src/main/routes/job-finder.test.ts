@@ -2608,3 +2608,121 @@ describe("job-finder agent discovery outcome routes", () => {
     expect(mockGetWorkspaceSnapshot).not.toHaveBeenCalled();
   });
 });
+
+describe("job-finder synthetic save failure route", () => {
+  const originalTestApiFlag = process.env.UNEMPLOYED_ENABLE_TEST_API;
+
+  function registerHandlers(): Map<string, RegisteredHandler> {
+    const handlers = new Map<string, RegisteredHandler>();
+    const ipcMain = {
+      handle: vi.fn((channel: string, handler: RegisteredHandler) => {
+        handlers.set(channel, handler);
+      }),
+    } as unknown as IpcMain;
+    registerJobFinderRouteHandlers(ipcMain);
+    return handlers;
+  }
+
+  // The arm route answers synchronously; every save route stays async.
+  type AnyRegisteredHandler = (
+    event: { sender: object },
+    payload: unknown,
+  ) => unknown;
+
+  function requireHandler(
+    handlers: Map<string, RegisteredHandler>,
+    channel: string,
+  ): AnyRegisteredHandler {
+    const handler = handlers.get(channel);
+    if (!handler) {
+      throw new Error(`Handler was not registered: ${channel}`);
+    }
+    return handler as AnyRegisteredHandler;
+  }
+
+  afterEach(async () => {
+    // Never leave an arm behind for another suite.
+    process.env.UNEMPLOYED_ENABLE_TEST_API = "1";
+    const handlers = registerHandlers();
+    mockIsDesktopTestApiEnabled.mockReturnValue(true);
+    requireHandler(handlers, "job-finder:test-fail-next-save")(
+      { sender: {} },
+      "profile",
+    );
+    try {
+      await requireHandler(handlers, "job-finder:save-profile")(
+        { sender: {} },
+        {},
+      );
+    } catch {
+      // Consuming the arm is the point; the save itself is irrelevant here.
+    }
+
+    if (originalTestApiFlag === undefined) {
+      delete process.env.UNEMPLOYED_ENABLE_TEST_API;
+    } else {
+      process.env.UNEMPLOYED_ENABLE_TEST_API = originalTestApiFlag;
+    }
+    mockIsDesktopTestApiEnabled.mockReturnValue(false);
+    vi.clearAllMocks();
+  });
+
+  it("refuses to arm a synthetic failure while the test API is disabled", () => {
+    delete process.env.UNEMPLOYED_ENABLE_TEST_API;
+    mockIsDesktopTestApiEnabled.mockReturnValue(false);
+
+    expect(() =>
+      requireHandler(registerHandlers(), "job-finder:test-fail-next-save")(
+        { sender: {} },
+        "profile",
+      ),
+    ).toThrow(/Desktop test API is disabled/);
+  });
+
+  it("fails exactly one save on the armed surface and leaves other surfaces alone", async () => {
+    process.env.UNEMPLOYED_ENABLE_TEST_API = "1";
+    mockIsDesktopTestApiEnabled.mockReturnValue(true);
+    const snapshot = createEmptyWorkspace("2026-09-03T10:00:00.000Z");
+    const saveProfile = vi.fn().mockResolvedValue(snapshot);
+    const updateAppearanceTheme = vi.fn().mockResolvedValue(snapshot);
+    mockGetJobFinderWorkspaceService.mockResolvedValue({
+      saveProfile,
+      updateAppearanceTheme,
+    });
+
+    const handlers = registerHandlers();
+    expect(
+      requireHandler(handlers, "job-finder:test-fail-next-save")(
+        { sender: {} },
+        "profile",
+      ),
+    ).toEqual({ ok: true });
+
+    // A settings save while `profile` is armed must still succeed.
+    await expect(
+      requireHandler(handlers, "job-finder:update-appearance-theme")(
+        { sender: {} },
+        AppearanceThemeSchema.parse("dark"),
+      ),
+    ).resolves.toEqual(snapshot);
+    expect(updateAppearanceTheme).toHaveBeenCalledTimes(1);
+
+    const profile = createEmptyJobFinderRepositoryState().profile;
+    await expect(
+      requireHandler(handlers, "job-finder:save-profile")(
+        { sender: {} },
+        profile,
+      ),
+    ).rejects.toThrow(/could not write the profile change/);
+    expect(saveProfile).not.toHaveBeenCalled();
+
+    // One-shot: the very next profile save runs normally again.
+    await expect(
+      requireHandler(handlers, "job-finder:save-profile")(
+        { sender: {} },
+        profile,
+      ),
+    ).resolves.toEqual(snapshot);
+    expect(saveProfile).toHaveBeenCalledTimes(1);
+  });
+});

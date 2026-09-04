@@ -101,9 +101,13 @@ export function SafeguardsApplicationBoundary() {
   );
 
   return (
+    // This card sits directly on the page canvas, so a translucent canvas
+    // fill painted it the canvas colour: a 1.00:1 fill delta, leaving a
+    // hairline as the only sign the safety contract had a container at all.
+    // It now uses the same --card fill as its sibling "Safety events" panel.
     <section
       aria-label="Application boundary"
-      className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-4 py-3"
+      className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-card px-4 py-3"
       data-testid="safeguards-application-boundary"
     >
       <h2 className="font-semibold text-(--text-headline)">

@@ -59,7 +59,7 @@ function createRequest(input: {
       input.scope === "application"
         ? "Finish application sign-in"
         : "Sign in to source",
-    summary: "Use the managed browser, then return here.",
+    summary: "Use the Job Finder browser, then return here.",
     actionUrl:
       input.actionUrl === undefined
         ? "https://jobs.example.com/login"
@@ -408,8 +408,8 @@ describe("ActionsScreen", () => {
         blockerFingerprint: "blocker_other",
       },
       title: "Complete the browser step to continue the Example application",
-      summary: `${blockerReason} Complete this manual step in the managed browser, then return so Job Finder can verify the exact blocker no longer appears.`,
-      instructions: ["Finish this step yourself in the managed browser."],
+      summary: `${blockerReason} Complete this manual step in the Job Finder browser, then return so Job Finder can verify the exact blocker no longer appears.`,
+      instructions: ["Finish this step yourself in the Job Finder browser."],
       actionUrl: "https://jobs.example.com/apply/1",
       displayOrigin: "https://jobs.example.com/",
       createdAt: "2026-07-30T10:00:00.000Z",
@@ -502,7 +502,7 @@ describe("ActionsScreen", () => {
     const request = UserActionRequestSchema.parse({
       ...createRequest({ id: "instructions", scope: "discovery_source" }),
       instructions: [
-        "Complete sign-in in the managed browser. Job Finder never receives or stores your credentials.",
+        "Complete sign-in in the Job Finder browser. Job Finder never receives or stores your credentials.",
         "Return to the action inbox and confirm completion only after the browser step is complete.",
         "After confirmation, Job Finder runs one exact prepare-only retry to verify the blocker and stops before final submission.",
       ],
@@ -522,7 +522,7 @@ describe("ActionsScreen", () => {
       item.textContent?.trim(),
     );
     expect(steps).toEqual([
-      "Complete sign-in in the managed browser.",
+      "Complete sign-in in the Job Finder browser.",
       "Return to the action inbox and confirm completion only after the browser step is complete.",
     ]);
 
@@ -538,13 +538,13 @@ describe("ActionsScreen", () => {
   it("trims safety-only instructions without dropping actionable steps", () => {
     expect(
       toActionableInstructions([
-        "Complete the described step yourself in the managed browser. Do not enter credentials or security answers anywhere except the browser page.",
+        "Complete the described step yourself in the Job Finder browser. Do not enter credentials or security answers anywhere except the browser page.",
         "  ",
         "Return to the action inbox and choose Done only after the browser step is complete.",
         "After access verification, Job Finder retries this exact application once and stops before final submission.",
       ]),
     ).toEqual([
-      "Complete the described step yourself in the managed browser.",
+      "Complete the described step yourself in the Job Finder browser.",
       "Return to the action inbox and choose Done only after the browser step is complete.",
     ]);
   });

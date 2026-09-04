@@ -706,8 +706,8 @@ describe("apply run cancellation and application record concurrency", () => {
         ).origin.concat("/"),
       },
       title: "Sign in to continue",
-      summary: "Complete sign-in in the managed browser.",
-      instructions: ["Complete sign-in in the managed browser."],
+      summary: "Complete sign-in in the Job Finder browser.",
+      instructions: ["Complete sign-in in the Job Finder browser."],
       createdAt: now,
     } as const;
     await repository.createUserActionRequest(

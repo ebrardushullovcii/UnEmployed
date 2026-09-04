@@ -96,6 +96,7 @@ import type {
   ResumeDocumentBundle,
   JobFinderResumeWorkspace,
   JobFinderRepositoryState,
+  JobFinderTestSaveSurface,
   JobFinderAgentDiscoveryActionInput,
   JobFinderAgentDiscoveryResult,
   JobFinderSettings,
@@ -1340,6 +1341,11 @@ const desktopApi = {
               ipcRenderer.invoke(
                 "job-finder:test-load-apply-queue-demo",
               ) as Promise<JobFinderWorkspaceSnapshot>,
+            failNextSave: (surface: JobFinderTestSaveSurface) =>
+              ipcRenderer.invoke(
+                "job-finder:test-fail-next-save",
+                surface,
+              ) as Promise<{ ok: true }>,
             resetWorkspaceState: (state: JobFinderRepositoryState) =>
               ipcRenderer.invoke(
                 "job-finder:test-reset-workspace-state",

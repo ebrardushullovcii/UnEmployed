@@ -257,7 +257,14 @@ export function SettingsCandidateAssets() {
         </p>
       </div>
 
-      <div className="grid min-w-0 gap-3 md:grid-cols-3">
+      {/* `items-start`: the three cells are stretched grid items whose own
+          rows are auto-sized, so `align-content: normal` shared the leftover
+          height between each cell's label row and its control row. Retention
+          carries a third row of helper text, so it split its slack three ways
+          and floated its select 13px above the two identical controls beside
+          it. Top-aligned cells give the row one baseline and let the helper
+          line hang below without moving the control. */}
+      <div className="grid min-w-0 items-start gap-3 md:grid-cols-3">
         <div className="grid min-w-0 gap-1.5 text-sm text-foreground-soft">
           <label htmlFor="candidate-asset-kind">Asset type</label>
           <FormSelect

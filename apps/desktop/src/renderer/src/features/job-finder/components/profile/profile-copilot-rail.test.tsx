@@ -4,10 +4,7 @@ import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  COPILOT_LAUNCHER_MIN_INTERACTIVE_GAP,
-  getCollapsedLauncherStackSize,
-} from "./profile-copilot-rail-layout";
+import {} from "./profile-copilot-rail-layout";
 import { ProfileCopilotRail } from "./profile-copilot-rail";
 
 describe("ProfileCopilotRail", () => {
@@ -337,10 +334,143 @@ describe("ProfileCopilotRail", () => {
     const bubble = document.body.querySelector<HTMLButtonElement>(
       'button[aria-haspopup="dialog"]',
     );
-    expect(bubble?.parentElement?.style.bottom).toBe("124px");
+
+    // Previously `expect(bubble?.parentElement?.style.bottom).toBe("124px")`:
+    // the floating launcher measured this footer and lifted itself 124px off
+    // the window bottom to clear it. Lifting only ever cleared the rows the
+    // clearance set named — which is how it still landed on a section's own
+    // `Add experience` at short heights — so the launcher is now an ordinary
+    // control INSIDE that footer and cannot cover anything at all.
+    expect(bubble).not.toBeNull();
+    expect(actions.contains(bubble)).toBe(true);
+    expect(
+      bubble?.closest("[data-profile-copilot-launcher-dock]"),
+    ).not.toBeNull();
 
     act(() => {
       actions.remove();
+    });
+  });
+
+  it("puts the collapsed launcher beside Save inside the footer's action row", () => {
+    // A containment-only check against the footer root would pass on the very
+    // layout this replaces — the launcher rendered as the footer's last child,
+    // below the Save row instead of next to it. The slot lives in the action
+    // row, so the assertion is sibling-of-Save.
+    const footer = document.createElement("div");
+    footer.setAttribute("data-profile-workspace-actions", "");
+    const actionRow = document.createElement("div");
+    const save = document.createElement("button");
+    save.type = "button";
+    save.textContent = "Save changes";
+    const slot = document.createElement("span");
+    slot.setAttribute("data-profile-assistant-launcher-slot", "");
+    actionRow.append(slot, save);
+    footer.appendChild(actionRow);
+    document.body.appendChild(footer);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileCopilotRail
+          busy={false}
+          context={{ surface: "profile", section: "basics" }}
+          emptyStateDescription="Ask why a field matters."
+          emptyStateTitle="No requests yet"
+          messages={[]}
+          onApplyPatchGroup={vi.fn()}
+          onRejectPatchGroup={vi.fn()}
+          onSendMessage={vi.fn()}
+          onUndoRevision={vi.fn()}
+          pendingContextKey={null}
+          placeholder="Ask for an edit"
+          revisions={[]}
+          title="the Assistant"
+        />,
+      );
+    });
+
+    const launcher = document.body.querySelector<HTMLButtonElement>(
+      'button[data-profile-copilot-launcher="true"]',
+    );
+
+    expect(launcher).not.toBeNull();
+    // In the slot, and the slot is in the row that holds Save. The slot is
+    // `display: contents`, so the launcher lays out as Save's sibling.
+    const launcherSlot = launcher?.closest(
+      "[data-profile-assistant-launcher-slot]",
+    );
+    expect(launcherSlot).toBe(slot);
+    expect(slot.parentElement).toBe(actionRow);
+    expect(save.parentElement).toBe(actionRow);
+    // Not the old shape: a descendant of the footer root but outside the row.
+    expect(launcher?.closest("div")?.parentElement).not.toBe(footer);
+
+    // Same control as the Resume Studio launcher (variant, label, icon); the
+    // size follows the row it sits in, and Save's row is default-size.
+    expect(launcher?.getAttribute("data-variant")).toBe("secondary");
+    expect(launcher?.getAttribute("data-size")).toBe("default");
+    expect(launcher?.textContent).toContain("Assistant");
+    for (const retiredPillClass of [
+      "rounded-full",
+      "min-h-12",
+      "sm:min-w-12",
+    ]) {
+      expect(launcher?.className).not.toContain(retiredPillClass);
+    }
+
+    act(() => {
+      footer.remove();
+    });
+  });
+
+  it("floats no launcher while collapsed once the save footer is mounted", () => {
+    const footer = document.createElement("div");
+    footer.setAttribute("data-profile-workspace-actions", "");
+    document.body.appendChild(footer);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileCopilotRail
+          busy={false}
+          context={{ surface: "profile", section: "basics" }}
+          emptyStateDescription="Ask why a field matters."
+          emptyStateTitle="No requests yet"
+          messages={[]}
+          onApplyPatchGroup={vi.fn()}
+          onRejectPatchGroup={vi.fn()}
+          onSendMessage={vi.fn()}
+          onUndoRevision={vi.fn()}
+          pendingContextKey={null}
+          placeholder="Ask for an edit"
+          revisions={[]}
+          starterQuestion="How should I tighten my headline?"
+          title="the Assistant"
+        />,
+      );
+    });
+
+    const bubble = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-haspopup="dialog"]',
+    );
+
+    expect(footer.contains(bubble)).toBe(true);
+    // The suggestion pill is part of the launcher stack and docks with it;
+    // left floating it would be the one thing still resting over the page.
+    expect(footer.textContent).toContain("Suggested:");
+    // Nothing the rail still portals to the body paints while collapsed.
+    const floatingRoot = document.body.querySelector<HTMLElement>(
+      "[data-profile-copilot-covered-by-modal]",
+    );
+    expect(floatingRoot?.textContent).toBe("");
+
+    act(() => {
+      footer.remove();
     });
   });
 
@@ -1105,7 +1235,13 @@ describe("ProfileCopilotRail", () => {
       right: afterToastRail?.style.right,
       top: afterToastRail?.style.top,
     }).toEqual(beforeToast);
-    expect(afterToastRail?.style.bottom).toBe("16px");
+    // Previously also `expect(afterToastRail?.style.bottom).toBe("16px")`.
+    // That pinned the floating pill's inset; the collapsed launcher is a
+    // control in the save footer now, so it has no viewport offset of its own.
+    // The invariant this test is named for — a toast never moves it — is the
+    // equality above, and it is strictly stronger now that the launcher is in
+    // the layout rather than measured against the corner.
+    expect(afterToastRail).not.toBeNull();
   });
 
   it("lifts the launcher above Profile section tabs in the bottom corner", () => {
@@ -1124,6 +1260,10 @@ describe("ProfileCopilotRail", () => {
         toJSON: () => ({}),
       }) as DOMRect;
     document.body.appendChild(tabs);
+    // Profile always renders its save footer; that is where the launcher docks.
+    const footer = document.createElement("div");
+    footer.setAttribute("data-profile-workspace-actions", "");
+    document.body.appendChild(footer);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -1151,10 +1291,18 @@ describe("ProfileCopilotRail", () => {
     const bubble = document.body.querySelector<HTMLButtonElement>(
       'button[aria-haspopup="dialog"]',
     );
-    expect(bubble?.parentElement?.style.bottom).toBe("112px");
+
+    // Previously `expect(bubble?.parentElement?.style.bottom).toBe("112px")`:
+    // the floating launcher measured the section tabs and lifted itself 112px
+    // off the window bottom to clear them. It is a control in the save footer
+    // now, so it sits in the layout below the tabs and cannot overlap them at
+    // any height — no lift, and nothing to measure.
+    expect(bubble).not.toBeNull();
+    expect(footer.contains(bubble)).toBe(true);
 
     act(() => {
       tabs.remove();
+      footer.remove();
     });
   });
 
@@ -1185,6 +1333,10 @@ describe("ProfileCopilotRail", () => {
         toJSON: () => ({}),
       }) as DOMRect;
     document.body.appendChild(tabs);
+    // Profile always renders its save footer; that is where the launcher docks.
+    const footer = document.createElement("div");
+    footer.setAttribute("data-profile-workspace-actions", "");
+    document.body.appendChild(footer);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -1210,27 +1362,24 @@ describe("ProfileCopilotRail", () => {
       );
     });
 
-    const rail = document.body.querySelector<HTMLButtonElement>(
+    const bubble = document.body.querySelector<HTMLButtonElement>(
       'button[aria-haspopup="dialog"]',
-    )?.parentElement;
+    );
+    const rail = bubble?.parentElement;
     expect(rail).not.toBeNull();
     expect(rail?.querySelector(".max-sm\\:hidden")).not.toBeNull();
 
-    const launcherStack = getCollapsedLauncherStackSize({
-      showSuggestionPill: true,
-    });
-    const clearance = Number.parseInt(rail?.style.bottom ?? "0", 10);
-    const stackBottom = window.innerHeight - clearance;
-
-    expect(stackBottom).toBeLessThanOrEqual(
-      tabsBottom - 68 - COPILOT_LAUNCHER_MIN_INTERACTIVE_GAP,
-    );
-    expect(
-      window.innerHeight - clearance - launcherStack.height,
-    ).toBeGreaterThanOrEqual(0);
+    // Previously this computed the lifted stack's bottom edge from
+    // `rail.style.bottom` and required it to clear `tabsBottom - 68 -
+    // COPILOT_LAUNCHER_MIN_INTERACTIVE_GAP`. The launcher and its suggestion
+    // pill are in the save footer now, below the tabs in the layout, so there
+    // is no clearance arithmetic and no blind zone for a probe to miss.
+    expect(footer.contains(bubble)).toBe(true);
+    expect(rail?.style.bottom).toBe("");
 
     act(() => {
       tabs.remove();
+      footer.remove();
     });
   });
 
@@ -1690,5 +1839,248 @@ describe("ProfileCopilotRail", () => {
     expect(document.body.querySelector("textarea")?.value).toBe(
       "Update my headline",
     );
+  });
+  it("re-queries clearance targets instead of observing them, so no callback can re-observe", () => {
+    // Previously: "observes each clearance target once instead of
+    // re-observing from its own ResizeObserver callback" — the rail kept a
+    // `Set` of observed rows and asserted each was observed exactly once,
+    // because `observe()` on an already-observed target resets its last
+    // reported size and guarantees another delivery, so a callback that
+    // re-observes never settles.
+    //
+    // The launcher is a shared bottom-right dock occupant now, and the dock
+    // re-queries its no-cover set on every pass rather than resolving rows
+    // into observed nodes. That is a stronger reading of the same rule: a
+    // `ResizeObserver` reports size and not position, so an observed row that
+    // merely *moves* never re-measured — and with nothing observed, the
+    // re-observe loop this test guarded against cannot exist at all.
+    const observers: LoopProbeResizeObserver[] = [];
+
+    class LoopProbeResizeObserver {
+      readonly observeCalls: Element[] = [];
+      iterations = 0;
+      private readonly deliver: () => void;
+      private pending = false;
+      private flushing = false;
+
+      constructor(callback: ResizeObserverCallback) {
+        this.deliver = () => {
+          callback([], this as unknown as ResizeObserver);
+        };
+        observers.push(this);
+      }
+
+      observe(target: Element) {
+        this.observeCalls.push(target);
+        this.pending = true;
+        this.flush();
+      }
+
+      unobserve() {}
+
+      disconnect() {
+        this.pending = false;
+      }
+
+      private flush() {
+        if (this.flushing) {
+          return;
+        }
+
+        this.flushing = true;
+        // A hard cap so a regression fails the assertion instead of hanging.
+        while (this.pending && this.iterations < 25) {
+          this.pending = false;
+          this.iterations += 1;
+          this.deliver();
+        }
+        this.flushing = false;
+      }
+    }
+
+    const previousResizeObserver = (
+      globalThis as typeof globalThis & {
+        ResizeObserver?: typeof ResizeObserver;
+      }
+    ).ResizeObserver;
+    (
+      globalThis as typeof globalThis & { ResizeObserver?: unknown }
+    ).ResizeObserver = LoopProbeResizeObserver;
+
+    const actions = document.createElement("div");
+    actions.setAttribute("data-profile-workspace-actions", "");
+    document.body.appendChild(actions);
+    const tabs = document.createElement("div");
+    tabs.setAttribute("data-profile-section-tabs", "");
+    document.body.appendChild(tabs);
+
+    try {
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+
+      act(() => {
+        root?.render(
+          <ProfileCopilotRail
+            busy={false}
+            context={{ surface: "profile", section: "basics" }}
+            emptyStateDescription="Ask why a field matters."
+            emptyStateTitle="No requests yet"
+            messages={[]}
+            onApplyPatchGroup={vi.fn()}
+            onRejectPatchGroup={vi.fn()}
+            onSendMessage={vi.fn()}
+            onUndoRevision={vi.fn()}
+            pendingContextKey={null}
+            placeholder="Ask for an edit"
+            revisions={[]}
+            title="the Assistant"
+          />,
+        );
+      });
+
+      // No clearance row is observed at all, and nothing loops.
+      expect(
+        observers.filter((observer) => observer.observeCalls.includes(actions)),
+      ).toEqual([]);
+      expect(
+        observers.filter((observer) => observer.observeCalls.includes(tabs)),
+      ).toEqual([]);
+      for (const observer of observers) {
+        expect(observer.iterations).toBeLessThan(5);
+      }
+      // The launcher is still placed clear of the action footer, which is what
+      // the observation existed to achieve.
+      const launcher = document.querySelector<HTMLElement>(
+        "[data-profile-copilot-launcher]",
+      );
+      expect(launcher).not.toBeNull();
+    } finally {
+      if (previousResizeObserver === undefined) {
+        Reflect.deleteProperty(globalThis, "ResizeObserver");
+      } else {
+        (
+          globalThis as typeof globalThis & {
+            ResizeObserver?: typeof ResizeObserver;
+          }
+        ).ResizeObserver = previousResizeObserver;
+      }
+
+      actions.remove();
+      tabs.remove();
+    }
+  });
+
+  it("listens for scroll passively and coalesces the measurement into one frame", () => {
+    const shellHeader = document.createElement("div");
+    shellHeader.setAttribute("data-job-finder-shell-header", "");
+    document.body.appendChild(shellHeader);
+    const actions = document.createElement("div");
+    actions.setAttribute("data-profile-workspace-actions", "");
+    document.body.appendChild(actions);
+
+    let measureCount = 0;
+    // Previously counted `actions.getBoundingClientRect()`: the launcher's own
+    // clearance loop measured the action footer on every scroll. The launcher
+    // is docked in that footer now and computes no clearance at all, so the
+    // remaining scroll-driven measurement — and the behaviour this test is
+    // named for — is the safe-top offset reading the shell header.
+    shellHeader.getBoundingClientRect = () => {
+      measureCount += 1;
+      return {
+        bottom: 900,
+        height: 64,
+        left: 0,
+        right: 1440,
+        top: 836,
+        width: 1440,
+        x: 0,
+        y: 836,
+        toJSON: () => ({}),
+      } as DOMRect;
+    };
+
+    const frames: FrameRequestCallback[] = [];
+    const requestAnimationFrame = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback: FrameRequestCallback) => {
+        frames.push(callback);
+        return frames.length;
+      });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    const addEventListener = vi.spyOn(document, "addEventListener");
+
+    try {
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+
+      act(() => {
+        root?.render(
+          <ProfileCopilotRail
+            busy={false}
+            context={{ surface: "profile", section: "basics" }}
+            emptyStateDescription="Ask why a field matters."
+            emptyStateTitle="No requests yet"
+            messages={[]}
+            onApplyPatchGroup={vi.fn()}
+            onRejectPatchGroup={vi.fn()}
+            onSendMessage={vi.fn()}
+            onUndoRevision={vi.fn()}
+            pendingContextKey={null}
+            placeholder="Ask for an edit"
+            revisions={[]}
+            title="the Assistant"
+          />,
+        );
+      });
+
+      const scrollRegistrations = addEventListener.mock.calls.filter(
+        ([type]) => type === "scroll",
+      );
+      expect(scrollRegistrations.length).toBeGreaterThan(0);
+      for (const [, , options] of scrollRegistrations) {
+        // A capture listener on `document` runs for every scrollable element in
+        // the app, so it must never be able to cancel the scroll.
+        expect(options).toEqual({ capture: true, passive: true });
+      }
+
+      // Drain the frames scheduled during mount so only scroll-driven work is
+      // measured below.
+      act(() => {
+        const mountFrames = frames.splice(0, frames.length);
+        for (const frame of mountFrames) {
+          frame(0);
+        }
+      });
+
+      const beforeScroll = measureCount;
+      act(() => {
+        for (let index = 0; index < 5; index += 1) {
+          document.dispatchEvent(new Event("scroll", { bubbles: false }));
+        }
+      });
+
+      // Nothing is measured synchronously: the five events schedule work
+      // instead of forcing five layout reads.
+      expect(measureCount).toBe(beforeScroll);
+      expect(frames.length).toBeLessThan(5);
+
+      act(() => {
+        const pending = frames.splice(0, frames.length);
+        for (const frame of pending) {
+          frame(0);
+        }
+      });
+
+      // Five scroll events coalesce into exactly one measurement pass.
+      expect(measureCount - beforeScroll).toBe(1);
+    } finally {
+      requestAnimationFrame.mockRestore();
+      vi.mocked(window.cancelAnimationFrame).mockRestore?.();
+      addEventListener.mockRestore();
+      shellHeader.remove();
+      actions.remove();
+    }
   });
 });

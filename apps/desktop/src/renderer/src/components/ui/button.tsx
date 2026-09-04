@@ -42,12 +42,24 @@ const buttonVariants = cva(
       },
       size: {
         default: "h-10 px-5 text-sm font-semibold has-[>svg]:px-4",
+        // `field` is the named pairing with `Input`/`SelectTrigger`'s 44px box.
+        // Profile forced `h-11` through `className` in 12 places purely to line
+        // a button up with the field beside it; the pairing is a size, not an
+        // override, so a form row can be one declared height everywhere.
+        field: "h-11 px-5 text-sm font-semibold has-[>svg]:px-4",
+        // `toolbar` is the named 32px toolbar box. It matches
+        // `DISCOVERY_RESULTS_TOOLBAR_CONTROL_CLASS` exactly (h-8 / button
+        // radius / text-xs / font-medium), which was the only place a toolbar
+        // height was named once and tested. `compact` stays semibold for
+        // in-content compact actions; toolbar controls are ambient chrome.
+        toolbar: "h-8 gap-1.5 px-3 text-xs font-medium has-[>svg]:px-2.5",
         compact: "h-8 px-3 text-xs font-semibold has-[>svg]:px-2.5",
-        xs: "h-6 gap-1 rounded-md px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
+        xs: "h-6 gap-1 rounded-(--radius-small) px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-8 gap-1.5 px-3 has-[>svg]:px-2.5",
         lg: "h-10 px-6 has-[>svg]:px-4",
         icon: "size-9",
-        "icon-xs": "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3",
+        "icon-xs":
+          "size-6 rounded-(--radius-small) [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-8",
         "icon-lg": "size-10",
       },
@@ -195,12 +207,12 @@ function Button({
       tabIndex={tabIndex}
       {...restProps}
     >
-      <span
-        className={cn(
-          "relative z-10 inline-flex items-center justify-center gap-2",
-          pending && "translate-y-[-0.5px]",
-        )}
-      >
+      {/* The label never shifts on the pending transition. A half-pixel lift
+          used to be applied while pending, so entering the busy state nudged
+          the label off the shared control baseline for the duration of the
+          save - visible as a jitter beside any static sibling in the same
+          row. The activity rail alone carries the state. */}
+      <span className="relative z-10 inline-flex items-center justify-center gap-2">
         {children}
       </span>
       {pendingRail}

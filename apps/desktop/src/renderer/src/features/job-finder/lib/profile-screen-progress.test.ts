@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   formatSectionProgressLabel,
-  isSectionRequiredComplete,
   getSectionProgressState,
   withRequiredProgress,
 } from "./profile-screen-progress";
@@ -18,9 +17,6 @@ describe("profile section required-field progress", () => {
     );
 
     expect(getSectionProgressState(complete)).toBe("complete");
-    expect(formatSectionProgressLabel("basics", complete)).toBe(
-      "Required done",
-    );
     expect(getSectionProgressState(remaining)).toBe("remaining");
     expect(formatSectionProgressLabel("basics", remaining)).toBe("2 to fill");
   });
@@ -36,55 +32,27 @@ describe("profile section required-field progress", () => {
     );
 
     // The tab strip no longer charts a bar at all: the label is the whole
-    // signal, so a "Required done" tab cannot sit over a 59% bar.
-    expect(isSectionRequiredComplete(requiredDone)).toBe(true);
+    // signal, so a section whose required fields are done cannot sit over a
+    // 59% bar claiming otherwise.
+    expect(getSectionProgressState(requiredDone)).toBe("complete");
     expect(formatSectionProgressLabel("basics", requiredHalfDone)).toBe(
       "1 to fill",
     );
   });
 
-  it("treats sections without a required model as optional until something is added", () => {
-    expect(
-      formatSectionProgressLabel("background", {
-        filled: 0,
-        percent: 0,
-        total: 6,
-      }),
-    ).toBe("Optional");
-    // A section with no required model has nothing to have finished, so it
-    // must not claim "Complete" over a partly filled bar beside sibling tabs
-    // that say "Required done".
-    expect(
-      formatSectionProgressLabel("background", {
-        filled: 2,
-        percent: 33,
-        total: 6,
-      }),
-    ).toBe("Optional added");
-    expect(
-      isSectionRequiredComplete({ filled: 2, percent: 33, total: 6 }),
-    ).toBe(false);
-    expect(
-      isSectionRequiredComplete({
-        filled: 4,
-        percent: 100,
-        total: 4,
-        required: { filled: 2, total: 2 },
-      }),
-    ).toBe(true);
-    expect(
-      formatSectionProgressLabel("background", {
-        filled: 0,
-        percent: 0,
-        total: 0,
-      }),
-    ).toBe("Empty");
-    expect(
-      formatSectionProgressLabel("preferences", {
-        filled: 0,
-        percent: 0,
-        total: 0,
-      }),
-    ).toBe("Not started");
+  it("reads sections without a required model from their optional fill alone", () => {
+    // None of these render a count or a label — only `remaining` does — so
+    // the state is the whole signal the tab publishes for them. The wording
+    // once asserted here ("Optional", "Optional added", "Empty", "Not
+    // started") went with the per-tab completion chips.
+    expect(getSectionProgressState({ filled: 0, percent: 0, total: 6 })).toBe(
+      "optional",
+    );
+    expect(getSectionProgressState({ filled: 2, percent: 33, total: 6 })).toBe(
+      "complete",
+    );
+    expect(getSectionProgressState({ filled: 0, percent: 0, total: 0 })).toBe(
+      "empty",
+    );
   });
 });

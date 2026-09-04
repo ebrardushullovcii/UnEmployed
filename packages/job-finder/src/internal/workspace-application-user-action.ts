@@ -1,4 +1,5 @@
 import {
+  JOB_FINDER_BROWSER_LABEL,
   UserActionRequestSchema,
   type ApplicationAttemptBlocker,
   type ApplyJobState,
@@ -27,14 +28,12 @@ const applicationKindCopy: Record<
   login: {
     titleVerb: "Sign in",
     summaryStep: "sign-in",
-    instruction:
-      "Complete sign-in in the managed browser. Job Finder never receives or stores your credentials.",
+    instruction: `Complete sign-in in the ${JOB_FINDER_BROWSER_LABEL}. Job Finder never receives or stores your credentials.`,
   },
   signup: {
     titleVerb: "Create your account",
     summaryStep: "account creation",
-    instruction:
-      "Create the account yourself in the managed browser. Job Finder never creates accounts or receives your credentials.",
+    instruction: `Create the account yourself in the ${JOB_FINDER_BROWSER_LABEL}. Job Finder never creates accounts or receives your credentials.`,
   },
   email_verification: {
     titleVerb: "Verify your email",
@@ -45,20 +44,17 @@ const applicationKindCopy: Record<
   mfa: {
     titleVerb: "Complete MFA",
     summaryStep: "multi-factor authentication",
-    instruction:
-      "Complete MFA yourself in the managed browser. Job Finder never reads or stores security codes.",
+    instruction: `Complete MFA yourself in the ${JOB_FINDER_BROWSER_LABEL}. Job Finder never reads or stores security codes.`,
   },
   captcha: {
     titleVerb: "Complete the CAPTCHA",
     summaryStep: "human-verification",
-    instruction:
-      "Complete the CAPTCHA yourself in the managed browser. Job Finder never solves or bypasses human-verification challenges.",
+    instruction: `Complete the CAPTCHA yourself in the ${JOB_FINDER_BROWSER_LABEL}. Job Finder never solves or bypasses human-verification challenges.`,
   },
   existing_account_choice: {
     titleVerb: "Choose the account path",
     summaryStep: "account-choice",
-    instruction:
-      "Choose the appropriate account path yourself in the managed browser. Job Finder never creates an account or chooses an identity for you.",
+    instruction: `Choose the appropriate account path yourself in the ${JOB_FINDER_BROWSER_LABEL}. Job Finder never creates an account or chooses an identity for you.`,
   },
   manual_answer: {
     titleVerb: "Answer the required question",
@@ -69,25 +65,22 @@ const applicationKindCopy: Record<
   legal_consent: {
     titleVerb: "Review the required consent",
     summaryStep: "legal-consent",
-    instruction:
-      "Read and decide the consent yourself in the managed browser. Job Finder never accepts legal terms on your behalf.",
+    instruction: `Read and decide the consent yourself in the ${JOB_FINDER_BROWSER_LABEL}. Job Finder never accepts legal terms on your behalf.`,
   },
   external_redirect: {
     titleVerb: "Review the external destination",
     summaryStep: "external-redirect",
-    instruction:
-      "Review and continue to the external destination yourself in the managed browser. Job Finder keeps final submission disabled.",
+    instruction: `Review and continue to the external destination yourself in the ${JOB_FINDER_BROWSER_LABEL}. Job Finder keeps final submission disabled.`,
   },
   manual_upload: {
     titleVerb: "Attach the required file",
     summaryStep: "manual-upload",
-    instruction:
-      "Attach the requested file yourself in the managed browser. Job Finder does not infer that an upload succeeded from this button.",
+    instruction: `Attach the requested file yourself in the ${JOB_FINDER_BROWSER_LABEL}. Job Finder does not infer that an upload succeeded from this button.`,
   },
   other: {
     titleVerb: "Complete the browser step",
     summaryStep: "manual",
-    instruction: "Finish this step yourself in the managed browser.",
+    instruction: `Finish this step yourself in the ${JOB_FINDER_BROWSER_LABEL}.`,
   },
 };
 
@@ -517,7 +510,7 @@ export async function persistApplicationUserAction(input: {
           expectedPageFingerprint: null,
         },
     title: `${copy.titleVerb} to continue the ${input.job.company} application`,
-    summary: `${describeApplicationBlockerReason(input.blocker)} Complete this ${copy.summaryStep} step in the managed browser, then return so Job Finder can verify the exact blocker no longer appears.`,
+    summary: `${describeApplicationBlockerReason(input.blocker)} Complete this ${copy.summaryStep} step in the ${JOB_FINDER_BROWSER_LABEL}, then return so Job Finder can verify the exact blocker no longer appears.`,
     instructions: [
       copy.instruction,
       "Return to Needs you and confirm completion only after the browser step is complete.",

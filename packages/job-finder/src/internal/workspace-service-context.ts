@@ -27,6 +27,15 @@ import type {
 export interface ResumeExportFileVerifier {
   exists(filePath: string): Promise<boolean>;
   sha256?(filePath: string): Promise<string>;
+  /**
+   * The on-disk path `exists`/`sha256` actually resolved to, or null when no
+   * candidate exists. A verifier that can recover a path recorded under a
+   * since-moved user-data directory must expose it here: the application
+   * resume artifact carries the path onward to the browser runtime, which
+   * re-checks it with its own `access()` and reports `missing_resume` when the
+   * recorded path no longer exists.
+   */
+  resolvePath?(filePath: string): Promise<string | null>;
 }
 
 export interface MutableRef<T> {

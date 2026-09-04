@@ -178,3 +178,222 @@ export function resolveBoundedFloatingSurfacePlacement(
 
   return { availableHeight, left, maxHeight, side, top, width };
 }
+
+/* -------------------------------------------------------------------------
+ * The bottom-right dock.
+ *
+ * Three unrelated surfaces used to claim that corner without knowing about
+ * each other: the Assistant/Copilot launcher pill (lifted off two page-level
+ * markers), the startup database recovery notice (`fixed bottom-4 right-4`,
+ * which simply painted on top of the pill), and the save status lane (whose
+ * `maxHeight` ran to the window bottom, straight through both). This is the
+ * one arbitration they all read.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Every action row in the renderer marked with a `data-*-actions` attribute.
+ *
+ * CSS has no attribute-name wildcard, so the set is named once here instead of
+ * being re-derived per surface — the pill previously cleared only
+ * `[data-profile-workspace-actions]` and `[data-profile-section-tabs]`, which
+ * is why at 1200x640 it landed on a section's own `Add experience` button. The
+ * adoption guard asserts this list still covers every `data-*-actions`
+ * attribute literal in the feature tree, so a new marker fails a test rather
+ * than silently losing its clearance.
+ */
+export const BOTTOM_RIGHT_DOCK_ACTION_ROW_ATTRIBUTES = [
+  "data-page-header-actions",
+  "data-profile-copilot-review-actions",
+  "data-profile-workspace-actions",
+  "data-resume-assistant-quick-actions",
+  "data-resume-workspace-top-actions",
+] as const;
+
+/**
+ * Rows a dock occupant must clear that are not `*-actions` attributes.
+ *
+ * These are not launcher-specific and never were: the startup recovery notice
+ * is still a dock occupant, and it must no more cover the Profile section tabs
+ * (below xl the only route between sections) or the Studio tools column's
+ * provenance/undo row than the retired launcher pill did. They were emptied
+ * with the launcher's own entries by mistake and are restored here.
+ *
+ * `data-resume-entry-bullet-actions` is deliberately NOT here, and did not
+ * come back to the list above: it never existed. The only attribute in the
+ * tree with that prefix is `data-resume-entry-bullet-actions-legend`, and a
+ * greedy scan backtracked the `-legend` suffix off to invent a row nothing
+ * renders.
+ */
+export const BOTTOM_RIGHT_DOCK_EXTRA_NO_COVER_SELECTORS: readonly string[] = [
+  "[data-profile-section-tabs]",
+  "[data-resume-draft-provenance]",
+];
+
+export const BOTTOM_RIGHT_DOCK_NO_COVER_SELECTOR = [
+  ...BOTTOM_RIGHT_DOCK_ACTION_ROW_ATTRIBUTES.map(
+    (attribute) => `[${attribute}]`,
+  ),
+  ...BOTTOM_RIGHT_DOCK_EXTRA_NO_COVER_SELECTORS,
+].join(", ");
+
+/** Distance the dock keeps from a row it may not cover. */
+export const BOTTOM_RIGHT_DOCK_CLEARANCE_GAP_PX = 24;
+/** Distance between two stacked dock occupants. */
+export const BOTTOM_RIGHT_DOCK_STACK_GAP_PX = 12;
+export const BOTTOM_RIGHT_DOCK_DEFAULT_INSET_PX = 16;
+
+/**
+ * Who sits where in the stack; lower is nearer the bottom edge.
+ *
+ * The Assistant/Copilot launcher is deliberately absent. It used to be `0`
+ * here, parked in this corner over whatever screen was behind it; it is an
+ * ordinary button in each screen's own action row now, so the dock holds only
+ * transient status surfaces.
+ */
+export const BOTTOM_RIGHT_DOCK_ORDER = {
+  notice: 0,
+} as const;
+
+export interface BottomRightDockOccupant {
+  /** Stable identity; also the key the registry stores the surface under. */
+  readonly id: string;
+  readonly height: number;
+  /**
+   * Lower sorts nearer the bottom edge, so the surface most likely to already
+   * be on screen keeps its place when another appears above it. The dock holds
+   * only transient status surfaces; see `BOTTOM_RIGHT_DOCK_ORDER`.
+   */
+  readonly order: number;
+  readonly width: number;
+}
+
+export interface BottomRightDockInput {
+  readonly clearanceGap?: number;
+  readonly inset?: number;
+  /** Highest viewport y the dock may reach; usually the shell header bottom. */
+  readonly minTopOffset: number;
+  readonly noCoverRects: readonly BoundedFloatingSurfaceRect[];
+  readonly occupants: readonly BottomRightDockOccupant[];
+  readonly stackGap?: number;
+  readonly viewport: BoundedFloatingSurfaceViewport;
+}
+
+export interface BottomRightDockSlot {
+  /** Distance from the viewport bottom to this surface's bottom edge. */
+  readonly bottom: number;
+  readonly id: string;
+  readonly right: number;
+}
+
+export interface BottomRightDockPlacement {
+  /**
+   * Distance the whole stack is lifted off the viewport bottom. Equal to the
+   * inset when nothing is in the way.
+   */
+  readonly clearance: number;
+  readonly slots: readonly BottomRightDockSlot[];
+  /**
+   * Viewport y of the topmost painted dock pixel. Surfaces that are not dock
+   * occupants — the save status lane — bound themselves against this instead
+   * of running to the window bottom.
+   */
+  readonly stackTop: number;
+}
+
+/**
+ * Stack the dock's occupants from the bottom-right corner upward, then lift
+ * the whole stack above any no-cover row it would sit on.
+ *
+ * Lifting the stack as one unit (rather than per occupant) is what keeps the
+ * occupants from re-ordering or overlapping as rows move under them, and the
+ * lift is re-checked after each pass because two rows can overlap each other.
+ */
+export function resolveBottomRightDockPlacement(
+  input: BottomRightDockInput,
+): BottomRightDockPlacement {
+  const inset = input.inset ?? BOTTOM_RIGHT_DOCK_DEFAULT_INSET_PX;
+  const stackGap = input.stackGap ?? BOTTOM_RIGHT_DOCK_STACK_GAP_PX;
+  const clearanceGap = input.clearanceGap ?? BOTTOM_RIGHT_DOCK_CLEARANCE_GAP_PX;
+  const occupants = [...input.occupants]
+    .filter((occupant) => occupant.height > 0 || occupant.width > 0)
+    .sort((left, right) =>
+      left.order === right.order
+        ? left.id.localeCompare(right.id)
+        : left.order - right.order,
+    );
+
+  const stackHeight = occupants.reduce(
+    (total, occupant, index) =>
+      total + Math.max(0, occupant.height) + (index === 0 ? 0 : stackGap),
+    0,
+  );
+  const stackWidth = occupants.reduce(
+    (widest, occupant) => Math.max(widest, Math.max(0, occupant.width)),
+    0,
+  );
+
+  const columnRight = input.viewport.width - inset;
+  const columnLeft = columnRight - stackWidth;
+  // A dock that would be pushed above its own ceiling stops at the ceiling and
+  // scrolls/overlaps honestly rather than leaving the window.
+  const maxClearance = Math.max(
+    inset,
+    input.viewport.height - stackHeight - Math.max(0, input.minTopOffset),
+  );
+
+  const targets = input.noCoverRects.filter(
+    (rect) =>
+      Number.isFinite(rect.left) &&
+      Number.isFinite(rect.right) &&
+      Number.isFinite(rect.top) &&
+      Number.isFinite(rect.bottom) &&
+      rect.bottom > 0 &&
+      rect.top < input.viewport.height &&
+      rect.right > columnLeft &&
+      rect.left < columnRight,
+  );
+
+  let clearance = inset;
+  if (stackHeight > 0) {
+    for (let pass = 0; pass <= targets.length; pass += 1) {
+      const stackBottom = input.viewport.height - clearance;
+      const stackTop = stackBottom - stackHeight;
+      const overlapping = targets.find(
+        (rect) =>
+          rect.bottom + clearanceGap > stackTop &&
+          rect.top - clearanceGap < stackBottom,
+      );
+
+      if (!overlapping) {
+        break;
+      }
+
+      const needed = input.viewport.height - overlapping.top + clearanceGap;
+      const nextClearance = Math.min(needed, maxClearance);
+
+      if (nextClearance <= clearance) {
+        break;
+      }
+
+      clearance = nextClearance;
+    }
+  }
+
+  clearance = Math.ceil(clearance);
+
+  const slots: BottomRightDockSlot[] = [];
+  let cursor = clearance;
+  for (const occupant of occupants) {
+    slots.push({ bottom: Math.ceil(cursor), id: occupant.id, right: inset });
+    cursor += Math.max(0, occupant.height) + stackGap;
+  }
+
+  return {
+    clearance,
+    slots,
+    // Clamped at the window top: a stack taller than the space available would
+    // otherwise report a negative y, and a reader bounding itself against that
+    // would compute a negative height rather than simply stopping at the edge.
+    stackTop: Math.max(0, input.viewport.height - (clearance + stackHeight)),
+  };
+}

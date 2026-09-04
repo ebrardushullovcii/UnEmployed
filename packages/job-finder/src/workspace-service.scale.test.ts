@@ -168,7 +168,7 @@ function createScaleSeed(): JobFinderRepositorySeed {
           expectedPageFingerprint: null,
         },
         title: "Sign in to continue",
-        summary: "Complete sign-in in the managed browser.",
+        summary: "Complete sign-in in the Job Finder browser.",
         instructions: ["Sign in without sharing credentials with Job Finder."],
         actionUrl: savedJobs[index]!.applicationUrl,
         displayOrigin: "https://jobs.example.com/",

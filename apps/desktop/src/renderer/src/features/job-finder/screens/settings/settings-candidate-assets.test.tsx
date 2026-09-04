@@ -372,4 +372,48 @@ describe("SettingsCandidateAssets", () => {
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(document.activeElement).toBe(removeButton);
   });
+
+  test("top-aligns the three import controls so the helper line cannot lift one", async () => {
+    // The three cells are stretched grid items whose own rows are auto-sized,
+    // so the leftover height was shared between each cell's label row and its
+    // control row. Retention carries a third row of helper text, so it split
+    // its slack three ways and floated its select 13px above the two
+    // identically sized controls beside it.
+    Object.defineProperty(window, "unemployed", {
+      configurable: true,
+      value: {
+        jobFinder: {
+          listCandidateAssets: vi.fn().mockResolvedValue({ assets: [] }),
+        },
+      },
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<SettingsCandidateAssets />);
+      await Promise.resolve();
+    });
+
+    const labels = ["Asset type", "Consent scope", "Retention"].map(
+      (text) =>
+        [...document.querySelectorAll("label")].find(
+          (label) => label.textContent?.trim() === text,
+        ) as HTMLLabelElement,
+    );
+
+    expect(labels.every(Boolean)).toBe(true);
+
+    const cells = labels.map((label) => label.parentElement);
+    const row = cells[0]?.parentElement;
+
+    // One row, three cells, and only the third carries helper text.
+    expect(new Set(cells.map((cell) => cell?.parentElement)).size).toBe(1);
+    expect(row?.className).toContain("items-start");
+    expect(cells[2]?.textContent).toContain(
+      "Timed retention starts after the import succeeds.",
+    );
+    expect(cells[0]?.textContent).not.toContain("Timed retention");
+  });
 });

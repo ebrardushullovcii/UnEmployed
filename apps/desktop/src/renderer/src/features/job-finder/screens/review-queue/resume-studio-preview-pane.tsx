@@ -131,6 +131,26 @@ const PREVIEW_AUTO_MODE_HYSTERESIS = 8;
 /** A sub-pixel column change is layout noise, not a new width to scale to. */
 const PREVIEW_WIDTH_EPSILON = 1;
 
+/** The scroll region's own padding (`p-0.5`), both sides. */
+const PREVIEW_REGION_PADDING = 4;
+
+/**
+ * The page shell around the frame: a 1px border plus `p-1.5`, both sides. It is
+ * part of what has to fit inside the visible region, so the scale has to budget
+ * for it or the page's right edge lands under the scrollbar.
+ */
+const PREVIEW_PAGE_SHELL_CHROME = 14;
+
+/**
+ * Slack between the zoomed shell and the frame that holds it, so sub-pixel
+ * rounding in `zoom` cannot clip the page against its own viewport.
+ */
+const PREVIEW_FRAME_SLACK = 8;
+
+/** Everything between the visible region's box and the page's own width. */
+const PREVIEW_PAGE_CHROME =
+  PREVIEW_REGION_PADDING + PREVIEW_PAGE_SHELL_CHROME + PREVIEW_FRAME_SLACK;
+
 export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const scrollRegionRef = useRef<HTMLDivElement | null>(null);
@@ -139,10 +159,21 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
   // fed its own output back in: the scaled page changes the scroller's content
   // size, that toggles a scrollbar, the scrollbar changes the measured width,
   // and the next measurement picks a different scale — a visible zoom loop.
+  // The scroller's own width is still read, but only to learn the fixed
+  // scrollbar gutter it reserves out of that column; the latch below keeps that
+  // reading from ever re-entering the loop.
   const widthProbeRef = useRef<HTMLDivElement | null>(null);
   const lastMeasuredWidthRef = useRef<number | null>(null);
   const lastAppliedWidthModeRef = useRef<PreviewWidthMode | null>(null);
   const autoFitToWidthRef = useRef(false);
+  // The scale that the frame's width was computed for. Every draft re-render
+  // replaces the `srcdoc` document, and a fresh body starts at the stylesheet
+  // default `--preview-scale: 1`, so the resolved scale is re-applied to
+  // whatever body is current — resolving it stays gated on a real width change.
+  const appliedPreviewScaleRef = useRef<number | null>(null);
+  // Width the scroll region reserves for its stable scrollbar gutter, latched
+  // to the largest value ever observed. See `measurePreviewHeight`.
+  const reservedScrollbarGutterRef = useRef(0);
   const previousSelectionScrollKeyRef = useRef<number | null>(null);
   const refreshRequestedRef = useRef(false);
   const [previewHeight, setPreviewHeight] = useState("72rem");
@@ -210,17 +241,44 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
 
     const measurePreviewHeight = () => {
       const document = frame.contentDocument;
-      if (!document) {
+      // A committed `srcdoc` document exists before its parser inserts
+      // `<body>`, so `contentDocument` is non-null while `document.body` is
+      // still null. The width probe's own ResizeObserver delivers its first
+      // entry a frame after mount, which lands inside exactly that window on
+      // first entry into the studio — and writing `.style` on the null body
+      // threw an uncaught TypeError into the renderer. The `load` handler
+      // rebinds and remeasures once the document is real.
+      const body = document?.body ?? null;
+      if (!document || !body) {
         return;
       }
 
       document.documentElement.style.overflow = "hidden";
-      document.body.style.overflow = "hidden";
+      body.style.overflow = "hidden";
+      // The probe spans the whole column and is immune to anything the page
+      // does; the scroll region is that same box minus the scrollbar gutter it
+      // reserves, which is the width the page actually gets. Their difference
+      // is that gutter, and it is latched to the largest value ever seen: a
+      // latched maximum only ever grows, and it grows at most once, so a
+      // scrollbar coming and going can never widen the budget again and flip
+      // the scale back. Measuring the probe alone was 15px too generous — the
+      // page's right edge then sat under the scrollbar.
+      const probeWidth = widthProbeRef.current?.clientWidth ?? 0;
+      const regionWidth = scrollRegionRef.current?.clientWidth ?? 0;
+      if (probeWidth > 0 && regionWidth > 0) {
+        reservedScrollbarGutterRef.current = Math.max(
+          reservedScrollbarGutterRef.current,
+          probeWidth - regionWidth,
+        );
+      }
       const measuredWidth =
-        widthProbeRef.current?.clientWidth ||
-        scrollRegionRef.current?.clientWidth ||
-        frame.clientWidth;
-      const containerWidth = Math.max(1, measuredWidth - 24);
+        (probeWidth > 0
+          ? probeWidth - reservedScrollbarGutterRef.current
+          : regionWidth) || frame.clientWidth;
+      const containerWidth = Math.max(
+        1,
+        Math.floor(measuredWidth) - PREVIEW_PAGE_CHROME,
+      );
       const lastMeasuredWidth = lastMeasuredWidthRef.current;
       const mode = previewWidthModeRef.current;
       // Height changes (the page itself growing, a vertical scrollbar) must
@@ -239,12 +297,13 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
         const readableFloorWidth =
           NATURAL_PREVIEW_WIDTH * MIN_READABLE_PREVIEW_SCALE;
 
-        // Automatic mode switches only outside a dead band around the floor, so
-        // a column sitting on the boundary settles instead of oscillating.
-        if (
-          containerWidth <
-          readableFloorWidth - PREVIEW_AUTO_MODE_HYSTERESIS
-        ) {
+        // Fitting starts exactly at the floor, never below it: a dead band on
+        // this side means holding a page the column cannot show, which is a
+        // silent crop under a banner that says to approve the resume shown in
+        // the preview. Returning to the readable floor still waits for the
+        // hysteresis, so the two thresholds stay distinct and a column resting
+        // on the boundary settles instead of flapping.
+        if (containerWidth < readableFloorWidth) {
           autoFitToWidthRef.current = true;
         } else if (
           containerWidth >
@@ -272,19 +331,37 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
           !isFitToWidth && fitScale < MIN_READABLE_PREVIEW_SCALE,
         );
         setIsPreviewFitToWidth(isFitToWidth && fitScale < 1);
+        // When the page is scaled to fit, it can never legitimately need more
+        // than the column it was fitted to: `Math.ceil` over a float product
+        // otherwise asks for one pixel more than the width the scale came from
+        // and puts the page's right edge back under the scrollbar. A pinned
+        // readable size is the deliberate exception and still overflows into
+        // the region's own horizontal scroll.
+        const scaledShellWidth =
+          previewScale <= fitScale
+            ? Math.min(NATURAL_PREVIEW_WIDTH * previewScale, containerWidth)
+            : NATURAL_PREVIEW_WIDTH * previewScale;
         setPreviewFrameWidth(
-          `${Math.ceil(NATURAL_PREVIEW_WIDTH * previewScale) + 8}px`,
+          `${Math.ceil(scaledShellWidth) + PREVIEW_FRAME_SLACK}px`,
         );
-        document.body.style.setProperty(
-          "--preview-scale",
-          String(previewScale),
-        );
+        appliedPreviewScaleRef.current = previewScale;
+      }
+
+      // Applied on every measurement, not only when the scale is re-resolved.
+      // Each draft re-render replaces the `srcdoc` document, and the fresh body
+      // starts at the stylesheet's `--preview-scale: 1` while the frame keeps
+      // the width computed for the scaled page — so the page rendered ~37%
+      // too large and every line lost its right quarter, with no scrollbar to
+      // say so. Re-writing the resolved value is idempotent: an unchanged
+      // custom property produces no layout change and so cannot re-enter here.
+      const resolvedScale = appliedPreviewScaleRef.current;
+      if (resolvedScale !== null) {
+        body.style.setProperty("--preview-scale", String(resolvedScale));
       }
 
       const page = document.querySelector<HTMLElement>(".page");
-      const body = document.body;
       const rawHeight =
-        page?.getBoundingClientRect().height ?? body?.scrollHeight ?? 0;
+        page?.getBoundingClientRect().height ?? body.scrollHeight ?? 0;
 
       if (rawHeight > 0) {
         const nextHeight = Math.ceil(rawHeight + 8);
@@ -294,8 +371,12 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
 
     const bindPreviewDocument = () => {
       const document = frame.contentDocument;
+      // Same still-parsing window as above: `observe(null)` would throw. The
+      // `load` handler runs `bindPreviewDocument` again once the document has
+      // a body, so nothing is lost by declining to bind here.
+      const body = document?.body ?? null;
 
-      if (!document) {
+      if (!document || !body) {
         return () => {};
       }
 
@@ -307,7 +388,7 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
           : new ResizeObserver(() => {
               measurePreviewHeight();
             });
-      resizeObserver?.observe(document.body);
+      resizeObserver?.observe(body);
       if (page) {
         resizeObserver?.observe(page);
       }

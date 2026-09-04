@@ -703,3 +703,12 @@ describe("preload application authority boundary", () => {
     ).toThrow();
   });
 });
+
+describe("preload desktop test API boundary", () => {
+  it("omits the test surface entirely when the test API is disabled", () => {
+    expect(process.env.UNEMPLOYED_ENABLE_TEST_API).not.toBe("1");
+    expect(
+      (exposedJobFinder as unknown as { test?: unknown }).test,
+    ).toBeUndefined();
+  });
+});

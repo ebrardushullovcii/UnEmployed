@@ -11,6 +11,37 @@ import {
   createResumeVisionProviderFromEnvironment,
 } from "./resume-vision";
 
+function createVisionArtifactFixture() {
+  return {
+    id: "vision_artifact_1",
+    runId: "run_1",
+    sourceResumeId: "resume_1",
+    sourceFileKind: "pdf" as const,
+    createdAt: "2026-04-10T10:00:00.000Z",
+    retained: "temporary" as const,
+    pages: [
+      {
+        id: "vision_page_1",
+        sourceResumeId: "resume_1",
+        sourceFileKind: "pdf" as const,
+        pageNumber: 1,
+        renderKind: "pdf_page_image" as const,
+        mimeType: "image/png",
+        width: 1200,
+        height: 1600,
+        byteLength: 4,
+        sha256: "abc123",
+        dataUrl: "data:image/png;base64,AAAA",
+        storagePath: null,
+        retained: "temporary" as const,
+        generatedAt: "2026-04-10T10:00:00.000Z",
+        warnings: [],
+      },
+    ],
+    warnings: [],
+  };
+}
+
 describe("resume vision provider", () => {
   afterEach(() => {
     // Individual mocks restore fetch explicitly; this keeps tests isolated when assertions fail early.
@@ -134,6 +165,86 @@ describe("resume vision provider", () => {
       expect(fetchMock.getCapturedBody()).toContain("image_url");
     } finally {
       fetchMock.restore();
+    }
+  });
+
+  test("reports the deterministic source and a structured fallback when the vision model call fails", async () => {
+    const cases = [
+      {
+        name: "timeout",
+        rejection: (() => {
+          const abortError = new Error("This operation was aborted");
+          abortError.name = "AbortError";
+          return abortError;
+        })(),
+        expectedKind: "timeout" as const,
+        expectedReason: /timed out after \d+s/i,
+      },
+      {
+        name: "provider error",
+        rejection: new Error("Vision endpoint returned 500"),
+        expectedKind: "provider_error" as const,
+        expectedReason: /returned 500/i,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn(() =>
+        Promise.reject(testCase.rejection),
+      ) as unknown as typeof globalThis.fetch;
+
+      try {
+        const provider = createOpenAiCompatibleResumeVisionProvider({
+          apiKey: "test-key",
+          baseUrl: "https://example.com/v1",
+          model: "gpt-5.6-luna",
+          maxPagesPerBatch: 1,
+        });
+        const result = await provider.extractResumeVision({
+          existingProfile: createProfile(),
+          existingSearchPreferences: createPreferences(),
+          documentBundle: createResumeImportFixtureBundle({
+            id: "vision_fallback_bundle",
+            pageTexts: ["Alex Vanguard\nSenior Software Engineer"],
+            blocks: [
+              {
+                id: "block_1",
+                pageNumber: 1,
+                readingOrder: 0,
+                text: "Alex Vanguard",
+                kind: "heading",
+                sectionHint: "identity",
+                bbox: null,
+                sourceParserKinds: ["local_pdf_layout"],
+                sourceConfidence: 0.9,
+              },
+            ],
+          }),
+          visionArtifact: createVisionArtifactFixture(),
+        });
+
+        // Every candidate here comes from the deterministic reader, so the
+        // run must not record the configured vision model as the source.
+        expect(result.analysisProviderKind, testCase.name).toBe(
+          "deterministic",
+        );
+        expect(result.analysisProviderLabel, testCase.name).toBe(
+          "Deterministic resume vision fallback",
+        );
+        expect(result.fallbackUsed, testCase.name).toBe(true);
+        expect(result.fallback?.kind, testCase.name).toBe(
+          testCase.expectedKind,
+        );
+        expect(result.fallback?.reason ?? "", testCase.name).toMatch(
+          testCase.expectedReason,
+        );
+        expect(result.primaryErrorMessage ?? "", testCase.name).toMatch(
+          testCase.expectedReason,
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     }
   });
 

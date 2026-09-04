@@ -9,6 +9,15 @@ import { getJobFinderUserDataDirectory } from "../services/job-finder/paths";
 interface LocalResumeExportFileVerifier {
   exists(filePath: string): Promise<boolean>;
   sha256(filePath: string): Promise<string>;
+  /**
+   * The recovered on-disk path `exists`/`sha256` actually used, or null when
+   * no candidate exists. Callers that hand the path to something outside this
+   * verifier — the application resume artifact, and through it the browser
+   * runtime's own `access()` check — must use this instead of the recorded
+   * path, or a recovered stale path passes the gate here and then fails there
+   * as `missing_resume`.
+   */
+  resolvePath(filePath: string): Promise<string | null>;
 }
 
 function appendUserDataResumeExportCandidates(
@@ -91,6 +100,9 @@ export function createLocalResumeExportFileVerifier(): LocalResumeExportFileVeri
       return createHash("sha256")
         .update(await readFile(resolvedPath))
         .digest("hex");
+    },
+    async resolvePath(filePath: string) {
+      return resolveExistingResumeExportPath(filePath);
     },
   };
 }

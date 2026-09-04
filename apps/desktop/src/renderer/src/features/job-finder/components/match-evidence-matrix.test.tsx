@@ -270,7 +270,15 @@ describe("MatchEvidenceMatrix", () => {
       expect(view.queryByTestId(`fit-dimension-${dimension}`)).toBeNull();
     }
     expect(view.queryByTestId("fit-dimensions")).toBeNull();
-    expect(view.getByTestId("fit-dimensions-empty")).toBeTruthy();
+    // The app exposes no external-URL action anywhere in renderer or preload,
+    // so this line must not promise one. It names the action that does exist,
+    // matching the title-only note's wording.
+    expect(view.getByTestId("fit-dimensions-empty").textContent).toBe(
+      "Nothing else has been checked yet. Copy the listing link to check the role, preference, pay, and evidence details.",
+    );
+    expect(view.getByTestId("fit-dimensions-empty").textContent).not.toContain(
+      "Open the listing",
+    );
     expect(view.queryByText("Strong fit")).toBeNull();
     // The hedge itself still appears exactly once, at the top.
     expect(view.getByTestId("fit-title-only-note").textContent).toBe(

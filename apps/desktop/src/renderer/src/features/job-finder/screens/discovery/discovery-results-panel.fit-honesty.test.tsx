@@ -159,19 +159,38 @@ afterEach(() => {
 });
 
 describe("Find jobs fit honesty", () => {
-  it("prints 'Title match only' instead of a bare percentage on the row", () => {
+  it("never prints the unearned percentage, and states the title-only fact once per band", () => {
     const job = titleOnlyJob();
     renderResults([job], job);
 
-    const fit = screen.getByTestId(`discovery-result-fit-${job.id}`);
-    expect(fit.textContent).toBe("Title match only");
     // The number that was not earned must not appear anywhere on the row.
-    expect(fit.textContent).not.toContain("54");
     expect(screen.queryByText(/54% fit/)).toBeNull();
     expect(screen.queryByText(/Provisional 54% fit/)).toBeNull();
+    const row = document.querySelector(`[data-job-result-id="${job.id}"]`);
+    expect(row?.textContent).not.toContain("54");
+
+    // The claim now lives on the divider that heads this band, once, instead
+    // of on every row underneath it.
+    const heading = screen.getByTestId("discovery-results-group-unchecked");
+    expect(heading.textContent).toContain(
+      "Title matches · not yet checked (1)",
+    );
+    expect(screen.queryByTestId(`discovery-result-fit-${job.id}`)).toBeNull();
     expect(
-      screen.getByTestId(`discovery-result-fit-reason-${job.id}`).textContent,
-    ).toContain("Only the listing title could be checked");
+      screen.queryByTestId(`discovery-result-fit-reason-${job.id}`),
+    ).toBeNull();
+    // The verdict and its reason survive for assistive technology on the row,
+    // in one sr-only line: the divider is visual-only, so a row reached by
+    // keyboard would otherwise lose both.
+    const srOnly = screen.getByTestId(`discovery-result-fit-sr-${job.id}`);
+    expect(srOnly.className).toContain("sr-only");
+    expect(srOnly.textContent).toBe(
+      "Overall fit: title match only, not scored. Only the listing title could be checked — no pay, location, or requirements were captured. Copy the listing link to check the rest.",
+    );
+    // …and it is the row's only carrier of that reason.
+    expect(
+      screen.getAllByText(/Only the listing title could be checked/),
+    ).toEqual([srOnly]);
   });
 
   it("prints 'Fit not assessed' with no number for an unbound assessment", () => {

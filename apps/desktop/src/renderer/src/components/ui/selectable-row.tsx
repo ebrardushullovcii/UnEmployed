@@ -37,8 +37,14 @@ const selectableRowClassName = [
   "bg-transparent hover:bg-(--surface-overlay-list)",
   // Selected: tint + inset accent bar. `inset` keeps the bar inside the
   // border box, so it adds no width and shifts no content.
+  //
+  // The bar is the row's only >=3:1 selection channel - the tint is 1.28:1
+  // against an unselected row in light - so it uses --row-selected-bar rather
+  // than --nav-active-bar. The nav token is drawn on the dark
+  // --nav-active-surface fill and, reused here on --surface-strong, rendered
+  // the light selected row at 1.39:1 against its own fill.
   "data-[selected=true]:bg-(--surface-strong)",
-  "data-[selected=true]:shadow-[inset_3px_0_0_0_var(--nav-active-bar)]",
+  "data-[selected=true]:shadow-[inset_3px_0_0_0_var(--row-selected-bar)]",
 ].join(" ");
 
 /** Class tokens that would change the row's box if they varied with selection. */
@@ -133,12 +139,24 @@ function SelectableRowLine({
   reserve = true,
   ...props
 }: React.ComponentProps<"div"> & { reserve?: boolean }) {
+  // `""` is the shape an absent label actually arrives in: a formatter that
+  // returns an empty string produced a line React rendered as nothing while
+  // the row still reported `data-empty="false"`, so the zero-width space that
+  // holds the slot open was never painted and the row lost its reserved
+  // height - the exact reflow this primitive exists to prevent.
   const empty =
-    children === null || children === undefined || children === false;
+    children === null ||
+    children === undefined ||
+    children === false ||
+    (typeof children === "string" && children.trim().length === 0);
 
   return (
     <div
-      className={cn("min-w-0", reserve && "min-h-4", className)}
+      // The reserved height is one line of THIS line's own type (`1lh`), not a
+      // flat 1rem: a line that carries a larger or smaller font than the
+      // 16px `min-h-4` assumed reserved the wrong slot, so an empty line and
+      // a filled line at that size were different heights.
+      className={cn("min-w-0", reserve && "min-h-[1lh]", className)}
       data-empty={empty ? "true" : "false"}
       data-slot="selectable-row-line"
       {...props}

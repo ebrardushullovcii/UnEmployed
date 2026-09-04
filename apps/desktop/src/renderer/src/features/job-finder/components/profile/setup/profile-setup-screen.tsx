@@ -448,7 +448,7 @@ export function ProfileSetupScreen(props: {
           }
         >
           <div
-            className="grid gap-6 min-h-0 scroll-mt-4 sm:scroll-mt-[8.25rem] min-[1440px]:scroll-mt-[4.5rem]"
+            className="grid gap-6 min-h-0 scroll-mt-4 sm:scroll-mt-[8.25rem] min-[1440px]:!scroll-mt-[4.5rem]"
             id="profile-setup-step-editor"
             tabIndex={-1}
           >

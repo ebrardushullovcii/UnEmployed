@@ -15,6 +15,7 @@ import {
   SAVE_STATUS_SHELL_HEADER_GAP_PX,
   SAVE_SUCCESS_VISIBLE_MS,
 } from "./job-finder-save-status";
+import type { JobFinderSaveState } from "@renderer/pages/job-finder-save-state";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -58,9 +59,10 @@ describe("JobFinderSaveStatus", () => {
 
         const status = screen.getByRole("status");
         expect(status.style.top).toBe(`${expectedTop}px`);
-        expect(status.style.maxHeight).toBe(
-          `calc(100vh - ${expectedTop + 16}px)`,
-        );
+        // Same bound as the retired `calc(100vh - top - 16)`, resolved to a
+        // number so the dock's stack top can lower it (see the dock test
+        // below) instead of the lane always running to the window bottom.
+        expect(status.style.maxHeight).toBe(`${800 - 16 - expectedTop}px`);
         expect(status.className).toContain("pointer-events-auto");
         expect(status.parentElement?.className).toContain(
           "pointer-events-none",
@@ -280,6 +282,81 @@ describe("JobFinderSaveStatus", () => {
       screen.getByRole("button", { name: "Retry saving Settings" }),
     );
     expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers a dismiss control on a failed save and hides that exact failure", () => {
+    // Without this the failed toast had no close control at all, so the
+    // navigation and window-close guards reading the same failed state stayed
+    // on for the rest of the session.
+    const onDismissSaved = vi.fn();
+    const failedState: JobFinderSaveState = {
+      state: "failed",
+      version: 2,
+      attempt: 1,
+      surface: "profile",
+      label: "Profile",
+      message: "Profile was not saved.",
+      canRetry: true,
+    };
+    const { rerender } = render(
+      <JobFinderSaveStatus
+        onDismissSaved={onDismissSaved}
+        onRetry={vi.fn()}
+        saveState={failedState}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Dismiss Profile save error" }),
+    );
+
+    expect(onDismissSaved).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("status")).toBeNull();
+
+    // A later, different failure is not covered by that acknowledgement.
+    rerender(
+      <JobFinderSaveStatus
+        onDismissSaved={onDismissSaved}
+        onRetry={vi.fn()}
+        saveState={{ ...failedState, version: 3, attempt: 1 }}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toContain(
+      "Profile was not saved.",
+    );
+  });
+
+  it("offers no dismiss control on a failed settings save", () => {
+    // Settings sections stage their drafts in local state with no dirty flag
+    // behind the leave guards, so this failure is the only thing protecting
+    // them. Dismissing it here would drop that protection silently; the
+    // explicit "Leave without saving" decision releases it instead.
+    const onDismissSaved = vi.fn();
+    render(
+      <JobFinderSaveStatus
+        onDismissSaved={onDismissSaved}
+        onRetry={vi.fn()}
+        saveState={{
+          state: "failed",
+          version: 2,
+          attempt: 1,
+          surface: "settings",
+          label: "Resume defaults",
+          message: "Resume defaults were not saved.",
+          canRetry: true,
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("status").textContent).toContain(
+      "Resume defaults were not saved.",
+    );
+    expect(
+      screen.queryByRole("button", {
+        name: "Dismiss Resume defaults save error",
+      }),
+    ).toBeNull();
+    expect(onDismissSaved).not.toHaveBeenCalled();
   });
 
   it("replaces Retry with explicit guidance when edits made the captured request stale", () => {

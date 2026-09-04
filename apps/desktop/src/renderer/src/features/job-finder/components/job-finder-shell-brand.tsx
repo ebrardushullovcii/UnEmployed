@@ -25,13 +25,13 @@ export function JobFinderShellBrand(props: {
       style={props.style}
     >
       <span
-        className="font-display text-[1.45rem] font-black leading-[1.05] tracking-[-0.08em] text-(var(--headline-primary)) max-[639px]:hidden sm:text-[2rem] xl:text-[2rem]"
+        className="font-display text-[1.45rem] font-black leading-[1.05] tracking-[-0.08em] text-(--headline-primary) max-[639px]:hidden sm:text-[2rem] xl:text-[2rem]"
         data-desktop-brand-wordmark
       >
         UNEMPLOYED
       </span>
       <span
-        className="whitespace-nowrap text-[0.72rem] uppercase leading-[1.1] tracking-(var(--tracking-caps)) text-muted-foreground sm:text-(length:var(--text-tiny))"
+        className="whitespace-nowrap text-[0.72rem] uppercase leading-[1.1] tracking-(--tracking-caps) text-muted-foreground sm:text-(length:--text-tiny)"
         data-desktop-brand-subtitle
       >
         Job Finder

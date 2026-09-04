@@ -6,7 +6,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type MouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type {
@@ -30,6 +29,19 @@ import {
   useJobFinderOverlayOwnership,
 } from "../../lib/job-finder-overlay-ownership";
 import { ResumeAssistantPanel } from "./resume-assistant-panel";
+import { useDesktopStudioLayout } from "./use-desktop-studio-layout";
+
+/**
+ * Surfaces the panel may never cover. Each one is either the sticky approval
+ * row or the compact tab strip, and below xl the tab strip is the only route
+ * to the editor, the template chooser and approval — a panel resting over it
+ * leaves the user with no visible way back to the resume itself.
+ */
+const GUIDED_EDITS_NO_COVER_SELECTORS = [
+  "[data-job-finder-shell-header]",
+  "[data-resume-workspace-top-actions]",
+  "[data-resume-studio-compact-tabs]",
+] as const;
 
 /**
  * Tall enough that a one-change proposal card shows its header, its change
@@ -68,6 +80,52 @@ export function getGuidedEditsPanelMaxWidth(viewportWidth: number): number {
   );
 }
 
+/**
+ * The studio header's launcher slot.
+ *
+ * The collapsed launcher used to be a pill fixed to the window corner, resting
+ * over the tools column. A bottom padding reservation cleared it only at the
+ * END of that column's scroll — mid-scroll the template card and the fallback
+ * disclosure still passed underneath — and no reservation can hold for a
+ * scrolling column, so the launcher moved into the row that already owns this
+ * screen's actions.
+ *
+ * The slot is resolved from the DOM (and re-resolved as the shell mounts and
+ * remounts across the studio breakpoint) because the shell renders it, not
+ * this component's parent.
+ */
+const STUDIO_LAUNCHER_SLOT_SELECTOR =
+  "[data-resume-studio-assistant-launcher-slot]";
+
+function useStudioLauncherSlot(): HTMLElement | null {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (typeof document === "undefined") {
+      return undefined;
+    }
+
+    const resolve = () => {
+      const next = document.querySelector<HTMLElement>(
+        STUDIO_LAUNCHER_SLOT_SELECTOR,
+      );
+      setSlot((current) => (current === next ? current : next));
+    };
+
+    resolve();
+
+    if (typeof MutationObserver === "undefined") {
+      return undefined;
+    }
+
+    const observer = new MutationObserver(resolve);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  return slot;
+}
+
 export function ResumeGuidedEditsPopup(props: {
   assistantMessages: readonly ResumeAssistantMessage[];
   assistantPending: boolean;
@@ -102,7 +160,11 @@ export function ResumeGuidedEditsPopup(props: {
   // it never inherits the modal's `#root` inertness; it steps under the scrim
   // and turns itself off instead.
   const isCoveredByModal = useHasOpenJobFinderModal();
+  const isDesktopStudio = useDesktopStudioLayout();
   const [safeTopOffset, setSafeTopOffset] = useState(COPILOT_NAV_SAFE_OFFSET);
+  // The row that owns this screen's actions, resolved from the DOM because the
+  // studio shell renders it, not this component's parent.
+  const launcherSlot = useStudioLauncherSlot();
   // Only the panel's own width follows the window. The studio grid never
   // changes with it, so nothing behind the panel can reflow.
   const [viewportWidth, setViewportWidth] = useState(() =>
@@ -116,6 +178,7 @@ export function ResumeGuidedEditsPopup(props: {
   const panelId = useId();
   const titleId = useId();
   const popupRootRef = useRef<HTMLDivElement | null>(null);
+  const dockedLauncherRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   // The corner the surface must keep across a minimize or expand. The launcher
   // pill is a labelled control, not the 48px square the shared layout helper
@@ -183,14 +246,11 @@ export function ResumeGuidedEditsPopup(props: {
       : getCopilotViewportInset(window.innerWidth);
 
   useLayoutEffect(() => {
-    const shellHeader = document.querySelector<HTMLElement>(
-      "[data-job-finder-shell-header]",
-    );
-    const workspaceTopActions = document.querySelector<HTMLElement>(
-      "[data-resume-workspace-top-actions]",
-    );
-    const safeTopSources = [shellHeader, workspaceTopActions].filter(
-      (element): element is HTMLElement => element !== null,
+    const safeTopSources = GUIDED_EDITS_NO_COVER_SELECTORS.flatMap(
+      (selector) => {
+        const element = document.querySelector<HTMLElement>(selector);
+        return element ? [element] : [];
+      },
     );
 
     if (safeTopSources.length === 0) {
@@ -217,7 +277,9 @@ export function ResumeGuidedEditsPopup(props: {
       observer.disconnect();
       window.removeEventListener("resize", updateSafeTopOffset);
     };
-  }, []);
+    // The compact tab strip only exists below xl, so the no-cover set has to
+    // be re-queried when the studio crosses that breakpoint.
+  }, [isDesktopStudio]);
 
   useEffect(() => {
     setPosition((current) =>
@@ -382,9 +444,9 @@ export function ResumeGuidedEditsPopup(props: {
     }
 
     if (!isOpen && wasOpen) {
-      popupRootRef.current
-        ?.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')
-        ?.focus();
+      // The launcher is a button in the studio header now, not a control
+      // inside a floating root that no longer exists while collapsed.
+      dockedLauncherRef.current?.focus();
     }
   }, [composerId, isOpen]);
 
@@ -413,14 +475,16 @@ export function ResumeGuidedEditsPopup(props: {
     const currentHeight = nextOpen
       ? panelDimensions.collapsedHeight
       : panelDimensions.expandedHeight;
-    // While closed and never dragged the launcher is anchored to the viewport
-    // corner rather than to `position`, so that is the corner to grow from.
+    // While closed the launcher is a button in the studio header, not a
+    // corner-anchored pill, so the panel folds out of — and back into — that
+    // button's own rect.
+    const dockedRect = dockedLauncherRef.current?.getBoundingClientRect();
     const restingCorner =
-      !isOpen && !hasCustomPosition && typeof window !== "undefined"
-        ? {
-            bottom: window.innerHeight - COPILOT_BOTTOM_OFFSET,
-            right: window.innerWidth - viewportInset,
-          }
+      !isOpen &&
+      !hasCustomPosition &&
+      dockedRect &&
+      (dockedRect.width > 0 || dockedRect.height > 0)
+        ? { bottom: dockedRect.bottom, right: dockedRect.right }
         : null;
     // The resting corner wins when it applies: it is exactly where the pill is
     // painted, and it stays correct even before the launcher has been laid out.
@@ -558,19 +622,6 @@ export function ResumeGuidedEditsPopup(props: {
     }
   }
 
-  function handleBubbleClick(event: MouseEvent<HTMLButtonElement>) {
-    if (event.button !== 0) {
-      return;
-    }
-
-    if (suppressNextBubbleClickRef.current) {
-      suppressNextBubbleClickRef.current = false;
-      return;
-    }
-
-    toggleOpen();
-  }
-
   if (typeof document === "undefined") {
     return null;
   }
@@ -580,6 +631,58 @@ export function ResumeGuidedEditsPopup(props: {
   // squeezed the preview and tools panes and shifted every control in them the
   // moment it opened. It now rests over the studio instead: the grid behind it
   // is identical open, minimized and closed.
+  // While collapsed there is no floating surface at all — only the button in
+  // the studio header. Nothing can rest over the tools column at any scroll
+  // position because nothing is painted over it.
+  if (!isOpen) {
+    return launcherSlot
+      ? createPortal(
+          <Button
+            aria-expanded={false}
+            aria-haspopup="dialog"
+            aria-label={
+              props.assistantPending
+                ? "Open the Assistant, reply in progress"
+                : props.assistantMessages.length > 0
+                  ? "Open the Assistant, unread activity in this thread"
+                  : "Open the Assistant"
+            }
+            className="relative"
+            data-resume-guided-edits-launcher="true"
+            onClick={toggleOpen}
+            ref={dockedLauncherRef}
+            size="compact"
+            title={
+              props.assistantPending
+                ? "The Assistant is working on your request — open to watch the thread"
+                : "Open the Assistant"
+            }
+            type="button"
+            variant="secondary"
+          >
+            {props.assistantPending ? (
+              <Sparkles aria-hidden="true" className="size-4 animate-pulse" />
+            ) : (
+              <MessageSquare aria-hidden="true" className="size-4" />
+            )}
+            Assistant
+            {/* An unexplained dot could mean an unread reply, a proposal
+                waiting for a decision, or a change already applied. It says
+                which. */}
+            {launcherBadgeLabel ? (
+              <span
+                className="absolute right-0.5 top-0.5 size-2 rounded-full border border-background bg-primary"
+                title={launcherBadgeLabel}
+              >
+                <span className="sr-only">{launcherBadgeLabel}</span>
+              </span>
+            ) : null}
+          </Button>,
+          launcherSlot,
+        )
+      : null;
+  }
+
   return createPortal(
     <div
       aria-hidden={isCoveredByModal ? "true" : undefined}
@@ -593,20 +696,10 @@ export function ResumeGuidedEditsPopup(props: {
       data-resume-guided-edits-covered-by-modal={
         isCoveredByModal ? "true" : "false"
       }
-      data-resume-guided-edits-open={isOpen ? "true" : "false"}
+      data-resume-guided-edits-open="true"
       inert={isCoveredByModal}
       ref={popupRootRef}
-      style={
-        !isOpen && !hasCustomPosition
-          ? {
-              bottom: `${COPILOT_BOTTOM_OFFSET}px`,
-              right: `${viewportInset}px`,
-            }
-          : {
-              top: `${position.y}px`,
-              left: `${position.x}px`,
-            }
-      }
+      style={{ top: `${position.y}px`, left: `${position.x}px` }}
     >
       {isOpen ? (
         <aside
@@ -683,69 +776,6 @@ export function ResumeGuidedEditsPopup(props: {
             validation={props.validation ?? null}
           />
         </aside>
-      ) : null}
-
-      {!isOpen ? (
-        <Button
-          aria-label={
-            props.assistantPending
-              ? "Open the Assistant, reply in progress"
-              : props.assistantMessages.length > 0
-                ? "Open the Assistant, unread activity in this thread"
-                : "Open the Assistant"
-          }
-          aria-expanded={false}
-          aria-haspopup="dialog"
-          // Same pill geometry as the Profile Copilot launcher: one labelled
-          // launcher style across the app instead of an unlabelled circle here
-          // and a named pill there.
-          className="pointer-events-auto relative size-12 min-h-12 shrink-0 touch-none select-none rounded-full p-0 shadow-(--guided-edits-bubble-shadow) sm:h-12 sm:w-auto sm:min-w-12 sm:px-3"
-          onClick={handleBubbleClick}
-          onPointerCancel={cancelDrag}
-          onPointerDown={beginDrag}
-          onPointerMove={updateDrag}
-          onPointerUp={finishDrag}
-          title={
-            props.assistantPending
-              ? "The Assistant is working on your request — open to watch the thread"
-              : "Open the Assistant"
-          }
-          type="button"
-          variant={
-            props.assistantMessages.length > 0 || props.assistantPending
-              ? "primary"
-              : "secondary"
-          }
-        >
-          <span className="flex size-9 items-center justify-center rounded-full border border-current/15 bg-background/15">
-            <MessageSquare className="size-4" />
-          </span>
-          <span className="hidden items-center gap-1.5 text-xs font-semibold sm:inline-flex">
-            {props.assistantPending ? (
-              <>
-                {/* A static word looked stalled while the thread was
-                    minimized; a moving indicator shows the request is alive. */}
-                <Sparkles
-                  aria-hidden="true"
-                  className="size-3.5 animate-pulse"
-                />
-                Working
-              </>
-            ) : (
-              "Assistant"
-            )}
-          </span>
-          {/* An unexplained dot could mean an unread reply, a proposal waiting
-              for a decision, or a change already applied. It now says which. */}
-          {launcherBadgeLabel ? (
-            <span
-              className="absolute right-0.5 top-0.5 size-2.5 rounded-full border-2 border-background bg-primary"
-              title={launcherBadgeLabel}
-            >
-              <span className="sr-only">{launcherBadgeLabel}</span>
-            </span>
-          ) : null}
-        </Button>
       ) : null}
     </div>,
     document.body,

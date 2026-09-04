@@ -15,7 +15,7 @@ describe("ReviewQueuePreviewPanel", () => {
     render(
       <MemoryRouter>
         <ReviewQueuePreviewPanel
-          displayedProgress={0}
+          pendingElapsedSeconds={0}
           onEditResumeWorkspace={vi.fn()}
           onGenerateResume={vi.fn()}
           previewState={null}
@@ -64,7 +64,7 @@ describe("ReviewQueuePreviewPanel", () => {
     render(
       <MemoryRouter>
         <ReviewQueuePreviewPanel
-          displayedProgress={100}
+          pendingElapsedSeconds={0}
           onEditResumeWorkspace={vi.fn()}
           onGenerateResume={vi.fn()}
           originalResume={{
@@ -109,7 +109,7 @@ describe("ReviewQueuePreviewPanel", () => {
     ).toBeNull();
   });
 
-  it("keeps the estimated percentage readable outside the progress fill", () => {
+  it("keeps the elapsed clock readable outside the progress fill and claims no percentage", () => {
     const selectedItem = {
       jobId: "job_generating",
       title: "Senior Frontend Engineer",
@@ -130,7 +130,7 @@ describe("ReviewQueuePreviewPanel", () => {
     render(
       <MemoryRouter>
         <ReviewQueuePreviewPanel
-          displayedProgress={69}
+          pendingElapsedSeconds={69}
           isGenerating
           onEditResumeWorkspace={vi.fn()}
           onGenerateResume={vi.fn()}
@@ -144,15 +144,25 @@ describe("ReviewQueuePreviewPanel", () => {
     );
 
     const progress = screen.getByRole("progressbar", {
-      name: "Estimated resume preparation progress",
+      name: "Resume preparation in progress",
     });
 
-    expect(progress.getAttribute("aria-valuenow")).toBe("69");
-    expect(progress.getAttribute("aria-valuetext")).toBe("69% estimated");
-    expect(screen.getByText("69% estimated").className).toContain(
-      "text-(--text-headline)",
-    );
-    expect(screen.getByText(/Progress keeps its place/i)).toBeTruthy();
+    // The pipeline reports no completion fraction, so the bar must not assert
+    // one. It used to sit frozen at a fabricated 94% for ~42s of a 57.7s draft.
+    expect(progress.getAttribute("aria-valuenow")).toBeNull();
+    expect(progress.getAttribute("aria-valuetext")).toBeNull();
+    expect(progress.getAttribute("data-progress-indeterminate")).not.toBeNull();
+    expect(screen.queryByText(/% estimated/)).toBeNull();
+
+    const elapsed = screen.getByText("1:09");
+    expect(elapsed.getAttribute("data-resume-draft-elapsed")).not.toBeNull();
+    expect(elapsed.className).toContain("text-(--text-headline)");
+    expect(progress.contains(elapsed)).toBe(false);
+
+    expect(
+      screen.getByText("Usually 40-70 seconds for a tailored draft."),
+    ).toBeTruthy();
+    expect(screen.getByText(/The draft keeps running/i)).toBeTruthy();
   });
 });
 
@@ -198,7 +208,7 @@ describe("ReviewQueuePreviewPanel locked pane scroll regions", () => {
 
     const { container } = render(
       <ReviewQueuePreviewPanel
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         onEditResumeWorkspace={vi.fn()}
         onGenerateResume={vi.fn()}
         originalResume={{
@@ -258,7 +268,7 @@ describe("ReviewQueuePreviewPanel locked pane scroll regions", () => {
 
     const { container } = render(
       <ReviewQueuePreviewPanel
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         onEditResumeWorkspace={vi.fn()}
         onGenerateResume={vi.fn()}
         previewState={null}
@@ -320,7 +330,7 @@ describe("ReviewQueuePreviewPanel locked pane scroll regions", () => {
 
     const { container } = render(
       <ReviewQueuePreviewPanel
-        displayedProgress={40}
+        pendingElapsedSeconds={40}
         isGenerating
         onEditResumeWorkspace={vi.fn()}
         onGenerateResume={vi.fn()}
@@ -334,7 +344,7 @@ describe("ReviewQueuePreviewPanel locked pane scroll regions", () => {
 
     expect(
       screen.getByRole("progressbar", {
-        name: "Estimated resume preparation progress",
+        name: "Resume preparation in progress",
       }),
     ).toBeTruthy();
     expect(expectLeafRegions(container)).toHaveLength(0);

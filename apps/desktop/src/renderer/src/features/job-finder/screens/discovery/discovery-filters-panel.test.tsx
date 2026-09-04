@@ -104,7 +104,9 @@ describe("DiscoveryFiltersPanel", () => {
         (link) => link.getAttribute("data-variant") === "primary",
       ),
     ).toBe(true);
-    expect(queryByRole("button", { name: "Open browser" })).toBeNull();
+    expect(
+      queryByRole("button", { name: "Open the Job Finder browser" }),
+    ).toBeNull();
     expect(queryByText("Offline catalog")).not.toBeNull();
     const historyButton = getByRole("button", { name: "Search history" });
     expect(historyButton.getAttribute("data-variant")).toBe("outline");
@@ -852,10 +854,10 @@ describe("DiscoveryFiltersPanel", () => {
         targetUrl: "https://boards.greenhouse.io/remotecoin/jobs",
         state: "prompt_login_recommended",
         summary:
-          "Open the browser for GreenHouse if you want better search coverage on the next run.",
+          "Open the Job Finder browser for GreenHouse if you want better search coverage on the next run.",
         detail:
           "Jobs are visible without login, but the browser can improve coverage.",
-        actionLabel: "Open browser for GreenHouse",
+        actionLabel: "Open the Job Finder browser for GreenHouse",
         rerunLabel: "Search again for fuller results",
         updatedAt: "2026-03-20T10:01:00.000Z",
       },
@@ -897,16 +899,18 @@ describe("DiscoveryFiltersPanel", () => {
     ).toBeTruthy();
     expect(
       queryByText(
-        "Open the browser Job Finder uses for searches. Useful if a job site needs you to sign in.",
+        "Open the Job Finder browser. Useful if a job site needs you to sign in.",
       ),
     ).toBeNull();
     // The chip states what is not open; the heading above it says which
     // thing this block is about.
     expect(getByText("Browser not open")).toBeTruthy();
-    expect(getByText("Search browser")).toBeTruthy();
+    expect(getByText("Job Finder browser")).toBeTruthy();
     expect(queryByRole("button", { name: "Sign in to GreenHouse" })).toBeNull();
 
-    fireEvent.click(getByRole("button", { name: "Open browser" }));
+    fireEvent.click(
+      getByRole("button", { name: "Open the Job Finder browser" }),
+    );
 
     expect(onOpenBrowserSession).toHaveBeenCalledTimes(1);
     expect(onOpenBrowserSessionForTarget).not.toHaveBeenCalled();

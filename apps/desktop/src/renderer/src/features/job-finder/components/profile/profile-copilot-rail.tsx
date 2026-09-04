@@ -26,8 +26,6 @@ import {
   COPILOT_BOTTOM_OFFSET,
   COPILOT_POSITION_STORAGE_KEY,
   clampCopilotPosition,
-  getCollapsedLauncherClearance,
-  getCollapsedLauncherStackSize,
   getDefaultCopilotPosition,
   getDraggedCopilotPosition,
   getCopilotPanelDimensions,
@@ -71,6 +69,46 @@ function isTranscriptNearBottom(transcript: HTMLElement): boolean {
   );
 }
 
+/**
+ * The Profile save footer, which hosts the collapsed launcher.
+ *
+ * Resolved from the DOM (and re-resolved as sections mount and unmount)
+ * because the footer belongs to the screen, not to this component's parent.
+ */
+function useProfileLauncherContainer(): HTMLElement | null {
+  const [container, setContainer] = useState<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    if (typeof document === "undefined") {
+      return undefined;
+    }
+
+    const resolve = () => {
+      // The save footer's own action row, so the launcher lands beside Save
+      // rather than below it. Guided-setup footers carry the workspace-actions
+      // marker without that slot, and fall back to the footer itself.
+      const next =
+        document.querySelector<HTMLElement>(
+          "[data-profile-assistant-launcher-slot]",
+        ) ??
+        document.querySelector<HTMLElement>("[data-profile-workspace-actions]");
+      setContainer((current) => (current === next ? current : next));
+    };
+
+    resolve();
+
+    if (typeof MutationObserver === "undefined") {
+      return undefined;
+    }
+
+    const observer = new MutationObserver(resolve);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  return container;
+}
+
 export function ProfileCopilotRail(props: {
   busy: boolean;
   actionsDisabledReason?: string | null;
@@ -110,10 +148,11 @@ export function ProfileCopilotRail(props: {
   const [failedRequest, setFailedRequest] =
     useState<ProfileCopilotFailedRequest | null>(null);
   const [safeTopOffset, setSafeTopOffset] = useState(240);
+  // The save footer, resolved from the DOM: the screen that renders the footer
+  // is not this component's parent, and the same marker already names that row
+  // everywhere else in the app.
+  const profileActionsContainer = useProfileLauncherContainer();
   const [focusKind, setFocusKind] = useState<CopilotFocusKind>("none");
-  const [workspaceActionClearance, setWorkspaceActionClearance] = useState(
-    COPILOT_BOTTOM_OFFSET,
-  );
   const [position, setPosition] = useState(() => getDefaultCopilotPosition());
   const inputRef = useRef("");
   const requestSequenceRef = useRef(0);
@@ -187,6 +226,27 @@ export function ProfileCopilotRail(props: {
           .join(","),
       ].join(":")
     : "empty";
+  const showsProactiveSuggestion =
+    props.showProactivePrompt !== false &&
+    !isOpen &&
+    showProactivePrompt &&
+    props.messages.length === 0 &&
+    Boolean(props.starterQuestion);
+  const viewportInset =
+    typeof window === "undefined"
+      ? COPILOT_BOTTOM_OFFSET
+      : getCopilotViewportInset(window.innerWidth);
+  // The collapsed launcher is an ordinary control in the Profile save footer,
+  // not a floating pill. It used to hover over the page and lift itself off
+  // whichever rows its clearance set named — which is how it ended up on a
+  // section's own `Add experience` button at short heights. A docked launcher
+  // cannot cover anything, so there is no clearance to compute and nothing to
+  // arbitrate against the toasts that share the corner.
+  const resolvedLauncherContainer =
+    props.launcherContainer === undefined
+      ? profileActionsContainer
+      : props.launcherContainer;
+  const workspaceActionClearance = COPILOT_BOTTOM_OFFSET;
   const minBottomOffset = Math.max(
     props.minBottomOffset ?? COPILOT_BOTTOM_OFFSET,
     workspaceActionClearance,
@@ -227,16 +287,6 @@ export function ProfileCopilotRail(props: {
 
     return suggestedPrompts.filter((prompt) => prompt.trim() !== currentInput);
   }, [input, suggestedPrompts]);
-  const showsProactiveSuggestion =
-    props.showProactivePrompt !== false &&
-    !isOpen &&
-    showProactivePrompt &&
-    props.messages.length === 0 &&
-    Boolean(props.starterQuestion);
-  const viewportInset =
-    typeof window === "undefined"
-      ? COPILOT_BOTTOM_OFFSET
-      : getCopilotViewportInset(window.innerWidth);
   const yieldsToFocusedField = shouldYieldCollapsedLauncher({
     focusKind,
     isOpen,
@@ -246,7 +296,7 @@ export function ProfileCopilotRail(props: {
   // portals to `document.body`, so the modal's `#root` inertness cannot reach
   // it; it drops under the scrim and turns itself off instead.
   const isCoveredByModal = useHasOpenJobFinderModal();
-  const launcherContainer = props.launcherContainer ?? null;
+  const launcherContainer = resolvedLauncherContainer ?? null;
   const isLauncherDocked = !isOpen && launcherContainer !== null;
 
   // Track what owns focus so the collapsed launcher can step aside while a
@@ -302,86 +352,48 @@ export function ProfileCopilotRail(props: {
         ? undefined
         : new ResizeObserver(updateSafeTopOffset);
 
+    // Capture on `document` fires for every scrollable element in the app, so
+    // the measurement is coalesced into one animation frame instead of forcing
+    // a synchronous layout read per scroll event. The listener is passive: it
+    // only measures and never cancels the scroll.
+    let scrollFrame: number | undefined;
+    const handleScroll = () => {
+      if (typeof window.requestAnimationFrame !== "function") {
+        updateSafeTopOffset();
+        return;
+      }
+
+      if (scrollFrame !== undefined) {
+        return;
+      }
+
+      scrollFrame = window.requestAnimationFrame(() => {
+        scrollFrame = undefined;
+        updateSafeTopOffset();
+      });
+    };
+
     updateSafeTopOffset();
     observer?.observe(shellHeader);
     const profileTabs = getProfileTabs();
     if (profileTabs) {
       observer?.observe(profileTabs);
     }
-    document.addEventListener("scroll", updateSafeTopOffset, true);
+    document.addEventListener("scroll", handleScroll, {
+      capture: true,
+      passive: true,
+    });
     window.addEventListener("resize", updateSafeTopOffset);
 
     return () => {
       observer?.disconnect();
-      document.removeEventListener("scroll", updateSafeTopOffset, true);
+      if (scrollFrame !== undefined) {
+        window.cancelAnimationFrame(scrollFrame);
+      }
+      document.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("resize", updateSafeTopOffset);
     };
   }, [contextKey]);
-
-  useLayoutEffect(() => {
-    let remeasureFrame: number | undefined;
-    const getClearanceTargets = () =>
-      Array.from(
-        document.querySelectorAll<HTMLElement>(
-          "[data-profile-workspace-actions], [data-profile-section-tabs]",
-        ),
-      );
-
-    const updateWorkspaceActionClearance = () => {
-      const clearanceTargets = getClearanceTargets();
-      const launcherStack = getCollapsedLauncherStackSize({
-        showSuggestionPill: showsProactiveSuggestion,
-      });
-      const clearance = getCollapsedLauncherClearance({
-        launcherHeight: launcherStack.height,
-        launcherWidth: launcherStack.width,
-        minTopOffset: safeTopOffset,
-        targets: clearanceTargets.map((target) =>
-          target.getBoundingClientRect(),
-        ),
-        viewportHeight: window.innerHeight,
-        viewportWidth: window.innerWidth,
-      });
-
-      setWorkspaceActionClearance(clearance);
-      clearanceTargets.forEach((target) => observer?.observe(target));
-    };
-    const remeasureAfterLayout = () => {
-      if (
-        remeasureFrame !== undefined ||
-        typeof window.requestAnimationFrame !== "function"
-      ) {
-        return;
-      }
-
-      remeasureFrame = window.requestAnimationFrame(() => {
-        remeasureFrame = undefined;
-        updateWorkspaceActionClearance();
-      });
-    };
-    const handleReflow = () => {
-      updateWorkspaceActionClearance();
-      remeasureAfterLayout();
-    };
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? undefined
-        : new ResizeObserver(handleReflow);
-
-    updateWorkspaceActionClearance();
-    remeasureAfterLayout();
-    document.addEventListener("scroll", handleReflow, true);
-    window.addEventListener("resize", handleReflow);
-
-    return () => {
-      observer?.disconnect();
-      if (remeasureFrame !== undefined) {
-        window.cancelAnimationFrame(remeasureFrame);
-      }
-      document.removeEventListener("scroll", handleReflow, true);
-      window.removeEventListener("resize", handleReflow);
-    };
-  }, [contextKey, safeTopOffset, showsProactiveSuggestion]);
 
   useEffect(() => {
     const wasPendingHere = wasPendingHereRef.current;
@@ -949,6 +961,7 @@ export function ProfileCopilotRail(props: {
   const collapsedLauncher = !isOpen ? (
     <ProfileCopilotCollapsedBubble
       collapsedPreviewTitle={collapsedPreviewTitle}
+      docked={isLauncherDocked}
       isDraggable={false}
       // Docked in a footer row the launcher is part of the layout, so it must
       // never fade out under a focused field — nothing is behind it to cover.
@@ -966,14 +979,45 @@ export function ProfileCopilotRail(props: {
     />
   ) : null;
 
+  const suggestionPill = showsProactiveSuggestion ? (
+    <div
+      className={`flex min-w-0 max-w-[min(22.5rem,calc(100vw-1.5rem))] items-center gap-2 rounded-full border border-border/40 bg-card/95 p-1.5 pl-4 shadow-(--guided-edits-bubble-shadow) backdrop-blur transition-opacity duration-150 max-sm:hidden ${
+        yieldsToFocusedField
+          ? "pointer-events-none opacity-0"
+          : "pointer-events-auto opacity-100"
+      }`}
+    >
+      <button
+        aria-label={`Use suggested prompt: ${props.starterQuestion}`}
+        className="min-w-0 max-w-full flex-1 break-words whitespace-normal text-left text-xs leading-5 text-foreground-soft hover:text-foreground"
+        onClick={() => handleOpen(props.starterQuestion ?? undefined)}
+        type="button"
+      >
+        Suggested: {props.starterQuestion}
+      </button>
+      <button
+        aria-label="Dismiss suggestion"
+        className="rounded-full px-2 py-1 text-xs text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+        onClick={() => setShowProactivePrompt(false)}
+        type="button"
+      >
+        Dismiss
+      </button>
+    </div>
+  ) : null;
+
   return (
     <>
       {isLauncherDocked && collapsedLauncher
         ? createPortal(
             <div
-              className="flex shrink-0 items-center"
+              className="flex shrink-0 flex-wrap items-center gap-2"
               data-profile-copilot-launcher-dock="true"
             >
+              {/* The suggestion pill is part of the launcher stack, so it docks
+                  with it. Left in the floating layer it would be the one thing
+                  still resting over the page while collapsed. */}
+              {suggestionPill}
               {collapsedLauncher}
             </div>,
             launcherContainer,
@@ -996,6 +1040,8 @@ export function ProfileCopilotRail(props: {
           style={
             !isOpen
               ? {
+                  // Only reached when no save footer is mounted to dock into;
+                  // the shared inset then places the fallback pill.
                   bottom: `${collapsedMinBottomOffset}px`,
                   right: `${viewportInset}px`,
                 }
@@ -1098,32 +1144,7 @@ export function ProfileCopilotRail(props: {
             </aside>
           ) : null}
 
-          {showsProactiveSuggestion ? (
-            <div
-              className={`flex min-w-0 max-w-[min(22.5rem,calc(100vw-1.5rem))] items-center gap-2 rounded-full border border-border/40 bg-card/95 p-1.5 pl-4 shadow-(--guided-edits-bubble-shadow) backdrop-blur transition-opacity duration-150 max-sm:hidden ${
-                yieldsToFocusedField
-                  ? "pointer-events-none opacity-0"
-                  : "pointer-events-auto opacity-100"
-              }`}
-            >
-              <button
-                aria-label={`Use suggested prompt: ${props.starterQuestion}`}
-                className="min-w-0 max-w-full flex-1 break-words whitespace-normal text-left text-xs leading-5 text-foreground-soft hover:text-foreground"
-                onClick={() => handleOpen(props.starterQuestion ?? undefined)}
-                type="button"
-              >
-                Suggested: {props.starterQuestion}
-              </button>
-              <button
-                aria-label="Dismiss suggestion"
-                className="rounded-full px-2 py-1 text-xs text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
-                onClick={() => setShowProactivePrompt(false)}
-                type="button"
-              >
-                Dismiss
-              </button>
-            </div>
-          ) : null}
+          {isLauncherDocked ? null : suggestionPill}
 
           {isLauncherDocked ? null : collapsedLauncher}
         </div>,

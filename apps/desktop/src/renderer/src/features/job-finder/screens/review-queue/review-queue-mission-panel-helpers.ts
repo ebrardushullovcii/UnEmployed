@@ -5,6 +5,7 @@ import type {
   SavedJob,
   TailoredAsset,
 } from "@unemployed/contracts";
+import { JOB_FINDER_BROWSER_NAME } from "../../lib/job-finder-browser-handoff-copy";
 import {
   getApplyReadinessStatus,
   hasResumeGenerationFailure,
@@ -100,8 +101,7 @@ function getAccountExpectation(
   if (browserSession.status === "login_required") {
     return {
       value: "Sign-in required now",
-      detail:
-        "Credentials stay in the dedicated browser. Job Finder waits for you to confirm when sign-in is complete.",
+      detail: `Credentials stay in ${JOB_FINDER_BROWSER_NAME}. Job Finder waits for you to confirm when sign-in is complete.`,
     };
   }
   if (selectedJob.screeningHints?.requiresConsentInterrupt === true) {

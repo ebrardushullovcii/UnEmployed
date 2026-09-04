@@ -1,12 +1,41 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render } from "@testing-library/react";
+import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
+import type { FinishInBrowserInput } from "@renderer/features/job-finder/screens/applications/applications-detail-panel-recovery-actions-section";
+import type { JobFinderPageContext } from "./job-finder-page-context";
 import {
+  JobFinderApplicationsRoute,
+  runJobFinderApplicationBrowserHandoff,
   selectCampaignApplicationsScope,
   selectOutcomeAnalyticsScope,
   selectRapidReviewScope,
 } from "./job-finder-page-routes";
+
+// Only the props Applications hands its screen matter here, so the screen
+// itself is replaced by a recorder. That keeps this a test of the route's
+// wiring instead of a second copy of the Applications screen fixtures.
+const { applicationsScreenProps } = vi.hoisted(() => ({
+  applicationsScreenProps: {
+    current: null as {
+      canConfirmFinishedInBrowser?: boolean;
+      onConfirmFinishedInBrowser?: (input: FinishInBrowserInput) => void;
+      selectedRecord?: { id: string } | null;
+    } | null,
+  },
+}));
+
+vi.mock(
+  "@renderer/features/job-finder/screens/applications/applications-screen",
+  () => ({
+    ApplicationsScreen: (props: Record<string, unknown>) => {
+      applicationsScreenProps.current = props;
+      return null;
+    },
+  }),
+);
 
 function workspace(): JobFinderWorkspaceSnapshot {
   return {
@@ -274,5 +303,625 @@ describe("selectCampaignApplicationsScope", () => {
       campaignTwo.applicationAttempts.map((attempt) => attempt.id),
     ).toEqual(["attempt_b"]);
     expect(campaignTwo.selectedApplyRunId).toBeNull();
+  });
+});
+
+describe("runJobFinderApplicationBrowserHandoff", () => {
+  const target = {
+    jobId: "job_a",
+    resultId: "result_a",
+    runId: "run_a",
+    applicationRecordId: "record_a",
+    destinationUrl: "https://jobs.example.com/apply/1",
+  };
+
+  function pendingRequests(): JobFinderWorkspaceSnapshot["userActionRequests"] {
+    return [
+      {
+        id: "request_a",
+        revision: 3,
+        state: "pending",
+        scope: { type: "application", runId: "run_a", jobId: "job_a" },
+      },
+    ] as unknown as JobFinderWorkspaceSnapshot["userActionRequests"];
+  }
+
+  it("opens the exact paused application page and reports that, with no submit authority", async () => {
+    const onPerformUserAction = vi.fn();
+    const onOpenBrowserSession = vi.fn();
+
+    const outcome = await runJobFinderApplicationBrowserHandoff({
+      onOpenBrowserSession,
+      onPerformUserAction,
+      requests: pendingRequests(),
+      target,
+    });
+
+    expect(outcome).toEqual({ kind: "opened_application_page" });
+    expect(onOpenBrowserSession).not.toHaveBeenCalled();
+    expect(onPerformUserAction).toHaveBeenCalledTimes(1);
+    expect(onPerformUserAction.mock.calls[0]?.[0]).toMatchObject({
+      requestId: "request_a",
+      expectedRevision: 3,
+      action: "open_page",
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+  });
+
+  it("reports opening only the window when there is no recorded step to reopen", async () => {
+    // The fall-back opens a bare browser session. Reporting this as
+    // "opened the application page" sent the user to a window that never
+    // showed the step.
+    const onPerformUserAction = vi.fn();
+    const onOpenBrowserSession = vi.fn();
+
+    const outcome = await runJobFinderApplicationBrowserHandoff({
+      onOpenBrowserSession,
+      onPerformUserAction,
+      requests: [],
+      target,
+    });
+
+    expect(outcome).toEqual({ kind: "opened_browser_only" });
+    expect(onPerformUserAction).not.toHaveBeenCalled();
+    expect(onOpenBrowserSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a failure with its reason instead of claiming the page opened", async () => {
+    const outcome = await runJobFinderApplicationBrowserHandoff({
+      onOpenBrowserSession: vi.fn(),
+      onPerformUserAction: vi.fn(() => {
+        throw new Error("The browser runtime is disabled");
+      }),
+      requests: pendingRequests(),
+      target,
+    });
+
+    expect(outcome).toEqual({
+      kind: "failed",
+      reason: "The browser runtime is disabled",
+    });
+  });
+
+  // The production hands are asynchronous. A revision of this function wrapped
+  // a call whose promise its own context wrapper discarded in `try`/`catch`:
+  // nothing could throw synchronously, so `failed` was unreachable outside a
+  // test that injected a synchronously-throwing double, and a failing IPC still
+  // reported "Opened in the Job Finder browser".
+  it("reports a rejected open-page command as a failure instead of claiming the page opened", async () => {
+    const onOpenBrowserSession = vi.fn();
+    const outcome = await runJobFinderApplicationBrowserHandoff({
+      onOpenBrowserSession,
+      onPerformUserAction: vi.fn(() =>
+        Promise.reject(new Error("The browser runtime is disabled")),
+      ),
+      requests: pendingRequests(),
+      target,
+    });
+
+    expect(outcome).toEqual({
+      kind: "failed",
+      reason: "The browser runtime is disabled",
+    });
+    expect(onOpenBrowserSession).not.toHaveBeenCalled();
+  });
+
+  it("treats the action runner's own `false` as a failure, not a silent success", async () => {
+    // `runAction` reports a failed command by resolving `false` after writing
+    // its own route message, so the promise never rejects. Reading only
+    // rejections would report success for every command main refused.
+    const outcome = await runJobFinderApplicationBrowserHandoff({
+      onOpenBrowserSession: vi.fn(),
+      onPerformUserAction: vi.fn(() => Promise.resolve(false)),
+      requests: pendingRequests(),
+      target,
+    });
+
+    expect(outcome).toEqual({ kind: "failed", reason: "" });
+  });
+
+  it("reports a rejected bare-window open as a failure too", async () => {
+    const outcome = await runJobFinderApplicationBrowserHandoff({
+      onOpenBrowserSession: vi.fn(() =>
+        Promise.reject(new Error("No browser session could be started")),
+      ),
+      onPerformUserAction: vi.fn(),
+      requests: [],
+      target,
+    });
+
+    expect(outcome).toEqual({
+      kind: "failed",
+      reason: "No browser session could be started",
+    });
+  });
+
+  it("treats a `false` bare-window open as a failure too", async () => {
+    const outcome = await runJobFinderApplicationBrowserHandoff({
+      onOpenBrowserSession: vi.fn(() => Promise.resolve(false)),
+      onPerformUserAction: vi.fn(),
+      requests: [],
+      target,
+    });
+
+    expect(outcome).toEqual({ kind: "failed", reason: "" });
+  });
+
+  it("does not aim the open at a request main refuses to transition", async () => {
+    // A second run supersedes the first run's request. Sending the open at a
+    // superseded row could only fail, so the window opens instead and the
+    // outcome says exactly that.
+    const onPerformUserAction = vi.fn();
+    const onOpenBrowserSession = vi.fn();
+    const superseded = [
+      {
+        id: "request_superseded",
+        revision: 3,
+        state: "superseded",
+        scope: { type: "application", runId: "run_a", jobId: "job_a" },
+      },
+    ] as unknown as JobFinderWorkspaceSnapshot["userActionRequests"];
+
+    const outcome = await runJobFinderApplicationBrowserHandoff({
+      onOpenBrowserSession,
+      onPerformUserAction,
+      requests: superseded,
+      target,
+    });
+
+    expect(outcome).toEqual({ kind: "opened_browser_only" });
+    expect(onPerformUserAction).not.toHaveBeenCalled();
+    expect(onOpenBrowserSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a failed bare-window open as a failure too", async () => {
+    const outcome = await runJobFinderApplicationBrowserHandoff({
+      onOpenBrowserSession: vi.fn(() => {
+        throw new Error("No browser session could be started");
+      }),
+      onPerformUserAction: vi.fn(),
+      requests: [],
+      target,
+    });
+
+    expect(outcome).toEqual({
+      kind: "failed",
+      reason: "No browser session could be started",
+    });
+  });
+});
+
+/**
+ * "Check whether this step is done" is gated on the pending browser-step
+ * request for the selected application, and the same request supplies the
+ * in-place "Checking…" / "still blocked" text. The command it sends used to
+ * run a second, run-scoped lookup and `return` silently when that matched
+ * nothing, so a request left over from an earlier run for the same job left
+ * the control enabled while pressing it did nothing at all. Gate, status, and
+ * command now read one request.
+ */
+describe("Applications browser-step confirmation", () => {
+  function selectedRecordWorkspace(
+    userActionRequests: unknown[],
+    options?: { secondRecord?: boolean },
+  ): JobFinderWorkspaceSnapshot {
+    // `record_a` stays first so it is the record Applications selects.
+    const applicationRecords = options?.secondRecord
+      ? [
+          { id: "record_a", jobId: "job_a" },
+          { id: "record_b", jobId: "job_a" },
+        ]
+      : [{ id: "record_a", jobId: "job_a" }];
+    const applyJobResults = options?.secondRecord
+      ? [
+          {
+            id: "result_a",
+            runId: "run_current",
+            jobId: "job_a",
+            applicationRecordId: "record_a",
+          },
+          {
+            id: "result_b",
+            runId: "run_current",
+            jobId: "job_a",
+            applicationRecordId: "record_b",
+          },
+        ]
+      : [
+          {
+            id: "result_a",
+            runId: "run_current",
+            jobId: "job_a",
+            applicationRecordId: "record_a",
+          },
+        ];
+
+    return {
+      hydration: { phase: "ready", deferredCollections: [] },
+      activeCampaignId: "campaign_1",
+      campaigns: [
+        { id: "campaign_1", name: "Campaign One", jobIds: ["job_a"] },
+      ],
+      dashboard: null,
+      discoveryJobs: [{ id: "job_a", title: "Job A" }],
+      applicationRecords,
+      applicationAttempts: [],
+      applyRuns: [
+        { id: "run_current", campaignId: "campaign_1", jobIds: ["job_a"] },
+      ],
+      applyJobResults,
+      selectedApplyRunId: null,
+      settings: {},
+      intelligence: {
+        companies: [],
+        resumeStrategySelections: [],
+        safeguards: {
+          companyApplicationCaps: [],
+          simultaneousApplicationConflicts: [],
+          listingSignals: [],
+          abnormalFailurePauses: [],
+          preparedBatchSampleReviews: [],
+          contradictoryAnswerDetections: [],
+          safeguardDismissals: [],
+          updatedAt: null,
+        },
+      },
+      userActionRequests,
+    } as unknown as JobFinderWorkspaceSnapshot;
+  }
+
+  function renderApplicationsRoute(input: {
+    onPerformUserAction: ReturnType<typeof vi.fn>;
+    workspace: JobFinderWorkspaceSnapshot;
+  }) {
+    const handlerStubs = new Map<string | symbol, () => undefined>();
+    const base = {
+      actionState: { message: null },
+      isAnyPending: () => false,
+      isPending: () => false,
+      liveDiscoveryEvents: [],
+      onNavigateSafely: vi.fn(),
+      onPerformUserAction: input.onPerformUserAction,
+      onSelectApplicationRecord: vi.fn(),
+      saveState: { state: "idle", version: 0 },
+      selectedApplicationAttempt: null,
+      selectedApplicationRecord: null,
+      workspace: input.workspace,
+    };
+    const context = new Proxy(base, {
+      get(target, property) {
+        if (property in target) {
+          return target[property as keyof typeof target];
+        }
+
+        let stub = handlerStubs.get(property);
+        if (!stub) {
+          stub = () => undefined;
+          handlerStubs.set(property, stub);
+        }
+
+        return stub;
+      },
+    }) as unknown as JobFinderPageContext;
+
+    render(
+      <MemoryRouter initialEntries={["/job-finder/applications"]}>
+        <Routes>
+          <Route path="/job-finder" element={<Outlet context={context} />}>
+            <Route
+              path="applications"
+              element={<JobFinderApplicationsRoute />}
+            />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const props = applicationsScreenProps.current;
+    if (!props) {
+      throw new Error("Applications did not render its screen.");
+    }
+
+    return props;
+  }
+
+  beforeEach(() => {
+    if (typeof globalThis.crypto?.randomUUID !== "function") {
+      vi.stubGlobal("crypto", {
+        randomUUID: () => "00000000-0000-4000-8000-000000000000",
+      });
+    }
+  });
+
+  afterEach(() => {
+    cleanup();
+    applicationsScreenProps.current = null;
+    vi.unstubAllGlobals();
+  });
+
+  it("sends the confirmation for the pending request the control is enabled by, even when it came from an earlier run", () => {
+    const onPerformUserAction = vi.fn();
+    const props = renderApplicationsRoute({
+      onPerformUserAction,
+      workspace: selectedRecordWorkspace([
+        {
+          id: "request_earlier_run",
+          revision: 5,
+          state: "pending",
+          scope: { type: "application", runId: "run_previous", jobId: "job_a" },
+        },
+      ]),
+    });
+
+    expect(props.canConfirmFinishedInBrowser).toBe(true);
+
+    props.onConfirmFinishedInBrowser?.({
+      jobId: "job_a",
+      resultId: "result_a",
+      runId: "run_current",
+      applicationRecordId: "record_a",
+      destinationUrl: null,
+    });
+
+    expect(onPerformUserAction).toHaveBeenCalledTimes(1);
+    expect(onPerformUserAction.mock.calls[0]?.[0]).toMatchObject({
+      requestId: "request_earlier_run",
+      expectedRevision: 5,
+      action: "confirm_done",
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+  });
+
+  it("still sends the confirmation when the pending request came from the visible run", () => {
+    const onPerformUserAction = vi.fn();
+    const props = renderApplicationsRoute({
+      onPerformUserAction,
+      workspace: selectedRecordWorkspace([
+        {
+          id: "request_current_run",
+          revision: 2,
+          state: "pending",
+          scope: { type: "application", runId: "run_current", jobId: "job_a" },
+        },
+      ]),
+    });
+
+    expect(props.canConfirmFinishedInBrowser).toBe(true);
+
+    props.onConfirmFinishedInBrowser?.({
+      jobId: "job_a",
+      resultId: "result_a",
+      runId: "run_current",
+      applicationRecordId: "record_a",
+      destinationUrl: null,
+    });
+
+    expect(onPerformUserAction).toHaveBeenCalledTimes(1);
+    expect(onPerformUserAction.mock.calls[0]?.[0]).toMatchObject({
+      requestId: "request_current_run",
+      action: "confirm_done",
+      submitAuthorized: false,
+    });
+  });
+
+  it("keeps the control unavailable when nothing pending is left to confirm", () => {
+    const onPerformUserAction = vi.fn();
+    const props = renderApplicationsRoute({
+      onPerformUserAction,
+      workspace: selectedRecordWorkspace([
+        {
+          id: "request_resolved",
+          revision: 4,
+          state: "resolved",
+          scope: { type: "application", runId: "run_current", jobId: "job_a" },
+        },
+        {
+          id: "request_other_job",
+          revision: 1,
+          state: "pending",
+          scope: { type: "application", runId: "run_other", jobId: "job_z" },
+        },
+      ]),
+    });
+
+    expect(props.canConfirmFinishedInBrowser).toBe(false);
+
+    props.onConfirmFinishedInBrowser?.({
+      jobId: "job_a",
+      resultId: "result_a",
+      runId: "run_current",
+      applicationRecordId: "record_a",
+      destinationUrl: null,
+    });
+
+    expect(onPerformUserAction).not.toHaveBeenCalled();
+  });
+
+  it("skips a superseded earlier-run request in favour of the live one", () => {
+    // A second run of the same job supersedes the first run's request with the
+    // newer request's own timestamp, and requests arrive sorted by updatedAt
+    // descending then id ascending, so the superseded row can sort first.
+    // Sending its id would make main throw on a terminal transition, leaving
+    // the live step with no way to be confirmed from Applications.
+    const onPerformUserAction = vi.fn();
+    const props = renderApplicationsRoute({
+      onPerformUserAction,
+      workspace: selectedRecordWorkspace([
+        {
+          id: "application_login_fp",
+          revision: 6,
+          state: "superseded",
+          scope: {
+            type: "application",
+            runId: "run_previous",
+            jobId: "job_a",
+            applicationRecordId: "record_a",
+          },
+        },
+        {
+          id: "application_manual_answer_fp",
+          revision: 2,
+          state: "pending",
+          scope: {
+            type: "application",
+            runId: "run_current",
+            jobId: "job_a",
+            applicationRecordId: "record_a",
+          },
+        },
+      ]),
+    });
+
+    expect(props.canConfirmFinishedInBrowser).toBe(true);
+
+    props.onConfirmFinishedInBrowser?.({
+      jobId: "job_a",
+      resultId: "result_a",
+      runId: "run_current",
+      applicationRecordId: "record_a",
+      destinationUrl: null,
+    });
+
+    expect(onPerformUserAction).toHaveBeenCalledTimes(1);
+    expect(onPerformUserAction.mock.calls[0]?.[0]).toMatchObject({
+      requestId: "application_manual_answer_fp",
+      expectedRevision: 2,
+      action: "confirm_done",
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+  });
+
+  it.each(["skipped", "cancelled", "expired", "superseded"])(
+    "keeps the control unavailable when the only request is %s",
+    (state) => {
+      const onPerformUserAction = vi.fn();
+      const props = renderApplicationsRoute({
+        onPerformUserAction,
+        workspace: selectedRecordWorkspace([
+          {
+            id: `request_${state}`,
+            revision: 3,
+            state,
+            scope: {
+              type: "application",
+              runId: "run_current",
+              jobId: "job_a",
+              applicationRecordId: "record_a",
+            },
+          },
+        ]),
+      });
+
+      expect(props.canConfirmFinishedInBrowser).toBe(false);
+
+      props.onConfirmFinishedInBrowser?.({
+        jobId: "job_a",
+        resultId: "result_a",
+        runId: "run_current",
+        applicationRecordId: "record_a",
+        destinationUrl: null,
+      });
+
+      expect(onPerformUserAction).not.toHaveBeenCalled();
+    },
+  );
+
+  it("confirms the selected record's own step when the job has two records", () => {
+    // A job shared by two campaigns has two application records with two
+    // separate blockers. Confirming here must never resume the record the user
+    // is not looking at, which would spend preparation capacity on it.
+    const onPerformUserAction = vi.fn();
+    const props = renderApplicationsRoute({
+      onPerformUserAction,
+      workspace: selectedRecordWorkspace(
+        [
+          {
+            id: "application_login_other_record",
+            revision: 9,
+            state: "awaiting_user",
+            scope: {
+              type: "application",
+              runId: "run_current",
+              jobId: "job_a",
+              applicationRecordId: "record_b",
+            },
+          },
+          {
+            id: "application_manual_answer_selected_record",
+            revision: 4,
+            state: "pending",
+            scope: {
+              type: "application",
+              runId: "run_current",
+              jobId: "job_a",
+              applicationRecordId: "record_a",
+            },
+          },
+        ],
+        { secondRecord: true },
+      ),
+    });
+
+    expect(props.selectedRecord?.id).toBe("record_a");
+    expect(props.canConfirmFinishedInBrowser).toBe(true);
+
+    props.onConfirmFinishedInBrowser?.({
+      jobId: "job_a",
+      resultId: "result_a",
+      runId: "run_current",
+      applicationRecordId: "record_a",
+      destinationUrl: null,
+    });
+
+    expect(onPerformUserAction).toHaveBeenCalledTimes(1);
+    expect(onPerformUserAction.mock.calls[0]?.[0]).toMatchObject({
+      requestId: "application_manual_answer_selected_record",
+      expectedRevision: 4,
+      action: "confirm_done",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+  });
+
+  it("keeps the control unavailable when only another record of the same job is blocked", () => {
+    const onPerformUserAction = vi.fn();
+    const props = renderApplicationsRoute({
+      onPerformUserAction,
+      workspace: selectedRecordWorkspace(
+        [
+          {
+            id: "application_login_other_record",
+            revision: 9,
+            state: "awaiting_user",
+            scope: {
+              type: "application",
+              runId: "run_current",
+              jobId: "job_a",
+              applicationRecordId: "record_b",
+            },
+          },
+        ],
+        { secondRecord: true },
+      ),
+    });
+
+    expect(props.selectedRecord?.id).toBe("record_a");
+    expect(props.canConfirmFinishedInBrowser).toBe(false);
+
+    props.onConfirmFinishedInBrowser?.({
+      jobId: "job_a",
+      resultId: "result_a",
+      runId: "run_current",
+      applicationRecordId: "record_a",
+      destinationUrl: null,
+    });
+
+    expect(onPerformUserAction).not.toHaveBeenCalled();
   });
 });

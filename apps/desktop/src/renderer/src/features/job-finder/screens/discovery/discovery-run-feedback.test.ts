@@ -1,3 +1,4 @@
+import { buildDiscoveryCardOnlyEvidenceWarning } from "@unemployed/contracts";
 import { describe, expect, it } from "vitest";
 import {
   createDiscoveryRunCancelledFeedback,
@@ -8,6 +9,7 @@ import {
   createDiscoveryRunStartedFeedback,
   createDiscoveryRunSucceededFeedback,
   getDiscoveryCancelledSavedJobCount,
+  getDiscoveryLatestRunNotices,
   getDiscoveryLatestRunVerdict,
   getDiscoveryRunFailureRecovery,
   shouldPresentRepeatedDiscoveryFeedback,
@@ -20,7 +22,7 @@ describe("discovery run failure recovery classification", () => {
     );
 
     expect(recovery.kind).toBe("browser_session");
-    expect(recovery.actionLabel).toBe("Open browser");
+    expect(recovery.actionLabel).toBe("Open the Job Finder browser");
   });
 
   it("maps a disabled browser agent runtime to opening the browser", () => {
@@ -526,5 +528,63 @@ describe("getDiscoveryLatestRunVerdict", () => {
         kind: "completed",
       });
     });
+  });
+});
+
+describe("latest discovery run notices", () => {
+  const cardOnlyWarning =
+    buildDiscoveryCardOnlyEvidenceWarning("Example Board");
+
+  function runWithWarnings(
+    startedAt: string,
+    warnings: readonly string[],
+    state: "completed" | "failed" | "idle" | "running" = "completed",
+  ) {
+    return { startedAt, state, summary: { warnings } } as const;
+  }
+
+  it("returns the newest settled run's warnings verbatim", () => {
+    expect(
+      getDiscoveryLatestRunNotices([
+        runWithWarnings("2026-08-25T09:00:00.000Z", ["An older warning."]),
+        runWithWarnings("2026-08-25T11:00:00.000Z", [cardOnlyWarning]),
+      ]),
+    ).toEqual([cardOnlyWarning]);
+  });
+
+  it("reports nothing when the newest run recorded no warning", () => {
+    expect(
+      getDiscoveryLatestRunNotices([
+        runWithWarnings("2026-08-25T09:00:00.000Z", [cardOnlyWarning]),
+        runWithWarnings("2026-08-25T11:00:00.000Z", []),
+      ]),
+    ).toEqual([]);
+    expect(getDiscoveryLatestRunNotices([])).toEqual([]);
+    expect(
+      getDiscoveryLatestRunNotices([
+        { startedAt: "2026-08-25T11:00:00.000Z", state: "completed" },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("ignores idle placeholder rows and blank or repeated entries", () => {
+    expect(
+      getDiscoveryLatestRunNotices([
+        runWithWarnings("2026-08-25T12:00:00.000Z", ["   "], "idle"),
+        runWithWarnings("2026-08-25T11:00:00.000Z", [
+          cardOnlyWarning,
+          "   ",
+          cardOnlyWarning,
+        ]),
+      ]),
+    ).toEqual([cardOnlyWarning]);
+  });
+
+  it("never offers to open the listing elsewhere", () => {
+    for (const notice of getDiscoveryLatestRunNotices([
+      runWithWarnings("2026-08-25T11:00:00.000Z", [cardOnlyWarning]),
+    ])) {
+      expect(notice).not.toMatch(/open|browser|link/i);
+    }
   });
 });

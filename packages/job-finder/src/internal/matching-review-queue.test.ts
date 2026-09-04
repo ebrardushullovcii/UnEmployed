@@ -21,16 +21,54 @@ describe("discovery result fit ordering", () => {
         id: "job_real",
         sourceJobId: "job_real",
         title: "Product Designer",
+        status: "discovered",
       },
       {
         ...base,
         id: "job_utility",
         sourceJobId: "job_utility",
         title: "View all engineering jobs",
+        status: "discovered",
       },
     ]);
 
     expect(jobs.map((job) => job.id)).toEqual(["job_real"]);
+  });
+
+  test("keeps a job the user acted on even when it trips the chrome heuristic", () => {
+    // The chrome heuristic is discovery intake triage. Once the user has
+    // shortlisted a row it is curated work — dropping it would delete the
+    // user's own choice with no message and no undo.
+    const base = createSeed().savedJobs[0]!;
+    const jobs = buildDiscoveryJobs([
+      {
+        ...base,
+        id: "job_shortlisted_chrome_title",
+        sourceJobId: "job_shortlisted_chrome_title",
+        title: "View all engineering jobs",
+        status: "shortlisted",
+      },
+      {
+        ...base,
+        id: "job_approved_chrome_path",
+        sourceJobId: "job_approved_chrome_path",
+        title: "Customer Support Engineer",
+        canonicalUrl: "https://jobs.acme.com/support/1234",
+        status: "approved",
+      },
+      {
+        ...base,
+        id: "job_discovered_chrome",
+        sourceJobId: "job_discovered_chrome",
+        title: "View all engineering jobs",
+        status: "discovered",
+      },
+    ]);
+
+    expect(jobs.map((job) => job.id).sort()).toEqual([
+      "job_approved_chrome_path",
+      "job_shortlisted_chrome_title",
+    ]);
   });
 
   test("filters Wellfound footer and pagination junk from discovery display", () => {
@@ -151,6 +189,86 @@ describe("discovery result fit ordering", () => {
     ).toBe(false);
   });
 
+  test("keeps a real posting whose route word doubles as a site section", () => {
+    // A site-section word is only chrome when the path stops there. Career
+    // sites route real postings under the same words, so a path that also
+    // carries a posting identifier is a listing, not an index.
+    for (const canonicalUrl of [
+      "https://careers.example.com/role/1234-senior-engineer",
+      "https://support.example.com/support/4821-support-engineer",
+      "https://careers.example.com/location/berlin/7781-backend-engineer",
+      "https://careers.example.com/about/team/5540-platform-engineer",
+      "https://boards.example.com/candidates/9f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f",
+    ]) {
+      expect(
+        isLikelyUtilityShortlistJob({
+          title: "Senior Engineer",
+          canonicalUrl,
+        }),
+        canonicalUrl,
+      ).toBe(false);
+    }
+
+    // The bare section index carries no posting identifier and stays chrome,
+    // so the escape hatch is not a blanket relaxation.
+    for (const canonicalUrl of [
+      "https://careers.example.com/role",
+      "https://support.example.com/support",
+      "https://careers.example.com/location/berlin",
+      "https://careers.example.com/about/team",
+      "https://careers.example.com/news/2026/hiring-update",
+    ]) {
+      expect(
+        isLikelyUtilityShortlistJob({
+          title: "Senior Engineer",
+          canonicalUrl,
+        }),
+        canonicalUrl,
+      ).toBe(true);
+    }
+
+    // Credential, consent, and legal routes never describe a posting, so a
+    // numeric sibling must not rescue them.
+    for (const canonicalUrl of [
+      "https://jobs.example.com/login/12345",
+      "https://jobs.example.com/sign-up/12345",
+      "https://jobs.example.com/privacy-policy/2026001",
+      "https://jobs.example.com/browse/123456-remote",
+    ]) {
+      expect(
+        isLikelyUtilityShortlistJob({
+          title: "Senior Engineer",
+          canonicalUrl,
+        }),
+        canonicalUrl,
+      ).toBe(true);
+    }
+  });
+
+  test("lets an id-bearing section-word posting reach discovery intake", () => {
+    const base = createSeed().savedJobs[0]!;
+    const jobs = buildDiscoveryJobs([
+      {
+        ...base,
+        id: "job_role_posting",
+        sourceJobId: "job_role_posting",
+        title: "Senior Backend Engineer",
+        canonicalUrl: "https://careers.example.com/role/1234-senior-engineer",
+        status: "discovered",
+      },
+      {
+        ...base,
+        id: "job_role_index",
+        sourceJobId: "job_role_index",
+        title: "Open roles",
+        canonicalUrl: "https://careers.example.com/role",
+        status: "discovered",
+      },
+    ]);
+
+    expect(jobs.map((job) => job.id)).toEqual(["job_role_posting"]);
+  });
+
   test("excludes utility titles from discovery and mismatch-visible pools", () => {
     const base = createSeed().savedJobs[0]!;
     const jobs = buildDiscoveryJobs([
@@ -170,6 +288,7 @@ describe("discovery result fit ordering", () => {
         sourceJobId: "job_kontakt",
         title: "Kontakt",
         canonicalUrl: "https://kosovajob.com/kontakt",
+        status: "discovered",
         matchAssessment: {
           ...base.matchAssessment,
           recommendation: "skip",
@@ -181,6 +300,7 @@ describe("discovery result fit ordering", () => {
         sourceJobId: "job_hub",
         title: "RxGPT",
         canonicalUrl: "https://wellfound.com/company/rxgpt",
+        status: "discovered",
         matchAssessment: {
           ...base.matchAssessment,
           recommendation: "skip",
@@ -772,7 +892,10 @@ describe("approved tailored resume apply readiness", () => {
     ).toBe(true);
   });
 
-  test("filters utility navigation jobs out of the shortlisted review queue", () => {
+  test("keeps every curated row in the shortlisted review queue, chrome heuristic or not", () => {
+    // Every reviewable status is a row the user chose, so the discovery-intake
+    // chrome heuristic must never remove one: an approved tailored PDF could
+    // disappear from Shortlisted with no message and no undo.
     const seed = createSeed();
     const base = seed.savedJobs[0]!;
     const queue = buildReviewQueue(
@@ -785,9 +908,16 @@ describe("approved tailored resume apply readiness", () => {
         },
         {
           ...base,
-          id: "job_utility",
+          id: "job_chrome_title",
           title: "View all engineering jobs",
           status: "approved",
+        },
+        {
+          ...base,
+          id: "job_chrome_path",
+          title: "Customer Support Engineer",
+          canonicalUrl: "https://jobs.acme.com/support/1234",
+          status: "ready_for_review",
         },
       ],
       seed.tailoredAssets,
@@ -797,7 +927,12 @@ describe("approved tailored resume apply readiness", () => {
       seed.settings,
     );
 
-    expect(queue.map((item) => item.jobId)).toEqual(["job_real"]);
+    expect(queue.map((item) => item.jobId).sort()).toEqual([
+      "job_chrome_path",
+      "job_chrome_title",
+      "job_real",
+    ]);
+    // The heuristic itself is unchanged; only where it is applied changed.
     expect(
       isLikelyUtilityShortlistJob({ title: "View all engineering jobs" }),
     ).toBe(true);

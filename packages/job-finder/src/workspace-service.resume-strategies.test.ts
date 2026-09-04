@@ -492,27 +492,36 @@ describe("workspace resume strategies end to end", () => {
       validatedAt: "2026-08-15T09:30:00.000Z",
     });
     // Matching export artifacts must exist for the approval ids to resolve.
-    await repository.upsertResumeExportArtifact({
-      id: "export_approved_1",
-      draftId: approvedDraft.id,
-      jobId: "job_ready",
-      format: "pdf",
-      filePath: "/tmp/approved.pdf",
-      pageCount: 1,
-      templateId: approvedDraft.templateId,
-      exportedAt: "2026-08-15T09:30:00.000Z",
-      isApproved: true,
+    // Seed them through the only supported approval path: neither repository
+    // accepts an approved artifact through upsertResumeExportArtifact,
+    // because only approveResumeExport demotes the job's sibling exports.
+    await repository.approveResumeExport({
+      draft: approvedDraft,
+      exportArtifact: {
+        id: "export_approved_1",
+        draftId: approvedDraft.id,
+        jobId: "job_ready",
+        format: "pdf",
+        filePath: "/tmp/approved.pdf",
+        pageCount: 1,
+        templateId: approvedDraft.templateId,
+        exportedAt: "2026-08-15T09:30:00.000Z",
+        isApproved: true,
+      },
     });
-    await repository.upsertResumeExportArtifact({
-      id: "export_stale_1",
-      draftId: staleDraft.id,
-      jobId: "job_generating",
-      format: "pdf",
-      filePath: "/tmp/stale.pdf",
-      pageCount: 1,
-      templateId: staleDraft.templateId,
-      exportedAt: "2026-08-15T09:00:00.000Z",
-      isApproved: true,
+    await repository.approveResumeExport({
+      draft: staleDraft,
+      exportArtifact: {
+        id: "export_stale_1",
+        draftId: staleDraft.id,
+        jobId: "job_generating",
+        format: "pdf",
+        filePath: "/tmp/stale.pdf",
+        pageCount: 1,
+        templateId: staleDraft.templateId,
+        exportedAt: "2026-08-15T09:00:00.000Z",
+        isApproved: true,
+      },
     });
     await repository.saveResumeDraftWithValidation({
       draft: approvedDraft,

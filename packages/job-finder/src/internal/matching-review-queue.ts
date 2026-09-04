@@ -70,6 +70,63 @@ const utilityShortlistPathSegments = new Set([
   "terms-of-service",
 ]);
 
+/**
+ * Section words that a career site also uses to route real postings.
+ *
+ * `/role`, `/support` and `/location` name an index when the path stops there,
+ * but the same words prefix concrete listings (`/role/1234-senior-engineer`).
+ * Treating the word alone as decisive dropped genuine postings at intake, so
+ * these become chrome only when the path carries no posting identifier. The
+ * remaining entries above — credential, consent, legal, and browse routes —
+ * never describe a posting and stay decisive whatever else the path holds.
+ */
+const sectionRouteShortlistPathSegments = new Set([
+  "about",
+  "about-us",
+  "blog",
+  "blogs",
+  "candidates",
+  "contact",
+  "contact-us",
+  "help",
+  "hire",
+  "legal",
+  "location",
+  "news",
+  "press",
+  "role",
+  "support",
+]);
+
+const CALENDAR_YEAR_SEGMENT_PATTERN = /^(?:19|20)\d{2}$/;
+const UUID_SEGMENT_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NUMERIC_ID_RUN_PATTERN = /\d{4,}/;
+const OPAQUE_ID_TOKEN_PATTERN = /^(?=[^]*\d)(?=[^]*[a-z])[a-z0-9]{8,}$/i;
+
+/**
+ * A path segment that names one concrete posting rather than a section.
+ *
+ * Source-generic: it reads shape only — a long numeric run, a UUID, or an
+ * opaque alphanumeric token — never a board, host, or vendor. A bare
+ * four-digit calendar year is excluded because `/news/2026/...` is an archive
+ * index, not an identifier.
+ */
+function isLikelyPostingIdentifierSegment(segment: string): boolean {
+  if (UUID_SEGMENT_PATTERN.test(segment)) {
+    return true;
+  }
+
+  if (CALENDAR_YEAR_SEGMENT_PATTERN.test(segment)) {
+    return false;
+  }
+
+  return (
+    NUMERIC_ID_RUN_PATTERN.test(segment) ||
+    OPAQUE_ID_TOKEN_PATTERN.test(segment)
+  );
+}
+
 const EMPLOYER_ABSENCE_LABEL_PATTERN = /^employer not stated$/i;
 const LOCATION_ABSENCE_LABEL_PATTERN = /^location not stated$/i;
 
@@ -247,8 +304,30 @@ function hasUtilityPathOrHost(canonicalUrl: string): boolean {
       .split("/")
       .map((segment) => decodeURIComponent(segment).trim().toLowerCase())
       .filter(Boolean);
-    return segments.some((segment) =>
+    const utilitySegments = segments.filter((segment) =>
       utilityShortlistPathSegments.has(segment),
+    );
+    if (utilitySegments.length === 0) {
+      return false;
+    }
+
+    // A credential, consent, legal, or browse route is chrome no matter what
+    // else the path holds; only the section words route real postings.
+    if (
+      utilitySegments.some(
+        (segment) => !sectionRouteShortlistPathSegments.has(segment),
+      )
+    ) {
+      return true;
+    }
+
+    // The section word is decisive only when nothing beside it identifies one
+    // concrete posting. `/role` is an index; `/role/1234-senior-engineer` is a
+    // listing.
+    return !segments.some(
+      (segment) =>
+        !utilityShortlistPathSegments.has(segment) &&
+        isLikelyPostingIdentifierSegment(segment),
     );
   } catch {
     return false;
@@ -284,6 +363,20 @@ const discoveryVisibleStatuses = new Set<ApplicationStatus>([
   "ready_for_review",
   "approved",
 ]);
+
+/**
+ * Utility-chrome filtering is discovery-intake triage only.
+ *
+ * The heuristic reads titles and URL segments, so it can misread a real
+ * posting (`/support/1234`, `/role/1234-engineer`). That is an acceptable cost
+ * for an untouched candidate the user has never seen, but not for a row the
+ * user has acted on: silently removing a shortlisted job — possibly one with
+ * an approved tailored PDF — gives no message and no undo. Once a job leaves
+ * `discovered`, it is curated work and stays visible.
+ */
+function isDiscoveryIntakeCandidate(job: Pick<SavedJob, "status">): boolean {
+  return job.status === "discovered";
+}
 
 const assetStatusPriority: Record<AssetStatus, number> = {
   ready: 0,
@@ -450,9 +543,10 @@ export function buildReviewQueue(
     );
   }
 
+  // Every reviewable status is user-curated, so the intake chrome heuristic
+  // never applies here (see `isDiscoveryIntakeCandidate`).
   return savedJobs
     .filter((job) => reviewableStatuses.has(job.status))
-    .filter((job) => !isLikelyUtilityShortlistJob(job))
     .map<ReviewQueueItem>((job) => {
       const displayCompany = resolveSavedJobCompany(job);
       const resumeApplicationMode = resolveJobResumeApplicationMode(
@@ -534,7 +628,10 @@ export function buildReviewQueue(
 export function buildDiscoveryJobs(savedJobs: readonly SavedJob[]): SavedJob[] {
   return [...savedJobs]
     .filter((job) => discoveryVisibleStatuses.has(job.status))
-    .filter((job) => !isLikelyUtilityShortlistJob(job))
+    .filter(
+      (job) =>
+        !isDiscoveryIntakeCandidate(job) || !isLikelyUtilityShortlistJob(job),
+    )
     .map((job) => {
       const company = resolveSavedJobCompany(job);
       const location = resolveSavedJobLocation(job);

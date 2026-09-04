@@ -174,8 +174,31 @@ describe("SelectableRow", () => {
 
     expect(line?.getAttribute("data-empty")).toBe("true");
     // A reserved line keeps its height class and a zero-width space, so an
-    // absent badge cannot shorten the row.
-    expect(line?.className).toContain("min-h-4");
+    // absent badge cannot shorten the row. The reserved height is one line of
+    // the line's OWN type rather than a flat 1rem, so a line rendering larger
+    // or smaller text reserves the slot it will actually occupy.
+    expect(line?.className).toContain("min-h-[1lh]");
+    expect(line?.textContent).toBe("​");
+  });
+
+  it.each([
+    ["an empty string", ""],
+    ["a whitespace-only string", "   "],
+  ])("treats %s as an empty content line", (_label, value) => {
+    // A formatter that returns "" renders as nothing, so without this the row
+    // reported data-empty="false", skipped the zero-width space and lost the
+    // reserved height - reflowing every row below it on selection.
+    render(
+      <SelectableRow selected={false}>
+        <SelectableRowLine>{value}</SelectableRowLine>
+      </SelectableRow>,
+    );
+
+    const line = container?.querySelector<HTMLElement>(
+      '[data-slot="selectable-row-line"]',
+    );
+
+    expect(line?.getAttribute("data-empty")).toBe("true");
     expect(line?.textContent).toBe("​");
   });
 

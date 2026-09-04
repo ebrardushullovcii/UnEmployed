@@ -8,12 +8,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
 import { Button } from "@renderer/components/ui/button";
 import { Input } from "@renderer/components/ui/input";
+import { Popover } from "@renderer/components/ui/popover";
+import { SegmentedControl } from "@renderer/components/ui/segmented-control";
 import { cn } from "@renderer/lib/cn";
 import { isImeComposingEvent } from "../lib/job-finder-shortcuts";
 import { useJobFinderOverlayOwnership } from "../lib/job-finder-overlay-ownership";
+import { useBoundedFloatingSurface } from "./bounded-floating-surface";
+import { EmptyState } from "./empty-state";
 import type {
   SavedCollectionView,
   SavedViewMetadata,
@@ -56,6 +59,13 @@ export const collectionSearchFieldClass =
  */
 export type CollectionSearchToolbarPlacement = "page" | "panel";
 
+/** Naming field plus a handful of saved rows; the solver clamps the rest. */
+const SAVED_VIEWS_DESIRED_HEIGHT_PX = 320;
+const SAVED_VIEWS_PREFERRED_WIDTH_PX = 288;
+/** Roughly eight checkbox rows; the solver clamps the rest. */
+const COLUMN_PICKER_DESIRED_HEIGHT_PX = 280;
+const COLUMN_PICKER_PREFERRED_WIDTH_PX = 224;
+
 export function normalizeCollectionSearch(value: string): string {
   return value.trim().toLocaleLowerCase();
 }
@@ -84,6 +94,36 @@ export function useCollectionSearch<T>(
   );
 
   return { deferredQuery, filteredItems, query, setQuery };
+}
+
+/**
+ * One density switcher. The same control used to be written three ways inside
+ * this file — a bordered `overflow-hidden` track with an inset ring, a
+ * trackless `flex gap-1` row of `secondary`/`ghost` buttons, and a third copy
+ * with `px-2 text-xs` — so the same choice looked like three different
+ * controls depending on which branch rendered it. All three now render the
+ * shared `SegmentedControl`, which carries the one track, height, radius and
+ * selected treatment.
+ */
+function CollectionDensitySwitcher(props: {
+  densities: readonly CollectionDensity[];
+  density: CollectionDensity;
+  onDensityChange: (density: CollectionDensity) => void;
+}) {
+  return (
+    <SegmentedControl
+      className="shrink-0"
+      label="List density"
+      onValueChange={props.onDensityChange}
+      options={props.densities.map((density) => ({
+        ariaLabel: getCollectionDensityLabel(density),
+        label: getCollectionDensityLabel(density),
+        value: density,
+      }))}
+      size="toolbar"
+      value={props.density}
+    />
+  );
 }
 
 export function CollectionSearchToolbar(props: {
@@ -141,26 +181,11 @@ export function CollectionSearchToolbar(props: {
           value={props.query}
         />
         {props.density && props.onDensityChange ? (
-          <div
-            aria-label="List density"
-            className="flex shrink-0 items-center overflow-hidden rounded-(--radius-button) border border-(--surface-panel-border)"
-            role="group"
-          >
-            {densities.map((density) => (
-              <Button
-                aria-label={getCollectionDensityLabel(density)}
-                aria-pressed={props.density === density}
-                className="rounded-none border-0 px-2.5 text-xs"
-                key={density}
-                onClick={() => props.onDensityChange?.(density)}
-                size="sm"
-                type="button"
-                variant={props.density === density ? "secondary" : "ghost"}
-              >
-                {getCollectionDensityLabel(density)}
-              </Button>
-            ))}
-          </div>
+          <CollectionDensitySwitcher
+            densities={densities}
+            density={props.density}
+            onDensityChange={props.onDensityChange}
+          />
         ) : null}
         <div className="flex min-w-0 max-w-full shrink-0 flex-wrap items-center gap-1">
           {!props.hideCompactCount ? (
@@ -234,21 +259,11 @@ export function CollectionSearchToolbar(props: {
           />
         </div>
         {!props.compact && props.density && props.onDensityChange ? (
-          <div aria-label="List density" className="flex gap-1" role="group">
-            {densities.map((density) => (
-              <Button
-                aria-pressed={props.density === density}
-                key={density}
-                onClick={() => props.onDensityChange?.(density)}
-                size="sm"
-                type="button"
-                variant={props.density === density ? "secondary" : "ghost"}
-              >
-                {density[0]?.toUpperCase()}
-                {density.slice(1)}
-              </Button>
-            ))}
-          </div>
+          <CollectionDensitySwitcher
+            densities={densities}
+            density={props.density}
+            onDensityChange={props.onDensityChange}
+          />
         ) : null}
         {!props.compact ? props.viewActions : null}
       </div>
@@ -256,26 +271,11 @@ export function CollectionSearchToolbar(props: {
         {props.compact ? (
           <div className="flex min-w-0 items-center gap-1">
             {props.density && props.onDensityChange ? (
-              <div
-                aria-label="List density"
-                className="flex gap-1"
-                role="group"
-              >
-                {densities.map((density) => (
-                  <Button
-                    aria-label={getCollectionDensityLabel(density)}
-                    aria-pressed={props.density === density}
-                    className="px-2 text-xs"
-                    key={density}
-                    onClick={() => props.onDensityChange?.(density)}
-                    size="sm"
-                    type="button"
-                    variant={props.density === density ? "secondary" : "ghost"}
-                  >
-                    {getCollectionDensityLabel(density)}
-                  </Button>
-                ))}
-              </div>
+              <CollectionDensitySwitcher
+                densities={densities}
+                density={props.density}
+                onDensityChange={props.onDensityChange}
+              />
             ) : null}
             {props.viewActions}
           </div>
@@ -314,11 +314,6 @@ export function CollectionSavedViews(props: {
 }) {
   const [name, setName] = useState("");
   const [isOpen, setIsOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState({
-    left: 8,
-    maxHeight: 320,
-    top: 8,
-  });
   const anchorRef = useRef<HTMLButtonElement | null>(null);
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -337,34 +332,21 @@ export function CollectionSavedViews(props: {
     close: () => closeMenu(true),
   });
 
+  // The shared solver owns flipping, shifting and the available height. This
+  // popover used to re-derive all three, and its `Math.max(160, …)` floor
+  // could exceed the space actually left, so at short heights the surface
+  // painted past the window bottom instead of scrolling inside itself.
+  const placement = useBoundedFloatingSurface({
+    alignment: "end",
+    desiredHeight: SAVED_VIEWS_DESIRED_HEIGHT_PX,
+    open: isOpen,
+    preferredWidth: SAVED_VIEWS_PREFERRED_WIDTH_PX,
+    triggerRef: anchorRef,
+  });
+
   useEffect(() => {
     if (!isOpen) return undefined;
 
-    const updatePosition = () => {
-      const anchor = anchorRef.current;
-      if (!anchor) return;
-
-      const viewportPadding = 8;
-      const menuGap = 8;
-      const menuWidth = Math.min(288, window.innerWidth - viewportPadding * 2);
-      const anchorRect = anchor.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - anchorRect.bottom - menuGap;
-      const spaceAbove = anchorRect.top - menuGap;
-      const openBelow = spaceBelow >= 220 || spaceBelow >= spaceAbove;
-      const maxHeight = Math.max(
-        160,
-        Math.min(384, openBelow ? spaceBelow : spaceAbove),
-      );
-      const top = openBelow
-        ? anchorRect.bottom + menuGap
-        : Math.max(viewportPadding, anchorRect.top - menuGap - maxHeight);
-      const left = Math.min(
-        window.innerWidth - menuWidth - viewportPadding,
-        Math.max(viewportPadding, anchorRect.right - menuWidth),
-      );
-
-      setMenuPosition({ left, maxHeight, top });
-    };
     const closeOnOutsidePress = (event: PointerEvent) => {
       const target = event.target;
       if (
@@ -386,25 +368,25 @@ export function CollectionSavedViews(props: {
       closeMenu(true);
     };
 
-    updatePosition();
-    // The portaled dialog never receives focus by default; claim it for the
-    // naming field so keyboard and screen reader users land inside the dialog.
-    const frame = requestAnimationFrame(() => {
-      nameInputRef.current?.focus();
-    });
     document.addEventListener("pointerdown", closeOnOutsidePress);
     document.addEventListener("keydown", closeOnEscape);
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
 
     return () => {
-      cancelAnimationFrame(frame);
       document.removeEventListener("pointerdown", closeOnOutsidePress);
       document.removeEventListener("keydown", closeOnEscape);
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
     };
   }, [closeMenu, isOpen, isMenuTopmost]);
+
+  // The portaled dialog never receives focus by default; claim it for the
+  // naming field so keyboard and screen reader users land inside the dialog.
+  // It waits for the placement because the surface is not mounted until the
+  // solver has measured — focusing a frame after opening would have missed it.
+  useEffect(() => {
+    if (!isOpen || !placement) {
+      return;
+    }
+    nameInputRef.current?.focus();
+  }, [isOpen, placement]);
 
   return (
     <div
@@ -424,91 +406,100 @@ export function CollectionSavedViews(props: {
         closeMenu(false);
       }}
     >
-      <button
+      {/* An ordinary `outline` toolbar button. It was a raw `<button>` on the
+          inert `--border-strong` token, so it did not match the controls it
+          sits beside — and the `Columns` trigger next to it had no border at
+          all. Both are the same control class now. */}
+      <Button
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        // Bordered like the controls beside it: unstyled grey text among real
-        // controls reads as a caption, not something you can press.
-        className="flex h-8 cursor-pointer items-center whitespace-nowrap rounded-(--radius-button) border border-(--border-strong) px-2.5 text-xs text-foreground-soft hover:bg-secondary hover:text-foreground"
         onClick={() => setIsOpen((open) => !open)}
         ref={anchorRef}
+        size="toolbar"
         type="button"
+        variant="outline"
       >
         Saved views{props.views.length > 0 ? ` (${props.views.length})` : ""}
-      </button>
-      {isOpen
-        ? createPortal(
-            <div
-              aria-label="Saved views"
-              className="surface-panel-shell fixed z-100 grid w-[min(18rem,calc(100vw-1rem))] gap-3 overflow-y-auto rounded-(--radius-panel) border border-(--surface-panel-border) p-3 shadow-(--modal-shadow)"
-              data-saved-views-menu
-              ref={menuRef}
-              role="dialog"
-              style={menuPosition}
+      </Button>
+      {placement ? (
+        <Popover
+          className="grid gap-3 p-3"
+          data-saved-views-menu
+          label="Saved views"
+          open={isOpen}
+          placement={{
+            left: placement.left,
+            maxHeight: placement.maxHeight,
+            top: placement.top,
+            width: placement.width,
+          }}
+          ref={menuRef}
+          role="dialog"
+        >
+          <div className="flex gap-2">
+            <Input
+              aria-label="Saved view name"
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Name this view"
+              ref={nameInputRef}
+              value={name}
+            />
+            <Button
+              disabled={!name.trim()}
+              onClick={() => {
+                // Preserve the historical single-argument contract for
+                // consumers without a payload; metadata rides along only
+                // when the collection actually supplied one.
+                const savedViewMetadata = props.savedViewMetadata;
+                if (savedViewMetadata === undefined) {
+                  props.onSave(name);
+                } else {
+                  props.onSave(name, savedViewMetadata);
+                }
+                setName("");
+              }}
+              size="sm"
+              type="button"
+              variant="secondary"
             >
-              <div className="flex gap-2">
-                <Input
-                  aria-label="Saved view name"
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Name this view"
-                  ref={nameInputRef}
-                  value={name}
-                />
-                <Button
-                  disabled={!name.trim()}
-                  onClick={() => {
-                    // Preserve the historical single-argument contract for
-                    // consumers without a payload; metadata rides along only
-                    // when the collection actually supplied one.
-                    const savedViewMetadata = props.savedViewMetadata;
-                    if (savedViewMetadata === undefined) {
-                      props.onSave(name);
-                    } else {
-                      props.onSave(name, savedViewMetadata);
-                    }
-                    setName("");
-                  }}
-                  size="sm"
-                  type="button"
-                  variant="secondary"
+              Save
+            </Button>
+          </div>
+          {props.views.length === 0 ? (
+            <p className="text-xs text-foreground-muted">
+              Save this search and density for quick reuse.
+            </p>
+          ) : (
+            <ul className="grid gap-1">
+              {props.views.map((view) => (
+                <li
+                  className="flex items-center justify-between gap-2"
+                  key={view.id}
                 >
-                  Save
-                </Button>
-              </div>
-              {props.views.length === 0 ? (
-                <p className="text-xs text-foreground-muted">
-                  Save this search and density for quick reuse.
-                </p>
-              ) : (
-                <ul className="grid gap-1">
-                  {props.views.map((view) => (
-                    <li
-                      className="flex items-center justify-between gap-2"
-                      key={view.id}
-                    >
-                      <button
-                        className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-sm hover:bg-secondary"
-                        onClick={() => props.onApply(view.id)}
-                        type="button"
-                      >
-                        {view.name}
-                      </button>
-                      <button
-                        aria-label={`Delete saved view ${view.name}`}
-                        className="text-xs text-foreground-muted underline"
-                        onClick={() => props.onDelete(view.id)}
-                        type="button"
-                      >
-                        Delete
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>,
-            document.body,
-          )
-        : null}
+                  <button
+                    className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-left text-sm hover:bg-secondary"
+                    onClick={() => props.onApply(view.id)}
+                    type="button"
+                  >
+                    {view.name}
+                  </button>
+                  {/* The one link treatment, not a hand-rolled underlined
+                          span in a muted body colour. */}
+                  <Button
+                    aria-label={`Delete saved view ${view.name}`}
+                    onClick={() => props.onDelete(view.id)}
+                    size="xs"
+                    type="button"
+                    variant="link"
+                  >
+                    Delete
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Popover>
+      ) : null}
     </div>
   );
 }
@@ -524,28 +515,113 @@ export function CollectionColumnPicker(props: {
   columns: readonly CollectionColumnOption[];
   onChange: (columnId: string, visible: boolean) => void;
 }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const closeMenu = useCallback((restoreFocus: boolean) => {
+    setIsOpen(false);
+    if (restoreFocus) {
+      triggerRef.current?.focus();
+    }
+  }, []);
+  const { isTopmost } = useJobFinderOverlayOwnership({
+    active: isOpen,
+    close: () => closeMenu(true),
+  });
+  // Was a `<details>` with an `absolute right-0 top-full` fieldset, so its
+  // host section's `overflow-hidden` clipped it and a long column list had no
+  // max-height at all. Portalled and solver-placed, it is bounded and cannot
+  // be clipped by layout it does not own.
+  const placement = useBoundedFloatingSurface({
+    alignment: "end",
+    desiredHeight: COLUMN_PICKER_DESIRED_HEIGHT_PX,
+    open: isOpen,
+    preferredWidth: COLUMN_PICKER_PREFERRED_WIDTH_PX,
+    triggerRef,
+  });
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        !triggerRef.current?.contains(target) &&
+        !surfaceRef.current?.contains(target)
+      ) {
+        setIsOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isImeComposingEvent(event)) {
+        return;
+      }
+      if (event.key !== "Escape" || !isTopmost()) {
+        return;
+      }
+      event.preventDefault();
+      closeMenu(true);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePress);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePress);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [closeMenu, isOpen, isTopmost]);
+
   return (
-    <details className="relative">
-      <summary className="flex h-8 cursor-pointer items-center rounded-(--radius-button) px-3 text-sm text-foreground-soft hover:bg-secondary">
+    <div className="relative">
+      <Button
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        onClick={() => setIsOpen((open) => !open)}
+        ref={triggerRef}
+        size="toolbar"
+        type="button"
+        variant="outline"
+      >
         Columns
-      </summary>
-      <fieldset className="surface-panel-shell absolute right-0 top-full z-30 mt-2 grid w-56 gap-2 rounded-(--radius-panel) border border-(--surface-panel-border) p-3 shadow-(--modal-shadow)">
-        <legend className="sr-only">Visible columns</legend>
-        {props.columns.map((column) => (
-          <label className="flex items-center gap-2 text-sm" key={column.id}>
-            <input
-              checked={column.visible}
-              disabled={column.required}
-              onChange={(event) =>
-                props.onChange(column.id, event.target.checked)
-              }
-              type="checkbox"
-            />
-            {column.label}
-          </label>
-        ))}
-      </fieldset>
-    </details>
+      </Button>
+      {placement ? (
+        <Popover
+          className="p-3"
+          data-collection-column-picker
+          label="Visible columns"
+          open={isOpen}
+          placement={{
+            left: placement.left,
+            maxHeight: placement.maxHeight,
+            top: placement.top,
+            width: placement.width,
+          }}
+          ref={surfaceRef}
+          role="dialog"
+        >
+          <fieldset className="grid gap-2">
+            <legend className="sr-only">Visible columns</legend>
+            {props.columns.map((column) => (
+              <label
+                className="flex items-center gap-2 text-sm"
+                key={column.id}
+              >
+                <input
+                  checked={column.visible}
+                  disabled={column.required}
+                  onChange={(event) =>
+                    props.onChange(column.id, event.target.checked)
+                  }
+                  type="checkbox"
+                />
+                {column.label}
+              </label>
+            ))}
+          </fieldset>
+        </Popover>
+      ) : null}
+    </div>
   );
 }
 
@@ -555,19 +631,18 @@ export function CollectionNoMatches(props: {
   query: string;
 }) {
   return (
-    <div className="grid min-h-48 place-items-center px-5 py-8 text-center">
-      <div className="grid max-w-md gap-3">
-        <p className="font-semibold text-(--text-headline)">
-          No {props.noun} match “{props.query.trim()}”
-        </p>
-        <p className="text-sm text-foreground-soft">
-          Try a company, role, location, status, or a shorter phrase. Your other
-          filters and selections have not changed.
-        </p>
+    // The shared `EmptyState`. This was a borderless `grid min-h-48` block, so
+    // the no-match state on all eleven toolbar routes looked unlike every
+    // other empty state in the app — including ones on the same screen.
+    <EmptyState
+      description="Try a company, role, location, status, or a shorter phrase. Your other filters and selections have not changed."
+      title={`No ${props.noun} match “${props.query.trim()}”`}
+    >
+      <div className="flex justify-center">
         <Button onClick={props.onClear} type="button" variant="secondary">
           Clear search
         </Button>
       </div>
-    </div>
+    </EmptyState>
   );
 }

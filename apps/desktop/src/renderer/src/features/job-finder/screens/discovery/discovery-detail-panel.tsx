@@ -15,6 +15,14 @@ import {
   type RefObject,
 } from "react";
 import { Button } from "@renderer/components/ui/button";
+import { cn } from "@renderer/lib/utils";
+import { JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES } from "../../lib/job-finder-scroll-reveal";
+// The shell owns these two numbers. Importing them is the point: a second
+// local copy is what let the header mask and the inspector chrome drift apart.
+import {
+  SHELL_HEADER_MASK_HEIGHT_CLASS,
+  SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
+} from "../../lib/job-finder-shell-gutters";
 import { EmptyState } from "../../components/empty-state";
 import { PreferenceList } from "../../components/preference-list";
 import { StatusBadge } from "../../components/status-badge";
@@ -259,9 +267,43 @@ export function SourceChronologyDisclosure(props: {
 export const DISCOVERY_DETAIL_SCROLL_AREA_CLASS_NAME =
   "min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-pb-6 scroll-pt-6 px-6 pb-6 pt-6";
 
-/** Height of one edge treatment; matches the scroller's own edge padding. */
-const DISCOVERY_DETAIL_SCROLL_EDGE_CLASS_NAME =
-  "pointer-events-none absolute inset-x-0 h-6 z-10";
+/**
+ * The gutter each edge treatment has to cover: the inspector scroller's own
+ * `pt-6`/`pb-6`. This is deliberately NOT the shell's 12px route gutter — the
+ * inspector is a bounded pane with its own scroller and pads its edges twice
+ * as far — which is exactly why the mask height below cannot be the shell's.
+ */
+export const DISCOVERY_DETAIL_SCROLL_GUTTER_PX = 24;
+
+/**
+ * Height of one edge treatment, in px, and the class that paints it.
+ *
+ * The relationship, stated once instead of left as folklore:
+ *
+ *     opaque band = height * SHELL_HEADER_MASK_OPAQUE_STOP_FRACTION
+ *     40px * 0.6 = 24px = DISCOVERY_DETAIL_SCROLL_GUTTER_PX
+ *
+ * The opaque band must cover the whole gutter. Below that, a row sitting
+ * between the end of the opaque band and the end of the gutter renders
+ * semi-transparent and reads as a glyph cut through the middle — "MODE"
+ * halved, "Not stated" orphaned from its label, "How this was scored" sliced.
+ * The previous 24px height had no opaque head at all (the gradient faded from
+ * its first pixel), and 24px with the shared stop would still have left the
+ * band from 14.4px to 24px partly transparent.
+ *
+ * The ratio itself is never restated here: it lives in the shell's module and
+ * this height is checked against it by `getMinimumMaskHeightPxForGutter` in
+ * the test. The class is a literal because Tailwind only emits classes it can
+ * find as literal text.
+ */
+export const DISCOVERY_DETAIL_SCROLL_EDGE_HEIGHT_PX = 40;
+const DISCOVERY_DETAIL_SCROLL_EDGE_HEIGHT_CLASS = "h-10";
+
+const DISCOVERY_DETAIL_SCROLL_EDGE_CLASS_NAME = cn(
+  "pointer-events-none absolute inset-x-0 z-10",
+  DISCOVERY_DETAIL_SCROLL_EDGE_HEIGHT_CLASS,
+  SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
+);
 
 type DiscoveryDetailScrollEdges = { top: boolean; bottom: boolean };
 
@@ -604,9 +646,16 @@ export function DiscoveryDetailPanel({
   };
 
   return (
+    // The clip is only needed by the bounded two-pane scroller from `xl` up.
+    // Below that breakpoint the inspector stacks under the whole result list
+    // and has no height of its own, so nothing inside it ever scrolls and the
+    // clip would only make the pane its own never-scrolling scroll container
+    // — which is what `position: sticky` resolves against, leaving the pinned
+    // summary row below inert. Its own background matches the panel, so the
+    // rounded border still reads as a closed card without the clip.
     <section
       aria-label="Job details"
-      className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-panel) border border-(--surface-panel-border) scroll-mt-4 sm:scroll-mt-[8.25rem] min-[1440px]:scroll-mt-[4.5rem] xl:h-full xl:min-h-0"
+      className={`surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-visible rounded-(--radius-panel) border border-(--surface-panel-border) ${JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES.base} ${JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES.fixedHeader} ${JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES.wideFixedHeader} xl:h-full xl:min-h-0 xl:overflow-hidden`}
       id={DISCOVERY_DETAIL_REGION_ID}
     >
       <div className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-4 py-3">
@@ -622,15 +671,43 @@ export function DiscoveryDetailPanel({
 
       {selectedJob ? (
         <>
+          {/* At and above the two-pane breakpoint this row already sits above
+              the pane's own bounded scroller, so it is always in view and the
+              stacked pin must not apply. Below it the pane stacks under the
+              full result list and grows to its natural height, which put
+              "Shortlist job" thousands of pixels down the route with nothing
+              holding it on screen; pinning it to the top of the route
+              scroller keeps the job's action in the pane's first viewport
+              however far the user reads. */}
           <div
             aria-label="Selected job summary"
-            className="grid shrink-0 gap-3 border-b border-(--surface-panel-border) px-6 pb-4 pt-2"
+            className="sticky top-0 z-20 grid shrink-0 gap-3 border-b border-(--surface-panel-border) bg-(--surface-panel) px-6 pb-4 pt-2 xl:static"
             data-testid="discovery-detail-primary-action"
             role="group"
           >
+            {/* Below the two-pane breakpoint this row is pinned and the whole
+                detail body scrolls under it, so its bottom border was cutting
+                rows through the middle of a glyph — "How this was scored"
+                sliced in half. The same mask the shell paints under its own
+                fixed header ends the page cleanly here instead: opaque across
+                the band a row can occupy, then fading, so nothing is left
+                half-readable against the chrome. From `xl` up the row is
+                static with the pane's own scroller below it, so there is
+                nothing to mask and the mask is not painted. Its height and
+                opaque stop come from the shell's shared values; a local copy
+                would drift the next time the chrome changes. */}
+            <div
+              aria-hidden="true"
+              className={cn(
+                "pointer-events-none absolute inset-x-0 top-full z-10 bg-gradient-to-b from-(--surface-panel) to-transparent xl:hidden",
+                SHELL_HEADER_MASK_HEIGHT_CLASS,
+                SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
+              )}
+              data-testid="discovery-detail-pinned-summary-mask"
+            />
             <div className="grid min-w-0 gap-2">
               <h2
-                className="min-w-0 break-words rounded-sm text-(length:--text-section-title) font-semibold tracking-[-0.03em] text-(--text-headline) outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 scroll-mt-4 sm:scroll-mt-[8.25rem] min-[1440px]:scroll-mt-[4.5rem]"
+                className={`min-w-0 break-words rounded-sm text-(length:--text-section-title) font-semibold tracking-[-0.03em] text-(--text-headline) outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 ${JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES.base} ${JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES.fixedHeader} ${JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES.wideFixedHeader}`}
                 id={DISCOVERY_DETAIL_HEADING_ID}
                 tabIndex={-1}
               >

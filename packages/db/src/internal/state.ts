@@ -301,6 +301,16 @@ export function getSingletonValue<TValue>(
   database: DatabaseSync,
   key: StateTableKey,
   schema: SchemaParser<TValue>,
+  options?: {
+    /**
+     * `throw` (the default) fails closed so a corrupted row is never silently
+     * replaced by a default. `fallback` returns null instead and logs the
+     * failure; it is reserved for singletons read through an explicit legacy
+     * normalizer, where an unnormalizable pre-schema blob must degrade to the
+     * seed default rather than make the whole workspace unreachable.
+     */
+    onInvalid?: "throw" | "fallback";
+  },
 ): TValue | null {
   const row = database
     .prepare(
@@ -310,6 +320,26 @@ export function getSingletonValue<TValue>(
 
   if (!row) {
     return null;
+  }
+
+  if (options?.onInvalid === "fallback") {
+    try {
+      return parsePersistedRowValue({
+        tableName: stateTableNames.singleton_state,
+        rowId: key,
+        rawValue: String(row.value),
+        schema,
+      });
+    } catch (error) {
+      console.warn(
+        `[JobFinderRepository] Falling back to the default value for singleton "${key}": ${
+          error instanceof Error
+            ? error.message
+            : "the persisted row could not be read"
+        }`,
+      );
+      return null;
+    }
   }
 
   return parsePersistedRowValue({
@@ -373,20 +403,21 @@ export function saveSingletonValue(
 }
 
 /**
- * Bootstrap/reset write. Unlike saveSingletonValue this reinitializes the
- * revision deterministically instead of incrementing, because the whole state
- * is being replaced from an authoritative seed.
+ * Bootstrap/reset write: the whole value is replaced from an authoritative
+ * seed rather than derived from the current one.
+ *
+ * The revision still only ever moves forward. Rewinding it to a literal 1 would
+ * make the compare-and-swap epoch non-monotonic across a reset, so a token
+ * captured before the reset would still satisfy the equality check afterwards
+ * and overwrite freshly seeded state. A bootstrap into an empty table therefore
+ * still starts at revision 1, while a reset advances the existing row.
  */
 export function initSingletonValue(
   database: DatabaseSync,
   key: StateTableKey,
   value: unknown,
 ): void {
-  database
-    .prepare(
-      `INSERT OR REPLACE INTO ${stateTableNames.singleton_state} (key, value, revision) VALUES (?, ?, 1)`,
-    )
-    .run(key, JSON.stringify(value));
+  saveSingletonValue(database, key, value);
 }
 
 /**

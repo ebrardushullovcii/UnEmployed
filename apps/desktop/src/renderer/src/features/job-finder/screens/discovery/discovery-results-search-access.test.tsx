@@ -99,7 +99,9 @@ describe("DiscoveryResultsPanel narrow search access", () => {
 
     const resultsPanel = screen.getByRole("region", { name: "Job results" });
     expect(
-      within(resultsPanel).getByText("1 worth opening · 6 also found"),
+      within(resultsPanel).getByText(
+        "0 worth opening · 1 title match · 6 also found",
+      ),
     ).toBeTruthy();
     fireEvent.click(
       within(resultsPanel).getByRole("button", { name: /Show also found/u }),

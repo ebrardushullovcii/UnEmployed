@@ -561,6 +561,329 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
   });
 }
 
+/**
+ * Prepare-only apply lineage for the demo queue.
+ *
+ * The loader used to reset the workspace with zero rows in every apply table,
+ * so Applications could only ever render its empty state and the browser
+ * hand-off — the one place that names "the Job Finder browser" and offers
+ * "Check whether this step is done" — was unreachable without actually running
+ * a preparation against a live employer page. These rows are plainly synthetic
+ * (`demo_` identifiers, example.com-shaped LinkedIn demo URLs) and describe two
+ * *paused* outcomes only: one where the user must finish a conflicting field in
+ * the open application, and one where the site blocked automatic preparation.
+ *
+ * Nothing here ever claims a submission: every result stays `awaiting_review`,
+ * every attempt stays `paused` with a null outcome, `submittedJobs` is 0, and
+ * both privacy receipts keep `finalSubmitAuthorized`, `finalSubmitOccurred`,
+ * and `accountCreationAuthorized` false with no external writes.
+ */
+const DEMO_APPLY_RUN_ID = "apply_run_demo_apply_queue";
+const DEMO_READY_RESULT_ID = "apply_result_demo_job_ready";
+const DEMO_READY_RECORD_ID = "application_record_demo_job_ready";
+const DEMO_BLOCKED_RESULT_ID = "apply_result_demo_job_consent_queue";
+const DEMO_BLOCKED_RECORD_ID = "application_record_demo_job_consent_queue";
+const DEMO_APPLY_ORIGIN = "https://www.linkedin.com/";
+
+function createDemoPrivacyReceipt(input: {
+  jobId: string;
+  resultId: string;
+  applicationRecordId: string;
+  safePath: string;
+  exportArtifactId: string;
+  fileName: string;
+}) {
+  return {
+    schemaVersion: 1,
+    generatedAt: "2026-03-20T10:12:00.000Z",
+    lineage: {
+      runId: DEMO_APPLY_RUN_ID,
+      jobId: input.jobId,
+      resultId: input.resultId,
+      applicationRecordId: input.applicationRecordId,
+    },
+    destination: {
+      origin: DEMO_APPLY_ORIGIN,
+      safePath: input.safePath,
+    },
+    resume: {
+      source: "tailored_export",
+      sourceDocumentId: null,
+      exportArtifactId: input.exportArtifactId,
+      fileName: input.fileName,
+      sha256: JOB_FINDER_DEMO_EXPORT_RESUME_SHA256,
+    },
+    stayedLocal: [],
+    modelUse: [],
+    externalWrites: [],
+    accountCreationAuthorized: false,
+    finalSubmitAuthorized: false,
+    finalSubmitOccurred: false,
+    submissionOutcome: null,
+  };
+}
+
+const demoApplyRun = {
+  id: DEMO_APPLY_RUN_ID,
+  campaignId: null,
+  mode: "copilot",
+  state: "paused_for_user_review",
+  jobIds: ["job_ready", "job_consent_queue"],
+  currentJobId: "job_ready",
+  submitApprovalId: null,
+  visualCheckpointsEnabled: false,
+  createdAt: "2026-03-20T10:10:00.000Z",
+  updatedAt: "2026-03-20T10:12:00.000Z",
+  completedAt: null,
+  summary: "Preparation paused for your review",
+  detail:
+    "Job Finder prepared both applications and stopped before the employer's submit control.",
+  totalJobs: 2,
+  pendingJobs: 2,
+  submittedJobs: 0,
+  skippedJobs: 0,
+  blockedJobs: 0,
+  failedJobs: 0,
+};
+
+const demoApplyJobResults = [
+  {
+    id: DEMO_READY_RESULT_ID,
+    runId: DEMO_APPLY_RUN_ID,
+    jobId: "job_ready",
+    applicationRecordId: DEMO_READY_RECORD_ID,
+    queuePosition: 0,
+    state: "awaiting_review",
+    summary: "Finish this application step yourself",
+    // Matches the manual-field-finish classification, which is what puts the
+    // "Open the Job Finder browser" / "Check whether this step is done" pair
+    // on Applications.
+    detail:
+      "Two prefilled application values need manual review because they conflict with your saved profile. Review the conflicting answers and finish this application step yourself in the open application.",
+    startedAt: "2026-03-20T10:10:00.000Z",
+    updatedAt: "2026-03-20T10:12:00.000Z",
+    completedAt: null,
+    applicationPreparationStartedAt: "2026-03-20T10:10:00.000Z",
+    applicationPreparationStartedLocalDate: "2026-03-20",
+    blockerReason: "required_human_input",
+    blockerSummary:
+      "Job Finder could not safely save this prepared step without your review.",
+    listingSignalEvidence: null,
+    visualObservationSets: [],
+    visualCheckpoints: [],
+    latestQuestionCount: 6,
+    latestAnswerCount: 4,
+    pendingConsentRequestCount: 0,
+    artifactCount: 1,
+    latestCheckpointId: null,
+    privacyReceipt: createDemoPrivacyReceipt({
+      jobId: "job_ready",
+      resultId: DEMO_READY_RESULT_ID,
+      applicationRecordId: DEMO_READY_RECORD_ID,
+      safePath: "/jobs/view/linkedin_signal_ready/apply",
+      exportArtifactId: "resume_export_job_ready",
+      fileName: "job-ready-resume.pdf",
+    }),
+  },
+  {
+    id: DEMO_BLOCKED_RESULT_ID,
+    runId: DEMO_APPLY_RUN_ID,
+    jobId: "job_consent_queue",
+    applicationRecordId: DEMO_BLOCKED_RECORD_ID,
+    queuePosition: 1,
+    state: "blocked",
+    summary: "The job site blocked automatic preparation",
+    detail:
+      "The job site's service worker blocked automatic preparation. Reset the browser in Safeguards, then finish on the site.",
+    startedAt: "2026-03-20T10:11:00.000Z",
+    updatedAt: "2026-03-20T10:12:00.000Z",
+    completedAt: null,
+    applicationPreparationStartedAt: "2026-03-20T10:11:00.000Z",
+    applicationPreparationStartedLocalDate: "2026-03-20",
+    blockerReason: "site_protection",
+    blockerSummary:
+      "A site service worker stopped the prepared step before it could be saved.",
+    listingSignalEvidence: null,
+    visualObservationSets: [],
+    visualCheckpoints: [],
+    latestQuestionCount: 3,
+    latestAnswerCount: 3,
+    pendingConsentRequestCount: 0,
+    artifactCount: 1,
+    latestCheckpointId: null,
+    privacyReceipt: createDemoPrivacyReceipt({
+      jobId: "job_consent_queue",
+      resultId: DEMO_BLOCKED_RESULT_ID,
+      applicationRecordId: DEMO_BLOCKED_RECORD_ID,
+      safePath: "/jobs/view/linkedin_consent_queue/apply",
+      exportArtifactId: "resume_export_job_consent_queue",
+      fileName: "job-consent-queue-resume.pdf",
+    }),
+  },
+];
+
+const demoApplicationRecords = [
+  {
+    id: DEMO_READY_RECORD_ID,
+    jobId: "job_ready",
+    title: "Senior Product Designer",
+    company: "Signal Systems",
+    status: "ready_for_review",
+    lastActionLabel: "Preparation paused for your review",
+    nextActionLabel:
+      "Finish the conflicting step in the open application, then check whether it is done.",
+    lastUpdatedAt: "2026-03-20T10:12:00.000Z",
+    lastAttemptState: "paused",
+    questionSummary: {
+      total: 6,
+      required: 5,
+      answered: 4,
+      unansweredRequired: 1,
+    },
+    latestBlocker: {
+      code: "requires_manual_review",
+      summary:
+        "Two prefilled application values conflict with your saved profile.",
+    },
+    events: [
+      {
+        id: "application_event_demo_job_ready_paused",
+        at: "2026-03-20T10:12:00.000Z",
+        title: "Preparation paused",
+        detail:
+          "Job Finder stopped before the employer's submit control and left the step for you.",
+        emphasis: "warning",
+      },
+    ],
+  },
+  {
+    id: DEMO_BLOCKED_RECORD_ID,
+    jobId: "job_consent_queue",
+    title: "Staff Product Designer",
+    company: "Consent Labs",
+    status: "ready_for_review",
+    lastActionLabel: "Automatic prep paused",
+    nextActionLabel:
+      "Open Safeguards to reset the Job Finder browser, then finish on the site.",
+    lastUpdatedAt: "2026-03-20T10:12:00.000Z",
+    lastAttemptState: "paused",
+    questionSummary: {
+      total: 3,
+      required: 3,
+      answered: 3,
+      unansweredRequired: 0,
+    },
+    latestBlocker: {
+      code: "requires_manual_review",
+      summary: "The job site blocked automatic preparation.",
+    },
+    events: [
+      {
+        id: "application_event_demo_job_consent_queue_blocked",
+        at: "2026-03-20T10:12:00.000Z",
+        title: "Automatic prep paused",
+        detail:
+          "The job site blocked automatic preparation before anything was submitted.",
+        emphasis: "warning",
+      },
+    ],
+  },
+];
+
+const demoApplicationAttempts = [
+  {
+    id: "application_attempt_demo_job_ready",
+    jobId: "job_ready",
+    applicationRecordId: DEMO_READY_RECORD_ID,
+    state: "paused",
+    summary: "Paused for your review",
+    detail:
+      "Job Finder prepared the application and stopped before the employer's submit control.",
+    startedAt: "2026-03-20T10:10:00.000Z",
+    updatedAt: "2026-03-20T10:12:00.000Z",
+    completedAt: null,
+    outcome: null,
+    blocker: {
+      code: "requires_manual_review",
+      summary:
+        "Two prefilled application values conflict with your saved profile.",
+      detail:
+        "Finish the affected step yourself in the open application, then check whether it is done.",
+      url: "https://www.linkedin.com/jobs/view/linkedin_signal_ready/apply",
+    },
+    nextActionLabel:
+      "Finish the conflicting step in the open application, then check whether it is done.",
+  },
+  {
+    id: "application_attempt_demo_job_consent_queue",
+    jobId: "job_consent_queue",
+    applicationRecordId: DEMO_BLOCKED_RECORD_ID,
+    state: "paused",
+    summary: "Automatic prep paused",
+    detail:
+      "The job site blocked automatic preparation before anything was submitted.",
+    startedAt: "2026-03-20T10:11:00.000Z",
+    updatedAt: "2026-03-20T10:12:00.000Z",
+    completedAt: null,
+    outcome: null,
+    blocker: {
+      code: "requires_manual_review",
+      summary: "The job site blocked automatic preparation.",
+      detail:
+        "Reset the browser in Safeguards, then finish on the site yourself.",
+      url: "https://www.linkedin.com/jobs/view/linkedin_consent_queue/apply",
+    },
+    nextActionLabel:
+      "Open Safeguards to reset the Job Finder browser, then finish on the site.",
+  },
+];
+
+/**
+ * The pending browser step Applications reads to enable "Check whether this
+ * step is done". Credentials stay browser-only and both submit and
+ * account-creation authority stay false, exactly as the schema requires.
+ */
+const demoBrowserStepUserActionRequest = {
+  schemaVersion: 1,
+  id: "user_action_demo_job_ready_browser_step",
+  dedupeKey: "user_action_demo_job_ready_browser_step",
+  revision: 1,
+  kind: "manual_answer",
+  state: "awaiting_user",
+  requirement: "required",
+  scope: {
+    type: "application",
+    runId: DEMO_APPLY_RUN_ID,
+    jobId: "job_ready",
+    applicationRecordId: DEMO_READY_RECORD_ID,
+    resultId: DEMO_READY_RESULT_ID,
+    replayCheckpointId: null,
+    source: "target_site",
+  },
+  verification: {
+    type: "form_control_state",
+    controlFingerprint: "demo_apply_queue_conflicting_field",
+    expectedState: "answered",
+    expectedPageFingerprint: null,
+  },
+  title: "Finish the conflicting application step",
+  summary:
+    "Two prefilled values conflict with your saved profile. Finish that step in the open application, then check whether it is done.",
+  instructions: [],
+  actionUrl: "https://www.linkedin.com/jobs/view/linkedin_signal_ready/apply",
+  displayOrigin: DEMO_APPLY_ORIGIN,
+  credentialsPolicy: "browser_only",
+  submitAuthorized: false,
+  accountCreationAuthorized: false,
+  attemptCount: 0,
+  maxAttempts: 3,
+  createdAt: "2026-03-20T10:12:00.000Z",
+  updatedAt: "2026-03-20T10:12:00.000Z",
+  openedAt: null,
+  resolvedAt: null,
+  expiresAt: null,
+};
+
 export function createApplyQueueDemoState(): JobFinderRepositoryState {
   const resumeDemoState = createResumeWorkspaceDemoState();
   const readySavedJob = resumeDemoState.savedJobs.find(
@@ -721,5 +1044,10 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
         isApproved: true,
       },
     ],
+    applyRuns: [demoApplyRun],
+    applyJobResults: demoApplyJobResults,
+    applicationRecords: demoApplicationRecords,
+    applicationAttempts: demoApplicationAttempts,
+    userActionRequests: [demoBrowserStepUserActionRequest],
   });
 }

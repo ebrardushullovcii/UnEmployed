@@ -74,4 +74,67 @@ describe("approved application answer snapshot migration", () => {
       database.close();
     }
   });
+
+  test("repairs an empty snapshot table whose column shape drifted", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      runMigrations(database);
+      database.exec(
+        "ALTER TABLE application_answer_snapshots DROP COLUMN digest",
+      );
+
+      expect(() => runMigrations(database)).not.toThrow();
+      const columns = database
+        .prepare("PRAGMA table_info(application_answer_snapshots)")
+        .all() as Array<{ name?: unknown }>;
+      expect(columns.map((column) => column.name)).toEqual([
+        "id",
+        "profile_id",
+        "revision",
+        "digest",
+        "source_profile_revision",
+        "approved_at",
+        "value",
+      ]);
+      expect(
+        database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?",
+          )
+          .get("application_answer_snapshots_profile_revision_idx"),
+      ).toBeTruthy();
+    } finally {
+      database.close();
+    }
+  });
+
+  test("fails closed instead of discarding approved snapshots on a drifted shape", () => {
+    const database = new DatabaseSync(":memory:");
+    try {
+      runMigrations(database);
+      database.exec(
+        "ALTER TABLE application_answer_snapshots DROP COLUMN digest",
+      );
+      database
+        .prepare(
+          `INSERT INTO application_answer_snapshots
+             (id, profile_id, revision, source_profile_revision, approved_at, value)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "snapshot_1",
+          "candidate_1",
+          1,
+          1,
+          "2026-08-28T10:00:00.000Z",
+          "{}",
+        );
+
+      expect(() => runMigrations(database)).toThrow(
+        "Approved application answer snapshot migration cannot repair application_answer_snapshots: its column shape is outdated and it still holds rows.",
+      );
+    } finally {
+      database.close();
+    }
+  });
 });

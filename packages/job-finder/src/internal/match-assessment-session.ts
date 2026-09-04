@@ -9,8 +9,23 @@ import {
   type MatchAssessmentPostingInput,
 } from "./match-assessment-posting-input";
 
-export const MATCH_ASSESSMENT_SCORER_VERSION = 8;
-const MATCH_ASSESSMENT_LOGIC_REVISION = 7;
+/**
+ * Bump both values together whenever scoring OUTPUT changes, not only when the
+ * scorer's shape changes. The fingerprints below are computed over the profile
+ * and preferences alone, so an assessment persisted by an earlier build hashes
+ * identically under a later one and is reused verbatim: a returning workspace
+ * would keep stale scores forever. The revision inside each fingerprint prefix
+ * is the only thing that forces a recalculation.
+ *
+ * Revision 8 (scorer version 9): a saved location that is only an absence
+ * placeholder ("Location not stated", "N/A") stopped counting as a geographic
+ * constraint, so `hasLocationPreferences`, the preference facet's existence and
+ * evidence line, the location requirement, and `getBroadLocationCompatibility`
+ * all changed answers for those profiles. Measured against the previous build,
+ * an identical placeholder-only input scored 68 before and 71 after.
+ */
+export const MATCH_ASSESSMENT_SCORER_VERSION = 9;
+const MATCH_ASSESSMENT_LOGIC_REVISION = 8;
 
 function stableSerialize(value: unknown): string {
   if (value === null || typeof value !== "object") {

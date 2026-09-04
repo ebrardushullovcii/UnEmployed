@@ -1,58 +1,29 @@
 # UnEmployed
 
-Agent-first Electron monorepo for `Job Finder` and `Interview Helper`.
-
-## Startup
-
-1. Read `docs/README.md`
-2. Read `docs/STATUS.md` and `docs/TRACKS.md` only for active feature work, broad repo changes, handoff updates, or unclear current state
-3. Read an active or queued exec plan only if the task is scoped by it
-4. Read the nearest package `AGENTS.md` only when editing or reviewing that package
+Local-first Electron monorepo (pnpm + turbo) with two modules: `Job Finder` and `Interview Helper`. Doc map: `docs/README.md`. Decisions: `docs/adr/`. Code is the source of truth for current behavior.
 
 ## Rules
 
-- Prefer the smallest relevant doc set; do not rescan the repo when canonical docs already answer the question
-- Keep package boundaries typed and schema-validated
-- Do not introduce `any`, deep cross-package imports, or untyped IPC
-- Follow the source-generic discovery, source-debug, and apply-prep rules in `docs/ARCHITECTURE.md` and `docs/adr/0007-source-generic-browser-workflows.md`
-- Keep durable knowledge in `docs/`; keep `AGENTS.md` short and pointer-based
-- Use `docs/STATUS.md`, `docs/TRACKS.md`, and active or queued exec plans as the handoff layer
-- Use `docs/HISTORY.md` and `docs/adr/` for completed context instead of old plan files
-- For narrow local tasks, prefer package guides and code over global handoff docs
+- Never commit, push, or create/update a PR unless the user explicitly asks.
+- Do not run `pnpm verify`, `pnpm test:evidence`, fingerprints, seals, custody, persona waves, or any release-acceptance chain unless the user explicitly declares a release candidate (ADR 0014). Run the smallest check that proves the change; the picker is in `docs/TESTING.md`.
+- Never kill a process you did not start. No `pkill -f electron`, `pkill -f UnEmployed`, or `killall Electron`; those match the user's own `pnpm desktop:dev` instance. Stop only the instance you launched, through its own handle or PID tree, and report survivors instead of sweeping.
+- Final submission, account creation, credentials, CAPTCHA, MFA, and legal consent stay user-owned. Automated and test runs stay `prepare_only` with `submitAuthorized: false` (ADR 0012).
+- Keep durable knowledge in `docs/` and `docs/adr/`. Do not add status logs, handoff notes, evidence logs, or plan files to the repo; git history and the scratchpad cover that. Write an ADR when a decision would surprise a future reader.
+- Do not edit docs unless the user asks or a doc contradicts the change you just made.
+- Preserve the user's dirty worktree: never reset, clean, revert, stash, or delete their changes. Do not restore files another session deleted; ask the user instead.
+- Never put personal resumes, credentials, or authenticated browser state in fixtures, prompts, docs, or evidence.
 
-## Doc Updates
+## Boundaries
 
-- product behavior: `docs/PRODUCT.md`
-- architecture or ownership: `docs/ARCHITECTURE.md`
-- contracts, schemas, preload APIs, IPC: `docs/CONTRACTS.md`
-- verification flow: `docs/TESTING.md`
-- active state: `docs/STATUS.md`, `docs/TRACKS.md`, relevant active or queued exec plan
+- Renderer talks to Electron main only through the typed preload bridge. Never expose raw Node or Electron primitives to the renderer.
+- Shared types, schemas, DTOs, and IPC payloads come from `packages/contracts`. No `any`, no untyped IPC, no deep cross-package imports.
+- Discovery, source-debug, and apply preparation stay source-generic: no per-board route builders, query maps, triage overrides, or policy branches in shared orchestration (ADR 0007). Reusable provider adapters are fine; board-specific workflow policy is not. `pnpm source-generic:check` enforces this.
+- `packages/browser-agent` owns browser workflow policy, prompts, and structured outputs; `packages/browser-runtime` stays generic. Renderer and Electron layers must not depend on browser-agent internals.
+- `packages/agent-runtime` is product-neutral: no domain schemas, writes target reversible drafts, it never executes external actions, and persisted typed state is the memory rather than the model conversation.
+- Persistence stays behind repository interfaces in `packages/db`; no SQL or storage details reach the renderer.
+- Native code lives behind `packages/os-integration`, and only when Electron APIs are insufficient.
+- Package ownership and data flow: `docs/ARCHITECTURE.md`.
 
-## Validation
+## Testing the app
 
-- While the product is still being iterated, batch related fixes, run only the
-  focused checks for touched behavior, build desktop once, and retest the real
-  app. Do not run fingerprints, custody, seals, `pnpm test:evidence`, broad
-  `pnpm verify`, or canonical persona harnesses unless the user explicitly
-  declares a settled release candidate.
-- During Job Finder product iteration, follow the current-build walkthrough and
-  visual-review loop in `docs/TESTING.md`. Optimize for visible flow improvement:
-  one Electron owner, shared screenshots, parallel review, one consolidated fix
-  batch, one rebuild, and a visible before/after handoff. Limit diagnostic
-  persona rounds to two or three users after a major batch. Do not substitute
-  architecture audits, harness work, or repeated narrow tests for using the app.
-- Broad repository or release-candidate check: `pnpm verify`
-- Docs or guidance only: `pnpm validate:docs-only`
-- Package-local code: `pnpm validate:package <alias>`
-
-## Git Rules
-
-- Never commit unless the user explicitly asks
-- Never create or update a PR unless the user explicitly asks
-- Treat documentation updates as part of the same deliverable
-
-## Agent Assets
-
-- Repo-specific skills live in `.agents/skills/`
-- Registry lives in `.agents/registry.yaml`
-- `CLAUDE.md` and `.cursor/rules/00-project.mdc` are generated
+The user usually has `pnpm desktop:dev` running. For "use it like a user" checks: build once with `pnpm --filter @unemployed/desktop build`, launch an isolated instance with a temporary user-data directory and synthetic profile data, drive it, keep screenshots, batch the fixes, then rebuild once. Details and safety rules: `docs/TESTING.md`.

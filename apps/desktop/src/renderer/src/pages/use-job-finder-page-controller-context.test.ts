@@ -15,6 +15,8 @@ import type {
 import type { TailoredDraftPreparationViewState } from "@renderer/features/job-finder/screens/review-queue/review-queue-status";
 import { buildJobFinderTaskCenterModel } from "@renderer/features/job-finder/components/task-center/job-finder-task-center-model";
 import { createJobFinderSaveCoordinator } from "./job-finder-save-state";
+import { runJobFinderApplicationBrowserHandoff } from "./job-finder-page-routes";
+import { formatJobFinderBrowserHandoffFailedStatus } from "@renderer/features/job-finder/lib/job-finder-browser-handoff-copy";
 
 function createIdleTailoredDraftPreparation(): TailoredDraftPreparationViewState {
   return {
@@ -1069,5 +1071,120 @@ describe("buildJobFinderPageContext resume claim confirmation passthrough", () =
     expect(returned).toBe(snapshot);
     expect(setResumeClaimConfirmation).toHaveBeenCalledOnce();
     expect(setResumeClaimConfirmation).toHaveBeenCalledWith(input);
+  });
+});
+
+describe("Applications browser hand-off failure reporting", () => {
+  /**
+   * The hand-off status is composed from what the REAL action wrapper hands
+   * back, so these drive `buildJobFinderPageContext`'s own
+   * `onPerformUserAction` / `onOpenBrowserSession` with a rejecting IPC double.
+   * Calling the composer directly with a fabricated error would have passed
+   * before the fix as well: the whole defect was that the wrapper reports its
+   * failure as a bare `false` and the cause never reached the sentence.
+   */
+  const target = {
+    jobId: "job_a",
+    resultId: "result_a",
+    runId: "run_a",
+    applicationRecordId: "record_a",
+    destinationUrl: "https://jobs.example.com/apply/1",
+  };
+
+  function pendingRequests() {
+    return [
+      {
+        id: "request_a",
+        revision: 3,
+        state: "pending",
+        scope: { type: "application", runId: "run_a", jobId: "job_a" },
+      },
+    ] as unknown as JobFinderWorkspaceSnapshot["userActionRequests"];
+  }
+
+  it("carries the real cause into the failed status when the open-page command rejects", async () => {
+    const performUserAction = vi
+      .fn<JobFinderShellActions["performUserAction"]>()
+      .mockRejectedValue(new Error("The browser runtime is disabled"));
+    const { context } = buildContext({ actions: { performUserAction } });
+
+    const outcome = await runJobFinderApplicationBrowserHandoff({
+      onOpenBrowserSession: () =>
+        context.onOpenBrowserSession(undefined, { rethrowError: true }),
+      onPerformUserAction: (command) =>
+        context.onPerformUserAction(command, { rethrowError: true }),
+      requests: pendingRequests(),
+      target,
+    });
+
+    expect(outcome).toEqual({
+      kind: "failed",
+      reason: "The browser runtime is disabled",
+    });
+    expect(performUserAction).toHaveBeenCalledTimes(1);
+
+    const status = formatJobFinderBrowserHandoffFailedStatus(
+      outcome.kind === "failed" ? outcome.reason : null,
+    );
+
+    expect(status).toBe(
+      "The Job Finder browser did not open, so nothing was opened for this " +
+        "application and nothing was sent to the employer. The browser runtime " +
+        "is disabled. Try again, or open this step from Needs you.",
+    );
+  });
+
+  it("carries the real cause when only the window could be opened", async () => {
+    const openBrowserSession = vi
+      .fn<JobFinderShellActions["openBrowserSession"]>()
+      .mockRejectedValue(new Error("No browser session could be started"));
+    const { context } = buildContext({ actions: { openBrowserSession } });
+
+    const outcome = await runJobFinderApplicationBrowserHandoff({
+      onOpenBrowserSession: () =>
+        context.onOpenBrowserSession(undefined, { rethrowError: true }),
+      onPerformUserAction: (command) =>
+        context.onPerformUserAction(command, { rethrowError: true }),
+      requests:
+        [] as unknown as JobFinderWorkspaceSnapshot["userActionRequests"],
+      target,
+    });
+
+    expect(outcome).toEqual({
+      kind: "failed",
+      reason: "No browser session could be started",
+    });
+    expect(
+      formatJobFinderBrowserHandoffFailedStatus(
+        outcome.kind === "failed" ? outcome.reason : null,
+      ),
+    ).toContain("No browser session could be started.");
+  });
+
+  it("still reports the failure once at the route and leaves other callers resolving false", async () => {
+    // The banner is unchanged, and a caller that does not ask for the cause
+    // keeps the wrapper's own fire-and-forget contract.
+    const performUserAction = vi
+      .fn<JobFinderShellActions["performUserAction"]>()
+      .mockRejectedValue(new Error("The browser runtime is disabled"));
+    const { context, getActionState } = buildContext({
+      actions: { performUserAction },
+    });
+
+    await expect(
+      context.onPerformUserAction({
+        requestId: "request_a",
+        commandId: "command_a",
+        expectedRevision: 3,
+        action: "confirm_done",
+        credentialsPolicy: "browser_only",
+        submitAuthorized: false,
+        accountCreationAuthorized: false,
+      }),
+    ).resolves.toBe(false);
+
+    expect(getActionState().message).toContain(
+      "The browser runtime is disabled",
+    );
   });
 });

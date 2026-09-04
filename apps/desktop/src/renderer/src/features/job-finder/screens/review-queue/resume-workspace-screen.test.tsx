@@ -288,6 +288,49 @@ function buildWorkspaceWithBlockedSummaryClaim(): JobFinderResumeWorkspace {
   });
 }
 
+/**
+ * A workspace whose saved draft carries one unsupported generated claim, which
+ * is what puts `Review blocked claims` on screen.
+ */
+function buildWorkspaceWithUnsupportedClaim(): JobFinderResumeWorkspace {
+  const workspace = buildWorkspace();
+  const summarySection =
+    workspace.draft.sections.find((section) => section.text?.trim()) ?? null;
+
+  if (!summarySection?.text) {
+    throw new Error("Expected the demo draft to contain a text section.");
+  }
+
+  return JobFinderResumeWorkspaceSchema.parse({
+    ...workspace,
+    validation: {
+      id: "validation_unsupported_claim",
+      draftId: workspace.draft.id,
+      issues: [],
+      draftContentHash: null,
+      claimAssessments: [
+        {
+          id: "claim_unsupported_summary",
+          field: "section_text",
+          sectionId: summarySection.id,
+          entryId: null,
+          bulletId: null,
+          claimText: summarySection.text,
+          claimOrigin: "ai_generated",
+          contentHash: "fnv1a32:0000abcd",
+          status: "unsupported",
+          evidenceRefs: [],
+          verifier: "deterministic_candidate_evidence_v2",
+          assessedAt: "2026-04-27T01:00:00.000Z",
+        },
+      ],
+      coverageComparison: null,
+      pageCount: null,
+      validatedAt: "2026-04-27T01:00:00.000Z",
+    },
+  });
+}
+
 function buildPreview(
   revisionKey: string,
   htmlText: string,
@@ -519,6 +562,55 @@ describe("ResumeWorkspaceScreen", () => {
     // desktop split view.
     Reflect.deleteProperty(window, "matchMedia");
     vi.clearAllMocks();
+  });
+
+  it("opens the one mounted proof disclosure from Review blocked claims at desktop width", async () => {
+    // Both studio layouts used to mount at once, so `id="resume-proof-details"`
+    // existed twice and `getElementById` always returned the CSS-hidden
+    // compact copy: at >= 1280px the button opened, scrolled and focused a
+    // `display:none` subtree and nothing on screen changed.
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        addEventListener: vi.fn(),
+        matches: true,
+        removeEventListener: vi.fn(),
+      })),
+    });
+
+    renderScreen({ workspace: buildWorkspaceWithUnsupportedClaim() });
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    // Reaching the blocked claim goes through the attention chip, which sets
+    // the compact Tools tab. Pre-fix that mounted the compact copy of the
+    // proof disclosure beside the desktop one, ahead of it in document order.
+    const attentionChip = screen.getByRole("button", {
+      name: /item(s)? need(s)? attention/,
+    });
+    await act(async () => {
+      fireEvent.click(attentionChip);
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    const proofNodes = document.querySelectorAll("#resume-proof-details");
+    expect(proofNodes).toHaveLength(1);
+    const proof = proofNodes[0] as HTMLDetailsElement;
+    expect(proof.open).toBe(false);
+    expect(proof.closest("[data-resume-studio-desktop-grid]")).not.toBeNull();
+    expect(proof.closest(".xl\\:hidden")).toBeNull();
+
+    const review = screen.getByRole("button", {
+      name: "Review blocked claims",
+    });
+    await act(async () => {
+      fireEvent.click(review);
+      await vi.runOnlyPendingTimersAsync();
+    });
+
+    expect(proof.open).toBe(true);
+    expect(document.activeElement).toBe(proof.querySelector("summary"));
   });
 
   it("offers a one-click restore of the text a blocked claim replaced", async () => {
@@ -765,22 +857,34 @@ describe("ResumeWorkspaceScreen", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("anchors the untouched guided edits bubble to the viewport bottom-right", async () => {
+  it("docks the untouched guided edits launcher in the studio header", async () => {
+    // Previously "anchors the untouched guided edits bubble to the viewport
+    // bottom-right": it asserted a body-portalled floating root at
+    // `bottom: 16px; right: 16px`. That pill rested over the tools column, and
+    // no reservation inside a scrolling column can keep a fixed pill off live
+    // content at every scroll position, so the collapsed launcher is now an
+    // ordinary button in the sticky header that already owns this screen's
+    // actions — and nothing floats while it is collapsed.
     renderScreen();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    const popupRoot = document.querySelector<HTMLElement>(
-      "[data-resume-guided-edits-open]",
-    );
+    expect(
+      document.querySelector("[data-resume-guided-edits-open]"),
+    ).toBeNull();
 
-    expect(popupRoot?.parentElement).toBe(document.body);
-    expect(popupRoot?.style.bottom).toBe("16px");
-    expect(popupRoot?.style.left).toBe("");
-    expect(popupRoot?.style.right).toBe("16px");
-    expect(popupRoot?.style.top).toBe("");
+    const launcher = screen.getByRole("button", {
+      name: /^Open the Assistant/,
+    });
+
+    expect(
+      launcher.closest("[data-resume-studio-assistant-launcher-slot]"),
+    ).not.toBeNull();
+    expect(
+      launcher.closest("[data-resume-studio-compact-header]"),
+    ).not.toBeNull();
   });
   it("opens the guided edits popup from the always-available bubble", async () => {
     renderScreen();
@@ -2309,71 +2413,103 @@ describe("ResumeWorkspaceScreen", () => {
       expect(title.parentElement?.textContent).toContain("Updated");
     });
 
-    it("sizes the studio content area to the viewport minus one sticky row, letting the workspace title scroll away", async () => {
-      const originalGetBoundingClientRect = Object.getOwnPropertyDescriptor(
-        HTMLElement.prototype,
-        "getBoundingClientRect",
-      );
-      HTMLElement.prototype.getBoundingClientRect = function measured(
-        this: HTMLElement,
-      ) {
-        // 56px of shell chrome above the route plus a 72px workspace header.
-        const height = this.hasAttribute("data-locked-screen-top-content")
-          ? 72
-          : 0;
-        const top = this.hasAttribute("data-locked-screen-scroll-area")
-          ? 56
-          : 0;
-
-        return {
-          bottom: top + height,
-          height,
-          left: 0,
-          right: 1440,
-          top,
-          width: 1440,
-          x: 0,
-          y: top,
-          toJSON: () => ({}),
-        } as DOMRect;
-      };
-
-      try {
-        renderScreen();
-
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(100);
-        });
-
-        const contentArea = document.querySelector<HTMLElement>(
-          "[data-resume-studio-content-area]",
+    // The studio pane container has to END at or above the window bottom at
+    // scroll 0, which is the position the user arrives in. Subtracting only
+    // the shell chrome and the bottom gutter left it exactly
+    // `titleRow - gutter` past the fold — a measured 41px at both 1440x920 and
+    // 1280x720 — so the route grew a scroll whose whole range existed to
+    // reveal a pane's bottom border, and the last resume line was sliced by
+    // the window edge instead of by the pane. Every band above the studio is
+    // subtracted here, and the arithmetic below is the guard: it fails if any
+    // one of them is dropped again.
+    it.each([
+      // viewport height, shell chrome above the route, workspace title row
+      [920, 56, 53],
+      [720, 116, 53],
+      [640, 116, 72],
+    ])(
+      "ends the studio content area above the window bottom at scroll 0 in a %ipx window",
+      async (viewportHeight, shellChrome, titleRow) => {
+        const originalGetBoundingClientRect = Object.getOwnPropertyDescriptor(
+          HTMLElement.prototype,
+          "getBoundingClientRect",
         );
+        HTMLElement.prototype.getBoundingClientRect = function measured(
+          this: HTMLElement,
+        ) {
+          const height = this.hasAttribute("data-locked-screen-top-content")
+            ? titleRow
+            : 0;
+          const top = this.hasAttribute("data-locked-screen-scroll-area")
+            ? shellChrome
+            : 0;
 
-        // The bound applies at every supported width, not only from xl up:
-        // below xl the studio is a tab surface whose transcript must scroll
-        // inside the viewport rather than growing the route.
-        expect(contentArea?.className).toContain("h-(--resume-studio-height)");
-        expect(contentArea?.className).not.toContain(
-          "xl:h-(--resume-studio-height)",
-        );
-        // 56 shell chrome + 12 shell bottom gutter only. The 72px workspace
-        // title row is an ordinary scrolling row of the locked layout, so it is
-        // no longer permanent chrome above the studio; the studio's own compact
-        // state row is the one sticky row inside the content area.
-        expect(
-          contentArea?.style.getPropertyValue("--resume-studio-height"),
-        ).toBe("calc(100dvh - 68px)");
-        expect(contentArea?.className).toContain("overflow-hidden");
-      } finally {
-        if (originalGetBoundingClientRect) {
-          Object.defineProperty(
-            HTMLElement.prototype,
-            "getBoundingClientRect",
-            originalGetBoundingClientRect,
+          return {
+            bottom: top + height,
+            height,
+            left: 0,
+            right: 1440,
+            top,
+            width: 1440,
+            x: 0,
+            y: top,
+            toJSON: () => ({}),
+          } as DOMRect;
+        };
+
+        try {
+          renderScreen();
+
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(100);
+          });
+
+          const contentArea = document.querySelector<HTMLElement>(
+            "[data-resume-studio-content-area]",
           );
+
+          // The bound applies at every supported width, not only from xl up:
+          // below xl the studio is a tab surface whose transcript must scroll
+          // inside the viewport rather than growing the route.
+          expect(contentArea?.className).toContain(
+            "h-(--resume-studio-height)",
+          );
+          expect(contentArea?.className).not.toContain(
+            "xl:h-(--resume-studio-height)",
+          );
+          expect(contentArea?.className).toContain("overflow-hidden");
+
+          const declaredHeight = contentArea?.style.getPropertyValue(
+            "--resume-studio-height",
+          );
+          const subtracted = Number(
+            /^calc\(100dvh - (\d+)px\)$/.exec(declaredHeight ?? "")?.[1],
+          );
+
+          expect(Number.isFinite(subtracted)).toBe(true);
+          // Shell chrome + title row + the shell's own 12px bottom gutter.
+          expect(subtracted).toBe(shellChrome + titleRow + 12);
+
+          // At scroll 0 the container starts below both permanent bands, so
+          // its bottom is the only thing this height controls.
+          const containerTop = shellChrome + titleRow;
+          const containerBottom = containerTop + (viewportHeight - subtracted);
+
+          expect(containerBottom).toBeLessThanOrEqual(viewportHeight);
+          // ...and it lands exactly on the shell's bottom gutter, so the fix
+          // cannot be satisfied by an arbitrarily short studio either.
+          expect(containerBottom).toBe(viewportHeight - 12);
+        } finally {
+          if (originalGetBoundingClientRect) {
+            Object.defineProperty(
+              HTMLElement.prototype,
+              "getBoundingClientRect",
+              originalGetBoundingClientRect,
+            );
+          }
         }
-      }
-    });
+      },
+    );
 
     // A grounded proposal is the tallest thing the Assistant thread can hold.
     // The studio's compact `Assistant` tab used to render a second, unbounded

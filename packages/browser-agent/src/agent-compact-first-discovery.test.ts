@@ -1,6 +1,10 @@
 import { describe, expect, test, vi } from "vitest";
 import type { Page } from "playwright";
 import type { BrowserAgentRunCheckpoint } from "@unemployed/contracts";
+import {
+  assessJobPostingDetailQuality,
+  buildDiscoveryCardOnlyEvidenceWarning,
+} from "@unemployed/contracts";
 import { runAgentDiscovery, type JobExtractor, type LLMClient } from "./agent";
 import { createConfig, createToolCall } from "./agent.test-fixtures";
 import type { AgentMessage } from "./types";
@@ -345,8 +349,11 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
     expect(result.jobs[0]?.sourceJobId).toBe("438900011");
     expect(result.incomplete).toBe(true);
     expect(result.error).toBeUndefined();
+    // The partial-result warning still reads exactly as before; the retained
+    // job is card-only, so the run also carries the evidence-depth warning.
     expect(result.warning).toBe(
-      "Deterministic page discovery kept partial results, but model-assisted expansion was unavailable.",
+      "Deterministic page discovery kept partial results, but model-assisted expansion was unavailable. " +
+        buildDiscoveryCardOnlyEvidenceWarning("Primary target"),
     );
     expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(0);
   });
@@ -695,5 +702,137 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
     expect(llmClient.chatWithTools).not.toHaveBeenCalled();
     expect(jobExtractor.extractJobsFromPage).not.toHaveBeenCalled();
     expect(journal.some((entry) => entry.kind === "checkpoint")).toBe(true);
+  });
+});
+
+describe("runAgentDiscovery card-only evidence honesty", () => {
+  test("warns once at run level when every retained posting is card-only, naming the source from run data", async () => {
+    const llmClient: LLMClient = { chatWithTools: vi.fn() };
+    const jobExtractor: JobExtractor = {
+      extractJobsFromPage: vi.fn(async () => []),
+    };
+
+    const result = await runAgentDiscovery(
+      createCompactFirstFakePage({
+        scanPayload: {
+          elements: [
+            {
+              role: "link",
+              accessibleName: "Frontend Engineer",
+              href: "https://www.linkedin.com/jobs/view/438900101",
+              containerKey: null,
+              jobIdHint: "438900101",
+            },
+            {
+              role: "link",
+              accessibleName: "Backend Engineer",
+              href: "https://www.linkedin.com/jobs/view/438900102",
+              containerKey: null,
+              jobIdHint: "438900102",
+            },
+          ],
+        },
+      }),
+      createOrdinaryConfig({ targetJobCount: 2 }),
+      llmClient,
+      jobExtractor,
+    );
+
+    expect(result.jobs).toHaveLength(2);
+    expect(result.error).toBeUndefined();
+    expect(llmClient.chatWithTools).toHaveBeenCalledTimes(0);
+    expect(
+      result.jobs.every(
+        (job) => assessJobPostingDetailQuality(job) === "card_only",
+      ),
+    ).toBe(true);
+
+    // Exactly one run-level warning, naming the source from the run's own
+    // prompt context, with no claim that the app can open a listing.
+    expect(result.warning).toBe(
+      buildDiscoveryCardOnlyEvidenceWarning("Primary target"),
+    );
+    expect(
+      result.warning?.match(/Only listing titles and card details were read/gu),
+    ).toHaveLength(1);
+  });
+
+  test("stays silent when at least one retained posting carries listing detail", async () => {
+    const llmClient: LLMClient = { chatWithTools: vi.fn() };
+    const jobExtractor: JobExtractor = {
+      extractJobsFromPage: vi.fn(async () => []),
+    };
+
+    const result = await runAgentDiscovery(
+      createCompactFirstFakePage({
+        scanPayload: {
+          structuredPostings: [
+            {
+              sourceJobId: "438900201",
+              canonicalUrl: "https://www.linkedin.com/jobs/view/438900201",
+              title: "Platform Engineer",
+              company: "Acme",
+              location: "Remote",
+              description:
+                "Acme is hiring a platform engineer to own the ingestion pipeline end to end, review changes from the product teams, run the deployment path for every service the group operates, and mentor two engineers through their first quarter on call.",
+              postedAtText: null,
+              salaryText: null,
+              employmentType: "FULL_TIME",
+              workModeHints: [],
+            },
+          ],
+          elements: [
+            {
+              role: "link",
+              accessibleName: "Backend Engineer",
+              href: "https://www.linkedin.com/jobs/view/438900202",
+              containerKey: null,
+              jobIdHint: "438900202",
+            },
+          ],
+        },
+      }),
+      createOrdinaryConfig({ targetJobCount: 2 }),
+      llmClient,
+      jobExtractor,
+    );
+
+    expect(result.jobs).toHaveLength(2);
+    expect(result.error).toBeUndefined();
+    expect(
+      result.jobs.some(
+        (job) => assessJobPostingDetailQuality(job) !== "card_only",
+      ),
+    ).toBe(true);
+    expect(result.warning).toBeUndefined();
+  });
+
+  test("leaves a run that retained nothing exactly as it was", async () => {
+    const llmClient: LLMClient = {
+      chatWithTools: vi.fn(async () => ({
+        content: "handing control back after the wall was detected",
+        toolCalls: [
+          createToolCall(
+            "finish",
+            { reason: "Auth wall detected deterministically." },
+            "tool_finish_no_retained_jobs",
+          ),
+        ],
+      })),
+    };
+
+    const result = await runAgentDiscovery(
+      createCompactFirstFakePage({
+        bodyText:
+          "Please sign in to continue viewing job recommendations on this board.",
+      }),
+      createOrdinaryConfig(),
+      llmClient,
+      { extractJobsFromPage: vi.fn(async () => []) },
+    );
+
+    expect(result.jobs).toHaveLength(0);
+    expect(result.error).toBeUndefined();
+    expect(result.warning).toBeUndefined();
   });
 });

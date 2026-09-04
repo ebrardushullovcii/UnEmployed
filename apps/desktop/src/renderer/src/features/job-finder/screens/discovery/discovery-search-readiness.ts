@@ -3,6 +3,7 @@ import {
   type BrowserSessionState,
   type JobSearchPreferences,
 } from "@unemployed/contracts";
+import { JOB_FINDER_BROWSER_NAME_SENTENCE_START } from "../../lib/job-finder-browser-handoff-copy";
 
 /**
  * Copy shared by the route header and search controls when only the seeded
@@ -29,8 +30,7 @@ export const DISCOVERY_OFFLINE_RUNTIME_LABEL = "Offline catalog";
  * the discovery run opens and attaches the browser itself, so the UI gate
  * must not be stricter than the runtime it fronts.
  */
-export const DISCOVERY_BROWSER_BLOCKED_REASON =
-  "The browser Job Finder uses for searches needs attention before the next search.";
+export const DISCOVERY_BROWSER_BLOCKED_REASON = `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} needs attention before the next search.`;
 
 export type DiscoveryRuntimeCapability = "agent_backed" | "offline_catalog";
 

@@ -961,6 +961,24 @@ export function createWorkspaceApplicationMethods(
     return actualSha256.toLowerCase();
   }
 
+  /**
+   * The application resume artifact must carry the path the verifier actually
+   * read, not the recorded one. A workspace whose absolute export path was
+   * recorded under an earlier user-data directory still passes the readiness
+   * gate here — the verifier recovers the file — but the browser runtime
+   * re-checks the artifact path with its own `access()` and fails the run with
+   * `missing_resume`, which the stale-blocker sync then clears into another
+   * identical "Retry preparation" attempt. Verifiers that cannot resolve keep
+   * the recorded path exactly as before.
+   */
+  async function resolveVerifiedResumeFilePath(
+    recordedFilePath: string,
+  ): Promise<string> {
+    const resolvedFilePath =
+      await ctx.exportFileVerifier?.resolvePath?.(recordedFilePath);
+    return resolvedFilePath ?? recordedFilePath;
+  }
+
   async function buildIntermediateMutationExecutionOptions(input: {
     job: ReturnType<typeof SavedJobSchema.parse>;
     resumeArtifact: ExecuteApplicationFlowInput["resumeArtifact"];
@@ -1083,6 +1101,8 @@ export function createWorkspaceApplicationMethods(
         filePath: originalResumePath,
         label: "The original CV",
       });
+      const verifiedOriginalResumePath =
+        await resolveVerifiedResumeFilePath(originalResumePath);
 
       return {
         job,
@@ -1096,7 +1116,7 @@ export function createWorkspaceApplicationMethods(
           sourceDocumentId: profile.baseResume.id,
           exportArtifactId: null,
           fileName: profile.baseResume.fileName,
-          filePath: originalResumePath,
+          filePath: verifiedOriginalResumePath,
           sha256: verifiedSha256,
           approvedAt: new Date().toISOString(),
         }),
@@ -1154,6 +1174,9 @@ export function createWorkspaceApplicationMethods(
       filePath: approvedExport.filePath,
       label: "The approved tailored CV",
     });
+    const verifiedApprovedExportPath = await resolveVerifiedResumeFilePath(
+      approvedExport.filePath,
+    );
 
     return {
       job,
@@ -1170,7 +1193,7 @@ export function createWorkspaceApplicationMethods(
         fileName:
           approvedExport.filePath.split(/[\\/]/).at(-1) ??
           `${job.title}-resume.pdf`,
-        filePath: approvedExport.filePath,
+        filePath: verifiedApprovedExportPath,
         sha256: verifiedSha256,
         approvedAt: new Date().toISOString(),
       }),

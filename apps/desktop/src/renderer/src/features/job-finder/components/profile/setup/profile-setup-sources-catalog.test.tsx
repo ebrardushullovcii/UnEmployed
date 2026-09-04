@@ -384,7 +384,13 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
     expect(scrollOrder).toBeLessThan(focusOrder);
     expect(listHeading.className).toContain("scroll-mt-4");
     expect(listHeading.className).toContain("sm:scroll-mt-[8.25rem]");
-    expect(listHeading.className).toContain("min-[1440px]:scroll-mt-[4.5rem]");
+    // Important on purpose: Tailwind v4 emits arbitrary media variants before
+    // the named breakpoints, so a plain `min-[1440px]` token would lose to the
+    // still-matching `sm:scroll-mt-[8.25rem]` at >=1440px.
+    expect(listHeading.className).toContain("min-[1440px]:!scroll-mt-[4.5rem]");
+    expect(listHeading.className).not.toContain(
+      "min-[1440px]:scroll-mt-[4.5rem]",
+    );
   });
 
   it("finds a known catalog entry by search and enables exactly that source explicitly", async () => {

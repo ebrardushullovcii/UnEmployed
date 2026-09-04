@@ -486,6 +486,448 @@ describe("ProfileResumePanel", () => {
     expect(container?.textContent?.split(stageFallbackNote)).toHaveLength(2);
   });
 
+  it("shows the quality note from the recorded stage fallback even when the run emitted no matching prose", () => {
+    // The structured `fallbackKind` is the authority. A run whose AI text
+    // stages all degraded but whose warnings were reworded (or absent) must
+    // still tell the user, instead of the app holding the fact silently.
+    const profile = CandidateProfileSchema.parse({
+      id: "candidate_structured_fallback",
+      firstName: "Alex",
+      lastName: "Vanguard",
+      fullName: "Alex Vanguard",
+      headline: "Senior systems designer",
+      summary: "Builds resilient workflows.",
+      currentLocation: "London, UK",
+      yearsExperience: 10,
+      email: "alex@example.com",
+      phone: "+44 7700 900123",
+      baseResume: {
+        id: "resume_structured_fallback",
+        fileName: "alex-vanguard.txt",
+        uploadedAt: "2026-03-20T10:00:00.000Z",
+        textContent: "Alex Vanguard",
+        extractionStatus: "ready",
+        // Deliberately no prose the substring matcher recognises.
+        analysisWarnings: [],
+      },
+      workEligibility: {},
+      professionalSummary: {},
+      targetRoles: ["Principal Designer"],
+      locations: ["Remote"],
+      skills: ["Figma"],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    });
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanelHarness
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
+          latestResumeImportRun={ResumeImportRunSchema.parse({
+            id: "resume_import_run_structured",
+            sourceResumeId: "resume_structured_fallback",
+            sourceResumeFileName: "alex-vanguard.txt",
+            trigger: "import",
+            status: "applied",
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:00:30.000Z",
+            primaryParserKind: "plain_text",
+            parserKinds: ["plain_text"],
+            analysisProviderKind: "openai_compatible",
+            analysisProviderLabel: "Test AI",
+            warnings: [],
+            errorMessage: null,
+            candidateCounts: {
+              total: 3,
+              autoApplied: 0,
+              needsReview: 3,
+              rejected: 0,
+              abstained: 0,
+            },
+            timing: {
+              textBranchMs: 25_000,
+              literalExtractionMs: 12,
+              reconciliationMs: 4,
+              textStages: [
+                {
+                  stage: "identity_summary",
+                  status: "completed",
+                  durationMs: 25_000,
+                  fallbackKind: "timeout",
+                  fallbackReason: "Model request timed out after 25s",
+                },
+                {
+                  stage: "experience",
+                  status: "completed",
+                  durationMs: 25_000,
+                  fallbackKind: "timeout",
+                  fallbackReason: "Model request timed out after 25s",
+                },
+                {
+                  stage: "background",
+                  status: "completed",
+                  durationMs: 900,
+                },
+                {
+                  stage: "shared_memory",
+                  status: "completed",
+                  durationMs: 3,
+                },
+              ],
+            },
+          })}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onApplyTimelineRepairAction={vi.fn()}
+          onImportResume={vi.fn()}
+          profile={profile}
+        />,
+      );
+    });
+
+    const qualityNote = container?.querySelector(
+      "[data-profile-resume-quality-note]",
+    );
+    expect(qualityNote).not.toBeNull();
+    // `shared_memory` is deterministic by design and is not counted.
+    expect(qualityNote?.textContent).toContain(
+      "2 of 3 AI stages used the built-in reader",
+    );
+  });
+
+  it("keeps the quality note hidden when no stage fell back and no prose warns", () => {
+    const profile = CandidateProfileSchema.parse({
+      id: "candidate_clean_import",
+      firstName: "Alex",
+      lastName: "Vanguard",
+      fullName: "Alex Vanguard",
+      headline: "Senior systems designer",
+      summary: "Builds resilient workflows.",
+      currentLocation: "London, UK",
+      yearsExperience: 10,
+      email: "alex@example.com",
+      phone: "+44 7700 900123",
+      baseResume: {
+        id: "resume_clean_import",
+        fileName: "alex-vanguard.txt",
+        uploadedAt: "2026-03-20T10:00:00.000Z",
+        textContent: "Alex Vanguard",
+        extractionStatus: "ready",
+        analysisWarnings: [],
+      },
+      workEligibility: {},
+      professionalSummary: {},
+      targetRoles: ["Principal Designer"],
+      locations: ["Remote"],
+      skills: ["Figma"],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    });
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanelHarness
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
+          latestResumeImportRun={ResumeImportRunSchema.parse({
+            id: "resume_import_run_clean",
+            sourceResumeId: "resume_clean_import",
+            sourceResumeFileName: "alex-vanguard.txt",
+            trigger: "import",
+            status: "applied",
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:00:03.000Z",
+            primaryParserKind: "plain_text",
+            parserKinds: ["plain_text"],
+            analysisProviderKind: "openai_compatible",
+            analysisProviderLabel: "Test AI",
+            warnings: [],
+            errorMessage: null,
+            candidateCounts: {
+              total: 1,
+              autoApplied: 1,
+              needsReview: 0,
+              rejected: 0,
+              abstained: 0,
+            },
+            timing: {
+              textBranchMs: 900,
+              literalExtractionMs: 12,
+              reconciliationMs: 4,
+              textStages: [
+                {
+                  stage: "identity_summary",
+                  status: "completed",
+                  durationMs: 900,
+                },
+                {
+                  stage: "shared_memory",
+                  status: "completed",
+                  durationMs: 3,
+                },
+              ],
+            },
+          })}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onApplyTimelineRepairAction={vi.fn()}
+          onImportResume={vi.fn()}
+          profile={profile}
+        />,
+      );
+    });
+
+    expect(
+      container?.querySelector("[data-profile-resume-quality-note]"),
+    ).toBeNull();
+  });
+
+  it("puts the built-in-reader hint inside the compact strip when stages fell back", () => {
+    const profile = CandidateProfileSchema.parse({
+      id: "candidate_compact_fallback",
+      firstName: "Alex",
+      lastName: "Vanguard",
+      fullName: "Alex Vanguard",
+      headline: "Senior systems designer",
+      summary: "Builds resilient workflows.",
+      currentLocation: "London, UK",
+      yearsExperience: 10,
+      email: "alex@example.com",
+      phone: "+44 7700 900123",
+      baseResume: {
+        id: "resume_compact_fallback",
+        fileName: "alex-vanguard.txt",
+        uploadedAt: "2026-03-20T10:00:00.000Z",
+        textContent: "Alex Vanguard",
+        extractionStatus: "ready",
+        analysisWarnings: [],
+      },
+      workEligibility: {},
+      professionalSummary: {},
+      targetRoles: ["Principal Designer"],
+      locations: ["Remote"],
+      skills: ["Figma"],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    });
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanelHarness
+          compact
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
+          latestResumeImportRun={ResumeImportRunSchema.parse({
+            id: "resume_import_run_compact_fallback",
+            sourceResumeId: "resume_compact_fallback",
+            sourceResumeFileName: "alex-vanguard.txt",
+            trigger: "import",
+            status: "applied",
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:00:45.000Z",
+            primaryParserKind: "plain_text",
+            parserKinds: ["plain_text"],
+            analysisProviderKind: "openai_compatible",
+            analysisProviderLabel: "Test AI",
+            warnings: [],
+            errorMessage: null,
+            candidateCounts: {
+              total: 3,
+              autoApplied: 0,
+              needsReview: 3,
+              rejected: 0,
+              abstained: 0,
+            },
+            timing: {
+              textBranchMs: 25_000,
+              literalExtractionMs: 12,
+              reconciliationMs: 4,
+              textStages: [
+                {
+                  stage: "identity_summary",
+                  status: "completed",
+                  durationMs: 25_032,
+                  fallbackKind: "timeout",
+                  fallbackReason: "Model request timed out after 25s",
+                },
+                {
+                  stage: "experience",
+                  status: "completed",
+                  durationMs: 25_054,
+                  fallbackKind: "timeout",
+                  fallbackReason: "Model request timed out after 25s",
+                },
+                {
+                  stage: "background",
+                  status: "completed",
+                  durationMs: 20_073,
+                  fallbackKind: "timeout",
+                  fallbackReason: "Model request timed out after 20s",
+                },
+                {
+                  stage: "shared_memory",
+                  status: "completed",
+                  durationMs: 3,
+                },
+              ],
+            },
+          })}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onApplyTimelineRepairAction={vi.fn()}
+          onImportResume={vi.fn()}
+          profile={profile}
+        />,
+      );
+    });
+
+    // The painted-viewport check looks inside the strip, so the hint has to be
+    // in the strip's own subtree, not merely somewhere in the document.
+    const strip = container?.querySelector("[data-profile-resume-summary]");
+    expect(strip).not.toBeNull();
+
+    const hint = strip?.querySelector("[data-profile-resume-fallback-hint]");
+    expect(hint).not.toBeNull();
+    expect(hint?.textContent).toBe(
+      "3 of 3 AI stages used the built-in reader.",
+    );
+    // The hint qualifies the status badge, so it shares that band with it.
+    const statusBand = strip?.querySelector("div");
+    expect(statusBand?.textContent).toContain("Imported");
+    expect(
+      statusBand?.querySelector("[data-profile-resume-fallback-hint]"),
+    ).not.toBeNull();
+  });
+
+  it("omits the compact built-in-reader hint when no stage fell back", () => {
+    const profile = CandidateProfileSchema.parse({
+      id: "candidate_compact_clean",
+      firstName: "Alex",
+      lastName: "Vanguard",
+      fullName: "Alex Vanguard",
+      headline: "Senior systems designer",
+      summary: "Builds resilient workflows.",
+      currentLocation: "London, UK",
+      yearsExperience: 10,
+      email: "alex@example.com",
+      phone: "+44 7700 900123",
+      baseResume: {
+        id: "resume_compact_clean",
+        fileName: "alex-vanguard.txt",
+        uploadedAt: "2026-03-20T10:00:00.000Z",
+        textContent: "Alex Vanguard",
+        extractionStatus: "ready",
+        analysisWarnings: [],
+      },
+      workEligibility: {},
+      professionalSummary: {},
+      targetRoles: ["Principal Designer"],
+      locations: ["Remote"],
+      skills: ["Figma"],
+      experiences: [],
+      education: [],
+      certifications: [],
+      links: [],
+      projects: [],
+      spokenLanguages: [],
+    });
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileResumePanelHarness
+          compact
+          importDisabledReason={null}
+          isAnalyzeProfilePending={false}
+          isImportResumePending={false}
+          latestResumeImportReviewCandidates={[]}
+          resumeImportProgress={null}
+          latestResumeImportRun={ResumeImportRunSchema.parse({
+            id: "resume_import_run_compact_clean",
+            sourceResumeId: "resume_compact_clean",
+            sourceResumeFileName: "alex-vanguard.txt",
+            trigger: "import",
+            status: "applied",
+            startedAt: "2026-03-20T10:00:00.000Z",
+            completedAt: "2026-03-20T10:00:03.000Z",
+            primaryParserKind: "plain_text",
+            parserKinds: ["plain_text"],
+            analysisProviderKind: "openai_compatible",
+            analysisProviderLabel: "Test AI",
+            warnings: [],
+            errorMessage: null,
+            candidateCounts: {
+              total: 1,
+              autoApplied: 1,
+              needsReview: 0,
+              rejected: 0,
+              abstained: 0,
+            },
+            timing: {
+              textBranchMs: 900,
+              literalExtractionMs: 12,
+              reconciliationMs: 4,
+              textStages: [
+                {
+                  stage: "identity_summary",
+                  status: "completed",
+                  durationMs: 900,
+                },
+                {
+                  stage: "shared_memory",
+                  status: "completed",
+                  durationMs: 3,
+                },
+              ],
+            },
+          })}
+          onAnalyzeProfileFromResume={vi.fn()}
+          onApplyTimelineRepairAction={vi.fn()}
+          onImportResume={vi.fn()}
+          profile={profile}
+        />,
+      );
+    });
+
+    expect(
+      container?.querySelector("[data-profile-resume-fallback-hint]"),
+    ).toBeNull();
+  });
+
   it("shows import ready to use when only optional resume suggestions remain", () => {
     const profile = CandidateProfileSchema.parse({
       id: "candidate_3",

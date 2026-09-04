@@ -170,7 +170,14 @@ describe("resume import identity and revision safety", () => {
     expect(profile.fullName).toBe("Casey Rowan");
     expect(profile.currentLocation).toBe("Casey Manual Location");
     expect(profile.skills).toEqual(["Casey Manual Skill"]);
+    // A losing import may attach its copied file so the run is not orphaned,
+    // but never when the imported header describes a different person than
+    // the profile that won the race: writing Taylor's resume text under
+    // Casey's visible identity makes `resolveResumeIdentity` report a
+    // mismatch, which hard-blocks resume generation, preview, export and
+    // approval with no way out. The imported details stay in review instead.
     expect(profile.baseResume.id).toBe("resume_casey");
+    expect(resolveResumeIdentity(profile).mismatchReasons).toEqual([]);
     // Losing the revision race is not an extraction failure: the current
     // profile is kept and the imported details are held for review instead
     // of being discarded or reported as a failed import.

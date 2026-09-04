@@ -281,6 +281,21 @@ export function ResumeAssistantProposalCard(props: {
                   />
                 ) : null}
                 {operationLabel(patch.operation)}
+                {/* "Accept selected (n)" counts these cards, so each one has
+                    to say whether it is one of them. A bare checkbox in a row
+                    of identical cards did not read as a per-card state. */}
+                {pending ? (
+                  <span
+                    className={
+                      selected
+                        ? "ml-auto rounded-full border border-primary/40 bg-primary/15 px-2 py-0.5 text-(length:--text-tiny) font-semibold uppercase tracking-(--tracking-caps) text-primary"
+                        : "ml-auto rounded-full border border-(--surface-panel-border) px-2 py-0.5 text-(length:--text-tiny) font-semibold uppercase tracking-(--tracking-caps) text-muted-foreground"
+                    }
+                    data-resume-proposal-patch-selected-label
+                  >
+                    {selected ? "Selected" : "Not selected"}
+                  </span>
+                ) : null}
                 {!pending ? (
                   <span className="ml-auto text-muted-foreground">
                     {props.message.proposalStatus === "accepted"
@@ -331,7 +346,15 @@ export function ResumeAssistantProposalCard(props: {
 
           return (
             <div
-              className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-fill-soft) p-3"
+              className={
+                pending && selected
+                  ? "grid gap-2 rounded-(--radius-field) border border-primary/50 bg-primary/5 p-3 ring-1 ring-primary/25"
+                  : "grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-fill-soft) p-3"
+              }
+              data-resume-proposal-patch={patch.id}
+              data-resume-proposal-patch-selected={
+                pending && selected ? "true" : "false"
+              }
               key={patch.id}
             >
               {pending ? (

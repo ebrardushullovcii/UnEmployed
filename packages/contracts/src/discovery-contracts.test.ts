@@ -2,15 +2,19 @@ import { describe, expect, test } from "vitest";
 
 import {
   appendDiscoveryLiveActivityEvent,
+  assessJobPostingDetailQuality,
+  buildDiscoveryCardOnlyEvidenceWarning,
   DISCOVERY_LIVE_ACTIVITY_EVENT_LIMIT,
   DISCOVERY_RUN_JOB_BUDGET_MAX,
   DiscoveryActivityEventSchema,
   DiscoveryJobViewSchema,
   DiscoveryLedgerEntrySchema,
   DiscoveryRunRecordSchema,
+  DiscoveryRunResultSchema,
   DiscoveryRunSummarySchema,
   DiscoveryTargetExecutionSchema,
   DiscoveryTimingSummarySchema,
+  isCardOnlyDiscoveryEvidence,
   JobDiscoveryPreferencesSchema,
   JobPostingSchema,
   MatchAssessmentSchema,
@@ -620,5 +624,84 @@ describe("discovery contracts", () => {
     expect(() =>
       JobDiscoveryPreferencesSchema.parse({ runJobBudget: 0 }),
     ).toThrow();
+  });
+
+  test("classifies retained card-only evidence and leaves mixed or empty runs alone", () => {
+    const cardOnlyPosting = JobPostingSchema.parse({
+      ...postingInput,
+      description: postingInput.title,
+    });
+    const enrichedPosting = JobPostingSchema.parse({
+      ...postingInput,
+      sourceJobId: "job_2",
+      canonicalUrl: "https://example.com/jobs/job-2",
+      description:
+        "We are hiring a software engineer to own the ingestion pipeline, review changes from the platform team, and improve the deployment path for every service the group runs today. You will pair with the data team on schema changes, carry the on-call pager one week in four, and write the runbooks the rest of the group follows. We care more about clear reasoning and steady delivery than about any particular framework, so tell us about a system you kept running while it changed underneath you.",
+      keySkills: ["TypeScript", "Postgres"],
+      responsibilities: ["Own the ingestion pipeline."],
+    });
+
+    expect(cardOnlyPosting.detailQuality).toBe("card_only");
+    expect(assessJobPostingDetailQuality(enrichedPosting)).toBe(
+      "detail_enriched",
+    );
+
+    expect(isCardOnlyDiscoveryEvidence([cardOnlyPosting])).toBe(true);
+    expect(
+      isCardOnlyDiscoveryEvidence([cardOnlyPosting, cardOnlyPosting]),
+    ).toBe(true);
+    expect(
+      isCardOnlyDiscoveryEvidence([cardOnlyPosting, enrichedPosting]),
+    ).toBe(false);
+    expect(isCardOnlyDiscoveryEvidence([])).toBe(false);
+  });
+
+  test("carries the card-only evidence warning through run result, execution, and summary", () => {
+    const warning = buildDiscoveryCardOnlyEvidenceWarning("Primary target");
+
+    expect(warning).toBe(
+      "Only listing titles and card details were read from Primary target; no job description was captured, so match details for these results are unchecked.",
+    );
+    expect(buildDiscoveryCardOnlyEvidenceWarning("   ")).toBe(
+      "Only listing titles and card details were read from this source; no job description was captured, so match details for these results are unchecked.",
+    );
+    // The warning never claims the product can open a listing for the user.
+    expect(warning).not.toMatch(/open|browser|link/iu);
+
+    expect(
+      DiscoveryRunResultSchema.parse({
+        source: "target_site",
+        startedAt: "2026-09-03T18:09:27.794Z",
+        completedAt: "2026-09-03T18:09:37.794Z",
+        querySummary: "Software Engineer",
+        warning,
+        jobs: [],
+      }).warning,
+    ).toBe(warning);
+
+    expect(
+      DiscoveryTargetExecutionSchema.parse({
+        targetId: "source_1",
+        adapterKind: "target_site",
+        state: "completed",
+        warning,
+      }).warning,
+    ).toBe(warning);
+
+    const summary = DiscoveryRunSummarySchema.parse({
+      sourceHealth: [
+        {
+          targetId: "source_1",
+          health: "warning",
+          durationMs: 5_149,
+          warnings: [warning],
+        },
+      ],
+      warnings: [warning],
+    });
+
+    expect(summary.warnings).toEqual([warning]);
+    expect(summary.sourceHealth[0]?.warnings).toEqual([warning]);
+    expect(summary.sourceHealth[0]?.health).toBe("warning");
   });
 });

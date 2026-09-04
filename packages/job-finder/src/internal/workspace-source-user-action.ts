@@ -1,4 +1,5 @@
 import {
+  JOB_FINDER_BROWSER_LABEL,
   UserActionRequestSchema,
   type SourceDebugRunRecord,
 } from "@unemployed/contracts";
@@ -78,7 +79,7 @@ export async function persistDiscoveryLoginUserAction(input: {
       title: prompt.actionLabel,
       summary: prompt.summary,
       instructions: [
-        "Complete sign-in in the managed browser. Job Finder never receives or stores your credentials.",
+        `Complete sign-in in the ${JOB_FINDER_BROWSER_LABEL}. Job Finder never receives or stores your credentials.`,
         "Return to the action inbox and choose Done only after the browser step is complete.",
       ],
       actionUrl: prompt.targetUrl,

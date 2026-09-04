@@ -122,17 +122,35 @@ function isTerminalApplicationStatus(status: ApplicationRecord["status"]) {
   );
 }
 
-export function matchesApplicationsFilter(
-  record: ApplicationRecord,
-  filter: ApplicationsViewFilter,
-) {
-  const needsAction =
+/**
+ * The one selector for "this application is waiting on the user".
+ *
+ * It is deliberately a superset of the row-level `Needs you` stage badge: a
+ * failed attempt ("Needs recovery"), a site that cannot be prepared
+ * automatically ("Manual apply only") and a saved next step all wait on the
+ * user without being the single unresolved browser step the badge marks and
+ * the global Needs you destination counts. Those two populations used to
+ * share one name in front of the user — the filter chip said "Needs you 2"
+ * beside a header that said "Needs you: 1 unresolved" — so this predicate is
+ * the single owner of the chip's count and the filter names its own
+ * population ("Waiting on you") instead of borrowing the badge's.
+ */
+export function applicationRecordNeedsUser(record: ApplicationRecord): boolean {
+  return (
     record.lastAttemptState === "paused" ||
     record.lastAttemptState === "failed" ||
     record.lastAttemptState === "unsupported" ||
     (Boolean(record.nextActionLabel) &&
       !isTerminalApplicationStatus(record.status) &&
-      record.lastAttemptState !== "in_progress");
+      record.lastAttemptState !== "in_progress")
+  );
+}
+
+export function matchesApplicationsFilter(
+  record: ApplicationRecord,
+  filter: ApplicationsViewFilter,
+) {
+  const needsAction = applicationRecordNeedsUser(record);
   const submitted = record.status === "submitted";
   const manualOnly = record.lastAttemptState === "unsupported";
   const inProgress =

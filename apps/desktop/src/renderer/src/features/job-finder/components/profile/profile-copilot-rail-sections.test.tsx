@@ -484,6 +484,28 @@ describe("ProfileCopilotTranscript", () => {
     expect(container?.textContent).not.toContain("These changes are applied");
     expect(container?.textContent).toContain("Undone");
   });
+  test("renders the shared wait trio while a request is pending, not three dots", () => {
+    // STAB-04: a measured Copilot round trip is ~22s and this was
+    // `<ThinkingDots label="Thinking" />` alone — no clock, so nothing could
+    // say the wait had gone long, and no stated expectation to go long
+    // against. The identical wait one screen over already showed all of it.
+    renderTranscript({ isPendingHere: true });
+
+    const pending = container?.querySelector<HTMLElement>(
+      "[data-profile-copilot-pending]",
+    );
+    expect(pending).not.toBeNull();
+
+    const wait = pending?.querySelector<HTMLElement>("[data-wait-indicator]");
+    expect(wait).not.toBeNull();
+    // The trio: an indeterminate signal, a reserved elapsed slot, an
+    // expectation.
+    expect(wait?.querySelector("[role='progressbar']")).not.toBeNull();
+    expect(wait?.querySelector("[data-wait-elapsed]")).not.toBeNull();
+    expect(
+      wait?.querySelector("[data-wait-expectation]")?.textContent,
+    ).toContain("Usually 20-30 seconds");
+  });
 });
 
 describe("ProfileCopilotTranscript inline proposals", () => {

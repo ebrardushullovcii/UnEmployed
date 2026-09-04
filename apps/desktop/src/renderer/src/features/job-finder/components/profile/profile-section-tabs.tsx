@@ -1,10 +1,7 @@
-import { useCallback, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Check } from "lucide-react";
-import { cn } from "@renderer/lib/cn";
+import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs";
 import {
   formatSectionProgressLabel,
   getSectionProgressState,
-  isSectionRequiredComplete,
   type ProfileSection,
   type SectionProgress,
 } from "../../lib/profile-screen-progress";
@@ -23,137 +20,109 @@ interface ProfileSectionTabsProps {
   sections: readonly ProfileSectionDescriptor[];
 }
 
+function countRequiredRemaining(progress: SectionProgress): number {
+  if (getSectionProgressState(progress) !== "remaining") {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    (progress.required?.total ?? 0) - (progress.required?.filled ?? 0),
+  );
+}
+
 export function ProfileSectionTabs({
   activeSection,
   onSectionChange,
   panelId,
   sections,
 }: ProfileSectionTabsProps) {
-  const handleSectionKeyDown = useCallback(
-    (event: ReactKeyboardEvent<HTMLDivElement>) => {
-      const currentIndex = sections.findIndex(
-        (section) => section.id === activeSection,
-      );
-
-      if (currentIndex < 0) {
-        return;
-      }
-
-      if (
-        event.key !== "ArrowRight" &&
-        event.key !== "ArrowLeft" &&
-        event.key !== "Home" &&
-        event.key !== "End"
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-
-      let nextIndex = currentIndex;
-
-      if (event.key === "ArrowRight") {
-        nextIndex = (currentIndex + 1) % sections.length;
-      } else if (event.key === "ArrowLeft") {
-        nextIndex = (currentIndex - 1 + sections.length) % sections.length;
-      } else if (event.key === "Home") {
-        nextIndex = 0;
-      } else if (event.key === "End") {
-        nextIndex = sections.length - 1;
-      }
-
-      const nextSection = sections[nextIndex];
-      if (!nextSection) {
-        return;
-      }
-
-      onSectionChange(nextSection.id);
-      const tabs =
-        event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]');
-      tabs[nextIndex]?.focus();
-    },
-    [activeSection, onSectionChange, sections],
-  );
-
   return (
-    <div className="pb-1">
-      <div
+    // These tabs used to be a bespoke full-width grid of bordered boxes, each
+    // with a check icon and a truncated "REQUIRED DONE" / "OPTIONAL ADDED"
+    // chip, and a selected state expressed as a different box border. Nothing
+    // else in the app looked like that. They now run on the shared Tabs
+    // primitive - the same treatment as Resume Studio's Preview/Tools strip -
+    // so the selected state is the shared primary underline, there are no
+    // per-tab boxes, and the labels are plain text that never ellipsizes.
+    //
+    // Activation is Radix's default `automatic`, deliberately: arrowing to a
+    // tab opens that section, which is the expected tab-pattern behaviour and
+    // matches the rest of the app's tabs. It is safe here because focus only
+    // ever reaches a NON-selected trigger by explicit user intent:
+    //   - Tab-key entry lands on the strip, which forwards focus to the
+    //     already-selected trigger (no activation).
+    //   - A mouse click activates on mousedown anyway.
+    //   - The one programmatic focus of `#<section>-tab` is the
+    //     `focusProfileImportSuggestion` fallback, and its caller
+    //     (`handleReviewImportSuggestion`) has already switched to that exact
+    //     section, so the trigger it focuses is the selected one. Were that
+    //     ever to change, opening the section the suggestion lives in is the
+    //     intended outcome regardless.
+    // Do not "fix" this to `activationMode="manual"` without a flow that
+    // focuses a tab it does not mean to open.
+    <Tabs
+      className="gap-0 pb-1"
+      onValueChange={(value) => onSectionChange(value as ProfileSection)}
+      value={activeSection}
+    >
+      <TabsList
         aria-label="Profile sections"
-        // Five short section names fit one row from 640px up. The old
-        // `sm:grid-cols-2 xl:grid-cols-5` stacked them into three rows for
-        // every width below 1280px, costing ~85px of the section pane - the
-        // reason a tab click at 1200x640 and 1024x720 left the newly selected
-        // section's content entirely below the fold, so the click looked
-        // like it had done nothing.
-        className="grid grid-cols-2 items-stretch gap-px overflow-hidden border-y border-(--surface-panel-border) bg-(--surface-panel-border) sm:grid-cols-5"
+        // One row from 640px up. Below that the strip stays a single row and
+        // scrolls sideways rather than stacking: the old two-column stack cost
+        // ~85px of the section pane, which is what pushed a newly selected
+        // section's content below the fold at 1200x640 and 1024x720.
+        className="w-full max-w-full justify-start overflow-x-auto"
         data-profile-section-tabs
-        onKeyDown={handleSectionKeyDown}
-        role="tablist"
+        variant="line"
       >
-        {sections.map((section, index) => (
-          <button
-            aria-controls={panelId}
-            aria-selected={activeSection === section.id}
-            className={cn(
-              "group relative h-full min-h-10 w-full cursor-pointer bg-(--surface-panel) text-left transition-colors duration-150 focus-visible:z-40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/40",
-              index === 4 && "col-span-2 sm:col-span-1",
-              activeSection === section.id
-                ? // A left accent bar plus the bottom rule so the selected tab
-                  // still reads as selected when the strip stacks into a
-                  // two-column grid at compact widths.
-                  "z-30 bg-accent font-semibold text-(--text-headline) shadow-[inset_3px_0_0_var(--primary),inset_0_-2px_0_var(--primary)]"
-                : "text-foreground-soft hover:bg-(--surface-tab-hover) hover:text-foreground",
-            )}
-            id={`${section.id}-tab`}
-            key={section.id}
-            onClick={() => onSectionChange(section.id)}
-            role="tab"
-            tabIndex={activeSection === section.id ? 0 : -1}
-            type="button"
-          >
-            {/* F16: the navigation label wins the width fight. It used to be
-                the only `min-w-0 truncate` element beside a `shrink-0` status
-                chip, so at 1440px four of five section names rendered as
-                "Experi… / Backgr… / Prefer… / Job so…" while "REQUIRED DONE"
-                rendered in full — including on the active tab, so the user
-                could not read the section they were on. The label never
-                ellipsizes now; the chip does.
+        {sections.map((section) => {
+          const remaining = countRequiredRemaining(section.progress);
 
-                The chip is also reduced to its non-default state only. A
-                finished section shows a check with its meaning available to
-                assistive tech, not the words "REQUIRED DONE" repeated across
-                four tabs — which is what was consuming the width. */}
-            <span className="pointer-events-none relative flex min-w-0 items-center justify-between gap-2 px-3 py-2.5">
-              <span className="shrink-0 text-(length:--text-body) font-semibold tracking-[-0.02em]">
-                {section.label}
-              </span>
-              <span
-                className={cn(
-                  "inline-flex min-w-0 items-center gap-1 truncate text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-mono)",
-                  isSectionRequiredComplete(section.progress)
-                    ? "text-(--success-text,var(--foreground-muted))"
-                    : "text-foreground-muted",
-                )}
-                data-profile-section-progress-state={getSectionProgressState(
-                  section.progress,
-                )}
-                title={formatSectionProgressLabel(section.id, section.progress)}
-              >
-                {isSectionRequiredComplete(section.progress) ? (
-                  <>
-                    <Check aria-hidden className="size-3.5 shrink-0" />
-                    <span className="sr-only">
-                      {formatSectionProgressLabel(section.id, section.progress)}
-                    </span>
-                  </>
-                ) : (
-                  formatSectionProgressLabel(section.id, section.progress)
-                )}
-              </span>
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
+          return (
+            <TabsTrigger
+              // The panel is owned by the Profile screen, so the exact panel
+              // and trigger ids are kept instead of Radix's generated pair:
+              // the section deep links focus `#<section>-tab`, and the panel
+              // is labelled by it.
+              aria-controls={panelId}
+              data-profile-section-progress-state={getSectionProgressState(
+                section.progress,
+              )}
+              id={`${section.id}-tab`}
+              key={section.id}
+              // Radix activates a trigger on mousedown; this keeps a plain
+              // click (and any programmatic click) changing the section too.
+              onClick={() => onSectionChange(section.id)}
+              value={section.id}
+            >
+              {section.label}
+              {remaining > 0 ? (
+                <>
+                  {/* Completion state is out of the label: no chip words and no
+                      check on finished sections. What survives is the one
+                      actionable fact - how many required fields a section still
+                      needs - as a quiet trailing count. */}
+                  <span
+                    aria-hidden
+                    className="inline-flex min-w-4 items-center justify-center rounded-full border border-(--surface-panel-border) px-1 text-(length:--text-tiny) font-medium tabular-nums text-foreground-muted"
+                    data-profile-section-remaining-count
+                    title={formatSectionProgressLabel(
+                      section.id,
+                      section.progress,
+                    )}
+                  >
+                    {remaining}
+                  </span>
+                  <span className="sr-only">
+                    {formatSectionProgressLabel(section.id, section.progress)}
+                  </span>
+                </>
+              ) : null}
+            </TabsTrigger>
+          );
+        })}
+      </TabsList>
+    </Tabs>
   );
 }

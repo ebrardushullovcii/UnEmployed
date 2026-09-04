@@ -32,6 +32,7 @@ import {
   summarizeCandidateWarnings,
   toCandidate,
 } from "./resume-import-candidate-utils";
+import { resolveResumeIdentity } from "./resume-identity";
 import { extractLiteralCandidates } from "./resume-import-literal-extraction";
 import { enrichExperienceCandidatesFromNearbyMarkers } from "./resume-import-experience-markers";
 import {
@@ -128,6 +129,95 @@ function holdResumeImportCandidatesForReview(
   );
 }
 
+function isSameStoredResumeDocument(
+  left: CandidateProfile["baseResume"],
+  right: CandidateProfile["baseResume"],
+): boolean {
+  return (
+    left.id === right.id &&
+    left.storagePath === right.storagePath &&
+    (left.sha256 ?? null) === (right.sha256 ?? null) &&
+    left.textContent === right.textContent
+  );
+}
+
+/**
+ * The stored resume this run is replacing, read once before any stage runs.
+ * It is `null` when the persisted profile already moved past the revision the
+ * caller captured, because then this run cannot prove which resume it
+ * supersedes and must not replace whatever is there now.
+ */
+async function readSupersededBaseResume(
+  ctx: WorkspaceServiceContext,
+  expectedProfileRevision: number,
+): Promise<CandidateProfile["baseResume"] | null> {
+  const current = await ctx.repository.getProfileWithRevision();
+  return current.revision === expectedProfileRevision
+    ? current.profile.baseResume
+    : null;
+}
+
+/**
+ * A foreground import that loses the revision race writes nothing, but by then
+ * the chosen resume file has already been copied into the workspace and the
+ * run plus every held review item are keyed to that new resume id. Leaving the
+ * profile on the previous resume produces an orphaned file, a run whose bundle
+ * can no longer be looked up by `profile.baseResume.id`, and review items that
+ * would apply one person's details on top of another person's resume text.
+ *
+ * Attaching the copied file is therefore worth doing, but it is still a write
+ * to the exact field the compare-and-swap protects, so it is allowed only when
+ * it cannot take anything away:
+ *  - the persisted resume must still be the one this run superseded, so a
+ *    second import that already landed keeps the file the user picked last and
+ *    an unrelated writer's resume edit is never rolled back; and
+ *  - the resulting profile must stay identity-coherent, because writing an
+ *    imported header that contradicts the visible identity hard-blocks resume
+ *    generation, preview, export and approval with no way out.
+ * When either check declines, the run simply stays superseded and its details
+ * wait in review, which is the behaviour that predates the attach.
+ */
+async function attachImportedBaseResumeAfterStaleFinalization(input: {
+  ctx: WorkspaceServiceContext;
+  currentProfile: CandidateProfile;
+  currentRevision: number;
+  supersededBaseResume: CandidateProfile["baseResume"] | null;
+  importedBaseResume: CandidateProfile["baseResume"];
+}): Promise<{ profile: CandidateProfile; revision: number } | null> {
+  const current = input.currentProfile.baseResume;
+  const imported = input.importedBaseResume;
+  const superseded = input.supersededBaseResume;
+
+  if (!superseded || isSameStoredResumeDocument(current, imported)) {
+    return null;
+  }
+
+  if (!isSameStoredResumeDocument(current, superseded)) {
+    return null;
+  }
+
+  const attachedProfile = CandidateProfileSchema.parse({
+    ...input.currentProfile,
+    baseResume: imported,
+  });
+  if (resolveResumeIdentity(attachedProfile).mismatchReasons.length > 0) {
+    return null;
+  }
+
+  const commit = await input.ctx.repository.commitProfileUpdate(
+    (profile) =>
+      CandidateProfileSchema.parse({
+        ...profile,
+        baseResume: imported,
+      }),
+    { expectedRevision: input.currentRevision },
+  );
+
+  return commit.status === "applied"
+    ? { profile: commit.profile, revision: commit.revision }
+    : null;
+}
+
 async function finalizeResumeImportRunAtRevision(input: {
   ctx: WorkspaceServiceContext;
   expectedProfileRevision: number;
@@ -136,6 +226,12 @@ async function finalizeResumeImportRunAtRevision(input: {
   run: ResumeImportRun;
   documentBundles: readonly ResumeDocumentBundle[];
   fieldCandidates: readonly ResumeImportFieldCandidate[];
+  /**
+   * The stored resume this run replaces, captured before the run started. Only
+   * the `hold_for_review` stale path uses it, to decide whether attaching the
+   * copied import file would take away a newer writer's resume.
+   */
+  supersededBaseResume?: CandidateProfile["baseResume"] | null;
   /**
    * `hold_for_review` (default) persists the run as review-ready with every
    * would-be-applied candidate downgraded to needs-review. `report_only`
@@ -197,9 +293,18 @@ async function finalizeResumeImportRunAtRevision(input: {
     documentBundles: input.documentBundles,
     fieldCandidates: heldCandidates,
   });
+  const attachedResume = await attachImportedBaseResumeAfterStaleFinalization({
+    ctx: input.ctx,
+    currentProfile: outcome.profile,
+    currentRevision: outcome.revision,
+    supersededBaseResume: input.supersededBaseResume ?? null,
+    importedBaseResume: input.profile.baseResume,
+  });
 
   return {
     ...outcome,
+    profile: attachedResume?.profile ?? outcome.profile,
+    revision: attachedResume?.revision ?? outcome.revision,
     run: supersededRun,
     candidates: heldCandidates,
   };
@@ -1122,6 +1227,10 @@ export async function runResumeImportWorkflow(
 }> {
   const expectedProfileRevision = input.expectedProfileRevision;
   const workflowStartedAtMs = performance.now();
+  const supersededBaseResume = await readSupersededBaseResume(
+    ctx,
+    expectedProfileRevision,
+  );
   let literalExtractionMs = 0;
   let textBranchMs = 0;
   let textStageTimings: ResumeImportTextStageTiming[] = [];
@@ -1224,6 +1333,7 @@ export async function runResumeImportWorkflow(
       run: cachedRun,
       documentBundles: [cachedArtifacts.bundle],
       fieldCandidates: cachedArtifacts.candidates,
+      supersededBaseResume,
     });
     cachedRun = finalization.run;
     cachedRun = ResumeImportRunSchema.parse({
@@ -1802,6 +1912,7 @@ export async function runResumeImportWorkflow(
       run: atomicallyFinalizedRun,
       documentBundles: [bundle],
       fieldCandidates: reconciledCandidates,
+      supersededBaseResume,
     });
     if (finalization.status === "stale") {
       return {

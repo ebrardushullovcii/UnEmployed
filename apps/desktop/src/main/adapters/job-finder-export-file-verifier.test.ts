@@ -69,5 +69,39 @@ describe("createLocalResumeExportFileVerifier", () => {
     expect(await verifier.sha256(staleAbsolutePath)).toBe(
       createHash("sha256").update(bytes).digest("hex"),
     );
+    // The recovered path has to leave the verifier: application preparation
+    // writes it onto the resume artifact, and the browser runtime re-checks
+    // that exact path with its own access(). Resolving privately made the
+    // gate pass and preparation still fail with "missing_resume".
+    expect(await verifier.resolvePath(staleAbsolutePath)).toBe(currentPath);
+  });
+
+  it("reports no resolution when nothing matches the recorded export path", async () => {
+    const userDataDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "resume-user-data-"),
+    );
+    directories.push(userDataDirectory);
+    process.env.UNEMPLOYED_USER_DATA_DIR = userDataDirectory;
+
+    const verifier = createLocalResumeExportFileVerifier();
+    const missingPath = path.join(
+      "/old/persona/userdata/documents/resumes/generated",
+      "never-exported.pdf",
+    );
+
+    expect(await verifier.exists(missingPath)).toBe(false);
+    expect(await verifier.resolvePath(missingPath)).toBeNull();
+  });
+
+  it("returns the recorded path unchanged when that file still exists", async () => {
+    const directory = await mkdtemp(
+      path.join(os.tmpdir(), "resume-integrity-"),
+    );
+    directories.push(directory);
+    const filePath = path.join(directory, "resume.pdf");
+    await writeFile(filePath, Buffer.from("approved"));
+
+    const verifier = createLocalResumeExportFileVerifier();
+    expect(await verifier.resolvePath(filePath)).toBe(filePath);
   });
 });

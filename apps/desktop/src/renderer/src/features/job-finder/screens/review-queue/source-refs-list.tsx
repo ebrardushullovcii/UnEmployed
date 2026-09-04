@@ -56,7 +56,12 @@ export function SourceRefsList(props: {
           >
             {formatSourceKindLabel(ref.sourceKind)}
           </p>
-          <p className={isCompact ? "line-clamp-3" : undefined}>
+          {/* The compact variant is the evidence shown beside a proposal's
+              Accept control. It used to clamp to three lines, so the excerpt
+              the user was asked to accept ended mid-sentence in an ellipsis
+              with nothing to expand. Evidence excerpts are short by
+              construction, so they are simply rendered in full. */}
+          <p className="whitespace-pre-wrap break-words">
             {ref.snippet ?? "No excerpt saved."}
           </p>
         </li>

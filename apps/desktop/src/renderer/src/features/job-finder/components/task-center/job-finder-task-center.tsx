@@ -247,9 +247,16 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
         <span className="hidden whitespace-nowrap min-[900px]:inline">
           Tasks
         </span>
-        <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-(length:--text-tiny) text-foreground tabular-nums">
-          {model.activeCount}
-        </span>
+        {/* One zero rule for every count in the shell: a badge never renders
+            at 0. This chip used to render a permanent grey "Tasks 0" in every
+            screenshot of every round — and the one count that rendered zero
+            was the one that means "nothing is happening". The accessible name
+            on the summary still states the active count at any value. */}
+        {model.activeCount > 0 ? (
+          <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-(length:--text-tiny) text-foreground tabular-nums">
+            {model.activeCount}
+          </span>
+        ) : null}
       </summary>
 
       <section

@@ -3,6 +3,7 @@ import type {
   DiscoveryRunRecord,
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
+import { listSourceAttentionReasons } from "@unemployed/job-finder/source-health";
 import { Button } from "@renderer/components/ui/button";
 import { PageHeader } from "../../components/page-header";
 import { JobFinderActivityControl } from "../../components/job-finder-activity-control";
@@ -13,12 +14,21 @@ import { buildJobFinderGlobalSearchEntries } from "../../lib/build-job-finder-gl
 import {
   formatDiscoveryRunCountLabel,
   formatLastSearchSummarySentence,
+  formatSearchFinishedStatusLine,
   getDiscoveryRunCountEvidence,
 } from "../../lib/discovery-run-count-label";
 import type { JobFinderGlobalSearchEntry } from "../../lib/job-finder-global-search";
 import { DISCOVERY_OFFLINE_CATALOG_NOTICE } from "../discovery/discovery-search-readiness";
 import { DiscoveryRunFeedbackCallout } from "../discovery/discovery-run-feedback-callout";
-import type { DiscoveryRunFeedback } from "../discovery/discovery-run-feedback";
+import {
+  getDiscoveryLatestRunNotices,
+  type DiscoveryRunFeedback,
+} from "../discovery/discovery-run-feedback";
+import {
+  formatDiscoveryRunSourceProblemSummary,
+  selectCardOnlyEvidenceNotices,
+  selectNewestSettledDiscoveryRun,
+} from "./home-source-health-summary";
 
 /**
  * The recommended card already carries the action as its heading; repeating
@@ -143,6 +153,7 @@ export function JobSearchHomeScreen(props: {
   const activeCampaign = props.workspace.campaigns.find(
     (campaign) => campaign.id === props.workspace.activeCampaignId,
   );
+  const activeCampaignJobIds = new Set(activeCampaign?.jobIds ?? []);
   const hasSearchHistory =
     (activeCampaign?.history?.some((entry) => entry.kind === "discovery_run") ??
       false) ||
@@ -175,21 +186,30 @@ export function JobSearchHomeScreen(props: {
     dashboard.upcomingInterviews === 0 &&
     dashboard.upcomingFollowUps === 0;
 
-  const hasNoSources = dashboard.sourceHealth.total === 0;
+  // `dashboard.sourceHealth` comes from the shared source-health derivation
+  // (`deriveEnabledSourceHealthCounts` over enabled targets only), so its
+  // `total` is the enabled count and can never distinguish "none saved" from
+  // "saved but all switched off". The saved list is the only place that fact
+  // lives, and Find jobs already separates the two; Home must agree.
+  const savedSourceCount =
+    props.workspace.searchPreferences.discovery.targets.length;
+  const hasNoEnabledSources = dashboard.sourceHealth.total === 0;
+  const hasSavedSourcesAllDisabled =
+    hasNoEnabledSources && savedSourceCount > 0;
   const hasCatalogRows = props.workspace.discoveryJobs.some(
     (job) => job.discoveryMethod === "catalog_seed",
   );
-  const showOfflineCatalogNotice = hasNoSources && hasCatalogRows;
+  const showOfflineCatalogNotice = hasNoEnabledSources && hasCatalogRows;
   const hasSourceHealthAttention = dashboard.sourceHealth.needsAttention > 0;
   const sourcesReadyButNoMetrics =
-    !hasNoSources && isZeroMetrics && !hasSearchHistory;
+    !hasNoEnabledSources && isZeroMetrics && !hasSearchHistory;
   const showZeroGuidance = isZeroMetrics && sourcesReadyButNoMetrics;
   const canRunFirstSearch =
     !showProfileSetupBlocker &&
-    !hasNoSources &&
+    !hasNoEnabledSources &&
     sourcesReadyButNoMetrics &&
     Boolean(props.onRunDiscovery);
-  const firstRunPresentation = showProfileSetupBlocker || hasNoSources;
+  const firstRunPresentation = showProfileSetupBlocker || hasNoEnabledSources;
   const showReturningDashboardModules = !firstRunPresentation;
   // Home states what is true, not what a dashboard could hold: an idle
   // background pane and two "Not enough data yet" rows were pure furniture.
@@ -214,6 +234,10 @@ export function JobSearchHomeScreen(props: {
     props.discoveryRunFeedback?.targetLabel === null
       ? props.discoveryRunFeedback
       : null;
+  // A finished search is a status fact, not a second next action. It reads as
+  // one line inside the recommended card instead of a green banner plus its
+  // own button outranking the card.
+  const searchSucceeded = homeDiscoveryFeedback?.status === "succeeded";
 
   const profileJobSourcesRoute =
     "/job-finder/profile?section=sources&focus=job-sources#profile-job-sources";
@@ -248,15 +272,31 @@ export function JobSearchHomeScreen(props: {
     ? formatDiscoveryRunCountLabel(countEvidence)
     : null;
   // Find jobs lists the active plan's jobs, not everything a run saved, so
-  // Home reads the same population before it prints a number about it.
-  const keptInActivePlan = activeCampaign?.jobIds?.length ?? 0;
-  const lastSearchSentence = lastSearchCountLabel
-    ? formatLastSearchSummarySentence({
-        runCountLabel: lastSearchCountLabel,
-        savedByRun: countEvidence.distinctJobsRetained,
-        keptInPlan: keptInActivePlan,
-      })
-    : null;
+  // Home reads the same population before it prints a number about it — and
+  // it must be the *same* population, not just the same plan. `jobIds` is the
+  // plan's membership ledger and is never pruned, while Find jobs and the
+  // sidebar badge both list `discoveryJobs` intersected with that ledger,
+  // which drops dismissed, applied, and otherwise retired rows. Counting the
+  // ledger made one "Not interested" click print "15 kept in your current
+  // search plan" beside Find jobs' "14 jobs kept in this search plan" in
+  // otherwise identical words.
+  const keptInActivePlan = activeCampaign
+    ? props.workspace.discoveryJobs.filter((job) =>
+        activeCampaignJobIds.has(job.id),
+      ).length
+    : 0;
+  // Exactly one owner for the counts clause inside the recommended card. The
+  // status line below states it for a search that just finished; only when
+  // there is no such line does the recommendation body carry the same numbers,
+  // so the card can never print the identical sentence twice in a row.
+  const lastSearchSentence =
+    lastSearchCountLabel && !searchSucceeded
+      ? formatLastSearchSummarySentence({
+          runCountLabel: lastSearchCountLabel,
+          savedByRun: countEvidence.distinctJobsRetained,
+          keptInPlan: keptInActivePlan,
+        })
+      : null;
 
   const awaitingReview = dashboard.jobsAwaitingReview;
   // The returning user's actual next move is the search loop, so it owns the
@@ -283,26 +323,30 @@ export function JobSearchHomeScreen(props: {
           : `Pick up at ${profileSetupStepLabel} so Job Finder can use your job targets, sources, and resume tailoring when you search.`,
         route: profileSetupRoute,
       }
-    : hasNoSources
+    : hasSavedSourcesAllDisabled
       ? {
-          label: "Set up job sources",
+          // The same fact, in the same words, as the Find jobs setup blocker.
+          label: "Enable a source before searching",
           detail:
-            "Add at least one enabled job source in Profile to start discovering relevant openings. You can enable a public board like Greenhouse or Lever in seconds.",
+            "Sources are saved but none are turned on, so searches have nowhere to look. Enable a saved source in Profile, then search.",
           route: profileJobSourcesRoute,
         }
-      : showZeroGuidance
+      : hasNoEnabledSources
         ? {
-            label: "Run your first search",
+            label: "Set up job sources",
             detail:
-              "Your job sources are ready. Run the active search plan to collect your first openings and see metrics here.",
-            route: discoveryRoute,
+              "Add at least one enabled job source in Profile to start discovering relevant openings. You can enable a public board like Greenhouse or Lever in seconds.",
+            route: profileJobSourcesRoute,
           }
-        : (searchLoopRecommendation ?? dashboard.recommendedNextAction);
+        : showZeroGuidance
+          ? {
+              label: "Run your first search",
+              detail:
+                "Your job sources are ready. Run the active search plan to collect your first openings and see metrics here.",
+              route: discoveryRoute,
+            }
+          : (searchLoopRecommendation ?? dashboard.recommendedNextAction);
 
-  // A finished search is a status fact, not a second next action. It reads as
-  // one line inside the recommended card instead of a green banner plus its
-  // own button outranking the card.
-  const searchSucceeded = homeDiscoveryFeedback?.status === "succeeded";
   const unresolvedDiscoveryFeedback = searchSucceeded
     ? null
     : homeDiscoveryFeedback;
@@ -311,7 +355,15 @@ export function JobSearchHomeScreen(props: {
   );
   const searchStatusLine = searchSucceeded
     ? lastSearchCountLabel
-      ? `Search finished · ${lastSearchCountLabel}, all on this device.`
+      ? // Both populations, each with the noun that separates it. The run
+        // total alone read as a contradiction of the smaller "kept in this
+        // search plan" count that Find jobs prints for the same search. While
+        // this line is showing it is the card's only carrier of those numbers.
+        formatSearchFinishedStatusLine({
+          runCountLabel: lastSearchCountLabel,
+          savedByRun: countEvidence.distinctJobsRetained,
+          keptInPlan: keptInActivePlan,
+        })
       : "Search finished · nothing new was saved, and nothing was deleted."
     : null;
 
@@ -319,7 +371,7 @@ export function JobSearchHomeScreen(props: {
   // it once setup and sources are done — even when the recommended action is
   // something else.
   const canContinueSearch =
-    showReturningDashboardModules && !canRunFirstSearch && !hasNoSources;
+    showReturningDashboardModules && !canRunFirstSearch && !hasNoEnabledSources;
   const showReviewResultsAction =
     canContinueSearch &&
     !effectiveRecommendedNext.route.startsWith(discoveryRoute) &&
@@ -328,15 +380,20 @@ export function JobSearchHomeScreen(props: {
   // Attention is only red when an enabled source is actually failing (a
   // recorded stale reason). Never-verified or guidance-only attention stays
   // neutral so a fresh source that just worked is not painted as broken.
+  // The `failing` reason itself comes from the shared classification so Home
+  // and the Profile Job sources library can never disagree about which
+  // enabled source is broken.
   const failingSourceCount =
     props.workspace.searchPreferences.discovery.targets.filter(
-      (target) => target.enabled && Boolean(target.staleReason),
+      (target) =>
+        target.enabled &&
+        listSourceAttentionReasons(target).includes("failing"),
     ).length;
   // While setup is unfinished there is nothing to alarm about: sources are
   // chosen inside setup, so the badge and its neutral line would only repeat
   // each other in an alarm colour on a normal first run.
   const showSourceHealthBadge = !showProfileSetupBlocker;
-  const sourceHealthBadgeTone = hasNoSources
+  const sourceHealthBadgeTone = hasNoEnabledSources
     ? failingSourceCount > 0
       ? "critical"
       : "neutral"
@@ -351,9 +408,32 @@ export function JobSearchHomeScreen(props: {
   const sourceHealthCountsLabel = formatSourceHealthCounts(
     dashboard.sourceHealth,
   );
-  const sourceHealthBadgeLabel = hasNoSources
-    ? "No job sources configured"
-    : (sourceHealthCountsLabel ?? "Not checked yet");
+  // Source health is exactly where a run-level shortfall about what a source
+  // could be read belongs. The run itself recorded the sentence; Home prints
+  // it verbatim rather than re-deriving the condition from saved results.
+  //
+  // Only the product-authored card-only evidence sentence earns a line of its
+  // own. Every other per-source warning is a raw internal error string, and a
+  // large plan produces one per source, so those collapse into the single
+  // classified count line below instead of a wall of debug prose (G7). The
+  // caveat is extracted rather than filtered because production joins it onto
+  // whatever partial warning a source already had.
+  const latestSettledDiscoveryRun = selectNewestSettledDiscoveryRun(
+    props.workspace.recentDiscoveryRuns ?? [],
+  );
+  const sourceHealthRunNotices = selectCardOnlyEvidenceNotices(
+    getDiscoveryLatestRunNotices(
+      latestSettledDiscoveryRun ? [latestSettledDiscoveryRun] : [],
+    ),
+  );
+  const sourceProblemSummaryLine = formatDiscoveryRunSourceProblemSummary(
+    latestSettledDiscoveryRun,
+  );
+  const sourceHealthBadgeLabel = hasSavedSourcesAllDisabled
+    ? "No job sources turned on"
+    : hasNoEnabledSources
+      ? "No job sources configured"
+      : (sourceHealthCountsLabel ?? "Not checked yet");
 
   // The global search only helps once there is something to find; on an empty
   // workspace it is one more empty control above an empty page.
@@ -419,11 +499,17 @@ export function JobSearchHomeScreen(props: {
             ? // Nothing to say yet: the user has not met the word "source",
               // and setup chooses them.
               ""
-            : hasNoSources
-              ? "No job sources yet • Add one in Profile"
-              : `${dashboard.sourceHealth.total} enabled source${dashboard.sourceHealth.total === 1 ? "" : "s"}`}
+            : hasSavedSourcesAllDisabled
+              ? `${savedSourceCount} saved source${savedSourceCount === 1 ? "" : "s"} • Turn one on in Profile`
+              : hasNoEnabledSources
+                ? "No job sources yet • Add one in Profile"
+                : `${dashboard.sourceHealth.total} enabled source${dashboard.sourceHealth.total === 1 ? "" : "s"}`}
         </span>
-        {hasSourceHealthAttention ? (
+        {/* Gated with the badge and the summary line: during setup the user
+            has not met the word "source" yet, so a lone review action would
+            point at something Home is not showing. */}
+        {showSourceHealthBadge &&
+        (hasSourceHealthAttention || sourceProblemSummaryLine !== null) ? (
           <Button
             onClick={() => props.onNavigate(profileJobSourcesRoute)}
             size="sm"
@@ -450,6 +536,25 @@ export function JobSearchHomeScreen(props: {
             </select>
           </label>
         ) : null}
+        {showProfileSetupBlocker || sourceProblemSummaryLine === null ? null : (
+          <p
+            className="w-full min-w-0 break-words text-xs text-foreground-muted"
+            data-testid="source-health-problem-summary"
+          >
+            {sourceProblemSummaryLine}
+          </p>
+        )}
+        {showProfileSetupBlocker
+          ? null
+          : sourceHealthRunNotices.map((notice) => (
+              <p
+                className="w-full min-w-0 break-words text-xs text-foreground-muted"
+                data-testid="source-health-run-notice"
+                key={notice}
+              >
+                {notice}
+              </p>
+            ))}
       </div>
 
       {showOfflineCatalogNotice ? (
@@ -516,7 +621,7 @@ export function JobSearchHomeScreen(props: {
                 pressing it does. */}
             {showProfileSetupBlocker
               ? profileSetupCardAction
-              : hasNoSources
+              : hasNoEnabledSources
                 ? "Open job sources"
                 : canRunFirstSearch
                   ? "Search now"
@@ -564,7 +669,7 @@ export function JobSearchHomeScreen(props: {
               {profileSetupCardHelper}
             </p>
           ) : null
-        ) : hasNoSources ? (
+        ) : hasNoEnabledSources ? (
           // The setup blocker owns this card when it is showing, so the
           // sources caption must not contradict a "Start setup" button. It
           // also avoids "public board", a term first-run users have not met.

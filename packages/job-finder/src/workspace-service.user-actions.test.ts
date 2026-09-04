@@ -40,7 +40,7 @@ function createRequest(
       expectedOrigin: "https://boards.example.com/",
     },
     title: "Sign in to continue",
-    summary: "Complete sign-in in the managed browser.",
+    summary: "Complete sign-in in the Job Finder browser.",
     instructions: ["Sign in without sharing credentials with Job Finder."],
     actionUrl: "https://boards.example.com/jobs",
     displayOrigin: "https://boards.example.com/",

@@ -13,6 +13,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "@renderer/lib/cn";
 import { JOB_FINDER_ROUTE_PATHS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
+import { SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_CANCEL_CLASS } from "../../lib/job-finder-shell-gutters";
 import { PageHeader } from "../../components/page-header";
 import { ApplicationsCrmSettingsEditor } from "../applications/applications-crm-settings";
 import { SettingsAppDeviceSection } from "./settings-app-device-section";
@@ -314,7 +315,18 @@ export function SettingsScreen(props: {
 
   return (
     <section
-      className="grid min-w-0 gap-3 pb-8"
+      // The unsaved-changes bar is `sticky bottom-0`, and a sticky box is
+      // clamped to its containing block. With the shell's own bottom gutter
+      // still in place that block ended 40px above the window, so the bar came
+      // to rest there with live cards rendering under and below it — it read
+      // as a strip dropped into the middle of the page. The route cancels the
+      // shell gutter (the bar is this route's bottom edge and paints its own)
+      // and drops its trailing `pb-8` for the same reason: any padding after
+      // the bar is padding the bar cannot cover at the end of the scroll.
+      className={cn(
+        "grid min-w-0 gap-3",
+        SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_CANCEL_CLASS,
+      )}
       style={
         {
           [SETTINGS_SUBNAV_OFFSET_VARIABLE]: `${sectionScrollOffsetPx}px`,

@@ -25,6 +25,7 @@ import {
   DiscoverySessionSummary,
 } from "./discovery-filters-panel-sections";
 import { getDiscoverySearchReadiness } from "./discovery-search-readiness";
+import { JOB_FINDER_BROWSER_LABEL } from "../../lib/job-finder-browser-handoff-copy";
 import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
 
 interface DiscoveryFiltersPanelProps {
@@ -417,7 +418,7 @@ export function DiscoveryFiltersPanel({
               the current search, so the label must say so: "Current search /
               Not open" read as though the search itself was not open. */}
             <p className="text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-label) text-foreground-muted">
-              Search browser
+              {JOB_FINDER_BROWSER_LABEL}
             </p>
             <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
               <StatusBadge

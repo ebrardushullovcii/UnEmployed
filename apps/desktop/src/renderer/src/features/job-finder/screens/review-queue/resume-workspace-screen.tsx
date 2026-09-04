@@ -65,10 +65,13 @@ import type { ResumeWorkspaceScreenProps } from "./resume-workspace-screen.types
 /** The shell's own bottom padding below the route (`pb-3`). */
 const STUDIO_BOTTOM_GUTTER = 12;
 /**
- * Used only until the first measurement lands: the ≥1440 shell header plus the
- * bottom gutter. A short first paint is recoverable; an overlong one clips.
+ * Used only until the first measurement lands: the ≥1440 shell header, one
+ * workspace title row, and the bottom gutter. A short first paint is
+ * recoverable; an overlong one clips.
  */
-const STUDIO_FALLBACK_TOP_OFFSET = 68;
+const STUDIO_FALLBACK_TITLE_ROW = 72;
+const STUDIO_FALLBACK_TOP_OFFSET =
+  56 + STUDIO_FALLBACK_TITLE_ROW + STUDIO_BOTTOM_GUTTER;
 
 export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
   const [draft, setDraft] = useState<ResumeDraft | null>(
@@ -119,15 +122,22 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
         ? Math.max(0, scrollArea.getBoundingClientRect().top)
         : 0;
 
-      // Only the shell chrome and the route's own bottom gutter are permanent.
-      // The workspace title row used to be subtracted too, which pinned three
-      // stacked bands — 117px of shell, a ~90px title row and the studio's own
-      // 53px state row — above the panes and left the studio 260px short of the
-      // window at every scroll position. The title row is an ordinary scrolling
-      // row of the locked layout, so scrolling it away now yields exactly one
-      // studio row above the content, and the studio content area is the
-      // viewport minus that row.
-      setStudioTopOffset(Math.ceil(shellChrome + STUDIO_BOTTOM_GUTTER));
+      // Every band that sits above the studio at scroll 0 has to come out of
+      // the studio's height, or the pane container simply ends below the fold.
+      // Subtracting only the shell chrome and the bottom gutter left the
+      // container exactly `titleRow - gutter` past the window bottom — 41px at
+      // both 1440x920 and 1280x720 — so the route grew a scroll whose entire
+      // range existed to reveal a pane's bottom border. The title row is a
+      // real, permanent band at the position the user arrives in, so it is
+      // subtracted; scrolling it away leaves the studio short by that much
+      // rather than clipped, which is the recoverable direction. Neither term
+      // depends on this element's own height, so there is still no measurement
+      // feedback loop.
+      const titleRow = Math.max(0, topRow.getBoundingClientRect().height);
+
+      setStudioTopOffset(
+        Math.ceil(shellChrome + titleRow + STUDIO_BOTTOM_GUTTER),
+      );
     };
 
     updateOffset();

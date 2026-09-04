@@ -131,45 +131,29 @@ export function combineSectionProgress(
 }
 
 /**
- * True only when the section models required fields and every one is filled.
- * The completion check glyph and success color follow this, not the broader
- * "complete" state, so a purely optional section cannot show a finished tick
- * over a partly filled bar.
+ * The accessible wording that accompanies a tab's bare remaining-count digit.
+ *
+ * Only the `remaining` state reaches this: the section tabs render the count,
+ * and this label beside it, solely while required fields are still
+ * outstanding. The former "Required done" / "Optional added" / "Optional" /
+ * "Empty" / "Not started" wording lost its last caller when the per-tab
+ * completion chips were removed, so those branches are gone rather than kept
+ * unreachable. Sections in every other state read as their name alone, and
+ * the state itself is still published on each trigger by
+ * `getSectionProgressState`.
+ *
+ * `section` is no longer read — the only section-specific wording was the
+ * removed `empty` branch — but it stays in the signature because the caller
+ * passes it.
  */
-export function isSectionRequiredComplete(progress: SectionProgress): boolean {
-  return (
-    getSectionProgressState(progress) === "complete" &&
-    progress.required !== undefined &&
-    progress.required.total > 0
-  );
-}
-
 export function formatSectionProgressLabel(
   section: ProfileSection,
   progress: SectionProgress,
 ): string {
-  switch (getSectionProgressState(progress)) {
-    case "complete":
-      // "Required done" instead of "Complete": optional fields may still be
-      // empty, and claiming the whole section is complete is not truthful.
-      // A section with no required model has nothing to have finished, so it
-      // reports what it is — optional, partly filled — instead of claiming
-      // "Complete" over a half-filled bar beside four "Required done" tabs.
-      return isSectionRequiredComplete(progress)
-        ? "Required done"
-        : "Optional added";
-    case "remaining": {
-      const remaining = Math.max(
-        0,
-        (progress.required?.total ?? 0) - (progress.required?.filled ?? 0),
-      );
-      return `${remaining} to fill`;
-    }
-    case "optional":
-      return "Optional";
-    case "empty":
-      return section === "experience" || section === "background"
-        ? "Empty"
-        : "Not started";
-  }
+  const remaining = Math.max(
+    0,
+    (progress.required?.total ?? 0) - (progress.required?.filled ?? 0),
+  );
+
+  return `${remaining} to fill`;
 }

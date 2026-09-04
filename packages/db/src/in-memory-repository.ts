@@ -185,7 +185,12 @@ export function createInMemoryJobFinderRepository(
       );
       assertAtMostOneActiveApplicationAuthority(normalizedSeed);
 
-      profileRevision = 1;
+      // The reset replaces the whole workspace, but the compare-and-swap epoch
+      // only ever moves forward — mirroring `initSingletonValue` in the SQLite
+      // backend. Rewinding it to 1 would let a token captured before the reset
+      // still satisfy the equality check afterwards and overwrite the freshly
+      // seeded profile, search preferences and profile setup state.
+      profileRevision += 1;
       state.profile = normalizedSeed.profile;
       state.searchPreferences = normalizedSeed.searchPreferences;
       state.profileSetupState = normalizedSeed.profileSetupState;
@@ -496,7 +501,11 @@ export function createInMemoryJobFinderRepository(
             nextJobForResumeApproval,
           )
         ) {
-          const draft = state.resumeDrafts.find(
+          // Select the newest draft, matching the SQLite repository's
+          // "updated_at DESC, id ASC" lookup and getResumeDraftByJobId. Taking
+          // the first inserted draft could leave an approved resume standing
+          // against changed job text.
+          const draft = sortResumeDrafts(state.resumeDrafts).find(
             (candidate) => candidate.jobId === clearResumeApproval.jobId,
           );
           if (
@@ -521,10 +530,16 @@ export function createInMemoryJobFinderRepository(
               nextResumeExportArtifacts,
               staleDraft.jobId,
             );
+            // Same newest-first rule as the SQLite tailored-asset lookup.
             const existingAsset =
-              state.tailoredAssets.find(
-                (asset) => asset.jobId === staleDraft.jobId,
-              ) ?? null;
+              [...state.tailoredAssets]
+                .sort(
+                  (left, right) =>
+                    new Date(right.updatedAt).getTime() -
+                      new Date(left.updatedAt).getTime() ||
+                    left.id.localeCompare(right.id),
+                )
+                .find((asset) => asset.jobId === staleDraft.jobId) ?? null;
             if (existingAsset) {
               nextTailoredAssets = upsertById(nextTailoredAssets, {
                 ...existingAsset,
@@ -602,6 +617,17 @@ export function createInMemoryJobFinderRepository(
 
         if (nextSavedJob) {
           state.savedJobs = upsertById(state.savedJobs, nextSavedJob);
+        }
+        // A changed preference advances the shared profile epoch so a
+        // copilot commit that captured the older preferences fails closed as
+        // stale instead of reverting this feedback. Most discovery feedback
+        // leaves preferences untouched; those rewrites must not invalidate
+        // unrelated in-flight profile work.
+        if (
+          JSON.stringify(nextSearchPreferences) !==
+          JSON.stringify(state.searchPreferences)
+        ) {
+          profileRevision += 1;
         }
         state.searchPreferences = nextSearchPreferences;
         if (nextCampaignState !== null) {
@@ -733,6 +759,17 @@ export function createInMemoryJobFinderRepository(
       const normalizedArtifact = ResumeExportArtifactSchema.parse(
         cloneValue(artifact),
       );
+
+      // Only approveResumeExport() demotes the job's sibling exports, so
+      // writing an approved artifact through this method would leave two
+      // approved exports for one job. The SQLite repository refuses the same
+      // write; the backends must not diverge on an approval invariant.
+      if (normalizedArtifact.isApproved) {
+        throw new Error(
+          "Approved resume exports must be written through approveResumeExport().",
+        );
+      }
+
       state.resumeExportArtifacts = upsertById(
         state.resumeExportArtifacts,
         normalizedArtifact,
@@ -2102,6 +2139,17 @@ export function createInMemoryJobFinderRepository(
         state.campaigns = nextCampaignState.campaigns;
         state.activeCampaignId = nextCampaignState.activeCampaignId;
         state.campaignNotifications = nextCampaignState.notifications;
+        // A changed preference advances the shared profile epoch so a
+        // copilot commit that captured the older preferences fails closed as
+        // stale instead of reverting this campaign preference change. A
+        // campaign-only edit leaves preferences untouched and must not
+        // invalidate unrelated in-flight profile work.
+        if (
+          JSON.stringify(nextSearchPreferences) !==
+          JSON.stringify(state.searchPreferences)
+        ) {
+          profileRevision += 1;
+        }
         state.searchPreferences = nextSearchPreferences;
         return Promise.resolve(next.result);
       } catch (error) {

@@ -102,6 +102,94 @@ describe("job finder demo state", () => {
     );
   });
 
+  test("apply-queue seed carries prepare-only apply lineage for both paused outcomes", () => {
+    const state = createApplyQueueDemoState();
+
+    // Before this seed existed the loader reset the workspace with zero rows
+    // in every apply table, so the Applications hand-off could never render.
+    expect(state.applyRuns).toHaveLength(1);
+    expect(state.applyJobResults).toHaveLength(2);
+    expect(state.applicationRecords).toHaveLength(2);
+    expect(state.applicationAttempts).toHaveLength(2);
+    expect(state.userActionRequests).toHaveLength(1);
+
+    const run = state.applyRuns[0];
+    expect(run?.state).toBe("paused_for_user_review");
+    expect(run?.submittedJobs).toBe(0);
+
+    const savedJobIds = new Set(state.savedJobs.map((job) => job.id));
+    const recordIds = new Set(state.applicationRecords.map((r) => r.id));
+
+    // The snapshot scopes apply rows to the active campaign, and the campaign
+    // the seed adopts owns exactly the saved jobs. A run naming a job that is
+    // not saved would resolve to no campaign and vanish from Applications even
+    // though its rows exist in SQLite.
+    expect(run?.jobIds.every((jobId) => savedJobIds.has(jobId))).toBe(true);
+
+    for (const result of state.applyJobResults) {
+      expect(result.runId).toBe(run?.id);
+      expect(savedJobIds.has(result.jobId)).toBe(true);
+      expect(recordIds.has(result.applicationRecordId ?? "")).toBe(true);
+      // The exact lineage the browser hand-off and its verification read.
+      expect(result.privacyReceipt?.lineage).toEqual({
+        runId: run?.id,
+        jobId: result.jobId,
+        resultId: result.id,
+        applicationRecordId: result.applicationRecordId,
+      });
+    }
+
+    for (const attempt of state.applicationAttempts) {
+      expect(savedJobIds.has(attempt.jobId)).toBe(true);
+      expect(recordIds.has(attempt.applicationRecordId ?? "")).toBe(true);
+      expect(attempt.state).toBe("paused");
+    }
+
+    const request = state.userActionRequests[0];
+    expect(request?.scope.type).toBe("application");
+    if (request?.scope.type === "application") {
+      expect(request.scope.applicationRecordId).toBe(
+        state.applyJobResults[0]?.applicationRecordId,
+      );
+      expect(request.scope.jobId).toBe(state.applyJobResults[0]?.jobId);
+    }
+    expect(request?.submitAuthorized).toBe(false);
+    expect(request?.accountCreationAuthorized).toBe(false);
+  });
+
+  test("apply-queue seed never claims a submitted outcome", () => {
+    const state = createApplyQueueDemoState();
+
+    expect(
+      state.applyJobResults.some(
+        (result) => result.state === "submitted" || result.completedAt !== null,
+      ),
+    ).toBe(false);
+    expect(
+      state.applicationRecords.some((record) => record.status === "submitted"),
+    ).toBe(false);
+    expect(
+      state.applicationAttempts.some(
+        (attempt) => attempt.state === "submitted" || attempt.outcome !== null,
+      ),
+    ).toBe(false);
+    expect(state.savedJobs.some((job) => job.status === "submitted")).toBe(
+      false,
+    );
+    expect(state.applySubmitApprovals).toEqual([]);
+    expect(state.submissionExecutionGrants).toEqual([]);
+    expect(state.submissionArmedMarkers).toEqual([]);
+    expect(state.submissionOutcomeRecords).toEqual([]);
+
+    for (const result of state.applyJobResults) {
+      expect(result.privacyReceipt?.finalSubmitOccurred).toBe(false);
+      expect(result.privacyReceipt?.finalSubmitAuthorized).toBe(false);
+      expect(result.privacyReceipt?.accountCreationAuthorized).toBe(false);
+      expect(result.privacyReceipt?.submissionOutcome ?? null).toBeNull();
+      expect(result.privacyReceipt?.externalWrites).toEqual([]);
+    }
+  });
+
   test("both demo repository states satisfy the repository state schema", () => {
     for (const factory of [
       createApplyQueueDemoState,

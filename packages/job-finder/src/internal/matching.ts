@@ -1276,6 +1276,26 @@ export type LocationCompatibilityState =
   | "incompatible"
   | "unknown";
 
+/**
+ * The saved places that actually constrain a search.
+ *
+ * An imported profile can push a stored absence placeholder ("Location not
+ * stated") into the preferred locations, and a user can type "N/A"; neither
+ * states a place. `assessLocationCompatibility` answers "compatible" for both
+ * "no constraint" and "verified match", so every caller that distinguishes
+ * those two must count the constraints here rather than the raw saved list —
+ * otherwise a placeholder-only preference reads as a location the user chose
+ * and the listing met.
+ */
+function getSavedLocationConstraints(
+  desiredValues: readonly string[],
+): readonly string[] {
+  if (desiredValues.every((value) => !isAbsentFieldText(value))) {
+    return desiredValues;
+  }
+  return desiredValues.filter((value) => !isAbsentFieldText(value));
+}
+
 // Positive preference fit only. Work-mode noise ("Remote", "Hybrid") states
 // how a job is done, never where, so it cannot confirm geographic
 // compatibility; "worldwide"/"anywhere" coverage is the documented exception
@@ -1284,7 +1304,11 @@ export function assessLocationCompatibility(
   candidate: string,
   desiredValues: readonly string[],
 ): LocationCompatibilityState {
-  if (desiredValues.length === 0) {
+  // An absence placeholder is not a place on either side. A saved preference
+  // that reads "N/A" or "Location not stated" states no geographic constraint,
+  // so tokenising it would fabricate a conflict against every real listing.
+  const desiredPlaces = getSavedLocationConstraints(desiredValues);
+  if (desiredPlaces.length === 0) {
     return "compatible";
   }
 
@@ -1295,7 +1319,7 @@ export function assessLocationCompatibility(
   }
 
   const candidateSignal = readLocationGeographySignal(candidate);
-  const desiredSignals = desiredValues.map(readLocationGeographySignal);
+  const desiredSignals = desiredPlaces.map(readLocationGeographySignal);
 
   if (candidateSignal.genericTokens.length === 0) {
     return "unknown";
@@ -1319,7 +1343,7 @@ export function assessLocationCompatibility(
 
   if (
     broadRemoteGeographyPattern.test(candidateSignal.rawText) &&
-    getBroadLocationCompatibility(candidate, desiredValues) === true
+    getBroadLocationCompatibility(candidate, desiredPlaces) === true
   ) {
     return "compatible";
   }
@@ -1363,11 +1387,9 @@ export function assessPostingLocationCompatibility(
   posting: Pick<MatchAssessmentPostingInput, "location" | "workMode">,
   searchPreferences: Pick<JobSearchPreferences, "locations" | "workModes">,
 ): PostingLocationCompatibility {
-  const state = assessLocationCompatibility(
-    posting.location,
-    searchPreferences.locations,
-  );
-  if (state === "compatible" || searchPreferences.locations.length === 0) {
+  const savedPlaces = getSavedLocationConstraints(searchPreferences.locations);
+  const state = assessLocationCompatibility(posting.location, savedPlaces);
+  if (state === "compatible" || savedPlaces.length === 0) {
     return { state, remotePreferenceApplied: false };
   }
 
@@ -1381,7 +1403,7 @@ export function assessPostingLocationCompatibility(
 
   const broadCompatibility = getBroadLocationCompatibility(
     posting.location,
-    searchPreferences.locations,
+    savedPlaces,
   );
   return {
     state: broadCompatibility === false ? "unknown" : "compatible",
@@ -1583,6 +1605,14 @@ export function createMatchAssessment<
     searchPreferences.targetRoles.some(
       (role) => collectRoleFamilies(role).size > 0,
     ) && collectRoleFamilies(posting.title).size === 0;
+  // "compatible" covers both "no saved constraint" and "verified match", so
+  // every branch below that distinguishes the two counts the real saved
+  // places rather than the raw list: a placeholder-only preference states no
+  // constraint and must not be credited as a location the listing met.
+  const savedLocationConstraints = getSavedLocationConstraints(
+    searchPreferences.locations,
+  );
+  const hasSavedLocationConstraint = savedLocationConstraints.length > 0;
   const {
     state: locationCompatibility,
     remotePreferenceApplied: locationRemotePreferenceApplied,
@@ -1649,7 +1679,7 @@ export function createMatchAssessment<
     locationCompatibility,
     locationRemotePreferenceApplied,
     workModeCompatibility,
-    hasLocationPreferences: searchPreferences.locations.length > 0,
+    hasLocationPreferences: hasSavedLocationConstraint,
     hasWorkModePreferences: searchPreferences.workModes.length > 0,
     targetRoles: searchPreferences.targetRoles,
   });
@@ -1696,7 +1726,7 @@ export function createMatchAssessment<
     );
   }
 
-  if (searchPreferences.locations.length === 0) {
+  if (!hasSavedLocationConstraint) {
     // An unconstrained search is neutral. It is not evidence that the listing
     // matches a location the user explicitly chose.
   } else if (locationCompatibility === "compatible") {
@@ -1840,7 +1870,14 @@ export function createMatchAssessment<
 
   const dimensions = buildMatchDimensionsAssessment({
     posting,
-    searchPreferences,
+    // The preference facets read the saved locations directly, both to decide
+    // whether a location facet exists at all and to name the places in its
+    // evidence line. Hand them the real constraints so a placeholder never
+    // becomes "compared with Location not stated: aligned."
+    searchPreferences:
+      savedLocationConstraints.length === searchPreferences.locations.length
+        ? searchPreferences
+        : { ...searchPreferences, locations: [...savedLocationConstraints] },
     requirements,
     matchesRole,
     roleFamilyMismatch,

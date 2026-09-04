@@ -29,6 +29,16 @@ import {
 } from "../../components/collection-search-toolbar";
 import { EmptyState } from "../../components/empty-state";
 import { formatJobEmployerLocationLine } from "../../lib/job-employer-location-display";
+import {
+  jobFinderListRegionClassName,
+  jobFinderListRowBadgeSlotClassName,
+  jobFinderListRowClassName,
+  jobFinderListRowLinesClassName,
+  jobFinderListRowMetaClassName,
+  jobFinderListRowStatusClassName,
+  jobFinderListRowTitleClassName,
+  jobFinderListRowTitleLineClassName,
+} from "../../components/list-row";
 import { StatusBadge } from "../../components/status-badge";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 import {
@@ -37,7 +47,6 @@ import {
 } from "../../lib/collection-keyboard-navigation";
 import { Link } from "react-router-dom";
 import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigation";
-import { getDisplayedResumeProgress } from "./review-queue-progress";
 import {
   APPLICATION_PREPARATION_BATCH_LIMIT,
   TAILORED_DRAFT_PREPARATION_LIMIT,
@@ -413,16 +422,15 @@ export function ReviewQueueListPanel({
         />
       ) : (
         <div
-          className="grid min-h-0 flex-1 content-start gap-2 overflow-x-hidden overflow-y-auto px-5 pb-5 pt-4"
+          className={cn(
+            jobFinderListRegionClassName,
+            "min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
+          )}
           data-locked-pane-scroll-region
           ref={queueListRegionRef}
         >
           {pagedVisibleQueue.map((item) => {
             const isPending = isJobPending(item.jobId);
-            const displayedProgress = getDisplayedResumeProgress(
-              item,
-              isPending,
-            );
             const workflowStatus = getReviewQueueWorkflowStatus(
               item,
               assetsByJobId.get(item.jobId),
@@ -444,72 +452,77 @@ export function ReviewQueueListPanel({
               <SelectableRow
                 as="div"
                 key={item.jobId}
-                className="grid gap-3 text-foreground"
+                className={cn(jobFinderListRowClassName, "text-foreground")}
                 selected={selectedItem?.jobId === item.jobId}
               >
-                <div className="flex w-full items-start justify-between gap-3">
-                  {batchActionsOpen ? (
-                    <label
-                      htmlFor={queueCheckboxId}
-                      className={cn(
-                        "inline-flex items-center gap-2 text-(length:--text-tiny) uppercase tracking-(--tracking-badge)",
-                        !queueSelectionDisabled
-                          ? "text-foreground-soft"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      <Checkbox
-                        aria-describedby={
-                          queueSelectionDisabled
-                            ? queueDisabledReasonId
-                            : undefined
-                        }
-                        id={queueCheckboxId}
-                        checked={selectedForQueue}
-                        disabled={queueSelectionDisabled}
-                        onCheckedChange={(value) => {
-                          const checked = value === true;
-                          if (
-                            checked &&
-                            !selectedForQueue &&
-                            queueSelectionLimitReached
-                          ) {
-                            return;
-                          }
-                          onToggleQueueSelection(item.jobId, checked);
-                        }}
-                      />
-                      Select for batch
-                    </label>
-                  ) : (
-                    <span />
-                  )}
-                  {/* The badge line always occupies its slot. Rendering it
-                      only for unselected rows made the whole list jump on every
-                      selection change. */}
-                  <SelectableRowLine className="flex shrink-0 justify-end">
-                    {selectedItem?.jobId === item.jobId ? null : (
-                      <StatusBadge tone={workflowStatus.tone}>
-                        {workflowStatus.label}
-                      </StatusBadge>
+                {batchActionsOpen ? (
+                  <label
+                    htmlFor={queueCheckboxId}
+                    className={cn(
+                      "inline-flex items-center gap-2 text-(length:--text-tiny) uppercase tracking-(--tracking-badge)",
+                      !queueSelectionDisabled
+                        ? "text-foreground-soft"
+                        : "text-muted-foreground",
                     )}
-                  </SelectableRowLine>
-                </div>
+                  >
+                    <Checkbox
+                      aria-describedby={
+                        queueSelectionDisabled
+                          ? queueDisabledReasonId
+                          : undefined
+                      }
+                      id={queueCheckboxId}
+                      checked={selectedForQueue}
+                      disabled={queueSelectionDisabled}
+                      onCheckedChange={(value) => {
+                        const checked = value === true;
+                        if (
+                          checked &&
+                          !selectedForQueue &&
+                          queueSelectionLimitReached
+                        ) {
+                          return;
+                        }
+                        onToggleQueueSelection(item.jobId, checked);
+                      }}
+                    />
+                    Select for batch
+                  </label>
+                ) : null}
                 <button
                   aria-current={
                     selectedItem?.jobId === item.jobId ? "true" : undefined
                   }
                   aria-keyshortcuts="ArrowUp ArrowDown Home End"
-                  className="grid min-w-0 w-full gap-3 text-left outline-none transition-colors hover:bg-transparent focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                  className={cn(
+                    jobFinderListRowLinesClassName,
+                    "w-full text-left outline-none transition-colors hover:bg-transparent focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                  )}
                   data-collection-item-id={item.jobId}
                   onClick={() => onSelectItem(item.jobId)}
                   onKeyDown={(event) => handleListKeyDown(event, item.jobId)}
                   type="button"
                 >
-                  <div className="min-w-0 w-full">
-                    <strong className="block break-words font-display font-semibold tracking-(--tracking-normal) text-foreground">
+                  {/* Title line, with the one badge slot trailing it - the
+                      same slot Find jobs and Applications use. The badge used
+                      to float on its own row above the title, which is what
+                      made this list read as a different kind of list. It still
+                      always occupies its slot: rendering it only for
+                      unselected rows made the whole list jump on every
+                      selection change. */}
+                  <div className={jobFinderListRowTitleLineClassName}>
+                    <strong className={jobFinderListRowTitleClassName}>
                       {item.title}
                     </strong>
+                    <div className={jobFinderListRowBadgeSlotClassName}>
+                      <SelectableRowLine className="flex justify-end">
+                        {selectedItem?.jobId === item.jobId ? null : (
+                          <StatusBadge tone={workflowStatus.tone}>
+                            {workflowStatus.label}
+                          </StatusBadge>
+                        )}
+                      </SelectableRowLine>
+                    </div>
                   </div>
                   {(() => {
                     const employerLocationLine = formatJobEmployerLocationLine({
@@ -518,7 +531,7 @@ export function ReviewQueueListPanel({
                       separator: " • ",
                     });
                     return employerLocationLine ? (
-                      <span className="block w-full text-(length:--text-small) text-foreground-soft">
+                      <span className={jobFinderListRowMetaClassName}>
                         {employerLocationLine}
                       </span>
                     ) : null;
@@ -527,7 +540,12 @@ export function ReviewQueueListPanel({
                       slot: the detail header already states the selected job's
                       resume state, so the selected row does not restate it —
                       but the line still holds its height. */}
-                  <SelectableRowLine className="text-(length:--text-small) font-medium text-foreground-soft">
+                  <SelectableRowLine
+                    className={cn(
+                      jobFinderListRowStatusClassName,
+                      "font-medium text-foreground-soft",
+                    )}
+                  >
                     {selectedItem?.jobId === item.jobId
                       ? null
                       : getReviewQueueResumePolicyCaption(item)}
@@ -544,9 +562,12 @@ export function ReviewQueueListPanel({
                   ) : null}
                   {showProgress ? (
                     <div className="grid min-w-0 w-full gap-1.5">
+                      {/* Row-level progress had no real percentage behind it
+                          either; it only needs to say "this one is running". */}
                       <ProgressBar
-                        className="h-1.5 w-full rounded-full bg-(--surface-progress-track)"
-                        percent={displayedProgress}
+                        ariaLabel="Resume preparation in progress"
+                        className="h-1.5 w-full overflow-hidden rounded-full bg-(--surface-progress-track)"
+                        indeterminate
                       />
                     </div>
                   ) : null}

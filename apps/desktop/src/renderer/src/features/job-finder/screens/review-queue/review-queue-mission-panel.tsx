@@ -23,6 +23,10 @@ import { StatusBadge } from "../../components/status-badge";
 import { ResumeStrategyJobPanel } from "./resume-strategy-job-panel";
 import { formatDailyPreparationCapacitySummaryText } from "../../lib/job-finder-daily-capacity";
 import {
+  formatResumeOperationElapsed,
+  RESUME_DRAFT_EXPECTED_WAIT_LABEL,
+} from "./review-queue-progress";
+import {
   type ApplicationReadinessFact,
   type ApplyChecklistItem,
   buildMissionPanelState,
@@ -48,7 +52,8 @@ interface ReviewQueueMissionPanelProps {
   browserSession: BrowserSessionState;
   campaignId: string;
   campaignDefaultResumeStrategyId?: string | null | undefined;
-  displayedProgress: number;
+  /** Seconds the current preparation has been running. */
+  pendingElapsedSeconds: number;
   globalDailyApplicationPreparationCapacity?: GlobalDailyApplicationPreparationCapacity | null;
   isApplyPending: boolean;
   isJobPending: (jobId: string) => boolean;
@@ -97,7 +102,7 @@ export function ReviewQueueMissionPanel({
   browserSession,
   campaignId,
   campaignDefaultResumeStrategyId,
-  displayedProgress,
+  pendingElapsedSeconds,
   globalDailyApplicationPreparationCapacity = null,
   isApplyPending,
   isJobPending,
@@ -306,10 +311,20 @@ export function ReviewQueueMissionPanel({
               {readinessDescription}
             </p>
             {selectedItem && isGenerating ? (
-              <ProgressBar
-                ariaLabel="Resume progress"
-                percent={displayedProgress}
-              />
+              <div className="mt-2 grid gap-1.5">
+                <ProgressBar
+                  ariaLabel="Resume preparation in progress"
+                  indeterminate
+                />
+                <p className="text-(length:--text-small) leading-5 text-foreground-muted">
+                  <span className="tabular-nums" data-resume-draft-elapsed>
+                    {formatResumeOperationElapsed(pendingElapsedSeconds)}
+                  </span>{" "}
+                  <span data-resume-draft-expected-wait>
+                    {RESUME_DRAFT_EXPECTED_WAIT_LABEL}
+                  </span>
+                </p>
+              </div>
             ) : null}
           </div>
         ) : null}

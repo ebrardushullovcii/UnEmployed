@@ -15,6 +15,7 @@ import {
   type JobSearchPreferences,
   type ReviewQueueItem,
   type SavedJob,
+  type GroupedManualAnswerDecision,
   type UserActionRequest,
 } from "@unemployed/contracts";
 import type { JobFinderRepository } from "@unemployed/db";
@@ -36,6 +37,35 @@ const FINAL_ACTION_STATES = new Set([
   "expired",
   "superseded",
 ]);
+
+/**
+ * The one package-side owner of the "Needs you" population, matching the
+ * renderer's `lib/needs-you-count.ts` semantics exactly: unresolved requests,
+ * minus the ones a pending grouped decision already represents, plus one entry
+ * per pending grouped decision. Home's "N items cannot continue without you"
+ * and the shell badge now describe the same set.
+ */
+export function countNeedsYouItems(
+  requests: readonly UserActionRequest[],
+  groupedDecisions?: readonly GroupedManualAnswerDecision[],
+): number {
+  const unresolved = requests.filter(
+    (request) => !FINAL_ACTION_STATES.has(request.state),
+  );
+  const pendingDecisions = (groupedDecisions ?? []).filter(
+    (decision) => decision.approval === "pending",
+  );
+  const representedRequestIds = new Set(
+    pendingDecisions.flatMap((decision) =>
+      decision.lineage.map((entry) => entry.requestId),
+    ),
+  );
+
+  return (
+    unresolved.filter((request) => !representedRequestIds.has(request.id))
+      .length + pendingDecisions.length
+  );
+}
 
 /**
  * Apply-run states that still own live queue work: actively running, staged
@@ -391,6 +421,15 @@ export function deriveDashboardSummary(input: {
   applicationRecords: readonly ApplicationRecord[];
   applyRuns: readonly ApplyRun[];
   userActionRequests: readonly UserActionRequest[];
+  /**
+   * Pending grouped manual-answer decisions. The Needs you screen renders one
+   * card per pending decision instead of its member requests, so a summary
+   * that counts the raw requests reports a different number than the screen
+   * and than the shell badge: one grouped decision covering three questions
+   * read as 3 here and 1 there. Optional so existing callers keep compiling;
+   * omitting it means "no grouping applies".
+   */
+  groupedDecisions?: readonly GroupedManualAnswerDecision[];
   discovery: JobFinderDiscoveryState;
   searchPreferences: JobSearchPreferences;
   sourceAccessPrompts?: readonly Pick<
@@ -412,9 +451,10 @@ export function deriveDashboardSummary(input: {
         appliedAt !== null && Number.isFinite(Date.parse(appliedAt)),
     )
     .map((appliedAt) => Date.parse(appliedAt));
-  const unresolvedActions = input.userActionRequests.filter(
-    (request) => !FINAL_ACTION_STATES.has(request.state),
-  ).length;
+  const unresolvedActions = countNeedsYouItems(
+    input.userActionRequests,
+    input.groupedDecisions,
+  );
   const crm = projectApplicationCrmDashboard({
     records: input.applicationRecords,
     now: input.generatedAt,

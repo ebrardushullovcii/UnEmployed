@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 import {
   formatRetainedCueCardCount,
@@ -199,5 +201,28 @@ describe("Job Finder route recorder installation", () => {
       ),
     ).toBeNull();
     expect(forwardedUrls).toEqual(["#/job-finder/companies/acme"]);
+  });
+});
+
+describe("Interview Helper brand lockup token classes", () => {
+  /**
+   * Tailwind v4's custom-property shorthand takes the token name directly.
+   * `text-(var(--x))` compiles to nothing, so the uppercase "Interview Helper"
+   * subtitle silently lost its letter-spacing and small-screen size. Pin the
+   * token form at the source, since a dropped class leaves no rendered trace.
+   */
+  const source = readFileSync(
+    new URL("./interview-helper-page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  it("styles the wordmark and subtitle with defined design tokens", () => {
+    expect(source).toContain("text-(--headline-primary)");
+    expect(source).toContain("tracking-(--tracking-caps)");
+    expect(source).toContain("sm:text-(length:--text-tiny)");
+  });
+
+  it("wraps no custom property in var() inside a Tailwind class", () => {
+    expect(source).not.toMatch(/-\((?:[A-Za-z-]+:)?var\(--/);
   });
 });

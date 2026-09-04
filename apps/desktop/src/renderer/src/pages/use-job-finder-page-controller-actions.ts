@@ -1,8 +1,11 @@
 import {
   formatPrepareApplicationDescription,
   formatPrepareApplicationSubject,
+  JOB_FINDER_BROWSER_NAME,
+  JOB_FINDER_BROWSER_NAME_SENTENCE_START,
 } from "@renderer/features/job-finder/lib/job-finder-browser-handoff-copy";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import type { JobFinderActionFailureReporting } from "./job-finder-page-context";
 import {
   appendDiscoveryLiveActivityEvent,
   evaluateProfileSetupReadiness,
@@ -84,7 +87,10 @@ import {
   jobFinderPendingActions,
 } from "./job-finder-pending-actions";
 import { getProfileCopilotContextKey } from "@renderer/features/job-finder/lib/profile-copilot-context";
-import { getJobFinderErrorMessage } from "@renderer/features/job-finder/lib/job-finder-error-message";
+import {
+  getJobFinderErrorDetail,
+  getJobFinderErrorMessage,
+} from "@renderer/features/job-finder/lib/job-finder-error-message";
 import { buildResumeWorkspaceRoute } from "@renderer/features/job-finder/lib/resume-workspace-route";
 import { buildSourceDebugOutcomeMessage } from "./job-finder-page-route-utils";
 import {
@@ -915,10 +921,13 @@ export function createPrimaryPageActions(
         );
       })
       .catch((error: unknown) => {
-        const detail = getJobFinderErrorMessage(
-          error,
-          "The search failed on this device.",
-        );
+        // The detail channel, not user copy: `createDiscoveryRun*Feedback`
+        // runs its own classifier over this string to choose the specific
+        // recovery action. Passing it the copy classifier's output would
+        // replace a browser/source/connection cause with a generic sentence,
+        // and the callout would silently fall back to "try again".
+        const detail =
+          getJobFinderErrorDetail(error) ?? "The search failed on this device.";
         // Progress events prove the run started; only a rejection with no
         // observed progress may claim the search could not start.
         const feedback = sawDiscoveryProgress
@@ -1168,8 +1177,7 @@ export function createPrimaryPageActions(
             "Applications updated. Check the latest attempt and next step there.",
             {
               scope: jobFinderPendingActions.apply(),
-              startMessage:
-                "Preparing the application in the dedicated browser. Job Finder has no final-submit action and never clicks Submit; verify the outcome on the site.",
+              startMessage: `Preparing the application in ${JOB_FINDER_BROWSER_NAME}. Job Finder has no final-submit action and never clicks Submit; verify the outcome on the site.`,
             },
           );
         },
@@ -1509,8 +1517,14 @@ export function createPrimaryPageActions(
         },
       );
     },
-    onOpenBrowserSession: (input?: JobFinderOpenBrowserSessionInput) =>
-      void runAction(
+    // Returns the run's settled outcome for the same reason as
+    // `onPerformUserAction`: a caller that reports the hand-off result in place
+    // needs the real answer, not a promise that was thrown away.
+    onOpenBrowserSession: (
+      input?: JobFinderOpenBrowserSessionInput,
+      options?: JobFinderActionFailureReporting,
+    ) =>
+      runAction(
         () => actions.openBrowserSession(input),
         () => undefined,
         (result) => {
@@ -1523,20 +1537,23 @@ export function createPrimaryPageActions(
             }
 
             return target
-              ? `Opened the browser for ${target.label}. Sign in there, then return to continue.`
-              : "Browser opened.";
+              ? `Opened ${JOB_FINDER_BROWSER_NAME} for ${target.label}. Sign in there, then return to continue.`
+              : `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} is open.`;
           }
 
           // The Search setup chip already reports Ready/Not open; the toast
           // only confirms the action instead of restating the status.
           return workspace.browserSession.status === "ready"
-            ? "Browser refreshed."
-            : "Browser opened.";
+            ? `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} was refreshed.`
+            : `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} is open.`;
         },
         {
           scope: input?.targetId
             ? jobFinderPendingActions.browserSessionTarget(input.targetId)
             : jobFinderPendingActions.browserSession(),
+          // Only a caller that asked for it; see
+          // `JobFinderActionFailureReporting`.
+          ...(options?.rethrowError ? { rethrowError: true } : {}),
         },
       ),
     onOpenProfile: () => {

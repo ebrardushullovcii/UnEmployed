@@ -5,11 +5,16 @@ import type {
   TailoredAsset,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
+import { ProgressBar } from "@renderer/components/ui";
 import { EmptyState } from "../../components/empty-state";
 import { StatusBadge } from "../../components/status-badge";
 import { Link } from "react-router-dom";
 import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
 import { cn } from "@renderer/lib/cn";
+import {
+  formatResumeOperationElapsed,
+  RESUME_DRAFT_EXPECTED_WAIT_LABEL,
+} from "./review-queue-progress";
 import {
   getReviewQueueWorkflowStatus,
   hasResumeGenerationFailure,
@@ -18,7 +23,8 @@ import {
 } from "./review-queue-status";
 
 interface ReviewQueuePreviewPanelProps {
-  displayedProgress: number;
+  /** Seconds the current preparation has been running. */
+  pendingElapsedSeconds: number;
   embedded?: boolean;
   /** Stacked into one page column: the column owns the scrolling. */
   stacked?: boolean;
@@ -37,7 +43,7 @@ interface ReviewQueuePreviewPanelProps {
 type PreviewState = "missing" | null;
 
 export function ReviewQueuePreviewPanel({
-  displayedProgress,
+  pendingElapsedSeconds,
   embedded = false,
   stacked = false,
   isGenerating: isSelectedJobPending = false,
@@ -126,33 +132,39 @@ export function ReviewQueuePreviewPanel({
         >
           <div className="grid w-full min-h-full place-items-center content-center gap-4 rounded-(--radius-field) bg-(--surface-panel-tint) p-8 text-center">
             {isGenerating ? (
-              <div
-                aria-label="Estimated resume preparation progress"
-                aria-valuemax={100}
-                aria-valuemin={0}
-                aria-valuenow={displayedProgress}
-                aria-valuetext={`${displayedProgress}% estimated`}
-                className="grid w-full max-w-xl gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 p-5 text-left"
-                role="progressbar"
-              >
+              /* The percentage here was invented: nothing in the pipeline
+                 reports a completion fraction, so the bar climbed to a 94%
+                 ceiling in ~15s and then sat frozen for the remaining ~42s of
+                 a 57.7s draft, making a successful run look like a hang. An
+                 indeterminate bar plus a live clock and a stated expectation
+                 says only what the app can actually substantiate. */
+              <div className="grid w-full max-w-xl gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 p-5 text-left">
                 <div className="flex flex-wrap items-baseline justify-between gap-3">
                   <span className="label-mono-xs text-foreground-muted">
                     Draft and PDF
                   </span>
-                  <strong className="text-[1.15rem] text-(--text-headline)">
-                    {displayedProgress}% estimated
+                  <strong
+                    className="text-[1.15rem] tabular-nums text-(--text-headline)"
+                    data-resume-draft-elapsed
+                  >
+                    {formatResumeOperationElapsed(pendingElapsedSeconds)}
                   </strong>
                 </div>
-                <div className="h-2.5 overflow-hidden rounded-full bg-(--surface-progress-track)">
-                  <div
-                    className="h-full rounded-full bg-primary transition-[width] duration-500 motion-reduce:transition-none"
-                    style={{ width: `${displayedProgress}%` }}
-                  />
-                </div>
+                <ProgressBar
+                  ariaLabel="Resume preparation in progress"
+                  className="h-2.5 w-full overflow-hidden rounded-full bg-(--surface-progress-track)"
+                  indeterminate
+                />
+                <p
+                  className="text-(length:--text-small) leading-5 text-foreground-muted"
+                  data-resume-draft-expected-wait
+                >
+                  {RESUME_DRAFT_EXPECTED_WAIT_LABEL}
+                </p>
                 <p className="text-(length:--text-small) leading-5 text-foreground-muted">
                   {isPendingTooLong
                     ? "This request is taking longer than expected. Open the resume workspace and use Reload workspace to check for a saved result."
-                    : "You can leave this screen. Progress keeps its place while the same resume is being prepared."}
+                    : "You can leave this screen. The draft keeps running and finishes on its own."}
                 </p>
               </div>
             ) : null}
@@ -171,7 +183,7 @@ export function ReviewQueuePreviewPanel({
                 : isGenerating
                   ? isPendingTooLong
                     ? `The resume request for ${selectedItem.title} is still running. Open the resume workspace and reload it to check whether a saved result is ready; do not start another request yet.`
-                    : `Job Finder is preparing the resume for ${selectedItem.title}. This progress indicator is an estimate while the draft and PDF are being built.`
+                    : `Job Finder is preparing the resume for ${selectedItem.title}. The draft and PDF are being built now.`
                   : needsGeneration
                     ? `Create a tailored resume for ${selectedItem.title} to continue.`
                     : `Job Finder is still preparing the resume for ${selectedItem.title}. You can continue once it is ready.`}

@@ -1,11 +1,21 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
 import { ApplyRunSchema } from "@unemployed/contracts";
 import type { QueueEntry } from "./applications-detail-panel-helpers";
-import { ApplicationsDetailPanelRecoveryActionsSection } from "./applications-detail-panel-recovery-actions-section";
+import {
+  ApplicationsDetailPanelRecoveryActionsSection,
+  type FinishInBrowserHandler,
+  type FinishInBrowserOutcome,
+} from "./applications-detail-panel-recovery-actions-section";
 
 afterEach(cleanup);
 
@@ -643,7 +653,10 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
   });
 
   it("opens the Job Finder browser on the paused application from the finish action", () => {
-    const onFinishInBrowser = vi.fn();
+    // The hand-off reports what it did; the status below repeats only that.
+    const onFinishInBrowser = vi.fn(
+      (): FinishInBrowserOutcome => ({ kind: "opened_application_page" }),
+    );
     const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
       {
         id: "result_field_save_open",
@@ -747,6 +760,344 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     expect(
       getByRole("button", { name: /Run preparation again later/i }),
     ).toHaveProperty("disabled", false);
+  });
+
+  describe("browser hand-off outcome truthfulness", () => {
+    // One paused, field-conflict result: the exact state whose primary action
+    // is the browser hand-off.
+    function createManualFieldFinishResult(): JobFinderWorkspaceSnapshot["applyJobResults"][number] {
+      return {
+        id: "result_handoff_outcome",
+        runId: "run_handoff_outcome",
+        jobId: "job_partiful",
+        applicationRecordId: "application_partiful",
+        queuePosition: 0,
+        state: "awaiting_review",
+        summary: "The application page could not safely save a prepared field",
+        detail:
+          "The application site tried to save 'application field' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.",
+        startedAt: "2026-08-27T10:00:00.000Z",
+        updatedAt: "2026-08-27T10:01:00.000Z",
+        completedAt: "2026-08-27T10:01:00.000Z",
+        blockerReason: "required_human_input",
+        blockerSummary:
+          "The application page could not safely save a prepared field",
+        listingSignalEvidence: null,
+        visualObservationSets: [],
+        visualCheckpoints: [],
+        latestQuestionCount: 0,
+        latestAnswerCount: 0,
+        pendingConsentRequestCount: 0,
+        artifactCount: 0,
+        latestCheckpointId: null,
+        privacyReceipt: null,
+      };
+    }
+
+    function renderWithOutcome(outcome: FinishInBrowserOutcome) {
+      return render(
+        <ApplicationsDetailPanelRecoveryActionsSection
+          canConfirmFinishedInBrowser
+          canRestageAutoRun={false}
+          canRestageQueueRun={false}
+          dailyPreparationCapacity={null}
+          excludedQueueRecoveryEntries={[]}
+          isApplyPending={false}
+          onConfirmFinishedInBrowser={vi.fn()}
+          onFinishInBrowser={vi.fn((): FinishInBrowserOutcome => outcome)}
+          onStartApplyCopilot={vi.fn()}
+          onStartAutoApply={vi.fn()}
+          onStartAutoApplyQueue={vi.fn()}
+          selectedQueueOutcomeEntries={[]}
+          selectedQueueRecoveryEntries={[]}
+          selectedQueueRecoveryJobIds={[]}
+          selectedRecordJobId="job_partiful"
+          selectedApplicationRecordId="application_partiful"
+          selectedRun={null}
+          visibleApplyResult={createManualFieldFinishResult()}
+        />,
+      );
+    }
+
+    it("says the exact application page opened only when it did", () => {
+      const { getByRole, getByTestId } = renderWithOutcome({
+        kind: "opened_application_page",
+      });
+
+      fireEvent.click(getByTestId("manual-field-finish-primary"));
+
+      const status = getByTestId("manual-field-finish-status");
+      expect(status.getAttribute("data-handoff-outcome")).toBe(
+        "opened_application_page",
+      );
+      expect(status.textContent).toMatch(
+        /Opened in the Job Finder browser\. Switch to that window/i,
+      );
+      // The page is open, so the open action demotes and confirming is the
+      // primary path back in.
+      expect(
+        getByRole("button", { name: /Reopen the Job Finder browser/i }),
+      ).toBe(getByTestId("manual-field-finish-primary"));
+      expect(
+        getByRole("button", { name: "Check whether this step is done" }),
+      ).toHaveProperty("disabled", false);
+    });
+
+    it("says only the window opened when the application page was not reopened", () => {
+      // The fall-back opens a bare browser session, not the paused page, and
+      // used to claim "Opened in the Job Finder browser. Switch to that window
+      // to finish the step" all the same.
+      const { getByRole, getByTestId } = renderWithOutcome({
+        kind: "opened_browser_only",
+      });
+
+      fireEvent.click(getByTestId("manual-field-finish-primary"));
+
+      const status = getByTestId("manual-field-finish-status");
+      expect(status.getAttribute("data-handoff-outcome")).toBe(
+        "opened_browser_only",
+      );
+      expect(status.textContent).toContain(
+        "this application page was not reopened",
+      );
+      expect(status.textContent).not.toMatch(
+        /Opened in the Job Finder browser\. Switch to that window/i,
+      );
+      // The page still needs opening, so the open action must not demote to
+      // "Reopen"; the way back into the loop stays available.
+      expect(getByTestId("manual-field-finish-primary").textContent).toContain(
+        "Open the Job Finder browser",
+      );
+      expect(
+        getByRole("button", { name: "Check whether this step is done" }),
+      ).toHaveProperty("disabled", false);
+    });
+
+    it("reports a failed hand-off with its reason instead of claiming success", () => {
+      const { getByTestId } = renderWithOutcome({
+        kind: "failed",
+        reason: "The browser runtime is disabled",
+      });
+
+      fireEvent.click(getByTestId("manual-field-finish-primary"));
+
+      const status = getByTestId("manual-field-finish-status");
+      expect(status.getAttribute("data-handoff-outcome")).toBe("failed");
+      expect(status.textContent).toContain("did not open");
+      expect(status.textContent).toContain("The browser runtime is disabled.");
+      expect(status.textContent).toContain("nothing was sent to the employer");
+      expect(status.textContent).not.toMatch(
+        /Opened in the Job Finder browser/i,
+      );
+      expect(getByTestId("manual-field-finish-primary").textContent).toContain(
+        "Open the Job Finder browser",
+      );
+    });
+
+    /**
+     * One hand-off whose promise the test settles by hand, so "before it
+     * settled" and "after it settled" are separately observable.
+     */
+    function createDeferredHandoff() {
+      let settle: (outcome: FinishInBrowserOutcome) => void = () => undefined;
+      const promise = new Promise<FinishInBrowserOutcome>((resolve) => {
+        settle = resolve;
+      });
+
+      return {
+        promise,
+        settle: (outcome: FinishInBrowserOutcome) => {
+          settle(outcome);
+        },
+      };
+    }
+
+    function renderWithHandler(onFinishInBrowser: FinishInBrowserHandler) {
+      return render(
+        <ApplicationsDetailPanelRecoveryActionsSection
+          canConfirmFinishedInBrowser
+          canRestageAutoRun={false}
+          canRestageQueueRun={false}
+          dailyPreparationCapacity={null}
+          excludedQueueRecoveryEntries={[]}
+          isApplyPending={false}
+          onConfirmFinishedInBrowser={vi.fn()}
+          onFinishInBrowser={onFinishInBrowser}
+          onStartApplyCopilot={vi.fn()}
+          onStartAutoApply={vi.fn()}
+          onStartAutoApplyQueue={vi.fn()}
+          selectedQueueOutcomeEntries={[]}
+          selectedQueueRecoveryEntries={[]}
+          selectedQueueRecoveryJobIds={[]}
+          selectedRecordJobId="job_partiful"
+          selectedApplicationRecordId="application_partiful"
+          selectedRun={null}
+          visibleApplyResult={createManualFieldFinishResult()}
+        />,
+      );
+    }
+
+    // The production hand-off is an IPC round trip. These three cases are the
+    // ones a synchronous reading of it got wrong: it wrote a status before the
+    // call had settled, so a failing IPC still rendered "Opened in the Job
+    // Finder browser" while a route banner carried the error.
+    it("says nothing until the asynchronous hand-off has settled", async () => {
+      const handoff = createDeferredHandoff();
+      const { getByTestId, queryByTestId } = renderWithHandler(
+        () => handoff.promise,
+      );
+
+      fireEvent.click(getByTestId("manual-field-finish-primary"));
+
+      expect(queryByTestId("manual-field-finish-status")).toBeNull();
+      expect(getByTestId("manual-field-finish-primary").textContent).toContain(
+        "Open the Job Finder browser",
+      );
+
+      handoff.settle({ kind: "opened_application_page" });
+
+      await waitFor(() => {
+        expect(
+          getByTestId("manual-field-finish-status").getAttribute(
+            "data-handoff-outcome",
+          ),
+        ).toBe("opened_application_page");
+      });
+    });
+
+    it("renders the failed status when the asynchronous hand-off reports a failure", async () => {
+      const { getByTestId } = renderWithHandler(() =>
+        Promise.resolve<FinishInBrowserOutcome>({
+          kind: "failed",
+          reason: "The browser runtime is disabled",
+        }),
+      );
+
+      fireEvent.click(getByTestId("manual-field-finish-primary"));
+
+      await waitFor(() => {
+        expect(
+          getByTestId("manual-field-finish-status").getAttribute(
+            "data-handoff-outcome",
+          ),
+        ).toBe("failed");
+      });
+
+      const status = getByTestId("manual-field-finish-status");
+      expect(status.textContent).toBe(
+        "The Job Finder browser did not open, so nothing was opened for this " +
+          "application and nothing was sent to the employer. The browser runtime " +
+          "is disabled. Try again, or open this step from Needs you.",
+      );
+      expect(status.textContent).not.toMatch(
+        /Opened in the Job Finder browser/i,
+      );
+      // Nothing reached the employer, so the wording must not read as a
+      // half-finished submission and the way back in stays open.
+      expect(getByTestId("manual-field-finish-primary").textContent).toContain(
+        "Open the Job Finder browser",
+      );
+    });
+
+    it("renders the failed status when the asynchronous hand-off rejects", async () => {
+      const { getByTestId } = renderWithHandler(() =>
+        Promise.reject(new Error("The browser runtime is disabled")),
+      );
+
+      fireEvent.click(getByTestId("manual-field-finish-primary"));
+
+      await waitFor(() => {
+        expect(
+          getByTestId("manual-field-finish-status").getAttribute(
+            "data-handoff-outcome",
+          ),
+        ).toBe("failed");
+      });
+
+      expect(getByTestId("manual-field-finish-status").textContent).toContain(
+        "The browser runtime is disabled.",
+      );
+    });
+
+    it("says only the window opened when the asynchronous hand-off reopened no page", async () => {
+      const { getByTestId } = renderWithHandler(() =>
+        Promise.resolve<FinishInBrowserOutcome>({
+          kind: "opened_browser_only",
+        }),
+      );
+
+      fireEvent.click(getByTestId("manual-field-finish-primary"));
+
+      await waitFor(() => {
+        expect(
+          getByTestId("manual-field-finish-status").getAttribute(
+            "data-handoff-outcome",
+          ),
+        ).toBe("opened_browser_only");
+      });
+
+      expect(getByTestId("manual-field-finish-status").textContent).toContain(
+        "this application page was not reopened",
+      );
+    });
+
+    it("drops a previous attempt's status while the next hand-off is running", async () => {
+      // A stale "Opened" line standing beside a running retry is the same false
+      // claim in a different place.
+      const outcomes: FinishInBrowserOutcome[] = [
+        { kind: "opened_application_page" },
+      ];
+      const second = createDeferredHandoff();
+      const { getByTestId, queryByTestId } = renderWithHandler(() => {
+        const next = outcomes.shift();
+
+        return next ? Promise.resolve(next) : second.promise;
+      });
+
+      fireEvent.click(getByTestId("manual-field-finish-primary"));
+      await waitFor(() => {
+        expect(getByTestId("manual-field-finish-status")).toBeTruthy();
+      });
+
+      fireEvent.click(getByTestId("manual-field-finish-primary"));
+      expect(queryByTestId("manual-field-finish-status")).toBeNull();
+
+      second.settle({ kind: "failed", reason: null });
+      await waitFor(() => {
+        expect(
+          getByTestId("manual-field-finish-status").getAttribute(
+            "data-handoff-outcome",
+          ),
+        ).toBe("failed");
+      });
+    });
+
+    it("claims nothing when the hand-off reports no outcome", () => {
+      const { getByTestId, queryByTestId } = render(
+        <ApplicationsDetailPanelRecoveryActionsSection
+          canRestageAutoRun={false}
+          canRestageQueueRun={false}
+          dailyPreparationCapacity={null}
+          excludedQueueRecoveryEntries={[]}
+          isApplyPending={false}
+          onFinishInBrowser={vi.fn()}
+          onStartApplyCopilot={vi.fn()}
+          onStartAutoApply={vi.fn()}
+          onStartAutoApplyQueue={vi.fn()}
+          selectedQueueOutcomeEntries={[]}
+          selectedQueueRecoveryEntries={[]}
+          selectedQueueRecoveryJobIds={[]}
+          selectedRecordJobId="job_partiful"
+          selectedApplicationRecordId="application_partiful"
+          selectedRun={null}
+          visibleApplyResult={createManualFieldFinishResult()}
+        />,
+      );
+
+      fireEvent.click(getByTestId("manual-field-finish-primary"));
+
+      expect(queryByTestId("manual-field-finish-status")).toBeNull();
+    });
   });
 
   it("closes the browser hand-off loop on the page that opened it", () => {

@@ -666,7 +666,7 @@ describe("workspace grouped reusable manual answers", () => {
 
     const decision = await projectAndReadDecision(harness);
 
-    // The user opens the page in the managed browser, advancing the member
+    // The user opens the page in the Job Finder browser, advancing the member
     // request past the captured revision.
     const requestA = seed.userActionRequests[0]!;
     const opened = UserActionRequestSchema.parse({

@@ -431,7 +431,11 @@ describe("DiscoveryResultsPanel facet persistence", () => {
     });
     expect(screen.queryByLabelText(/active filters?/u)).toBeNull();
     // With no query or filters left, the header returns to the plain count.
-    expect(screen.getByText("2 jobs")).toBeTruthy();
+    // Neither fixture row carries a bound, evidenced assessment, so both sit
+    // in the title-only band and the headline recommends nothing.
+    expect(
+      screen.getByText("0 worth opening · 2 title matches · 0 also found"),
+    ).toBeTruthy();
   });
 
   it("restores only facets still valid and present, dropping the rest everywhere", () => {

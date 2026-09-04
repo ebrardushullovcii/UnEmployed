@@ -104,7 +104,7 @@ describe("application login UserActionRequest adoption", () => {
     // The no-submit boundary is stated once per card by the renderer, so the
     // reason keeps the concrete cause without repeating it.
     expect(request.summary).toBe(
-      `${blocker.summary}. The application site tried to save 'Work authorization' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open. Complete this manual step in the managed browser, then return so Job Finder can verify the exact blocker no longer appears.`,
+      `${blocker.summary}. The application site tried to save 'Work authorization' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open. Complete this manual step in the Job Finder browser, then return so Job Finder can verify the exact blocker no longer appears.`,
     );
     expect(request.summary).not.toContain("Complete the described step");
     expect(request.summary).not.toMatch(/risking a final/i);
@@ -112,7 +112,7 @@ describe("application login UserActionRequest adoption", () => {
     // repeated inside every unclassified instruction.
     expect(request.instructions.join(" ")).not.toMatch(/credential/i);
     expect(request.instructions[0]).toBe(
-      "Finish this step yourself in the managed browser.",
+      "Finish this step yourself in the Job Finder browser.",
     );
 
     // A generic placeholder field name reads as a real field the user could
@@ -383,7 +383,7 @@ describe("application login UserActionRequest adoption", () => {
           expectedOrigin: "https://www.linkedin.com/",
         },
         title: "Sign in to search",
-        summary: "Sign in in the managed browser.",
+        summary: "Sign in in the Job Finder browser.",
         createdAt: "2026-07-30T10:15:00.000Z",
         updatedAt: "2026-07-30T10:15:00.000Z",
       }),

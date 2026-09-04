@@ -7,6 +7,7 @@ import type {
   JobSearchPreferences,
   SavedJob,
 } from "@unemployed/contracts";
+import { buildDiscoveryCardOnlyEvidenceWarning } from "@unemployed/contracts";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -134,6 +135,30 @@ const runningRun = {
   state: "running",
 } as unknown as DiscoveryRunRecord;
 
+const cardOnlyRun = {
+  id: "run_card_only",
+  state: "completed",
+  startedAt: "2026-08-25T10:00:00.000Z",
+  summary: {
+    validJobsFound: 4,
+    duplicatesMerged: 0,
+    sourceHealth: [],
+    warnings: [buildDiscoveryCardOnlyEvidenceWarning("Example Board")],
+  },
+} as unknown as DiscoveryRunRecord;
+
+const cleanRun = {
+  id: "run_clean",
+  state: "completed",
+  startedAt: "2026-08-25T10:00:00.000Z",
+  summary: {
+    validJobsFound: 4,
+    duplicatesMerged: 0,
+    sourceHealth: [],
+    warnings: [],
+  },
+} as unknown as DiscoveryRunRecord;
+
 function createDeferredOutcome() {
   let resolve!: (outcome: JobFinderQueuedJobOutcome) => void;
   const promise = new Promise<JobFinderQueuedJobOutcome>((resolvePromise) => {
@@ -145,6 +170,7 @@ function createDeferredOutcome() {
 function buildScreen(overrides?: {
   actionState?: { message: string | null };
   activeRun?: DiscoveryRunRecord | null;
+  recentRuns?: readonly DiscoveryRunRecord[];
   activityPaused?: boolean;
   discoveryRunFeedback?: DiscoveryRunFeedback | null;
   isDiscoveryAllPending?: boolean;
@@ -184,7 +210,7 @@ function buildScreen(overrides?: {
           ? { onResumeActivity: overrides.onResumeActivity }
           : {})}
         onSelectJob={vi.fn()}
-        recentRuns={[]}
+        recentRuns={overrides?.recentRuns ?? []}
         searchPreferences={searchPreferences}
         selectedJob={overrides?.selectedJob ?? createJob("strong")}
         sourceAccessPrompts={[]}
@@ -242,10 +268,14 @@ describe("DiscoveryScreen Search now truthful feedback", () => {
     });
 
     const region = screen.getByRole("alert");
-    expect(region.textContent).toContain("dedicated browser could not start");
+    expect(region.textContent).toContain(
+      "The Job Finder browser could not start",
+    );
     expect(region.textContent).not.toContain("remote method");
 
-    fireEvent.click(screen.getByRole("button", { name: "Open browser" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open the Job Finder browser" }),
+    );
     expect(onOpenBrowserSession).toHaveBeenCalledTimes(1);
   });
 
@@ -274,6 +304,40 @@ describe("DiscoveryScreen Search now truthful feedback", () => {
     expect(screen.getByRole("status").textContent).toContain(
       "Search finished and results were saved on this device.",
     );
+  });
+
+  it("prints the run's own card-only evidence warning verbatim beside the outcome", () => {
+    const warning = buildDiscoveryCardOnlyEvidenceWarning("Example Board");
+    renderScreen({
+      discoveryRunFeedback: createDiscoveryRunSucceededFeedback(),
+      recentRuns: [cardOnlyRun],
+    });
+
+    const notice = screen.getByTestId("discovery-run-notice");
+    expect(notice.textContent).toBe(warning);
+    // The app cannot open a listing anywhere, so the warning must never offer to.
+    expect(notice.textContent).not.toMatch(/open|browser|link/i);
+    expect(screen.getByTestId("discovery-run-feedback").textContent).toContain(
+      warning,
+    );
+  });
+
+  it("keeps an earlier run's warning off a search that is still running", () => {
+    renderScreen({
+      discoveryRunFeedback: createDiscoveryRunStartedFeedback(),
+      recentRuns: [cardOnlyRun],
+    });
+
+    expect(screen.queryByTestId("discovery-run-notice")).toBeNull();
+  });
+
+  it("shows no run notice when the newest run recorded no warning", () => {
+    renderScreen({
+      discoveryRunFeedback: createDiscoveryRunSucceededFeedback(),
+      recentRuns: [cleanRun],
+    });
+
+    expect(screen.queryByTestId("discovery-run-notice")).toBeNull();
   });
 });
 

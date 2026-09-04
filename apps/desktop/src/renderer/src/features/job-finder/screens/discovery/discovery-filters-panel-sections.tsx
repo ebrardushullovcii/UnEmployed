@@ -2,6 +2,10 @@ import type { SourceAccessPrompt } from "@unemployed/contracts";
 import { History, Search } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@renderer/components/ui/button";
+import {
+  OPEN_JOB_FINDER_BROWSER_ACTION,
+  REOPEN_JOB_FINDER_BROWSER_ACTION,
+} from "../../lib/job-finder-browser-handoff-copy";
 import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
 import {
   DISCOVERY_OFFLINE_CATALOG_NOTICE,
@@ -16,8 +20,7 @@ import {
  * Plain-language purpose of the optional browser action. The browser is not
  * a prerequisite for Search: the run opens it on its own.
  */
-export const DISCOVERY_OPEN_BROWSER_DESCRIPTION =
-  "Open the browser Job Finder uses for searches. Useful if a job site needs you to sign in.";
+export const DISCOVERY_OPEN_BROWSER_DESCRIPTION = `${OPEN_JOB_FINDER_BROWSER_ACTION}. Useful if a job site needs you to sign in.`;
 
 type SectionValue =
   | string
@@ -513,8 +516,8 @@ export function DiscoveryFiltersFooter(props: {
           {primarySourceAccessPrompt
             ? primarySourceAccessPrompt.actionLabel
             : isReady
-              ? "Reopen browser"
-              : "Open browser"}
+              ? REOPEN_JOB_FINDER_BROWSER_ACTION
+              : OPEN_JOB_FINDER_BROWSER_ACTION}
         </Button>
       )}
       <Button
@@ -556,7 +559,7 @@ export function DiscoveryFiltersFooter(props: {
                   type="button"
                   variant="primary"
                 >
-                  Open browser
+                  {OPEN_JOB_FINDER_BROWSER_ACTION}
                 </Button>
               ) : (
                 <Button

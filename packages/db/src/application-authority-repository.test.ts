@@ -10,6 +10,7 @@ import {
 } from "@unemployed/contracts";
 import { afterEach, describe, expect, test } from "vitest";
 import { createHash } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 
 import {
   createFileJobFinderRepository,
@@ -1258,6 +1259,90 @@ describe("application authority repository", () => {
   test("enforces one-shot lifecycle and crash recovery in memory", async () => {
     const repository = createInMemoryJobFinderRepository(createSeed());
     await exerciseAuthorityLifecycle(repository);
+  });
+
+  test("rewrites only the authority rows a mutation changed", async () => {
+    const temp = await createTempRepository("unemployed-authority-row-diff-");
+    cleanupDirectories.push(temp.tempDirectory);
+    const repository = await temp.createRepository();
+    const fixture = createAuthorityFixture("row_diff", "confirm_before_submit");
+    await persistAuthorityFixture(repository, fixture);
+    await repository.close();
+
+    // Index columns are written only when their row is written, and they are
+    // derived from the row's JSON value. Poisoning them on rows the mutation
+    // must not touch makes any full-collection rewrite observable: the old
+    // delete-all-and-reinsert path restored every value from JSON.
+    const sentinelCreatedAt = "1999-01-01T00:00:00.000Z";
+    const sentinelRevision = 42;
+    const withDatabase = <TValue>(
+      operation: (database: DatabaseSync) => TValue,
+    ): TValue => {
+      const database = new DatabaseSync(temp.filePath);
+      try {
+        return operation(database);
+      } finally {
+        database.close();
+      }
+    };
+    withDatabase((database) => {
+      database
+        .prepare("UPDATE submission_preflights SET created_at = ? WHERE id = ?")
+        .run(sentinelCreatedAt, fixture.preflight.id);
+      database
+        .prepare(
+          "UPDATE application_authority_envelopes SET revision = ? WHERE id = ?",
+        )
+        .run(sentinelRevision, fixture.envelope.id);
+    });
+
+    const reopened = await createFileJobFinderRepository({
+      filePath: temp.filePath,
+      seed: createSeed(),
+    });
+    expect(await reopened.expireSubmissionExecutionGrants(verifiedAt)).toBe(0);
+    expect(await reopened.expireSubmissionExecutionGrants(expiry)).toBe(1);
+    await reopened.close();
+
+    const indexColumns = withDatabase((database) => ({
+      preflightCreatedAt: (
+        database
+          .prepare("SELECT created_at FROM submission_preflights WHERE id = ?")
+          .get(fixture.preflight.id) as { created_at?: unknown }
+      ).created_at,
+      envelopeRevision: (
+        database
+          .prepare(
+            "SELECT revision FROM application_authority_envelopes WHERE id = ?",
+          )
+          .get(fixture.envelope.id) as { revision?: unknown }
+      ).revision,
+      grantStatus: (
+        database
+          .prepare(
+            "SELECT status FROM submission_execution_grants WHERE id = ?",
+          )
+          .get(fixture.grant?.id ?? "") as { status?: unknown }
+      ).status,
+    }));
+
+    // Untouched rows keep their poisoned index columns; the one grant the
+    // mutation changed is rewritten from its new value.
+    expect(indexColumns.preflightCreatedAt).toBe(sentinelCreatedAt);
+    expect(indexColumns.envelopeRevision).toBe(sentinelRevision);
+    expect(indexColumns.grantStatus).toBe("expired");
+
+    const verification = await createFileJobFinderRepository({
+      filePath: temp.filePath,
+      seed: createSeed(),
+    });
+    expect(await verification.listSubmissionExecutionGrants()).toEqual([
+      expect.objectContaining({ id: fixture.grant?.id, status: "expired" }),
+    ]);
+    expect(await verification.listSubmissionPreflightRecords()).toEqual([
+      expect.objectContaining({ id: fixture.preflight.id, createdAt: at }),
+    ]);
+    await verification.close();
   });
 
   test("enforces one-shot lifecycle atomically and survives SQLite reopen", async () => {

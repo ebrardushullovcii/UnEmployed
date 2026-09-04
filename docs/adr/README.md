@@ -10,7 +10,7 @@ ADRs capture durable decisions and rejected alternatives. Use them to avoid reop
 | [0002](0002-parallel-vision-resume-import.md)                   | accepted | Parallel vision resume import                        |
 | [0003](0003-interview-helper-live-session-architecture.md)      | accepted | Interview Helper live-session architecture           |
 | [0004](0004-monorepo-electron-baseline.md)                      | accepted | Monorepo and Electron baseline                       |
-| [0005](0005-canonical-agent-documentation-system.md)            | accepted | Canonical agent documentation system                 |
+| [0005](0005-canonical-agent-documentation-system.md)            | superseded | Canonical agent documentation system (see 0015)    |
 | [0006](0006-safe-non-submitting-apply-boundary.md)              | superseded | Safe non-submitting apply boundary                 |
 | [0007](0007-source-generic-browser-workflows.md)                | accepted | Source-generic browser workflows                     |
 | [0008](0008-visible-first-interview-helper.md)                  | accepted | Visible-first Interview Helper                       |
@@ -19,6 +19,8 @@ ADRs capture durable decisions and rejected alternatives. Use them to avoid reop
 | [0011](0011-campaign-scoped-job-finder-and-local-application-crm.md) | accepted | Campaign-scoped Job Finder and local application CRM |
 | [0012](0012-user-scoped-autonomous-application-authority.md)    | accepted | User-scoped autonomous application authority        |
 | [0013](0013-hybrid-browser-observation-and-policy-execution.md) | accepted | Hybrid browser observation and policy execution     |
+| [0014](0014-product-iteration-loop-over-release-ceremony.md)    | accepted | Product iteration loop over release ceremony        |
+| [0015](0015-minimal-agent-guidance.md)                          | accepted | Minimal agent guidance                               |
 
 ## Policy
 

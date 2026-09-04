@@ -85,6 +85,12 @@ export function ProfileSaveFooter({
             focus on the control), and the clean state keeps native disabled
             semantics. */}
         <div className="flex items-center gap-2 sm:shrink-0">
+          {/* The collapsed Assistant launcher lands here, portalled in by
+              `ProfileCopilotRail`, so it is a sibling of Save rather than a
+              pill floating over the page. Same slot pattern, same button and
+              same label as the Resume Studio header, so the two screens are
+              indistinguishable. Empty span, no box, until the rail mounts. */}
+          <span className="contents" data-profile-assistant-launcher-slot />
           <Button
             aria-describedby={hasUnsavedChanges ? undefined : saveStateId}
             className="w-full sm:w-auto sm:shrink-0"

@@ -372,6 +372,10 @@ export const ResumeVisionExtractionResultSchema = z.object({
   warnings: z.array(NonEmptyStringSchema).default([]),
   primaryErrorMessage: NonEmptyStringSchema.nullable().default(null),
   fallbackUsed: z.boolean().optional(),
+  // Same optional contract as the text stages: only a provider that actually
+  // lost its model call declares one, and the declared kind is what the run
+  // reports, so a degraded visual scan can never read as a model result.
+  fallback: ResumeImportStageFallbackSchema.nullable().optional(),
 });
 export type ResumeVisionExtractionResult = z.infer<
   typeof ResumeVisionExtractionResultSchema

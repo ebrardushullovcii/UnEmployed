@@ -25,6 +25,8 @@ import {
 } from "./review-queue-progress";
 
 describe("ResumeGuidedEditsPopup", () => {
+  let launcherSlotHost: HTMLElement | null = null;
+
   beforeEach(() => {
     class ResizeObserverMock {
       observe() {}
@@ -56,10 +58,22 @@ describe("ResumeGuidedEditsPopup", () => {
       configurable: true,
       value: 800,
     });
+
+    // The studio shell owns the sticky header the collapsed launcher docks
+    // into. Every mount here needs that slot present, exactly as the real
+    // screen provides it, or the Assistant has nowhere to render.
+    launcherSlotHost = document.createElement("span");
+    launcherSlotHost.setAttribute(
+      "data-resume-studio-assistant-launcher-slot",
+      "",
+    );
+    document.body.appendChild(launcherSlotHost);
   });
 
   afterEach(() => {
     cleanup();
+    launcherSlotHost?.remove();
+    launcherSlotHost = null;
     resetJobFinderOverlaysForTests();
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -109,48 +123,63 @@ describe("ResumeGuidedEditsPopup", () => {
     );
     const dialog = screen.getByRole("dialog", { name: "Assistant" });
 
-    expect(popupRoot?.style.top).toBe("324px");
+    // Previously `expect(popupRoot?.style.top).toBe("324px")`. That exact
+    // number was a consequence of the retired corner-anchored pill: the panel
+    // grew out of `window.innerHeight - 16`, so 800 - 16 - 460 = 324. The
+    // launcher is a button in the studio header now and the panel folds out of
+    // its rect, so the invariant this test is named for — the panel never
+    // rides over the measured workspace actions — is asserted directly
+    // instead of through that one arithmetic result.
+    expect(
+      Number.parseFloat(popupRoot?.style.top ?? ""),
+    ).toBeGreaterThanOrEqual(220);
     expect(dialog.style.maxHeight).toBe("calc(100vh - 236px)");
   });
 
-  it("keeps the launcher bottom-right with the shared responsive inset", () => {
+  it("docks the collapsed launcher in the studio header and floats nothing", () => {
+    // Previously "keeps the launcher bottom-right with the shared responsive
+    // inset": it asserted a floating root at `bottom: 16px; right: 16px`
+    // holding a `size-12 p-0` pill. That pill rested over the tools column,
+    // and no reservation in a scrolling column can keep a fixed pill off live
+    // content at every scroll position — so while collapsed there is now no
+    // floating surface at all.
     renderPopup();
 
-    const popupRoot = document.querySelector<HTMLElement>(
-      "[data-resume-guided-edits-open]",
-    );
+    expect(
+      document.querySelector("[data-resume-guided-edits-open]"),
+    ).toBeNull();
 
-    expect(popupRoot?.parentElement).toBe(document.body);
-    expect(popupRoot?.className).toContain("flex");
-    expect(popupRoot?.className).not.toContain("hidden");
-    expect(popupRoot?.style.left).toBe("");
-    expect(popupRoot?.style.bottom).toBe("16px");
-    expect(popupRoot?.style.right).toBe("16px");
     const launcher = screen.getByRole("button", {
       name: "Open the Assistant",
     });
 
-    expect(launcher.className).toContain("size-12");
-    expect(launcher.className).toContain("p-0");
+    expect(
+      launcher.closest("[data-resume-studio-assistant-launcher-slot]"),
+    ).not.toBeNull();
     expect(launcher.getAttribute("title")).toBe("Open the Assistant");
+    expect(launcher.getAttribute("data-resume-guided-edits-launcher")).toBe(
+      "true",
+    );
   });
 
-  it("uses the same labelled pill launcher shape as Profile Copilot", () => {
+  it("uses an ordinary action-row button, not a floating pill", () => {
+    // Previously "uses the same labelled pill launcher shape as Profile
+    // Copilot", which pinned `rounded-full`, `min-h-12`, `sm:h-12`,
+    // `sm:w-auto`, `sm:min-w-12` and `sm:px-3` — the floating-pill geometry.
+    // Both launchers are ordinary secondary buttons in their screen's action
+    // row now, so parity is asserted on that shape instead.
     renderPopup();
 
     const launcher = screen.getByRole("button", { name: "Open the Assistant" });
 
-    // Matches the Profile Copilot collapsed launcher exactly so the app has
-    // one launcher style instead of an unlabelled circle in Resume Studio.
-    for (const shapeClass of [
+    expect(launcher.getAttribute("data-variant")).toBe("secondary");
+    expect(launcher.getAttribute("data-size")).toBe("compact");
+    for (const retiredPillClass of [
       "rounded-full",
       "min-h-12",
-      "sm:h-12",
-      "sm:w-auto",
       "sm:min-w-12",
-      "sm:px-3",
     ]) {
-      expect(launcher.className).toContain(shapeClass);
+      expect(launcher.className).not.toContain(retiredPillClass);
     }
     expect(launcher.textContent).toContain("Assistant");
   });
@@ -162,12 +191,9 @@ describe("ResumeGuidedEditsPopup", () => {
     });
     renderPopup();
 
-    const popupRoot = document.querySelector<HTMLElement>(
-      "[data-resume-guided-edits-open]",
-    );
-
-    expect(popupRoot?.style.right).toBe("12px");
-
+    // Previously also asserted the collapsed floating root sat at
+    // `right: 12px`. The collapsed launcher no longer floats, so only the open
+    // panel's narrow-viewport sizing remains — which is what this test is for.
     fireEvent.click(screen.getByRole("button", { name: "Open the Assistant" }));
 
     const dialog = screen.getByRole("dialog", { name: "Assistant" });
@@ -864,11 +890,15 @@ describe("ResumeGuidedEditsPopup", () => {
     [1440, 920],
     [1200, 640],
   ])(
-    "collapses into the launcher at the panel's own bottom-right corner at %ix%i",
+    "minimizes back into the header launcher, floating nothing, at %ix%i",
     (viewportWidth, viewportHeight) => {
-      // Keeping the stored top-left on minimize made the pill appear where the
-      // panel's *top-left* had been, which reads as the thread moving instead
-      // of folding into its launcher.
+      // Previously "collapses into the launcher at the panel's own
+      // bottom-right corner at %ix%i": it dragged the panel, faked its rect,
+      // minimized, and asserted the collapsed pill's right/bottom edges landed
+      // within 1px of the panel's. That corner arithmetic only existed because
+      // the collapsed launcher was a free-floating pill. It is a button in the
+      // studio header now, so minimizing returns to a fixed place in the
+      // layout and the assertion is that nothing is left floating.
       Object.defineProperty(window, "innerWidth", {
         configurable: true,
         value: viewportWidth,
@@ -883,70 +913,45 @@ describe("ResumeGuidedEditsPopup", () => {
         screen.getByRole("button", { name: "Open the Assistant" }),
       );
 
-      const popupRoot = document.querySelector<HTMLElement>(
-        "[data-resume-guided-edits-open]",
-      );
-      const dialog = screen.getByRole("dialog", { name: "Assistant" });
-
-      // Drag it somewhere that is not the default corner so the corner math is
-      // actually exercised rather than coinciding with the default anchor.
+      // Drag it away from its opening position so minimize is exercised from
+      // somewhere other than where it started.
       const header = screen.getByLabelText("Drag the Assistant");
-      fireEvent.pointerDown(header, {
-        button: 0,
-        clientX: 500,
-        clientY: 400,
-        isPrimary: true,
-        pointerId: 1,
-      });
-      fireEvent.pointerMove(header, {
-        button: 0,
-        clientX: 380,
-        clientY: 320,
-        isPrimary: true,
-        pointerId: 1,
-      });
-      fireEvent.pointerUp(header, {
-        button: 0,
-        clientX: 380,
-        clientY: 320,
-        isPrimary: true,
-        pointerId: 1,
-      });
+      for (const [type, clientX, clientY] of [
+        ["pointerDown", 500, 400],
+        ["pointerMove", 380, 320],
+        ["pointerUp", 380, 320],
+      ] as const) {
+        fireEvent[type](header, {
+          button: 0,
+          clientX,
+          clientY,
+          isPrimary: true,
+          pointerId: 1,
+        });
+      }
 
-      const panelLeft = Number.parseFloat(popupRoot?.style.left ?? "0");
-      const panelTop = Number.parseFloat(popupRoot?.style.top ?? "0");
-      const panelRight = panelLeft + Number.parseFloat(dialog.style.width);
-      const panelBottom = panelTop + Number.parseFloat(dialog.style.height);
-
-      // jsdom lays nothing out, so the rendered rect the component reads is
-      // zero-sized; feed it the geometry the styles declare.
-      vi.spyOn(popupRoot!, "getBoundingClientRect").mockReturnValue({
-        bottom: panelBottom,
-        height: panelBottom - panelTop,
-        left: panelLeft,
-        right: panelRight,
-        top: panelTop,
-        width: panelRight - panelLeft,
-        x: panelLeft,
-        y: panelTop,
-        toJSON: () => ({}),
-      } as DOMRect);
+      expect(
+        document.querySelector("[data-resume-guided-edits-open]"),
+      ).not.toBeNull();
 
       fireEvent.click(
         screen.getByRole("button", { name: "Minimize the Assistant" }),
       );
 
-      const launcherLeft = Number.parseFloat(popupRoot?.style.left ?? "0");
-      const launcherTop = Number.parseFloat(popupRoot?.style.top ?? "0");
-      // The collapsed launcher is the shared 48px Copilot pill.
-      const launcherRight = launcherLeft + 48;
-      const launcherBottom = launcherTop + 48;
-
+      // No floating surface survives the minimize, at either viewport.
       expect(
-        screen.getByRole("button", { name: "Open the Assistant" }),
-      ).toBeTruthy();
-      expect(Math.abs(launcherRight - panelRight)).toBeLessThanOrEqual(1);
-      expect(Math.abs(launcherBottom - panelBottom)).toBeLessThanOrEqual(1);
+        document.querySelector("[data-resume-guided-edits-open]"),
+      ).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "Assistant" })).toBeNull();
+
+      const launcher = screen.getByRole("button", {
+        name: "Open the Assistant",
+      });
+      expect(
+        launcher.closest("[data-resume-studio-assistant-launcher-slot]"),
+      ).not.toBeNull();
+      // Minimizing returns focus to the control the user pressed.
+      expect(document.activeElement).toBe(launcher);
     },
   );
 
@@ -1359,15 +1364,18 @@ describe("ResumeGuidedEditsPopup", () => {
       const launcher = screen.getByRole("button", {
         name: "Open the Assistant",
       });
-      const popupRoot = document.querySelector<HTMLElement>(
-        "[data-resume-guided-edits-open]",
-      );
 
       expect(launcher).toBeTruthy();
-      expect(popupRoot?.parentElement).toBe(document.body);
-      expect(popupRoot?.getAttribute("data-resume-guided-edits-open")).toBe(
-        "false",
-      );
+      // Previously this asserted the floating root survived the minimize as a
+      // body-portalled `data-resume-guided-edits-open="false"` container
+      // holding the pill. Nothing floats while collapsed now: the launcher is
+      // a button in the studio header, so the root is gone entirely.
+      expect(
+        document.querySelector("[data-resume-guided-edits-open]"),
+      ).toBeNull();
+      expect(
+        launcher.closest("[data-resume-studio-assistant-launcher-slot]"),
+      ).not.toBeNull();
     });
 
     it("steps under a modal scrim", () => {
@@ -1387,5 +1395,221 @@ describe("ResumeGuidedEditsPopup", () => {
         popupRoot?.getAttribute("data-resume-guided-edits-covered-by-modal"),
       ).toBe("true");
     });
+  });
+});
+
+describe("ResumeGuidedEditsPopup no-cover zones", () => {
+  beforeEach(() => {
+    class ResizeObserverMock {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    }
+
+    class PointerEventMock extends MouseEvent {
+      readonly isPrimary: boolean;
+      readonly pointerId: number;
+
+      constructor(
+        type: string,
+        init: MouseEventInit & { isPrimary?: boolean; pointerId?: number },
+      ) {
+        super(type, init);
+        this.isPrimary = init.isPrimary ?? true;
+        this.pointerId = init.pointerId ?? 1;
+      }
+    }
+
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    vi.stubGlobal("PointerEvent", PointerEventMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    resetJobFinderOverlaysForTests();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function setViewport(width: number, height: number) {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: width,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: height,
+    });
+  }
+
+  function mockRects(rects: Readonly<Record<string, DOMRectInit>>) {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function getBoundingClientRect(this: HTMLElement) {
+        const attribute = Object.keys(rects).find((candidate) =>
+          this.hasAttribute(candidate),
+        );
+        const rect = attribute ? rects[attribute] : undefined;
+        const top = rect?.y ?? 0;
+        const height = rect?.height ?? 0;
+        const left = rect?.x ?? 0;
+        const width = rect?.width ?? 0;
+
+        return {
+          bottom: top + height,
+          height,
+          left,
+          right: left + width,
+          top,
+          width,
+          x: left,
+          y: top,
+          toJSON: () => ({}),
+        };
+      },
+    );
+  }
+
+  it("anchors the open panel below the compact Tools tab strip at 1200x640", () => {
+    // Below xl the tab strip is the only route to the editor, the template
+    // chooser and approval. The panel used to be anchored only under the
+    // sticky approval row, so at 1200x640 it rested over the whole strip and
+    // left no visible way back to the resume.
+    setViewport(1200, 640);
+    mockRects({
+      "data-resume-workspace-top-actions": {
+        height: 50,
+        width: 1200,
+        x: 0,
+        y: 100,
+      },
+      "data-resume-studio-compact-tabs": {
+        height: 40,
+        width: 1200,
+        x: 0,
+        y: 160,
+      },
+    });
+
+    render(
+      <>
+        <section data-resume-workspace-top-actions />
+        <div data-resume-studio-compact-tabs />
+        <span data-resume-studio-assistant-launcher-slot />
+        <ResumeGuidedEditsPopup
+          assistantMessages={[]}
+          assistantPending={false}
+          isWorkspacePending={false}
+          onSendAssistantMessage={vi.fn()}
+        />
+      </>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open the Assistant" }));
+
+    const popupRoot = document.querySelector<HTMLElement>(
+      "[data-resume-guided-edits-open]",
+    );
+    const panelTop = Number.parseFloat(popupRoot?.style.top ?? "0");
+
+    // Both no-cover zones stay above the panel, with the shared 16px gap.
+    expect(panelTop).toBeGreaterThanOrEqual(150);
+    expect(panelTop).toBeGreaterThanOrEqual(200);
+    expect(panelTop).toBe(216);
+
+    // The height is capped to the space that is left, so the composer at the
+    // panel's bottom stays inside the window.
+    const dialog = screen.getByRole("dialog", { name: "Assistant" });
+    expect(dialog.style.maxHeight).toBe("calc(100vh - 232px)");
+    expect(panelTop + 640 - 216 - 16).toBeLessThanOrEqual(640);
+  });
+
+  it("never floats the collapsed launcher over a tools-column action row", () => {
+    // Previously two tests: "lifts the resting launcher off a tools-column
+    // action row" (asserting the parked pill's clearance rose to 94px so it
+    // cleared the applied-AI-edit row's `Undo`) and "keeps the shared inset
+    // when nothing would sit under the launcher" (asserting `bottom: 16px`).
+    //
+    // Both described a pill fixed over the tools column. Lifting it only ever
+    // fixed the rows the clearance set happened to name, and a reservation at
+    // the column's end left the middle of the scroll uncovered. The launcher
+    // does not float at all now, so there is nothing to lift and nothing that
+    // can rest over any row at any scroll position.
+    setViewport(1280, 800);
+    mockRects({
+      "data-resume-draft-provenance": {
+        height: 40,
+        width: 264,
+        x: 1000,
+        y: 730,
+      },
+    });
+
+    render(
+      <>
+        <div data-resume-draft-provenance>
+          <button type="button">Undo</button>
+        </div>
+        <span data-resume-studio-assistant-launcher-slot />
+        <ResumeGuidedEditsPopup
+          assistantMessages={[]}
+          assistantPending={false}
+          isWorkspacePending={false}
+          onSendAssistantMessage={vi.fn()}
+        />
+      </>,
+    );
+
+    expect(
+      document.querySelector("[data-resume-guided-edits-open]"),
+    ).toBeNull();
+
+    const launcher = screen.getByRole("button", {
+      name: "Open the Assistant",
+    });
+
+    expect(
+      launcher.closest("[data-resume-studio-assistant-launcher-slot]"),
+    ).not.toBeNull();
+    // Nothing positions it against the viewport any more.
+    expect(launcher.style.position).toBe("");
+    expect(launcher.style.bottom).toBe("");
+    expect(launcher.className).not.toContain("fixed");
+  });
+
+  it("changes nothing in the studio grid when the Assistant opens", () => {
+    // The r13 invariant: the Assistant is a body-portalled floating layer, so
+    // opening it can never reflow the preview or tools rects.
+    setViewport(1440, 920);
+    mockRects({});
+
+    render(
+      <>
+        <div data-resume-studio-grid-columns="preview-tools">
+          <div data-resume-studio-preview-pane="true">Preview</div>
+          <div data-resume-studio-tools-pane="true">Tools</div>
+        </div>
+        <span data-resume-studio-assistant-launcher-slot />
+        <ResumeGuidedEditsPopup
+          assistantMessages={[]}
+          assistantPending={false}
+          isWorkspacePending={false}
+          onSendAssistantMessage={vi.fn()}
+        />
+      </>,
+    );
+
+    const grid = document.querySelector<HTMLElement>(
+      "[data-resume-studio-grid-columns]",
+    );
+    const before = grid?.outerHTML;
+
+    fireEvent.click(screen.getByRole("button", { name: "Open the Assistant" }));
+
+    expect(screen.getByRole("dialog", { name: "Assistant" })).toBeTruthy();
+    expect(grid?.outerHTML).toBe(before);
+    expect(grid?.querySelector("[data-resume-guided-edits-panel]")).toBeNull();
+    expect(
+      document.querySelector("[data-resume-guided-edits-open]")?.parentElement,
+    ).toBe(document.body);
   });
 });

@@ -38,6 +38,7 @@ import type {
 import { suiteModules } from "@unemployed/contracts";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@renderer/components/ui/button";
+import { Count } from "@renderer/components/ui/count";
 import {
   Tooltip,
   TooltipContent,
@@ -54,8 +55,27 @@ import {
 } from "./job-finder-global-search";
 import { JobFinderTaskCenter } from "./task-center/job-finder-task-center";
 import { StartupResetRecoveryBanner } from "./startup-reset-recovery-banner";
-import { countActiveSafeguardBlockers } from "../lib/safeguards-blocker-count";
-import { countDiscoveryStrongMatches } from "../screens/discovery/discovery-result-groups";
+import { countNeedsYouItems } from "../lib/needs-you-count";
+import {
+  countApplicationRecords,
+  countCompaniesAwaitingMergeReview,
+  countDiscoveryVisibleJobs,
+  countNeedsYou,
+  countOutcomeEvents,
+  countResumeApproaches,
+  countSafeguardBlockers,
+  countShortlistedJobs,
+  countUnreadCampaignNotifications,
+  countUserCreatedSearchPlans,
+  selectCampaignJobIds,
+  toDestinationBadgeCount,
+} from "../lib/destination-counts";
+import {
+  SHELL_HEADER_MASK_HEIGHT_CLASS,
+  SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
+  SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_CLASS,
+  SHELL_SCROLLING_ROUTE_TOP_GUTTER_CLASS,
+} from "../lib/job-finder-shell-gutters";
 import { buildJobFinderGlobalSearchEntries } from "../lib/build-job-finder-global-search-entries";
 import type { JobFinderGlobalSearchEntry } from "../lib/job-finder-global-search";
 import {
@@ -135,43 +155,21 @@ const screenLabelMap: Record<JobFinderScreen, string> = {
   companies: "Companies",
 };
 
+/**
+ * Thin adapter over the one exported owner in `lib/needs-you-count.ts`. The
+ * shell no longer derives this population itself; the argument order is kept
+ * so existing callers and tests read the same helper.
+ */
 export function countUnresolvedUserActions(
   requests: JobFinderWorkspaceSnapshot["userActionRequests"] | undefined,
   groupedDecisions?: readonly GroupedManualAnswerDecision[],
 ): number {
-  const unresolved = (requests ?? []).filter(
-    (request) =>
-      !["resolved", "skipped", "cancelled", "expired", "superseded"].includes(
-        request.state,
-      ),
-  );
-  const pendingDecisions = (groupedDecisions ?? []).filter(
-    (decision) => decision.approval === "pending",
-  );
-  // A pending grouped decision represents its member requests on the Actions
-  // screen, so the badge counts the decision card instead of the hidden
-  // ordinary member cards.
-  const representedRequestIds = new Set(
-    pendingDecisions.flatMap((decision) =>
-      decision.lineage.map((entry) => entry.requestId),
-    ),
-  );
-  const unrepresentedRequests = unresolved.filter(
-    (request) => !representedRequestIds.has(request.id),
-  );
-  return unrepresentedRequests.length + pendingDecisions.length;
+  return countNeedsYouItems({ groupedDecisions, requests });
 }
 
-export function countUnreadCampaignNotifications(
-  notifications:
-    | JobFinderWorkspaceSnapshot["campaignNotifications"]
-    | undefined,
-): number {
-  return (notifications ?? []).filter((notification) => notification.unread)
-    .length;
-}
+export { countUnreadCampaignNotifications };
 
-const LOCKED_LAYOUT_SCREENS: readonly JobFinderScreen[] = [
+export const LOCKED_LAYOUT_SCREENS: readonly JobFinderScreen[] = [
   "profile",
   "discovery",
   "review-queue",
@@ -218,31 +216,200 @@ const NO_ROUTE_SCROLL_EDGES: CompactRouteScrollEdges = {
 export const SIDEBAR_COLLAPSED_STORAGE_KEY =
   "unemployed.job-finder.sidebar-collapsed.v1";
 
-function toCountBadge(count: number): number | null {
-  return count > 0 ? count : null;
-}
-
 /**
- * Inventory counts describe workspace volume and stay label-only; attention
- * counts describe work waiting on the user and stay announced to assistive
- * technology in every navigation surface.
+ * Inventory counts describe workspace volume and are the bare number: a plain
+ * number beside a destination name means "this is how much is in there".
+ * Attention counts describe work waiting on the user, so they are never bare —
+ * they carry a filled marker and a noun ("2 to review"), because a bare
+ * attention number beside "Companies" read as an inventory count and was wrong
+ * by an order of magnitude.
  */
 type ScreenCountKind = "attention" | "inventory";
 
+/**
+ * The shell's own layout for a destination count, on top of the shared
+ * `<Count variant="inline">` shape: pushed to the row's trailing edge, and
+ * `text-current` so the figure follows the active row's colour instead of
+ * sitting at the primitive's resting muted tone.
+ *
+ * The shape itself is no longer restated here. The expanded sidebar (>=1440)
+ * and the compact top navigation (<1440) used to paint two shapes for the same
+ * number — a plain "13" and a filled pill "13", one breakpoint apart; both now
+ * render the one `<Count>` primitive, so they cannot drift again.
+ */
+export const DESTINATION_COUNT_INLINE_LAYOUT_CLASS =
+  "mr-1 ml-auto shrink-0 text-current";
+/**
+ * The attention state, and the one destination count `<Count>` cannot own: the
+ * qualifying noun has to render visibly beside the figure ("2 to review", "1
+ * blocked"), because a bare number in this position reads as inventory — and
+ * `Count` deliberately takes no children. It is a filled marker so a sighted
+ * reader can tell "work waiting on you" from inventory before reading the noun.
+ */
+export const DESTINATION_COUNT_ATTENTION_CLASS =
+  "mr-1 ml-auto inline-flex h-5 shrink-0 items-center justify-center gap-1 rounded-full bg-primary px-1.5 text-(length:--text-tiny) font-semibold text-primary-foreground tabular-nums";
+/**
+ * The collapsed rail has no room for an inline number or a noun, so every
+ * count moves to the shared `<Count variant="rail-marker">` corner marker —
+ * still one treatment, a different state. This is only its placement in the
+ * rail row; the accessible name still carries the qualifier.
+ */
+export const DESTINATION_COUNT_RAIL_MARKER_LAYOUT_CLASS =
+  "absolute bottom-0 right-0 shrink-0";
+
+/* ------------------------------------------------------------------------ *
+ * Shell chrome.
+ *
+ * The opening frame in `pages/job-finder-page.tsx` paints the same header,
+ * rail and route wrapper before the loaded shell mounts. It used to hold
+ * seventeen hand-copied class strings kept honest only by a parity test, so a
+ * drift on either side was a first-paint jump waiting for someone to update
+ * one copy. The chrome is exported here instead: both shells now read the same
+ * strings and the parity is structural.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Sticky shell edges use the shared panel border. `border-border/15` was a
+ * one-off dilution that rendered the header seam and the rail edge below the
+ * 3:1 non-text floor in both themes.
+ */
+export const SHELL_HEADER_CLASS =
+  "relative z-50 overflow-visible border-b border-(--surface-panel-shell-border) bg-(--shell-header-bg) backdrop-blur-sm sm:fixed sm:inset-x-0 sm:top-0 min-[1440px]:h-14";
+export const SHELL_HEADER_GRID_CLASS =
+  "job-finder-shell-grid grid grid-rows-[3.5rem_auto_auto] items-stretch overflow-visible pl-2 pr-2 sm:grid-rows-[3.5rem_3.75rem] sm:pl-3 sm:pr-3 min-[1440px]:!grid-rows-[3.5rem]";
+export const SHELL_BRAND_ROW_CLASS = cn(
+  // Three header regions on one row: wordmark left, module switcher centred,
+  // native window-control inset right. The two side tracks are
+  // `minmax(0,1fr)`, so they are always exactly equal and the middle track
+  // sits on the window centre line — never absolute positioning, which fought
+  // the macOS traffic-light inset and the right-hand utilities.
+  "col-start-1 row-start-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-6",
+  // At the wide layout column 1 is the 17rem sidebar column. The wordmark fits
+  // there; the wordmark plus the module switcher does not, and it wrapped onto
+  // a second line that spilled out of the 3.5rem header and under the page
+  // title. The brand row therefore spans the sidebar column and the content
+  // column (col-end-3, never the col-span shorthand, which would reset
+  // col-start) so the switcher stays on one line in the top bar.
+  "min-[1440px]:col-end-3",
+);
+export const SHELL_MODULE_NAV_CLASS = cn(
+  "col-start-2 hidden h-14 items-center justify-center justify-self-center",
+  // The switcher owns the centre track: it is sized by its content (`auto`),
+  // so the two side regions give way first and it never wraps or runs under
+  // the page title.
+  "min-[900px]:flex",
+);
+export const SHELL_MODULE_LABEL_CLASS =
+  "whitespace-nowrap text-[14px] font-semibold tracking-(--tracking-badge) text-(--text-headline) sm:text-[15px]";
+export const SHELL_MODULE_LINK_CLASS = cn(
+  "h-auto whitespace-nowrap rounded-sm border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[15px]",
+  "cursor-pointer hover:text-foreground",
+  "text-muted-foreground",
+);
+export const SHELL_SIDEBAR_CLASS =
+  "fixed bottom-0 left-0 top-14 z-40 hidden w-(--job-finder-side-width) overflow-hidden border-r border-(--surface-panel-shell-border) bg-(--shell-header-bg) min-[1440px]:block";
+export const SHELL_SIDEBAR_ROW_CLASS =
+  "inline-flex min-h-9 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-(--radius-button) border-l-2 border-transparent px-2 py-1.5 text-left text-sm font-medium text-muted-foreground outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40";
+export const SHELL_SIDEBAR_ROW_COLLAPSED_CLASS =
+  "relative justify-center border-l-0 px-0 text-center";
+// Hover styling is scoped to inactive rows so it cannot wash the selected fill
+// back out. In the light theme a solid hover fill read as a second selection,
+// so hover is a translucent wash plus a border tick: exactly one row is ever
+// filled.
+export const SHELL_SIDEBAR_ROW_INACTIVE_CLASS =
+  "hover:border-l-(--border-strong) hover:bg-secondary/50 hover:text-foreground";
+// The selected destination needs a fill the eye separates from the rail, not a
+// 2px bar over a near-identical tint: --nav-active-surface stays >=3:1
+// non-text against --shell-header-bg in both themes, and the bolder label plus
+// the accent bar keep the state legible without relying on colour.
+export const SHELL_SIDEBAR_ROW_ACTIVE_CLASS =
+  "border-l-(--nav-active-bar) bg-(--nav-active-surface) font-semibold text-(--nav-active-foreground)";
+export const SHELL_CONTENT_CLASS =
+  "flex min-h-screen flex-col sm:h-full sm:min-h-0 sm:pt-[7.25rem] min-[1440px]:!pt-14 min-[1440px]:pl-(--job-finder-side-width)";
+export const SHELL_MAIN_SCROLLING_CLASS = cn(
+  "flex-1 overflow-x-hidden outline-none",
+  "screen-scroll-area overflow-y-auto px-3 min-[1440px]:px-4",
+  SHELL_SCROLLING_ROUTE_TOP_GUTTER_CLASS,
+  SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_CLASS,
+);
+export const SHELL_MAIN_LOCKED_CLASS = cn(
+  "flex-1 overflow-x-hidden outline-none",
+  // Important for the same reason the header reserves above: `sm:px-3` still
+  // matches at >=1440px and Tailwind v4 emits it after every arbitrary
+  // variant, so a plain `min-[1440px]:px-4` silently lost and the wide layout
+  // kept the 12px compact gutter. The scrolling branch needs no override: its
+  // narrow value is the unprefixed base, which always loses to a variant.
+  "overflow-hidden px-2 pb-3 pt-0 sm:px-3 min-[1440px]:!px-4",
+);
+export const SHELL_ROUTE_CONTAINER_BASE_CLASS =
+  "mx-auto w-full max-w-472 min-w-0";
+/**
+ * One pill class for every control in the compact top-navigation row,
+ * including the `More` trigger.
+ */
+export const COMPACT_NAV_PILL_CLASS =
+  "inline-flex h-9 min-h-9 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-(--radius-button) border-b-2 border-transparent px-2 py-2 text-(length:--text-small) font-medium text-muted-foreground transition-colors outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:gap-2 sm:px-3";
+/**
+ * The compact row used --accent, which sits at 1.16-1.27:1 on the nav bar and
+ * cannot be told from a hovered neighbour. It now uses the same
+ * --nav-active-surface treatment the sidebar adopted, plus a bar and a bolder
+ * label so the state does not rest on colour alone.
+ */
+export const COMPACT_NAV_PILL_ACTIVE_CLASS =
+  "border-b-(--nav-active-bar) bg-(--nav-active-surface) font-semibold text-(--nav-active-foreground)";
+/**
+ * One vertical rhythm for every route root. Route roots used to pick their own
+ * (`gap-5` Home, `gap-3` Documents and Settings, `gap-(--gap-content)`
+ * Profile, `gap-4`/`gap-5` elsewhere) with no rule; the wrapper now declares
+ * the token so every route root can spend the same value.
+ *
+ * TODO(PKG-02): promote this declaration into `:root` in `styles/globals.css`
+ * beside `--gap-section` and drop the inline style.
+ */
+export const SHELL_ROUTE_SECTION_GAP_STYLE = {
+  "--gap-route-section": "var(--gap-card)",
+} as CSSProperties;
+
 interface ScreenCountBadgeProps {
-  className?: string;
   count: number;
   kind: ScreenCountKind;
+  /** Attention only: the noun that keeps the number from reading as inventory. */
+  noun?: string | undefined;
+  /** Collapsed rail: no room for the noun, marker treatment only. */
+  markerOnly?: boolean | undefined;
 }
 
-function ScreenCountBadge({ className, count, kind }: ScreenCountBadgeProps) {
+function ScreenCountBadge({
+  count,
+  kind,
+  markerOnly,
+  noun,
+}: ScreenCountBadgeProps) {
+  if (kind === "attention" && !markerOnly) {
+    return (
+      <span className={DESTINATION_COUNT_ATTENTION_CLASS}>
+        {count}
+        {noun ? (
+          <span className="whitespace-nowrap font-medium">{noun}</span>
+        ) : null}
+      </span>
+    );
+  }
+
+  // Inventory, and every count on the collapsed rail: the shared primitive
+  // owns the shape, so the same number cannot change shape one breakpoint
+  // apart. It is announced through the row's own accessible name, never twice.
   return (
-    <span
-      aria-hidden={kind === "inventory" ? true : undefined}
-      className={className}
-    >
-      {count}
-    </span>
+    <Count
+      aria-hidden="true"
+      className={
+        markerOnly
+          ? DESTINATION_COUNT_RAIL_MARKER_LAYOUT_CLASS
+          : DESTINATION_COUNT_INLINE_LAYOUT_CLASS
+      }
+      value={count}
+      variant={markerOnly ? "rail-marker" : "inline"}
+    />
   );
 }
 
@@ -250,14 +417,12 @@ function getScreenAccessibleName(
   label: string,
   count: number | null,
   kind: ScreenCountKind,
+  noun?: string,
 ): string {
   return kind === "attention" && count !== null && count > 0
-    ? `${label}: ${count} need attention`
+    ? `${label}: ${count} ${noun ?? "need attention"}`
     : label;
 }
-
-const NAV_PILL_COUNT_BADGE_CLASS =
-  "ml-1 inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-(length:--text-tiny) text-foreground";
 
 export function getInitialSidebarCollapsedState(): boolean {
   try {
@@ -421,16 +586,17 @@ export function JobFinderShell({
     label: string;
     count: number | null;
     countKind: ScreenCountKind;
+    /** Attention destinations only: the noun rendered beside the number. */
+    countNoun?: string | undefined;
     icon: LucideIcon;
   }
 
+  // Every badge below reads one exported owner from `lib/destination-counts.ts`
+  // named for its population. No count is derived inline here any more: four
+  // of them used to count something other than what their destination page
+  // prints, and nothing could hold the two together.
   const screenDefinitions = useMemo<readonly ShellScreenDefinition[]>(() => {
-    const activeCampaign = workspace.campaigns?.find(
-      (campaign) => campaign.id === workspace.activeCampaignId,
-    );
-    const campaignJobIds = new Set(
-      activeCampaign?.jobIds ?? workspace.discoveryJobs.map((job) => job.id),
-    );
+    const campaignJobIds = selectCampaignJobIds(workspace);
 
     return [
       {
@@ -449,14 +615,9 @@ export function JobFinderShell({
       },
       {
         id: "discovery",
-        // The badge counts the results actually worth opening. Adding the
-        // weaker and clearly mismatched rows made the headline oversell a
-        // search the app itself had already scored well below the targets.
         label: "Find jobs",
-        count: toCountBadge(
-          countDiscoveryStrongMatches(
-            workspace.discoveryJobs.filter((job) => campaignJobIds.has(job.id)),
-          ),
+        count: toDestinationBadgeCount(
+          countDiscoveryVisibleJobs(workspace, campaignJobIds),
         ),
         countKind: "inventory",
         icon: Compass,
@@ -464,9 +625,8 @@ export function JobFinderShell({
       {
         id: "review-queue",
         label: "Shortlisted",
-        count: toCountBadge(
-          workspace.reviewQueue.filter((item) => campaignJobIds.has(item.jobId))
-            .length,
+        count: toDestinationBadgeCount(
+          countShortlistedJobs(workspace, campaignJobIds),
         ),
         countKind: "inventory",
         icon: ClipboardCheck,
@@ -474,10 +634,8 @@ export function JobFinderShell({
       {
         id: "applications",
         label: "Applications",
-        count: toCountBadge(
-          workspace.applicationRecords.filter((record) =>
-            campaignJobIds.has(record.jobId),
-          ).length,
+        count: toDestinationBadgeCount(
+          countApplicationRecords(workspace, campaignJobIds),
         ),
         countKind: "inventory",
         icon: FileText,
@@ -485,77 +643,52 @@ export function JobFinderShell({
       {
         id: "campaigns",
         label: "Search plans",
-        // The default plan alone is not a count worth a badge; only extra
-        // plans signal something the user chose.
-        count: toCountBadge(
-          (workspace.campaigns ?? []).length > 1
-            ? (workspace.campaigns ?? []).length
-            : 0,
-        ),
+        count: toDestinationBadgeCount(countUserCreatedSearchPlans(workspace)),
         countKind: "inventory",
         icon: Layers3,
       },
       {
         id: "actions",
         label: "Needs you",
-        count: toCountBadge(
-          countUnresolvedUserActions(
-            workspace.userActionRequests,
-            workspace.intelligence?.groupedDecisions ?? [],
-          ),
-        ),
+        count: toDestinationBadgeCount(countNeedsYou(workspace)),
         countKind: "attention",
+        countNoun: "unresolved",
         icon: BellRing,
       },
       {
         id: "analytics",
         label: "Outcomes",
-        count:
-          (workspace.intelligence?.outcomeEvents ?? []).length > 0
-            ? (workspace.intelligence?.outcomeEvents ?? []).length
-            : null,
+        count: toDestinationBadgeCount(countOutcomeEvents(workspace)),
         countKind: "inventory",
         icon: BarChart3,
       },
       {
         id: "resume-strategies",
         label: "Resume approaches",
-        count:
-          (workspace.intelligence?.resumeStrategies ?? []).length > 0
-            ? (workspace.intelligence?.resumeStrategies ?? []).length
-            : null,
+        count: toDestinationBadgeCount(countResumeApproaches(workspace)),
         countKind: "inventory",
         icon: Layers3,
       },
       {
+        // The number here is pending merge reviews, not companies — the
+        // Companies page lists every known company. It therefore renders as an
+        // attention count with its noun ("2 to review") rather than as a bare
+        // number that read as a company inventory an order of magnitude off.
         id: "companies",
         label: "Companies",
-        count:
-          (workspace.intelligence?.companies ?? []).filter((company) =>
-            company.mergeReviewCandidates.some(
-              (candidate) => candidate.decision === "pending",
-            ),
-          ).length || null,
+        count: toDestinationBadgeCount(
+          countCompaniesAwaitingMergeReview(workspace),
+        ),
         countKind: "attention",
+        countNoun: "to review",
         icon: Building2,
       },
       {
         id: "safeguards",
         label: "Safeguards",
-        count:
-          countActiveSafeguardBlockers(
-            workspace.intelligence?.safeguards ?? {
-              companyApplicationCaps: [],
-              simultaneousApplicationConflicts: [],
-              listingSignals: [],
-              abnormalFailurePauses: [],
-              preparedBatchSampleReviews: [],
-              contradictoryAnswerDetections: [],
-              safeguardDismissals: [],
-              updatedAt: null,
-            },
-          ) || null,
+        count: toDestinationBadgeCount(countSafeguardBlockers(workspace)),
         countKind: "attention",
+        countNoun: "blocked",
         icon: ShieldCheck,
       },
       {
@@ -573,19 +706,7 @@ export function JobFinderShell({
         icon: Settings,
       },
     ];
-  }, [
-    workspace.activeCampaignId,
-    workspace.applicationRecords,
-    workspace.campaigns ?? [],
-    workspace.discoveryJobs,
-    workspace.intelligence?.groupedDecisions ?? [],
-    workspace.intelligence?.outcomeEvents ?? [],
-    workspace.intelligence?.resumeStrategies ?? [],
-    workspace.intelligence?.companies ?? [],
-    workspace.intelligence?.safeguards ?? [],
-    workspace.reviewQueue,
-    workspace.userActionRequests ?? [],
-  ]);
+  }, [workspace]);
 
   const actionScreen = screenDefinitions.find(
     (screen) => screen.id === "actions",
@@ -927,23 +1048,6 @@ export function JobFinderShell({
     "whitespace-nowrap px-2 text-(length:--text-eyebrow) uppercase tracking-(--tracking-caps) text-muted-foreground",
     isSidebarCollapsed && "sr-only",
   );
-  const SIDEBAR_ROW_CLASS =
-    "inline-flex min-h-9 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-(--radius-button) border-l-2 border-transparent px-2 py-1.5 text-left text-sm font-medium text-muted-foreground outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40";
-  const SIDEBAR_ROW_COLLAPSED_CLASS =
-    "relative justify-center border-l-0 px-0 text-center";
-  // Exactly one count treatment for every sidebar row, primary or secondary: a
-  // plain right-aligned tabular number with no fill. A per-kind chip made the
-  // Companies count read as a selected block beside plain neighbours, and a
-  // pale chip on the active fill previously dropped the digit to ~3.5:1.
-  // Inheriting the row's own colour keeps the class string identical while the
-  // active row still contrasts against its fill.
-  const SIDEBAR_COUNT_CLASS =
-    "mr-1 ml-auto inline-flex h-5 min-w-7 shrink-0 items-center justify-end bg-transparent px-0 text-(length:--text-tiny) text-current tabular-nums";
-  // The collapsed rail has no room for an inline number, so every count moves
-  // to the same corner marker — still one treatment, just a different state.
-  const SIDEBAR_COLLAPSED_COUNT_CLASS =
-    "absolute bottom-0 right-0 inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-(--input) px-1 text-(length:--text-tiny) text-foreground tabular-nums";
-
   function renderSidebarDestination(screen: ShellScreenDefinition) {
     const isActive = activeScreen === screen.id;
     return (
@@ -955,25 +1059,13 @@ export function JobFinderShell({
               screen.label,
               screen.count,
               screen.countKind,
+              screen.countNoun,
             )}
             className={cn(
-              SIDEBAR_ROW_CLASS,
-              isSidebarCollapsed && SIDEBAR_ROW_COLLAPSED_CLASS,
-              // Hover styling is scoped to inactive rows so it cannot wash the
-              // selected fill back out. In the light theme a solid hover fill
-              // read as a second selection, so hover is a translucent wash plus
-              // a border tick: exactly one row is ever filled.
-              isActive
-                ? ""
-                : "hover:border-l-(--border-strong) hover:bg-secondary/50 hover:text-foreground",
-              // The selected destination needs a fill the eye separates from
-              // the rail, not a 2px bar over a near-identical tint:
-              // --nav-active-surface stays >=3:1 non-text against
-              // --shell-header-bg in both themes, and the bolder label plus the
-              // accent bar keep the state legible without relying on color.
-              isActive
-                ? "border-l-(--nav-active-bar) bg-(--nav-active-surface) font-semibold text-(--nav-active-foreground)"
-                : "",
+              SHELL_SIDEBAR_ROW_CLASS,
+              isSidebarCollapsed && SHELL_SIDEBAR_ROW_COLLAPSED_CLASS,
+              isActive ? "" : SHELL_SIDEBAR_ROW_INACTIVE_CLASS,
+              isActive ? SHELL_SIDEBAR_ROW_ACTIVE_CLASS : "",
             )}
             onClick={() => handleScreenChange(screen.id)}
             type="button"
@@ -989,13 +1081,10 @@ export function JobFinderShell({
             </span>
             {screen.count !== null ? (
               <ScreenCountBadge
-                className={
-                  isSidebarCollapsed
-                    ? SIDEBAR_COLLAPSED_COUNT_CLASS
-                    : SIDEBAR_COUNT_CLASS
-                }
                 count={screen.count}
                 kind={screen.countKind}
+                markerOnly={isSidebarCollapsed}
+                noun={screen.countNoun}
               />
             ) : null}
           </button>
@@ -1030,29 +1119,12 @@ export function JobFinderShell({
     >
       <header
         data-job-finder-shell-header
-        className="relative z-50 overflow-visible border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm sm:fixed sm:inset-x-0 sm:top-0 min-[1440px]:h-14"
+        className={SHELL_HEADER_CLASS}
         style={dragRegionStyle}
       >
-        <div className="job-finder-shell-grid grid grid-rows-[3.5rem_auto_auto] items-stretch overflow-visible pl-2 pr-2 sm:grid-rows-[3.5rem_3.75rem] sm:pl-3 sm:pr-3 min-[1440px]:!grid-rows-[3.5rem]">
+        <div className={SHELL_HEADER_GRID_CLASS}>
           <div
-            className={cn(
-              // Three header regions on one row: wordmark left, module
-              // switcher centred, native window-control inset right. The two
-              // side tracks are `minmax(0,1fr)`, so they are always exactly
-              // equal and the middle track sits on the window centre line —
-              // never absolute positioning, which fought the macOS
-              // traffic-light inset and the right-hand utilities.
-              "col-start-1 row-start-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-6",
-              // At the wide layout column 1 is the 17rem sidebar column. The
-              // wordmark fits there; the wordmark plus the module switcher does
-              // not, and it wrapped onto a second line that spilled out of the
-              // 3.5rem header and under the page title. The brand row therefore
-              // spans the sidebar column and the content column (col-end-3,
-              // never the col-span shorthand, which would reset col-start) so
-              // the switcher stays on one line in the top bar, exactly as it
-              // does at compact widths.
-              "min-[1440px]:col-end-3",
-            )}
+            className={SHELL_BRAND_ROW_CLASS}
             data-desktop-brand
             style={{
               ...dragRegionStyle,
@@ -1079,13 +1151,7 @@ export function JobFinderShell({
 
             <nav
               aria-label="UnEmployed modules"
-              className={cn(
-                "col-start-2 hidden h-14 items-center justify-center justify-self-center",
-                // The switcher owns the centre track: it is sized by its
-                // content (`auto`), so the two side regions give way first and
-                // it never wraps or runs under the page title.
-                "min-[900px]:flex",
-              )}
+              className={SHELL_MODULE_NAV_CLASS}
               data-desktop-module-navigation
               style={dragRegionStyle}
             >
@@ -1112,7 +1178,7 @@ export function JobFinderShell({
                       // aria-current carries the state; styling is unchanged.
                       <span
                         aria-current="page"
-                        className="whitespace-nowrap text-[14px] font-semibold tracking-(--tracking-badge) text-(--text-headline) sm:text-[15px]"
+                        className={SHELL_MODULE_LABEL_CLASS}
                       >
                         {formatStatusLabel(moduleName)}
                       </span>
@@ -1126,11 +1192,7 @@ export function JobFinderShell({
                             void navigate("/interview-helper");
                           }
                         }}
-                        className={cn(
-                          "h-auto whitespace-nowrap rounded-sm border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[15px]",
-                          "cursor-pointer hover:text-foreground",
-                          "text-muted-foreground",
-                        )}
+                        className={SHELL_MODULE_LINK_CLASS}
                         type="button"
                       >
                         {formatStatusLabel(moduleName)}
@@ -1224,11 +1286,21 @@ export function JobFinderShell({
             // would squeeze the card into a scroller at the 1024px minimum, so
             // the trailing reserve is kept one-sided and the card centres in
             // the remaining width rather than clipping or wrapping.
+            // The `min-[900px]` reserve is marked important on purpose.
+            // Tailwind v4 emits arbitrary `min-[…]` media variants *before*
+            // the named breakpoints, so at >=900px the still-matching
+            // `sm:pr-64` came later in the stylesheet and won at equal
+            // specificity: every compact width from 1024 to 1280 reserved
+            // 256px it was not supposed to reserve, and the destination card
+            // sat 127px left of the module switcher it is meant to share an
+            // axis with. Importance is how the rest of this header already
+            // pins a wider band over a narrower one (`min-[900px]:!top-0`,
+            // `min-[1440px]:!pt-14`); do not drop it back to a plain utility.
             className={cn(
               "col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center overflow-visible sm:col-span-1 sm:col-start-1 sm:justify-center min-[1440px]:hidden",
               isMac
-                ? "sm:pr-64 max-[899px]:pr-40 min-[900px]:pr-0"
-                : "sm:pr-64 max-[899px]:pr-40 min-[900px]:pr-80",
+                ? "sm:pr-64 max-[899px]:pr-40 min-[900px]:!pr-0"
+                : "sm:pr-64 max-[899px]:pr-40 min-[900px]:!pr-80",
             )}
             style={noDragRegionStyle}
           >
@@ -1258,15 +1330,9 @@ export function JobFinderShell({
                         }
                         key={screen.id}
                         className={cn(
-                          "inline-flex h-9 min-h-9 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-(--radius-button) border-b-2 border-transparent px-2 py-2 text-(length:--text-small) font-medium text-muted-foreground transition-colors outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:gap-2 sm:px-3",
-                          // The compact row used --accent, which sits at
-                          // 1.16-1.27:1 on the nav bar and cannot be told from
-                          // a hovered neighbour. It now uses the same
-                          // --nav-active-surface treatment the sidebar adopted,
-                          // plus a bar and a bolder label so the state does not
-                          // rest on colour alone.
+                          COMPACT_NAV_PILL_CLASS,
                           activeScreen === screen.id
-                            ? "border-b-(--nav-active-bar) bg-(--nav-active-surface) font-semibold text-(--nav-active-foreground)"
+                            ? COMPACT_NAV_PILL_ACTIVE_CLASS
                             : "",
                         )}
                         onClick={() => handleScreenChange(screen.id)}
@@ -1283,9 +1349,9 @@ export function JobFinderShell({
                         </span>
                         {screen.count !== null ? (
                           <ScreenCountBadge
-                            className={NAV_PILL_COUNT_BADGE_CLASS}
                             count={screen.count}
                             kind={screen.countKind}
+                            noun={screen.countNoun}
                           />
                         ) : null}
                       </button>
@@ -1314,14 +1380,18 @@ export function JobFinderShell({
                 <button
                   aria-expanded={isMoreOpen}
                   aria-label={`More${hiddenAttentionCount > 0 ? `: ${hiddenAttentionCount} need attention` : ""}`}
+                  // The same pill as its neighbours. It used to be a bordered,
+                  // filled, 4px-taller control in a row of flat text pills, so
+                  // it read as a different class of thing; the icon and the
+                  // active treatment are what mark it now.
                   className={cn(
-                    "inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-(--radius-button) px-2.5 py-2 text-(length:--text-small) font-medium text-muted-foreground transition-colors outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-9 sm:gap-2 sm:px-3 border border-(--control-border) bg-(--surface-panel-raised)",
+                    COMPACT_NAV_PILL_CLASS,
                     menuGroups.some((group) =>
                       group.screens.some(
                         (screen) => activeScreen === screen.id,
                       ),
                     )
-                      ? "border-(--nav-active-bar) bg-(--nav-active-surface) font-semibold text-(--nav-active-foreground)"
+                      ? COMPACT_NAV_PILL_ACTIVE_CLASS
                       : "",
                   )}
                   onClick={() => {
@@ -1353,9 +1423,11 @@ export function JobFinderShell({
                     More
                   </span>
                   {hiddenAttentionCount > 0 ? (
-                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-(length:--text-tiny) text-primary-foreground">
-                      {hiddenAttentionCount}
-                    </span>
+                    <ScreenCountBadge
+                      count={hiddenAttentionCount}
+                      kind="attention"
+                      noun="need you"
+                    />
                   ) : null}
                 </button>
                 {isMoreOpen
@@ -1449,6 +1521,7 @@ export function JobFinderShell({
                                         screen.label,
                                         screen.count,
                                         screen.countKind,
+                                        screen.countNoun,
                                       )}
                                       aria-current={
                                         activeScreen === screen.id
@@ -1495,9 +1568,9 @@ export function JobFinderShell({
                                       </span>
                                       {screen.count !== null ? (
                                         <ScreenCountBadge
-                                          className={NAV_PILL_COUNT_BADGE_CLASS}
                                           count={screen.count}
                                           kind={screen.countKind}
+                                          noun={screen.countNoun}
                                         />
                                       ) : null}
                                     </button>
@@ -1654,10 +1727,12 @@ export function JobFinderShell({
                 <span className="hidden whitespace-nowrap min-[900px]:inline">
                   Needs you
                 </span>
-                {(actionScreen.count ?? 0) > 0 ? (
-                  <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-(length:--text-tiny) text-primary-foreground">
-                    {actionScreen.count}
-                  </span>
+                {actionScreen.count !== null ? (
+                  <ScreenCountBadge
+                    count={actionScreen.count}
+                    kind="attention"
+                    noun={actionScreen.countNoun}
+                  />
                 ) : null}
               </button>
             ) : null}
@@ -1671,7 +1746,7 @@ export function JobFinderShell({
         // journey plus every secondary destination is taller than the column,
         // and a clipped rail hides real destinations. `overflow-hidden` here
         // keeps the pinned toggle row out of that inner scroller.
-        className="fixed bottom-0 left-0 top-14 z-40 hidden w-(--job-finder-side-width) overflow-hidden border-r border-border/15 bg-(--shell-header-bg) min-[1440px]:block"
+        className={SHELL_SIDEBAR_CLASS}
         data-job-finder-sidebar
       >
         <div
@@ -1783,9 +1858,9 @@ export function JobFinderShell({
                       )}
                       aria-label={JOB_FINDER_SHORTCUTS_DIALOG_LABEL}
                       className={cn(
-                        SIDEBAR_ROW_CLASS,
-                        isSidebarCollapsed && SIDEBAR_ROW_COLLAPSED_CLASS,
-                        "hover:border-l-(--border-strong) hover:bg-secondary/50 hover:text-foreground",
+                        SHELL_SIDEBAR_ROW_CLASS,
+                        isSidebarCollapsed && SHELL_SIDEBAR_ROW_COLLAPSED_CLASS,
+                        SHELL_SIDEBAR_ROW_INACTIVE_CLASS,
                       )}
                       data-job-finder-sidebar-shortcuts-entry
                       onClick={openShortcutsDialog}
@@ -1855,33 +1930,43 @@ export function JobFinderShell({
 
       {/* Content passes under the fixed header with no seam, so a title or a
           card sitting at the boundary paints sliced through its glyphs. A
-          short fade in the header's own colour ends the page there instead. */}
+          fade in the header's own colour ends the page there instead.
+          The first 12px of it are fully opaque, not faded: that band is
+          exactly the shell's own `pt-3` gutter, the strip a route's sticky
+          sub-navigation cannot cover because sticky is clamped to its
+          containing block. A 4px fade left a readable half-line of the page
+          floating in it between two chromes. Beyond the gutter the fade
+          resumes, so the first row at scroll 0 is not dimmed by a hard edge. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-x-0 top-[7.25rem] z-30 hidden h-4 bg-gradient-to-b from-(--shell-header-bg) to-transparent sm:block min-[1440px]:top-14 min-[1440px]:left-(--job-finder-side-width)"
+        className={cn(
+          "pointer-events-none fixed inset-x-0 top-[7.25rem] z-30 hidden bg-gradient-to-b from-(--shell-header-bg) to-transparent sm:block min-[1440px]:top-14 min-[1440px]:left-(--job-finder-side-width)",
+          SHELL_HEADER_MASK_HEIGHT_CLASS,
+          SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
+        )}
         data-job-finder-shell-header-mask
       />
-      <div
-        className="flex min-h-screen flex-col sm:h-full sm:min-h-0 sm:pt-[7.25rem] min-[1440px]:!pt-14 min-[1440px]:pl-(--job-finder-side-width)"
-        data-job-finder-shell-content
-      >
+      <div className={SHELL_CONTENT_CLASS} data-job-finder-shell-content>
         <main
           aria-label={activeScreenLabel}
-          className={cn(
-            "flex-1 overflow-x-hidden outline-none",
+          className={
             usesLockedScreenLayout
-              ? "overflow-hidden px-2 pb-3 pt-0 sm:px-3 min-[1440px]:px-4"
-              : "screen-scroll-area overflow-y-auto px-3 pb-10 pt-3 min-[1440px]:px-4",
-          )}
+              ? SHELL_MAIN_LOCKED_CLASS
+              : SHELL_MAIN_SCROLLING_CLASS
+          }
           ref={mainRef}
           tabIndex={-1}
         >
           <div
             className={cn(
-              "mx-auto w-full max-w-472 min-w-0",
+              SHELL_ROUTE_CONTAINER_BASE_CLASS,
               usesLockedScreenLayout ? "h-full min-h-0" : "min-h-full",
             )}
+            data-job-finder-route-container
             key={location.pathname}
+            // One rhythm token for every route root, declared by the wrapper
+            // that owns the route rather than picked per screen.
+            style={SHELL_ROUTE_SECTION_GAP_STYLE}
           >
             <StartupResetRecoveryBanner />
             {children}

@@ -103,7 +103,7 @@ describe("ReviewQueueMissionPanel", () => {
         actionMessage={null}
         browserSession={browserSession}
         campaignId="campaign_1"
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         globalDailyApplicationPreparationCapacity={{
           limit: 20,
           used: 0,
@@ -315,7 +315,7 @@ describe("ReviewQueueMissionPanel", () => {
         actionMessage={null}
         browserSession={browserSession}
         campaignId="campaign_1"
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         globalDailyApplicationPreparationCapacity={{
           limit: 20,
           used: 7,
@@ -442,7 +442,7 @@ describe("ReviewQueueMissionPanel", () => {
         actionMessage="Daily preparation limit reached (20 of 20)."
         browserSession={browserSession}
         campaignId="campaign_1"
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         globalDailyApplicationPreparationCapacity={{
           limit: 20,
           used: 20,
@@ -575,7 +575,7 @@ describe("ReviewQueueMissionPanel", () => {
         actionMessage={null}
         browserSession={browserSession}
         campaignId="campaign_1"
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         isApplyPending={false}
         isJobPending={() => false}
         isResumeStrategyPending={() => false}
@@ -679,7 +679,7 @@ describe("ReviewQueueMissionPanel", () => {
         actionMessage={null}
         browserSession={browserSession}
         campaignId="campaign_1"
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         isApplyPending={false}
         isJobPending={() => false}
         isResumeStrategyPending={() => false}
@@ -794,7 +794,7 @@ describe("ReviewQueueMissionPanel", () => {
         actionMessage={null}
         browserSession={browserSession}
         campaignId="campaign_1"
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         isApplyPending={false}
         isJobPending={() => false}
         isResumeStrategyPending={() => false}
@@ -938,7 +938,7 @@ describe("ReviewQueueMissionPanel", () => {
         actionMessage={null}
         browserSession={browserSession}
         campaignId="campaign_1"
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         isApplyPending={false}
         isJobPending={() => false}
         isResumeStrategyPending={() => false}
@@ -1034,7 +1034,7 @@ describe("ReviewQueueMissionPanel", () => {
         actionMessage={null}
         browserSession={browserSession}
         campaignId="campaign_1"
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         isApplyPending={false}
         isJobPending={() => false}
         isResumeStrategyPending={() => false}
@@ -1130,7 +1130,7 @@ describe("ReviewQueueMissionPanel", () => {
           } as BrowserSessionState
         }
         campaignId="campaign_1"
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         isApplyPending={false}
         isJobPending={() => false}
         isResumeStrategyPending={() => false}
@@ -1236,7 +1236,7 @@ describe("ReviewQueueMissionPanel", () => {
         actionMessage={null}
         browserSession={browserSession}
         campaignId="campaign_1"
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         globalDailyApplicationPreparationCapacity={{
           limit: 20,
           used: 17,
@@ -1367,7 +1367,7 @@ describe("ReviewQueueMissionPanel", () => {
         actionMessage={null}
         browserSession={browserSession}
         campaignId="campaign_1"
-        displayedProgress={100}
+        pendingElapsedSeconds={0}
         isApplyPending={false}
         isJobPending={() => false}
         isResumeStrategyPending={() => false}

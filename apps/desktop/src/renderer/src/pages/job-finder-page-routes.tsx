@@ -29,12 +29,19 @@ import type {
   SaveCampaignRuleInput,
   SaveJobSearchCampaignInput,
   SetJobFinderActivityControlInput,
+  UserActionCommandInput,
+  UserActionRequestState,
 } from "@unemployed/contracts";
 import { ApplicationCrmSettingsSchema } from "@unemployed/contracts";
 import { isListableCompanyName } from "@unemployed/contracts";
 import { countActiveSafeguardBlockers } from "@renderer/features/job-finder/lib/safeguards-blocker-count";
 import { ApplicationsScreen } from "@renderer/features/job-finder/screens/applications/applications-screen";
-import type { ConfirmFinishedInBrowserStatus } from "@renderer/features/job-finder/screens/applications/applications-detail-panel-recovery-actions-section";
+import type {
+  ConfirmFinishedInBrowserStatus,
+  FinishInBrowserInput,
+  FinishInBrowserOutcome,
+} from "@renderer/features/job-finder/screens/applications/applications-detail-panel-recovery-actions-section";
+import { getJobFinderErrorDetail } from "@renderer/features/job-finder/lib/job-finder-error-message";
 import { DiscoveryScreen } from "@renderer/features/job-finder/screens/discovery/discovery-screen";
 import { ProfileScreen } from "@renderer/features/job-finder/screens/profile-screen";
 import { ReviewQueueScreen } from "@renderer/features/job-finder/screens/review-queue/review-queue-screen";
@@ -610,7 +617,9 @@ export function JobFinderHomeRoute() {
       onPauseActivity={() =>
         handleActivityControl({ paused: true, reason: "Paused by you." })
       }
-      onOpenBrowserSession={() => context.onOpenBrowserSession()}
+      onOpenBrowserSession={() => {
+        void context.onOpenBrowserSession();
+      }}
       {...(context.onRunAgentDiscovery
         ? { onRunDiscovery: context.onRunAgentDiscovery }
         : {})}
@@ -826,9 +835,9 @@ export function JobFinderProfileRoute() {
       }
       onGetSourceDebugRunDetails={context.onGetSourceDebugRunDetails}
       onImportResume={context.onImportResume}
-      onOpenBrowserSessionForTarget={(targetId) =>
-        context.onOpenBrowserSession({ targetId })
-      }
+      onOpenBrowserSessionForTarget={(targetId) => {
+        void context.onOpenBrowserSession({ targetId });
+      }}
       onProfileSurfaceDirtyChange={context.onProfileSurfaceDirtyChange}
       onProfileSurfaceDraftEdited={context.onProfileSurfaceDraftEdited}
       profileCopilotPendingContextKey={context.profileCopilotPendingContextKey}
@@ -1096,11 +1105,13 @@ export function JobFinderDiscoveryRoute() {
                 context.onNavigateSafely(JOB_FINDER_RETURN_ROUTES.rapidReview),
             }
           : {})}
-        onOpenBrowserSession={() => context.onOpenBrowserSession()}
+        onOpenBrowserSession={() => {
+          void context.onOpenBrowserSession();
+        }}
         onResumeActivity={handleResumeActivity}
-        onOpenBrowserSessionForTarget={(targetId) =>
-          context.onOpenBrowserSession({ targetId })
-        }
+        onOpenBrowserSessionForTarget={(targetId) => {
+          void context.onOpenBrowserSession({ targetId });
+        }}
         onOpenCompany={(companyId) =>
           context.onNavigateSafely(`/job-finder/companies/${companyId}`)
         }
@@ -1299,7 +1310,9 @@ function JobFinderReviewQueueRouteContent() {
         onStartApplyCopilot={context.onStartApplyCopilot}
         onEditResumeWorkspace={context.onEditResumeWorkspace}
         onGenerateResume={context.onGenerateResume}
-        onOpenBrowserSession={() => context.onOpenBrowserSession()}
+        onOpenBrowserSession={() => {
+          void context.onOpenBrowserSession();
+        }}
         onOpenJobDetails={(jobId) => {
           context.onSelectDiscoveryJob(jobId);
           context.onNavigateSafely("/job-finder/discovery");
@@ -1417,6 +1430,127 @@ export function JobFinderResumeWorkspaceRoute() {
  */
 const APPLICATIONS_VIEW_QUERY_KEY = "view";
 
+/**
+ * Used when a browser hand-off fails without a readable cause reaching this
+ * layer: either it rejected without a message, or the action runner already
+ * consumed the error into its own route message and reported only `false`.
+ * The status still has to be truthful about the failure, so it reports the
+ * failure without inventing a cause.
+ */
+const HANDOFF_FAILED_FALLBACK_REASON = "";
+
+/**
+ * The five states main refuses to transition. `assertTransitionable` throws for
+ * every one of them, so a request in any of these is finished as far as this
+ * page is concerned — treating only `resolved` as finished would let a
+ * superseded row stand in for a live one.
+ */
+const TERMINAL_USER_ACTION_STATES: ReadonlySet<UserActionRequestState> =
+  new Set(["resolved", "skipped", "cancelled", "expired", "superseded"]);
+
+/**
+ * Runs the Applications browser hand-off and reports what it actually did.
+ *
+ * The exact pending request for this paused run gets the same Needs-you
+ * "open browser step" command, under the same browser-only credentials policy
+ * and no-submit authority. Without such a request there is no recorded
+ * destination to reopen, so all that can be done is open the window itself —
+ * which Applications used to describe as "Opened in the Job Finder browser.
+ * Switch to that window to finish the step", sending the user to a window
+ * that never showed the step. Each branch returns its own outcome so the
+ * status beside the control can say the same thing the app did.
+ *
+ * Both hands are asynchronous, and the outcome is decided only once the one
+ * that ran has settled. An earlier revision wrapped a call whose promise was
+ * discarded by its own context wrapper in `try`/`catch`: nothing could ever
+ * throw synchronously, so the `failed` branch was unreachable and a failing
+ * IPC still rendered "Opened in the Job Finder browser" beside a route banner
+ * carrying the error. A resolved `false` — the action runner's own report that
+ * the command failed — is a failure here too, not a silent success.
+ *
+ * Nothing here submits or authorizes a submission: the command carries
+ * `submitAuthorized: false` and `accountCreationAuthorized: false`, and the
+ * window is opened for the person to finish the step themselves.
+ */
+export async function runJobFinderApplicationBrowserHandoff(input: {
+  onOpenBrowserSession: () => void | Promise<boolean>;
+  onPerformUserAction: (
+    command: UserActionCommandInput,
+  ) => void | Promise<boolean>;
+  requests: JobFinderWorkspaceSnapshot["userActionRequests"];
+  target: FinishInBrowserInput;
+}): Promise<FinishInBrowserOutcome> {
+  const request = (input.requests ?? []).find(
+    (candidate) =>
+      // A superseded, cancelled, expired or skipped request is one main
+      // refuses to transition, so aiming the open at it could only ever fail.
+      !TERMINAL_USER_ACTION_STATES.has(candidate.state) &&
+      candidate.scope.type === "application" &&
+      candidate.scope.runId === input.target.runId &&
+      candidate.scope.jobId === input.target.jobId,
+  );
+
+  if (request) {
+    try {
+      const opened = await input.onPerformUserAction({
+        requestId: request.id,
+        commandId: `user_action_open_page_${globalThis.crypto.randomUUID()}`,
+        expectedRevision: request.revision,
+        action: "open_page",
+        credentialsPolicy: "browser_only",
+        submitAuthorized: false,
+        accountCreationAuthorized: false,
+      });
+
+      if (opened === false) {
+        return { kind: "failed", reason: HANDOFF_FAILED_FALLBACK_REASON };
+      }
+    } catch (error) {
+      return {
+        kind: "failed",
+        reason:
+          getJobFinderErrorDetail(error) ?? HANDOFF_FAILED_FALLBACK_REASON,
+      };
+    }
+
+    return { kind: "opened_application_page" };
+  }
+
+  try {
+    const opened = await input.onOpenBrowserSession();
+
+    if (opened === false) {
+      return { kind: "failed", reason: HANDOFF_FAILED_FALLBACK_REASON };
+    }
+  } catch (error) {
+    return {
+      kind: "failed",
+      reason: getJobFinderErrorDetail(error) ?? HANDOFF_FAILED_FALLBACK_REASON,
+    };
+  }
+
+  return { kind: "opened_browser_only" };
+}
+
+/**
+ * The one request "Check whether this step is done" can actually act on for the
+ * selected application. It gates the control, supplies the in-place status, and
+ * is the request the command is sent for, so it has to be both actionable and
+ * the selected record's own.
+ *
+ * Actionable: a request that has been superseded, cancelled, expired, or
+ * skipped cannot be transitioned. A second run of the same job supersedes the
+ * first run's request with the newer request's timestamp, and requests arrive
+ * sorted by `updatedAt` descending then id ascending, so on that tie the older
+ * superseded row can sort ahead of the live one — matching on
+ * `state !== "resolved"` would aim the command at a request main throws on.
+ *
+ * The selected record's own: requests carry their own `applicationRecordId`,
+ * and a job shared by two campaigns has two records with two separate blockers.
+ * The record match is preferred so a click here can never confirm — and retry —
+ * another record's application; a request that records no id at all still falls
+ * back to the job match, which is all such rows can be matched on.
+ */
 function findPendingBrowserStepRequest(
   requests: JobFinderWorkspaceSnapshot["userActionRequests"],
   selectedRecord: { id: string; jobId: string } | null,
@@ -1425,13 +1559,24 @@ function findPendingBrowserStepRequest(
     return null;
   }
 
+  const candidates = requests ?? [];
+
   return (
-    (requests ?? []).find(
+    candidates.find(
       (candidate) =>
-        candidate.state !== "resolved" &&
+        !TERMINAL_USER_ACTION_STATES.has(candidate.state) &&
         candidate.scope.type === "application" &&
-        candidate.scope.jobId === selectedRecord.jobId,
-    ) ?? null
+        candidate.scope.jobId === selectedRecord.jobId &&
+        candidate.scope.applicationRecordId === selectedRecord.id,
+    ) ??
+    candidates.find(
+      (candidate) =>
+        !TERMINAL_USER_ACTION_STATES.has(candidate.state) &&
+        candidate.scope.type === "application" &&
+        candidate.scope.jobId === selectedRecord.jobId &&
+        (candidate.scope.applicationRecordId ?? null) === null,
+    ) ??
+    null
   );
 }
 
@@ -1671,55 +1816,49 @@ export function JobFinderApplicationsRoute() {
         onOpenSafeguards={() =>
           context.onNavigateSafely("/job-finder/safeguards")
         }
-        onFinishInBrowser={(input) => {
-          // Reuse the exact Needs-you "Open browser step" command for the
-          // pending request tied to this paused run, so the managed browser
-          // opens the recorded destination under the same browser-only
-          // credentials policy and no-submit authority.
-          const request = (context.workspace.userActionRequests ?? []).find(
-            (candidate) =>
-              candidate.state !== "resolved" &&
-              candidate.scope.type === "application" &&
-              candidate.scope.runId === input.runId &&
-              candidate.scope.jobId === input.jobId,
-          );
-          if (request) {
-            context.onPerformUserAction({
-              requestId: request.id,
-              commandId: `user_action_open_page_${globalThis.crypto.randomUUID()}`,
-              expectedRevision: request.revision,
-              action: "open_page",
-              credentialsPolicy: "browser_only",
-              submitAuthorized: false,
-              accountCreationAuthorized: false,
-            });
-            return;
-          }
-          context.onOpenBrowserSession();
-        }}
-        canConfirmFinishedInBrowser={Boolean(pendingBrowserStepRequest)}
+        onFinishInBrowser={(input) =>
+          runJobFinderApplicationBrowserHandoff({
+            // `rethrowError` is passed HERE and nowhere else. Every other
+            // caller of these two actions fires and forgets, and keeps the
+            // action runner's own behaviour: report the failure once as a route
+            // message and resolve `false`. This one reports the failure in
+            // place, so it needs the cause the boolean cannot carry —
+            // without it the status read "The Job Finder browser did not open"
+            // with nothing where the reason belongs.
+            onOpenBrowserSession: () =>
+              context.onOpenBrowserSession(undefined, { rethrowError: true }),
+            onPerformUserAction: (command) =>
+              context.onPerformUserAction(command, { rethrowError: true }),
+            requests: context.workspace.userActionRequests,
+            target: input,
+          })
+        }
+        canConfirmFinishedInBrowser={pendingBrowserStepRequest !== null}
         confirmFinishedInBrowserStatus={confirmFinishedInBrowserStatus}
         confirmFinishedInBrowserBlockerText={
           confirmFinishedInBrowserBlockerText
         }
-        onConfirmFinishedInBrowser={(input) => {
-          // The exact "Step is complete" command Needs you sends, for the
-          // pending request tied to this paused run. The page that sent the
-          // user to the browser is the page that verifies the return, under
-          // the same browser-only credentials policy and no-submit authority.
-          const request = (context.workspace.userActionRequests ?? []).find(
-            (candidate) =>
-              candidate.state !== "resolved" &&
-              candidate.scope.type === "application" &&
-              candidate.scope.runId === input.runId &&
-              candidate.scope.jobId === input.jobId,
-          );
+        onConfirmFinishedInBrowser={() => {
+          // The exact "Step is complete" command Needs you sends, for the one
+          // request this control is enabled by. The control used to be gated
+          // on that request while the command ran a second, run-scoped lookup
+          // and returned silently when it matched nothing, so a request left
+          // over from an earlier run rendered an enabled control whose click
+          // did nothing. Gate, in-place status, and command now read the same
+          // request, and that request is chosen to be one main can act on —
+          // non-terminal and belonging to the selected record — so an enabled
+          // control has a live step to send. The page that sent the user to
+          // the browser is the page that verifies the return, under the same
+          // browser-only credentials policy and no-submit authority; main
+          // still re-checks the exact lineage through the request id and
+          // revision below.
+          const request = pendingBrowserStepRequest;
 
           if (!request) {
             return;
           }
 
-          context.onPerformUserAction({
+          void context.onPerformUserAction({
             requestId: request.id,
             commandId: `user_action_confirm_done_${globalThis.crypto.randomUUID()}`,
             expectedRevision: request.revision,
@@ -1803,7 +1942,9 @@ export function JobFinderActionsRoute() {
           context.isPending(jobFinderPendingActions.userAction(requestId))
         }
         onApplyGroupedManualAnswer={scope.onApplyGroupedManualAnswer}
-        onCommand={context.onPerformUserAction}
+        onCommand={(command) => {
+          void context.onPerformUserAction(command);
+        }}
         onNavigate={context.onNavigateSafely}
         onProjectGroupedManualAnswer={scope.onProjectGroupedManualAnswer}
         onSnoozeGroupedDecision={scope.onSnoozeGroupedDecision}

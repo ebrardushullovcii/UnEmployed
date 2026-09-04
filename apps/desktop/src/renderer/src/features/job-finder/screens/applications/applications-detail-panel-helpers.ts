@@ -116,7 +116,7 @@ export const FIELD_SAVE_PAUSE_NEXT_STEP = `${FIELD_SAVE_PAUSE_REASON} ${FINISH_I
 export const FIELD_SAVE_PAUSE_GUIDANCE = `${FIELD_SAVE_PAUSE_NEXT_STEP} Use "${RUN_PREPARATION_AGAIN_ACTION}" only if you want a fresh run after that.`;
 
 /**
- * Local status beside the action after the managed browser was asked to show
+ * Local status beside the action after the Job Finder browser was asked to show
  * the application page. The shell banner already confirms that the page
  * opened and where it went, so this line says what is true now rather than
  * restating the same sentence a second way.

@@ -9,6 +9,8 @@ import {
   ApplicationRecordSchema,
   ApplicationQuestionRecordSchema,
   ApplicationReplayCheckpointSchema,
+  ApplicationAuthorityEnvelopeSchema,
+  ApprovedApplicationAnswerSnapshotSchema,
   CandidateProfileSchema,
   JobFinderActivityControlSchema,
   JobFinderDiscoveryStateSchema,
@@ -26,8 +28,14 @@ import {
   SourceDebugRunRecordSchema,
   SourceDebugWorkerAttemptSchema,
   SourceInstructionArtifactSchema,
+  SubmissionArmedMarkerSchema,
+  SubmissionExecutionGrantSchema,
+  SubmissionIdempotencyRecordSchema,
+  SubmissionOutcomeRecordSchema,
+  SubmissionPreflightRecordSchema,
   TailoredAssetSchema,
   type CandidateProfile,
+  type JobFinderRepositoryState,
 } from "@unemployed/contracts";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -87,7 +95,6 @@ import {
   incrementSingletonRevision,
   listCollectionValues,
   listValues,
-  readState,
   replaceCollection,
   saveSingletonValue,
   stateTableNames,
@@ -375,12 +382,137 @@ export async function createFileJobFinderRepository(
     });
   }
 
+  /**
+   * Empty-collection base for the narrow authority reader below. The seed's
+   * singletons only satisfy the state schema's required fields; the authority
+   * and answer-snapshot repositories never read them.
+   */
+  const authorityStateBase = JobFinderRepositoryStateSchema.parse({
+    profile: normalizedSeed.profile,
+    searchPreferences: normalizedSeed.searchPreferences,
+    settings: normalizedSeed.settings,
+  });
+
+  /**
+   * The authority and answer-snapshot repositories only touch their own
+   * collections plus the apply result and application record an outcome
+   * reconciles. Reading the whole workspace (saved jobs, resume revisions,
+   * discovery history, source-debug evidence, ...) on every list call and
+   * again inside every BEGIN IMMEDIATE authority write costs more than the
+   * collections being read, so this reader loads exactly that subset with the
+   * same schemas and orderings readState uses.
+   */
+  function readApplicationAuthorityState(): JobFinderRepositoryState {
+    return {
+      ...cloneValue(authorityStateBase),
+      applyJobResults: listCollectionValues(
+        database,
+        "apply_job_results",
+        ApplyJobResultSchema,
+        { orderBySql: APPLY_COLLECTION_ORDER_BY_SQL.apply_job_results },
+      ),
+      applicationRecords: listValues(
+        database,
+        "application_records",
+        ApplicationRecordSchema,
+      ),
+      applicationAnswerSnapshots: listCollectionValues(
+        database,
+        "application_answer_snapshots",
+        ApprovedApplicationAnswerSnapshotSchema,
+        { orderBySql: "profile_id ASC, revision DESC, id ASC" },
+      ),
+      applicationAuthorityEnvelopes: listCollectionValues(
+        database,
+        "application_authority_envelopes",
+        ApplicationAuthorityEnvelopeSchema,
+        { orderBySql: "revision DESC, id ASC" },
+      ),
+      submissionPreflights: listCollectionValues(
+        database,
+        "submission_preflights",
+        SubmissionPreflightRecordSchema,
+        { orderBySql: "created_at ASC, id ASC" },
+      ),
+      submissionExecutionGrants: listCollectionValues(
+        database,
+        "submission_execution_grants",
+        SubmissionExecutionGrantSchema,
+        { orderBySql: "granted_at DESC, id ASC" },
+      ),
+      submissionIdempotencyRecords: listCollectionValues(
+        database,
+        "submission_idempotency_records",
+        SubmissionIdempotencyRecordSchema,
+        { orderBySql: "updated_at DESC, id ASC" },
+      ),
+      submissionArmedMarkers: listCollectionValues(
+        database,
+        "submission_armed_markers",
+        SubmissionArmedMarkerSchema,
+        { orderBySql: "armed_at ASC, id ASC" },
+      ),
+      submissionOutcomeRecords: listCollectionValues(
+        database,
+        "submission_outcome_records",
+        SubmissionOutcomeRecordSchema,
+        { orderBySql: "attempted_at ASC, id ASC" },
+      ),
+    };
+  }
+
+  function serializeById(
+    values: readonly { id: string }[],
+  ): Map<string, string> {
+    return new Map(values.map((value) => [value.id, JSON.stringify(value)]));
+  }
+
+  /**
+   * One authority collection's persistence plan for a single mutation. Rows
+   * that did not change are never rewritten, so a mutation touching one grant
+   * no longer rebuilds the whole authority subtree.
+   */
+  interface AuthorityCollectionWrite {
+    readonly tableName: string;
+    readonly previous: ReadonlyMap<string, string>;
+    readonly values: readonly { id: string }[];
+    readonly write: (value: { id: string }) => void;
+  }
+
+  /**
+   * Deletes removed rows child-first and writes changed rows parent-first so
+   * the foreign keys declared on the submission tables hold at every statement
+   * under PRAGMA foreign_keys = ON. `writes` must be ordered parent to child.
+   */
+  function persistAuthorityCollections(
+    writes: readonly AuthorityCollectionWrite[],
+  ): void {
+    for (const collection of [...writes].reverse()) {
+      const nextIds = new Set(collection.values.map((value) => value.id));
+      for (const id of collection.previous.keys()) {
+        if (!nextIds.has(id)) {
+          database
+            .prepare(`DELETE FROM ${collection.tableName} WHERE id = ?`)
+            .run(id);
+        }
+      }
+    }
+
+    for (const collection of writes) {
+      for (const value of collection.values) {
+        if (collection.previous.get(value.id) !== JSON.stringify(value)) {
+          collection.write(value);
+        }
+      }
+    }
+  }
+
   return {
     ...createApplicationAnswerSnapshotRepositoryMethods({
-      read: () => readState(database, normalizedSeed),
+      read: () => readApplicationAuthorityState(),
       mutate: (operation) =>
         runImmediateTransaction(database, () => {
-          const state = readState(database, normalizedSeed);
+          const state = readApplicationAuthorityState();
           const previousSnapshots = new Map(
             (state.applicationAnswerSnapshots ?? []).map((snapshot) => [
               snapshot.id,
@@ -422,34 +554,38 @@ export async function createFileJobFinderRepository(
         }),
     }),
     ...createApplicationAuthorityRepositoryMethods({
-      read: () => readState(database, normalizedSeed),
+      read: () => readApplicationAuthorityState(),
       mutate: (operation) =>
         runImmediateTransaction(database, () => {
-          const state = readState(database, normalizedSeed);
-          const previousApplyJobResults = new Map(
-            state.applyJobResults.map((value) => [
-              value.id,
-              JSON.stringify(value),
-            ]),
+          const state = readApplicationAuthorityState();
+          const previousApplyJobResults = serializeById(state.applyJobResults);
+          const previousApplicationRecords = serializeById(
+            state.applicationRecords,
           );
-          const previousApplicationRecords = new Map(
-            state.applicationRecords.map((value) => [
-              value.id,
-              JSON.stringify(value),
-            ]),
+          const previousApplicationAnswerSnapshots = serializeById(
+            state.applicationAnswerSnapshots ?? [],
           );
-          const previousApplicationAnswerSnapshots = new Map(
-            (state.applicationAnswerSnapshots ?? []).map((value) => [
-              value.id,
-              JSON.stringify(value),
-            ]),
+          const previousAuthorityEnvelopes = serializeById(
+            state.applicationAuthorityEnvelopes,
+          );
+          const previousSubmissionPreflights = serializeById(
+            state.submissionPreflights,
+          );
+          const previousSubmissionExecutionGrants = serializeById(
+            state.submissionExecutionGrants,
+          );
+          const previousSubmissionIdempotencyRecords = serializeById(
+            state.submissionIdempotencyRecords,
+          );
+          const previousSubmissionArmedMarkers = serializeById(
+            state.submissionArmedMarkers,
+          );
+          const previousSubmissionOutcomeRecords = serializeById(
+            state.submissionOutcomeRecords,
           );
           const result = operation(state);
-          const nextApplicationAnswerSnapshots = new Map(
-            (state.applicationAnswerSnapshots ?? []).map((value) => [
-              value.id,
-              JSON.stringify(value),
-            ]),
+          const nextApplicationAnswerSnapshots = serializeById(
+            state.applicationAnswerSnapshots ?? [],
           );
           for (const snapshotId of previousApplicationAnswerSnapshots.keys()) {
             if (!nextApplicationAnswerSnapshots.has(snapshotId)) {
@@ -475,43 +611,101 @@ export async function createFileJobFinderRepository(
               INDEXED_COLLECTION_CONFIGS.application_answer_snapshots,
             );
           }
-          // Delete children before parents and insert parents before children;
-          // all names are fixed repository constants and the surrounding
-          // BEGIN IMMEDIATE transaction keeps the lifecycle atomic.
-          database.exec(
-            `DELETE FROM ${stateTableNames.submission_outcome_records}`,
-          );
-          database.exec(
-            `DELETE FROM ${stateTableNames.submission_armed_markers}`,
-          );
-          database.exec(
-            `DELETE FROM ${stateTableNames.submission_idempotency_records}`,
-          );
-          database.exec(
-            `DELETE FROM ${stateTableNames.submission_execution_grants}`,
-          );
-          database.exec(`DELETE FROM ${stateTableNames.submission_preflights}`);
-          database.exec(
-            `DELETE FROM ${stateTableNames.application_authority_envelopes}`,
-          );
-          for (const value of state.applicationAuthorityEnvelopes) {
-            upsertIndexedCollectionValue(
-              database,
-              "application_authority_envelopes",
-              value,
-              INDEXED_COLLECTION_CONFIGS.application_authority_envelopes,
-            );
-          }
+          // Rotation revokes the current envelope and installs its
+          // replacement in the same transaction. The partial unique index
+          // allows exactly one active envelope, so the row leaving the active
+          // status must be written before the row entering it.
+          const orderedAuthorityEnvelopes = [
+            ...state.applicationAuthorityEnvelopes.filter(
+              (value) => value.status !== "active",
+            ),
+            ...state.applicationAuthorityEnvelopes.filter(
+              (value) => value.status === "active",
+            ),
+          ];
+          // Persist only the authority rows this mutation actually changed,
+          // ordered parent to child. The surrounding BEGIN IMMEDIATE
+          // transaction keeps the lifecycle atomic; all table names are fixed
+          // repository constants.
+          persistAuthorityCollections([
+            {
+              tableName: stateTableNames.application_authority_envelopes,
+              previous: previousAuthorityEnvelopes,
+              values: orderedAuthorityEnvelopes,
+              write: (value) =>
+                upsertIndexedCollectionValue(
+                  database,
+                  "application_authority_envelopes",
+                  value,
+                  INDEXED_COLLECTION_CONFIGS.application_authority_envelopes,
+                ),
+            },
+            {
+              tableName: stateTableNames.submission_preflights,
+              previous: previousSubmissionPreflights,
+              values: state.submissionPreflights,
+              write: (value) =>
+                upsertIndexedCollectionValue(
+                  database,
+                  "submission_preflights",
+                  value,
+                  INDEXED_COLLECTION_CONFIGS.submission_preflights,
+                ),
+            },
+            {
+              tableName: stateTableNames.submission_execution_grants,
+              previous: previousSubmissionExecutionGrants,
+              values: state.submissionExecutionGrants,
+              write: (value) =>
+                upsertIndexedCollectionValue(
+                  database,
+                  "submission_execution_grants",
+                  value,
+                  INDEXED_COLLECTION_CONFIGS.submission_execution_grants,
+                ),
+            },
+            {
+              tableName: stateTableNames.submission_idempotency_records,
+              previous: previousSubmissionIdempotencyRecords,
+              values: state.submissionIdempotencyRecords,
+              write: (value) =>
+                upsertIndexedCollectionValue(
+                  database,
+                  "submission_idempotency_records",
+                  value,
+                  INDEXED_COLLECTION_CONFIGS.submission_idempotency_records,
+                ),
+            },
+            {
+              tableName: stateTableNames.submission_armed_markers,
+              previous: previousSubmissionArmedMarkers,
+              values: state.submissionArmedMarkers,
+              write: (value) =>
+                upsertIndexedCollectionValue(
+                  database,
+                  "submission_armed_markers",
+                  value,
+                  INDEXED_COLLECTION_CONFIGS.submission_armed_markers,
+                ),
+            },
+            {
+              tableName: stateTableNames.submission_outcome_records,
+              previous: previousSubmissionOutcomeRecords,
+              values: state.submissionOutcomeRecords,
+              write: (value) =>
+                upsertIndexedCollectionValue(
+                  database,
+                  "submission_outcome_records",
+                  value,
+                  INDEXED_COLLECTION_CONFIGS.submission_outcome_records,
+                ),
+            },
+          ]);
           // Outcome reconciliation may update the receipt nested in an
           // ApplyJobResult. Persist only changed parent rows in this same
           // transaction so authority state can never commit without its
           // matching receipt, while unrelated apply history is untouched.
-          const nextApplyJobResults = new Map(
-            state.applyJobResults.map((value) => [
-              value.id,
-              JSON.stringify(value),
-            ]),
-          );
+          const nextApplyJobResults = serializeById(state.applyJobResults);
           for (const resultId of previousApplyJobResults.keys()) {
             if (!nextApplyJobResults.has(resultId)) {
               database
@@ -538,11 +732,8 @@ export async function createFileJobFinderRepository(
           // record projection. Persist only changed rows in this same
           // transaction so the result receipt, outcome, idempotency state,
           // and Applications truth can never diverge after a crash.
-          const nextApplicationRecords = new Map(
-            state.applicationRecords.map((value) => [
-              value.id,
-              JSON.stringify(value),
-            ]),
+          const nextApplicationRecords = serializeById(
+            state.applicationRecords,
           );
           for (const applicationRecordId of previousApplicationRecords.keys()) {
             if (!nextApplicationRecords.has(applicationRecordId)) {
@@ -560,46 +751,6 @@ export async function createFileJobFinderRepository(
             ) {
               context.writePersistedValue("application_records", value);
             }
-          }
-          for (const value of state.submissionPreflights) {
-            upsertIndexedCollectionValue(
-              database,
-              "submission_preflights",
-              value,
-              INDEXED_COLLECTION_CONFIGS.submission_preflights,
-            );
-          }
-          for (const value of state.submissionExecutionGrants) {
-            upsertIndexedCollectionValue(
-              database,
-              "submission_execution_grants",
-              value,
-              INDEXED_COLLECTION_CONFIGS.submission_execution_grants,
-            );
-          }
-          for (const value of state.submissionIdempotencyRecords) {
-            upsertIndexedCollectionValue(
-              database,
-              "submission_idempotency_records",
-              value,
-              INDEXED_COLLECTION_CONFIGS.submission_idempotency_records,
-            );
-          }
-          for (const value of state.submissionArmedMarkers) {
-            upsertIndexedCollectionValue(
-              database,
-              "submission_armed_markers",
-              value,
-              INDEXED_COLLECTION_CONFIGS.submission_armed_markers,
-            );
-          }
-          for (const value of state.submissionOutcomeRecords) {
-            upsertIndexedCollectionValue(
-              database,
-              "submission_outcome_records",
-              value,
-              INDEXED_COLLECTION_CONFIGS.submission_outcome_records,
-            );
           }
           return result;
         }),
@@ -1034,16 +1185,22 @@ export async function createFileJobFinderRepository(
                   updatedAt: new Date().toISOString(),
                 }),
               );
-              const existingAsset = listCollectionValues(
+              // tailored_assets is an id/value table with no job_id or
+              // updated_at columns, so the newest asset for this job is
+              // selected in memory. Querying those columns threw "no such
+              // column: job_id" and rolled back the whole delta.
+              const existingAsset = listValues(
                 database,
                 "tailored_assets",
                 TailoredAssetSchema,
-                {
-                  whereSql: "job_id = ?",
-                  params: [draft.jobId],
-                  orderBySql: "updated_at DESC, id ASC",
-                },
-              )[0];
+              )
+                .filter((asset) => asset.jobId === draft.jobId)
+                .sort(
+                  (left, right) =>
+                    new Date(right.updatedAt).getTime() -
+                      new Date(left.updatedAt).getTime() ||
+                    left.id.localeCompare(right.id),
+                )[0];
 
               syncApprovedResumeExportsForJob(database, draft.jobId, null);
               context.writePersistedValue("resume_drafts", staleDraft);
@@ -1145,6 +1302,17 @@ export async function createFileJobFinderRepository(
             "search_preferences",
             nextSearchPreferences,
           );
+          // A changed preference advances the shared profile epoch so a
+          // copilot commit that captured the older preferences fails closed
+          // as stale instead of reverting this feedback. Most discovery
+          // feedback leaves preferences untouched; those rewrites must not
+          // invalidate unrelated in-flight profile work.
+          if (
+            JSON.stringify(nextSearchPreferences) !==
+            JSON.stringify(searchPreferences)
+          ) {
+            incrementSingletonRevision(database, "profile");
+          }
           if (nextCampaignState !== null) {
             saveSingletonValue(database, "campaign_state", nextCampaignState);
           }
@@ -2018,6 +2186,17 @@ export async function createFileJobFinderRepository(
             "search_preferences",
             nextSearchPreferences,
           );
+          // A changed preference advances the shared profile epoch so a
+          // copilot commit that captured the older preferences fails closed
+          // as stale instead of reverting this campaign preference change.
+          // A campaign-only edit leaves preferences untouched and must not
+          // invalidate unrelated in-flight profile work.
+          if (
+            JSON.stringify(nextSearchPreferences) !==
+            JSON.stringify(searchPreferences)
+          ) {
+            incrementSingletonRevision(database, "profile");
+          }
           return next.result;
         });
         return secureDatabaseFile(options.filePath).then(() => result);

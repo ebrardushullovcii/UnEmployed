@@ -1,84 +1,17 @@
 # Documentation
 
-Start here, then read only the docs needed for the task.
+Read only what the task needs. Code is the source of truth for current behavior; when a doc and the code disagree, the code wins and the doc gets fixed.
 
-## Task Routing
+| Need | Read |
+| --- | --- |
+| why something is the way it is | `docs/adr/README.md`, then the ADR |
+| product scope and module behavior | `docs/PRODUCT.md`, `docs/modules/JOB_FINDER.md`, `docs/modules/INTERVIEW_HELPER.md` |
+| durable product direction | `docs/GOALS.md` |
+| package ownership, data flow, boundary rules | `docs/ARCHITECTURE.md` |
+| cross-package contract invariants | `docs/CONTRACTS.md` (field detail lives in `packages/contracts`) |
+| which check to run, stop rules, safety rules | `docs/TESTING.md` |
+| AI model and provider setup | `docs/AI_PROVIDER_SETUP.md` |
+| domain vocabulary | `CONTEXT.md` |
+| UI design references | `docs/Design/README.md` |
 
-| Task                                                          | Read                                                                    |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| typo, small local fix, or command output                      | nearest package `AGENTS.md` if editing there                            |
-| active feature work or unclear state                          | `docs/STATUS.md`, `docs/TRACKS.md`, relevant active or queued exec plan |
-| handoff/status update                                         | `docs/STATUS.md`, `docs/TRACKS.md`, relevant active or queued exec plan |
-| durable product direction                                     | `docs/GOALS.md`, `docs/PRODUCT.md`                                      |
-| product behavior                                              | `docs/PRODUCT.md`                                                       |
-| architecture, package ownership, discovery/source-debug       | `docs/ARCHITECTURE.md`                                                  |
-| contracts, schemas, preload APIs, IPC                         | `docs/CONTRACTS.md`                                                     |
-| tests, harnesses, validation choice                           | `docs/TESTING.md`                                                       |
-| AI model, Responses API, or local Codex bridge setup          | `docs/AI_PROVIDER_SETUP.md`                                             |
-| decisions and rationale                                       | `docs/adr/README.md`, then the linked ADR                               |
-| domain language                                               | `CONTEXT.md`                                                            |
-| repo guidance, adapters, project skills, package guide policy | `docs/AGENT_CONTEXT.md`, `.agents/registry.yaml`                        |
-| module-level behavior                                         | `docs/modules/JOB_FINDER.md` or `docs/modules/INTERVIEW_HELPER.md`      |
-
-Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior.
-
-## Current Work
-
-- `docs/STATUS.md`: current truth, only when current state matters
-- `docs/TRACKS.md`: active work and ready follow-ups
-- `docs/exec-plans/active/`: detailed active plans
-- `docs/exec-plans/queued/`: detailed ready plans
-
-The current driver is the lightweight product-iteration loop recorded in
-`docs/STATUS.md`, `docs/TRACKS.md`, and `docs/TESTING.md`: a small group of
-independent testers uses the current built app, records screenshots and candid
-product feedback, related defects are fixed as one batch, and the batch gets
-focused validation plus one rebuild before a fresh testing round.
-
-`docs/exec-plans/active/job-finder-sealed-acceptance-and-blind-personas.md` is
-deferred release-candidate guidance. Do not run fingerprints, source custody,
-sealed acceptance, broad `pnpm verify`, or a canonical 14-persona wave during
-ordinary product iteration. Use that chain only after the user explicitly
-declares a settled release candidate.
-
-`docs/exec-plans/active/job-finder-campaigns-dashboard-crm-scale.md` remains
-the implementation baseline: campaign/dashboard/CRM phase-two behavior is
-implemented and passed its focused checks plus the hardened
-production-Electron harness, but that plan is no longer the current acceptance
-driver. Its initial broad-gate attempt stopped before repository scripts ran
-when Corepack could not verify/fetch the pinned pnpm 10.8 package; that
-environment failure was superseded by the later passing integrated `pnpm
-verify` run recorded in `docs/STATUS.md` and `docs/TESTING.md`. Fresh broad and
-source-bound release gates are intentionally deferred until release-candidate
-freeze.
-
-The completed AI capability reliability work is recorded in `docs/HISTORY.md`, the
-model-routing ADRs, and
-`docs/audits/LUNA_HIGH_AND_PRODUCTION_ACCEPTANCE_2026-08-12.html`. The approved
-Candidate Asset lifecycle and résumé visual/export refinement remain integrated.
-
-The completed configured-model comparison is recorded in
-`docs/audits/AI_MODEL_CAPABILITY_BENCHMARK_FULL_2026-08-12.html`; scoped provider
-and browser-integration follow-ups are listed in `docs/TRACKS.md`.
-
-Current Job Finder product audit checklist: `docs/audits/JOB_FINDER_PRODUCT_DECISIONS_AND_AUDIT_CHECKLIST.md`.
-
-Current product quality and performance roadmap: `docs/audits/PRODUCT_QUALITY_PERFORMANCE_ROADMAP.html`.
-
-Current living release audit: `docs/audits/PRODUCT_QUALITY_RELEASE_AUDIT.md`.
-
-## Durable Docs
-
-- `docs/GOALS.md`: durable product direction
-- `docs/PRODUCT.md`: product scope and module behavior
-- `docs/ARCHITECTURE.md`: package boundaries and data flow
-- `docs/CONTRACTS.md`: schema, DTO, preload, and IPC semantics
-- `docs/TESTING.md`: validation and harness choices
-- `CONTEXT.md`: project vocabulary
-- `docs/HISTORY.md`: compact completed milestones
-- `docs/adr/`: decisions and rejected alternatives
-
-## Module Docs
-
-- `docs/modules/JOB_FINDER.md`
-- `docs/modules/INTERVIEW_HELPER.md`
+Historical audit reports and evidence manifests live in `docs/audits/`. They are records of past runs that the release-evidence scripts fingerprint, not guidance; do not read them for current state.

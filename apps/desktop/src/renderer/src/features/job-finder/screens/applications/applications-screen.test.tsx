@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ApplyRunDetails,
@@ -26,7 +27,9 @@ import {
 import { countActiveSafeguardBlockers } from "../../lib/safeguards-blocker-count";
 import { formatDailyPreparationCapacityReachedText } from "../../lib/job-finder-daily-capacity";
 import { ApplicationsScreen } from "./applications-screen";
+import type { ApplicationsDetailPanel } from "./applications-detail-panel";
 import { ApplicationsDetailPanelAttemptSection } from "./applications-detail-panel-attempt-section";
+import type { ApplicationsDetailPanelRecoverySections } from "./applications-detail-panel-recovery-sections";
 
 describe("ApplicationsScreen", () => {
   afterEach(() => {
@@ -1786,5 +1789,50 @@ describe("ApplicationsScreen", () => {
     // The Recovery section's dedicated alert owns this exact sentence; the
     // route surface suppresses only that duplicate.
     expect(screen.queryByTestId("applications-route-action-status")).toBeNull();
+  });
+});
+
+/**
+ * The hand-off outcome is produced by the leaf recovery section and consumed
+ * there to decide what the status beside the control claims. Every panel it
+ * passes through has to declare the same return type: while these three
+ * declared `=> void`, the outcome was still forwarded at runtime but the
+ * declared contract said nothing came back, so the only thing stopping a
+ * status-less hand-off was that nobody had written a void-returning handler
+ * yet. These assertions read the reported outcome back out of each declared
+ * prop type; against a `=> void` declaration each one is a type error.
+ */
+describe("browser hand-off outcome contract", () => {
+  type ReportedOutcome<Handler> = Handler extends (
+    ...args: never[]
+  ) => infer Result
+    ? Result
+    : never;
+
+  it("keeps the reported outcome in the declared type at every pass-through hop", () => {
+    const screenOutcome: ReportedOutcome<
+      NonNullable<
+        ComponentProps<typeof ApplicationsScreen>["onFinishInBrowser"]
+      >
+    > = { kind: "opened_application_page" };
+    const detailPanelOutcome: ReportedOutcome<
+      NonNullable<
+        ComponentProps<typeof ApplicationsDetailPanel>["onFinishInBrowser"]
+      >
+    > = { kind: "opened_browser_only" };
+    const recoverySectionsOutcome: ReportedOutcome<
+      NonNullable<
+        ComponentProps<
+          typeof ApplicationsDetailPanelRecoverySections
+        >["onFinishInBrowser"]
+      >
+    > = { kind: "failed", reason: "The browser runtime is disabled" };
+
+    expect(screenOutcome).toEqual({ kind: "opened_application_page" });
+    expect(detailPanelOutcome).toEqual({ kind: "opened_browser_only" });
+    expect(recoverySectionsOutcome).toEqual({
+      kind: "failed",
+      reason: "The browser runtime is disabled",
+    });
   });
 });

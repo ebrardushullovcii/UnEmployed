@@ -619,3 +619,88 @@ describe("ResumeAssistantProposalCard export-gate warnings", () => {
     ).toBeTruthy();
   });
 });
+
+describe("ResumeAssistantProposalCard readable, selectable decisions", () => {
+  it("gives every selected change a visible selected state matching the accept count", () => {
+    // "Accept selected (n)" counted cards that carried no visible state of
+    // their own, so the number referred to nothing the user could see.
+    renderCard({
+      message: buildMessage({
+        patches: [
+          buildPatch({ id: "patch one" }),
+          buildPatch({
+            id: "patch two",
+            newText: "A second proposed replacement bullet.",
+          }),
+        ],
+      }),
+    });
+
+    const selectedCards = () =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-resume-proposal-patch-selected="true"]',
+        ),
+      );
+    const acceptCount = () =>
+      Number.parseInt(
+        /\((\d+)\)/.exec(
+          document.querySelector("[data-resume-proposal-accept]")
+            ?.textContent ?? "",
+        )?.[1] ?? "-1",
+        10,
+      );
+
+    expect(selectedCards().length).toBe(2);
+    expect(acceptCount()).toBe(2);
+    expect(screen.getAllByText("Selected").length).toBe(2);
+
+    fireEvent.click(
+      screen.getByLabelText("Select proposed change 2: update bullet"),
+    );
+
+    expect(selectedCards().length).toBe(1);
+    expect(acceptCount()).toBe(1);
+    expect(screen.getByText("Not selected")).toBeTruthy();
+    expect(
+      document
+        .querySelector('[data-resume-proposal-patch="patch two"]')
+        ?.getAttribute("data-resume-proposal-patch-selected"),
+    ).toBe("false");
+  });
+
+  it("shows the whole proposed wording and the whole evidence excerpt before Accept", () => {
+    // The evidence beside Accept used to clamp to three lines, so the user was
+    // asked to approve wording that ended mid-sentence in an ellipsis with no
+    // expander anywhere on the card.
+    const longSnippet = [
+      "Ran the rollout playbook across teams, including onboarding, tooling,",
+      "documentation, and the review cadence that kept the design system",
+      "aligned with the platform roadmap for four consecutive quarters",
+      "without regressions.",
+    ].join(" ");
+    const draft = buildDraft();
+    const experience = draft.sections[1];
+    if (!experience?.entries[0]) {
+      throw new Error("Expected the experience entry fixture");
+    }
+    experience.entries[0].sourceRefs = [
+      { ...profileSourceRef, snippet: longSnippet },
+    ];
+
+    renderCard({
+      draft,
+      validation: buildValidation([buildAssessment()]),
+    });
+
+    const evidence = screen.getByText(longSnippet);
+
+    expect(evidence.className).not.toContain("line-clamp");
+    expect(evidence.textContent).toBe(longSnippet);
+    expect(
+      Array.from(document.querySelectorAll("[class*='line-clamp']")).length,
+    ).toBe(0);
+    // The proposed wording itself stays complete in the same card.
+    expect(document.body.textContent).toContain(proposedBulletText);
+  });
+});

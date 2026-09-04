@@ -73,7 +73,10 @@ afterEach(() => {
 });
 
 describe("Find jobs result rows adopt the shared selectable-row contract", () => {
-  it("keeps identical box metrics whether or not a row is selected", () => {
+  // jsdom performs no layout, so this is a class-signature invariant, not a
+  // measured one: it proves the row declares the same box-metric classes in
+  // both states. Rendered pixel geometry is the capture harness's job.
+  it("keeps an identical box-metric class signature whether or not a row is selected", () => {
     const jobs = [createJob(0), createJob(1)];
     const { container, rerender } = renderResults(jobs, jobs[0] ?? null);
 
@@ -88,7 +91,8 @@ describe("Find jobs result rows adopt the shared selectable-row contract", () =>
     }
 
     // Selection is a tint plus an inset accent bar; it may never add or remove
-    // padding, margin or border width, because that reflows every row below.
+    // a padding, margin or border-width class, because that reflows every row
+    // below.
     expect(boxClasses(selectedFirst)).toBe(boxClasses(unselectedSecond));
     expect(selectedFirst.getAttribute("aria-current")).toBe("true");
     expect(selectedFirst.getAttribute("data-selected")).toBe("true");

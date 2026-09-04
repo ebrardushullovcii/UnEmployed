@@ -13,6 +13,7 @@ import {
   matchesTitlePreference,
   type LocationCompatibilityState,
 } from "./matching";
+import { MATCH_ASSESSMENT_SCORER_VERSION } from "./match-assessment-session";
 import { createSeed } from "../workspace-service.test-fixtures";
 import { selectDiscoveryBudgetPostings } from "./workspace-discovery-methods";
 
@@ -747,6 +748,136 @@ describe("matching helpers", () => {
     ).toBe("compatible");
   });
 
+  test("reads an absence placeholder in the saved preference as no constraint", () => {
+    // The saved side carries placeholders too: an imported profile can push
+    // "Location not stated" into the preferred locations, or the user can type
+    // "N/A". Tokenising that as geography made every real listing read as
+    // outside the saved areas, which hid the entire result set.
+    for (const absence of [
+      "Location not stated",
+      "location not stated",
+      "Not specified",
+      "Not listed",
+      "N/A",
+      "Unknown",
+      "—",
+      "   ",
+    ]) {
+      expect(
+        assessLocationCompatibility("Berlin, Germany", [absence]),
+        absence,
+      ).toBe("compatible");
+      expect(
+        assessLocationCompatibility("Austin, TX", [absence]),
+        absence,
+      ).toBe("compatible");
+    }
+
+    // A placeholder alongside a real saved place leaves the real comparison
+    // untouched in both directions.
+    expect(
+      assessLocationCompatibility("Berlin, Germany", ["N/A", "Austin, TX"]),
+    ).toBe("incompatible");
+    expect(
+      assessLocationCompatibility("Austin, TX", ["N/A", "Austin, TX"]),
+    ).toBe("compatible");
+  });
+
+  test("scores a placeholder-only saved location as no constraint, not as a verified match", () => {
+    // "compatible" is the same answer for "nothing was saved" and "the saved
+    // place matched", so every caller that reads the raw saved list would
+    // credit a placeholder as a location the user chose and the listing met:
+    // +10, "Location fits the saved search preferences.", an "aligned"
+    // preference facet naming the placeholder, and a supported required
+    // location requirement — a claim nothing was ever compared for.
+    const seed = createSeed();
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: ["Senior Software Engineer"],
+      workModes: [],
+      minimumSalaryUsd: null,
+      companyWhitelist: [],
+    };
+    const posting = {
+      ...seed.savedJobs[0]!,
+      title: "Senior Software Engineer",
+      location: "Tokyo, Japan",
+      workMode: [],
+      easyApplyEligible: false,
+    };
+
+    const unconstrained = createMatchAssessment(
+      seed.profile,
+      { ...preferences, locations: [] },
+      posting,
+    );
+    const placeholderOnly = createMatchAssessment(
+      seed.profile,
+      { ...preferences, locations: ["Location not stated"] },
+      posting,
+    );
+
+    expect(placeholderOnly.score).toBe(unconstrained.score);
+    expect(placeholderOnly.reasons).toEqual(unconstrained.reasons);
+    expect(placeholderOnly.gaps).toEqual(unconstrained.gaps);
+    expect(placeholderOnly.reasons).not.toContain(
+      "Location fits the saved search preferences.",
+    );
+    expect(placeholderOnly.gaps).not.toContain(
+      "Location falls outside the preferred search areas.",
+    );
+    expect(
+      placeholderOnly.requirements.some(
+        (requirement) => requirement.category === "location",
+      ),
+    ).toBe(false);
+    expect(placeholderOnly.dimensions.preferenceAlignment).toEqual(
+      unconstrained.dimensions.preferenceAlignment,
+    );
+    expect(
+      JSON.stringify(placeholderOnly.dimensions.preferenceAlignment),
+    ).not.toContain("Location not stated");
+
+    // A real saved place still scores as a real comparison in both
+    // directions, so the neutral branch is not simply always neutral.
+    const savedMatch = createMatchAssessment(
+      seed.profile,
+      { ...preferences, locations: ["Tokyo, Japan"] },
+      posting,
+    );
+    const savedElsewhere = createMatchAssessment(
+      seed.profile,
+      { ...preferences, locations: ["Austin, TX"] },
+      posting,
+    );
+    // The saved-match score shares this posting's evidence ceiling, so the
+    // credited comparison shows in the reason line rather than the number.
+    expect(savedMatch.reasons).toContain(
+      "Location fits the saved search preferences.",
+    );
+    expect(savedElsewhere.score).toBeLessThan(placeholderOnly.score);
+    expect(savedElsewhere.gaps).toContain(
+      "Location falls outside the preferred search areas.",
+    );
+    expect(
+      savedMatch.requirements.some(
+        (requirement) => requirement.category === "location",
+      ),
+    ).toBe(true);
+
+    // A placeholder mixed in with a real place leaves that comparison alone
+    // and never names the placeholder in the evidence.
+    const mixed = createMatchAssessment(
+      seed.profile,
+      { ...preferences, locations: ["Location not stated", "Tokyo, Japan"] },
+      posting,
+    );
+    expect(mixed.score).toBe(savedMatch.score);
+    expect(JSON.stringify(mixed.dimensions.preferenceAlignment)).not.toContain(
+      "Location not stated",
+    );
+  });
+
   test("applies one location-semantics table across positive fit and exclusion conflict", () => {
     const table: ReadonlyArray<{
       listing: string;
@@ -1024,7 +1155,7 @@ describe("matching helpers", () => {
       salaryText: "$90k-$100k/year",
     });
 
-    expect(meetsMinimum.scorerVersion).toBe(8);
+    expect(meetsMinimum.scorerVersion).toBe(MATCH_ASSESSMENT_SCORER_VERSION);
     expect(meetsMinimum.compensationFit.state).toBe("meets_minimum");
     expect(belowMinimum.compensationFit.state).toBe("below_minimum");
     expect(belowMinimum.score).toBeLessThan(meetsMinimum.score);

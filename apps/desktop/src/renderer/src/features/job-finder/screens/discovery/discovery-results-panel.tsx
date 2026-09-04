@@ -17,11 +17,22 @@ import type {
   WorkMode,
 } from "@unemployed/contracts";
 import { fitRecommendationValues, workModeValues } from "@unemployed/contracts";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import { SelectableRow } from "@renderer/components/ui";
 import { EmptyState } from "@renderer/features/job-finder/components/empty-state";
+import {
+  jobFinderListRegionClassName,
+  jobFinderListRowBadgeSlotClassName,
+  jobFinderListRowClassName,
+  jobFinderListRowCompactClassName,
+  jobFinderListRowLinesClassName,
+  jobFinderListRowMetaClassName,
+  jobFinderListRowStatusClassName,
+  jobFinderListRowTitleClassName,
+  jobFinderListRowTitleLineClassName,
+} from "@renderer/features/job-finder/components/list-row";
 import {
   CollectionNoMatches,
   CollectionSearchToolbar,
@@ -63,7 +74,13 @@ import {
   focusDiscoveryDetailAfterKeyboardSelection,
   revealDiscoveryDetailAfterPointerSelection,
 } from "./discovery-accessibility";
-import { buildDiscoveryResultGroupHeadings } from "./discovery-result-groups";
+import {
+  buildDiscoveryHeadedGroupByJobId,
+  buildDiscoveryResultGroupHeadings,
+  countDiscoveryUncheckedResults,
+} from "./discovery-result-groups";
+// One name for that window, from the one module that owns it.
+import { JOB_FINDER_BROWSER_NAME } from "@renderer/features/job-finder/lib/job-finder-browser-handoff-copy";
 import {
   compareDiscoveryResults,
   type DiscoveryResultsSortField,
@@ -129,6 +146,21 @@ const DISCOVERY_RESULTS_SORT_OPTIONS = [
   readonly field: DiscoveryResultsSortField;
   readonly label: string;
 }[];
+
+/**
+ * One box metric for every control on the results toolbar row (Filters
+ * disclosure, sort field, sort direction). They used to disagree on all three
+ * of height, radius and weight: the direction toggle rendered at the `xs`
+ * button size — 24px tall with `rounded-md` — beside a 32px `h-8` select, and
+ * the Filters disclosure used `min-h-8` rather than a fixed height, so a row
+ * of three sibling controls read as three unrelated boxes. Border colour is
+ * deliberately not folded in here: the sort field keeps the editable-field
+ * trio it shares with the search input above, while the two non-field
+ * controls carry the interactive `--control-border`. Pinned by
+ * `discovery-results-panel.toolbar-metrics.test.tsx`.
+ */
+export const DISCOVERY_RESULTS_TOOLBAR_CONTROL_CLASS =
+  "h-8 rounded-(--radius-button) text-xs font-medium";
 
 const SOURCE_UNAVAILABLE_FILTER = "Source unavailable";
 const WORK_MODE_UNSPECIFIED_FILTER = "Not specified";
@@ -509,7 +541,7 @@ export function ResultsEmptyState(props: {
             <p className="font-medium">Next step</p>
             <p className="leading-6">
               {props.recoveryActionNextStep ??
-                "Open the browser, then search again."}
+                `Open ${JOB_FINDER_BROWSER_NAME}, then search again.`}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">{actionButton}</div>
@@ -762,14 +794,41 @@ export function DiscoveryResultsPanel({
     [currentPage, orderedJobs],
   );
   // Band dividers only make sense while the list is in its canonical
-  // best-match order; any other sort re-interleaves the bands.
+  // best-match order; any other sort re-interleaves the bands. Headings are
+  // built from the rows actually on screen so every page keeps its dividers
+  // and each count describes the rows under it rather than the whole set.
+  const groupHeadingOptions = useMemo(
+    () => ({
+      ranked: sortDirection === "desc" && sortField === "fit",
+      // The whole ranked list with a page window, never the page slice alone:
+      // a divider counts the whole run it names, so a band split across pages
+      // reports the same total as the also-found control beside it.
+      window: {
+        end: (currentPage + 1) * DISCOVERY_RESULTS_PAGE_SIZE,
+        start: currentPage * DISCOVERY_RESULTS_PAGE_SIZE,
+      },
+    }),
+    [currentPage, sortDirection, sortField],
+  );
   const groupHeadingsByJobId = useMemo(
     () =>
       buildDiscoveryResultGroupHeadings(
         orderedJobs,
-        sortDirection === "desc" && sortField === "fit",
+        groupHeadingOptions.ranked,
+        { window: groupHeadingOptions.window },
       ),
-    [orderedJobs, sortDirection, sortField],
+    [groupHeadingOptions, orderedJobs],
+  );
+  // Which divider each row actually sits under, so a row can stay quiet about
+  // a claim the divider above it already makes — and only then.
+  const headedGroupByJobId = useMemo(
+    () =>
+      buildDiscoveryHeadedGroupByJobId(
+        orderedJobs,
+        groupHeadingOptions.ranked,
+        { window: groupHeadingOptions.window },
+      ),
+    [groupHeadingOptions, orderedJobs],
   );
   // The inspector is a sibling pane, so this panel owns the truth about which
   // job is actually on screen. When the selection falls off the visible page
@@ -835,6 +894,17 @@ export function DiscoveryResultsPanel({
     moveToPage(0);
   }, [moveToPage]);
 
+  // Revealing or hiding the also-found pool must visibly change the list. On
+  // any page but the first, the revealed rows join the end of the ranking and
+  // nothing on screen moves, so the control reads as a no-op. Returning to the
+  // first page keeps the pressed state, the label, and the list in agreement.
+  const lastAlsoFoundShownRef = useRef(areAlsoFoundShown);
+  useEffect(() => {
+    if (lastAlsoFoundShownRef.current === areAlsoFoundShown) return;
+    lastAlsoFoundShownRef.current = areAlsoFoundShown;
+    moveToPage(0);
+  }, [areAlsoFoundShown, moveToPage]);
+
   // Switching the active search plan swaps in that plan's own facets; the
   // prune and snapshot effects then validate and persist them under the new
   // scope, so nothing leaks between plans.
@@ -858,13 +928,22 @@ export function DiscoveryResultsPanel({
     browserSession.driver !== "catalog_seed" &&
     recoveryActionPending;
   const allResultsHidden = jobs.length === 0 && hiddenAlsoFoundCount > 0;
+  // Three populations, one arithmetic. Title-only rows are never hidden
+  // behind the also-found reveal, so every one of them is already in `jobs`
+  // and counting them here yields the same population the bands, the Home
+  // badge, and the dividers all derive from.
+  const titleMatchCount = countDiscoveryUncheckedResults(jobs);
   // The honest headline: how many results are actually worth opening. Weaker
-  // rows and clear mismatches are one "also found" pool, never added into the
-  // number that describes the search.
-  const strongMatchCount =
-    jobs.length - (alsoFoundCount - hiddenAlsoFoundCount);
+  // rows and clear mismatches are one "also found" pool, and rows checked no
+  // further than their title are their own band; neither is ever added into
+  // the number that describes the search.
+  const strongMatchCount = Math.max(
+    0,
+    jobs.length - (alsoFoundCount - hiddenAlsoFoundCount) - titleMatchCount,
+  );
   const bandCounts = {
     worthOpening: strongMatchCount,
+    titleMatches: titleMatchCount,
     alsoFound: alsoFoundCount,
   };
   const isCountFiltered =
@@ -876,7 +955,7 @@ export function DiscoveryResultsPanel({
   // states the total the bands add up to, so the two vocabularies visibly
   // reconcile instead of reading as three different numbers.
   const resultCountTotalLabel =
-    !isCountFiltered && alsoFoundCount > 0
+    !isCountFiltered && (alsoFoundCount > 0 || titleMatchCount > 0)
       ? formatDiscoveryResultBandTotal(bandCounts)
       : null;
   // Terminal empty-state truth: prefer the explicit newest-run verdict; when a
@@ -887,15 +966,15 @@ export function DiscoveryResultsPanel({
     (hasCompletedSearch ? { kind: "completed" } : { kind: "none" });
   const showSearchingEmptyState =
     isSearchInProgress || emptyRunVerdict.kind === "running";
-  // Box metrics for a continuous list row. The shared `SelectableRow`
-  // primitive owns selection (tint plus an inset accent bar that consumes no
-  // layout space); these classes only turn its default card shape into this
-  // list's flush, bottom-ruled row. Nothing here varies with selection, which
-  // is what the primitive's dev-time guard enforces.
-  const baseButtonClasses =
-    "grid rounded-none border-x-0 border-t-0 border-b border-b-(--surface-panel-border) focus-visible:z-10";
+  // Box metrics for a continuous list row: the one treatment shared with
+  // Shortlisted and Applications. The shared `SelectableRow` primitive owns
+  // selection (tint plus an inset accent bar that consumes no layout space);
+  // `jobFinderListRowClassName` only turns its default card shape into this
+  // flush, bottom-ruled row. Nothing here varies with selection, which is what
+  // the primitive's dev-time guard enforces.
+  const baseButtonClasses = jobFinderListRowClassName;
   const densityClasses =
-    density === "compact" ? "gap-2 p-3" : "gap-2.5 px-4 py-3.5";
+    density === "compact" ? jobFinderListRowCompactClassName : null;
   const handleListKeyDown = useCallback(
     (event: KeyboardEvent<HTMLButtonElement>, jobId: string) => {
       const nextId = getAdjacentCollectionItemId(
@@ -991,9 +1070,21 @@ export function DiscoveryResultsPanel({
           {/* Two control groups on one row instead of four spread over two:
               the filter disclosure no longer sits alone with ~940px of empty
               row beside it, and sorting is where the filtering is. */}
-          <div className="flex min-w-0 flex-wrap items-start justify-between gap-2 border-b border-(--surface-panel-border) px-4 py-2">
+          <div
+            className="flex min-w-0 flex-wrap items-start justify-between gap-2 border-b border-(--surface-panel-border) px-4 py-2"
+            data-testid="discovery-results-toolbar"
+          >
             <details className="group relative min-w-0 [&[open]]:w-full [&[open]]:order-last">
-              <summary className="flex min-h-8 w-fit cursor-pointer list-none items-center gap-2 rounded-(--radius-button) border border-(--surface-panel-border) px-3 text-xs font-medium text-foreground-soft outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/30 [&::-webkit-details-marker]:hidden">
+              {/* `--control-border` rather than the inert
+                  `--surface-panel-border`: this border is the disclosure's
+                  entire boundary, so it has to read as a control beside the
+                  sort field and direction toggle. */}
+              <summary
+                className={cn(
+                  DISCOVERY_RESULTS_TOOLBAR_CONTROL_CLASS,
+                  "flex w-fit cursor-pointer list-none items-center gap-2 whitespace-nowrap border border-(--control-border) px-3 text-foreground-soft outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/30 [&::-webkit-details-marker]:hidden",
+                )}
+              >
                 Filters
                 {activeFilterCount > 0 ? (
                   <span
@@ -1130,10 +1221,13 @@ export function DiscoveryResultsPanel({
                 ) : null}
               </div>
             </details>
-            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1">
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
               <select
                 aria-label="Sort results"
-                className="h-8 min-w-0 max-w-full rounded-(--radius-button) border border-(--field-border) bg-(--field) px-2 text-xs text-foreground-soft outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                className={cn(
+                  DISCOVERY_RESULTS_TOOLBAR_CONTROL_CLASS,
+                  "min-w-0 max-w-full border border-(--field-border) bg-(--field) px-2 text-foreground-soft outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]",
+                )}
                 onChange={(event) => {
                   const match = DISCOVERY_RESULTS_SORT_OPTIONS.find(
                     (option) => option.field === event.target.value,
@@ -1158,12 +1252,15 @@ export function DiscoveryResultsPanel({
                     ? "Sort direction: highest first. Select to sort lowest first."
                     : "Sort direction: lowest first. Select to sort highest first."
                 }
-                className="whitespace-nowrap"
+                className={cn(
+                  DISCOVERY_RESULTS_TOOLBAR_CONTROL_CLASS,
+                  "whitespace-nowrap",
+                )}
                 onClick={() => {
                   resultsSort.toggleSortDirection();
                   moveToPage(0);
                 }}
-                size="xs"
+                size="compact"
                 type="button"
                 variant="outline"
               >
@@ -1253,7 +1350,7 @@ export function DiscoveryResultsPanel({
         <div className="px-5 pt-4">
           <ResultsEmptyState
             className={emptyClassName ?? "min-h-56"}
-            description="Open the browser, sign in or fix the issue, then search again."
+            description={`Open ${JOB_FINDER_BROWSER_NAME}, sign in or fix the issue, then search again.`}
             title="Search blocked by browser"
             {...(onRecoveryAction !== undefined ? { onRecoveryAction } : {})}
             {...(recoveryActionLabel !== undefined
@@ -1284,7 +1381,7 @@ export function DiscoveryResultsPanel({
       {sessionNeedsAttention && jobs.length > 0 ? (
         <div className="px-5 py-4">
           <RecoveryCallout
-            description="You're viewing results from the last completed search. Open the browser when you're ready to run a new one."
+            description={`You're viewing results from the last completed search. Open ${JOB_FINDER_BROWSER_NAME} when you're ready to run a new one.`}
             {...(onRecoveryAction !== undefined ? { onRecoveryAction } : {})}
             {...(recoveryActionLabel !== undefined
               ? { recoveryActionLabel }
@@ -1465,7 +1562,7 @@ export function DiscoveryResultsPanel({
           >
             <ul
               aria-label="Results"
-              className="m-0 grid list-none content-start p-0 xl:min-h-full"
+              className={cn(jobFinderListRegionClassName, "xl:min-h-full")}
             >
               {visibleJobs.map((job) => {
                 const isSelected = displayedSelectedJobId === job.id;
@@ -1475,6 +1572,24 @@ export function DiscoveryResultsPanel({
                       "review_before_applying"
                   ];
                 const assessment = getMatchAssessmentPresentation(job);
+                // A title-only row sitting under the rendered "Title matches ·
+                // not yet checked" divider would otherwise repeat that exact
+                // claim twice more — "Title match only" plus a two-line
+                // caption — on every row of a band that can be the whole list.
+                // The divider states it once for the run; the row drops the
+                // visible restatement and keeps an assistive-technology line,
+                // because a row button is reachable by keyboard without ever
+                // reading the divider. Provisional rows share this band but
+                // not its claim, so they keep their own verdict, and a
+                // title-only row banded as a mismatch keeps it too: no divider
+                // above it says the title was all that was read.
+                const isCoveredByUncheckedBand =
+                  assessment.isTitleOnly &&
+                  // An unbound assessment is title-only by evidence depth but
+                  // presents as "Fit not assessed", which is a different claim
+                  // from the one the divider makes; it keeps its own verdict.
+                  !assessment.isProvisional &&
+                  headedGroupByJobId.get(job.id) === "unchecked";
                 // One sentence on the row saying why: what is missing when the
                 // score is withheld, otherwise the hard-conflict reason. Rows
                 // whose score stands on its own evidence stay quiet.
@@ -1537,152 +1652,214 @@ export function DiscoveryResultsPanel({
                       onKeyDown={(event) => handleListKeyDown(event, job.id)}
                       selected={isSelected}
                     >
-                      <div className="flex min-w-0 items-start justify-between gap-3">
-                        <div className="grid min-w-0 gap-1.5">
+                      {/* One shared line rhythm for all three lists: title line (with
+                          the one trailing badge slot), then meta, then status. */}
+                      <div className={jobFinderListRowLinesClassName}>
+                        <div className={jobFinderListRowTitleLineClassName}>
                           <strong
-                            className="min-w-0 break-words text-(length:--text-heading-3) text-(--text-headline)"
+                            className={jobFinderListRowTitleClassName}
                             title={job.title}
                           >
                             {job.title}
                           </strong>
-                          {(() => {
-                            const employerLocationLine =
-                              formatJobEmployerLocationLine({
-                                company: job.company,
-                                location: job.location,
-                                canonicalUrl: job.canonicalUrl,
-                                separator: " • ",
-                              });
-                            if (employerLocationLine) {
-                              return (
-                                <>
-                                  <span
-                                    className="min-w-0 break-words text-(length:--text-small) font-medium text-foreground-soft"
-                                    title={employerLocationLine}
-                                  >
-                                    {employerLocationLine}
-                                  </span>
-                                  {/* Exactly one accessible source mention per
+                          <div className={jobFinderListRowBadgeSlotClassName}>
+                            {/* The default "review before applying" verdict is the
+                                baseline for every row, so only a stronger or
+                                weaker verdict earns a badge in the list; the
+                                inspector keeps the full assessment. */}
+                            {job.matchAssessment.recommendation !==
+                            "review_before_applying" ? (
+                              <StatusBadge
+                                tone={
+                                  assessment.isProvisional
+                                    ? "neutral"
+                                    : recommendation.tone
+                                }
+                              >
+                                {recommendation.label}
+                              </StatusBadge>
+                            ) : null}
+                            {assessment.isProvisional ? (
+                              <Badge variant="outline">
+                                Provisional assessment
+                              </Badge>
+                            ) : null}
+                            {listingActivity.status !== "active" ? (
+                              <Badge
+                                aria-label={`${activity.label} listing status${activity.observedDate ? ` observed ${activity.observedDate}` : ""}. ${activityDescription}`}
+                                title={activityDescription}
+                                variant="outline"
+                              >
+                                {activity.label}
+                                {activity.observedDate
+                                  ? ` · ${activity.observedDate}`
+                                  : ""}
+                              </Badge>
+                            ) : (
+                              <span className="sr-only">
+                                {`${activity.label} listing status${activity.observedDate ? ` observed ${activity.observedDate}` : ""}. ${activityDescription}`}
+                              </span>
+                            )}
+                            {job.status === "shortlisted" ||
+                            job.status === "submitted" ? (
+                              <StatusBadge
+                                tone={getApplicationTone(job.status)}
+                              >
+                                {formatStatusLabel(job.status)}
+                              </StatusBadge>
+                            ) : null}
+                            {listingDateBadge.shown && density !== "compact" ? (
+                              <Badge
+                                {...(listingDateExplanation
+                                  ? { title: listingDateExplanation }
+                                  : {})}
+                                variant="outline"
+                              >
+                                {listingDateBadge.text}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </div>
+                        {(() => {
+                          const employerLocationLine =
+                            formatJobEmployerLocationLine({
+                              company: job.company,
+                              location: job.location,
+                              canonicalUrl: job.canonicalUrl,
+                              separator: " • ",
+                            });
+                          if (employerLocationLine) {
+                            return (
+                              <>
+                                <span
+                                  className={cn(
+                                    jobFinderListRowMetaClassName,
+                                    "font-medium",
+                                  )}
+                                  data-testid={`discovery-result-employer-${job.id}`}
+                                  title={employerLocationLine}
+                                >
+                                  {employerLocationLine}
+                                </span>
+                                {/* Exactly one accessible source mention per
                                       row: the visible prefix is decorative and
                                       the sr-only prefix completes the sentence. */}
-                                  <span
-                                    className="flex min-w-0 max-w-full text-(length:--text-small) text-foreground-soft"
-                                    data-testid={`discovery-result-source-${job.id}`}
-                                    title={`Found on ${sourceText}`}
-                                  >
-                                    <span className="sr-only">Found on </span>
-                                    <span className="min-w-0 truncate">
-                                      {sourceText}
-                                    </span>
+                                <span
+                                  className="flex min-w-0 max-w-full text-(length:--text-small) text-foreground-soft"
+                                  data-testid={`discovery-result-source-${job.id}`}
+                                  title={`Found on ${sourceText}`}
+                                >
+                                  <span className="sr-only">Found on </span>
+                                  <span className="min-w-0 truncate">
+                                    {sourceText}
                                   </span>
-                                </>
-                              );
-                            }
-                            // No usable employer: say so plainly and quietly
-                            // instead of a "Listing · {source}" line that reads
-                            // like a company named "Listing".
-                            return (
-                              <span
-                                className="flex min-w-0 max-w-full items-baseline gap-1 text-(length:--text-small) text-foreground-soft"
-                                data-testid={`discovery-result-source-${job.id}`}
-                                title={`Employer not listed · ${sourceText}`}
-                              >
-                                <span className="shrink-0">
-                                  Employer not listed ·
                                 </span>
-                                <span className="sr-only">Found on </span>
-                                <span className="min-w-0 truncate">
-                                  {sourceText}
-                                </span>
-                              </span>
+                              </>
                             );
-                          })()}
-                        </div>
-                      </div>
+                          }
+                          // No usable employer: say so plainly and quietly
+                          // instead of a "Listing · {source}" line that reads
+                          // like a company named "Listing".
+                          return (
+                            <span
+                              className="flex min-w-0 max-w-full items-baseline gap-1 text-(length:--text-small) text-foreground-soft"
+                              data-testid={`discovery-result-source-${job.id}`}
+                              title={`Employer not listed · ${sourceText}`}
+                            >
+                              <span className="shrink-0">
+                                Employer not listed ·
+                              </span>
+                              <span className="sr-only">Found on </span>
+                              <span className="min-w-0 truncate">
+                                {sourceText}
+                              </span>
+                            </span>
+                          );
+                        })()}
 
-                      {/* The fit verdict belongs beside the title it is about,
+                        {/* The fit verdict belongs beside the title it is about,
                           not ~500px away at the far edge of a wide row. When
                           the evidence behind the number is only the listing
                           title the number is withheld here and kept inside
                           "How this was scored" with its evidence. */}
-                      <div className="grid min-w-0 gap-1">
-                        <span
-                          aria-label={assessment.headlineScoreAriaLabel}
-                          className={cn(
-                            "text-(length:--text-body) font-semibold",
-                            assessment.isScoreWithheld
-                              ? "text-foreground-soft"
-                              : "text-(--text-headline)",
-                          )}
-                          data-testid={`discovery-result-fit-${job.id}`}
-                        >
-                          {assessment.headlineScoreLabel}
-                        </span>
-                        {rowReason ? (
+                        {isCoveredByUncheckedBand ? (
+                          // The divider is a visual carrier only: it is a plain
+                          // div outside the arrow-key traversal, so a row
+                          // reached by keyboard would otherwise lose both the
+                          // verdict and the reason the visible rows just gave
+                          // up. Both survive here in one line.
                           <span
-                            className="min-w-0 break-words text-(length:--text-small) leading-5 text-foreground-soft"
-                            data-testid={`discovery-result-fit-reason-${job.id}`}
+                            className="sr-only"
+                            data-testid={`discovery-result-fit-sr-${job.id}`}
                           >
-                            {rowReason}
+                            {rowReason
+                              ? `${assessment.headlineScoreAriaLabel}. ${rowReason}`
+                              : assessment.headlineScoreAriaLabel}
                           </span>
-                        ) : null}
+                        ) : (
+                          <div className="grid min-w-0 gap-1">
+                            <span
+                              aria-label={assessment.headlineScoreAriaLabel}
+                              className={cn(
+                                "text-(length:--text-body) font-semibold",
+                                assessment.isScoreWithheld
+                                  ? "text-foreground-soft"
+                                  : "text-(--text-headline)",
+                              )}
+                              data-testid={`discovery-result-fit-${job.id}`}
+                            >
+                              {assessment.headlineScoreLabel}
+                            </span>
+                            {rowReason ? (
+                              <span
+                                className={cn(
+                                  jobFinderListRowStatusClassName,
+                                  "text-foreground-soft",
+                                )}
+                                data-testid={`discovery-result-fit-reason-${job.id}`}
+                              >
+                                {rowReason}
+                              </span>
+                            ) : null}
+                          </div>
+                        )}
                       </div>
 
-                      <div className="flex flex-wrap gap-1.5">
-                        {/* The default "review before applying" verdict is the
-                            baseline for every row, so only a stronger or
-                            weaker verdict earns a badge in the list; the
-                            inspector keeps the full assessment. */}
-                        {job.matchAssessment.recommendation !==
-                        "review_before_applying" ? (
-                          <StatusBadge
-                            tone={
-                              assessment.isProvisional
-                                ? "neutral"
-                                : recommendation.tone
-                            }
-                          >
-                            {recommendation.label}
-                          </StatusBadge>
-                        ) : null}
-                        {assessment.isProvisional ? (
-                          <Badge variant="outline">
-                            Provisional assessment
-                          </Badge>
-                        ) : null}
-                        {listingActivity.status !== "active" ? (
-                          <Badge
-                            aria-label={`${activity.label} listing status${activity.observedDate ? ` observed ${activity.observedDate}` : ""}. ${activityDescription}`}
-                            title={activityDescription}
-                            variant="outline"
-                          >
-                            {activity.label}
-                            {activity.observedDate
-                              ? ` · ${activity.observedDate}`
-                              : ""}
-                          </Badge>
-                        ) : (
-                          <span className="sr-only">
-                            {`${activity.label} listing status${activity.observedDate ? ` observed ${activity.observedDate}` : ""}. ${activityDescription}`}
-                          </span>
-                        )}
-                        {job.status === "shortlisted" ||
-                        job.status === "submitted" ? (
-                          <StatusBadge tone={getApplicationTone(job.status)}>
-                            {formatStatusLabel(job.status)}
-                          </StatusBadge>
-                        ) : null}
-                        {listingDateBadge.shown && density !== "compact" ? (
-                          <Badge
-                            {...(listingDateExplanation
-                              ? { title: listingDateExplanation }
-                              : {})}
-                            variant="outline"
-                          >
-                            {listingDateBadge.text}
-                          </Badge>
-                        ) : null}
-                      </div>
+                      {/* Below xl the inspector stacks under this list, so a
+                          highlighted row is the only sign that anything more
+                          exists — and it sits past the fold. This names the
+                          pane by its own visible heading; it does not promise
+                          listing detail the app may not have read.
+
+                          Rendered on every row so the slot is reserved and
+                          selection can never reflow the list (see
+                          SelectableRow), and revealed on the selected row
+                          through this element's OWN `data-details-cue`.
+
+                          That attribute, rather than a `group-data-*` variant
+                          keyed on the row's selected state, is deliberate. The
+                          group form left both rows carrying byte-identical
+                          class strings, so whether the cue actually painted
+                          depended entirely on a stylesheet the renderer tests
+                          never load: a DOM query passed while every row showed
+                          the cue on screen. State that decides what is painted
+                          has to be observable in the DOM, so both the shown
+                          and the hidden case can be pinned.
+
+                          Decorative: the row already exposes the detail region
+                          through `aria-controls`, so this is not announced a
+                          second time. Nothing here scrolls — the default
+                          selection is not a user action, and only an explicit
+                          click reveals the detail region. */}
+                      <span
+                        aria-hidden="true"
+                        className="invisible flex items-center gap-1 text-(length:--text-tiny) font-medium text-foreground-soft data-[details-cue=visible]:visible xl:hidden"
+                        data-details-cue={isSelected ? "visible" : "hidden"}
+                        data-testid={`discovery-result-details-below-${job.id}`}
+                      >
+                        <ChevronDown aria-hidden="true" className="size-3.5" />
+                        Job details below
+                      </span>
                     </SelectableRow>
                   </li>
                 );

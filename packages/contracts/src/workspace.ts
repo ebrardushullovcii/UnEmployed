@@ -329,6 +329,29 @@ export type JobFinderResumePreviewMode = z.infer<
   typeof JobFinderResumePreviewModeSchema
 >;
 
+/**
+ * The four save surfaces the renderer's save coordinator protects. A failed
+ * save is a first-class product state (dismissable toast, navigation and
+ * window-close guards, Settings keeping staged drafts), but a running build
+ * offers no way to reach it: the preload bridge is frozen and the workspace
+ * file handle is already open, so neither patching nor read-only permissions
+ * fails a save. The desktop test API therefore exposes a one-shot,
+ * per-surface synthetic failure keyed by these values; it exists only while
+ * UNEMPLOYED_ENABLE_TEST_API is set and never changes product behavior.
+ */
+export const jobFinderTestSaveSurfaceValues = [
+  "profile",
+  "answers",
+  "settings",
+  "resume",
+] as const;
+export const JobFinderTestSaveSurfaceSchema = z.enum(
+  jobFinderTestSaveSurfaceValues,
+);
+export type JobFinderTestSaveSurface = z.infer<
+  typeof JobFinderTestSaveSurfaceSchema
+>;
+
 export const JobFinderResumeSectionActionInputSchema = z.object({
   jobId: NonEmptyStringSchema,
   sectionId: NonEmptyStringSchema,
@@ -501,6 +524,20 @@ export const JobFinderSaveSourceInstructionInputSchema = z.object({
 export type JobFinderSaveSourceInstructionInput = z.infer<
   typeof JobFinderSaveSourceInstructionInputSchema
 >;
+
+/**
+ * The one name this product uses for the separate browser window Job Finder
+ * drives, without an article, for labels and headings that carry none.
+ *
+ * It lives here — beside the session state it names — because both the desktop
+ * renderer and `@unemployed/job-finder` write user-facing copy about that
+ * window, and a review found the same window called four different things
+ * across four screens. Contracts is the one package both already depend on, so
+ * this is the only place the label can exist once. Every derived form ("the
+ * Job Finder browser", "Open the Job Finder browser", …) is composed from it in
+ * the desktop copy module; nothing should re-spell the words here.
+ */
+export const JOB_FINDER_BROWSER_LABEL = "Job Finder browser";
 
 export const BrowserSessionStateSchema = z.object({
   source: JobSourceSchema,

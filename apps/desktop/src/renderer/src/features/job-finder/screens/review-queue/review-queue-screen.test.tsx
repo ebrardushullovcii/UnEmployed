@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -89,6 +90,7 @@ function createOriginalResume(): ResumeSourceDocument {
 
 function renderScreen(props: {
   browserSession?: BrowserSessionState;
+  isJobPending?: (jobId: string) => boolean;
   campaignId?: string;
   draftPreparation?: TailoredDraftPreparationViewState;
   onGenerateResume?: (
@@ -118,7 +120,7 @@ function renderScreen(props: {
         }
         globalDailyApplicationPreparationCapacity={null}
         isApplyPending={false}
-        isJobPending={() => false}
+        isJobPending={props.isJobPending ?? (() => false)}
         isResumeStrategyPending={() => false}
         onPrepareTailoredDrafts={props.onPrepareTailoredDrafts ?? vi.fn()}
         onStopTailoredDraftPreparation={
@@ -168,6 +170,65 @@ function openBatchActions(): void {
 }
 
 describe("ReviewQueueScreen tailored draft preparation (controlled)", () => {
+  it("shows a moving elapsed clock and a stated expectation instead of a fabricated percentage", () => {
+    vi.useFakeTimers();
+
+    try {
+      const selectedItem: ReviewQueueItem = {
+        ...createEligibleItem("job_generating"),
+        assetStatus: "generating",
+      };
+
+      renderScreen({
+        isJobPending: (jobId) => jobId === "job_generating",
+        queue: [selectedItem],
+        selectedItem,
+        selectedJob: {
+          id: selectedItem.jobId,
+          title: "Senior Frontend Engineer",
+          company: "Acme",
+          location: "Remote",
+          summary: "Build dependable hiring tooling.",
+          description: "Build dependable hiring tooling.",
+          matchAssessment: {
+            score: 82,
+            reasons: ["Relevant experience"],
+            gaps: [],
+            recommendation: "review_before_applying",
+            recommendationRationale: null,
+            requirements: [],
+          },
+        } as unknown as SavedJob,
+      });
+
+      const elapsed = document.querySelector("[data-resume-draft-elapsed]");
+      expect(elapsed).not.toBeNull();
+      expect(elapsed?.textContent).toBe("0:00");
+
+      // The old bar climbed a made-up percentage to a 94% ceiling and froze
+      // there; nothing in the pipeline can substantiate a completion fraction.
+      expect(document.body.textContent).not.toContain("% estimated");
+      for (const bar of document.querySelectorAll('[role="progressbar"]')) {
+        expect(bar.getAttribute("aria-valuenow")).toBeNull();
+      }
+
+      expect(
+        document.querySelector("[data-resume-draft-expected-wait]")
+          ?.textContent,
+      ).toBe("Usually 40-70 seconds for a tailored draft.");
+
+      act(() => {
+        vi.advanceTimersByTime(3_000);
+      });
+
+      expect(
+        document.querySelector("[data-resume-draft-elapsed]")?.textContent,
+      ).toBe("0:03");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses canonical workflow status for a ready asset that still needs approval", () => {
     const selectedItem: ReviewQueueItem = {
       ...createEligibleItem("job_needs_approval"),

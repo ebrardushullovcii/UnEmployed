@@ -1,8 +1,41 @@
 import {
+  COMPACT_NAV_PILL_ACTIVE_CLASS,
+  COMPACT_NAV_PILL_CLASS,
   getInitialSidebarCollapsedState,
   JobFinderShell,
+  LOCKED_LAYOUT_SCREENS,
+  SHELL_BRAND_ROW_CLASS,
+  SHELL_CONTENT_CLASS,
+  SHELL_HEADER_CLASS,
+  SHELL_HEADER_GRID_CLASS,
+  SHELL_MAIN_LOCKED_CLASS,
+  SHELL_MAIN_SCROLLING_CLASS,
+  SHELL_MODULE_LABEL_CLASS,
+  SHELL_MODULE_LINK_CLASS,
+  SHELL_MODULE_NAV_CLASS,
+  SHELL_ROUTE_CONTAINER_BASE_CLASS,
+  SHELL_ROUTE_SECTION_GAP_STYLE,
+  SHELL_SIDEBAR_CLASS,
+  SHELL_SIDEBAR_ROW_ACTIVE_CLASS,
+  SHELL_SIDEBAR_ROW_CLASS,
+  SHELL_SIDEBAR_ROW_COLLAPSED_CLASS,
+  SHELL_SIDEBAR_ROW_INACTIVE_CLASS,
 } from "@renderer/features/job-finder/components/job-finder-shell";
 import { JobFinderShellBrand } from "@renderer/features/job-finder/components/job-finder-shell-brand";
+import { LockedScreenLayout } from "@renderer/features/job-finder/components/locked-screen-layout";
+import { JOB_FINDER_SHORTCUTS_DIALOG_LABEL } from "@renderer/features/job-finder/components/job-finder-shortcuts-dialog";
+import { PageHeader } from "@renderer/features/job-finder/components/page-header";
+import {
+  getRouteSkeletonPanes,
+  RouteSkeleton,
+} from "@renderer/features/job-finder/components/route-skeleton";
+import { StatusBadge } from "@renderer/features/job-finder/components/status-badge";
+import {
+  SHELL_HEADER_MASK_HEIGHT_CLASS,
+  SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
+} from "@renderer/features/job-finder/lib/job-finder-shell-gutters";
+import { formatStatusLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
+import { cn } from "@renderer/lib/cn";
 import { StartupDatabaseRecoveryNotice } from "@renderer/features/job-finder/components/startup-database-recovery-notice";
 import { ThemeProvider } from "@renderer/app/theme-provider";
 import { Button } from "@renderer/components/ui/button";
@@ -14,6 +47,7 @@ import {
   Compass,
   FileText,
   House,
+  Keyboard,
   Layers3,
   Menu,
   Minus,
@@ -35,6 +69,7 @@ import {
   useState,
 } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import { suiteModules } from "@unemployed/contracts";
 import type { DesktopWindowControlsState } from "@unemployed/contracts";
 import { createPortal } from "react-dom";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -144,7 +179,11 @@ function JobFinderRouteReadyMarker() {
   return null;
 }
 
-const openingShellDestinations = [
+const openingShellPrimaryDestinations: readonly {
+  icon: LucideIcon;
+  label: string;
+  path: string;
+}[] = [
   { icon: House, label: "Home", path: "/job-finder/home" },
   { icon: UserRound, label: "Profile", path: "/job-finder/profile" },
   { icon: Compass, label: "Find jobs", path: "/job-finder/discovery" },
@@ -158,9 +197,14 @@ const openingShellDestinations = [
     label: "Applications",
     path: "/job-finder/applications",
   },
-] as const;
+];
 
-const openingShellSidebarGroups: readonly {
+// Mirrors the loaded shell's `menuGroups`: the expanded rail lists every
+// secondary destination inline under "Everything else", grouped by what each
+// destination *is*. The opening frame has to render the same rows in the same
+// order, or the sidebar visibly re-groups and re-flows the moment the
+// workspace resolves.
+const openingShellSecondaryGroups: readonly {
   label: string;
   destinations: readonly {
     icon: LucideIcon;
@@ -168,16 +212,6 @@ const openingShellSidebarGroups: readonly {
     path: string;
   }[];
 }[] = [
-  {
-    label: "Overview",
-    destinations: [openingShellDestinations[0]],
-  },
-  {
-    label: "Your job search",
-    destinations: openingShellDestinations.slice(1),
-  },
-  // Same grouping as the loaded shell's More menu: grouped by what each
-  // destination is, so the opening skeleton does not teach a different map.
   {
     label: "Your data",
     destinations: [
@@ -225,6 +259,54 @@ const openingShellSidebarGroups: readonly {
   },
 ];
 
+// One journey group, exactly as the loaded shell's `sidebarGroups`. Home used
+// to sit alone under an "Overview" eyebrow here, which is a second grouping
+// the loaded rail does not have and a row of vertical offset that vanished on
+// hydration.
+const openingShellSidebarGroups: readonly {
+  label: string;
+  destinations: readonly {
+    icon: LucideIcon;
+    label: string;
+    path: string;
+  }[];
+}[] = [
+  { label: "Your job search", destinations: openingShellPrimaryDestinations },
+];
+
+const openingShellAllDestinations = [
+  ...openingShellPrimaryDestinations,
+  ...openingShellSecondaryGroups.flatMap((group) => group.destinations),
+];
+
+/**
+ * The chrome the opening frame and the loaded shell paint identically.
+ *
+ * These used to be seventeen hand-copied class strings kept honest only by a
+ * parity test. `job-finder-shell.tsx` now exports its chrome, so both shells
+ * read the same constants and the parity is structural rather than asserted.
+ */
+
+/**
+ * Derived from the loaded shell's exported `LOCKED_LAYOUT_SCREENS`.
+ *
+ * Those four routes own their own inner scrolling, so the shell gives them a
+ * bounded `pt-0 pb-3` pane instead of the scrolling route's 12/40px gutters.
+ * Cold-starting on one of them and painting the scrolling branch snapped the
+ * whole route on hydration — the exact shift this shell exists to remove, on
+ * the routes users cold-start on most. It used to be a re-declared copy; the
+ * shell exports the screen list now, so the two cannot drift apart.
+ */
+const OPENING_SHELL_LOCKED_ROUTE_PATHS = LOCKED_LAYOUT_SCREENS.map(
+  (screen) => `/job-finder/${screen}`,
+);
+
+function isOpeningRouteLocked(pathname: string): boolean {
+  return OPENING_SHELL_LOCKED_ROUTE_PATHS.some((path) =>
+    pathname.startsWith(path),
+  );
+}
+
 function readInitialDesktopPlatform(): "darwin" | "linux" | "win32" | null {
   const platform = navigator.platform.toLowerCase();
   const userAgent = navigator.userAgent.toLowerCase();
@@ -240,12 +322,29 @@ function readInitialDesktopPlatform(): "darwin" | "linux" | "win32" | null {
   return null;
 }
 
+/**
+ * Loaded routes whose page title differs from the sidebar label. The opening
+ * shell paints the loaded title, not the label, so hydration never swaps the
+ * h1 text under the reader (Profile → Your profile flickered on every cold
+ * open). Keep this in step with each screen's `PageHeader` title.
+ */
+const OPENING_ROUTE_TITLE_OVERRIDES: Readonly<Record<string, string>> = {
+  "/job-finder/profile": "Your profile",
+  "/job-finder/review-queue": "Shortlisted jobs",
+};
+
+function getOpeningRouteTitle(pathname: string, label: string): string {
+  const override = Object.entries(OPENING_ROUTE_TITLE_OVERRIDES).find(
+    ([path]) => pathname.startsWith(path),
+  );
+  return override ? override[1] : label;
+}
+
 function getOpeningRouteLabel(pathname: string): string {
   return (
-    openingShellSidebarGroups
-      .flatMap((group) => group.destinations)
-      .find((destination) => pathname.startsWith(destination.path))?.label ??
-    "Home"
+    openingShellAllDestinations.find((destination) =>
+      pathname.startsWith(destination.path),
+    )?.label ?? "Home"
   );
 }
 
@@ -333,8 +432,14 @@ function JobFinderOpeningShell() {
   const isMac = platform === "darwin";
   const isWindows = platform === "win32";
   const openingRouteLabel = getOpeningRouteLabel(location.pathname);
+  const isOpeningHomeRoute = openingRouteLabel === "Home";
+  const isLockedOpeningRoute = isOpeningRouteLocked(location.pathname);
   const dragRegionStyle = { WebkitAppRegion: "drag" } as CSSProperties;
   const noDragRegionStyle = { WebkitAppRegion: "no-drag" } as CSSProperties;
+  const sidebarGroupEyebrowClass = cn(
+    "whitespace-nowrap px-2 text-(length:--text-eyebrow) uppercase tracking-(--tracking-caps) text-muted-foreground",
+    isSidebarCollapsed && "sr-only",
+  );
 
   async function runWindowAction(
     action: () => Promise<typeof windowControlsState>,
@@ -346,34 +451,155 @@ function JobFinderOpeningShell() {
     }
   }
 
+  function renderOpeningSidebarDestination(destination: {
+    icon: LucideIcon;
+    label: string;
+    path: string;
+  }) {
+    const isActive = isOpeningDestinationActive(
+      location.pathname,
+      destination.path,
+    );
+    return (
+      <button
+        aria-current={isActive ? "page" : undefined}
+        className={cn(
+          SHELL_SIDEBAR_ROW_CLASS,
+          isSidebarCollapsed && SHELL_SIDEBAR_ROW_COLLAPSED_CLASS,
+          isActive ? "" : SHELL_SIDEBAR_ROW_INACTIVE_CLASS,
+          isActive ? SHELL_SIDEBAR_ROW_ACTIVE_CLASS : "",
+        )}
+        key={destination.path}
+        onClick={() => {
+          void navigate(destination.path);
+        }}
+        type="button"
+      >
+        <destination.icon aria-hidden="true" className="size-4 shrink-0" />
+        <span
+          className={cn("min-w-0 truncate", isSidebarCollapsed && "sr-only")}
+        >
+          {destination.label}
+        </span>
+      </button>
+    );
+  }
+
+  // `display: contents` keeps the live region from becoming a layout box of
+  // its own, which would merge the header and the status row into one grid
+  // cell and drop the 20px gap between them.
+  const openingHeaderBlock = (
+    <div
+      aria-atomic="true"
+      aria-live="polite"
+      className="contents"
+      role="status"
+    >
+      <PageHeader
+        description={
+          isOpeningHomeRoute
+            ? "See progress, open tasks, and the best next step."
+            : `Opening your saved ${openingRouteLabel.toLowerCase()} workspace.`
+        }
+        title={getOpeningRouteTitle(location.pathname, openingRouteLabel)}
+      />
+      <div
+        className="flex min-w-0 flex-wrap items-center gap-2"
+        data-job-finder-opening-block="status"
+      >
+        <StatusBadge tone="muted">Opening saved workspace</StatusBadge>
+      </div>
+    </div>
+  );
+
+  const openingPlaceholderBlock = (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "grid min-w-0 gap-5",
+        isLockedOpeningRoute && "h-full min-h-0 content-start pt-5",
+      )}
+      data-job-finder-opening-placeholder
+    >
+      {isOpeningHomeRoute ? (
+        <>
+          <div
+            className="surface-panel-shell grid min-w-0 gap-3 rounded-(--radius-panel) border border-primary/40 bg-primary/10 p-5"
+            data-job-finder-opening-block="recommended-next"
+          >
+            <div className="h-3 w-32 rounded bg-(--surface-panel-raised)" />
+            <div className="h-5 w-72 max-w-full rounded bg-(--surface-panel-raised)" />
+            <div className="h-4 w-full max-w-[52ch] rounded bg-(--surface-panel-raised)" />
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="h-11 w-40 rounded-(--radius-button) bg-(--surface-panel-raised)" />
+            </div>
+          </div>
+          <div
+            className="surface-panel-shell grid min-w-0 gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5"
+            data-job-finder-opening-block="search"
+          >
+            <div className="h-9 w-full rounded-(--radius-field) bg-(--surface-panel-raised)" />
+          </div>
+          <div
+            className="surface-panel-shell grid min-w-0 gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5"
+            data-job-finder-opening-block="notifications"
+          >
+            <div className="h-5 w-36 rounded bg-(--surface-panel-raised)" />
+            <div className="h-4 w-64 max-w-full rounded bg-(--surface-panel-raised)" />
+          </div>
+        </>
+      ) : (
+        // Only Home has a primary-tinted recommended-next card. On every other
+        // route that shape was a lie the user saw for a frame, so the rest of
+        // the app opens on one neutral panel that fills the pane it reserves.
+        <div
+          className={cn(
+            "surface-panel-shell grid min-w-0 content-start gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5",
+            isLockedOpeningRoute ? "h-full min-h-0" : "min-h-56",
+          )}
+          data-job-finder-opening-block="route-placeholder"
+        >
+          <div className="h-4 w-36 rounded bg-(--surface-panel-raised)" />
+          <div className="h-4 w-full max-w-[52ch] rounded bg-(--surface-panel-raised)" />
+          <div className="h-4 w-64 max-w-full rounded bg-(--surface-panel-raised)" />
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div
-      className={`platform-${platform ?? "unknown"} h-screen overflow-hidden bg-canvas text-foreground`}
-      data-job-finder-shell
+      className={cn(
+        "h-screen overflow-x-hidden overflow-y-auto text-foreground sm:overflow-hidden",
+        `platform-${platform ?? "unknown"}`,
+      )}
       data-job-finder-opening-shell
+      data-job-finder-shell
+      data-sidebar-collapsed={isSidebarCollapsed ? "true" : "false"}
       style={
         {
           "--job-finder-side-width": isSidebarCollapsed ? "4rem" : "17rem",
+          "--job-finder-side-width-sm": isSidebarCollapsed ? "4rem" : "17rem",
         } as CSSProperties
       }
     >
       <header
-        className="fixed inset-x-0 top-0 z-50 overflow-visible border-b border-border/15 bg-(--shell-header-bg) backdrop-blur-sm min-[1440px]:h-14"
+        className={SHELL_HEADER_CLASS}
         data-job-finder-shell-header
         style={dragRegionStyle}
       >
-        <div className="job-finder-shell-grid grid grid-rows-[3.5rem_3.75rem] items-stretch overflow-visible px-3 min-[1440px]:!grid-rows-[3.5rem]">
+        <div className={SHELL_HEADER_GRID_CLASS}>
           {/* Mirrors the shell header: wordmark left, module switcher centred
               in an `auto` middle track between two equal `minmax(0,1fr)` side
               tracks, native window-control inset right. Centring through the
               grid rather than absolute positioning is what keeps the switcher
               off the macOS traffic lights and the Windows caption buttons. */}
           <div
-            className="col-start-1 row-start-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-6 px-3"
+            className={SHELL_BRAND_ROW_CLASS}
             data-desktop-brand
             style={
               {
-                WebkitAppRegion: "drag",
+                ...dragRegionStyle,
                 // Reserve visible macOS traffic lights while opening, but
                 // reclaim their space in native fullscreen. The trailing edge
                 // mirrors the reserve so it cannot shift the centred track.
@@ -394,259 +620,368 @@ function JobFinderOpeningShell() {
             >
               <JobFinderShellBrand />
             </div>
+
             <nav
               aria-label="UnEmployed modules"
-              className="col-start-2 hidden h-14 items-center justify-center justify-self-center min-[900px]:flex"
+              className={SHELL_MODULE_NAV_CLASS}
               data-desktop-module-navigation
               style={dragRegionStyle}
             >
               <div
                 className="flex flex-nowrap items-center gap-6"
+                role="list"
                 style={noDragRegionStyle}
               >
-                <span
-                  aria-current="page"
-                  className="whitespace-nowrap text-[15px] font-semibold tracking-(--tracking-badge) text-(--text-headline)"
-                >
-                  Job Finder
-                </span>
-                <span aria-hidden="true" className="h-4 w-px bg-border/50" />
-                <a
-                  className="whitespace-nowrap text-[15px] font-semibold tracking-(--tracking-badge) text-muted-foreground hover:text-foreground"
-                  href="#/interview-helper"
-                >
-                  Interview Helper
-                </a>
+                {suiteModules.map((moduleName, index) => (
+                  <div
+                    className="flex items-center gap-6"
+                    key={moduleName}
+                    role="listitem"
+                  >
+                    {index > 0 ? (
+                      <span
+                        aria-hidden="true"
+                        className="h-4 w-px bg-border/50"
+                      />
+                    ) : null}
+                    {moduleName === "job-finder" ? (
+                      <span
+                        aria-current="page"
+                        className={SHELL_MODULE_LABEL_CLASS}
+                      >
+                        {formatStatusLabel(moduleName)}
+                      </span>
+                    ) : (
+                      // Routing is available before the workspace is: the
+                      // other module is a plain hash link so the switcher
+                      // stays usable while Job Finder opens.
+                      <a
+                        aria-label="Open Interview Helper"
+                        className={SHELL_MODULE_LINK_CLASS}
+                        href="#/interview-helper"
+                      >
+                        {formatStatusLabel(moduleName)}
+                      </a>
+                    )}
+                  </div>
+                ))}
               </div>
             </nav>
+
             <div
               aria-hidden="true"
               className="col-start-3 min-w-0 justify-self-end"
               data-desktop-header-window-control-inset
               style={
                 {
-                  WebkitAppRegion: "drag",
+                  ...dragRegionStyle,
                   inlineSize: isWindows ? "8.5rem" : undefined,
                 } as CSSProperties
               }
             />
           </div>
 
-          {isWindows ? (
-            <div
-              aria-label="Window controls"
-              className="absolute right-0 top-0 z-40 flex h-14 items-stretch"
-              role="group"
-              style={noDragRegionStyle}
-            >
-              <Button
-                aria-label="Minimize window"
-                className="h-full w-11 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--surface-panel-raised) hover:text-foreground"
-                disabled={!windowControlsState.isMinimizable}
-                onClick={() => {
-                  void runWindowAction(() =>
-                    window.unemployed.window.minimize(),
-                  );
-                }}
-                type="button"
-                variant="ghost"
+          <div
+            className="absolute right-0 top-0 z-40 flex h-14 items-stretch justify-end"
+            style={dragRegionStyle}
+          >
+            {isWindows ? (
+              <div
+                aria-label="Window controls"
+                className="flex h-full items-stretch gap-0"
+                role="group"
+                style={noDragRegionStyle}
               >
-                <Minus aria-hidden="true" className="size-3.5" />
-              </Button>
-              <Button
-                aria-label={
-                  windowControlsState.isMaximized
-                    ? "Restore window"
-                    : "Maximize window"
-                }
-                className="h-full w-11 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--surface-panel-raised) hover:text-foreground"
-                onClick={() => {
-                  void runWindowAction(() =>
-                    window.unemployed.window.toggleMaximize(),
-                  );
-                }}
-                type="button"
-                variant="ghost"
-              >
-                <Square aria-hidden="true" className="size-3.5" />
-              </Button>
-              <Button
-                aria-label="Close window"
-                className="h-full w-12 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--button-close-hover) hover:text-primary-foreground"
-                disabled={!windowControlsState.isClosable}
-                onClick={() => {
-                  void window.unemployed.window.close();
-                }}
-                type="button"
-                variant="ghost"
-              >
-                <X aria-hidden="true" className="size-3.5" />
-              </Button>
-            </div>
-          ) : null}
+                <Button
+                  aria-label="Minimize window"
+                  className="h-full w-11 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--surface-panel-raised) hover:text-foreground"
+                  disabled={!windowControlsState.isMinimizable}
+                  onClick={() => {
+                    void runWindowAction(() =>
+                      window.unemployed.window.minimize(),
+                    );
+                  }}
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  <Minus aria-hidden="true" className="size-3.5" />
+                </Button>
+                <Button
+                  aria-label={
+                    windowControlsState.isMaximized
+                      ? "Restore window"
+                      : "Maximize window"
+                  }
+                  className="h-full w-11 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--surface-panel-raised) hover:text-foreground"
+                  onClick={() => {
+                    void runWindowAction(() =>
+                      window.unemployed.window.toggleMaximize(),
+                    );
+                  }}
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  <Square aria-hidden="true" className="size-3.5" />
+                </Button>
+                <Button
+                  aria-label="Close window"
+                  className="h-full w-12 rounded-none border-0 bg-transparent p-0 text-muted-foreground shadow-none hover:bg-(--button-close-hover) hover:text-primary-foreground"
+                  disabled={!windowControlsState.isClosable}
+                  onClick={() => {
+                    void window.unemployed.window.close();
+                  }}
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  <X aria-hidden="true" className="size-3.5" />
+                </Button>
+              </div>
+            ) : null}
+          </div>
 
           <nav
             aria-label="Job Finder sections"
-            // Centred on the same axis as the module switcher above, exactly
-            // as the loaded shell centres its destination card.
-            className="col-start-1 row-start-2 mx-auto flex w-fit min-w-0 max-w-full items-center gap-1 overflow-x-auto rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel) p-1 min-[1440px]:hidden"
+            // Centred on the same axis as the module switcher above, with the
+            // same one-sided trailing reserve the loaded shell keeps for its
+            // notification group, so the compact card does not jump sideways
+            // when the workspace resolves.
+            //
+            // The reserve is written as two non-overlapping bands rather than
+            // as the loaded shell's three-utility form. There the sm-band
+            // padding can only ever apply between 640 and 899, which is
+            // exactly the band the max-width utility is meant to own, and it
+            // wins there purely on emission order: Tailwind emits arbitrary
+            // media variants before named breakpoints. The shell carries that
+            // inversion as an audited exception in
+            // tailwind-variant-order.test.ts, because the band sits below the
+            // 1024px minimum supported width and a shell test pins the current
+            // rendering there. Copying the form would have added a second,
+            // unaudited instance, so the opening frame states its two bands
+            // directly: identical winning padding at every supported width,
+            // and no overlap left to resolve.
+            className={cn(
+              "col-span-2 col-start-1 row-start-2 flex min-w-0 items-center justify-center overflow-visible sm:col-span-1 sm:col-start-1 sm:justify-center min-[1440px]:hidden",
+              isMac
+                ? "max-[899px]:pr-40 min-[900px]:pr-0"
+                : "max-[899px]:pr-40 min-[900px]:pr-80",
+            )}
             style={noDragRegionStyle}
           >
-            {openingShellDestinations.map((destination) => (
-              <Button
-                aria-current={
-                  isOpeningDestinationActive(
-                    location.pathname,
-                    destination.path,
-                  )
-                    ? "page"
-                    : undefined
-                }
-                className="h-9 shrink-0 px-3 text-(length:--text-small)"
-                key={destination.path}
-                onClick={() => {
-                  void navigate(destination.path);
-                }}
-                type="button"
-                variant={
-                  isOpeningDestinationActive(
-                    location.pathname,
-                    destination.path,
-                  )
-                    ? "secondary"
-                    : "ghost"
-                }
-              >
-                {destination.label}
-              </Button>
-            ))}
+            <div
+              className="relative flex w-fit min-w-0 max-w-full flex-nowrap items-center gap-1 overflow-visible rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel) p-1 sm:gap-1.5"
+              data-job-finder-compact-navigation
+            >
+              <div className="relative min-w-0 flex-1">
+                <div className="overflow-x-auto overscroll-x-contain px-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+                  <div className="flex min-w-max flex-nowrap items-center gap-1 sm:gap-1.5">
+                    {openingShellPrimaryDestinations.map((destination) => {
+                      const isActive = isOpeningDestinationActive(
+                        location.pathname,
+                        destination.path,
+                      );
+                      return (
+                        <button
+                          aria-current={isActive ? "page" : undefined}
+                          className={cn(
+                            COMPACT_NAV_PILL_CLASS,
+                            isActive ? COMPACT_NAV_PILL_ACTIVE_CLASS : "",
+                          )}
+                          key={destination.path}
+                          onClick={() => {
+                            void navigate(destination.path);
+                          }}
+                          type="button"
+                        >
+                          {destination.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
           </nav>
         </div>
       </header>
 
       <aside
         aria-label="Job Finder sidebar"
-        className="fixed bottom-0 left-0 top-14 z-40 hidden w-(--job-finder-side-width) overflow-hidden border-r border-border/15 bg-(--shell-header-bg) min-[1440px]:block"
+        className={SHELL_SIDEBAR_CLASS}
         data-job-finder-sidebar
       >
         <div
-          className={`flex h-full min-h-0 flex-col ${isSidebarCollapsed ? "px-2 py-3" : "px-4 py-4"}`}
+          className={cn(
+            "flex h-full min-h-0 flex-col",
+            isSidebarCollapsed ? "px-2 py-3" : "px-4 py-4",
+          )}
         >
           <div
-            className={`mb-1 flex h-10 shrink-0 items-center text-muted-foreground ${isSidebarCollapsed ? "justify-center" : "px-2"}`}
+            className={cn(
+              "mb-1 flex h-10 shrink-0 items-center",
+              isSidebarCollapsed ? "justify-center" : "justify-start",
+            )}
+            data-job-finder-sidebar-toggle
+            style={noDragRegionStyle}
           >
-            <Menu aria-hidden="true" className="size-5" />
+            {/* The rail's collapse control is owned by the loaded shell; the
+                opening frame paints the same 36px box in the same place so
+                the icon does not slide when it becomes interactive. */}
+            <span
+              aria-hidden="true"
+              className="flex size-9 items-center justify-center rounded-(--radius-field) text-foreground-muted"
+            >
+              <Menu aria-hidden="true" className="size-5" />
+            </span>
           </div>
           <nav
             aria-label="Job Finder sidebar destinations"
-            className={`grid min-h-0 flex-1 content-start overflow-x-hidden overflow-y-auto overscroll-contain ${isSidebarCollapsed ? "gap-2" : "gap-4"}`}
+            className={cn(
+              "grid min-h-0 min-w-0 flex-1 content-start overflow-x-hidden overflow-y-auto overscroll-contain",
+              isSidebarCollapsed ? "gap-2" : "gap-4",
+            )}
             data-job-finder-sidebar-scroll-region
             style={noDragRegionStyle}
           >
             {openingShellSidebarGroups.map((group) => (
               <section
                 aria-label={group.label}
-                className="grid gap-1"
+                className="grid min-w-0 gap-1"
                 key={group.label}
                 role="group"
               >
                 {/* An eyebrow is never a heading tag: the sidebar group labels
-                  are 11px eyebrows, so they must not enter the heading
-                  outline ahead of the route's own h1. */}
-                <span
-                  className={`px-2 text-(length:--text-eyebrow) font-semibold uppercase tracking-(--tracking-caps) text-muted-foreground ${isSidebarCollapsed ? "sr-only" : ""}`}
-                >
+                    are 11px eyebrows, so they must not enter the heading
+                    outline ahead of the route's own h1. */}
+                <span className={cn(sidebarGroupEyebrowClass, "font-semibold")}>
                   {group.label}
                 </span>
-                <div className="grid gap-0.5">
-                  {group.destinations.map((destination) => (
-                    <button
-                      aria-current={
-                        isOpeningDestinationActive(
-                          location.pathname,
-                          destination.path,
-                        )
-                          ? "page"
-                          : undefined
-                      }
-                      className={`inline-flex min-h-9 items-center gap-2 rounded-(--radius-button) border-l-2 px-2 py-1.5 text-left text-sm font-medium ${isSidebarCollapsed ? "justify-center border-l-0 px-0" : ""} ${
-                        isOpeningDestinationActive(
-                          location.pathname,
-                          destination.path,
-                        )
-                          ? "border-l-primary bg-accent text-accent-foreground"
-                          : "border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      }`}
-                      key={destination.path}
-                      onClick={() => {
-                        void navigate(destination.path);
-                      }}
-                      type="button"
-                    >
-                      <destination.icon
-                        aria-hidden="true"
-                        className="size-4 shrink-0"
-                      />
-                      <span className={isSidebarCollapsed ? "sr-only" : ""}>
-                        {destination.label}
-                      </span>
-                    </button>
-                  ))}
+                <div className="grid min-w-0 gap-0.5 overflow-hidden">
+                  {group.destinations.map((destination) =>
+                    renderOpeningSidebarDestination(destination),
+                  )}
                 </div>
               </section>
             ))}
+            <section
+              aria-label="Everything else"
+              className={cn(
+                "grid min-w-0",
+                isSidebarCollapsed ? "gap-2" : "gap-3",
+              )}
+              data-job-finder-sidebar-secondary
+              role="group"
+            >
+              <span className={cn(sidebarGroupEyebrowClass, "font-semibold")}>
+                Everything else
+              </span>
+              {openingShellSecondaryGroups.map((group) => (
+                <div
+                  aria-label={group.label}
+                  className="grid min-w-0 gap-1"
+                  key={group.label}
+                  role="group"
+                >
+                  <span className={cn(sidebarGroupEyebrowClass, "font-medium")}>
+                    {group.label}
+                  </span>
+                  <div className="grid min-w-0 gap-0.5 overflow-hidden">
+                    {group.destinations.map((destination) =>
+                      renderOpeningSidebarDestination(destination),
+                    )}
+                  </div>
+                </div>
+              ))}
+              <div className="grid min-w-0 gap-0.5 overflow-hidden">
+                {/* The shortcuts dialog belongs to the loaded shell. Its row
+                    is still reserved here, or the rail is one row shorter
+                    while opening and every group above it shifts. */}
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    SHELL_SIDEBAR_ROW_CLASS,
+                    isSidebarCollapsed && SHELL_SIDEBAR_ROW_COLLAPSED_CLASS,
+                  )}
+                  data-job-finder-sidebar-shortcuts-entry
+                >
+                  <Keyboard aria-hidden="true" className="size-4 shrink-0" />
+                  <span
+                    className={cn(
+                      "min-w-0 truncate",
+                      isSidebarCollapsed && "sr-only",
+                    )}
+                  >
+                    {JOB_FINDER_SHORTCUTS_DIALOG_LABEL}
+                  </span>
+                  {isSidebarCollapsed ? null : (
+                    <kbd className="mr-1 ml-auto inline-flex min-w-6 shrink-0 items-center justify-center rounded-(--radius-field) border border-(--surface-panel-border) bg-(--input) px-1.5 py-0.5 text-(length:--text-tiny) font-medium text-foreground">
+                      ?
+                    </kbd>
+                  )}
+                </span>
+              </div>
+            </section>
           </nav>
         </div>
       </aside>
 
       <div
-        className="flex min-h-screen flex-col pt-[7.25rem] min-[1440px]:pt-14 min-[1440px]:pl-(--job-finder-side-width)"
-        data-job-finder-shell-content
-      >
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none fixed inset-x-0 top-[7.25rem] z-30 hidden bg-gradient-to-b from-(--shell-header-bg) to-transparent sm:block min-[1440px]:top-14 min-[1440px]:left-(--job-finder-side-width)",
+          SHELL_HEADER_MASK_HEIGHT_CLASS,
+          SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
+        )}
+        data-job-finder-shell-header-mask
+      />
+      <div className={SHELL_CONTENT_CLASS} data-job-finder-shell-content>
         <main
           aria-busy="true"
-          aria-label={`Opening ${openingRouteLabel}`}
-          className="flex-1 overflow-hidden px-3 pb-10 pt-3 min-[1440px]:px-4"
+          aria-label={openingRouteLabel}
+          className={
+            isLockedOpeningRoute
+              ? SHELL_MAIN_LOCKED_CLASS
+              : SHELL_MAIN_SCROLLING_CLASS
+          }
         >
-          <div className="mx-auto grid w-full max-w-472 gap-5">
-            <div
-              aria-atomic="true"
-              aria-live="polite"
-              className="grid gap-1"
-              role="status"
-            >
-              <h1>{openingRouteLabel}</h1>
-              <p className="text-muted-foreground">
-                {openingRouteLabel === "Home"
-                  ? "See progress, open tasks, and the best next step."
-                  : `Opening your saved ${openingRouteLabel.toLowerCase()} workspace.`}
-              </p>
-              <div className="mt-3 flex min-h-8 items-center gap-3">
-                <span className="rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) px-2 py-1 text-(length:--text-tiny) font-semibold uppercase tracking-(--tracking-caps) text-muted-foreground">
-                  Opening saved workspace
-                </span>
-              </div>
-            </div>
-            <div
-              aria-hidden="true"
-              className="grid gap-3 md:grid-cols-[minmax(0,1.7fr)_minmax(18rem,1fr)]"
-              data-job-finder-opening-placeholder
-            >
-              <div className="surface-panel-shell min-h-56 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
-                <div className="h-4 w-36 rounded bg-(--surface-panel-raised)" />
-                <div className="mt-5 h-10 w-64 max-w-full rounded bg-(--surface-panel-raised)" />
-                <div className="mt-8 grid grid-cols-3 gap-3">
-                  <div className="h-20 rounded bg-(--surface-panel-raised)" />
-                  <div className="h-20 rounded bg-(--surface-panel-raised)" />
-                  <div className="h-20 rounded bg-(--surface-panel-raised)" />
-                </div>
-              </div>
-              <div className="surface-panel-shell min-h-56 rounded-(--radius-panel) border border-(--surface-panel-border) p-5">
-                <div className="h-4 w-28 rounded bg-(--surface-panel-raised)" />
-                <div className="mt-5 h-12 rounded bg-(--surface-panel-raised)" />
-                <div className="mt-3 h-12 rounded bg-(--surface-panel-raised)" />
-              </div>
-            </div>
+          <div
+            className={cn(
+              SHELL_ROUTE_CONTAINER_BASE_CLASS,
+              isLockedOpeningRoute ? "h-full min-h-0" : "min-h-full",
+            )}
+            data-job-finder-route-container
+            style={SHELL_ROUTE_SECTION_GAP_STYLE}
+          >
+            {/* The loaded Home is a single column: page header, status row,
+                one recommended-next card, then the full-width sections. The
+                skeleton reserves the same blocks in the same order, so
+                hydration replaces content instead of re-laying the page out.
+
+                The locked routes go through the real `LockedScreenLayout`
+                rather than a copy of it. That layout owns the 12px above a
+                route title on the locked path (the shell gives those routes
+                `pt-0` on `main` and the layout supplies `pt-3` itself, so the
+                offset is the same on every route — see its F73 comment).
+                Re-declaring the section here left the opening title 12px high
+                and snapped it down on hydration on Profile, Find jobs and
+                Applications, which is why it is the component and not another
+                copied class string. */}
+            {isLockedOpeningRoute ? (
+              <LockedScreenLayout
+                topContent={
+                  <div className="grid min-w-0 gap-5">{openingHeaderBlock}</div>
+                }
+              >
+                {openingPlaceholderBlock}
+              </LockedScreenLayout>
+            ) : (
+              <section className="grid min-w-0 gap-5 pb-8">
+                {openingHeaderBlock}
+                {openingPlaceholderBlock}
+              </section>
+            )}
           </div>
         </main>
       </div>
@@ -978,13 +1313,14 @@ export function JobFinderPage() {
         tailoredDraftPreparation={context.tailoredDraftPreparation}
         workspace={workspace}
       >
+        {/* CR-PKG06-01: the lazy fallback paints the destination's own frame
+            rather than a bordered card dead-centred in an empty viewport, so
+            the route resolves into the shape it was already showing. */}
         <Suspense
           fallback={
-            <WorkspaceStateScreen
-              fillAvailableViewport
-              kicker="Job Finder"
-              message="We’re opening this workspace surface."
-              title="Loading screen"
+            <RouteSkeleton
+              panes={getRouteSkeletonPanes(location.pathname)}
+              title={getOpeningRouteLabel(location.pathname)}
             />
           }
         >

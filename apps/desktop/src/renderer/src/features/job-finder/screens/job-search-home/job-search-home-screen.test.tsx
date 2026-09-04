@@ -5,6 +5,7 @@ import type {
   JobFinderWorkspaceSnapshot,
   JobSearchCampaign,
 } from "@unemployed/contracts";
+import { buildDiscoveryCardOnlyEvidenceWarning } from "@unemployed/contracts";
 import {
   cleanup,
   fireEvent,
@@ -227,19 +228,38 @@ function workspace(): JobFinderWorkspaceSnapshot {
  * Home reports the shared discovery count helper's answer, so the fixture
  * carries a real persisted run rather than a hand-written number.
  */
+/**
+ * `keptInPlan` is the population Find jobs lists: the plan's job ids
+ * intersected with the workspace's live discovery jobs. `retiredFromPlan` adds
+ * ids that stay in the plan's ledger while their rows are gone (dismissed,
+ * applied), which is exactly what production leaves behind after one "Not
+ * interested" click — the ledger is never pruned. Seeding both is what stops a
+ * fixture from agreeing with a Home that counts the wrong one.
+ */
 function withLastSearch(
   base: JobFinderWorkspaceSnapshot,
-  counts: { retained: number; duplicates: number; keptInPlan?: number },
+  counts: {
+    retained: number;
+    duplicates: number;
+    keptInPlan?: number;
+    retiredFromPlan?: number;
+  },
 ): JobFinderWorkspaceSnapshot {
   const keptInPlan = counts.keptInPlan ?? counts.retained;
+  const retiredFromPlan = counts.retiredFromPlan ?? 0;
+  const planJobIds = Array.from(
+    { length: keptInPlan + retiredFromPlan },
+    (_unused, index) => `plan_job_${index}`,
+  );
   return {
     ...base,
     campaigns: base.campaigns.map((campaign) => ({
       ...campaign,
-      jobIds: Array.from(
-        { length: keptInPlan },
-        (_unused, index) => `plan_job_${index}`,
-      ),
+      jobIds: planJobIds,
+    })),
+    discoveryJobs: planJobIds.slice(0, keptInPlan).map((id) => ({
+      id,
+      discoveryMethod: "browser_agent",
     })),
     recentDiscoveryRuns: [
       {
@@ -333,6 +353,271 @@ function zeroMetricsWorkspace(
 }
 
 describe("JobSearchHomeScreen", () => {
+  it("prints the newest run's own evidence warning verbatim in source health", () => {
+    const warning = buildDiscoveryCardOnlyEvidenceWarning("Example Board");
+    const warnedWorkspace = withLastSearch(workspace(), {
+      retained: 4,
+      duplicates: 0,
+    });
+    const warnedRuns = warnedWorkspace.recentDiscoveryRuns.map((run) => ({
+      ...run,
+      summary: { ...run.summary, warnings: [warning] },
+    }));
+
+    render(
+      <JobSearchHomeScreen
+        activityPending={false}
+        onNavigate={vi.fn()}
+        onNavigateGlobalEntry={vi.fn()}
+        onPauseActivity={vi.fn()}
+        onResumeActivity={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        workspace={
+          {
+            ...warnedWorkspace,
+            recentDiscoveryRuns: warnedRuns,
+          } as unknown as JobFinderWorkspaceSnapshot
+        }
+      />,
+    );
+
+    const notice = screen.getByTestId("source-health-run-notice");
+    expect(notice.textContent).toBe(warning);
+    // Nothing in the product can open the listing elsewhere, so the source
+    // health line must not offer it.
+    expect(notice.textContent).not.toMatch(/open|browser|link/i);
+    expect(screen.getByTestId("source-health-badge-top").textContent).toContain(
+      warning,
+    );
+  });
+
+  it("shows no source-health run notice when the newest run recorded no warning", () => {
+    render(
+      <JobSearchHomeScreen
+        activityPending={false}
+        onNavigate={vi.fn()}
+        onNavigateGlobalEntry={vi.fn()}
+        onPauseActivity={vi.fn()}
+        onResumeActivity={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        workspace={withLastSearch(workspace(), { retained: 4, duplicates: 0 })}
+      />,
+    );
+
+    expect(screen.queryByTestId("source-health-run-notice")).toBeNull();
+    expect(screen.queryByTestId("source-health-problem-summary")).toBeNull();
+  });
+
+  it("collapses a wall of raw run errors into one plain-language summary line", () => {
+    const rawErrors = [
+      "Public provider API collection failed: Lever API request timed out.",
+      "Agent discovery stopped after 10 steps. Found 0 jobs.",
+      "Unable to open a usable starting URL.",
+    ];
+    const cardOnlyWarning = buildDiscoveryCardOnlyEvidenceWarning("Wellfound");
+    // 511 enabled sources; 25 of them recorded a problem in the last search.
+    const sourceHealth = [
+      ...Array.from({ length: 485 }, (_unused, index) => ({
+        targetId: `ok-${index}`,
+        health: "healthy",
+        warnings: [],
+      })),
+      {
+        targetId: "card-only",
+        health: "warning",
+        warnings: [cardOnlyWarning],
+      },
+      ...Array.from({ length: 18 }, (_unused, index) => ({
+        targetId: `failed-${index}`,
+        health: "failed",
+        warnings: [rawErrors[index % rawErrors.length]],
+      })),
+      ...Array.from({ length: 4 }, (_unused, index) => ({
+        targetId: `empty-${index}`,
+        health: "warning",
+        warnings: ["Collected 0 candidate jobs."],
+      })),
+      ...Array.from({ length: 3 }, (_unused, index) => ({
+        targetId: `cancelled-${index}`,
+        health: "cancelled",
+        warnings: ["Discovery was cancelled before this target finished."],
+      })),
+    ];
+    const base = withLastSearch(workspace(), { retained: 4, duplicates: 0 });
+    const warnedWorkspace = {
+      ...base,
+      recentDiscoveryRuns: base.recentDiscoveryRuns.map((run) => ({
+        ...run,
+        summary: {
+          ...run.summary,
+          sourceHealth,
+          warnings: sourceHealth.flatMap((source) => source.warnings),
+        },
+        targetExecutions: sourceHealth.map((source) => ({
+          targetId: source.targetId,
+          jobsFound: source.targetId.startsWith("empty-") ? 0 : 12,
+        })),
+      })),
+    } as unknown as JobFinderWorkspaceSnapshot;
+
+    render(
+      <JobSearchHomeScreen
+        activityPending={false}
+        onNavigate={vi.fn()}
+        onNavigateGlobalEntry={vi.fn()}
+        onPauseActivity={vi.fn()}
+        onResumeActivity={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        workspace={warnedWorkspace}
+      />,
+    );
+
+    expect(
+      screen.getByTestId("source-health-problem-summary").textContent,
+    ).toBe(
+      "25 sources had a problem in the last search · 18 couldn't be read · 3 stopped early · 4 found nothing",
+    );
+    // The card-only evidence caveat keeps its own single line.
+    const notices = screen.getAllByTestId("source-health-run-notice");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.textContent).toBe(cardOnlyWarning);
+    // No raw internal error prose reaches Home.
+    const bar = screen.getByTestId("source-health-badge-top").textContent ?? "";
+    for (const rawError of rawErrors) {
+      expect(bar).not.toContain(rawError);
+    }
+    expect(bar).not.toMatch(
+      /Public provider API|Agent discovery stopped|usable starting URL|Collected 0 candidate/,
+    );
+    // The detail is one click away.
+    expect(
+      screen.getByRole("button", { name: "Review source health" }),
+    ).toBeTruthy();
+  });
+
+  it("still shows the card-only caveat when the run joined it onto a partial warning", () => {
+    const caveat = buildDiscoveryCardOnlyEvidenceWarning("Wellfound");
+    // Production shape: `[partial.warning, cardOnlyWarning].join(" ")`.
+    const joined = `Stopped after the page budget. ${caveat}`;
+    const base = withLastSearch(workspace(), { retained: 4, duplicates: 0 });
+    const joinedWorkspace = {
+      ...base,
+      recentDiscoveryRuns: base.recentDiscoveryRuns.map((run) => ({
+        ...run,
+        summary: {
+          ...run.summary,
+          sourceHealth: [
+            { targetId: "wellfound", health: "warning", warnings: [joined] },
+          ],
+          warnings: [joined],
+        },
+        targetExecutions: [{ targetId: "wellfound", jobsFound: 12 }],
+      })),
+    } as unknown as JobFinderWorkspaceSnapshot;
+
+    render(
+      <JobSearchHomeScreen
+        activityPending={false}
+        onNavigate={vi.fn()}
+        onNavigateGlobalEntry={vi.fn()}
+        onPauseActivity={vi.fn()}
+        onResumeActivity={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        workspace={joinedWorkspace}
+      />,
+    );
+
+    // The caveat survives, on its own line, without dragging the partial
+    // warning's prose onto Home with it.
+    const notices = screen.getAllByTestId("source-health-run-notice");
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.textContent).toBe(caveat);
+    const bar = screen.getByTestId("source-health-badge-top").textContent ?? "";
+    expect(bar).not.toContain("Stopped after the page budget");
+    // The source still had real trouble, so it is still counted.
+    expect(
+      screen.getByTestId("source-health-problem-summary").textContent,
+    ).toBe(
+      "1 source had a problem in the last search · 1 finished with a problem",
+    );
+  });
+
+  it("never leaves Review source health alone while profile setup blocks Home", () => {
+    const blocked = zeroMetricsWorkspace({
+      profileSetupStatus: "in_progress",
+      sources: 1,
+    });
+    const blockedWorkspace = {
+      ...blocked,
+      dashboard: {
+        ...blocked.dashboard,
+        sourceHealth: {
+          ...blocked.dashboard.sourceHealth,
+          needsAttention: 3,
+        },
+      },
+    } as unknown as JobFinderWorkspaceSnapshot;
+
+    render(
+      <JobSearchHomeScreen
+        activityPending={false}
+        onNavigate={vi.fn()}
+        onNavigateGlobalEntry={vi.fn()}
+        onPauseActivity={vi.fn()}
+        onResumeActivity={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        workspace={blockedWorkspace}
+      />,
+    );
+
+    // The badge and the summary line are both suppressed during setup, so the
+    // action that reviews them must be too.
+    expect(
+      screen.queryByRole("button", { name: "Review source health" }),
+    ).toBeNull();
+    expect(
+      screen.getByTestId("source-health-badge-top").textContent?.trim(),
+    ).toBe("");
+  });
+
+  it("keeps the summary line singular for one problem source", () => {
+    const base = withLastSearch(workspace(), { retained: 4, duplicates: 0 });
+    const singleWorkspace = {
+      ...base,
+      recentDiscoveryRuns: base.recentDiscoveryRuns.map((run) => ({
+        ...run,
+        summary: {
+          ...run.summary,
+          sourceHealth: [
+            {
+              targetId: "failed-1",
+              health: "failed",
+              warnings: ["Unable to open a usable starting URL."],
+            },
+          ],
+          warnings: ["Unable to open a usable starting URL."],
+        },
+      })),
+    } as unknown as JobFinderWorkspaceSnapshot;
+
+    render(
+      <JobSearchHomeScreen
+        activityPending={false}
+        onNavigate={vi.fn()}
+        onNavigateGlobalEntry={vi.fn()}
+        onPauseActivity={vi.fn()}
+        onResumeActivity={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        workspace={singleWorkspace}
+      />,
+    );
+
+    expect(
+      screen.getByTestId("source-health-problem-summary").textContent,
+    ).toBe("1 source had a problem in the last search · 1 couldn't be read");
+    expect(screen.queryByTestId("source-health-run-notice")).toBeNull();
+  });
+
   it("labels catalog rows as review-only when no live source is enabled", () => {
     const catalogWorkspace = {
       ...zeroMetricsWorkspace({
@@ -784,7 +1069,9 @@ describe("JobSearchHomeScreen", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open browser" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open the Job Finder browser" }),
+    );
     expect(onOpenBrowserSession).toHaveBeenCalledOnce();
 
     rerender(
@@ -978,12 +1265,83 @@ describe("JobSearchHomeScreen", () => {
 
     expect(
       screen.getByText(
-        /Your last search saved 50 new jobs on this device · 15 in your current search plan\./,
+        /Your last search: 50 new jobs saved on this device · 15 kept in your current search plan\./,
       ),
     ).toBeTruthy();
+    // The two numbers are two populations, so they never share one verb: the
+    // run's own number is never "kept" and the plan's is never "saved".
     expect(screen.queryByText(/50 new jobs kept/)).toBeNull();
-    // The two numbers are two populations, so they never share one verb.
-    expect(screen.queryByText(/kept/)).toBeNull();
+    expect(screen.queryByText(/15 saved/)).toBeNull();
+  });
+
+  it("counts the jobs Find jobs lists, not the plan's unpruned ledger", () => {
+    // The plan's `jobIds` is a membership ledger and is never pruned, while
+    // Find jobs and the sidebar badge both list `discoveryJobs` intersected
+    // with it. Counting the ledger made one "Not interested" click leave Home
+    // saying "16 kept in your current search plan" beside Find jobs' "15 jobs
+    // kept in this search plan" — the same words, two numbers.
+    const base = withLastSearch(workspace(), {
+      retained: 50,
+      duplicates: 0,
+      keptInPlan: 15,
+      retiredFromPlan: 1,
+    });
+    expect(base.campaigns[0]?.jobIds).toHaveLength(16);
+    expect(base.discoveryJobs).toHaveLength(15);
+
+    render(
+      <JobSearchHomeScreen
+        activityPending={false}
+        onSelectCampaign={vi.fn()}
+        onNavigate={vi.fn()}
+        onNavigateGlobalEntry={vi.fn()}
+        onPauseActivity={vi.fn()}
+        onResumeActivity={vi.fn()}
+        workspace={base}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        /Your last search: 50 new jobs saved on this device · 15 kept in your current search plan\./,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/16 kept/)).toBeNull();
+  });
+
+  it("states both populations on the finished-search status line", () => {
+    // "Search finished · 50 new jobs saved" sat beside Find jobs' "15 jobs
+    // kept in this search plan", so one search read as two numbers
+    // contradicting each other.
+    render(
+      <JobSearchHomeScreen
+        activityPending={false}
+        discoveryRunFeedback={createDiscoveryRunSucceededFeedback()}
+        onNavigate={vi.fn()}
+        onNavigateGlobalEntry={vi.fn()}
+        onPauseActivity={vi.fn()}
+        onResumeActivity={vi.fn()}
+        onRunDiscovery={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        workspace={withLastSearch(workspace(), {
+          retained: 50,
+          duplicates: 0,
+          keptInPlan: 15,
+        })}
+      />,
+    );
+
+    const statusLine =
+      "Search finished · 50 new jobs saved on this device · 15 kept in your current search plan.";
+    expect(screen.getByTestId("home-status-line").textContent).toBe(statusLine);
+    // One owner for the counts clause: the recommended card must not print the
+    // identical sentence again a few lines above its own status line.
+    expect(
+      screen.queryAllByText(
+        /50 new jobs saved on this device · 15 kept in your current search plan/,
+      ),
+    ).toHaveLength(1);
+    expect(screen.queryByText(/^Your last search/)).toBeNull();
   });
 
   it("shows only non-zero source status states", () => {
@@ -1469,6 +1827,72 @@ describe("JobSearchHomeScreen", () => {
       screen.getByTestId("source-health-badge-top"),
     ).getByText(/1 need attention/);
     expect(failingBadge.className).toContain("text-critical");
+  });
+
+  it("tells a user with saved-but-disabled sources to turn one on, not to add one", () => {
+    // `dashboard.sourceHealth.total` counts enabled sources only, so it
+    // cannot tell "none saved" from "saved but all switched off". Find jobs
+    // already distinguishes the two; Home must not contradict it by telling a
+    // user with 2 saved sources that they have none.
+    const onNavigate = vi.fn();
+    render(
+      <JobSearchHomeScreen
+        activityPending={false}
+        onNavigate={onNavigate}
+        onNavigateGlobalEntry={vi.fn()}
+        onPauseActivity={vi.fn()}
+        onResumeActivity={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        workspace={
+          {
+            ...zeroMetricsWorkspace({
+              profileSetupStatus: "completed",
+              sources: 0,
+            }),
+            searchPreferences: {
+              discovery: {
+                historyLimit: 5,
+                targets: [
+                  { id: "target_off_a", enabled: false, staleReason: null },
+                  { id: "target_off_b", enabled: false, staleReason: null },
+                ],
+              },
+            },
+          } as unknown as JobFinderWorkspaceSnapshot
+        }
+      />,
+    );
+
+    const sourceStatus = screen.getByTestId("source-health-badge-top");
+    expect(sourceStatus.textContent).not.toContain("No job sources configured");
+    expect(sourceStatus.textContent).toContain("No job sources turned on");
+    expect(sourceStatus.textContent).toContain("2 saved sources");
+    // The same fact Find jobs states, in the same words.
+    expect(
+      screen.getByText(/Sources are saved but none are turned on/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/You can enable a public board/)).toBeNull();
+  });
+
+  it("still tells a workspace with no saved source at all to add one", () => {
+    render(
+      <JobSearchHomeScreen
+        activityPending={false}
+        onNavigate={vi.fn()}
+        onNavigateGlobalEntry={vi.fn()}
+        onPauseActivity={vi.fn()}
+        onResumeActivity={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        workspace={zeroMetricsWorkspace({
+          profileSetupStatus: "completed",
+          sources: 0,
+        })}
+      />,
+    );
+
+    const sourceStatus = screen.getByTestId("source-health-badge-top");
+    expect(sourceStatus.textContent).toContain("No job sources configured");
+    expect(screen.getByText("Set up job sources")).toBeTruthy();
   });
 
   it("keeps an unresolved search outcome outside the Recommended-next card", () => {

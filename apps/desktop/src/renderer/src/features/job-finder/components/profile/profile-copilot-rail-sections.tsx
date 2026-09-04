@@ -7,10 +7,12 @@ import {
   X,
 } from "lucide-react";
 import {
+  useEffect,
   useId,
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -24,6 +26,11 @@ import { ScrollArea } from "@renderer/components/ui/scroll-area";
 import { Textarea } from "@renderer/components/ui/textarea";
 import { cn } from "@renderer/lib/cn";
 import { getProfileCopilotContextKey } from "../../lib/profile-copilot-context";
+import {
+  RESUME_ASSISTANT_EXPECTED_WAIT_LABEL,
+  RESUME_ASSISTANT_LONG_RUNNING_MS,
+} from "../../lib/wait-state";
+import { WaitIndicator } from "../wait-indicator";
 import { ProfileCopilotMessageContent } from "./profile-copilot-message-content";
 import {
   describePatchOperation,
@@ -276,6 +283,31 @@ export function ThinkingDots(props: { label: string; className?: string }) {
   );
 }
 
+/**
+ * Whole seconds since a wait began, restarting each time one does. The clock
+ * lives here because the Copilot's pending state is a boolean prop with no
+ * start timestamp attached to it.
+ */
+function useWaitElapsedSeconds(active: boolean): number {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    setElapsedSeconds(0);
+    if (!active || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const startedAt = Date.now();
+    const intervalId = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000));
+    }, 1_000);
+
+    return () => window.clearInterval(intervalId);
+  }, [active]);
+
+  return elapsedSeconds;
+}
+
 export function ProfileCopilotTranscript(props: {
   actionsDisabledReason?: string | null | undefined;
   busy: boolean;
@@ -296,6 +328,7 @@ export function ProfileCopilotTranscript(props: {
 }) {
   const currentContext = props.context ?? { surface: "general" as const };
   const revisions = props.revisions ?? [];
+  const pendingElapsedSeconds = useWaitElapsedSeconds(props.isPendingHere);
   const undonePatchGroupIds = useMemo(
     () => getUndonePatchGroupIds(revisions),
     [revisions],
@@ -450,12 +483,23 @@ export function ProfileCopilotTranscript(props: {
 
         {props.isPendingHere ? (
           <article
-            className="grid justify-items-start"
+            className="grid w-full justify-items-stretch"
             data-profile-copilot-pending="true"
           >
-            <div className="max-w-full px-1 py-1.5 text-sm text-foreground">
-              <ThinkingDots label="Thinking" />
-            </div>
+            {/* A measured Copilot round trip is ~22s, and this used to be
+                three bouncing dots and nothing else — no clock, so nothing
+                could tell the user the wait had gone long, and no stated
+                expectation to go long *against*. It renders the shared wait
+                trio now, the same one the Studio Assistant shows. */}
+            <WaitIndicator
+              className="max-w-full px-1 py-1.5"
+              elapsedSeconds={pendingElapsedSeconds}
+              expectationLabel={RESUME_ASSISTANT_EXPECTED_WAIT_LABEL}
+              label="Thinking"
+              longRunningMs={RESUME_ASSISTANT_LONG_RUNNING_MS}
+              message="Working on your request…"
+              variant="inline"
+            />
           </article>
         ) : null}
       </div>
@@ -562,6 +606,12 @@ export function ProfileCopilotComposer(props: {
 export function ProfileCopilotCollapsedBubble(props: {
   onClick: () => void;
   collapsedPreviewTitle: string;
+  /**
+   * Rendered as an ordinary control inside a screen's action row rather than
+   * as a floating pill. Identical in shape, label and icon to the Resume
+   * Studio launcher, so the two screens are indistinguishable.
+   */
+  docked?: boolean;
   hasPendingReview?: boolean;
   isDraggable?: boolean;
   isOpen: boolean;
@@ -579,6 +629,57 @@ export function ProfileCopilotCollapsedBubble(props: {
    */
   yieldsToFocusedField?: boolean;
 }) {
+  if (props.docked) {
+    // The badge says which kind of activity is waiting; an unexplained dot
+    // could mean an unread reply, a change to review, or work in progress.
+    const badgeLabel = props.isPendingHere
+      ? "Replying now"
+      : props.hasPendingReview
+        ? "A change is waiting for your review"
+        : props.messageCount > 0
+          ? "This thread has replies"
+          : null;
+
+    return (
+      <Button
+        aria-expanded={props.isOpen}
+        aria-haspopup="dialog"
+        aria-label={`${props.title ?? "the Assistant"}: ${
+          props.isPendingHere
+            ? "Replying now"
+            : props.messageCount > 0
+              ? props.collapsedPreviewTitle
+              : "Message the Assistant"
+        }`}
+        className="relative"
+        data-profile-copilot-launcher="true"
+        data-profile-copilot-launcher-yielded="false"
+        onClick={props.onClick}
+        // Default size on purpose: it shares a row with the default-size Save
+        // button, and the two must paint at one height. Resume Studio's copy
+        // is compact because its header row is compact; size follows the row.
+        title={`${props.title ?? "the Assistant"}: ${props.collapsedPreviewTitle}`}
+        type="button"
+        variant="secondary"
+      >
+        {props.isPendingHere ? (
+          <Sparkles aria-hidden="true" className="size-4 animate-pulse" />
+        ) : (
+          <MessageSquare aria-hidden="true" className="size-4" />
+        )}
+        Assistant
+        {badgeLabel ? (
+          <span
+            className="absolute right-0.5 top-0.5 size-2 rounded-full border border-background bg-primary"
+            title={badgeLabel}
+          >
+            <span className="sr-only">{badgeLabel}</span>
+          </span>
+        ) : null}
+      </Button>
+    );
+  }
+
   return (
     <Button
       aria-label={`${props.title ?? "the Assistant"}: ${

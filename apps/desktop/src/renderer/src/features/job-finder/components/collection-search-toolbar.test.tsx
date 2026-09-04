@@ -294,7 +294,11 @@ describe("CollectionSearchToolbar", () => {
     fireEvent.click(screen.getByText("Saved views"));
     const menu = document.querySelector("[data-saved-views-menu]");
     expect(menu?.className).toContain("fixed");
-    expect(menu?.className).toContain("z-100");
+    // Previously `z-100`, this popover's own bespoke layer. It renders through
+    // the shared `Popover` now, which owns the one popover layer app-wide and
+    // deliberately sits below the modal scrim so a window-owning dialog is
+    // still the only actionable surface.
+    expect(menu?.className).toContain("z-[70]");
   });
 
   it("keeps both seams by default so un-migrated callers keep their chrome", () => {
@@ -472,6 +476,113 @@ describe("CollectionSearchToolbar", () => {
     expect(onSave).toHaveBeenCalledOnce();
     expect(onSave).toHaveBeenCalledWith("Facet focus", metadata);
     expect(onSave.mock.calls[0]).toHaveLength(2);
+  });
+  it("renders the density switcher as one shared segmented control", () => {
+    // COMP-02: this same control was written three ways inside one file — a
+    // bordered `overflow-hidden` track with an inset ring, a trackless
+    // `flex gap-1` row, and a third copy with `px-2 text-xs`.
+    render(
+      <CollectionSearchToolbar
+        density="comfortable"
+        label="Find a job"
+        onDensityChange={vi.fn()}
+        onQueryChange={vi.fn()}
+        placeholder="Search jobs"
+        query=""
+        totalCount={3}
+        visibleCount={3}
+      />,
+    );
+
+    const tracks = document.querySelectorAll("[data-slot='segmented-control']");
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0]?.getAttribute("aria-label")).toBe("List density");
+    // `aria-pressed` buttons, deliberately not `role="radio"` — automation
+    // could not click the radiogroup form of this control.
+    expect(
+      tracks[0]?.querySelectorAll("[data-slot='segmented-control-segment']"),
+    ).toHaveLength(3);
+    expect(
+      document.querySelector("[data-slot='segmented-control'] [role='radio']"),
+    ).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: "Comfortable" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("gives both toolbar triggers one control class and the delete a link", () => {
+    // COMP-18: Saved views was a raw bordered button on the inert
+    // `--border-strong` token, Columns was a borderless `<summary>` reading as
+    // a caption beside it, and delete was a hand-rolled underlined span.
+    render(
+      <>
+        <CollectionSavedViews
+          onApply={vi.fn()}
+          onDelete={vi.fn()}
+          onSave={vi.fn()}
+          views={[
+            { density: "compact", id: "remote", name: "Remote", query: "r" },
+          ]}
+        />
+        <CollectionColumnPicker
+          columns={[{ id: "role", label: "Role", visible: true }]}
+          onChange={vi.fn()}
+        />
+      </>,
+    );
+
+    for (const name of ["Saved views (1)", "Columns"]) {
+      const trigger = screen.getByRole("button", { name });
+      expect(trigger.getAttribute("data-variant")).toBe("outline");
+      expect(trigger.getAttribute("data-size")).toBe("toolbar");
+    }
+
+    fireEvent.click(screen.getByText("Saved views (1)"));
+    expect(
+      screen
+        .getByRole("button", { name: "Delete saved view Remote" })
+        .getAttribute("data-variant"),
+    ).toBe("link");
+  });
+
+  it("portals the column picker instead of hanging it inside its host", () => {
+    // REACH-06: it was `<details>` + `absolute right-0 top-full`, consumed
+    // inside a section declared `overflow-hidden`, so its host clipped it —
+    // and with many columns it had no internal scroll either.
+    const { container } = render(
+      <CollectionColumnPicker
+        columns={[{ id: "role", label: "Role", visible: true }]}
+        onChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+
+    expect(container.querySelector("details")).toBeNull();
+    const surface = document.querySelector<HTMLElement>(
+      "[data-collection-column-picker]",
+    );
+    expect(surface).not.toBeNull();
+    expect(container.contains(surface)).toBe(false);
+    expect(surface?.className).toContain("fixed");
+    expect(surface?.className).toContain("overflow-y-auto");
+    // A solved height, never an unbounded surface.
+    expect(surface?.style.maxHeight).not.toBe("");
+  });
+
+  it("uses the shared empty state for a no-match result", () => {
+    // COMP-23: this was a borderless `grid min-h-48` block on all eleven
+    // toolbar routes, unlike every other empty state in the app.
+    const { container } = render(
+      <CollectionNoMatches noun="jobs" onClear={vi.fn()} query=" remote " />,
+    );
+
+    const heading = screen.getByRole("heading", { name: /No jobs match/u });
+    expect(heading.tagName).toBe("H2");
+    expect(container.firstElementChild?.className).toContain("border-dashed");
+    expect(screen.getByRole("button", { name: "Clear search" })).toBeTruthy();
   });
 });
 // @vitest-environment jsdom

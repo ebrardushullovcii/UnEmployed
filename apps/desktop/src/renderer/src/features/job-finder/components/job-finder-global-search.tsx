@@ -379,7 +379,7 @@ export function JobFinderGlobalSearchDialog(props: {
     <div className="fixed inset-0 z-[70]" role="presentation">
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-black/40"
+        className="absolute inset-0 bg-(--modal-scrim)"
         onClick={props.onClose}
       />
       <section

@@ -9,7 +9,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MatchAssessmentChangeAuditSchema,
   MatchAssessmentSchema,
@@ -22,10 +22,35 @@ import {
 } from "./discovery-accessibility";
 import { JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES } from "../../lib/job-finder-scroll-reveal";
 import {
+  SHELL_HEADER_MASK_HEIGHT_CLASS,
+  SHELL_HEADER_MASK_HEIGHT_PX,
+  SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
+  SHELL_HEADER_MASK_OPAQUE_STOP_FRACTION,
+  getMaskOpaqueBandPx,
+  getMinimumMaskHeightPxForGutter,
+} from "../../lib/job-finder-shell-gutters";
+
+import {
+  DISCOVERY_DETAIL_SCROLL_EDGE_HEIGHT_PX,
+  DISCOVERY_DETAIL_SCROLL_GUTTER_PX,
   DiscoveryDetailPanel,
   MatchAssessmentChangeDisclosure,
   SourceDiagnostics,
 } from "./discovery-detail-panel";
+
+/**
+ * Reads a Tailwind spacing utility straight off a rendered element, so the
+ * relationship below is pinned against what the component actually paints
+ * rather than against a number restated in the test. Tailwind's spacing scale
+ * is 4px per step.
+ */
+function readSpacingPx(className: string, prefix: string): number {
+  const match = new RegExp(`(?:^| )${prefix}-(\\d+)(?: |$)`).exec(className);
+  if (!match) {
+    throw new Error(`Expected a ${prefix}-* utility in "${className}".`);
+  }
+  return Number(match[1]) * 4;
+}
 
 const baseSelectedJob = {
   id: "job_base",
@@ -725,10 +750,90 @@ describe("DiscoveryDetailPanel", () => {
       expect(edge.className).toContain("absolute");
       expect(scrollArea.contains(edge)).toBe(false);
     }
+    // Each treatment must be opaque across the WHOLE gutter before it fades.
+    // Without the opaque stop the gradient started fading at its very first
+    // pixel, so a row part-way into the band rendered semi-transparent and
+    // read as a glyph sliced through the middle ("MODE" halved, "Not stated"
+    // orphaned from its label).
+    for (const edge of [topEdge, bottomEdge]) {
+      expect(edge.className).toContain(SHELL_HEADER_MASK_OPAQUE_STOP_CLASS);
+      expect(edge.className).toContain("to-transparent");
+    }
+    expect(topEdge.className).toContain("bg-gradient-to-b");
+    expect(bottomEdge.className).toContain("bg-gradient-to-t");
+    // The opaque stop is the shell's, not a second local copy: the two chrome
+    // defects this fixes both came from independently derived numbers.
+    expect(SHELL_HEADER_MASK_OPAQUE_STOP_CLASS).toBe(
+      `from-${Math.round(SHELL_HEADER_MASK_OPAQUE_STOP_FRACTION * 100)}%`,
+    );
+
+    // The invariant, read off what is actually painted rather than off
+    // numbers restated here: raising the scroller's own edge padding without
+    // raising the mask height must fail, because it would push content past
+    // the opaque band and bring the mid-glyph slice straight back. Asserting
+    // "h-10" alone would keep passing while silently becoming wrong.
+    const gutterPx = readSpacingPx(scrollArea.className, "pt");
+    expect(readSpacingPx(scrollArea.className, "pb")).toBe(gutterPx);
+    expect(gutterPx).toBe(DISCOVERY_DETAIL_SCROLL_GUTTER_PX);
+
+    for (const edge of [topEdge, bottomEdge]) {
+      const maskHeightPx = readSpacingPx(edge.className, "h");
+      expect(maskHeightPx).toBe(DISCOVERY_DETAIL_SCROLL_EDGE_HEIGHT_PX);
+      expect(getMaskOpaqueBandPx(maskHeightPx)).toBeGreaterThanOrEqual(
+        gutterPx,
+      );
+      // And no taller than it needs to be: the fade tail beyond the gutter is
+      // a cost on pixels, so the height is the minimum that satisfies the
+      // invariant rather than a round number someone liked.
+      expect(maskHeightPx).toBe(getMinimumMaskHeightPxForGutter(gutterPx));
+    }
+
     // jsdom reports zero scroll geometry, so nothing is clipped and no edge
     // treatment is shown.
     expect(topEdge.hasAttribute("hidden")).toBe(true);
     expect(bottomEdge.hasAttribute("hidden")).toBe(true);
+  });
+
+  it("masks the content passing under the pinned summary row below the two-pane breakpoint", () => {
+    const selectedJob = createSelectedJob({ id: "job_pinned_summary_mask" });
+    const { getByTestId } = render(
+      <MemoryRouter>
+        <DiscoveryDetailPanel
+          discoveryTargets={[]}
+          isJobPending={() => false}
+          onDismissJob={vi.fn()}
+          onQueueJob={vi.fn()}
+          selectedJob={selectedJob}
+        />
+      </MemoryRouter>,
+    );
+
+    const pinnedSummary = getByTestId("discovery-detail-primary-action");
+    const mask = getByTestId("discovery-detail-pinned-summary-mask");
+
+    // Below xl the summary row is pinned and the whole detail body scrolls
+    // under it, so its bottom border cut rows through the middle of a glyph
+    // ("How this was scored" sliced in half). The mask ends the page there.
+    expect(pinnedSummary.className).toContain("sticky");
+    expect(pinnedSummary.contains(mask)).toBe(true);
+    expect(mask.getAttribute("aria-hidden")).toBe("true");
+    expect(mask.className).toContain("pointer-events-none");
+    // Painted immediately below the chrome it belongs to.
+    expect(mask.className).toContain("top-full");
+    expect(mask.className).toContain("bg-gradient-to-b");
+    expect(mask.className).toContain("from-(--surface-panel)");
+    expect(mask.className).toContain("to-transparent");
+    // Height and opaque stop come from the shell's shared values. A local copy
+    // of either number is the defect class this is guarding against.
+    expect(mask.className).toContain(SHELL_HEADER_MASK_HEIGHT_CLASS);
+    expect(mask.className).toContain(SHELL_HEADER_MASK_OPAQUE_STOP_CLASS);
+    expect(SHELL_HEADER_MASK_HEIGHT_CLASS).toBe(
+      `h-${SHELL_HEADER_MASK_HEIGHT_PX / 4}`,
+    );
+    // From xl up the row is static above the pane's own scroller, so nothing
+    // passes under it and the mask must not paint over live content.
+    expect(pinnedSummary.className).toContain("xl:static");
+    expect(mask.className).toContain("xl:hidden");
   });
 
   it("shows the top boundary once the scroller has moved away from its first row", () => {
@@ -1307,5 +1412,93 @@ describe("job inspector fit honesty", () => {
       "Title match only",
     );
     expect(screen.queryByText(/^54% fit$/)).toBeNull();
+  });
+});
+
+describe("job inspector compact action reachability", () => {
+  // Earlier suites in this file render without their own teardown, so the
+  // shared document is cleared before each case here as well as after it.
+  beforeEach(cleanup);
+  afterEach(cleanup);
+
+  function renderInspector() {
+    return render(
+      <DiscoveryDetailPanel
+        discoveryTargets={[]}
+        isJobPending={() => false}
+        onDismissJob={vi.fn()}
+        onQueueJob={vi.fn()}
+        selectedJob={createSelectedJob({ id: "job_compact_actions" })}
+      />,
+    );
+  }
+
+  it("pins the primary job action to the top of the stacked inspector so it stays inside the pane's first viewport at 1024x768", () => {
+    const { getByRole, getByTestId } = renderInspector();
+
+    const detailRegion = getByRole("region", { name: "Job details" });
+    const primaryActionRegion = getByTestId("discovery-detail-primary-action");
+
+    // Below the two-pane breakpoint the inspector stacks under the whole
+    // result list and grows to its natural height, so the job's own action
+    // scrolled away as soon as the user read past the summary. The row is
+    // pinned to the top of the route scroller instead.
+    expect(primaryActionRegion.className).toContain("sticky");
+    expect(primaryActionRegion.className).toContain("top-0");
+    expect(primaryActionRegion.className).toContain("z-20");
+    // A pinned row must paint over the detail text passing under it.
+    expect(primaryActionRegion.className).toContain("bg-(--surface-panel)");
+    // `position: sticky` resolves against the nearest scrolling ancestor. The
+    // stacked pane must therefore not clip itself: a clip would make it its
+    // own never-scrolling scroll container and the pinned row inert.
+    expect(detailRegion.className).toContain("overflow-visible");
+    expect(
+      primaryActionRegion.contains(
+        getByRole("button", { name: "Shortlist job" }),
+      ),
+    ).toBe(true);
+  });
+
+  it("returns the pane to its bounded two-pane geometry at xl so selection still moves no rect at 1440", () => {
+    const { getByRole, getByTestId } = renderInspector();
+
+    const detailRegion = getByRole("region", { name: "Job details" });
+    const primaryActionRegion = getByTestId("discovery-detail-primary-action");
+
+    // From the two-pane breakpoint up the row is static again above the
+    // pane's own bounded scroller, exactly as before, and the pane clips that
+    // scroller to its rounded corners. Nothing about the pin survives there.
+    expect(primaryActionRegion.className).toContain("xl:static");
+    expect(primaryActionRegion.className).toContain("shrink-0");
+    expect(detailRegion.className).toContain("xl:overflow-hidden");
+    expect(detailRegion.className).toContain("xl:h-full");
+    expect(detailRegion.className).toContain("xl:min-h-0");
+    // The stacked-only utilities must never be repeated with an `xl:` prefix,
+    // which would reintroduce them above the breakpoint.
+    for (const wideVariant of [
+      /(?:^|\s)xl:sticky(?:\s|$)/u,
+      /(?:^|\s)xl:top-0(?:\s|$)/u,
+    ]) {
+      expect(primaryActionRegion.className).not.toMatch(wideVariant);
+    }
+    expect(detailRegion.className).not.toMatch(
+      /(?:^|\s)xl:overflow-visible(?:\s|$)/u,
+    );
+  });
+
+  it("keeps exactly one naturally focusable primary action ahead of the detail scroller", () => {
+    const { getAllByRole, getByRole, getByTestId } = renderInspector();
+
+    // Reachability must never be bought by duplicating the control into a
+    // second focusable copy, or by taking it out of the tab order.
+    expect(getAllByRole("button", { name: "Shortlist job" })).toHaveLength(1);
+    const shortlistAction = getByRole("button", { name: "Shortlist job" });
+    expect(shortlistAction.hasAttribute("tabindex")).toBe(false);
+    expect(shortlistAction.hasAttribute("disabled")).toBe(false);
+    expect(
+      getByTestId("discovery-detail-primary-action").compareDocumentPosition(
+        getByTestId("discovery-detail-scroll-area"),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 });

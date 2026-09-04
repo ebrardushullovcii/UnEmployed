@@ -3,6 +3,10 @@ import type {
   DiscoveryCompactObservation,
   JobPosting,
 } from "@unemployed/contracts";
+import {
+  buildDiscoveryCardOnlyEvidenceWarning,
+  isCardOnlyDiscoveryEvidence,
+} from "@unemployed/contracts";
 import type {
   AgentConfig,
   AgentProgress,
@@ -441,7 +445,26 @@ export async function runAgentDiscovery(
           }
         : partial;
 
-    return buildAgentResult(state, resolvedPartial);
+    // Completion accounting is a count of postings, not a measure of evidence
+    // depth: a run can meet its target from card evidence alone and otherwise
+    // report as a clean, healthy, complete success. When every retained
+    // posting is card_only, say so once at run level so the run record and
+    // source health carry the shortfall instead of leaving it to per-row copy.
+    const cardOnlyWarning =
+      !requiresExplicitFinish &&
+      isCardOnlyDiscoveryEvidence(state.collectedJobs)
+        ? buildDiscoveryCardOnlyEvidenceWarning(config.promptContext.siteLabel)
+        : null;
+    const warnedPartial = cardOnlyWarning
+      ? {
+          ...resolvedPartial,
+          warning: [resolvedPartial.warning, cardOnlyWarning]
+            .filter((entry): entry is string => Boolean(entry))
+            .join(" "),
+        }
+      : resolvedPartial;
+
+    return buildAgentResult(state, warnedPartial);
   };
   const maybeStopForStagnation = async (): Promise<AgentResult | null> => {
     if (

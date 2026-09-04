@@ -85,6 +85,32 @@ export function formatWorkModeLabel(workMode: string): string {
     : `${workMode.charAt(0).toUpperCase()}${workMode.slice(1)}`;
 }
 
+/**
+ * Title-case a stored identifier for the **one** context that is allowed to
+ * show one: a `label-mono-xs` row inside a Technical details disclosure, where
+ * the reader has deliberately opened a technical view and the exact stored
+ * value is the point.
+ *
+ * It is not a copy function. It has no vocabulary behind it — it uppercases
+ * whatever it is handed — so every use outside that context prints a stored
+ * enum value as user copy. Round-nine review (RC-03) found it called 53 times
+ * across 23 files, producing "Required human input", "Site login required",
+ * "Awaiting Review" and, as the heading of every Assistant proposal card,
+ * "Replace Section Bullets".
+ *
+ * The replacement is `lib/status-copy.ts`: an exhaustive
+ * `Record<Enum, string>` table per enum, typed so a new variant fails
+ * typecheck instead of reaching a screen.
+ *
+ * Its behaviour is deliberately unchanged, so every current caller still
+ * compiles and renders exactly as before. The narrowing is enforced instead by
+ * `lib/user-copy.test.ts`, which forbids `formatStatusLabel(` outside its
+ * `PENDING_ADOPTION` allowlist; each zone package deletes its own entries as
+ * it adopts a copy table, and the function is deleted when the list empties.
+ *
+ * @deprecated Outside a Technical details disclosure. Use a table from
+ * `lib/status-copy.ts`.
+ */
 export function formatStatusLabel(value: string): string {
   return value
     .replace(/_/g, " ")

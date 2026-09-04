@@ -41,9 +41,13 @@
   /* F44: attention states had no badge tone of their own, so the existing
      --warning-* family was only ever reachable as raw custom properties on
      plain elements. Mapping it here gives StatusBadge a real `warning` tone.
-     Measured against card / canvas / secondary / surface: the /65 boundary is
-     5.09-5.77:1 (dark) and 3.22-3.54:1 (light); the text on its own chip fill
-     is 6.08-9.78:1. */
+     Measured against card / canvas / secondary / surface, the boundary is
+     5.91-6.83:1 (dark) and 3.80-4.28:1 (light) at the /75 alpha every tinted
+     badge now uses; the text on its own chip fill is 6.08-9.78:1. The /65
+     alpha it replaced was measured for the warning family only and inherited
+     untested by the others, where it fell to 2.86:1 (light --primary) and
+     2.96:1 (dark --destructive) against each chip's own tint. Re-measured per
+     tone and pinned by styles/globals.test.ts. */
   --color-warning: var(--warning-text);
   --color-warning-surface: var(--warning-surface);
 }
@@ -105,6 +109,13 @@
   --nav-active-surface: #5a6878;
   --nav-active-foreground: #f5f7f9;
   --nav-active-bar: #c8d6ea;
+  /* Selected list row (SelectableRow: Find jobs, Shortlisted, Applications).
+     Split from --nav-active-bar because that token is drawn on the dark
+     --nav-active-surface fill, while this one is drawn on --surface-strong.
+     One value cannot clear 3:1 on both in the light theme, and reusing the
+     nav token left the light selected row with no channel above 1.78:1.
+     Pinned by styles/globals.test.ts. */
+  --row-selected-bar: #c8d6ea;
   --destructive: #ee7d77;
   --destructive-foreground: #490106;
   --border: #464e56;
@@ -123,7 +134,20 @@
   --surface-panel: #1b1e21;
   --surface-panel-solid: #1b1e21;
   --surface-panel-raised: #202429;
-  --surface-panel-border: #4a525a;
+  /* Panel/card/disclosure boundary: INERT CHROME, deliberately not a 3:1
+     control boundary. WCAG 2.2 1.4.11 governs boundaries needed to identify a
+     component or its state - fields, checkboxes, buttons, toggles, selected
+     and focus indicators - and those live on --control-border,
+     --field-border and --row-selected-bar, which do clear 3:1. A panel
+     outline, a row divider and a card edge are structure, not state.
+     Raising this token to 3:1 turned 78 single-edge divider consumers into
+     rules: light Find jobs read as a ruled table, four to five parallel
+     greys competing in one column. It sits in a band instead - visible
+     (>=2:1) but strictly quieter than --field-border, so the ladder
+     panel < field < control stays monotonic. Both ends of that band are
+     pinned by styles/globals.test.ts; the ceiling is what stops this being
+     raised into a rule again. */
+  --surface-panel-border: #565e68;
   --surface-panel-border-active: rgba(125, 145, 173, 0.72);
   --surface-panel-border-active-soft: rgba(125, 145, 173, 0.45);
   --surface-panel-border-warm: #343a40;
@@ -159,10 +183,18 @@
   --control-border-hover: #8b96a2;
   /* Disabled treatment. A disabled control loses its fill entirely instead
      of being marked only by a label colour step to the ordinary secondary
-     text colour, which was indistinguishable from an enabled control. */
+     text colour, which was indistinguishable from an enabled control.
+     Because the fill is dropped, --disabled-border is the control's ENTIRE
+     shape, so it carries the 3:1 non-text floor like any other boundary: at
+     #3a4148 it measured 1.40-1.80:1 against card / canvas / popover /
+     secondary and simply was not a boundary. It stays strictly quieter than
+     --border-strong so a disabled control never outranks an enabled one.
+     --disabled-foreground was pinned only on card / canvas / popover; it
+     fell to 4.36:1 on --surface-strong, which is where studio next-step and
+     selected-row controls actually render. Pinned by styles/globals.test.ts. */
   --disabled-surface: transparent;
-  --disabled-border: #3a4148;
-  --disabled-foreground: #868e96;
+  --disabled-border: #67717c;
+  --disabled-foreground: #8b939b;
   /* Text-only navigation. Hue is never the sole carrier - links stay
      underlined - but the hue still has to separate from body text. */
   --link: #a8bcda;
@@ -346,6 +378,10 @@
   --nav-active-surface: #3a5274;
   --nav-active-foreground: #f5f7f9;
   --nav-active-bar: #a8bde0;
+  /* Light polarity of the selected-row accent: a pale bar on a near-white
+     list is invisible (1.78:1 against the unselected row), so the light row
+     bar is the dark accent, matching the active Profile section tab. */
+  --row-selected-bar: #3a5274;
   --accent-foreground: #20252a;
   --destructive: #922f2a;
   --destructive-foreground: #fff8f7;
@@ -365,7 +401,11 @@
   --surface-panel: #f6f7f8;
   --surface-panel-solid: #f6f7f8;
   --surface-panel-raised: #eceef1;
-  --surface-panel-border: #aab2ba;
+  /* Inert chrome; see the dark-theme note for why this is deliberately not a
+     3:1 control boundary. Light carries the same band, one step stronger
+     than the 1.75:1 it started at so a panel edge still reads, and well
+     under --field-border so it never competes with an editable control. */
+  --surface-panel-border: #929aa3;
   --surface-panel-border-active: rgba(95, 120, 153, 0.72);
   --surface-panel-border-active-soft: rgba(95, 120, 153, 0.42);
   --surface-panel-border-warm: #b9c0c7;
@@ -394,15 +434,24 @@
   --border-strong: #767d85;
   --control-border: var(--border-strong);
   --control-border-hover: #5d646c;
+  /* Light polarity of the disabled treatment; see the dark-theme note. The
+     light window is narrow because --border-strong itself only reaches
+     3.30:1 on --secondary, so this value sits just inside it: 3.03-3.71:1
+     across card / canvas / popover / secondary, every one below the matching
+     --border-strong ratio. */
   --disabled-surface: transparent;
-  --disabled-border: #c6ccd2;
-  --disabled-foreground: #61686f;
+  --disabled-border: #7c838b;
+  --disabled-foreground: #596067;
   --link: #2f4a70;
   --link-hover: #23344a;
   --foreground-soft: #4f575f;
   --field: #fcfcfd;
   --field-strong: #ffffff;
-  --field-border: #8a939c;
+  /* The field fill is within 1.05:1 of the card, so this border is the only
+     thing that identifies an editable control. At #8a939c it measured
+     2.91:1 on the card and 2.54:1 on the canvas - below the 3:1 non-text
+     floor with no fill fallback. Dark already cleared it at 3.50/3.89. */
+  --field-border: #7a828b;
   --field-focus-border: #3a5274;
   --field-focus-shadow: 0 0 0 2px rgba(58, 82, 116, 0.3);
   --panel-surface-muted: #f6f7f8;
@@ -461,6 +510,23 @@
   --workspace-state-card-bg-default: rgba(246, 247, 248, 0.98);
   --workspace-state-card-bg-error: rgba(229, 213, 212, 0.98);
   --workspace-state-card-shadow: 0 20px 56px rgba(31, 33, 36, 0.12);
+}
+
+/*
+ * Interview overlay scope.
+ *
+ * The Interview Helper answer/transcript popups fork the palette outside this
+ * file, so their surfaces, boundaries and disabled states are unreachable from
+ * the token contract every other surface is measured against. This scope is
+ * the seam that ends that fork: the overlay package redeclares the same token
+ * names here, so an overlay stays theme-aware and testable instead of shipping
+ * literal colours in component source.
+ *
+ * Deliberately empty. It declares nothing today and therefore changes no
+ * rendering; it is filled by the overlay package, not by this one.
+ */
+:root[data-overlay="interview"] {
+  /* intentionally empty - see the note above */
 }
 
 /*

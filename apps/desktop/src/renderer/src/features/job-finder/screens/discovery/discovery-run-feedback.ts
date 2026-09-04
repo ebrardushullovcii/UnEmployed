@@ -1,4 +1,9 @@
 import type { DiscoveryRunRecord } from "@unemployed/contracts";
+import {
+  JOB_FINDER_BROWSER_NAME,
+  JOB_FINDER_BROWSER_NAME_SENTENCE_START,
+  OPEN_JOB_FINDER_BROWSER_ACTION,
+} from "../../lib/job-finder-browser-handoff-copy";
 
 export type DiscoveryRunFeedbackStatus =
   | "started"
@@ -61,6 +66,29 @@ function hasZeroValidResults(run: DiscoveryRunVerdictInput): boolean {
 }
 
 /**
+ * Orders run history newest-first by `startedAt` — never by array order —
+ * dropping `idle` placeholder rows, which are not attempts. Runs sharing an
+ * identical start time keep their first-listed position (stable sort).
+ */
+function orderSettledRunsNewestFirst<
+  TRun extends { startedAt: string; state: DiscoveryRunRecord["state"] },
+>(
+  runs: readonly TRun[],
+): (TRun & { state: Exclude<DiscoveryRunRecord["state"], "idle"> })[] {
+  return runs
+    .filter(
+      (
+        run,
+      ): run is TRun & {
+        state: Exclude<DiscoveryRunRecord["state"], "idle">;
+      } => run.state !== "idle",
+    )
+    .sort(
+      (left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt),
+    );
+}
+
+/**
  * Resolves the newest settled run by `startedAt` — never by array order — and
  * classifies it. Runs sharing an identical start time keep their first-listed
  * position as the authority (stable sort), and `idle` placeholder rows are
@@ -71,23 +99,14 @@ export function getDiscoveryLatestRunVerdict(
 ): DiscoveryLatestRunVerdict {
   // `idle` rows are placeholders, not attempts; every other state is a
   // settled or live verdict candidate.
-  const settledRuns = runs.filter(
-    (
-      run,
-    ): run is DiscoveryRunVerdictInput & {
-      state: Exclude<DiscoveryRunRecord["state"], "idle">;
-    } => run.state !== "idle",
-  );
-  const orderedRuns = [...settledRuns].sort(
-    (left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt),
-  );
+  const orderedRuns = orderSettledRunsNewestFirst(runs);
   const newestRun = orderedRuns[0];
   if (!newestRun) {
     return { kind: "none" };
   }
 
   const newestStartedMs = Date.parse(newestRun.startedAt);
-  const hasEarlierCompleted = settledRuns.some(
+  const hasEarlierCompleted = orderedRuns.some(
     (run) =>
       run.state === "completed" && Date.parse(run.startedAt) < newestStartedMs,
   );
@@ -120,6 +139,46 @@ export function getDiscoveryLatestRunVerdict(
     interruptState: newestRun.state,
     kind: "interrupted",
   };
+}
+
+/**
+ * Run-history evidence for run-level notices. Only the recorded `warnings`
+ * are read, so this stays valid for lightweight history rows.
+ */
+export type DiscoveryRunNoticeInput = Pick<
+  DiscoveryRunRecord,
+  "state" | "startedAt"
+> & {
+  /** Mirrors `DiscoveryRunSummary.warnings`; nothing here is written back. */
+  summary?: { warnings: readonly string[] };
+};
+
+/**
+ * Run-level warnings the newest settled attempt recorded, kept verbatim.
+ *
+ * The condition behind each warning is decided once, where the run is
+ * produced, and travels on `summary.warnings`; deriving it a second time in
+ * the renderer would let the two copies drift. This selector therefore only
+ * chooses whose warnings to show — never what they say — and only the newest
+ * attempt's, so an older run can never keep warning about work it no longer
+ * describes.
+ */
+export function getDiscoveryLatestRunNotices(
+  runs: readonly DiscoveryRunNoticeInput[],
+): readonly string[] {
+  const newestRun = orderSettledRunsNewestFirst(runs)[0];
+  const notices: string[] = [];
+  const seen = new Set<string>();
+
+  for (const warning of newestRun?.summary?.warnings ?? []) {
+    if (warning.trim().length === 0 || seen.has(warning)) {
+      continue;
+    }
+    seen.add(warning);
+    notices.push(warning);
+  }
+
+  return notices;
 }
 
 export type DiscoveryRunRecoveryKind =
@@ -173,10 +232,9 @@ export function getDiscoveryRunFailureRecovery(
   if (BROWSER_RUNTIME_FAILURE_RE.test(detail)) {
     return {
       kind: "browser_session",
-      headline: "The dedicated browser could not start or stay reachable.",
-      actionLabel: "Open browser",
-      nextStep:
-        "Open the dedicated browser, sign in if the source asks, then search again.",
+      headline: `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} could not start or stay reachable.`,
+      actionLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+      nextStep: `Open ${JOB_FINDER_BROWSER_NAME}, sign in if the source asks, then search again.`,
     };
   }
 

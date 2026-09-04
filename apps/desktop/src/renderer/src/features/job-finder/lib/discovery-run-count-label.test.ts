@@ -7,6 +7,7 @@ import {
   formatDiscoveryResultBandTotal,
   formatDiscoveryRunCountLabel,
   formatLastSearchSummarySentence,
+  formatSearchFinishedStatusLine,
   getDiscoveryRunCountEvidence,
 } from "./discovery-run-count-label";
 
@@ -215,7 +216,7 @@ describe("formatLastSearchSummarySentence", () => {
         keptInPlan: 15,
       }),
     ).toBe(
-      "Your last search saved 50 new jobs on this device · 15 in your current search plan.",
+      "Your last search: 50 new jobs saved on this device · 15 kept in your current search plan.",
     );
   });
 
@@ -223,7 +224,8 @@ describe("formatLastSearchSummarySentence", () => {
     // Regression: both numbers used to be introduced as "kept" — "50 new jobs
     // kept" beside "the 15 kept in your current search plan" — so one screen
     // appeared to contradict itself. "Saved" is the device population and
-    // "kept" belongs to the active plan.
+    // "kept" belongs to the active plan; each number carries exactly one of
+    // them, which is also the vocabulary Find jobs prints.
     const runCountLabel = formatDiscoveryRunCountLabel({
       distinctJobsRetained: 50,
       duplicatesMerged: 0,
@@ -235,9 +237,60 @@ describe("formatLastSearchSummarySentence", () => {
       savedByRun: 50,
       keptInPlan: 15,
     });
-    expect(sentence).not.toContain("kept");
-    expect(sentence).toContain("50 new jobs on this device");
-    expect(sentence).toContain("15 in your current search plan");
+    expect(sentence).not.toContain("50 new jobs kept");
+    expect(sentence).not.toContain("15 saved");
+    expect(sentence).toContain("50 new jobs saved on this device");
+    expect(sentence).toContain("15 kept in your current search plan");
+  });
+
+  it("reconciles the finished-search status line with the plan count", () => {
+    // Home printed "Search finished · 50 new jobs saved" beside Find jobs'
+    // "15 jobs kept in this search plan", so one search read as two
+    // contradictory numbers. Both populations are now stated with the noun
+    // that separates them, in the same clause the card's other sentence uses.
+    expect(
+      formatSearchFinishedStatusLine({
+        runCountLabel: "50 new jobs saved",
+        savedByRun: 50,
+        keptInPlan: 15,
+      }),
+    ).toBe(
+      "Search finished · 50 new jobs saved on this device · 15 kept in your current search plan.",
+    );
+
+    // One population, nothing to reconcile: the run's own label stands, so a
+    // duplicate count is not dropped for no reason.
+    expect(
+      formatSearchFinishedStatusLine({
+        runCountLabel: "15 new jobs saved · 35 duplicates merged",
+        savedByRun: 15,
+        keptInPlan: 15,
+      }),
+    ).toBe(
+      "Search finished · 15 new jobs saved · 35 duplicates merged, all on this device.",
+    );
+
+    // A run that kept nothing new has no second population to name.
+    expect(
+      formatSearchFinishedStatusLine({
+        runCountLabel: "0 new jobs saved · 4 duplicates merged",
+        savedByRun: 0,
+        keptInPlan: 12,
+      }),
+    ).toBe(
+      "Search finished · 0 new jobs saved · 4 duplicates merged, all on this device.",
+    );
+
+    // Singular phrasing survives the shared clause.
+    expect(
+      formatSearchFinishedStatusLine({
+        runCountLabel: "1 new job saved",
+        savedByRun: 1,
+        keptInPlan: 0,
+      }),
+    ).toBe(
+      "Search finished · 1 new job saved on this device · 0 kept in your current search plan.",
+    );
   });
 
   it("keeps the single-run phrasing when no run volume is known", () => {

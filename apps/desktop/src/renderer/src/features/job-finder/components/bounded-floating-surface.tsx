@@ -1,13 +1,27 @@
 import { cn } from "@renderer/lib/cn";
 import type { CSSProperties, ReactNode, RefObject } from "react";
-import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import type {
   BoundedFloatingSurfaceAlignment,
   BoundedFloatingSurfacePlacement,
   BoundedFloatingSurfaceSide,
+  BottomRightDockOccupant,
+  BottomRightDockPlacement,
 } from "../lib/bounded-floating-surface";
-import { resolveBoundedFloatingSurfacePlacement } from "../lib/bounded-floating-surface";
+import {
+  BOTTOM_RIGHT_DOCK_DEFAULT_INSET_PX,
+  BOTTOM_RIGHT_DOCK_NO_COVER_SELECTOR,
+  resolveBoundedFloatingSurfacePlacement,
+  resolveBottomRightDockPlacement,
+} from "../lib/bounded-floating-surface";
 
 /**
  * Shared floating-surface layer. Every popover, menu, dropdown and floating
@@ -40,9 +54,17 @@ export interface UseBoundedFloatingSurfaceOptions {
 
 function readViewport(): { height: number; width: number } {
   const documentRect = document.documentElement.getBoundingClientRect();
+  // `visualViewport` first (it is the only source that reports a pinch-zoom or
+  // an on-screen keyboard), then the document box, which excludes the
+  // scrollbar gutter. A zero-sized document box is not a viewport, so
+  // `innerWidth`/`innerHeight` are the last resort rather than a silent zero.
   return {
-    height: window.visualViewport?.height ?? documentRect.height,
-    width: window.visualViewport?.width ?? documentRect.width,
+    height:
+      window.visualViewport?.height ||
+      documentRect.height ||
+      window.innerHeight,
+    width:
+      window.visualViewport?.width || documentRect.width || window.innerWidth,
   };
 }
 
@@ -148,6 +170,249 @@ export function boundedFloatingSurfaceStyle(
     top: placement.top,
     width: placement.width,
   };
+}
+
+/* -------------------------------------------------------------------------
+ * The bottom-right dock registry.
+ *
+ * One module-level stack, one measurement pass per frame, one placement every
+ * participant reads — so the startup recovery notice and the save status lane
+ * cannot disagree about that corner. The no-cover set is
+ * re-queried on every pass rather than resolved once into cached nodes: a
+ * `ResizeObserver` fires on size, not position, so a cached row that merely
+ * *moves* never re-ran the old per-surface measurement.
+ * ------------------------------------------------------------------------- */
+
+interface BottomRightDockRegistration {
+  readonly inset: number | undefined;
+  readonly minTopOffset: number;
+  readonly occupant: BottomRightDockOccupant;
+}
+
+/**
+ * Before the first measurement the dock has no boundary to report. `Infinity`
+ * makes a reader's `Math.min` a no-op, so nothing is clamped to zero height
+ * for a frame; the first pass replaces it with the real edge.
+ */
+const EMPTY_DOCK_PLACEMENT: BottomRightDockPlacement = {
+  clearance: BOTTOM_RIGHT_DOCK_DEFAULT_INSET_PX,
+  slots: [],
+  stackTop: Number.POSITIVE_INFINITY,
+};
+
+const dockRegistrations = new Map<string, BottomRightDockRegistration>();
+const dockListeners = new Set<() => void>();
+let dockPlacement: BottomRightDockPlacement = EMPTY_DOCK_PLACEMENT;
+let dockFrame: number | undefined;
+
+function readBottomRightDockNoCoverRects() {
+  if (typeof document === "undefined") {
+    return [];
+  }
+  // Re-queried every pass: rows mount, unmount and move with scrolling, and a
+  // node captured once cannot report any of that.
+  return [
+    ...document.querySelectorAll<HTMLElement>(
+      BOTTOM_RIGHT_DOCK_NO_COVER_SELECTOR,
+    ),
+  ].map((element) => element.getBoundingClientRect());
+}
+
+function computeBottomRightDockPlacement(): BottomRightDockPlacement {
+  if (typeof window === "undefined") {
+    return EMPTY_DOCK_PLACEMENT;
+  }
+
+  const registrations = [...dockRegistrations.values()];
+  const viewport = readViewport();
+  // The narrowest requested inset wins, so every occupant lines up on one
+  // edge (the launcher asks for 12px below the mobile breakpoint).
+  const insets = registrations.flatMap((registration) =>
+    registration.inset === undefined ? [] : [registration.inset],
+  );
+  const next = resolveBottomRightDockPlacement({
+    ...(insets.length === 0 ? {} : { inset: Math.min(...insets) }),
+    minTopOffset: registrations.reduce(
+      (highest, registration) => Math.max(highest, registration.minTopOffset),
+      0,
+    ),
+    noCoverRects: readBottomRightDockNoCoverRects(),
+    occupants: registrations.map((registration) => registration.occupant),
+    viewport,
+  });
+
+  const current = dockPlacement;
+  const unchanged =
+    current.clearance === next.clearance &&
+    current.stackTop === next.stackTop &&
+    current.slots.length === next.slots.length &&
+    current.slots.every((slot, index) => {
+      const nextSlot = next.slots[index];
+      return (
+        nextSlot !== undefined &&
+        slot.id === nextSlot.id &&
+        slot.bottom === nextSlot.bottom &&
+        slot.right === nextSlot.right
+      );
+    });
+
+  return unchanged ? current : next;
+}
+
+function publishBottomRightDock(): void {
+  const next = computeBottomRightDockPlacement();
+  if (next === dockPlacement) {
+    return;
+  }
+  dockPlacement = next;
+  for (const listener of dockListeners) {
+    listener();
+  }
+}
+
+function scheduleBottomRightDockUpdate(): void {
+  if (
+    typeof window === "undefined" ||
+    typeof window.requestAnimationFrame !== "function"
+  ) {
+    publishBottomRightDock();
+    return;
+  }
+  if (dockFrame !== undefined) {
+    return;
+  }
+  dockFrame = window.requestAnimationFrame(() => {
+    dockFrame = undefined;
+    publishBottomRightDock();
+  });
+}
+
+function subscribeToBottomRightDock(listener: () => void): () => void {
+  const isFirst = dockListeners.size === 0;
+  dockListeners.add(listener);
+
+  if (isFirst && typeof window !== "undefined") {
+    // All three sources, always: a window resize, a scroll anywhere in the app
+    // (captured, passive — it only measures), and the visual viewport, which
+    // is the only one that reports a pinch-zoom or an on-screen keyboard.
+    window.addEventListener("resize", scheduleBottomRightDockUpdate);
+    window.addEventListener("scroll", scheduleBottomRightDockUpdate, {
+      capture: true,
+      passive: true,
+    });
+    window.visualViewport?.addEventListener(
+      "resize",
+      scheduleBottomRightDockUpdate,
+    );
+    window.visualViewport?.addEventListener(
+      "scroll",
+      scheduleBottomRightDockUpdate,
+    );
+  }
+
+  return () => {
+    dockListeners.delete(listener);
+    if (dockListeners.size > 0 || typeof window === "undefined") {
+      return;
+    }
+    // With nothing reading the dock there is nothing to update, and a frame
+    // left pending would keep the scheduler's guard set — so the next surface
+    // to mount would schedule nothing and never place itself.
+    if (dockFrame !== undefined) {
+      window.cancelAnimationFrame(dockFrame);
+      dockFrame = undefined;
+    }
+    dockPlacement = EMPTY_DOCK_PLACEMENT;
+    window.removeEventListener("resize", scheduleBottomRightDockUpdate);
+    window.removeEventListener("scroll", scheduleBottomRightDockUpdate, true);
+    window.visualViewport?.removeEventListener(
+      "resize",
+      scheduleBottomRightDockUpdate,
+    );
+    window.visualViewport?.removeEventListener(
+      "scroll",
+      scheduleBottomRightDockUpdate,
+    );
+  };
+}
+
+function readBottomRightDockPlacement(): BottomRightDockPlacement {
+  return dockPlacement;
+}
+
+export interface UseBottomRightDockOptions {
+  /** A registration only claims a slot while it is actually painted. */
+  active: boolean;
+  height: number;
+  id: string;
+  /** Requested edge inset; the dock uses the narrowest one registered. */
+  inset?: number;
+  /** Highest viewport y the dock may be lifted to. */
+  minTopOffset: number;
+  /** Lower sorts nearer the bottom edge; see `BOTTOM_RIGHT_DOCK_ORDER`. */
+  order: number;
+  width: number;
+}
+
+export interface BottomRightDockReading {
+  /** `null` while this surface is not an occupant — readers still get the top. */
+  bottom: number | null;
+  right: number;
+  stackTop: number;
+}
+
+/**
+ * Join the bottom-right dock, or read it without claiming a slot.
+ *
+ * A surface with `active: false` (or a zero-sized one) registers nothing and
+ * only reads `stackTop`, which is how the save status lane bounds its own
+ * height against the corner without moving into it.
+ */
+export function useBottomRightDock(
+  options: UseBottomRightDockOptions,
+): BottomRightDockReading {
+  const { active, height, id, inset, minTopOffset, order, width } = options;
+  const placement = useSyncExternalStore(
+    subscribeToBottomRightDock,
+    readBottomRightDockPlacement,
+    readBottomRightDockPlacement,
+  );
+
+  useLayoutEffect(() => {
+    if (!active || (height <= 0 && width <= 0)) {
+      if (dockRegistrations.delete(id)) {
+        publishBottomRightDock();
+      }
+      return undefined;
+    }
+
+    dockRegistrations.set(id, {
+      inset,
+      minTopOffset,
+      occupant: { height, id, order, width },
+    });
+    publishBottomRightDock();
+
+    return () => {
+      dockRegistrations.delete(id);
+      publishBottomRightDock();
+    };
+  }, [active, height, id, inset, minTopOffset, order, width]);
+
+  // Rows appear, move and disappear from renders this hook cannot see, so the
+  // pass is also re-run after every commit that changes what the dock holds.
+  useLayoutEffect(() => {
+    scheduleBottomRightDockUpdate();
+  });
+
+  return useMemo(() => {
+    const slot = placement.slots.find((entry) => entry.id === id) ?? null;
+    return {
+      bottom: slot?.bottom ?? null,
+      right: slot?.right ?? BOTTOM_RIGHT_DOCK_DEFAULT_INSET_PX,
+      stackTop: placement.stackTop,
+    };
+  }, [id, placement]);
 }
 
 export interface BoundedFloatingSurfaceScrollState {

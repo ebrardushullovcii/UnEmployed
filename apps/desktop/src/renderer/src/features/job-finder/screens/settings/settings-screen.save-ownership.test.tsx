@@ -20,7 +20,15 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  getStickyBottomChromeGapPx,
+  SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_CANCEL_CLASS,
+  SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_PX,
+} from "../../lib/job-finder-shell-gutters";
 import { SettingsScreen } from "./settings-screen";
+
+/** Tailwind's spacing scale: one step is 4px. */
+const TAILWIND_SPACING_STEP_PX = 4;
 
 const globalActScope = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean;
@@ -448,5 +456,74 @@ describe("Settings appearance preview", () => {
 
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(callbacks.onUpdateAppearanceTheme).not.toHaveBeenCalled();
+  });
+});
+
+describe("Settings save bar reaches the window bottom", () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  /** `pb-8` -> 32, `-mb-10` -> -40. Absent -> 0. */
+  function readSpacingPx(className: string, property: "mb" | "pb"): number {
+    const match = new RegExp(`(?:^|\\s)(-?)${property}-(\\d+)(?:\\s|$)`).exec(
+      ` ${className} `,
+    );
+
+    if (!match) {
+      return 0;
+    }
+
+    return (
+      Number(match[2]) * TAILWIND_SPACING_STEP_PX * (match[1] === "-" ? -1 : 1)
+    );
+  }
+
+  it("leaves no gap between the sticky bar and the scrollport bottom", () => {
+    // The bar is `sticky bottom-0`, and a sticky box is clamped to its
+    // containing block. The shell's own `pb-10` on the scrolling `<main>` and
+    // the route's former trailing `pb-8` both ended that block above the
+    // window, so the bar came to rest 40px up with the page's own template
+    // card rendering under and below it. Neither may return.
+    renderScreen(parseSettings(), createCallbacks());
+
+    const bar = unsavedBar();
+    expect(bar?.className).toContain("sticky");
+    expect(bar?.className).toContain("bottom-0");
+
+    const root = bar?.parentElement;
+    expect(root?.tagName).toBe("SECTION");
+    expect(root?.className).toContain(
+      SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_CANCEL_CLASS,
+    );
+
+    const routeBottomMarginPx = readSpacingPx(root?.className ?? "", "mb");
+    const routeTrailingPaddingPx = readSpacingPx(root?.className ?? "", "pb");
+
+    expect(routeBottomMarginPx).toBe(-SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_PX);
+    expect(
+      getStickyBottomChromeGapPx({
+        routeBottomMarginPx,
+        routeTrailingPaddingPx,
+        scrollOwnerBottomPaddingPx: SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_PX,
+      }),
+    ).toBe(0);
+
+    // The bar is the last thing in the route: anything after it is content the
+    // bar cannot cover at the end of the scroll.
+    expect(root?.lastElementChild).toBe(bar);
+  });
+
+  it("reports the pre-fix layout as a gap the page renders through", () => {
+    // The exact geometry the r15 capture measured: the bar's bottom edge 40px
+    // above a 920px window while live cards kept painting to y=920.
+    expect(
+      getStickyBottomChromeGapPx({
+        routeBottomMarginPx: 0,
+        routeTrailingPaddingPx: 0,
+        scrollOwnerBottomPaddingPx: SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_PX,
+      }),
+    ).toBe(SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_PX);
   });
 });

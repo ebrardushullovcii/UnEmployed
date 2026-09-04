@@ -1,6 +1,6 @@
 # Contracts
 
-Use this for cross-package contract rules and workflow semantics. Put field-level details in `packages/contracts` JSDoc or README.
+Cross-package contract rules and the invariants a future agent is most likely to "fix" by mistake. Field-level detail lives in `packages/contracts` (JSDoc and README).
 
 ## Rules
 
@@ -10,258 +10,78 @@ Use this for cross-package contract rules and workflow semantics. Put field-leve
 - use typed result shapes for recoverable workflow outcomes
 - do not import package internals across workspace boundaries
 
-## Shared Domains
+## Invariants
 
-- candidate profile, search preferences, proof, narrative, and reusable answers
-- immutable candidate-asset metadata covers resumes, cover letters, portfolios, work samples, transcripts, certificates, images, and other supported documents, with exact MIME, byte size, SHA-256, sensitivity, consent scope, retention, soft-delete timestamp, optional extraction metadata, and a lifecycle projection containing the retention start, optional expiry, deletion reason, and purge time. The schema enforces exact policy expiry and seven-day purge chronology. Legacy records may omit the lifecycle projection and are normalized by the main-process library; aged unindexed library-owned files are recovered after a one-hour in-progress safety window. Import, list, remove, and restore IPC payloads/results are schema-validated; restore requires an explicit retention value and returns renderer-safe metadata. Application execution receives a main-process-only `loadVerifiedBytes` capability rather than a durable Candidate Asset path, and invokes it immediately before upload so lifecycle, attachment consent, size, and SHA-256 are revalidated under the library queue. Raw paths, bytes, extracted text, and byte-loader capabilities never cross the renderer/model contract; picker paths remain main-process-only
-- search preferences carry a typed compensation range with the user-stated `hour`, `day`, `week`, `month`, or `year` interval and an explicit currency state: `explicit`, `inherited`, or `needs_clarification`. A range awaiting clarification keeps currency unset; location never implies currency. Matching and catalog filtering annualize both the saved minimum and a listing's floor only when explicit currencies match; interval differences are comparable, while missing or different currencies remain neutral and never trigger an inferred exchange rate. The range is matching input, while `CandidateAnswerBank.salaryExpectations` remains separate reusable application text; either may be present without the other, and a null range maximum is not a salary ceiling. Legacy annual USD minimum/target fields remain backward-compatible projections and are populated only when the typed range is safely comparable as USD
-- resume import runs, versioned analysis-cache identity and provenance, private copied source documents with optional legacy-compatible SHA-256, document bundles, field candidates, and setup review items
-- Resume PDF export IPC accepts a strict `approval | download` intent. `approval` renders and verifies the exact private application artifact without invoking a native Save dialog; `download` is the explicit user-owned action that chooses a local destination. Both paths return the same schema-validated artifact metadata, and only a current artifact may be approved
-- saved jobs, typed requirement assessments, resume evidence citations, fit recommendations, typed match-dimension evidence and assessments, discovery runs, discovery ledger, source intelligence, review queue items, source-debug evidence, and learned instruction artifacts, plus typed performance-budget evaluations with explicit pass, warning, and fail states
-- every `DiscoveryRunResult` declares `inventoryCompleteness` as `complete`,
-  `partial`, or `unknown`. Only a complete source observation may transition an
-  exact prior ledger identity to inactive. `DiscoveryJobView.listingActivity` is
-  a snapshot-only discriminated union (`unknown`, `active`, `inactive`, `stale`,
-  or `closed`) derived from saved-job recency, collision-safe ledger identity,
-  and typed listing signals; `SavedJob` deliberately does not persist it
-- deterministic compact-snapshot discovery observations are a strict transient browser boundary (ADR 0013): `DiscoveryCompactObservationSchema` is a `supported`/`unsupported` discriminated result carrying an observation id plus monotonic revision and target/page identity, bounded text/accessibility summaries with explicit truncation flags and an omitted-candidate count, posting candidates validated by the existing source-generic `JobPostingSchema`, name-based pagination and typed action candidates scoped to the observation identity, and enumerated unsupported reasons. Snapshot-scoped refs (`DiscoveryCompactObservationControlRefSchema`) are stale unless observation id and revision both match; parsing fails closed on malformed, oversized, duplicate-ref, or selector/handle-bearing payloads. No DOM handles, raw HTML, site-specific fields, readiness-gate length threshold, or line-shape completeness assumption exists at this boundary
-- declarative starter job-source metadata (`STARTER_JOB_SOURCES`): a typed label, public starting URL, search aliases, and hedged access expectations shared by the fresh desktop seed, guided-setup source suggestions, and deterministic Profile Copilot source matching. Starter entries are suggestion content only; they seed disabled, never enable themselves, and carry no board-specific discovery or workflow policy. Persisted compatibility: at desktop startup, workspaces created before seeded first-run state are adopted once when they are pristine targetless (no discovery targets, setup never completed, no established campaign plan beyond the uncommitted default shell); adoption adds the same disabled starters through the canonical search-preferences save path, is idempotent across restarts, and never advances setup readiness or campaign retention
-- repository saved-job reads are unbounded unless the caller explicitly asks for
-  a stable `limit`/`offset` page. Row-local `commitSavedJobDelta` mutations apply
-  against current persisted rows inside one transaction and may atomically clear
-  stale resume approval. Complete-collection replacement methods require an
-  authoritative full snapshot and must never receive a page or stale read
-- every `singleton_state` row carries a monotonic `revision` column (migration
-  `singleton_state_revision`, defaulting existing rows to 1). Unconditional
-  singleton saves increment the revision atomically in the same upsert, while
-  full bootstrap/reset reinitialize it deterministically to 1 without changing
-  serialized values or backups. The candidate profile exposes this counter as a
-  compare-and-swap boundary: `getProfileWithRevision()` returns the profile with
-  its revision, `commitProfileUpdate(updater, { expectedRevision })` checks the
-  revision inside the write transaction (applying the synchronous schema-parsed
-  updater and incrementing exactly once on match; returning the current profile
-  and revision without writing on mismatch), and `commitProfileCopilotState`
-  accepts `expectedProfileRevision` to make the whole copilot workspace commit
-  all-or-stale. The profile revision is a shared epoch across the profile,
-  search-preferences, and profile-setup-state singletons: preference-only and
-  setup-state-only writes advance it too, so copilot commits that captured
-  older preferences or setup state go stale and reprepare instead of silently
-  overwriting them. Long-running profile flows (Profile Copilot apply/undo and
-  resume-import finalization) capture the profile through this boundary after
-  model work completes, merge over the freshest persisted state, and retry at
-  most once deterministically before surfacing an explicit typed stale error —
-  stale full-profile snapshots can never silently overwrite reusable answers,
-  concurrent custom answers, or unrelated profile edits. Copilot commits
-  contribute patch-group status as `messagePatchFlags` deltas resolved against
-  transaction-current message rows instead of whole-message snapshots, and
-  rejection flips one group through `commitProfileCopilotPatchFlagUpdate` —
-  sibling apply/reject decisions on the same message can no longer overwrite
-  each other
-- desktop persistence enables database-only SQLite recovery snapshots. Graceful
-  close writes `<workspace>.backup` and preserves the prior close generation as
-  `<workspace>.backup.prev`; destructive reset first writes the distinct
-  `<workspace>.reset-backup`, which later close rotation cannot overwrite.
-  Snapshot failures are non-fatal and never block close or reset. These files do
-  not capture generated resumes, Candidate Assets, application documents, or
-  browser-profile data and must not be described as full-workspace backups
-- workspace startup runs a fixed database-recovery state machine before the
-  repository is usable. It first reconciles interrupted snapshot rotation
-  (`<workspace>.backup.tmp`, `<workspace>.reset-backup.tmp`, `.backup`,
-  `.backup.prev`) so a killed process never leaves an unusable rotation behind;
-  candidates are only promoted, copied, or removed after validating as readable
-  SQLite files, and anything invalid is retained in place and reported. The live
-  database then opens once with migrations plus a full `PRAGMA integrity_check`
-  sanity gate. On failure the source is classified on an isolated throwaway
-  probe copy (main file plus any existing `-wal`/`-shm` sidecars) and automatic
-  recovery runs exactly once per creation call: evaluate `.backup` then
-  `.backup.prev` on isolated copies (migrations, full `integrity_check`,
-  persisted-state check), quarantine the suspect main/sidecar files under a
-  timestamped name only when one candidate validates, revalidate the exact
-  restore copy with the same strictness immediately before promotion, and reopen
-  once on success. A migration error on a clean-integrity database is not
-  corruption: the original error propagates untouched and no file is quarantined
-  or rewritten
-- there is no silent fresh start. When the workspace cannot be opened safely and
-  recovery does not produce a validated restore — no valid candidate, rejected
-  revalidation, incomplete quarantine/promotion, or a missing database file that
-  still has close snapshots — creation fails with the typed redacted
-  `WorkspaceDatabaseRecoveryRequiredError` instead of bootstrapping an empty
-  replacement. All suspect files and snapshots are preserved for support, the
-  error details carry candidate kinds/stages, quarantine basenames, evidence,
-  and a loss window but never raw paths or persisted values, and
-  `<workspace>.reset-backup` is excluded from automatic candidates because
-  pre-reset reuse is always an explicit user decision. Successful restores and
-  rotation reconciliations emit optional structured telemetry hooks
-  (`recoveryTelemetry`) reduced to codes and basenames; desktop surfaces these
-  outcomes to the user rather than recovering invisibly
-- startup recovery disclosure is a typed cross-boundary contract: reset
-  recovery facts (`idle`/`completed`/`degraded`) and database recovery facts
-  (`idle`/`restored`/`blocked`) are narrow discriminated unions in
-  `packages/contracts`, redacted structurally (basenames plus bounded
-  parseable timestamps only — no path, raw error, or workspace value field).
-  The startup recovery IPC handlers parse their outputs through these schemas,
-  the preload parses every response before it reaches the renderer, and the
-  versioned `<user-data>/job-finder-startup-db-recovery.json` disclosure file
-  validates its embedded fact with the same schema, failing closed to idle on
-  malformed content while previously stored shapes keep parsing
-- the workspace database runs SQLite WAL mode with `synchronous = NORMAL`.
-  Committed transactions are durable against application crashes but the most
-  recent commits can reside in the `-wal` file and may be lost on sudden power
-  loss until checkpointed; graceful-close snapshots are produced with
-  `VACUUM INTO`, which captures all committed state including WAL-resident
-  commits at close time. Recovery documentation and user disclosure must
-  describe this window honestly instead of promising zero-loss durability
-- discovery readiness requires a runnable enabled public source, not an explicit target-title entry. Empty explicit roles are normalized into an inspectable profile-derived search scope; explicit roles, preferences, and exclusions continue to override or constrain that scope. A required interpretation failure cannot be serialized as a valid empty completed run: all-source failure is `failed`, while safe work from successful sources survives a partial multi-source run
-- source-debug failure never refreshes learned guidance or its verification provenance. Retained guidance remains labeled with the last successful verification time, while the failed run keeps its own sanitized failure outcome and retry identity
-- saved-job discovery feedback is nullable and backward-compatible. When present it is schema version `1`, carries a positive revision, one or more enumerated fact-neutral reasons, an ISO timestamp, and a nullable `priorStatus` recording the status held when the job was hidden so restore returns a previously shortlisted (or otherwise progressed) job to that exact status while legacy rows and pending-job dismissals restore as discovered. Dismiss IPC requires the bounded reason array; restore clears feedback. `dismissedDiscoveryJobs` is a separate snapshot projection and never enters ranking
-- resume drafts, revision snapshots, export metadata including exact `html`/`pdf` format and optional legacy-compatible SHA-256, approval state, stale-state rules, templates, manual entry ordering, the Settings-level future-shortlist `resumeApplicationMode` default, and the nullable per-`SavedJob` override captured when a job enters Shortlisted; named resume strategy policies also carry the base document, headline, skills, coverage, tailoring strength, and evidence boundaries used as generation input. Preview IPC accepts a backward-compatible renderer request identity; the main process aborts superseded same-sender renders and only returns the current request, while the renderer keeps its final response fence.
-- application records, apply runs, blocker state, consent state, replay checkpoints, visual checkpoints, typed verified external-write evidence, and redacted per-result privacy receipts, plus portable redacted local application packets. SQLite migration 12 (`exact_application_record_lineage`) adds and backfills nullable exact `applicationRecordId` lineage on results, attempts, questions, answers, artifacts, replay checkpoints, consent, privacy-receipt lineage, and application-scoped user actions. Backfill accepts an existing exact matching record or the sole record for a job; ambiguous, absent, conflicting, or cross-result lineage remains null rather than being guessed. `ApplyJobResult.applicationPreparationStartedAt` and `applicationPreparationStartedLocalDate` are a paired durable accounting fact: both absent means legacy unknown, both null means explicitly not begun, and both non-null means the exact preparation start and captured local calendar date. Migration 13 (`durable_application_preparation_started`) adds indexed SQLite projections without fabricating these JSON fields or guessing a start for legacy results
-- ADR 0012/0013 application-authority foundation is additive and partially integrated: strict contracts, durable repositories, startup recovery, a typed prepare-only desktop management bridge, and an inspectable fail-closed Settings surface exist, while production application execution remains prepare-only and no final-submit caller is wired. `ApplicationAutomationModeSchema` (`prepare_only` / `confirm_before_submit` / `autonomous_submit`) is a distinct axis that can never be conflated with the `ApplyRunMode` run strategy by type. Strict `ApplicationAuthorityEnvelopeSchema` carries mode, active/revoked/expired status with monotonic revision, nullable campaign plus bounded unique job scope, explicit positive safe-integer per-run/per-local-day limits, intermediate-mutation capability, account creation pinned false for v1, a lowercase exact resume SHA-256 allowlist, canonical exact HTTP(S) origin scope, created/expires/revoked timestamps, and an optional immutable `decisionPolicy`. Elevated authority requires that policy: schema version `1`, positive revision, canonical SHA-256 digest over typed rules, an exact approved-answer snapshot identity, literal pause-for-user handling for unknown required/eligibility/legal answers and credential/login/MFA/CAPTCHA/anti-bot/account-creation/stale/ambiguous/origin stops, plus permanent no-retry for uncertain outcomes. Only trusted persistence code hashes the canonical rules; renderer management cannot supply identity metadata. Existing prepare-only envelopes default policy to null. Only explicitly active, unexpired envelopes pass `isActiveApplicationAuthorityEnvelope` at an explicit evaluation time, and existing workspaces are not migrated — they stay prepare-only by absence of an envelope. Strict `SubmissionPreflightRecordSchema` binds idempotency key, exact run/job/result/application-record lineage, nullable campaign, canonical page origin, exact decision-policy version/revision/digest, form-observation id/revision/digest, resume digest, answers revision/digest, final-control signature/ref, envelope id/revision, and pre-action capacity so a fresh deterministic recheck is possible — digests and stable refs only, never raw answers/DOM/credentials. The compound repository transition recomputes the policy digest and transaction-current verifies policy, approved answers, scope, origin, resume, capacity, preflight, idempotency, and grant before consuming/arming; rejected transitions mutate nothing. No separate public consume-or-arm primitive remains. The mode-bearing envelope never authorizes the final action in `confirm_before_submit`: that mode additionally requires a separate durable one-time `SubmissionExecutionGrantSchema` — pinned to literal `confirm_before_submit` and `grantedBy: user`, bound to one exact preflight id/idempotency-key/run/job/result/application-record lineage/envelope id+revision tuple, carrying active/revoked/consumed/expired status with two-way timestamp pairing (active records no markers; revoked requires `revokedAt` only; consumed requires `consumedAt` only; expired requires `expiresAt`; expiry strictly follows the grant; revoke/consume cannot precede it; no grant is both consumed and revoked) — and only the compound transaction may consume it. `autonomous_submit` rejects any grant and proceeds only from an active envelope plus exact policy/preflight checks. Final submission ends as tri-state `submitted | not_submitted | outcome_uncertain` in strict `SubmissionOutcomeRecordSchema`: `submitted` requires enum-typed external evidence entries plus a verification timestamp and blocks retry as `submission_confirmed`; `outcome_uncertain` carries no verification time, permanently blocks automatic retry for its idempotency key, and forbids all legacy submitted claims; `not_submitted` stays retryable only through an explicit eligible decision without a block reason (otherwise an explicit block reason). Evidence entries are external observation/artifact/operator confirmations with safe origin/path summaries; no internal click/intent field exists, so intent can never prove submission. Receipts and packets gain a default-null `submissionOutcome`, so old persisted data parses unchanged while legacy booleans remain; refinement ties a submitted outcome to `finalSubmitOccurred: true` and matching packet claim, forbids uncertainty from claiming `finalSubmitOccurred`/`submissionOccurred` or a submitted result state, and adds blocker reason `submission_outcome_uncertain` for unproven terminal outcomes
-- authority management uses separate strict create/update/revoke/list/get DTOs rather than `JobFinderSettingsSchema`. Renderer inputs cannot supply lifecycle id/revision/status timestamps, decision-policy identity, or account-creation capability; main stamps those fields. The Desktop service accepts only `prepare_only`. Intermediate mutations default false; when true, the DTO and durable envelope require exactly one job, one canonical origin, one resume SHA-256, future expiry, and a current main-approved answer snapshot. Main stamps the fixed pause/stop policy and digest, while Job Finder rechecks the same envelope revision, current answers, job, origin, resume, status, and expiry before each browser field-save window. The service rejects legacy auto-submit flags and renderer-supplied answer/stop-policy fields and exposes no preflight, execution-grant, armed-marker, final-browser-action, or submit IPC operation. Repository CAS replacement revokes the predecessor and its still-active grant/idempotency children while inserting a distinct replacement atomically; SQLite's partial unique index plus in-memory/reset guards enforce at most one active envelope. Settings keeps elevated cards unavailable and requires explicit revocation confirmation. Confirm-before-submit and autonomous modes remain unavailable
-- uncertain-outcome resolution uses a separate renderer-safe DTO containing only
-  `uncertainOutcomeId`, terminal `submitted | not_submitted`, and literal
-  `confirmedOnEmployerSite: true`. Electron main rereads exact lineage and the
-  current idempotency revision, then stamps the new outcome/evidence ids,
-  verification time, operator-confirmation evidence, safe receipt destination,
-  and no-automatic-retry policy. Repository input additionally binds the
-  expected original outcome and idempotency revision. Resolution preserves the
-  original uncertainty, appends one fresh terminal outcome, and atomically
-  projects idempotency, receipt/result, and ApplicationRecord truth; stale,
-  duplicate, malformed, missing, or cross-lineage inputs fail without mutation.
-  This IPC exposes no authority envelope creation, grant, arm, browser action,
-  arbitrary evidence, or submit capability
-- `BrowserSessionRuntime` may expose main-process-only
-  `observeApplicationForm` and `executeExactlyOneFinalAction` capabilities. They
-  retain private page ownership and exchange only typed redacted observation,
-  stable-control, origin, veto, and non-submission fact contracts. Job Finder's
-  composed seam is exported only from
-  `@unemployed/job-finder/application-submission-runtime-main`; it derives the
-  resume digest from bytes, builds the exact preflight, delegates authority and
-  durable transitions to the repository-backed orchestrator, and maps every
-  browser result to `not_submitted` or `outcome_uncertain`. It is not an IPC
-  contract and has no production caller or externally verified submitted path
-- job-search campaigns with precision/scale mode, status, campaign-owned search preferences and source IDs, job membership, fit and retention settings, preparation limits, stop rules, campaign rules with provenance and measured effects, schedule state with pause windows and persisted run facts, campaign digests, in-app campaign notifications, prepare-only resume policy, progress, and history; plus a truthful dashboard summary and persisted global activity control. Workspace snapshots and revisioned deltas carry campaigns, the active campaign ID, dashboard, and activity control together so the renderer cannot combine mismatched campaign context
-- a typed job-finder intelligence state covering append-only rapid-review decision logs, grouped reusable manual-answer decisions with exact per-job lineage, user-controlled outcome events with derived analytics buckets and visible uncertainty, named role-family resume strategies and per-job selections, conservative company entities (contacts, notes, salary/offer evidence, source history, merge-review candidates), and high-volume safeguard records (company application caps, simultaneous-application conflicts, listing signals, abnormal-failure pauses, batch sample reviews, contradictory-answer detections, and reversible dismissals). Company job ownership requires an exact normalized canonical name or an alias whose `identityAuthority` is `user_approved_merge`; legacy aliases default to `unknown` and are non-authoritative. SQLite migration 14 (`repair_company_alias_normalization`) recomputes only stale persisted alias `normalized` values with the canonical company-name normalizer, preserving alias text, confidence, identity authority, company records, and unrelated intelligence state. Domains can corroborate, conflict, or trigger merge research, but never own jobs. Existing SavedJob rows are not destructively rewritten to infer domain ownership. Every mutation stays a plain local tracking fact with no submission, credential, account, or browser authority. Automatic discovery/source-debug and application-terminal technical failure evidence, listing signals, batch-review records, simultaneous-application conflicts, and grouped-answer contradiction evidence are persisted idempotently; explicit user-owned blockers are not technical-failure evidence
-- application CRM state remains an optional backward-compatible part of each application record. It carries the local lifecycle stage, custom stage, tags, timeline, reminders, interviews, contacts, notes, Candidate Asset references, compensation/offer details, and automation metadata. CRM settings define the 14-day default no-response rule and custom stages. Single mutations use expected-revision checks. Bulk stage input carries a unique application-record ID and expected revision for every selected record; the service serializes transitions, rereads transaction-current rows, and commits all records or none through the repository batch boundary. Exports return typed CSV or JSON content for an Electron-owned local save
-- revisioned user-action requests/events for discovery-source and application scopes; explicit login, signup, MFA, email-verification, CAPTCHA, account-choice, manual-answer, legal-consent, redirect, upload, and other kinds; browser-only credential policy; bounded verification attempts; and redacted verification evidence
-- monotonic Job Finder workspace deltas carry base/current revision plus bounded slice upserts/removals for jobs, runs, queues, applications, and user actions; strict local diagnostic exports use an explicit allowlist; résumé timeline repairs and Interview Helper session-health summaries are typed shared contracts
-- the local Job Finder product-action registry exposes only eight schema-strict tools: bounded workspace/Needs-you/apply-run reads, proposal-only profile changes, scoped shortlist/dismiss/restore actions, and opening an existing user-action page. Every result is a typed success receipt or safe error; receipts name the snapshot timestamp revision, affected entities, and next product route. Confirmation metadata is part of each definition, and the registry contains no final-submit, account-creation, arbitrary navigation/filesystem, or external application-mutation capability
-- browser visual snapshot requests, observation sets, reconciliations, source-debug visual findings, and apply visual summaries
-- Interview Helper setup state, target context, rehearsal checks, chat messages/turns, temporary image attachments, protected surfaces, transcript segments, cue visual batches, cue cards, diagnostics, overlays, sessions, exports, transcript annotations, retention, and Job Finder follow-up actions
+Each line names the symbol or file to check before changing the behavior. If the code looks over-strict, it is on purpose.
 
-## Shared Semantics
+### Candidate assets and profile
 
-- the bounded workspace entity-mutation route covers shortlist queueing/removal, per-job resume mode, and discovery dismissal/restoration. It returns a revisioned typed delta when only supported slices change, otherwise a revisioned full snapshot; scalar/profile/settings/resume routes invalidate the renderer's delta revision before the next sync
-- `job-finder:run-agent-discovery` returns a schema-validated `JobFinderAgentDiscoveryResult`: `{ outcome: "completed" | "cancelled", snapshot }`. `cancelled` is authoritative — main derives it from the service terminal state (`discoveryRunState === "cancelled"` on a resolved run, which finalizes the run record and keeps incrementally committed jobs visible) or from an `AbortError` that escaped before a run record existed. The snapshot stays required in both variants so the renderer commit path is unchanged; renderer cancel feedback is classified from this outcome (cancelled feedback acknowledges jobs found so far via the newest cancelled run summary and never renders success or failure recovery for a deliberate stop)
-- generative text providers default to OpenCode Go `deepseek-v4-flash`, Chat Completions, and requested `reasoning_effort=max`; image-only providers default independently to OpenCode Go `gpt-5.6-luna`, Responses, `reasoning.effort=high`, and `store=false`. Image routes never inherit a text-only model, API mode, or reasoning setting. Audio transcription remains a separate model/local-provider contract
-- discovery, source-debug, and apply consume the newest instruction artifact for the exact target: latest `draft`, otherwise latest `validated`
-- profile-setup readiness treats a discovery source as runnable only when it is enabled and has an absolute public HTTP(S) starting URL; otherwise setup remains in progress and Find jobs exposes the same actionable blocker
-- profile-setup readiness has one canonical rule in `@unemployed/contracts`: `evaluateProfileSetupReadiness` plus `getProfileSetupReadinessBlockers`. A workspace cannot be marked ready while any canonical blocker remains (core identity/contact, meaningful background, work constraints, at least one chosen work mode, and one runnable discovery source), and every readiness surface (setup summary cards, ready check, derived setup state) derives from that shared evaluation instead of local rules
-- first-run profile seeds persist no fake candidate facts: the canonical fresh-start seed (`createFreshStartCandidateProfile`) leaves identity strings null, instructional placeholder text exists only as UI placeholders, and legacy workspaces that already persisted placeholder strings keep parsing via the shared placeholder detector (`hasProfileSetupPlaceholderValue`) which never counts them as real facts. Clearing an identity fact persists null rather than re-inserting a placeholder
-- discovered-job and discovery-ledger identity lookup share one collision-safe resolver. Strong identity starts with provider/board posting IDs or source-scoped posting IDs, then normalized employer application and canonical listing URLs. An unscoped source ID can only corroborate another match, while exact normalized title + company + location + absolute posted date is a possible alias that never auto-merges by itself. Zero, multiple, or conflicting candidates are treated as no match so collisions cannot skip, overwrite, or delete an unrelated posting. Existing ledger rows remain backward-compatible through nullable identity metadata defaults
-- discovery run summaries persist backward-compatible zero-defaulted change counts for new, unchanged, changed, reactivated, newly inactive, known, and skipped listings, alongside aggregate warnings and per-target health/duration. known means a collected posting matched prior ledger identity; skipped reconciles ledger, title-triage, and invalid-result exclusions. Source retry accepts one exact target ID and never expands to all enabled sources.
-- listing-origin newest sorting uses `postedAt`, then `firstSeenAt`, then
-  `discoveredAt`, not application workflow timestamps. Renderer filters and source attribution
-  consume `DiscoveryJobView`; service shortlist/product-action/application gates
-  independently reject `listingActivity.status === "closed"` so stale UI cannot
-  bypass confirmed closure. Inactive and stale remain advisory states
-- canonical profile writes from import happen only through accepted candidates or explicit user edits
-- `ResumeImportTextStageTiming` records per-stage degradation as well as timing.
-  `fallbackKind` (`timeout` | `provider_error`) and `fallbackReason` are both
-  nullable and default to null, so legacy timing rows stay readable. A stage
-  that lost its model call and finished with the built-in deterministic reader
-  still returns usable candidates, so its `status` stays `completed`; the
-  fallback pair is the only durable record that the stage degraded. Null means
-  the stage genuinely used the configured model, or is the deterministic
-  `shared_memory` stage that never had a model call to lose. Every non-null
-  `fallbackKind` also becomes a user-facing branch warning
-  (`describeResumeImportStageFallback`) so a silent degradation cannot read as
-  a clean model run.
-- resume-analysis cache reuse requires an exact SHA-256 source-byte match plus exact parser, text/vision provider, prompt, schema, reconciliation-policy, and normalized profile/search-context fingerprints; only complete non-failed runs with retained bundle/candidate artifacts qualify, cache hits create a new auditable run and cloned artifacts, and refresh actions bypass reuse because they do not reread source bytes
-- deterministic job-fit recommendations remain evidence-backed: hard conflicts or unsupported required requirements cannot produce a strong-fit/original-CV recommendation, while the numeric score remains a ranking signal rather than proof of qualification; scorer/session version 8 assessments (fingerprint logic revision 7) carry nullable candidate-context and scoring-input posting fingerprints for safe cache reuse, an explicit compensation state/confidence record, and typed diagnostic dimensions for role suitability, preference alignment, application effort, and evidence confidence
-- `SavedJob.latestMatchAssessmentAudit` stores only the latest meaningful typed assessment or visible-rank change, including previous/current scorer and fingerprint metadata, rank positions, structured change codes, and a user-readable summary. Rediscovery calculates ranks from the same visible ordering used by Find jobs and preserves the previous meaningful audit when a refresh is unchanged or only exposes missing legacy metadata
-- role suitability compares the listing role and required core evidence with saved target roles; preference alignment compares only configured and available location, work mode, seniority, employment type, and preferred-company evidence; unavailable fields remain unknown or neutral instead of becoming positive evidence
-- application effort is an explanation-only estimate of the application path and user-action checkpoints. Easy Apply may lower estimated effort but never raises the aggregate fit score, changes ordering, or strengthens the fit recommendation
-- evidence confidence measures how supportable the extracted requirement comparisons are from listing/profile evidence, including explicit negative evidence; it does not estimate hiring probability, candidate quality, or positive fit. The explanation layer preserves the existing aggregate score ordering and recommendation policy
-- application-login resumption lineage is persisted on `ApplicationAttempt` with the exact request revision, verification event, run, job, application record, result, and replay checkpoint; application-scope resumption requires a non-null exact `applicationRecordId` and validates current ownership of the record, result, and checkpoint against that lineage before acting, `ApplyJobResult.lastUserActionResumptionId` is the durable receipt, while browser runtime inputs keep a stable idempotency key and explicit false account-creation/final-submit authority
-- the immutable preparation-start mark is committed before any browser session or application execution begins and is idempotent for the exact result/run/job. Current-day `used` counts exact marked run/job lineages; `legacyUncertain` separately reserves capacity for unmarked legacy lineages whose persisted activity overlaps the local day. Process-local reservation tokens serialize concurrent entry points in the desktop singleton process until each durable mark is written; they are not a claim of cross-process distributed locking. Consent continuation reruns activity, campaign, daily-capacity, and safeguard gates before changing the pending consent decision or launching more work
-- resume approval is separate from apply approval; original-CV mode uses the user's per-job Apply Copilot action as the decision to use the unchanged imported file. A shortlisted job resolves its own persisted CV mode before the Settings default; changing the default preserves current Shortlisted choices, and a legacy null choice is captured from the active default when the job is newly shortlisted
-- a new import computes SHA-256 from the saved private working copy, not the transient picker path; startup recovery copies readable legacy source references into app-owned storage and backfills a digest only when no prior digest exists; missing, unreadable, or digest-mismatched legacy sources become unavailable and require replacement while extracted profile evidence remains; a rendered export computes SHA-256 from the exact HTML or PDF bytes and persists that exact format; nullable digest fields keep legacy records readable, but review-queue and approval/pre-apply integrity gates require a private path plus valid saved digest for active use
-- tailored approval verifies the rendered file still exists and matches its recorded SHA-256; original and tailored pre-apply resolution repeat existence and digest verification before creating any application attempt or browser work, rejecting tampered bytes and directing legacy missing-digest originals to re-import and legacy missing-digest tailored artifacts to re-export
-- every mutating resume revision stores the prior draft, before/after state hashes, actor, mutation kind, parent lineage, and a bounded diff in the same atomic repository transaction as the resulting draft and validation; commits compare the expected persisted draft timestamp so stale renderer saves and slow AI regeneration cannot overwrite newer work; repositories retain only the newest 100 revisions for the affected draft while preserving other drafts; restore consumes a full prior snapshot, appends a new restore revision, revalidates, clears approved export state in both SQLite indexed columns and serialized JSON, and returns the draft to review across restart
-- apply automation must refuse missing or stale approved resumes
-- `ApprovedApplicationAnswerSnapshot` is immutable, append-only, and distinct
-  from mutable Profile answers. Its canonical digest covers only schema version,
-  profile identity, and normalized answer entries; lifecycle timestamps and the
-  broad Profile revision are excluded so unrelated Profile writes cannot stale
-  unchanged answers. `ApplicationAuthorityReadiness` is a content-free DTO:
-  counts, answer kinds, current/approved digest identity, lifecycle revisions,
-  stable blockers, and an explicit `prepare_only` production ceiling. The
-  renderer approval command carries only the expected Profile revision and a
-  literal confirmation; main rereads content, computes the digest, owns id/time,
-  and commits with expected-latest-revision CAS. These contracts expose no raw
-  answers, credentials, grant, arm, browser action, or submit command.
-- application execution receives `ApplicationResumeArtifact`, discriminated as `tailored_export` or `original_upload`, with the exact attachment path, source identity, verified SHA-256, and exact source/export format; the same safe digest and format flow into the privacy receipt without exposing the local path
-- `ApplicationDocumentRevision` is the local proposal/preview/edit/approval/export contract for `cover_letter` and `short_response`. Every revision carries exact `jobId`/`applicationRecordId`/source job/canonical URL/title/company lineage, a job digest, optional exact run/question/prompt lineage, bounded evidence excerpts with an evidence digest, authorship, a grounding-review flag, and compare-and-swap revision semantics. An attachment-question proposal resolves the exact run/result/question/application-record tuple from current apply details; stale, missing, cross-record, or nullable lineage fails closed. The main process builds generated content from the authoritative workspace snapshot; renderer input cannot supply generated candidate facts. `EditApplicationDocumentInput` accepts only bounded non-empty text and creates a new `user_edited` revision that preserves evidence lineage while requiring explicit claim review. Approval creates a verified `cover_letter` or `application_response` CandidateAsset and returns metadata only. Export returns basename, byte size, and SHA-256 without a local path
-- prepare-only apply calls carry explicit false submit authorization; `intermediateMutationsAuthorized` is a distinct optional browser-runtime capability and does not authorize DOM/final submission. When true, it additionally requires an exact origin allowlist and an asynchronous main-owned authority recheck before each short field-action window, then permits only classified fetch/XHR draft/autosave traffic. Final-action, ambiguous, cross-origin, late, beacon, long-lived, and navigation traffic remains denied. Filled form answers remain `answered` until an application is actually submitted; local DOM fills and file selection are not external-write evidence. `ApplyExecutionResult.externalWrites` records a write only after an authorized request receives a successful 2xx/3xx response. `ApplyJobResult.privacyReceipt` stores the safe destination origin/path, resume identity, local/model categories, verified writes, and explicit account-creation/final-submit facts without local file paths or URL secrets. `ApplicationPacket` is a user-initiated local export of exact run/job/result lineage, safe listing/application destinations, CV identity, prepared answers and provenance, consent, checkpoints, and the receipt; schema validation strips local paths and rejects any claimed submission unless the result state is `submitted` and the receipt carries a final-submit attestation. Receipt fields are authority/action attestations about Job Finder itself — authorization flags, performed actions, and observed preparation writes — never proof of an external site outcome; users confirm site-side state themselves
-- campaign preparation stop rules use only typed apply blocker reasons and cumulative run counts. Login/signup, changed/unexpected form, unresolved human-answer/eligibility, and configured blocked-plus-failed-rate rules may pause a run for review; they cannot submit, create an account, or silently mark a job applied. Scheduled starts are enforced as local run-now/daily/selected-time runs with pause windows and persisted run facts; automatic role-family resume-strategy recommendations and per-job selection are enforced while reuse never approves, readies, or un-stales an artifact; analysis concurrency remains stored policy rather than a runtime cap
-- Search plans own discovery settings only. Employer-application volume is
-  guarded by fixed service constants: at most 10 unique jobs in one preparation
-  run and at most 20 distinct begun employer applications per local day across
-  campaign and legacy lineages; staged or cancelled-before-start work does not
-  consume the daily count
-- campaign-rule funnel estimates are derived only from the campaign's retained real jobs; a campaign with no retained jobs yields a zeroed funnel, measured effects carry a real sample, and missing or non-comparable evidence is reported as unknown rather than fabricated
-- outcome analytics buckets slice only explicit user-controlled outcome events; rates stay null below the documented minimum sample, uncertainty is visible with a Wilson 95% half-width once the confidence sample is reached, and suggestions are conservative, inspectable, resettable, and separate from objective job facts
-- campaign digests copy counts verbatim from the finished discovery run's change digest and failed sources from its source health; in-app campaign notifications cover only strong new matches and blocked/failed campaign work and never imply external email or push. Terminal discovery/source-debug technical failures use stable identities so repeated completion, retry, or restart processing does not duplicate safeguard or notification evidence; user-owned blockers can notify as blocked work but are excluded from the technical-failure sample
-- outcome recording requires an unambiguous job identity. `RecordOutcomeInput` may omit `campaignId` only when the job belongs to one campaign and may omit `applicationRecordId` only when the job has at most one application record; multiple campaigns or application records are rejected until the caller supplies the matching identifier. The persisted event stores the selected campaign and application identities and remains user-controlled local tracking, not submission evidence
-- resume-strategy selection resolves the enabled strategy's `baseResumeDocumentId`, `headlinePolicy`, `skillsPolicy`, `coveragePolicy`, `tailoringStrength`, and `evidenceBoundaries` into generation policy. This policy never carries approval, readiness, digest, or current-artifact authority, so reuse cannot approve, ready, or un-stale a résumé
-- a manual-answer action persists the answer only to its exact run/job/result/question lineage unless the user separately requests a future Profile save; future saves use exact normalized-question matching, do not overwrite conflicting entries, and never change the prepare-only application boundary\r\n- workspace-delta consumers reject stale revisions, recover a gap with one full snapshot, and must preserve a valid current selection; producers fall back to a full snapshot when a safe bounded delta cannot be represented\r\n- diagnostic export schemas are allowlists rather than redaction-after-serialization and exclude raw résumé/document bytes, transcript/audio/image data, browser storage, credentials, URL secrets, and private provider payloads\r\n- opening a user-action page never resolves the request; Done enters `verifying` and resolves only after a strict capability probe proves the expected origin plus a strong account marker with no login/password/MFA/CAPTCHA blocker; blocked, inconclusive, wrong-origin, missing-runtime, and exception outcomes remain `still_blocked`
-- application and UI operations accept or resolve an exact application-record
-  target. Starting another application creates a new record; continuing an
-  existing application keeps result, attempt, answer, grouped-answer, consent,
-  replay, Needs you, document, outcome, CRM, and campaign projections isolated
-  to that record. Manual stage facts and answers retain local/manual provenance;
-  grouped reusable answers retain each affected record's exact job lineage
-- employer exclusion preview is a strict available/unavailable union. The
-  atomic dismiss mutation requires the previewed normalized exact company name;
-  ambiguity, merge review, generic/provider-only identity, name/domain conflict,
-  or a whitelist disables reusable exclusion. A domain can corroborate identity
-  but is never exclusion scope. Reversal requires the saved job/name reference
-  and removes only that exclusion
-- `companyJobs` is a complete snapshot and delta slice built from every saved
-  job referenced by company intelligence, independent of active-campaign and
-  discovery-result filtering. It carries the same derived listing activity as
-  other `DiscoveryJobView` slices
-- company salary/offer evidence commits read transaction-current intelligence,
-  SavedJob, and ApplicationRecord inside one atomic repository write. The
-  expected company timestamp must still match; timestamps advance monotonically;
-  listed salary and offer evidence require the exact current job, and offer
-  evidence additionally requires the exact ApplicationRecord for that job and
-  company. Any stale, missing, mismatched, or invalid input rolls back the whole
-  commit
-- application login, signup, MFA, and email-verification blockers may enter the persisted source-access flow because its probe can truthfully prove authenticated origin after the user acts; CAPTCHA, account choice, manual answers, legal consent, manual uploads, redirects, and other blockers retain explicit presentation kinds but must not be persisted/resolved by source-access verification until a capability-specific probe can prove their exact completion state
-- application login requests bind the exact apply run, job result, and latest replay checkpoint; source-access verification may omit a discovery target ID only for application scope, while discovery scope still requires the verification target to equal the scoped target
-- source-access probe results are strict enum-only evidence: no raw page text, URLs with query data, cookies, credentials, security answers, or provider payloads may cross or persist through the contract
-- browser visual output is evidence-only; schema validation rejects selectors, browser-action directives, saved-job directives, generated answers, final-submit guidance, and site-specific workflow rules
-- application-page visual capture requires explicit apply-run/action opt-in; browser-runtime must not infer screenshot capture from an ambient visual-capable AI client
-- Interview Helper cue generation consumes bounded source-labeled transcript windows, target-context snapshots, selected prep artifacts, compact summary state, and active visual observations
-- Interview Helper explicit chat sends always generate a response and may contain at most four schema-validated PNG/JPEG/WebP inputs; stored attachment metadata excludes raw base64 bytes
-- Interview Helper renderers receive schema-validated workspace-change events through the typed preload subscription, allowing the main window and popup windows to stay synchronized without renderer reloads
-- popup copy actions use a bounded, schema-validated clipboard-write input; renderers never receive raw Electron clipboard primitives
-- Interview Helper core disclosure acceptance does not imply capture permission; microphone, meeting/system-audio, and screenshot actions must each enforce their corresponding consent field
-- Interview transcript segments distinguish `typed_question` from microphone, system audio, and meeting-native transcript sources through Assist, Review, annotations, cue selection, and export
-- Interview Helper persists only bounded chat message/attachment metadata; audio-provider work is serialized separately and only schema-validated outcomes enter the serialized workspace mutation path
-- Interview Helper must ignore empty/non-speech audio results rather than persist them as transcript segments or use them for cue generation
-- Interview Helper must not persist raw audio, raw provider payloads, raw prompts, raw full transcripts, or unpinned screenshots by default
-- Interview Helper protected overlay state uses explicit states such as `verified_protected`, `requested_unverified`, `best_effort`, `unsupported`, `failed`, and `unknown`; product code must not collapse these into a boolean
-- Interview Helper renderer/preload calls use narrow semantic actions instead of exposing Electron or Node primitives
-- Interview Helper may write back to Job Finder only through explicit post-session actions validated by `JobFinderInterviewFollowUpInputSchema`
-- Resume export/approval is unavailable while the current draft has blocking candidate-claim validation. Renderer feedback and Shortlisted status are keyed to the affected job and link to the proof review region rather than leaking across selection changes
-- one deterministic rule decides whether a resume claim is grounded: `isBlockingResumeClaimAssessment` in contracts. The export/approval validator, the Resume Studio blocker surfaces, and the Guided Edits proposal gate all call it, so a proposal can never be shown as grounded while the export gate would reject the same text. `ResumeValidationIssue.flaggedText` names the exact flagged sentence, and blockers offer a one-click restore of the text that sentence replaced
-- assistant resume proposals are gated before they are shown: `evaluateResumeProposalGrounding` applies the proposed patches to a throwaway draft, sanitizes it, runs the export validator over the result, and records every blocker the proposal itself would introduce as `ResumeAssistantMessage.approvalBlockers`. A gate-rejected proposal is never described as grounded, and accepting it requires an explicit "blocks approval" action
-- `job-finder:set-resume-claim-confirmation` carries the strict discriminated `JobFinderSetResumeClaimConfirmationInput` command (add: claim locator plus normalized content hash and literal ownership statement; remove: stored confirmation id). Main schema-parses the command and schema-parses the returned workspace snapshot back over IPC; the renderer exposes it as a typed `(input) => Promise<snapshot>` shell action applied through the same request-fenced workspace commit as neighboring resume mutations
-- the managed discovery browser persists only validated native window bounds under its dedicated browser profile. First launch uses a sensible default; later launches restore user-adjusted size, position, and native state without exposing browser paths to renderer contracts
-- window-close protection keeps dirty-state ownership in the renderer: Job Finder mirrors only a schema-validated `blocked` boolean through `window:set-close-guard-state`, and a paused native close is resolved by the renderer's app-owned dialog through typed `window:close-requested` / `window:resolve-close-request` payloads bound to the guarded main window's webContents id, with outbound `window:close-requested` delivery addressed only to the webContents captured at attach time (never window-enumeration order) and skipped safely when that renderer is destroyed or replaced. A discard approval is a single-use, generation-bound token that authorizes exactly the next native close of the same attached-window/document generation and is invalidated by renderer crash, document (re)load, re-attach, or fresh dirty mirror state, so stale consent can never bypass new unsaved work. Main caches no draft content; an app-level quit asks before any service shutdown starts and cancels the 500ms deferred background service initialization as soon as quit begins so it cannot recreate a service mid-teardown — an explicit user cancel releases that latch exactly once while services are still intact, and once shutdown commits it stays permanent; watchdog expiry proceeds so shutdown cannot deadlock, and forced process termination stays owned by local persistence
+- Raw paths, bytes, extracted text, and byte loaders never cross the renderer boundary; application upload receives a main-process-only `loadVerifiedBytes` capability and calls it immediately before upload (`workspace-application-attachments.ts`, `playwright-application-flow.ts`).
+- Compensation matching compares only the saved minimum, and only when explicit currencies match; a null range maximum is not a ceiling, and missing or different currencies stay neutral and never infer an exchange rate (`matching-compensation.ts`).
+- The fresh-start seed persists no fake facts: identity strings stay null and placeholder strings are never counted as real (`createFreshStartCandidateProfile`, `hasProfileSetupPlaceholderValue`).
+- Setup readiness has one canonical rule and requires a runnable enabled public source, not an explicit target title (`evaluateProfileSetupReadiness`, `isRunnableJobDiscoveryTarget`).
+- `STARTER_JOB_SOURCES` seed with `enabled: false` and never enable themselves; pristine legacy workspaces adopt them once (`adoptPristineWorkspaceStarterSources`).
+- Long-running profile flows commit through the revision CAS boundary and retry a stale commit exactly once before surfacing a typed error (`commitMergedProfileUpdateWithStaleRetry`, `MAX_PROFILE_COMMIT_ATTEMPTS`).
+
+### Resume export and approval
+
+- Approved resume exports are written only through `approveResumeExport()`; both repositories throw on `upsertResumeExportArtifact` with `isApproved: true`, on purpose.
+- Resume export intent is `approval | download`; `approval` renders and verifies without a native Save dialog (`ResumePdfExportIntentSchema`, `routes/job-finder.ts`).
+- One rule decides whether a resume claim blocks export, and assistant proposals are gated by it before display (`isBlockingResumeClaimAssessment`, `evaluateResumeProposalGrounding`).
+- Resume strategy policy is generation input only; it never approves, readies, or un-stales an artifact (`resume-strategy-application.ts`).
+- Repositories retain only the newest revisions per draft and drop older ones deliberately (`MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT`).
+- Apply refuses a missing or stale approved resume and re-verifies file existence plus SHA-256 before any browser work (`workspace-apply-run-support.ts`).
+- The approved answer-snapshot digest excludes lifecycle timestamps and the Profile revision so unrelated Profile writes cannot stale unchanged answers (`serializeApprovedApplicationAnswerSnapshotForDigest`).
+
+### Discovery and ledger
+
+- Only a `complete` inventory observation may transition a prior ledger identity to inactive (`inventoryCompleteness`, `collectionSupportsInactiveMarking` in `workspace-discovery-methods.ts`).
+- `DiscoveryJobView.listingActivity` is snapshot-only; `SavedJob` deliberately does not persist it (`DiscoveryJobViewSchema = SavedJobSchema.and(...)`, `listing-activity.ts`).
+- Service shortlist, product-action, and application gates each reject `listingActivity.status === "closed"` independently so stale UI cannot bypass closure; inactive and stale stay advisory.
+- Identity resolution is collision-safe: zero, multiple, or conflicting candidates are no match, and title + company + location + date is a possible alias that never auto-merges (`job-identity.ts`).
+- Compact observation refs are stale unless observation id and revision both match; payloads carrying selectors or handles fail closed (`DiscoveryCompactObservationControlRefSchema`).
+- Discovery, source-debug, and apply consume the latest `draft` instruction artifact, otherwise the latest `validated` (`resolveActiveSourceInstructionArtifact`).
+- A failed source-debug run keeps the previously verified guidance and its provenance instead of refreshing them (`preservedRouteHintArtifact` in `workspace-source-debug-workflow.ts`).
+- Newest sorting uses `postedAt`, then `firstSeenAt`, then `discoveredAt`, never application workflow timestamps (`discovery-ordering.ts`).
+- `dismissedDiscoveryJobs` is a separate projection that never enters ranking; restore returns a job to its recorded `priorStatus`.
+- A discovery run result is `{ outcome: "completed" | "cancelled", snapshot }` and the snapshot is required in both variants (`JobFinderAgentDiscoveryResultSchema`).
+- Company job ownership requires an exact canonical name or an alias with `identityAuthority: "user_approved_merge"`; legacy aliases default to `unknown`, and a domain corroborates but never owns jobs or scopes an exclusion (`company-intelligence-operations.ts`, `employer-exclusion.ts`).
+- Application effort is explanation-only: Easy Apply lowers estimated effort, but `matching.ts` never reads `applicationEffort` into the score or ordering.
+
+### Persistence and revisions
+
+- `singleton_state.revision` only moves forward; unconditional saves increment it in the same upsert (`incrementSingletonRevision`, migration `singleton_state_revision`).
+- The profile revision is a shared epoch: search-preferences and profile-setup-state saves also increment the `profile` revision, on purpose (`file-repository.ts`).
+- `commitProfileUpdate(updater, { expectedRevision })` checks the revision inside the write transaction and returns the current profile without writing on mismatch.
+- `listSavedJobs` is unbounded unless the caller passes `limit`/`offset`; `commitSavedJobDelta` is row-local, and full-replacement methods must never receive a page.
+- There is no silent fresh start: an unrecoverable workspace fails with `WorkspaceDatabaseRecoveryRequiredError`, and `<workspace>.reset-backup` is deliberately excluded from automatic candidates (`file-repository-recovery.ts`).
+- A migration error on a clean-integrity database is classified `not-corruption`: nothing is quarantined or rewritten.
+- SQLite runs WAL with `synchronous = NORMAL`; close snapshots use `VACUUM INTO` and are database-only, so never describe them as full-workspace or zero-loss backups (`migrations.ts`, `file-repository-backup.ts`).
+- The close-guard discard approval is a single-use, generation-bound token invalidated by crash, reload, or re-attach (`main-window-close-guard.ts`).
+
+### Applications and safety
+
+- Production stays prepare-only: saved mode `prepare_only` never authorizes final submission, `ApplicationAutomationMode` is a distinct axis from `ApplyRunMode`, and `application-submission-runtime-main` has no production caller (`application-submission-policy.ts`).
+- Submission evidence kinds are external only (`submissionOutcomeEvidenceKindValues`); there is no click or intent field, so intent can never prove submission.
+- `outcome_uncertain` permanently blocks automatic retry and forbids `finalSubmitOccurred` (`SubmissionOutcomeRecordSchema`, `application-submission-orchestrator.ts`).
+- `applicationPreparationStartedAt` and `applicationPreparationStartedLocalDate` are a pair: both absent is legacy unknown, both null is explicitly not begun (`apply.ts` refinement).
+- Volume caps are fixed service constants, `MAX_EMPLOYER_APPLICATION_JOBS_PER_RUN` and `MAX_BEGUN_EMPLOYER_APPLICATIONS_PER_LOCAL_DAY`; cancelled-before-start work does not consume a slot (`application-preparation-capacity.ts`).
+- `intermediateMutationsAuthorized` never authorizes final submission and requires exactly one job, one origin, and one resume digest (`application-authority-management.ts`).
+- `externalWrites` records a write only after an authorized request receives a 2xx/3xx response; filled answers stay `answered` until an actual submission (`playwright-application-flow.ts`).
+- Only login, signup, email-verification, and MFA blockers may resolve through source-access verification (`workspace-application-user-action.ts`); CAPTCHA and the rest wait for a capability-specific probe.
+- User-owned blockers are not technical-failure evidence (`isUserOwnedBlockerEvidence`).
+- Outcome recording rejects ambiguous job identity: multiple campaigns or application records require an explicit id (`RecordOutcomeInput` in `workspace-intelligence-methods.ts`).
+- The product-action registry exposes exactly the eight tools in `jobFinderProductActionToolNameValues`; none submits, creates accounts, or navigates arbitrarily.
+- Visual snapshots are evidence-only: `visual.ts` rejects selectors and directives, and capture requires the explicit `captureVisualSnapshots` opt-in rather than inference from a visual-capable client.
+
+### AI providers and Interview Helper
+
+- Image routes have their own default model, API mode, and reasoning setting and never inherit the text defaults (`DEFAULT_VISION_MODEL*` in `openai-compatible-transport.ts`).
+- A resume-import stage that fell back to the deterministic reader keeps `status: "completed"`; `fallbackKind` and `fallbackReason` are the only durable degradation record (`resume-import.ts`, `describeResumeImportStageFallback`).
+- Disclosure acceptance does not imply capture: `microphoneCapture`, `meetingAudioCapture`, and `screenshotCapture` are enforced separately (`InterviewSetupConsentSchema`).
+- Empty or non-speech audio results are ignored, not persisted as transcript segments (`NON_SPEECH_TRANSCRIPT_PATTERN`).
+- `InterviewCaptureProtectionStateSchema` is a six-state enum; never collapse it into a boolean.
+- Interview Helper writes back to Job Finder only through `JobFinderInterviewFollowUpInputSchema`.
 
 ## Validation Expectations
 

@@ -100,7 +100,7 @@ function createRequest(index: number): UserActionRequest {
           blockerFingerprint: "blocker_1",
         },
     title: `Scale action ${ordinal}`,
-    summary: "Use the managed browser, then return here.",
+    summary: "Use the Job Finder browser, then return here.",
     actionUrl: "https://jobs.example.com/login",
     displayOrigin: "https://jobs.example.com/",
     credentialsPolicy: "browser_only",

@@ -771,14 +771,14 @@ export function InterviewHelperPage() {
             <div className="flex min-w-0 flex-col">
               <Link
                 className={cn(
-                  "font-display text-[1.45rem] font-black leading-none tracking-[-0.08em] text-(var(--headline-primary)) sm:text-[1.75rem]",
+                  "font-display text-[1.45rem] font-black leading-none tracking-[-0.08em] text-(--headline-primary) sm:text-[1.75rem]",
                 )}
                 style={noDragRegionStyle}
                 to={jobFinderReturnRoute}
               >
                 UNEMPLOYED
               </Link>
-              <span className="hidden text-[0.72rem] uppercase tracking-(var(--tracking-caps)) text-muted-foreground sm:block sm:text-(length:var(--text-tiny))">
+              <span className="hidden text-[0.72rem] uppercase tracking-(--tracking-caps) text-muted-foreground sm:block sm:text-(length:--text-tiny)">
                 Interview Helper
               </span>
             </div>

@@ -35,6 +35,28 @@ const textLinkSource = readFileSync(
   new URL("../components/ui/text-link.tsx", import.meta.url),
   "utf8",
 );
+const checkboxSource = readFileSync(
+  new URL("../components/ui/checkbox.tsx", import.meta.url),
+  "utf8",
+);
+const selectableRowSource = readFileSync(
+  new URL("../components/ui/selectable-row.tsx", import.meta.url),
+  "utf8",
+);
+const collectionSearchToolbarSource = readFileSync(
+  new URL(
+    "../features/job-finder/components/collection-search-toolbar.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const safeguardsBoundarySource = readFileSync(
+  new URL(
+    "../features/job-finder/screens/safeguards/safeguards-application-boundary.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 function readToken(scope: string, token: string): string {
   const value = scope.match(
@@ -698,7 +720,11 @@ describe("editable field versus read-only well tokens", () => {
     expect(readToken(DARK_THEME, "--field")).toBe("#171a1d");
     expect(readToken(LIGHT_THEME, "--field")).toBe("#fcfcfd");
     expect(readToken(DARK_THEME, "--field-border")).toBe("#677480");
-    expect(readToken(LIGHT_THEME, "--field-border")).toBe("#8a939c");
+    // Raised from #8a939c by the r15 contrast review: that value measured
+    // 2.91:1 on the light card and 2.54:1 on the light canvas, below the 3:1
+    // non-text floor, with only a 1.05:1 field-vs-card fill to fall back on.
+    // Dark already cleared it at 3.50/3.89 and is unchanged.
+    expect(readToken(LIGHT_THEME, "--field-border")).toBe("#7a828b");
 
     // The stronger resting boundary must stay quieter than the focus
     // indicator so focus remains the strongest field state.
@@ -1335,5 +1361,990 @@ describe("divider visibility", () => {
         ).toBeGreaterThanOrEqual(1.7);
       }
     }
+  });
+});
+
+/**
+ * Round-three contrast review (r15), non-text layer.
+ *
+ * Two independent reviewers sampled the built app pixel by pixel. Text passed
+ * everywhere in both themes; every failure was a boundary or a state
+ * indicator drawn below the WCAG 2.2 1.4.11 3:1 non-text floor:
+ *
+ *  - the unchecked checkbox outline at 1.85:1 (dark) - the primary control
+ *    for enabling a job source and picking a work mode;
+ *  - the selected Find jobs density segment marked by a 1.10:1 fill;
+ *  - every light editable control bounded by --field-border at 2.91:1 on the
+ *    card and 2.54:1 on the canvas, with a 1.05:1 fill fallback;
+ *  - the light selected list row, whose strongest channel was 1.78:1;
+ *  - the Safeguards boundary card painted the canvas colour (1.00:1).
+ *
+ * A sixth reported item - panels, cards and disclosures bounded at 2.11:1
+ * (dark) / 2.00:1 (light) by --surface-panel-border - was reclassified after
+ * r18 rather than fixed. 1.4.11 binds boundaries that identify a COMPONENT or
+ * its STATE; a panel outline, a card edge and a row divider are inert
+ * structure. Raising that token to 3:1 made 78 single-edge consumers render
+ * as rules and light Find jobs read as a ruled table, so it now sits in a
+ * floor-and-ceiling band instead, and layering is expected to carry
+ * structure. The control, field, selected and focus boundaries below keep
+ * their 3:1 floors unchanged.
+ *
+ * State fills stay deliberately subtle: the density segment (1.10:1) and the
+ * selected row (1.28:1) are identified by their ring and bar, which do clear
+ * 3:1. An indicator at 3:1 is the requirement; a loud fill is not.
+ *
+ * Each pair below names the exact surfaces the reviewers measured.
+ */
+describe("non-text boundary and state contrast (r15)", () => {
+  // Every fill a `border border-(--surface-panel-border)` box is actually
+  // drawn on, not only the opaque page containers. Derived from the fills
+  // that co-occur with that border in the renderer (`bg-card`,
+  // `bg-(--surface-panel)`, `bg-(--surface-panel-raised)`, `bg-(--input)`,
+  // `bg-secondary`, `bg-(--surface-overlay-strong)`, `bg-background/NN`),
+  // plus the selected-row fill a panel box can nest in.
+  const DARK_CONTAINER_SURFACES = {
+    canvas: "#111315",
+    shell: "#151719",
+    card: "#1b1e21",
+    popover: "#202429",
+    secondary: "#22262b",
+    "surface-strong": "#242a31",
+    "overlay-strong over card": composite("rgba(0, 0, 0, 0.24)", "#1b1e21"),
+  };
+  const LIGHT_CONTAINER_SURFACES = {
+    canvas: "#e6e8eb",
+    card: "#f6f7f8",
+    popover: "#fbfbfc",
+    raised: "#eceef1",
+    secondary: "#e2e5e9",
+    "surface-strong": "#d3dde9",
+    "overlay-strong over card": composite("rgba(24, 24, 22, 0.08)", "#f6f7f8"),
+  };
+
+  /**
+   * The inert-chrome band for --surface-panel-border.
+   *
+   * A floor, because a panel edge that cannot be seen is not structure; and a
+   * CEILING, because this token is not a control boundary and must never be
+   * raised into one again. The ceiling is expressed against --field-border
+   * rather than as a number, so it tracks the control tokens automatically.
+   */
+  const PANEL_BOUNDARY_FLOOR = 2;
+  /**
+   * The hard ceiling. 3:1 is the control-boundary floor, so an inert panel
+   * edge must stay strictly under it: reaching 3:1 is definitionally
+   * reclassifying this token as a component boundary, which is the exact
+   * regression this band exists to prevent.
+   */
+  const PANEL_BOUNDARY_CEILING = 3;
+
+  const DARK_FIELD_SURFACES = {
+    canvas: "#111315",
+    card: "#1b1e21",
+    field: "#171a1d",
+    input: "#202429",
+  };
+  const LIGHT_FIELD_SURFACES = {
+    canvas: "#e6e8eb",
+    card: "#f6f7f8",
+    field: "#fcfcfd",
+    input: "#f0f2f4",
+    muted: "#e8eaed",
+    toolbar: "#e2e5e9",
+  };
+
+  it("bounds the unchecked checkbox with the control boundary, not the divider token", () => {
+    // The checked state is a solid --primary fill, so the unchecked box is
+    // identified by its outline alone: --border measured 1.98:1 on the dark
+    // card and 1.85:1 on the dark --input fill.
+    expect(checkboxSource).toContain("border border-(--control-border)");
+    expect(
+      checkboxSource,
+      "the resting checkbox outline must not fall back to the divider token",
+    ).not.toMatch(/border border-border\b/);
+
+    for (const [themeName, theme, surfaces] of [
+      ["dark", DARK_THEME, DARK_FIELD_SURFACES],
+      ["light", LIGHT_THEME, LIGHT_FIELD_SURFACES],
+    ] as const) {
+      const boundary = readToken(theme, "--border-strong");
+
+      for (const [surfaceName, surface] of Object.entries(surfaces)) {
+        expect(
+          contrastRatio(boundary, surface),
+          `${themeName} checkbox outline on ${surfaceName}`,
+        ).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
+  it("marks the selected density segment with a 3:1 boundary instead of a 1.10:1 fill", () => {
+    // The grouped Find jobs control stripped the button border (`border-0`)
+    // and relied on the `secondary` fill alone, which sits 1.10:1 from the
+    // unselected track.
+    //
+    // Previously this pinned a per-call-site ring in
+    // `collection-search-toolbar.tsx`:
+    //   expect(collectionSearchToolbarSource).toMatch(
+    //     /ring-1 ring-inset ring-\(--control-border\)/);
+    //   … measuring `--border-strong` against the unselected segment.
+    // The density switcher is the shared `SegmentedControl` now (it was
+    // written three ways inside that one file), so the boundary moved with it
+    // and the pin follows the control rather than one of its call sites. The
+    // selected channel is that component's `inset 0 -2px var(--primary)` bar
+    // beside the fill — hue is never the sole carrier either way.
+    //
+    // The floor is unchanged at 3:1 and the measured margin is larger, not
+    // smaller: --primary against the unselected segment is 6.727:1 dark /
+    // 7.419:1 light (the retired --border-strong ring was 3.994:1 / 3.883:1),
+    // and against its own --secondary fill 6.114:1 / 6.297:1 (was 3.63:1 /
+    // 3.296:1).
+    const segmentedControlSource = readFileSync(
+      new URL("../components/ui/segmented-control.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(segmentedControlSource).toMatch(
+      /shadow-\[inset_0_-2px_0_var\(--primary\)\]/,
+    );
+    // The retired per-call-site copy must not come back.
+    expect(collectionSearchToolbarSource).not.toMatch(
+      /ring-1 ring-inset ring-\(--control-border\)/,
+    );
+
+    for (const [themeName, theme, unselected] of [
+      // The unselected segment is a ghost button: the surface behind the
+      // group shows through.
+      ["dark", DARK_THEME, "#1b1e21"],
+      ["light", LIGHT_THEME, "#f6f7f8"],
+    ] as const) {
+      const selectedBar = readToken(theme, "--primary");
+      const selectedFill = readToken(theme, "--secondary");
+
+      expect(
+        contrastRatio(selectedBar, unselected),
+        `${themeName} selected density bar against the unselected segment`,
+      ).toBeGreaterThanOrEqual(3);
+      expect(
+        contrastRatio(selectedBar, selectedFill),
+        `${themeName} selected density bar against its own fill`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("keeps the inert panel boundary visible without turning it into a rule", () => {
+    // Not a 3:1 assertion: 1.4.11 governs component and state boundaries,
+    // which live on --control-border / --field-border / --row-selected-bar.
+    // This token bounds panels, cards, dividers and disclosures - structure,
+    // not state - and 78 single-edge consumers render it, so a 3:1 value
+    // reads as a ruled table rather than as layered surfaces.
+    for (const [themeName, theme, surfaces] of [
+      ["dark", DARK_THEME, DARK_CONTAINER_SURFACES],
+      ["light", LIGHT_THEME, LIGHT_CONTAINER_SURFACES],
+    ] as const) {
+      const border = readToken(theme, "--surface-panel-border");
+      const card = themeName === "dark" ? "#1b1e21" : "#f6f7f8";
+      const fieldBoundary = contrastRatio(
+        readToken(theme, "--field-border"),
+        card,
+      );
+
+      for (const [surfaceName, surface] of Object.entries(surfaces)) {
+        const ratio = contrastRatio(border, surface);
+
+        expect(
+          ratio,
+          `${themeName} --surface-panel-border on ${surfaceName} (band floor)`,
+        ).toBeGreaterThanOrEqual(PANEL_BOUNDARY_FLOOR);
+        // The ceiling, asserted on every surface rather than only the card:
+        // this is what stops the token being raised back to control strength.
+        expect(
+          ratio,
+          `${themeName} --surface-panel-border on ${surfaceName} (band ceiling: inert chrome, never a 3:1 component boundary)`,
+        ).toBeLessThan(PANEL_BOUNDARY_CEILING);
+      }
+
+      // And it stays under the control tokens in relative terms too, so the
+      // published ladder panel < field < control cannot invert.
+      expect(
+        contrastRatio(border, card),
+        `${themeName} --surface-panel-border must stay quieter than --field-border`,
+      ).toBeLessThan(fieldBoundary);
+    }
+  });
+
+  it("clears 3:1 for the editable field boundary on every surface a field sits on", () => {
+    // The field fill is within 1.05:1 of the card in light and 1.2:1 in dark,
+    // so this border has no fill fallback to lean on.
+    for (const [themeName, theme, surfaces] of [
+      ["dark", DARK_THEME, DARK_FIELD_SURFACES],
+      ["light", LIGHT_THEME, LIGHT_FIELD_SURFACES],
+    ] as const) {
+      const border = readToken(theme, "--field-border");
+
+      for (const [surfaceName, surface] of Object.entries(surfaces)) {
+        expect(
+          contrastRatio(border, surface),
+          `${themeName} --field-border on ${surfaceName}`,
+        ).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
+  it("gives the selected list row an accent bar at 3:1 in both themes", () => {
+    // --nav-active-bar is drawn on the dark --nav-active-surface fill. Reused
+    // on --surface-strong by SelectableRow it left the light selected row at
+    // 1.39:1 against its own fill and 1.78:1 against its neighbours, with a
+    // 1.28:1 tint as the only other channel.
+    expect(selectableRowSource).toContain(
+      "inset_3px_0_0_0_var(--row-selected-bar)",
+    );
+    expect(
+      selectableRowSource,
+      "the row bar must not reuse the sidebar's nav token",
+    ).not.toContain("var(--nav-active-bar)");
+
+    for (const [themeName, theme, neighbour] of [
+      ["dark", DARK_THEME, "#1b1e21"],
+      ["light", LIGHT_THEME, "#f6f7f8"],
+    ] as const) {
+      const bar = readToken(theme, "--row-selected-bar");
+      const selectedFill = readToken(theme, "--surface-strong");
+
+      expect(
+        contrastRatio(bar, selectedFill),
+        `${themeName} --row-selected-bar against the selected row fill`,
+      ).toBeGreaterThanOrEqual(3);
+      expect(
+        contrastRatio(bar, neighbour),
+        `${themeName} --row-selected-bar against an unselected row`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("paints the Safeguards boundary card on the card surface, not the page canvas", () => {
+    // `bg-background/40` over the page canvas resolves to the canvas colour,
+    // so the card that states the prepare-only safety contract had a 1.00:1
+    // fill delta and only a hairline for a container.
+    expect(safeguardsBoundarySource).toMatch(
+      /border border-\(--surface-panel-border\) bg-card/,
+    );
+    expect(
+      safeguardsBoundarySource,
+      "the boundary card must not be painted the page canvas colour",
+    ).not.toContain("bg-background/40");
+
+    for (const [themeName, theme, canvas] of [
+      ["dark", DARK_THEME, "#111315"],
+      ["light", LIGHT_THEME, "#e6e8eb"],
+    ] as const) {
+      const border = readToken(theme, "--surface-panel-border");
+      const card = readToken(theme, "--card");
+
+      expect(card, `${themeName} card fill equals the page canvas`).not.toBe(
+        canvas,
+      );
+      // The finding was the fill, not the edge: the card is now a real
+      // surface against the canvas. Its edge is inert chrome like every
+      // other panel edge, so it carries the band floor, not a 3:1 floor.
+      expect(
+        contrastRatio(border, canvas),
+        `${themeName} boundary-card edge against the page canvas`,
+      ).toBeGreaterThanOrEqual(PANEL_BOUNDARY_FLOOR);
+      expect(
+        contrastRatio(card, canvas),
+        `${themeName} boundary-card fill against the page canvas`,
+      ).toBeGreaterThan(1.1);
+    }
+  });
+
+  it("keeps the boundary ladder monotonic: panel < field < control", () => {
+    // Raising these tokens must not collapse the documented hierarchy or
+    // overtake --border-strong, which "keeps inert chrome quieter than the
+    // control boundary" also pins.
+    for (const [themeName, theme, card] of [
+      ["dark", DARK_THEME, "#1b1e21"],
+      ["light", LIGHT_THEME, "#f6f7f8"],
+    ] as const) {
+      const panel = contrastRatio(
+        readToken(theme, "--surface-panel-border"),
+        card,
+      );
+      const field = contrastRatio(readToken(theme, "--field-border"), card);
+      const control = contrastRatio(readToken(theme, "--border-strong"), card);
+
+      expect(panel, `${themeName} panel < field`).toBeLessThan(field);
+      expect(field, `${themeName} field < control`).toBeLessThan(control);
+    }
+  });
+
+  it("does not regress the boundary and state tokens that already passed", () => {
+    // Reviewer-verified good values. These are recorded at their measured
+    // floors so a later token sweep cannot quietly lower them.
+    const floors: ReadonlyArray<
+      readonly [string, string, string, string, number]
+    > = [
+      ["dark --primary on card", DARK_THEME, "--primary", "#1b1e21", 6.69],
+      ["light --primary on card", LIGHT_THEME, "--primary", "#f6f7f8", 6.5],
+      [
+        "dark --nav-active-surface on rail",
+        DARK_THEME,
+        "--nav-active-surface",
+        "#151719",
+        3,
+      ],
+      [
+        "light --nav-active-surface on rail",
+        LIGHT_THEME,
+        "--nav-active-surface",
+        "#e6e8eb",
+        3,
+      ],
+      [
+        "dark --nav-active-bar on the selected fill",
+        DARK_THEME,
+        "--nav-active-bar",
+        "#5a6878",
+        3,
+      ],
+      [
+        "light --nav-active-bar on the selected fill",
+        LIGHT_THEME,
+        "--nav-active-bar",
+        "#3a5274",
+        3,
+      ],
+      [
+        "dark --border-strong on card",
+        DARK_THEME,
+        "--border-strong",
+        "#1b1e21",
+        3.99,
+      ],
+      [
+        "light --border-strong on card",
+        LIGHT_THEME,
+        "--border-strong",
+        "#f6f7f8",
+        3.88,
+      ],
+      ["dark --link on card", DARK_THEME, "--link", "#1b1e21", 6.5],
+      ["light --link on card", LIGHT_THEME, "--link", "#f6f7f8", 6.5],
+    ];
+
+    for (const [label, theme, token, surface, floor] of floors) {
+      expect(
+        contrastRatio(readToken(theme, token), surface),
+        label,
+      ).toBeGreaterThanOrEqual(floor);
+    }
+
+    // --control-border stays the published alias of --border-strong, so
+    // pointing the checkbox and density ring at it cannot drift.
+    for (const theme of [DARK_THEME, LIGHT_THEME]) {
+      expect(readDeclaration(theme, "--control-border")).toBe(
+        "var(--border-strong)",
+      );
+    }
+  });
+});
+
+/**
+ * PKG-02 — the token and primitive floor.
+ *
+ * The legibility lane measured a set of colours the file above never
+ * enumerated: --foreground-soft, --headline-secondary, placeholder text, the
+ * `opacity-NN` disabled composite, the switch's own parts, the progress track,
+ * the tab indicators, the scrims, the sticky-bar edges and every `token/NN`
+ * alpha. Each group below closes one of those gaps. Surfaces are shared with
+ * the groups above rather than redefined per test.
+ */
+const DARK_CONTROL_SURFACES = {
+  canvas: "#111315",
+  surface: "#151719",
+  card: "#1b1e21",
+  popover: "#202429",
+  secondary: "#22262b",
+  "surface-strong": "#242a31",
+};
+const LIGHT_CONTROL_SURFACES = {
+  canvas: "#e6e8eb",
+  surface: "#dfe2e6",
+  card: "#f6f7f8",
+  popover: "#fbfbfc",
+  secondary: "#e2e5e9",
+  "surface-strong": "#d3dde9",
+};
+const DARK_FIELD_FILLS = {
+  field: "#171a1d",
+  "field-strong": "#242a31",
+  input: "#202429",
+};
+const LIGHT_FIELD_FILLS = {
+  field: "#fcfcfd",
+  "field-strong": "#ffffff",
+  input: "#f0f2f4",
+};
+
+const textareaSource = readFileSync(
+  new URL("../components/ui/textarea.tsx", import.meta.url),
+  "utf8",
+);
+const switchSource = readFileSync(
+  new URL("../components/ui/switch.tsx", import.meta.url),
+  "utf8",
+);
+const tabsSource = readFileSync(
+  new URL("../components/ui/tabs.tsx", import.meta.url),
+  "utf8",
+);
+const progressBarSource = readFileSync(
+  new URL("../components/ui/progress-bar.tsx", import.meta.url),
+  "utf8",
+);
+const panelSource = readFileSync(
+  new URL("../components/ui/panel.tsx", import.meta.url),
+  "utf8",
+);
+const separatorSource = readFileSync(
+  new URL("../components/ui/separator.tsx", import.meta.url),
+  "utf8",
+);
+const statusBadgeSource = readFileSync(
+  new URL(
+    "../features/job-finder/components/status-badge.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
+
+describe("text tokens the legibility lane found unpinned", () => {
+  // --foreground-soft carries the majority of Job Finder's secondary body
+  // text (badge `outline`/`status` labels, list meta lines) and
+  // --headline-secondary every h2/h3 in @layer base, yet neither had a single
+  // contrast assertion: a token sweep could have moved either one freely.
+  it.each([
+    ["--foreground-soft", 4.5],
+    ["--headline-secondary", 4.5],
+  ])("keeps %s at AA on every surface it renders on", (token, floor) => {
+    for (const [themeName, theme, surfaces] of [
+      ["dark", DARK_THEME, DARK_CONTROL_SURFACES],
+      ["light", LIGHT_THEME, LIGHT_CONTROL_SURFACES],
+    ] as const) {
+      const value = readToken(theme, token);
+
+      for (const [surfaceName, surface] of Object.entries(surfaces)) {
+        expect(
+          contrastRatio(value, surface),
+          `${themeName} ${token} on ${surfaceName}`,
+        ).toBeGreaterThanOrEqual(floor);
+      }
+    }
+  });
+
+  it("keeps placeholder text at AA on every field fill, resting and focused", () => {
+    // Placeholders render --muted-foreground on --field / --field-strong /
+    // --input, none of which were in the muted-text surface list.
+    for (const [themeName, theme, fills] of [
+      ["dark", DARK_THEME, DARK_FIELD_FILLS],
+      ["light", LIGHT_THEME, LIGHT_FIELD_FILLS],
+    ] as const) {
+      const placeholder = readToken(theme, "--muted-foreground");
+
+      for (const [fillName, fill] of Object.entries(fills)) {
+        expect(
+          contrastRatio(placeholder, fill),
+          `${themeName} placeholder on ${fillName}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+});
+
+/**
+ * The disabled composite.
+ *
+ * `button.tsx` adopted the three --disabled-* tokens and pinned them; every
+ * other primitive still composited fill AND text at 50%, so a disabled field
+ * lost its content and its boundary at once while a disabled button beside it
+ * stayed readable - two disabled treatments ~2:1 apart on one screen.
+ */
+describe("disabled control composite (PKG-02)", () => {
+  const OWNED_PRIMITIVES = [
+    ["textarea.tsx", () => textareaSource],
+    ["checkbox.tsx", () => checkboxSource],
+    ["switch.tsx", () => switchSource],
+    ["tabs.tsx", () => tabsSource],
+    ["label.tsx", () => labelSource],
+  ] as const;
+
+  it.each(OWNED_PRIMITIVES)(
+    "%s never marks a disabled state with an opacity wash",
+    (_name, read) => {
+      // Covers the peer-disabled: and group-data-[disabled=true]: spellings
+      // too - the wash was the same wash whichever variant reached it.
+      expect(read()).not.toMatch(/disabled[^\s"]*:opacity-(?!100\b)\d/);
+    },
+  );
+
+  it.each(OWNED_PRIMITIVES)(
+    "%s binds the disabled treatment to the shared tokens",
+    (name, read) => {
+      const source = read();
+
+      expect(source, `${name} must recolour disabled text`).toContain(
+        "text-(--disabled-foreground)",
+      );
+
+      // A label owns no fill and no border, so the text token is the whole of
+      // its disabled idiom; every other primitive binds all three.
+      if (name === "label.tsx") {
+        return;
+      }
+
+      expect(source, `${name} must drop the disabled fill`).toContain(
+        "bg-(--disabled-surface)",
+      );
+      expect(source, `${name} must carry the disabled boundary`).toContain(
+        "border-(--disabled-border)",
+      );
+    },
+  );
+
+  it("keeps a disabled placeholder off the enabled muted text colour", () => {
+    expect(textareaSource).toContain(
+      "disabled:placeholder:text-(--disabled-foreground)",
+    );
+  });
+
+  it("keeps disabled text at AA on the surfaces and field fills it renders on", () => {
+    // Previously pinned on card / canvas / popover only, where it passed; it
+    // measured 4.36:1 (dark --surface-strong) and 4.11:1 (light
+    // --surface-strong) on the surfaces this adds.
+    for (const [themeName, theme, surfaces] of [
+      ["dark", DARK_THEME, { ...DARK_CONTROL_SURFACES, ...DARK_FIELD_FILLS }],
+      [
+        "light",
+        LIGHT_THEME,
+        { ...LIGHT_CONTROL_SURFACES, ...LIGHT_FIELD_FILLS },
+      ],
+    ] as const) {
+      const disabled = readToken(theme, "--disabled-foreground");
+
+      for (const [surfaceName, surface] of Object.entries(surfaces)) {
+        expect(
+          contrastRatio(disabled, surface),
+          `${themeName} --disabled-foreground on ${surfaceName}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  it("makes --disabled-border a boundary that stays quieter than an enabled one", () => {
+    // The fill is dropped, so this border is the disabled control's entire
+    // shape: at 1.40-1.80:1 it was not a shape at all. It must clear the 3:1
+    // non-text floor and still lose to --border-strong on every surface, so a
+    // disabled control can never outrank an enabled one.
+    for (const [themeName, theme, surfaces] of [
+      ["dark", DARK_THEME, DARK_CONTROL_SURFACES],
+      ["light", LIGHT_THEME, LIGHT_CONTROL_SURFACES],
+    ] as const) {
+      const disabled = readToken(theme, "--disabled-border");
+      const enabled = readToken(theme, "--border-strong");
+
+      for (const [surfaceName, surface] of Object.entries(surfaces)) {
+        if (surfaceName === "surface" || surfaceName === "surface-strong") {
+          // Not in the required set: --border-strong itself only reaches
+          // 3.03:1 on the light --surface-strong, so requiring both bounds
+          // there has no window. Card / canvas / popover / secondary are the
+          // surfaces a disabled control actually renders on.
+          continue;
+        }
+
+        expect(
+          contrastRatio(disabled, surface),
+          `${themeName} --disabled-border on ${surfaceName}`,
+        ).toBeGreaterThanOrEqual(3);
+        expect(
+          contrastRatio(disabled, surface),
+          `${themeName} --disabled-border must stay quieter than --border-strong on ${surfaceName}`,
+        ).toBeLessThan(contrastRatio(enabled, surface));
+      }
+    }
+  });
+});
+
+describe("switch track and thumb (LEG-05, LEG-06)", () => {
+  it("bounds the track with the control token instead of the divider token", () => {
+    expect(switchSource).toContain("border border-(--control-border)");
+    expect(
+      switchSource,
+      "--border is Separator's token; a switch is a control",
+    ).not.toMatch(/border-border\b/);
+    expect(
+      switchSource,
+      "the unchecked track fill must move off --border too",
+    ).not.toContain("data-[state=unchecked]:bg-border");
+    expect(switchSource).toContain("data-[state=unchecked]:bg-input");
+    expect(switchSource).toContain(
+      "data-[state=checked]:bg-primary-foreground",
+    );
+    // --border stays exactly what it was: the Separator fill.
+    expect(separatorSource).toContain("bg-border");
+  });
+
+  it("clears 3:1 for the thumb against BOTH track states in both themes", () => {
+    // Only the checked-vs-unchecked TRACK delta cleared 3:1 before; the
+    // control's own parts measured 1.79 (dark) / 2.20 (light) thumb-on-track,
+    // so the switch read as a solid block rather than as a thumb in a track.
+    for (const [themeName, theme] of [
+      ["dark", DARK_THEME],
+      ["light", LIGHT_THEME],
+    ] as const) {
+      // The thumb takes the foreground of the fill under it, because no one
+      // thumb colour clears 3:1 against both an --input track and a --primary
+      // one: in dark the two requirements have no overlapping solution.
+      const checkedThumb = readToken(theme, "--primary-foreground");
+      const uncheckedThumb = readToken(theme, "--foreground-soft");
+      const checkedTrack = readToken(theme, "--primary");
+      const uncheckedTrack = readToken(theme, "--input");
+
+      expect(
+        contrastRatio(checkedThumb, checkedTrack),
+        `${themeName} thumb on the checked track`,
+      ).toBeGreaterThanOrEqual(3);
+      expect(
+        contrastRatio(uncheckedThumb, uncheckedTrack),
+        `${themeName} thumb on the unchecked track`,
+      ).toBeGreaterThanOrEqual(3);
+      // The two track states must still be distinguishable from each other.
+      expect(
+        contrastRatio(checkedTrack, uncheckedTrack),
+        `${themeName} checked vs unchecked track`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("keeps the thumb visible once the disabled track loses its fill", () => {
+    expect(switchSource).toContain(
+      "group-disabled/switch:bg-(--disabled-border)",
+    );
+
+    for (const [themeName, theme, card] of [
+      ["dark", DARK_THEME, "#1b1e21"],
+      ["light", LIGHT_THEME, "#f6f7f8"],
+    ] as const) {
+      expect(
+        contrastRatio(readToken(theme, "--disabled-border"), card),
+        `${themeName} disabled thumb through the emptied track`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  });
+});
+
+describe("progress meter and tab indicators", () => {
+  it("gives the progress track a 3:1 boundary so an empty meter still reads", () => {
+    // The track fill is 1.12:1 (dark) / 1.28:1 (light) from the card, and
+    // raising it to 3:1 would push the --primary fill BELOW 3:1 against the
+    // track (both pairs top out at 2.59:1 on one luminance axis). The
+    // boundary carries the visibility instead.
+    expect(progressBarSource).toContain(
+      "shadow-[inset_0_0_0_1px_var(--control-border)]",
+    );
+
+    for (const [themeName, theme, card] of [
+      ["dark", DARK_THEME, "#1b1e21"],
+      ["light", LIGHT_THEME, "#f6f7f8"],
+    ] as const) {
+      const boundary = readToken(theme, "--border-strong");
+      const track = composite(
+        readColorToken(theme, "--surface-progress-track"),
+        card,
+      );
+
+      expect(
+        contrastRatio(boundary, track),
+        `${themeName} progress boundary against its own track`,
+      ).toBeGreaterThanOrEqual(3);
+      expect(
+        contrastRatio(boundary, card),
+        `${themeName} progress boundary against the card`,
+      ).toBeGreaterThanOrEqual(3);
+      // Recorded, not required: the data channel keeps its separation from
+      // the track, which is what raising the track fill would have cost.
+      expect(
+        contrastRatio(readToken(theme, "--primary"), track),
+        `${themeName} progress fill against its track`,
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("gives the line tab indicator a weight step it cannot get from colour", () => {
+    // --primary on the list's --surface-panel-border measures 2.64:1 (dark)
+    // and 2.79:1 (light). Both tokens are pinned elsewhere, so the indicator
+    // is 2px against the 1px rule it sits on rather than a hairline.
+    expect(tabsSource).toContain(
+      "group-data-[orientation=horizontal]/tabs:after:h-0.5",
+    );
+    expect(tabsSource).not.toContain(
+      "group-data-[orientation=horizontal]/tabs:after:h-px",
+    );
+    expect(tabsSource).toContain("border-b-2");
+
+    for (const [themeName, theme] of [
+      ["dark", DARK_THEME],
+      ["light", LIGHT_THEME],
+    ] as const) {
+      const indicator = readToken(theme, "--primary");
+
+      // Recorded: this is the ratio that forced the weight step. If a later
+      // palette move lifts it past 3:1 the step can be reconsidered, and this
+      // number is the evidence for that decision.
+      expect(
+        contrastRatio(indicator, readToken(theme, "--surface-panel-border")),
+        `${themeName} line indicator on the list edge`,
+      ).toBeLessThan(3);
+      // The `default` variant draws its indicator on the list fill, where it
+      // does clear the floor without a weight step of its own.
+      expect(
+        contrastRatio(indicator, readToken(theme, "--muted")),
+        `${themeName} default indicator on the list fill`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  });
+});
+
+/**
+ * Every colour derived by compositing a token at `token/NN`.
+ *
+ * These never appear in a theme scope, so nothing measured them. The tinted
+ * badges are the ones that carry meaning, and their `/65` boundary was
+ * measured for the warning family alone and inherited untested by the rest.
+ */
+describe("token/NN derived colours", () => {
+  const TINTED_TONES = [
+    ["primary", "--primary"],
+    ["destructive", "--destructive"],
+    ["critical", "--critical"],
+    ["positive", "--positive"],
+  ] as const;
+
+  function borderAlpha(source: string, tone: string): number {
+    const match = source.match(new RegExp(`border-${tone}\\/(\\d+)`));
+
+    if (!match?.[1]) {
+      throw new Error(`Missing border-${tone}/NN in the badge sources`);
+    }
+
+    return Number(match[1]) / 100;
+  }
+
+  it("clears 3:1 for every tinted badge boundary against its own tint", () => {
+    const sources = `${badgeSource}\n${statusBadgeSource}`;
+
+    for (const [themeName, theme, card] of [
+      ["dark", DARK_THEME, "#1b1e21"],
+      ["light", LIGHT_THEME, "#f6f7f8"],
+    ] as const) {
+      for (const [tone, token] of TINTED_TONES) {
+        const color = readToken(theme, token);
+        const tint = alphaBlend(color, 0.15, card);
+        const border = alphaBlend(color, borderAlpha(sources, tone), tint);
+
+        expect(
+          contrastRatio(border, tint),
+          `${themeName} border-${tone} on its own /15 tint`,
+        ).toBeGreaterThanOrEqual(3);
+        expect(
+          contrastRatio(color, tint),
+          `${themeName} ${tone} label on its own /15 tint`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+
+      // The warning chip fills with its own surface token rather than an
+      // alpha of the text colour.
+      const warningText = readToken(theme, "--warning-text");
+      const warningTint = composite(
+        readColorToken(theme, "--warning-surface"),
+        card,
+      );
+      const warningBorder = alphaBlend(
+        warningText,
+        borderAlpha(statusBadgeSource, "warning"),
+        warningTint,
+      );
+
+      expect(
+        contrastRatio(warningBorder, warningTint),
+        `${themeName} border-warning on the warning chip fill`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("records the positive tone on its own tint in both themes", () => {
+    // LEG-12: the `positive` StatusBadge ("Ready", "Approved") was the one
+    // tinted chip passed `tintAlpha: null` above, so it had no tint assertion
+    // at all. It passes at 6.27 / 6.23 - recorded rather than left uncovered.
+    for (const [themeName, theme, card, floor] of [
+      ["dark", DARK_THEME, "#1b1e21", 6.2],
+      ["light", LIGHT_THEME, "#f6f7f8", 6.2],
+    ] as const) {
+      const positive = readToken(theme, "--positive");
+
+      expect(
+        contrastRatio(positive, alphaBlend(positive, 0.15, card)),
+        `${themeName} --positive on its own tint`,
+      ).toBeGreaterThanOrEqual(floor);
+    }
+  });
+
+  it("keeps a bare tint below the state floor so it is never the sole carrier", () => {
+    // `bg-primary/10` and `bg-primary/15` composite to 1.16-1.28:1 against
+    // the surface behind them. They are legitimate as a tint under a border
+    // or ring; this records that they can never BE the state channel.
+    for (const [themeName, theme, card] of [
+      ["dark", DARK_THEME, "#1b1e21"],
+      ["light", LIGHT_THEME, "#f6f7f8"],
+    ] as const) {
+      const primary = readToken(theme, "--primary");
+
+      for (const alpha of [0.1, 0.15]) {
+        expect(
+          contrastRatio(alphaBlend(primary, alpha, card), card),
+          `${themeName} bg-primary/${alpha * 100} against the card`,
+        ).toBeLessThan(3);
+      }
+    }
+  });
+
+  it("moves the inert badge boundary off the divider token", () => {
+    // LEG-06: `secondary`/`outline`/`section`/`status` used --border as their
+    // sole edge against fills 1.10-1.18:1 from the card, measuring 1.60-1.80.
+    // A badge is inert, so it takes the inert-chrome token (pinned in its own
+    // 2:1-3:1 band above), not the 3:1 control token.
+    expect(badgeSource).not.toMatch(/border-border\b/);
+    expect(badgeSource).toContain("border-(--surface-panel-border)");
+  });
+});
+
+describe("scrim and sticky-edge separation (LEG-08)", () => {
+  it("records that a dark scrim cannot separate an overlay on its own", () => {
+    // Dimming a near-black canvas does almost nothing: the dialog surface sits
+    // 1.30:1 from the scrimmed page in dark against 1.76:1 in light. The
+    // overlay shell must therefore carry its own boundary and shadow; the
+    // scrim is an attention cue, not the separation channel. Recorded here so
+    // the overlay packages inherit the measurement rather than re-deriving it.
+    const darkDimmed = composite(
+      readColorToken(DARK_THEME, "--modal-scrim"),
+      "#111315",
+    );
+    const lightDimmed = composite(
+      readColorToken(LIGHT_THEME, "--modal-scrim"),
+      "#e6e8eb",
+    );
+
+    expect(
+      contrastRatio(readToken(DARK_THEME, "--popover"), darkDimmed),
+      "dark overlay surface against the scrimmed page",
+    ).toBeLessThan(3);
+    expect(
+      contrastRatio(readToken(LIGHT_THEME, "--popover"), lightDimmed),
+      "light overlay surface against the scrimmed page",
+    ).toBeLessThan(3);
+
+    // What the scrim must not do is get weaker: it is the only dimming cue.
+    for (const [themeName, theme, floor] of [
+      ["dark", DARK_THEME, 0.7],
+      ["light", LIGHT_THEME, 0.2],
+    ] as const) {
+      const alpha = Number(
+        readColorToken(theme, "--modal-scrim").match(
+          /rgba?\([^)]*,\s*([\d.]+)\)/,
+        )?.[1] ?? 0,
+      );
+
+      expect(alpha, `${themeName} --modal-scrim alpha`).toBeGreaterThanOrEqual(
+        floor,
+      );
+    }
+  });
+
+  it("proves a sticky bar's fill is not its edge, and which token can be", () => {
+    // --shell-header-bg is the canvas colour at .97, so a sticky header
+    // composites to 1.00-1.04:1 against the page scrolling under it: the fill
+    // separates nothing and the edge has to be a border. `border-border/15`,
+    // the spelling the shell files reach for, composites BELOW even the inert
+    // band, while the inert token itself clears it.
+    for (const [themeName, theme, canvas] of [
+      ["dark", DARK_THEME, "#111315"],
+      ["light", LIGHT_THEME, "#e6e8eb"],
+    ] as const) {
+      const headerFill = composite(
+        readColorToken(theme, "--shell-header-bg"),
+        canvas,
+      );
+
+      expect(
+        contrastRatio(headerFill, canvas),
+        `${themeName} sticky header fill against the page`,
+      ).toBeLessThan(1.1);
+      expect(
+        contrastRatio(
+          alphaBlend(readToken(theme, "--border"), 0.15, canvas),
+          canvas,
+        ),
+        `${themeName} border-border/15 is not a usable sticky edge`,
+      ).toBeLessThan(2);
+      expect(
+        contrastRatio(readToken(theme, "--surface-panel-border"), canvas),
+        `${themeName} --surface-panel-border is a usable sticky edge`,
+      ).toBeGreaterThanOrEqual(2);
+    }
+  });
+});
+
+describe("read-only well as a published primitive", () => {
+  it("exposes the well tokens as a Panel tone instead of a bg-background/NN", () => {
+    // `bg-background/NN` is a literal no-op on the canvas (1.00:1) and
+    // 1.04-1.08:1 on a card, and ~118 sites spell a recessed block that way.
+    // The well tokens already exist and are pinned exactly above; this makes
+    // them reachable as one variant.
+    expect(panelSource).toContain(
+      'well: "border-(--surface-well-border) bg-(--surface-well)"',
+    );
+
+    // A well is a fill AND a boundary; the boundary is what makes the recess
+    // readable, since the fill itself is deliberately a small step from the
+    // panel. `bg-background/NN` supplies neither.
+    for (const [themeName, theme, card] of [
+      ["dark", DARK_THEME, "#1b1e21"],
+      ["light", LIGHT_THEME, "#f6f7f8"],
+    ] as const) {
+      expect(
+        contrastRatio(readToken(theme, "--surface-well-border"), card),
+        `${themeName} well boundary out-carries its own fill`,
+      ).toBeGreaterThan(
+        contrastRatio(readToken(theme, "--surface-well"), card),
+      );
+    }
+  });
+});
+
+describe("interview overlay token scope", () => {
+  it('publishes an empty :root[data-overlay="interview"] scope for the overlay package', () => {
+    // The Interview overlays fork the palette in component source, which puts
+    // their surfaces outside every measurement in this file. This is the seam
+    // that ends the fork. It must exist and must stay EMPTY here: declaring a
+    // value in this package would change rendering the overlay package has not
+    // asked for.
+    const scope = globalsCss.match(
+      /:root\[data-overlay="interview"\]\s*\{(?<body>[\s\S]*?)\}/,
+    );
+
+    expect(scope, "the overlay scope must exist").not.toBeNull();
+    expect(
+      (scope?.groups?.body ?? "").replace(/\/\*[\s\S]*?\*\//g, "").trim(),
+      "the scope must declare nothing until the overlay package fills it",
+    ).toBe("");
   });
 });

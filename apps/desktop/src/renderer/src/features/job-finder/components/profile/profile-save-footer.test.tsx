@@ -165,4 +165,25 @@ describe("ProfileSaveFooter", () => {
     expect(dirtyState?.getAttribute("data-profile-save-state")).toBe("dirty");
     expect(dirtyState?.textContent).toBe("Unsaved changes on this page.");
   });
+
+  it("offers the Assistant launcher slot as a sibling of Save", () => {
+    // Pinned by attribute name on purpose. `ProfileCopilotRail` resolves this
+    // slot first and falls back to `[data-profile-workspace-actions]` (the
+    // footer root) for guided-setup footers, which have no slot. That fallback
+    // is deliberate — and it is exactly why a rename here would otherwise be
+    // silent: the launcher would quietly go back to rendering below the Save
+    // row instead of beside it.
+    renderFooter({ hasUnsavedChanges: true });
+
+    const slot = document.querySelector<HTMLElement>(
+      "[data-profile-assistant-launcher-slot]",
+    );
+    const save = screen.getByRole("button", { name: "Save changes" });
+
+    expect(slot).not.toBeNull();
+    expect(slot?.parentElement).toBe(save.parentElement);
+    // `display: contents` so the docked launcher lays out as Save's sibling
+    // rather than inside a wrapper box of its own.
+    expect(slot?.className).toContain("contents");
+  });
 });

@@ -4,8 +4,10 @@ import { cn } from "@renderer/lib/cn";
 
 interface PageHeaderProps {
   /**
-   * @deprecated Ignored. Kept only so un-migrated exception screens
-   * (Profile, Settings, Shortlisted) keep typechecking until they migrate.
+   * @deprecated Ignored. Scheduled for deletion; the only remaining caller is
+   * `screens/review-queue/review-queue-screen.tsx`, which PKG-04 does not own.
+   * See CR-PKG04-01 — once that caller drops the prop, delete this line and
+   * `eyebrow` below, plus the two `page-header.test.tsx` legacy cases.
    */
   compact?: boolean;
   actions?: ReactNode;
@@ -17,7 +19,8 @@ interface PageHeaderProps {
   layout?: "default" | "stacked-until-xl";
   /**
    * @deprecated Ignored. The visible eyebrow was removed from the page
-   * grammar.
+   * grammar. Remaining callers: `screens/profile-screen.tsx` and
+   * `screens/review-queue/review-queue-screen.tsx` — see CR-PKG04-01.
    */
   eyebrow?: string;
   /**

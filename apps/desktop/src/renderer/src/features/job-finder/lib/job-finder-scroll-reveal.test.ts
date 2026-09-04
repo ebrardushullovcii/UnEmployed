@@ -116,8 +116,10 @@ describe("resolveJobFinderRevealClearancePx", () => {
         (JOB_FINDER_FIXED_HEADER_HEIGHT_PX + JOB_FINDER_REVEAL_TOP_GAP_PX) / 16
       }rem]`,
     );
+    // The wide token stays important: it has to beat the still-matching
+    // `sm:` token, which Tailwind v4 emits after every arbitrary variant.
     expect(JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES.wideFixedHeader).toBe(
-      `min-[1440px]:scroll-mt-[${
+      `min-[1440px]:!scroll-mt-[${
         (JOB_FINDER_WIDE_HEADER_HEIGHT_PX + JOB_FINDER_REVEAL_TOP_GAP_PX) / 16
       }rem]`,
     );

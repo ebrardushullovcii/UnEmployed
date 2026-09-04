@@ -22,20 +22,33 @@ function SelectValue({
   return <SelectPrimitive.Value data-slot="select-value" {...props} />;
 }
 
+/**
+ * `toolbar` is the published 32px ambient-chrome box shared with
+ * `Button size="toolbar"` and `Input size="toolbar"`, so a toolbar row stops
+ * mixing an `h-9` select with `h-8` segments. `default` stays the 44px form
+ * field paired with `Button size="field"`; `sm` is retained unchanged.
+ */
 function SelectTrigger({
   className,
   size = "default",
   children,
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
-  size?: "sm" | "default";
+  size?: "sm" | "toolbar" | "default";
 }) {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "flex min-w-0 max-w-full w-full items-center justify-between gap-2 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 py-0 text-(length:--text-field) whitespace-nowrap tracking-normal transition-[border-color,background-color,color,box-shadow] outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)] focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-0 data-[placeholder]:text-muted-foreground data-[size=default]:h-11 data-[size=sm]:h-8 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
+        "flex min-w-0 max-w-full w-full items-center justify-between gap-2 rounded-(--radius-field) border border-(--field-border) bg-(--field) py-0 whitespace-nowrap tracking-normal transition-[border-color,background-color,color,box-shadow] outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)] focus-visible:ring-0 aria-invalid:border-destructive aria-invalid:ring-0 data-[placeholder]:text-muted-foreground *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground",
+        "data-[size=default]:h-11 data-[size=default]:px-3.5 data-[size=default]:text-(length:--text-field)",
+        "data-[size=sm]:h-8 data-[size=sm]:px-2.5 data-[size=sm]:text-xs",
+        "data-[size=toolbar]:h-8 data-[size=toolbar]:px-2.5 data-[size=toolbar]:text-xs",
+        // Same painted disabled state as `Input`: the three shared tokens
+        // instead of a 50% wash, and the placeholder follows the disabled
+        // foreground so an empty disabled select is not a second contrast.
+        "disabled:cursor-not-allowed disabled:border-(--disabled-border) disabled:bg-(--disabled-surface) disabled:text-(--disabled-foreground) disabled:opacity-100 disabled:data-[placeholder]:text-(--disabled-foreground)",
         className,
       )}
       {...props}
@@ -110,7 +123,7 @@ function SelectItem({
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full cursor-default items-center gap-2 rounded-(--radius-chip) py-2 pr-8 pl-2 text-(length:--text-field) tracking-normal outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        "relative flex w-full cursor-default items-center gap-2 rounded-(--radius-chip) py-2 pr-8 pl-2 text-(length:--text-field) tracking-normal outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:text-(--disabled-foreground) data-[disabled]:opacity-100 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
         className,
       )}
       {...props}

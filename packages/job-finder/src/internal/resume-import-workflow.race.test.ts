@@ -191,6 +191,151 @@ function runImport(
   });
 }
 
+describe("resume import foreground revision race", () => {
+  test("attaches the imported resume file when the foreground finalization loses the race", async () => {
+    const seed = createFreshStartSeed();
+    const base = createInMemoryJobFinderRepository(seed);
+    const importedText = "Jamie Rivers\njamie@example.com";
+    const repository: JobFinderRepository = {
+      ...base,
+      finalizeResumeImportRun: async (input) => {
+        // An ordinary profile write (setup save, copilot apply) lands between
+        // the revision this import captured and its finalization.
+        await base.saveProfile({
+          ...(await base.getProfile()),
+          summary: "Saved the setup form while the import was running.",
+        });
+        return base.finalizeResumeImportRun(input);
+      },
+    };
+    const workspaceService = createService(repository);
+
+    await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: RESUME_ID,
+        fileName: "jamie-resume.pdf",
+        textContent: importedText,
+      },
+      documentBundle: createTestBundle({ fullText: importedText }),
+    });
+
+    const profile = await base.getProfile();
+    const run = await base.getLatestResumeImportRun();
+    const candidates = run
+      ? await base.listResumeImportFieldCandidates({ runId: run.id })
+      : [];
+
+    // The write that won the race is still intact.
+    expect(profile.summary).toBe(
+      "Saved the setup form while the import was running.",
+    );
+    // The imported details are held for the user, not applied automatically.
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(
+      candidates.every((candidate) => candidate.resolution !== "auto_applied"),
+    ).toBe(true);
+    // The copied resume file is attached rather than orphaned, so the run,
+    // its bundle, and its review items all describe the resume the profile
+    // actually points at.
+    expect(profile.baseResume.id).toBe(RESUME_ID);
+    expect(profile.baseResume.textContent).toBe(importedText);
+    expect(run?.sourceResumeId).toBe(profile.baseResume.id);
+    const reachableBundles = await base.listResumeImportDocumentBundles({
+      sourceResumeId: profile.baseResume.id,
+    });
+    expect(reachableBundles.length).toBeGreaterThan(0);
+  });
+
+  test("keeps the newest imported resume when an older import finalizes late", async () => {
+    const seed = createFreshStartSeed();
+    const base = createInMemoryJobFinderRepository(seed);
+    // Both files carry the same header identity, so the identity guard cannot
+    // be what keeps the older file out of the profile — only run ownership can.
+    const sharedHeader = "Jamie Rivers\njamie@example.com";
+    const firstText = `${sharedHeader}\nFirst pick`;
+    const secondText = `${sharedHeader}\nSecond pick`;
+    let releaseFirstFinalization!: () => void;
+    let firstFinalizerEntered!: () => void;
+    const firstFinalizerReady = new Promise<void>((resolve) => {
+      firstFinalizerEntered = resolve;
+    });
+    const firstFinalizationGate = new Promise<void>((resolve) => {
+      releaseFirstFinalization = resolve;
+    });
+    let finalizeCalls = 0;
+    const repository: JobFinderRepository = {
+      ...base,
+      finalizeResumeImportRun: async (input) => {
+        finalizeCalls += 1;
+        if (finalizeCalls === 1) {
+          firstFinalizerEntered();
+          await firstFinalizationGate;
+        }
+        return base.finalizeResumeImportRun(input);
+      },
+    };
+    const workspaceService = createService(repository);
+
+    const firstImport = workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_race_first",
+        fileName: "first.pdf",
+        textContent: firstText,
+      },
+      documentBundle: createTestBundle({ fullText: firstText }),
+    });
+    await firstFinalizerReady;
+
+    // The user picked another file while the first import was still finishing.
+    await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: "resume_race_second",
+        fileName: "second.pdf",
+        textContent: secondText,
+      },
+      documentBundle: createTestBundle({ fullText: secondText }),
+    });
+
+    releaseFirstFinalization();
+    await firstImport;
+
+    const profile = await base.getProfile();
+
+    // The later pick owns the profile; the earlier run stays superseded rather
+    // than replacing it on its way out.
+    expect(profile.baseResume.id).toBe("resume_race_second");
+    expect(profile.baseResume.fileName).toBe("second.pdf");
+    expect(profile.baseResume.textContent).toBe(secondText);
+  });
+
+  test("does not rewrite the profile when the finalization applies normally", async () => {
+    const seed = createFreshStartSeed();
+    const repository = createInMemoryJobFinderRepository(seed);
+    const workspaceService = createService(repository);
+    const importedText = "Jamie Rivers\njamie@example.com";
+
+    await workspaceService.runResumeImport({
+      baseResume: {
+        ...seed.profile.baseResume,
+        id: RESUME_ID,
+        fileName: "jamie-resume.pdf",
+        textContent: importedText,
+      },
+      documentBundle: createTestBundle({ fullText: importedText }),
+    });
+
+    const profile = await repository.getProfile();
+    const run = await repository.getLatestResumeImportRun();
+
+    expect(profile.baseResume.id).toBe(RESUME_ID);
+    expect(run?.status).not.toBe("failed");
+    expect(run?.warnings.join("\n")).not.toMatch(/waiting for your review/i);
+  });
+});
+
 describe("resume import multi-stage revision race", () => {
   test("applies deferred visual-scan refinements after an ordinary profile write advanced the revision", async () => {
     const seed = createFreshStartSeed();

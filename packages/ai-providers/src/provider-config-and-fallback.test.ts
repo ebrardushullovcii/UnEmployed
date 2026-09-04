@@ -346,6 +346,71 @@ describe("ai provider config and fallback behavior", () => {
     }
   });
 
+  test("reports deterministic provenance when the model returns valid JSON that is not an extraction object", async () => {
+    // Valid JSON that is not a plain object parses cleanly, so the primary
+    // client never threw and never reached the catch that records a fallback.
+    for (const content of ["[]", '"just a sentence"', "null"]) {
+      const restoreFetch = mockJsonFetch({
+        choices: [{ message: { content } }],
+      });
+
+      try {
+        const client =
+          createJobFinderAiClientFromEnvironment(createEnvironment());
+
+        const result = await client.extractProfileFromResume({
+          existingProfile: createProfile(),
+          existingSearchPreferences: createPreferences(),
+          resumeText: "Alex Vanguard\nLondon, UK\nReact engineer",
+        });
+
+        expect(result.analysisProviderKind, content).toBe("deterministic");
+        expect(result.notes, content).toContain(
+          "Fell back to the deterministic resume parser after the model call failed.",
+        );
+        expect(result.notes, content).toContain(
+          "Primary AI extraction failed: the model returned a response that was not a resume extraction object.",
+        );
+      } finally {
+        restoreFetch();
+      }
+    }
+  });
+
+  test("keeps model provenance when the model returns a usable extraction object", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              fullName: "Alex Vanguard",
+              headline: "React engineer",
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+
+      const result = await client.extractProfileFromResume({
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: "Alex Vanguard\nLondon, UK\nReact engineer",
+      });
+
+      expect(result.analysisProviderKind).toBe("openai_compatible");
+      expect(result.fullName).toBe("Alex Vanguard");
+      expect(result.notes).not.toContain(
+        "Fell back to the deterministic resume parser after the model call failed.",
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
+
   test("uses the configured resume extraction timeout when normalizing abort-like provider failures", async () => {
     const errorSpy = vi
       .spyOn(console, "error")

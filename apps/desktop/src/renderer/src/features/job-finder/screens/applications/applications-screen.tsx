@@ -27,6 +27,7 @@ import { PageHeaderStack } from "../../components/page-header";
 import { ApplicationsDetailPanel } from "./applications-detail-panel";
 import type {
   ConfirmFinishedInBrowserStatus,
+  FinishInBrowserHandler,
   FinishInBrowserInput,
 } from "./applications-detail-panel-recovery-actions-section";
 import {
@@ -111,9 +112,11 @@ export function ApplicationsScreen(props: {
   onOpenSafeguards?: () => void;
   /**
    * Opens or focuses the managed Job Finder browser on the paused application
-   * so the user can finish a field the site tried to save on its own.
+   * so the user can finish a field the site tried to save on its own. It
+   * reports what the hand-off actually did; the declared return type has to
+   * match the leaf's or that outcome is under-reported on the way down.
    */
-  onFinishInBrowser?: (input: FinishInBrowserInput) => void;
+  onFinishInBrowser?: FinishInBrowserHandler;
   /**
    * Confirms the browser-owned step the user was sent out to finish, running
    * the same verification Needs you runs. The screen that sends the user to
@@ -524,6 +527,15 @@ export function ApplicationsScreen(props: {
   return (
     <LockedScreenLayout
       contentClassName="xl:overflow-hidden"
+      // Applications is a two-pane route like Find jobs and Shortlisted, so it
+      // needs the same viewport bound they pass. Without it the grid's `1fr`
+      // row resolves to max-content, the workspace grid's `xl:h-full` resolves
+      // against an indefinite height, `xl:overflow-hidden` clips nothing, and
+      // the panes marked `data-locked-pane-scroll-region` never get a scroll
+      // range — so the whole route scrolled as one page and the detail pane's
+      // recovery action fell below the fold on any record with a long status
+      // stack.
+      lockContentHeight
       topContent={
         <>
           {/* One list, one state per application. The stage tracker — table,

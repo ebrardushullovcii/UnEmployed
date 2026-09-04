@@ -22,7 +22,14 @@ function ScrollArea({
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
         className={cn(
-          "size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1",
+          // The scroll viewport is keyboard-focusable, so its ring is a real
+          // focus indicator. It carried a 50% alpha suffix, which composites to
+          // roughly half the published --ring token and lands below the 3:1
+          // non-text floor that token is pinned above in styles/globals.test.ts.
+          // It now binds the token undiluted, like every other primitive here.
+          // (The suffix is described rather than written: the primitive
+          // contract scan reads this file as text.)
+          "size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring focus-visible:outline-1",
           viewportClassName,
         )}
         ref={viewportRef}

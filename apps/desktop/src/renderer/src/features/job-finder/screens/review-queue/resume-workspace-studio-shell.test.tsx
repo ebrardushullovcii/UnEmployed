@@ -360,15 +360,72 @@ describe("ResumeWorkspaceStudioShell", () => {
       />,
     );
 
+    // Below the breakpoint the desktop tools column is not mounted at all, so
+    // the compact band is the only status row and the one live region. (It
+    // used to be one of two rows, with the hidden desktop copy also in the
+    // DOM alongside a second preview iframe and a second editor tree.)
     const statusRows = Array.from(
       document.querySelectorAll<HTMLElement>("[data-resume-studio-status]"),
     );
-    expect(statusRows).toHaveLength(2);
-    const [compactRow, desktopRow] = statusRows;
+    expect(statusRows).toHaveLength(1);
+    const [compactRow] = statusRows;
     expect(compactRow?.getAttribute("role")).toBe("status");
     expect(compactRow?.closest(".xl\\:hidden")).toBeTruthy();
-    expect(desktopRow?.getAttribute("role")).toBeNull();
-    expect(desktopRow?.getAttribute("aria-live")).toBeNull();
+    expect(
+      document.querySelector("[data-resume-studio-desktop-grid]"),
+    ).toBeNull();
+  });
+
+  it("announces studio status from the desktop row only above the breakpoint", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        addEventListener: vi.fn(),
+        matches: true,
+        removeEventListener: vi.fn(),
+      })),
+    });
+
+    render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume={false}
+        canClearApproval={false}
+        editorPanel={<div>Editor</div>}
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab="preview"
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        previewPane={<div>Preview</div>}
+        selectedTemplateApprovalEligible={false}
+        studioStatusMessage="Choose a template"
+        templatePanel={<div>Templates</div>}
+      />,
+    );
+
+    // Exactly one row is a live region at either width, so assistive tech
+    // never announces the same status twice.
+    const liveRows = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-resume-studio-status]"),
+    ).filter((row) => row.getAttribute("role") === "status");
+    expect(liveRows).toHaveLength(1);
+    expect(
+      liveRows[0]?.closest("[data-resume-studio-desktop-grid]"),
+    ).not.toBeNull();
+    // The compact tab surface is not mounted here, so only one preview pane
+    // and one tools tree exist.
+    expect(
+      document.querySelectorAll('[data-slot="tabs-trigger"]'),
+    ).toHaveLength(0);
   });
 
   it("never switches tabs when the desktop layout ends, because the Assistant is not a tab", () => {
@@ -1630,6 +1687,13 @@ describe("ResumeWorkspaceStudioShell locked-pane ownership", () => {
 });
 
 describe("ResumeWorkspaceStudioShell focus ring contrast", () => {
+  afterEach(() => {
+    // This block pins the compact media query partway through its one test, so
+    // it has to hand the default back rather than leaving the next block to
+    // discover a stubbed `matchMedia`.
+    Reflect.deleteProperty(window, "matchMedia");
+  });
+
   it("uses full-strength ring for all keyboard focus targets (diluted primary <3:1)", () => {
     // Audit: ring-primary/60 at 60% composites to 2.42:1 dark / 2.42:1 light worst-case,
     // well below WCAG 2.4.11 3:1. Full --ring is proven >=3:1 in both themes.
@@ -1693,8 +1757,18 @@ describe("ResumeWorkspaceStudioShell focus ring contrast", () => {
     expect(previewHtml).toContain("border-primary/40");
     expect(previewHtml).toContain("bg-primary/10");
 
-    // Also verify the editor tab exposes the mobile chooser with the same token.
+    // Also verify the editor tab exposes the mobile chooser with the same
+    // token. The compact tab surface only mounts below the breakpoint, so the
+    // media query has to say so.
     cleanup();
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        addEventListener: vi.fn(),
+        matches: false,
+        removeEventListener: vi.fn(),
+      })),
+    });
     const { container: editorContainer } = render(
       <ResumeWorkspaceStudioShell
         approvalBlockedReason={null}
@@ -1723,7 +1797,10 @@ describe("ResumeWorkspaceStudioShell focus ring contrast", () => {
     const editorChoosers = editorContainer.querySelectorAll(
       "[data-resume-template-chooser]",
     );
-    expect(editorChoosers.length).toBe(2);
+    // One chooser, not two: the desktop copy is no longer mounted alongside
+    // the compact one.
+    expect(editorChoosers.length).toBe(1);
+    expect(editorChoosers[0]?.closest(".xl\\:hidden")).not.toBeNull();
     for (const chooser of Array.from(editorChoosers)) {
       expect((chooser as HTMLElement).className).toContain(
         "focus-visible:ring-ring",
@@ -1818,22 +1895,76 @@ describe("ResumeWorkspaceStudioShell desktop grid is Assistant-independent", () 
       "h-full min-h-[18rem] min-w-0 overflow-hidden xl:min-h-0",
     );
     expect(toolsPane?.className).toBe(
-      "flex h-full min-h-[18rem] min-w-0 flex-col gap-2.5 overflow-y-auto overflow-x-hidden pr-1 xl:h-[calc(100%-3.5rem)] xl:min-h-0",
+      "flex h-full min-h-[18rem] min-w-0 flex-col gap-2.5 overflow-y-auto overflow-x-hidden pr-1 xl:min-h-0",
     );
     expect(toolsPane?.className).toContain("overflow-y-auto");
   });
 
-  it("always ends the tools column above the floating launcher's band", () => {
-    // `pb-16` only cleared the pill at the *end* of the scroll: mid-scroll the
-    // template card and the amber fallback disclosure passed underneath it.
-    // The reservation is unconditional so opening the panel moves nothing.
+  it("carries no launcher clearance on the tools column at all", () => {
+    // Two reservations were tried and both failed. `xl:h-[calc(100%-3.5rem)]`
+    // shortened the column and left an empty dark strip under "Edit resume";
+    // `pb-14` fixed only the END of the scroll, so mid-scroll the template card
+    // and the fallback disclosure still passed under the fixed pill. The
+    // launcher does not float over this column any more, so the column
+    // reserves nothing.
     const grid = renderShell();
     const toolsPane = grid?.querySelector<HTMLElement>(
       "[data-resume-studio-tools-pane]",
     );
 
-    expect(toolsPane?.className).toContain("xl:h-[calc(100%-3.5rem)]");
+    expect(toolsPane?.className).not.toContain("pb-14");
     expect(toolsPane?.className).not.toContain("pb-16");
+    expect(toolsPane?.className).not.toMatch(/xl:h-\[calc\(/);
+    expect(toolsPane?.className).toContain("h-full");
+  });
+
+  it("offers the Assistant launcher slot in the row that owns the screen's actions", () => {
+    const grid = renderShell();
+    const slot = document.querySelector<HTMLElement>(
+      "[data-resume-studio-assistant-launcher-slot]",
+    );
+
+    expect(slot).not.toBeNull();
+    // It sits in the sticky header beside Approve resume, not over a pane.
+    expect(slot?.closest("[data-resume-studio-compact-header]")).not.toBeNull();
+    expect(
+      grid?.querySelector("[data-resume-studio-assistant-launcher-slot]"),
+    ).toBeNull();
+  });
+
+  it("runs the tools column the full studio height and reserves nothing at its end", () => {
+    // Previously: `expect(toolsPane?.className).toContain(
+    //   "xl:h-[calc(100%-3.5rem)]")` — that shortened the column by the pill's
+    // band, which is exactly the reported defect: the column ended ~56px above
+    // the preview's bottom edge and left an empty dark strip under "Edit
+    // resume". The clearance now lives inside the scroll region as bottom
+    // padding of the same band, so the column is full height AND nothing can
+    // scroll under the pill. The reservation is unconditional, so opening the
+    // Assistant still moves nothing here.
+    const grid = renderShell();
+    const toolsPane = grid?.querySelector<HTMLElement>(
+      "[data-resume-studio-tools-pane]",
+    );
+
+    expect(toolsPane?.className).not.toContain("xl:h-[calc(100%-3.5rem)]");
+    expect(toolsPane?.className).toContain("h-full");
+    expect(toolsPane?.className).not.toContain("pb-16");
+  });
+
+  it("gives the tools column the same height model as the preview column", () => {
+    // The empty strip was visible precisely because these two disagreed.
+    const grid = renderShell();
+    const previewPane = grid?.querySelector<HTMLElement>(
+      "[data-resume-studio-preview-pane]",
+    );
+    const toolsPane = grid?.querySelector<HTMLElement>(
+      "[data-resume-studio-tools-pane]",
+    );
+
+    for (const pane of [previewPane, toolsPane]) {
+      expect(pane?.className).toContain("h-full");
+      expect(pane?.className).not.toMatch(/xl:h-\[calc\(/);
+    }
   });
 
   it("never reserves empty padding beside the studio grid", () => {
@@ -1867,15 +1998,32 @@ describe("ResumeWorkspaceStudioShell bounded compact tabs", () => {
     });
   }
 
+  function stubDesktopViewport() {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        addEventListener: vi.fn(),
+        matches: true,
+        removeEventListener: vi.fn(),
+      })),
+    });
+  }
+
   function renderCompactShell(
     overrides?: Partial<{
       canClearApproval: boolean;
+      /** Renders the desktop split view instead, with the same props. */
+      desktop: boolean;
       exportBlockedReason: string | null;
       mobileStudioTab: "preview" | "editor";
       setAsideProposalNote: string;
     }>,
   ) {
-    stubCompactViewport();
+    if (overrides?.desktop) {
+      stubDesktopViewport();
+    } else {
+      stubCompactViewport();
+    }
 
     return render(
       <ResumeWorkspaceStudioShell
@@ -1939,15 +2087,16 @@ describe("ResumeWorkspaceStudioShell bounded compact tabs", () => {
   it("renders exactly one approval row at compact width after approval", () => {
     renderCompactShell({ canClearApproval: true, mobileStudioTab: "preview" });
 
-    // The compact status band is gone. The only status row left belongs to the
-    // desktop tools column, which is not rendered at this width.
+    // The compact status band is gone, and the desktop tools column is not
+    // mounted at this width at all, so no status row renders here: the sticky
+    // row below owns the approved state outright.
     const statusRows = Array.from(
       document.querySelectorAll<HTMLElement>("[data-resume-studio-status]"),
     );
-    expect(statusRows).toHaveLength(1);
+    expect(statusRows).toHaveLength(0);
     expect(
-      statusRows[0]?.closest("[data-resume-studio-desktop-grid]"),
-    ).not.toBeNull();
+      document.querySelector("[data-resume-studio-desktop-grid]"),
+    ).toBeNull();
 
     const stickyRow = document.querySelector<HTMLElement>(
       "[data-resume-studio-compact-header]",
@@ -2026,8 +2175,10 @@ describe("ResumeWorkspaceStudioShell bounded compact tabs", () => {
     // G3: the stack above the content used to be 117px of shell + a ~90px
     // workspace title row + this 53px state row. The title row now scrolls with
     // the locked layout, so on desktop this is the only row between the shell
-    // and the panes.
-    const { container } = renderCompactShell();
+    // and the panes. The desktop grid only mounts above the breakpoint now, so
+    // this measures the real desktop stack rather than inferring it from a
+    // CSS-hidden copy rendered at compact width.
+    const { container } = renderCompactShell({ desktop: true });
     const studio = container.firstElementChild as HTMLElement;
     const rows = Array.from(studio.children) as HTMLElement[];
 
@@ -2095,5 +2246,127 @@ describe("ResumeWorkspaceStudioShell bounded compact tabs", () => {
 
     expect(chip?.textContent).toContain("2 items need attention");
     expect(noisy.container.textContent).toContain("Needs your attention");
+  });
+});
+
+describe("ResumeWorkspaceStudioShell mounts one studio layout at a time", () => {
+  afterEach(() => {
+    cleanup();
+    Reflect.deleteProperty(window, "matchMedia");
+    vi.restoreAllMocks();
+  });
+
+  function stubViewport(desktop: boolean) {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        addEventListener: vi.fn(),
+        matches: desktop,
+        removeEventListener: vi.fn(),
+      })),
+    });
+  }
+
+  function renderAtWidth(
+    desktop: boolean,
+    mobileStudioTab: "preview" | "editor",
+  ) {
+    stubViewport(desktop);
+
+    return render(
+      <ResumeWorkspaceStudioShell
+        approvalBlockedReason={null}
+        approvalStateLabel={null}
+        canApproveResume={false}
+        canClearApproval={false}
+        editorPanel={<div data-test-editor-panel>Editor</div>}
+        exportBlockedReason={null}
+        hasUnsavedChanges={false}
+        historyPanel={<div>History</div>}
+        isWorkspacePending={false}
+        mobileStudioTab={mobileStudioTab}
+        onApproveCurrentPdf={vi.fn()}
+        onClearApproval={vi.fn()}
+        onContinueToShortlisted={vi.fn()}
+        onExportPdf={vi.fn()}
+        onReviewBlockingIssues={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onSetMobileStudioTab={vi.fn()}
+        previewPane={<iframe title="Resume preview" />}
+        selectedTemplateApprovalEligible
+        studioStatusMessage="Ready."
+        supportingDetailsPanel={
+          <details id="resume-proof-details">
+            <summary>About this tailored resume</summary>
+          </details>
+        }
+        templatePanel={<div>Templates</div>}
+      />,
+    );
+  }
+
+  // Rendering both layouts parsed two live `<iframe srcDoc>` preview documents
+  // on every draft revision, each with its own ResizeObserver and iframe event
+  // bindings, and duplicated `id="resume-proof-details"`.
+  it("never mounts two preview iframes or two proof disclosures at any width or tab", () => {
+    for (const desktop of [true, false]) {
+      for (const mobileStudioTab of ["preview", "editor"] as const) {
+        renderAtWidth(desktop, mobileStudioTab);
+
+        expect(
+          document.querySelectorAll("iframe").length,
+          `iframes at ${desktop ? "desktop" : "compact"}/${mobileStudioTab}`,
+        ).toBeLessThanOrEqual(1);
+        expect(
+          document.querySelectorAll("#resume-proof-details").length,
+          `proof nodes at ${desktop ? "desktop" : "compact"}/${mobileStudioTab}`,
+        ).toBeLessThanOrEqual(1);
+        expect(
+          document.querySelectorAll("[data-test-editor-panel]").length,
+          `editor trees at ${desktop ? "desktop" : "compact"}/${mobileStudioTab}`,
+        ).toBeLessThanOrEqual(1);
+
+        cleanup();
+      }
+    }
+  });
+
+  it("mounts exactly one preview and one proof disclosure on the desktop split view", () => {
+    renderAtWidth(true, "preview");
+
+    const iframes = document.querySelectorAll("iframe");
+    const proofNodes = document.querySelectorAll("#resume-proof-details");
+
+    expect(iframes).toHaveLength(1);
+    expect(proofNodes).toHaveLength(1);
+    // The visible one, not a `display:none` compact copy ahead of it in
+    // document order.
+    expect(
+      iframes[0]?.closest("[data-resume-studio-desktop-grid]"),
+    ).not.toBeNull();
+    expect(
+      proofNodes[0]?.closest("[data-resume-studio-desktop-grid]"),
+    ).not.toBeNull();
+  });
+
+  it("mounts exactly one preview and one proof disclosure across the compact tabs", () => {
+    renderAtWidth(false, "preview");
+    expect(document.querySelectorAll("iframe")).toHaveLength(1);
+    expect(
+      document.querySelector("iframe")?.closest(".xl\\:hidden"),
+    ).not.toBeNull();
+    expect(
+      document.querySelector("[data-resume-studio-desktop-grid]"),
+    ).toBeNull();
+    cleanup();
+
+    renderAtWidth(false, "editor");
+    expect(document.querySelectorAll("#resume-proof-details")).toHaveLength(1);
+    expect(
+      document.querySelector("#resume-proof-details")?.closest(".xl\\:hidden"),
+    ).not.toBeNull();
+    expect(
+      document.querySelector("[data-resume-studio-desktop-grid]"),
+    ).toBeNull();
   });
 });

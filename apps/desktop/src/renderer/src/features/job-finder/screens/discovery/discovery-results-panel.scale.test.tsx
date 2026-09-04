@@ -209,15 +209,29 @@ describe("DiscoveryResultsPanel workspace scale", () => {
       throw new Error("Expected the title-only result row to be rendered.");
     }
 
-    // The number is not printed anywhere on the row, and the row says what is
-    // missing instead of asserting a confidence it has not earned.
+    // The number is not printed anywhere on the row, and the band divider
+    // above it — not a chip and a caption on every row — says what is missing
+    // instead of asserting a confidence it has not earned.
     expect(row.textContent).not.toContain("54%");
-    expect(screen.getByText("Title match only")).toBeTruthy();
+    expect(screen.queryByText("Title match only")).toBeNull();
+    // The reason is not painted on the row any more; it survives only in the
+    // row's sr-only verdict line.
     expect(
-      screen.getByLabelText("Overall fit: title match only, not scored"),
-    ).toBeTruthy();
+      row.querySelector('[data-testid^="discovery-result-fit-reason-"]'),
+    ).toBeNull();
+    expect(
+      row.querySelector('[data-testid^="discovery-result-fit-sr-"]')
+        ?.textContent,
+    ).toContain("Only the listing title could be checked");
+    const heading = screen.getByTestId("discovery-results-group-unchecked");
+    expect(heading.textContent).toContain(
+      "Title matches · not yet checked (1)",
+    );
+    expect(heading.textContent).toContain(
+      "Matched on the title alone; no job description was read.",
+    );
     expect(row.textContent).toContain(
-      "Only the listing title could be checked",
+      "Overall fit: title match only, not scored",
     );
   });
 
@@ -236,7 +250,12 @@ describe("DiscoveryResultsPanel workspace scale", () => {
       "[data-job-result-id]",
     );
     const title = result?.querySelector("strong");
-    const company = result?.querySelector("strong + span");
+    // The employer meta line is its own line in the shared lines stack now,
+    // no longer the element immediately after the title, so it is selected by
+    // identity rather than by DOM adjacency.
+    const company = result?.querySelector(
+      `[data-testid="discovery-result-employer-${longJob.id}"]`,
+    );
     expect(result?.className).toContain("min-w-0");
     expect(title?.className).toContain("break-words");
     expect(title?.getAttribute("title")).toBe(longTitle);

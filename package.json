@@ -13,13 +13,12 @@
     "structure:check": "node scripts/check-structure.mjs",
     "source-generic:check": "node scripts/check-source-generic-discovery.mjs",
     "hotspots": "node scripts/repo-hotspots.mjs",
-    "job-finder:fit-calibration": "node scripts/run-fit-calibration-benchmark.cjs --baseline packages/job-finder/test-fixtures/fit-calibration-baseline-v5.json",
+    "job-finder:fit-calibration": "node scripts/run-fit-calibration-benchmark.cjs --baseline packages/job-finder/test-fixtures/fit-calibration-baseline-v9.json",
     "ai:benchmark": "node packages/ai-evals/scripts/run.mjs",
     "lsp:typescript": "typescript-language-server --stdio",
     "typecheck": "node scripts/run-turbo.mjs typecheck",
-    "verify:quick": "node scripts/repo-context.mjs check-docs && node scripts/check-source-generic-discovery.mjs && node scripts/check-structure.mjs && node scripts/run-turbo.mjs lint && node scripts/run-turbo.mjs typecheck",
-    "verify:affected": "node scripts/repo-context.mjs check-docs && node scripts/check-source-generic-discovery.mjs && node scripts/check-structure.mjs && node scripts/run-turbo.mjs lint typecheck test --affected",
-    "validate:docs-only": "node scripts/repo-context.mjs sync && node scripts/repo-context.mjs check-agents && node scripts/repo-context.mjs check-docs",
+    "verify:quick": "node scripts/check-source-generic-discovery.mjs && node scripts/check-structure.mjs && node scripts/run-turbo.mjs lint && node scripts/run-turbo.mjs typecheck",
+    "verify:affected": "node scripts/check-source-generic-discovery.mjs && node scripts/check-structure.mjs && node scripts/run-turbo.mjs lint typecheck test --affected",
     "validate:package": "node scripts/validate-package.mjs",
     "validate:desktop": "node scripts/validate-package.mjs desktop",
     "validate:job-finder": "node scripts/validate-package.mjs job-finder",
@@ -34,10 +33,7 @@
     "test:performance": "vitest run packages/job-finder/src/internal/workspace-discovery-ledger.performance.test.ts packages/job-finder/src/workspace-service.discovery-ledger-performance.test.ts --maxWorkers=1 --minWorkers=1",
     "test:coverage": "vitest run --coverage --maxWorkers=4 --minWorkers=4 --exclude packages/job-finder/src/internal/workspace-discovery-ledger.performance.test.ts --exclude packages/job-finder/src/workspace-service.discovery-ledger-performance.test.ts",
     "test:evidence": "node scripts/collect-release-evidence.mjs",
-    "agents:sync": "node scripts/repo-context.mjs sync",
-    "agents:check": "node scripts/repo-context.mjs check-agents",
-    "docs:check": "node scripts/repo-context.mjs check-docs",
-    "verify": "node scripts/repo-context.mjs check-agents && node scripts/repo-context.mjs check-docs && node scripts/check-source-generic-discovery.mjs && node scripts/check-structure.mjs && node scripts/run-turbo.mjs lint && node scripts/run-turbo.mjs typecheck && node scripts/run-fit-calibration-benchmark.cjs --baseline packages/job-finder/test-fixtures/fit-calibration-baseline-v5.json && pnpm test"
+    "verify": "node scripts/check-source-generic-discovery.mjs && node scripts/check-structure.mjs && node scripts/run-turbo.mjs lint && node scripts/run-turbo.mjs typecheck && node scripts/run-fit-calibration-benchmark.cjs --baseline packages/job-finder/test-fixtures/fit-calibration-baseline-v9.json && pnpm test"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",
@@ -52,7 +48,6 @@
     "typescript": "^5.8.2",
     "typescript-eslint": "^8.26.0",
     "typescript-language-server": "^4.4.0",
-    "vitest": "^3.1.4",
-    "yaml": "^2.8.0"
+    "vitest": "^3.1.4"
   }
 }

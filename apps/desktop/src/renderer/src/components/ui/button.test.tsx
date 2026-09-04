@@ -124,6 +124,68 @@ describe("Button", () => {
     expect(button?.className).not.toMatch(/ring-primary\/\d/);
   });
 
+  it("keeps the pending label on the shared control baseline without a transform", () => {
+    render(
+      <Button pending type="button">
+        Save changes
+      </Button>,
+    );
+
+    const label = container?.querySelector("button > span:not([aria-hidden])");
+    // A half-pixel lift while pending nudged the label off the baseline it
+    // shares with every static control in the same row.
+    expect(label?.className).not.toMatch(/translate-y-/);
+    expect(container?.querySelector(".button-pending-rail")).not.toBeNull();
+  });
+
+  it("publishes the field and toolbar sizes without moving any existing size", () => {
+    render(
+      <div>
+        <Button size="field" type="button">
+          Save
+        </Button>
+        <Button size="toolbar" type="button">
+          Filters
+        </Button>
+        <Button type="button">Default</Button>
+        <Button size="compact" type="button">
+          Compact
+        </Button>
+      </div>,
+    );
+
+    const [field, toolbar, byDefault, compact] = [
+      ...(container?.querySelectorAll("button") ?? []),
+    ];
+    // `field` is the named pairing with the 44px Input/SelectTrigger box.
+    expect(field?.getAttribute("data-size")).toBe("field");
+    expect(field?.className).toMatch(/\bh-11\b/);
+    // `toolbar` matches DISCOVERY_RESULTS_TOOLBAR_CONTROL_CLASS exactly.
+    expect(toolbar?.getAttribute("data-size")).toBe("toolbar");
+    expect(toolbar?.className).toMatch(/\bh-8\b/);
+    expect(toolbar?.className).toMatch(/\btext-xs\b/);
+    expect(toolbar?.className).toMatch(/\bfont-medium\b/);
+    // Existing sizes and the default are untouched, so no call site shifts.
+    expect(byDefault?.getAttribute("data-size")).toBe("default");
+    expect(byDefault?.className).toMatch(/\bh-10\b/);
+    expect(compact?.className).toMatch(/\bh-8\b/);
+    expect(compact?.className).toMatch(/\bfont-semibold\b/);
+  });
+
+  it("uses the radius tokens rather than literal Tailwind radii on the small sizes", () => {
+    render(
+      <Button size="xs" type="button">
+        Sort
+      </Button>,
+    );
+
+    const button = container?.querySelector("button");
+    // rounded-md is 0.375rem - larger than --radius-button's 0.34rem - so the
+    // smallest button used to be the roundest control on the row.
+    expect(button?.className).not.toMatch(/\brounded-md\b/);
+    expect(button?.className).toContain("rounded-(--radius-small)");
+  });
+
   it("retains focus and blocks pointer and keyboard activation across the pending transition", () => {
     const handleClick = vi.fn();
     render(

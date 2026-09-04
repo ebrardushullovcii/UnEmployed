@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Button } from "@renderer/components/ui/button";
+import { OPEN_JOB_FINDER_BROWSER_ACTION } from "@renderer/features/job-finder/lib/job-finder-browser-handoff-copy";
 import { JOB_FINDER_ROUTE_PATHS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
 import type { DiscoveryRunFeedback } from "./discovery-run-feedback";
 
@@ -22,12 +23,19 @@ const TONE_CLASS_NAMES: Record<DiscoveryRunFeedback["status"], string> = {
 export function DiscoveryRunFeedbackCallout(props: {
   feedback: DiscoveryRunFeedback;
   isRecoveryPending?: boolean;
+  /**
+   * Run-level warnings recorded by the run itself, printed verbatim. They
+   * describe what the finished run did or did not read, so they carry no
+   * corrective action of their own.
+   */
+  notices?: readonly string[];
   onOpenBrowserSession?: () => void;
   suppressBrowserRecovery?: boolean;
 }) {
   const {
     feedback,
     isRecoveryPending = false,
+    notices = [],
     onOpenBrowserSession,
     suppressBrowserRecovery = false,
   } = props;
@@ -55,6 +63,15 @@ export function DiscoveryRunFeedbackCallout(props: {
       {recoveryHeadline ? (
         <p className="opacity-90">{recoveryHeadline}</p>
       ) : null}
+      {notices.map((notice) => (
+        <p
+          className="opacity-90"
+          data-testid="discovery-run-notice"
+          key={notice}
+        >
+          {notice}
+        </p>
+      ))}
       {recovery && !isBrowserRecoverySuppressed ? (
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
           {recovery.kind === "browser_session" && onOpenBrowserSession ? (
@@ -65,7 +82,7 @@ export function DiscoveryRunFeedbackCallout(props: {
               type="button"
               variant="primary"
             >
-              {recovery.actionLabel ?? "Open browser"}
+              {recovery.actionLabel ?? OPEN_JOB_FINDER_BROWSER_ACTION}
             </Button>
           ) : null}
           {recovery.kind === "source_setup" ? (

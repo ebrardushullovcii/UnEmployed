@@ -11,6 +11,16 @@ import type { ApplicationRecord } from "@unemployed/contracts";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApplicationsRecordsPanel } from "./applications-records-panel";
+import {
+  APPLICATION_FILTERS,
+  type ApplicationsViewFilter,
+} from "./applications-filters";
+import { matchesApplicationsFilter } from "./applications-screen-helpers";
+import {
+  jobFinderListRowBadgeSlotClassName,
+  jobFinderListRowLinesClassName,
+  jobFinderListRowTitleLineClassName,
+} from "../../components/list-row";
 
 afterEach(cleanup);
 
@@ -264,8 +274,17 @@ describe("ApplicationsRecordsPanel", () => {
     // Padding is owned by the primitive so it cannot vary with selection.
     expect(rowAction?.className).toContain("px-4 py-3");
     expect(rowAction?.className).not.toContain("py-4");
-    const rowGrid = rowAction?.firstElementChild;
-    expect(rowGrid?.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
+    // One shared list treatment across Find jobs, Shortlisted and
+    // Applications: a title line with the status badge trailing it, not this
+    // list's own two-column grid. `list-row.test.tsx` pins that the three
+    // panels agree; this pins what the Applications row itself renders.
+    const rowLines = rowAction?.firstElementChild;
+    expect(rowLines?.className).toBe(jobFinderListRowLinesClassName);
+    const rowTitleLine = rowLines?.firstElementChild;
+    expect(rowTitleLine?.className).toBe(jobFinderListRowTitleLineClassName);
+    const rowBadgeSlot = rowTitleLine?.lastElementChild;
+    expect(rowBadgeSlot?.className).toBe(jobFinderListRowBadgeSlotClassName);
+    expect(rowBadgeSlot?.textContent).toContain("Needs you");
     expect(within(application).queryByText("Job")).toBeNull();
     expect(within(application).queryByText("Latest activity")).toBeNull();
     // The stage is announced exactly once, through the row description, so
@@ -350,14 +369,115 @@ describe("ApplicationsRecordsPanel", () => {
     }
 
     // Zero-count views are hidden so a single record cannot wrap the filter
-    // row; All and Needs you always stay reachable.
+    // row; All and the waiting-on-you view always stay reachable.
     expect(screen.queryByRole("button", { name: /submitted/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /manual only/i })).toBeNull();
     expect(screen.getByRole("button", { name: /^All/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /needs you/i })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /waiting on you/i }),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /in progress/i }));
     expect(onFilterChange).toHaveBeenCalledWith("in_progress");
+  });
+
+  it("names the waiting-applications filter apart from the Needs you step badge", () => {
+    // One application paused on a browser step the user must finish — the row
+    // the "Needs you" badge marks — plus one failed application that is also
+    // waiting on the user but is not that step. The filter chip counts the
+    // superset (2) and must not also be called "Needs you"; the badge keeps
+    // that name for the one paused row. (The header's own unresolved-step
+    // count lives in the shell and is not rendered here.)
+    const baseRecord = {
+      company: "Acme",
+      lastActionLabel: "Resume approved",
+      lastUpdatedAt: "2026-08-09T08:00:00.000Z",
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+    } as const;
+    const pausedOnBrowserStep = {
+      ...baseRecord,
+      id: "application_paused",
+      jobId: "job_paused",
+      title: "Product Engineer",
+      status: "ready_for_review",
+      nextActionLabel: "Finish the open application yourself",
+      lastAttemptState: "paused",
+    } as unknown as ApplicationRecord;
+    const failedAttempt = {
+      ...baseRecord,
+      id: "application_failed",
+      jobId: "job_failed",
+      title: "Platform Engineer",
+      status: "ready_for_review",
+      nextActionLabel: "Retry preparation later",
+      lastAttemptState: "failed",
+    } as unknown as ApplicationRecord;
+    const applicationRecords = [pausedOnBrowserStep, failedAttempt];
+    // One shared selector owns the count, exactly as the screen derives it.
+    const filterCounts = Object.fromEntries(
+      APPLICATION_FILTERS.map((filter) => [
+        filter,
+        applicationRecords.filter((record) =>
+          matchesApplicationsFilter(record, filter),
+        ).length,
+      ]),
+    ) as Record<ApplicationsViewFilter, number>;
+    expect(filterCounts.needs_action).toBe(2);
+
+    render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={applicationRecords}
+          filterCounts={filterCounts}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={null}
+        />
+      </MemoryRouter>,
+    );
+
+    const filterGroup = screen.getByRole("group", {
+      name: "Application filters",
+    });
+    // The superset view names its own population and its unit, so its "2"
+    // cannot be read against the header's "Needs you: 1 unresolved".
+    const waitingFilter = within(filterGroup).getByRole("button", {
+      name: "Waiting on you: 2 applications",
+    });
+    expect(waitingFilter.textContent).toContain("Waiting on you");
+    expect(waitingFilter.textContent).toContain("2");
+    expect(
+      within(filterGroup).queryByRole("button", { name: /needs you/i }),
+    ).toBeNull();
+    for (const filterButton of within(filterGroup).getAllByRole("button")) {
+      expect(filterButton.textContent).not.toContain("Needs you");
+    }
+
+    // Exactly one row carries the "Needs you" step badge: the paused one.
+    const rows = within(
+      screen.getByRole("list", { name: "Applications" }),
+    ).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]!).getByText("Needs you")).toBeTruthy();
+    expect(within(rows[1]!).queryByText("Needs you")).toBeNull();
+    expect(within(rows[1]!).getByText("Needs recovery")).toBeTruthy();
   });
 
   it("keeps a large application list bounded to one page", () => {

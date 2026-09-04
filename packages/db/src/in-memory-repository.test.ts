@@ -1052,16 +1052,39 @@ describe("createInMemoryJobFinderRepository", () => {
   test("applies aggregate resume approval updates atomically", async () => {
     const repository = createInMemoryJobFinderRepository(createSeed());
 
-    await repository.upsertResumeExportArtifact({
-      id: "resume_export_old",
-      draftId: "resume_draft_1",
-      jobId: "job_1",
-      format: "pdf",
-      filePath: "/tmp/old.pdf",
-      pageCount: 2,
-      templateId: "classic_ats",
-      exportedAt: "2026-03-20T10:00:00.000Z",
-      isApproved: true,
+    // Seed the already-approved export through the only supported approval
+    // path. Neither repository accepts an approved artifact through
+    // upsertResumeExportArtifact, because only approveResumeExport demotes
+    // the job's sibling exports.
+    await repository.approveResumeExport({
+      draft: {
+        id: "resume_draft_1",
+        jobId: "job_1",
+        status: "approved",
+        templateId: "classic_ats",
+        identity: null,
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "ai",
+        approvedAt: "2026-03-20T10:00:00.000Z",
+        approvedExportId: "resume_export_old",
+        staleReason: null,
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:00:00.000Z",
+      },
+      exportArtifact: {
+        id: "resume_export_old",
+        draftId: "resume_draft_1",
+        jobId: "job_1",
+        format: "pdf",
+        filePath: "/tmp/old.pdf",
+        pageCount: 2,
+        templateId: "classic_ats",
+        exportedAt: "2026-03-20T10:00:00.000Z",
+        isApproved: true,
+      },
     });
 
     await repository.approveResumeExport({
@@ -1143,16 +1166,39 @@ describe("createInMemoryJobFinderRepository", () => {
   test("clears approved export flags when a draft becomes stale", async () => {
     const repository = createInMemoryJobFinderRepository(createSeed());
 
-    await repository.upsertResumeExportArtifact({
-      id: "resume_export_old",
-      draftId: "resume_draft_1",
-      jobId: "job_1",
-      format: "pdf",
-      filePath: "/tmp/old.pdf",
-      pageCount: 2,
-      templateId: "classic_ats",
-      exportedAt: "2026-03-20T10:00:00.000Z",
-      isApproved: true,
+    // Seed the already-approved export through the only supported approval
+    // path. Neither repository accepts an approved artifact through
+    // upsertResumeExportArtifact, because only approveResumeExport demotes
+    // the job's sibling exports.
+    await repository.approveResumeExport({
+      draft: {
+        id: "resume_draft_1",
+        jobId: "job_1",
+        status: "approved",
+        templateId: "classic_ats",
+        identity: null,
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "ai",
+        approvedAt: "2026-03-20T10:00:00.000Z",
+        approvedExportId: "resume_export_old",
+        staleReason: null,
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:00:00.000Z",
+      },
+      exportArtifact: {
+        id: "resume_export_old",
+        draftId: "resume_draft_1",
+        jobId: "job_1",
+        format: "pdf",
+        filePath: "/tmp/old.pdf",
+        pageCount: 2,
+        templateId: "classic_ats",
+        exportedAt: "2026-03-20T10:00:00.000Z",
+        isApproved: true,
+      },
     });
 
     await repository.saveResumeDraftWithValidation({
@@ -1382,33 +1428,38 @@ describe("createInMemoryJobFinderRepository", () => {
     ];
     const repository = createInMemoryJobFinderRepository(seed);
 
-    await repository.upsertResumeDraft({
-      id: "resume_draft_1",
-      jobId: "job_ready",
-      status: "approved",
-      templateId: "classic_ats",
-      identity: null,
-      sections: [],
-      targetPageCount: 2,
-      generationMethod: "ai",
-      approvedAt: "2026-03-20T10:07:00.000Z",
-      approvedExportId: "resume_export_old",
-      staleReason: null,
-      workHistoryReviewAcknowledgments: [],
-      claimConfirmations: [],
-      createdAt: "2026-03-20T10:00:00.000Z",
-      updatedAt: "2026-03-20T10:07:00.000Z",
-    });
-    await repository.upsertResumeExportArtifact({
-      id: "resume_export_old",
-      draftId: "resume_draft_1",
-      jobId: "job_ready",
-      format: "pdf",
-      filePath: "/tmp/old.pdf",
-      pageCount: 2,
-      templateId: "classic_ats",
-      exportedAt: "2026-03-20T10:06:00.000Z",
-      isApproved: true,
+    // Seed the approved draft and its approved export through the only
+    // supported approval path; upsertResumeExportArtifact refuses an approved
+    // artifact in both repositories.
+    await repository.approveResumeExport({
+      draft: {
+        id: "resume_draft_1",
+        jobId: "job_ready",
+        status: "approved",
+        templateId: "classic_ats",
+        identity: null,
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "ai",
+        approvedAt: "2026-03-20T10:07:00.000Z",
+        approvedExportId: "resume_export_old",
+        staleReason: null,
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:07:00.000Z",
+      },
+      exportArtifact: {
+        id: "resume_export_old",
+        draftId: "resume_draft_1",
+        jobId: "job_ready",
+        format: "pdf",
+        filePath: "/tmp/old.pdf",
+        pageCount: 2,
+        templateId: "classic_ats",
+        exportedAt: "2026-03-20T10:06:00.000Z",
+        isApproved: true,
+      },
     });
 
     const savedJobs = await repository.listSavedJobs();

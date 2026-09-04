@@ -66,6 +66,22 @@ import type { TailoredDraftPreparationViewState } from "@renderer/features/job-f
 import type { ResumeWorkHistoryDecisionRequest } from "@renderer/features/job-finder/screens/review-queue/resume-workspace-work-history-decisions";
 import type { JobFinderSaveState } from "./job-finder-save-state";
 
+/**
+ * Opt-in error propagation for one call, not a mode change for the action.
+ *
+ * Every Job Finder action reports its own failure once, as a route message, and
+ * then resolves `false` — a caller that only fires and forgets wants exactly
+ * that. A caller that reports the failure IN PLACE needs the cause as well, and
+ * cannot get it from a boolean: the Applications hand-off composed "The Job
+ * Finder browser did not open…" with nothing where the reason belonged. Passing
+ * this makes the returned promise reject with the underlying error for that
+ * call only; the route message is written either way, and no other caller's
+ * behaviour changes.
+ */
+export type JobFinderActionFailureReporting = {
+  readonly rethrowError?: boolean;
+};
+
 export interface JobFinderPageContext {
   actionState: ActionState;
   canImportResume: boolean;
@@ -186,10 +202,30 @@ export interface JobFinderPageContext {
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
   onImportResume: () => void;
   onCancelImportResume: () => void;
-  onOpenBrowserSession: (input?: JobFinderOpenBrowserSessionInput) => void;
+  /**
+   * Opens or focuses the Job Finder browser and resolves with whether that
+   * actually happened. The result used to be discarded (`void runAction(...)`),
+   * so a caller that reported an outcome beside the control could only report
+   * an optimistic success: the rejection never reached it. Callers that do not
+   * report an outcome still `void` the promise at their own call site.
+   */
+
+  onOpenBrowserSession: (
+    input?: JobFinderOpenBrowserSessionInput,
+    options?: JobFinderActionFailureReporting,
+  ) => Promise<boolean>;
   onOpenProfile: () => void;
   onNavigateSafely: (path: string) => void;
-  onPerformUserAction: (command: UserActionCommandInput) => void;
+  /**
+   * Sends one Needs-you command and resolves with whether it succeeded, for
+   * the same reason as {@link JobFinderPageContext.onOpenBrowserSession}.
+   * The failure is still reported once as a route banner by the action runner;
+   * the boolean is what lets a surface say in place that nothing opened.
+   */
+  onPerformUserAction: (
+    command: UserActionCommandInput,
+    options?: JobFinderActionFailureReporting,
+  ) => Promise<boolean>;
   onProjectGroupedManualAnswer: (
     command: ProjectGroupedManualAnswerCommand,
   ) => void;

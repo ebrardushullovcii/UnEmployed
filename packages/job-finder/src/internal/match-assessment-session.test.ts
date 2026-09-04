@@ -156,8 +156,45 @@ describe("match assessment session", () => {
       scorerVersion: MATCH_ASSESSMENT_SCORER_VERSION,
       contextFingerprint: session.contextFingerprint,
     });
-    expect(first.postingFingerprint).toMatch(/^match_posting_v4_logic7_/u);
-    expect(session.contextFingerprint).toMatch(/^match_context_v4_logic7_/u);
+    expect(first.postingFingerprint).toMatch(/^match_posting_v4_logic8_/u);
+    expect(session.contextFingerprint).toMatch(/^match_context_v4_logic8_/u);
+  });
+
+  test("does not reuse an assessment persisted under the previous scoring logic", () => {
+    // The fingerprints hash the profile and preferences, never the scorer, so
+    // the revision in the prefix is the only thing that retires a persisted
+    // assessment. Revision 7 scored a placeholder-only saved location as a
+    // verified geographic match (68 for the case below); revision 8 reads it as
+    // no constraint (71). If the revision were left at 7 the stale 68 would be
+    // reused on every returning workspace, which is exactly the state this
+    // pins against.
+    const seed = createSeed();
+    const searchPreferences = {
+      ...seed.searchPreferences,
+      locations: ["Location not stated"],
+    };
+    const posting = seed.savedJobs[0]!;
+
+    const session = createMatchAssessmentSession({
+      profile: seed.profile,
+      searchPreferences,
+      calculate: createMatchAssessment,
+    });
+    const assessment = session.assess(posting);
+
+    for (const retiredRevision of [7]) {
+      expect(session.contextFingerprint).not.toMatch(
+        new RegExp(`^match_context_v4_logic${retiredRevision}_`, "u"),
+      );
+      expect(assessment.postingFingerprint).not.toMatch(
+        new RegExp(`^match_posting_v4_logic${retiredRevision}_`, "u"),
+      );
+    }
+
+    // The version travels with the fingerprints, so a persisted row can also be
+    // retired by comparing the recorded scorer version alone.
+    expect(assessment.scorerVersion).toBe(MATCH_ASSESSMENT_SCORER_VERSION);
+    expect(MATCH_ASSESSMENT_SCORER_VERSION).toBeGreaterThan(8);
   });
 
   test.each(

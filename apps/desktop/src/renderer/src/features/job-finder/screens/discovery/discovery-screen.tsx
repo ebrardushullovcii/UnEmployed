@@ -28,6 +28,7 @@ import {
 } from "./discovery-search-readiness";
 import { LockedScreenLayout } from "@renderer/features/job-finder/components/locked-screen-layout";
 import { PageHeaderStack } from "@renderer/features/job-finder/components/page-header";
+import { OPEN_JOB_FINDER_BROWSER_ACTION } from "@renderer/features/job-finder/lib/job-finder-browser-handoff-copy";
 import { JOB_FINDER_ROUTE_PATHS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
 import { formatCountLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
 import {
@@ -50,6 +51,7 @@ import {
 } from "./discovery-results-panel";
 import { DiscoveryRunFeedbackCallout } from "./discovery-run-feedback-callout";
 import {
+  getDiscoveryLatestRunNotices,
   getDiscoveryLatestRunVerdict,
   type DiscoveryRunFeedback,
 } from "./discovery-run-feedback";
@@ -467,6 +469,13 @@ export function DiscoveryScreen(props: {
     () => getDiscoveryLatestRunVerdict(recentRuns),
     [recentRuns],
   );
+  // Run-level warnings the newest run recorded about its own evidence (for
+  // example: only listing cards were read). They are printed verbatim beside
+  // the run outcome instead of being re-derived from the results on screen.
+  const latestRunNotices = useMemo(
+    () => getDiscoveryLatestRunNotices(recentRuns),
+    [recentRuns],
+  );
   const enabledTargetIds = new Set(
     searchPreferences.discovery.targets
       .filter((target) => target.enabled)
@@ -554,8 +563,8 @@ export function DiscoveryScreen(props: {
       : {
           label:
             browserSession.status === "blocked"
-              ? "Open browser to recover"
-              : "Open browser to sign in",
+              ? `${OPEN_JOB_FINDER_BROWSER_ACTION} to recover`
+              : `${OPEN_JOB_FINDER_BROWSER_ACTION} to sign in`,
           pending: isBrowserSessionPending,
           nextStep: "Then search again.",
           onAction: onOpenBrowserSession,
@@ -640,7 +649,7 @@ export function DiscoveryScreen(props: {
             type="button"
             variant="primary"
           >
-            Open browser
+            {OPEN_JOB_FINDER_BROWSER_ACTION}
           </Button>
         ) : searchReadiness.blocker === "no_search_roles" ? (
           <Button
@@ -906,6 +915,14 @@ export function DiscoveryScreen(props: {
               <DiscoveryRunFeedbackCallout
                 feedback={discoveryRunFeedback}
                 isRecoveryPending={isBrowserSessionPending}
+                // A run in flight has recorded nothing yet, so an earlier
+                // run's evidence warning must not sit under "Search started"
+                // where it would read as a claim about the live attempt.
+                notices={
+                  discoveryRunFeedback.status === "started"
+                    ? []
+                    : latestRunNotices
+                }
                 onOpenBrowserSession={onOpenBrowserSession}
                 suppressBrowserRecovery={runtimeProjection.isOffline}
               />

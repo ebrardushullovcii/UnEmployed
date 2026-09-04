@@ -1,3 +1,6 @@
+import { JOB_FINDER_BROWSER_LABEL } from "@unemployed/contracts";
+import { isEmployerAbsenceLabel } from "./job-employer-location-display";
+
 /**
  * One name for the browser, one name for each hand-off action.
  *
@@ -16,14 +19,28 @@
  */
 
 /**
+ * The window's bare name, for labels and headings that carry no article.
+ * Every other form here is derived from it, so the app cannot drift back into
+ * calling one window several things.
+ *
+ * It is defined in `@unemployed/contracts` rather than here because
+ * `@unemployed/job-finder` writes user-facing copy about the same window and
+ * cannot import from the desktop renderer — the dependency runs the other way.
+ * Contracts is the one package both already depend on. This module keeps
+ * ownership of every derived form and re-exports the label so renderer code has
+ * a single import for all of it.
+ */
+export { JOB_FINDER_BROWSER_LABEL };
+
+/**
  * The canonical name of the separate browser window Job Finder drives.
  * Used mid-sentence; {@link JOB_FINDER_BROWSER_NAME_SENTENCE_START} is the
  * capitalised form.
  */
-export const JOB_FINDER_BROWSER_NAME = "the Job Finder browser";
+export const JOB_FINDER_BROWSER_NAME = `the ${JOB_FINDER_BROWSER_LABEL}`;
 
 /** Sentence-initial form of {@link JOB_FINDER_BROWSER_NAME}. */
-export const JOB_FINDER_BROWSER_NAME_SENTENCE_START = "The Job Finder browser";
+export const JOB_FINDER_BROWSER_NAME_SENTENCE_START = `The ${JOB_FINDER_BROWSER_LABEL}`;
 
 /**
  * Said once, at the moment the user is sent out, so the window is never a
@@ -32,14 +49,14 @@ export const JOB_FINDER_BROWSER_NAME_SENTENCE_START = "The Job Finder browser";
 export const JOB_FINDER_BROWSER_IS_A_SEPARATE_WINDOW = `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} is a separate window outside this app.`;
 
 /** Opens or focuses that window on the paused application page. */
-export const OPEN_JOB_FINDER_BROWSER_ACTION = "Open the Job Finder browser";
+export const OPEN_JOB_FINDER_BROWSER_ACTION = `Open ${JOB_FINDER_BROWSER_NAME}`;
 
 /**
  * The same control after the hand-off has already happened. The window is
  * open, so the action is no longer "open" and is no longer the primary path —
  * confirming is.
  */
-export const REOPEN_JOB_FINDER_BROWSER_ACTION = "Reopen the Job Finder browser";
+export const REOPEN_JOB_FINDER_BROWSER_ACTION = `Reopen ${JOB_FINDER_BROWSER_NAME}`;
 
 /**
  * The single confirm action, in every place the user comes back to. Named for
@@ -98,6 +115,36 @@ export const JOB_FINDER_BROWSER_UNAVAILABLE_NOTE =
   `Use the window if it is already open, or open this step from Needs you.`;
 
 /**
+ * The hand-off opened the window but had no recorded step to reopen, so the
+ * paused application page is not what came up. Saying "Opened in the Job
+ * Finder browser. Switch to that window to finish the step" here would send
+ * the user to a window that never showed the step.
+ */
+export const JOB_FINDER_BROWSER_OPENED_WITHOUT_PAGE_STATUS =
+  `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} is open, but this application page was not reopened ` +
+  `from here, so the step may not be on screen there. Find the application in that window, or ` +
+  `open this step from Needs you.`;
+
+/**
+ * The hand-off did not open anything. States that plainly, carries the reason
+ * when there is one, and restates that nothing was sent to the employer so a
+ * failure is never read as a half-finished submission.
+ */
+export function formatJobFinderBrowserHandoffFailedStatus(
+  reason?: string | null,
+): string {
+  const detail = reason?.trim();
+  const because = detail
+    ? ` ${detail.endsWith(".") ? detail : `${detail}.`}`
+    : "";
+
+  return (
+    `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} did not open, so nothing was opened for this ` +
+    `application and nothing was sent to the employer.${because} Try again, or open this step from Needs you.`
+  );
+}
+
+/**
  * The prepare-only boundary in one sentence, for the prepare dialog and the
  * Applications hand-off. Job Finder fills; the person submits.
  */
@@ -115,7 +162,13 @@ export function formatPrepareApplicationSubject(input: {
   employerName: string | null;
 }): string | null {
   const title = input.jobTitle?.trim() ?? "";
-  const employer = input.employerName?.trim() ?? "";
+  // Discovery stores a readable placeholder when a listing names no employer.
+  // It is an absence, not a company, and rendering it here produced
+  // "Senior Engineer at Employer not stated" in the dialog the user agrees to.
+  // The same shared test every other job surface uses decides that, so the app
+  // keeps one notion of "absent" rather than a second, divergent one.
+  const rawEmployer = input.employerName?.trim() ?? "";
+  const employer = isEmployerAbsenceLabel(rawEmployer) ? "" : rawEmployer;
 
   if (title && employer) {
     return `${title} at ${employer}`;

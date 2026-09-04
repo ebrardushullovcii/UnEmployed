@@ -379,20 +379,33 @@ export function createOpenAiCompatibleJobFinderAiClient(
             DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS,
         },
       );
-      const normalizedPayload =
-        payload && typeof payload === "object" && !Array.isArray(payload)
-          ? (payload as Record<string, unknown>)
-          : {};
-      const parsedPrimaryExtraction = ResumeProfileExtractionSchema.parse({
-        ...normalizedPayload,
-        analysisProviderKind: "openai_compatible",
-        analysisProviderLabel: status.label,
-      });
       const deterministicSupplement = buildDeterministicResumeProfileExtraction(
         input,
         "deterministic",
         "Built-in deterministic parser supplement",
       );
+
+      // `parseModelJsonResponse` only rejects malformed JSON, so a valid
+      // non-object payload (`[]`, `"..."`, `null`) used to normalize to `{}`
+      // and ship a purely deterministic extraction stamped as model output
+      // with no note. A payload the model cannot be read from is a provider
+      // failure, and is reported exactly like the caught one below.
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        return ResumeProfileExtractionSchema.parse({
+          ...deterministicSupplement,
+          notes: uniqueStrings([
+            ...deterministicSupplement.notes,
+            "Fell back to the deterministic resume parser after the model call failed.",
+            "Primary AI extraction failed: the model returned a response that was not a resume extraction object.",
+          ]),
+        });
+      }
+
+      const parsedPrimaryExtraction = ResumeProfileExtractionSchema.parse({
+        ...(payload as Record<string, unknown>),
+        analysisProviderKind: "openai_compatible",
+        analysisProviderLabel: status.label,
+      });
 
       return ResumeProfileExtractionSchema.parse({
         ...completeResumeExtraction(

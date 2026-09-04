@@ -24,10 +24,16 @@ export const JOB_FINDER_ROUTE_HEADER_SCROLL_TOLERANCE_PX = 1;
 // height (116px + 16px = 132px = 8.25rem); the wide band adds the short fixed
 // header (56px + 16px = 72px = 4.5rem). Consumers must render these exact
 // tokens so native `scrollIntoView` reveals cannot drift from this geometry.
+// The wide token is important on purpose: Tailwind v4 emits arbitrary
+// `min-[…]`/`max-[…]` media variants BEFORE the named breakpoints, so at
+// >=1440px the still-matching `sm:scroll-mt-[8.25rem]` came later in the
+// stylesheet and won at equal specificity — every wide-band reveal cleared
+// 132px instead of the 72px this module computes. See
+// `tailwind-variant-order.test.ts`; do not drop it back to a plain utility.
 export const JOB_FINDER_REVEAL_SCROLL_MARGIN_CLASSES = {
   base: "scroll-mt-4",
   fixedHeader: "sm:scroll-mt-[8.25rem]",
-  wideFixedHeader: "min-[1440px]:scroll-mt-[4.5rem]",
+  wideFixedHeader: "min-[1440px]:!scroll-mt-[4.5rem]",
 } as const;
 
 export type JobFinderRevealChromeMode =

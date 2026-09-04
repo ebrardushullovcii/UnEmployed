@@ -33,7 +33,13 @@ describe("Tabs line variant chrome", () => {
     expect(indicatorRule).toContain(
       "group-data-[variant=line]/tabs-list:data-[state=active]:after:bg-primary",
     );
-    expect(indicatorRule).toContain("after:h-px");
+    // The underline is 2px, not a hairline: it is drawn directly on the
+    // list's 1px --surface-panel-border, where --primary measures 2.64:1
+    // (dark) / 2.79:1 (light) - under the 3:1 non-text floor for a state
+    // carrier. Neither colour can move, so the weight step is the channel.
+    // Still exactly one indicator; only its thickness changed.
+    expect(indicatorRule).toContain("after:h-0.5");
+    expect(indicatorRule).not.toContain("after:h-px");
     expect(borderRule).not.toMatch(
       /"group-data-\[orientation=horizontal\]\/tabs:data-\[state=active\]:border-b-2/u,
     );
@@ -67,7 +73,7 @@ describe("Tabs line variant chrome", () => {
     const list = screen.getByRole("tablist");
     expect(list.className).toContain("border-(--surface-panel-border)");
     expect(screen.getByRole("tab", { name: "Preview" }).className).toContain(
-      "after:h-px",
+      "after:h-0.5",
     );
     expect(screen.getByText("Preview pane")).toBeTruthy();
   });

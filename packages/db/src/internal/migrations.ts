@@ -1,11 +1,94 @@
 import { chmod } from "node:fs/promises";
 import type { DatabaseSync } from "node:sqlite";
 import {
-  ApplyJobResultSchema,
   JobSearchPreferencesSchema,
   getDefaultCampaignConfiguration,
   normalizeCompanyName,
 } from "@unemployed/contracts";
+
+/**
+ * Exact column shape every application-authority table must have. The assert
+ * and the column-level repair read the same map so a drifted table can never
+ * be detected by one and missed by the other.
+ */
+const APPLICATION_AUTHORITY_REQUIRED_COLUMNS: Readonly<
+  Record<string, readonly string[]>
+> = {
+  application_authority_envelopes: ["id", "revision", "status", "value"],
+  submission_preflights: [
+    "id",
+    "idempotency_key",
+    "run_id",
+    "job_id",
+    "result_id",
+    "application_record_id",
+    "authority_envelope_id",
+    "authority_revision",
+    "created_at",
+    "value",
+  ],
+  submission_execution_grants: [
+    "id",
+    "preflight_id",
+    "idempotency_key",
+    "status",
+    "granted_at",
+    "expires_at",
+    "value",
+  ],
+  submission_idempotency_records: [
+    "id",
+    "idempotency_key",
+    "preflight_id",
+    "revision",
+    "status",
+    "updated_at",
+    "value",
+  ],
+  submission_armed_markers: [
+    "id",
+    "idempotency_key",
+    "preflight_id",
+    "armed_at",
+    "value",
+  ],
+  submission_outcome_records: [
+    "id",
+    "preflight_id",
+    "idempotency_key",
+    "run_id",
+    "job_id",
+    "result_id",
+    "application_record_id",
+    "attempted_at",
+    "outcome",
+    "value",
+  ],
+};
+
+/**
+ * Child-to-parent drop order. Repair removes a foreign-key parent only after
+ * every table that references it, so an outdated shape can be rebuilt without
+ * tripping `PRAGMA foreign_keys = ON`.
+ */
+const APPLICATION_AUTHORITY_TABLE_DROP_ORDER = [
+  "submission_outcome_records",
+  "submission_armed_markers",
+  "submission_idempotency_records",
+  "submission_execution_grants",
+  "submission_preflights",
+  "application_authority_envelopes",
+] as const;
+
+const APPLICATION_ANSWER_SNAPSHOT_REQUIRED_COLUMNS: readonly string[] = [
+  "id",
+  "profile_id",
+  "revision",
+  "digest",
+  "source_profile_revision",
+  "approved_at",
+  "value",
+];
 
 export function secureDatabaseFile(filePath: string): Promise<void> {
   if (process.platform === "win32") {
@@ -79,6 +162,37 @@ export function repairLegacyCommaSplitAchievements(
 
   if (current) repaired.push(current);
   return repaired;
+}
+
+/**
+ * Reads the legacy discovery run list defensively. A discovery blob whose shape
+ * drifted from the current schema must not abort the default-campaign
+ * migration, because a rolled back migration re-fails on every later launch.
+ * Invalid JSON deliberately still throws: that is genuine corruption, which
+ * startup recovery handles separately.
+ */
+function readLegacyDiscoveryRuns(
+  serializedDiscoveryState: unknown,
+): Array<{ id: string; startedAt: string; completedAt?: string }> {
+  if (typeof serializedDiscoveryState !== "string") return [];
+
+  const parsedValue = JSON.parse(serializedDiscoveryState) as unknown;
+
+  const recentRuns =
+    parsedValue &&
+    typeof parsedValue === "object" &&
+    !Array.isArray(parsedValue)
+      ? (parsedValue as { recentRuns?: unknown }).recentRuns
+      : undefined;
+  if (!Array.isArray(recentRuns)) return [];
+
+  return recentRuns.filter(
+    (run): run is { id: string; startedAt: string; completedAt?: string } =>
+      typeof run === "object" &&
+      run !== null &&
+      typeof (run as { id?: unknown }).id === "string" &&
+      typeof (run as { startedAt?: unknown }).startedAt === "string",
+  );
 }
 
 export function runMigrations(database: DatabaseSync): void {
@@ -434,10 +548,23 @@ export function runMigrations(database: DatabaseSync): void {
         row.id,
         row.value,
       );
-      const result = ApplyJobResultSchema.parse(persisted);
+      // Read the two mirrored scalars defensively instead of parsing the whole
+      // legacy row against the current schema: an unrelated drifted field must
+      // not roll the migration back and leave the workspace unopenable on every
+      // later launch. The paired invariant is preserved — a half-set legacy row
+      // stays unknown rather than inventing the missing half.
+      const startedAt =
+        typeof persisted.applicationPreparationStartedAt === "string"
+          ? persisted.applicationPreparationStartedAt
+          : null;
+      const startedLocalDate =
+        typeof persisted.applicationPreparationStartedLocalDate === "string"
+          ? persisted.applicationPreparationStartedLocalDate
+          : null;
+      const paired = startedAt !== null && startedLocalDate !== null;
       update.run(
-        result.applicationPreparationStartedAt ?? null,
-        result.applicationPreparationStartedLocalDate ?? null,
+        paired ? startedAt : null,
+        paired ? startedLocalDate : null,
         row.id,
       );
     }
@@ -452,41 +579,47 @@ export function runMigrations(database: DatabaseSync): void {
     `);
   }
 
-  function ensureDefaultCampaignState(): void {
+  /**
+   * Returns `false` only when the default campaign could not be created yet and
+   * the attempt must be retried on a later launch. The caller records schema
+   * version 10 exactly when this returns `true`, so a deferred workspace keeps
+   * re-running this migration instead of banking a version it never applied.
+   */
+  function ensureDefaultCampaignState(): boolean {
     const existing = database
       .prepare("SELECT value FROM singleton_state WHERE key = ?")
       .get("campaign_state");
-    if (existing) return;
+    if (existing) return true;
 
     const preferencesRow = database
       .prepare("SELECT value FROM singleton_state WHERE key = ?")
       .get("search_preferences") as { value?: unknown } | undefined;
-    if (typeof preferencesRow?.value !== "string") return;
+    if (typeof preferencesRow?.value !== "string") return true;
 
-    const searchPreferences = JobSearchPreferencesSchema.parse(
-      JSON.parse(preferencesRow.value) as unknown,
-    );
+    // Invalid JSON stays fail-closed: that is genuine corruption, and startup
+    // recovery is built to act on it. Schema drift is different — a legacy
+    // preferences blob that no longer matches the current schema must not roll
+    // the whole migration back, because every other pending migration in the
+    // same transaction would roll back with it and re-fail on every later
+    // launch. Defer this one migration instead, so a repaired preferences row
+    // still gets its legacy discovery history mapped into the default campaign.
+    const persistedPreferences = JSON.parse(preferencesRow.value) as unknown;
+    let searchPreferences: ReturnType<typeof JobSearchPreferencesSchema.parse>;
+    try {
+      searchPreferences =
+        JobSearchPreferencesSchema.parse(persistedPreferences);
+    } catch {
+      console.warn(
+        "[DB migration] Deferring default campaign creation because the persisted search preferences do not match the current schema. The workspace still fails closed when those preferences are read; repair that row and reopen to complete this migration.",
+      );
+      return false;
+    }
     const now = new Date().toISOString();
     const campaignId = "campaign_default";
     const discoveryRow = database
       .prepare("SELECT value FROM singleton_state WHERE key = ?")
       .get("discovery_state") as { value?: unknown } | undefined;
-    const legacyRuns =
-      typeof discoveryRow?.value === "string"
-        ? (
-            ((JSON.parse(discoveryRow.value) as { recentRuns?: unknown[] })
-              .recentRuns ?? []) as Array<{
-              id?: unknown;
-              startedAt?: unknown;
-              completedAt?: unknown;
-            }>
-          ).filter(
-            (
-              run,
-            ): run is { id: string; startedAt: string; completedAt?: string } =>
-              typeof run.id === "string" && typeof run.startedAt === "string",
-          )
-        : [];
+    const legacyRuns = readLegacyDiscoveryRuns(discoveryRow?.value);
     const campaign = {
       id: campaignId,
       name: "My job search",
@@ -535,6 +668,7 @@ export function runMigrations(database: DatabaseSync): void {
         "campaign_state",
         JSON.stringify({ activeCampaignId: campaignId, campaigns: [campaign] }),
       );
+    return true;
   }
 
   function ensureResumeImportTables(): void {
@@ -1002,63 +1136,26 @@ export function runMigrations(database: DatabaseSync): void {
     `);
   }
 
-  function assertApplicationAuthorityTableShape(): void {
-    const requiredColumns = {
-      application_authority_envelopes: ["id", "revision", "status", "value"],
-      submission_preflights: [
-        "id",
-        "idempotency_key",
-        "run_id",
-        "job_id",
-        "result_id",
-        "application_record_id",
-        "authority_envelope_id",
-        "authority_revision",
-        "created_at",
-        "value",
-      ],
-      submission_execution_grants: [
-        "id",
-        "preflight_id",
-        "idempotency_key",
-        "status",
-        "granted_at",
-        "expires_at",
-        "value",
-      ],
-      submission_idempotency_records: [
-        "id",
-        "idempotency_key",
-        "preflight_id",
-        "revision",
-        "status",
-        "updated_at",
-        "value",
-      ],
-      submission_armed_markers: [
-        "id",
-        "idempotency_key",
-        "preflight_id",
-        "armed_at",
-        "value",
-      ],
-      submission_outcome_records: [
-        "id",
-        "preflight_id",
-        "idempotency_key",
-        "run_id",
-        "job_id",
-        "result_id",
-        "application_record_id",
-        "attempted_at",
-        "outcome",
-        "value",
-      ],
-    } as const;
+  /**
+   * One `PRAGMA table_info` per table instead of one per column: the authority
+   * shape is checked on every workspace open, so the repeated probe cost is
+   * paid by every launch.
+   */
+  function listTableColumns(tableName: string): Set<string> {
+    if (!hasTable(tableName)) return new Set<string>();
+    const columns = database
+      .prepare(`PRAGMA table_info(${tableName})`)
+      .all() as Array<{ name?: unknown }>;
+    return new Set(columns.map((column) => String(column.name)));
+  }
 
-    for (const [tableName, columnNames] of Object.entries(requiredColumns)) {
+  function assertApplicationAuthorityTableShape(): void {
+    for (const [tableName, columnNames] of Object.entries(
+      APPLICATION_AUTHORITY_REQUIRED_COLUMNS,
+    )) {
+      const presentColumns = listTableColumns(tableName);
       for (const columnName of columnNames) {
-        if (!hasColumn(tableName, columnName)) {
+        if (!presentColumns.has(columnName)) {
           throw new Error(
             `Application authority migration is incomplete: ${tableName}.${columnName} is missing.`,
           );
@@ -1067,18 +1164,77 @@ export function runMigrations(database: DatabaseSync): void {
     }
   }
 
+  function countTableRows(tableName: string): number {
+    const row = database
+      .prepare(`SELECT COUNT(*) AS count FROM ${tableName}`)
+      .get() as { count?: number } | undefined;
+    return Number(row?.count ?? 0);
+  }
+
+  function listDriftedApplicationAuthorityTables(): string[] {
+    return Object.entries(APPLICATION_AUTHORITY_REQUIRED_COLUMNS)
+      .filter(([tableName, columnNames]) => {
+        if (!hasTable(tableName)) return false;
+        const presentColumns = listTableColumns(tableName);
+        return columnNames.some(
+          (columnName) => !presentColumns.has(columnName),
+        );
+      })
+      .map(([tableName]) => tableName);
+  }
+
+  /**
+   * Column-level repair for the authority tables. `CREATE TABLE IF NOT EXISTS`
+   * cannot fix a table that already exists with an outdated shape, so a drifted
+   * workspace would otherwise fail the shape assert on every launch with no
+   * recovery path. These tables only ever hold typed authority state written by
+   * the repository, so an empty drifted table is rebuilt; one that still holds
+   * rows is never silently discarded and fails with an actionable error.
+   */
+  function repairApplicationAuthorityTableShape(): void {
+    const driftedTables = listDriftedApplicationAuthorityTables();
+    if (driftedTables.length === 0) return;
+
+    for (const tableName of driftedTables) {
+      if (countTableRows(tableName) > 0) {
+        throw new Error(
+          `Application authority migration cannot repair ${tableName}: its column shape is outdated and it still holds rows. Restore a workspace backup or remove those rows before reopening this workspace.`,
+        );
+      }
+    }
+
+    for (const tableName of APPLICATION_AUTHORITY_TABLE_DROP_ORDER) {
+      if (driftedTables.includes(tableName)) {
+        database.exec(`DROP TABLE IF EXISTS ${tableName}`);
+      }
+    }
+  }
+
+  function hasApplicationAnswerSnapshotColumnDrift(): boolean {
+    if (!hasTable("application_answer_snapshots")) return false;
+    const presentColumns = listTableColumns("application_answer_snapshots");
+    return APPLICATION_ANSWER_SNAPSHOT_REQUIRED_COLUMNS.some(
+      (columnName) => !presentColumns.has(columnName),
+    );
+  }
+
+  /** Same column-level repair contract as the authority tables. */
+  function repairApplicationAnswerSnapshotTableShape(): void {
+    if (!hasApplicationAnswerSnapshotColumnDrift()) return;
+
+    if (countTableRows("application_answer_snapshots") > 0) {
+      throw new Error(
+        "Approved application answer snapshot migration cannot repair application_answer_snapshots: its column shape is outdated and it still holds rows. Restore a workspace backup or remove those rows before reopening this workspace.",
+      );
+    }
+
+    database.exec("DROP TABLE IF EXISTS application_answer_snapshots");
+  }
+
   function assertApplicationAnswerSnapshotTableShape(): void {
-    const requiredColumns = [
-      "id",
-      "profile_id",
-      "revision",
-      "digest",
-      "source_profile_revision",
-      "approved_at",
-      "value",
-    ] as const;
-    for (const columnName of requiredColumns) {
-      if (!hasColumn("application_answer_snapshots", columnName)) {
+    const presentColumns = listTableColumns("application_answer_snapshots");
+    for (const columnName of APPLICATION_ANSWER_SNAPSHOT_REQUIRED_COLUMNS) {
+      if (!presentColumns.has(columnName)) {
         throw new Error(
           `Approved application answer snapshot migration is incomplete: application_answer_snapshots.${columnName} is missing.`,
         );
@@ -1091,15 +1247,64 @@ export function runMigrations(database: DatabaseSync): void {
     }
   }
 
-  function ensureApplicationAuthorityActiveUniqueIndex(): void {
-    if (!hasTable("application_authority_envelopes")) {
-      return;
+  /**
+   * Backfilling the one-active-envelope unique index onto a workspace created
+   * before that index existed is exactly the case where two active envelopes
+   * can already be persisted, and creating the index over them fails. Resolve
+   * that deterministically first — the newest active envelope survives and the
+   * superseded ones are revoked — so the repair can never brick the workspace
+   * it exists to repair. Runs inside the migration transaction, so a failure
+   * rolls back instead of leaving a half-repaired database.
+   */
+  function resolveDuplicateActiveApplicationAuthorityEnvelopes(): void {
+    if (!hasTable("application_authority_envelopes")) return;
+    if (hasIndex("application_authority_envelopes_active_unique_idx")) return;
+
+    const activeRows = database
+      .prepare(
+        `SELECT id, value FROM application_authority_envelopes
+         WHERE status = 'active'
+         ORDER BY revision DESC, id ASC`,
+      )
+      .all() as Array<{ id: string; value: string }>;
+    if (activeRows.length <= 1) return;
+
+    const update = database.prepare(
+      "UPDATE application_authority_envelopes SET status = ?, value = ? WHERE id = ?",
+    );
+    const revokedAtFloor = new Date().toISOString();
+
+    for (const row of activeRows.slice(1)) {
+      let persisted: Record<string, unknown>;
+      try {
+        persisted = parseMigrationObject(
+          "application_authority_envelopes",
+          row.id,
+          row.value,
+        );
+      } catch {
+        throw new Error(
+          `Application authority migration cannot revoke superseded active envelope "${row.id}": its persisted value is unreadable. Restore a workspace backup or remove that row before reopening this workspace.`,
+        );
+      }
+
+      const createdAt =
+        typeof persisted.createdAt === "string" ? persisted.createdAt : null;
+      // revokedAt may never precede createdAt.
+      const revokedAt =
+        createdAt !== null && Date.parse(createdAt) > Date.parse(revokedAtFloor)
+          ? createdAt
+          : revokedAtFloor;
+
+      update.run(
+        "revoked",
+        JSON.stringify({ ...persisted, status: "revoked", revokedAt }),
+        row.id,
+      );
+      console.warn(
+        `[DB migration] Revoked superseded active application authority envelope "${row.id}" so exactly one active envelope remains.`,
+      );
     }
-    database.exec(`
-      CREATE UNIQUE INDEX IF NOT EXISTS application_authority_envelopes_active_unique_idx
-        ON application_authority_envelopes(status)
-        WHERE status = 'active';
-    `);
   }
 
   function ensureUserActionTables(): void {
@@ -1349,10 +1554,20 @@ export function runMigrations(database: DatabaseSync): void {
       !hasTable("submission_idempotency_records") ||
       !hasTable("submission_armed_markers") ||
       !hasTable("submission_outcome_records");
+    // Detected at column granularity like every sibling migration, so a table
+    // that exists with an outdated shape is repaired instead of failing the
+    // shape assert forever.
+    const applicationAuthorityColumnsMissing =
+      listDriftedApplicationAuthorityTables().length > 0;
+    const applicationAuthorityActiveUniqueIndexMissing =
+      hasTable("application_authority_envelopes") &&
+      !hasIndex("application_authority_envelopes_active_unique_idx");
     const needsApplicationAuthorityMigration = !appliedVersions.has(15);
     const applicationAnswerSnapshotTablesMissing = !hasTable(
       "application_answer_snapshots",
     );
+    const applicationAnswerSnapshotColumnsMissing =
+      hasApplicationAnswerSnapshotColumnDrift();
     const applicationAnswerSnapshotIndexMissing = !hasIndex(
       "application_answer_snapshots_profile_revision_idx",
     );
@@ -1379,8 +1594,11 @@ export function runMigrations(database: DatabaseSync): void {
       needsApplicationPreparationStartedMigration ||
       needsCompanyAliasNormalizationMigration ||
       applicationAuthorityTablesMissing ||
+      applicationAuthorityColumnsMissing ||
+      applicationAuthorityActiveUniqueIndexMissing ||
       needsApplicationAuthorityMigration ||
       applicationAnswerSnapshotTablesMissing ||
+      applicationAnswerSnapshotColumnsMissing ||
       applicationAnswerSnapshotIndexMissing ||
       needsApplicationAnswerSnapshotMigration
     ) {
@@ -1454,8 +1672,7 @@ export function runMigrations(database: DatabaseSync): void {
             .run(9, "job_finder_user_actions");
         }
 
-        if (needsCampaignMigration) {
-          ensureDefaultCampaignState();
+        if (needsCampaignMigration && ensureDefaultCampaignState()) {
           database
             .prepare(
               "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
@@ -1518,16 +1735,22 @@ export function runMigrations(database: DatabaseSync): void {
 
         if (
           applicationAuthorityTablesMissing ||
+          applicationAuthorityColumnsMissing ||
+          applicationAuthorityActiveUniqueIndexMissing ||
           needsApplicationAuthorityMigration
         ) {
+          repairApplicationAuthorityTableShape();
+          resolveDuplicateActiveApplicationAuthorityEnvelopes();
           ensureApplicationAuthorityTables();
         }
 
         if (
           applicationAnswerSnapshotTablesMissing ||
+          applicationAnswerSnapshotColumnsMissing ||
           applicationAnswerSnapshotIndexMissing ||
           needsApplicationAnswerSnapshotMigration
         ) {
+          repairApplicationAnswerSnapshotTableShape();
           ensureApplicationAnswerSnapshotTables();
         }
 
@@ -1559,7 +1782,6 @@ export function runMigrations(database: DatabaseSync): void {
 
     if (appliedVersions.has(15) || needsApplicationAuthorityMigration) {
       assertApplicationAuthorityTableShape();
-      ensureApplicationAuthorityActiveUniqueIndex();
     }
 
     if (appliedVersions.has(16) || needsApplicationAnswerSnapshotMigration) {
@@ -1755,8 +1977,7 @@ export function runMigrations(database: DatabaseSync): void {
         .run(9, "job_finder_user_actions");
     }
 
-    if (currentVersion < 10) {
-      ensureDefaultCampaignState();
+    if (currentVersion < 10 && ensureDefaultCampaignState()) {
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(10, "job_search_campaigns");
@@ -1791,6 +2012,8 @@ export function runMigrations(database: DatabaseSync): void {
     }
 
     if (currentVersion < 15) {
+      repairApplicationAuthorityTableShape();
+      resolveDuplicateActiveApplicationAuthorityEnvelopes();
       ensureApplicationAuthorityTables();
 
       database
@@ -1799,6 +2022,7 @@ export function runMigrations(database: DatabaseSync): void {
     }
 
     if (currentVersion < 16) {
+      repairApplicationAnswerSnapshotTableShape();
       ensureApplicationAnswerSnapshotTables();
 
       database

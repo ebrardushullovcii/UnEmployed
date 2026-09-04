@@ -506,8 +506,11 @@ export function buildJobFinderPageContext(
         },
       ),
     onGetSourceDebugRunDetails: actions.getSourceDebugRunDetails,
-    onPerformUserAction: (command) =>
-      void runAction(
+    // Returns the run's settled outcome instead of discarding it: the
+    // Applications hand-off reports what actually happened beside the control,
+    // and a `void`-ed promise can only ever look like success there.
+    onPerformUserAction: (command, options) =>
+      runAction(
         () => actions.performUserAction(command),
         () => undefined,
         // "Action inbox" is not a destination this app has — the page is
@@ -525,7 +528,12 @@ export function buildJobFinderPageContext(
           : command.action === "open_page"
             ? `Opened this application in ${JOB_FINDER_BROWSER_NAME}, a separate window outside this app. Finish the step there, then come back and choose "${CONFIRM_STEP_DONE_ACTION}".`
             : "Saved. Needs you is up to date.",
-        { scope: jobFinderPendingActions.userAction(command.requestId) },
+        {
+          scope: jobFinderPendingActions.userAction(command.requestId),
+          // Only a caller that asked for it: the route message is written
+          // either way, and every other caller keeps resolving `false`.
+          ...(options?.rethrowError ? { rethrowError: true } : {}),
+        },
       ),
     onPreviewResumeDraft: actions.previewResumeDraft,
     onSaveCampaign: (campaign: SaveJobSearchCampaignInput) =>

@@ -19,6 +19,7 @@ import {
   APPLICATION_PREPARATION_BATCH_LIMIT,
   getReviewQueueWorkflowStatus,
   isQueueStageReady,
+  isResumeGenerationInProgress,
 } from "./review-queue-status";
 import { LockedScreenLayout } from "../../components/locked-screen-layout";
 import { PageHeader } from "../../components/page-header";
@@ -32,12 +33,7 @@ import {
   scrubJobAbsencePlaceholdersList,
 } from "../../lib/job-employer-location-display";
 import { getMatchAssessmentPresentation } from "../../lib/match-assessment-presentation";
-import {
-  getDisplayedResumeProgress,
-  getNextDisplayedResumeProgress,
-  rememberDisplayedResumeProgress,
-  RESUME_OPERATION_LONG_RUNNING_MS,
-} from "./review-queue-progress";
+import { RESUME_OPERATION_LONG_RUNNING_MS } from "./review-queue-progress";
 import {
   readReviewQueueBatchSelection,
   writeReviewQueueBatchSelection,
@@ -195,9 +191,9 @@ export function ReviewQueueScreen(props: {
   const selectedJobId = selectedItem?.jobId ?? null;
   const [selectedJobPendingTooLong, setSelectedJobPendingTooLong] =
     useState(false);
-  const [displayedProgress, setDisplayedProgress] = useState(() =>
-    getDisplayedResumeProgress(selectedItem, selectedJobPending),
-  );
+  const isSelectedJobPreparing =
+    selectedJobPending || isResumeGenerationInProgress(selectedItem);
+  const [pendingElapsedSeconds, setPendingElapsedSeconds] = useState(0);
   const actionMessageScopeRef = useRef<{
     jobId: string | null;
     message: string | null;
@@ -252,12 +248,6 @@ export function ReviewQueueScreen(props: {
   })();
 
   useEffect(() => {
-    setDisplayedProgress(
-      getDisplayedResumeProgress(selectedItem, selectedJobPending),
-    );
-  }, [selectedItem, selectedJobPending]);
-
-  useEffect(() => {
     setSelectedJobPendingTooLong(false);
 
     if (!selectedJobPending || selectedJobId === null) {
@@ -271,22 +261,24 @@ export function ReviewQueueScreen(props: {
     return () => window.clearTimeout(timeoutId);
   }, [selectedJobId, selectedJobPending]);
 
+  // The draft reports no real progress, so the honest thing to move is the
+  // clock, not a fabricated percentage. Same shape the resume import and the
+  // Assistant already use. Keyed to the same condition the panels use to show
+  // the indicator, so the bar never appears beside a stopped clock.
   useEffect(() => {
-    if (!selectedJobPending) {
+    if (!isSelectedJobPreparing || selectedJobId === null) {
+      setPendingElapsedSeconds(0);
       return;
     }
 
-    const timer = window.setInterval(() => {
-      setDisplayedProgress((current) => {
-        const nextProgress = getNextDisplayedResumeProgress(current);
-        rememberDisplayedResumeProgress(selectedItem, nextProgress);
-
-        return nextProgress;
-      });
-    }, 650);
+    const startedAt = Date.now();
+    const updateElapsed = () =>
+      setPendingElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000));
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1_000);
 
     return () => window.clearInterval(timer);
-  }, [selectedItem, selectedJobPending]);
+  }, [isSelectedJobPreparing, selectedJobId]);
 
   useEffect(() => {
     writeReviewQueueBatchSelection(campaignId, queueSelection);
@@ -343,6 +335,31 @@ export function ReviewQueueScreen(props: {
     },
     [onStartAutoApplyQueue],
   );
+  // Below the `xl` two-pane breakpoint the job workspace stacks under the queue
+  // list, so selecting a job moved the one next action (`Review and approve
+  // resume` / `Prepare application`) below the fold with nothing saying so.
+  // Find jobs and Applications both reveal their stacked detail region on
+  // pointer selection; Shortlisted now uses the same mechanism, against the
+  // same 1280px boundary as its own `xl:` grid.
+  const selectItemAndRevealWorkspace = useCallback(
+    (jobId: string) => {
+      onSelectItem(jobId);
+
+      if (
+        typeof window.matchMedia !== "function" ||
+        window.matchMedia("(min-width: 1280px)").matches
+      ) {
+        return;
+      }
+
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById(workspacePanelId)
+          ?.scrollIntoView({ block: "start" });
+      });
+    },
+    [onSelectItem],
+  );
   return (
     <LockedScreenLayout
       contentClassName="xl:overflow-hidden"
@@ -365,7 +382,7 @@ export function ReviewQueueScreen(props: {
           draftPreparation={draftPreparation}
           isJobPending={isJobPending}
           onPrepareTailoredDrafts={onPrepareTailoredDrafts}
-          onSelectItem={onSelectItem}
+          onSelectItem={selectItemAndRevealWorkspace}
           onStopTailoredDraftPreparation={onStopTailoredDraftPreparation}
           onToggleQueueSelection={handleToggleQueueSelection}
           queue={queue}
@@ -420,7 +437,7 @@ export function ReviewQueueScreen(props: {
                 campaignDefaultResumeStrategyId={
                   campaignDefaultResumeStrategyId
                 }
-                displayedProgress={displayedProgress}
+                pendingElapsedSeconds={pendingElapsedSeconds}
                 globalDailyApplicationPreparationCapacity={
                   globalDailyApplicationPreparationCapacity
                 }
@@ -459,7 +476,7 @@ export function ReviewQueueScreen(props: {
               // The resume appears in place once one exists; before that the
               // tab was a ~600px empty box duplicating the primary above it.
               <ReviewQueuePreviewPanel
-                displayedProgress={displayedProgress}
+                pendingElapsedSeconds={pendingElapsedSeconds}
                 embedded
                 isGenerating={selectedJobPending}
                 isPendingTooLong={selectedJobPendingTooLong}

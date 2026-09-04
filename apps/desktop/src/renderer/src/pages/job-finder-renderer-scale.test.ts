@@ -185,7 +185,7 @@ function createUserActions(
         expectedPageFingerprint: null,
       },
       title: "Sign in to continue",
-      summary: "Complete sign-in in the managed browser.",
+      summary: "Complete sign-in in the Job Finder browser.",
       actionUrl: job.applicationUrl,
       displayOrigin: "https://jobs.example.com/",
       credentialsPolicy: "browser_only",

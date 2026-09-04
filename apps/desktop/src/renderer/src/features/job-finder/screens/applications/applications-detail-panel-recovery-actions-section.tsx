@@ -14,7 +14,9 @@ import {
 import {
   CONFIRM_STEP_DONE_ACTION,
   CONFIRM_STEP_DONE_PENDING_LABEL,
+  formatJobFinderBrowserHandoffFailedStatus,
   JOB_FINDER_BROWSER_NAME,
+  JOB_FINDER_BROWSER_OPENED_WITHOUT_PAGE_STATUS,
   JOB_FINDER_BROWSER_UNAVAILABLE_NOTE,
   OPEN_JOB_FINDER_BROWSER_ACTION,
   REOPEN_JOB_FINDER_BROWSER_ACTION,
@@ -49,6 +51,67 @@ export type FinishInBrowserInput = {
 };
 
 /**
+ * What the hand-off actually did. The status used to be set optimistically and
+ * unconditionally, so a fall-back that opened nothing but a bare browser — and
+ * an open that errored outright — both still claimed "Opened in the Job Finder
+ * browser. Switch to that window to finish the step", sending the user to a
+ * window that never showed the step.
+ */
+export type FinishInBrowserOutcome =
+  | { kind: "opened_application_page" }
+  | { kind: "opened_browser_only" }
+  | { kind: "failed"; reason?: string | null };
+
+/**
+ * The hand-off itself. It is asynchronous in production — opening the window
+ * or sending the "open browser step" command is an IPC round trip — so the
+ * outcome is a promise, and the status beside the control is written only once
+ * that promise has settled. A synchronous outcome (or none) is still accepted
+ * so a handler that reports nothing gets no status at all rather than an
+ * unearned success claim.
+ */
+export type FinishInBrowserHandler = (
+  input: FinishInBrowserInput,
+) => FinishInBrowserOutcome | void | Promise<FinishInBrowserOutcome | void>;
+
+/**
+ * True when the hand-off handed back work that has not finished yet. Checked
+ * structurally rather than with `instanceof Promise` so a handler returning any
+ * thenable — including one from another realm, as a test double or a preload
+ * bridge can be — is still awaited instead of being written straight into the
+ * status as an outcome object.
+ */
+function isFinishInBrowserOutcomePromise(
+  outcome:
+    | FinishInBrowserOutcome
+    | void
+    | Promise<FinishInBrowserOutcome | void>,
+): outcome is Promise<FinishInBrowserOutcome | void> {
+  return (
+    typeof outcome === "object" &&
+    outcome !== null &&
+    typeof (outcome as { then?: unknown }).then === "function"
+  );
+}
+
+/**
+ * The cause carried into the failed status when the hand-off rejects. An
+ * unreadable rejection reports no cause rather than inventing one; the status
+ * sentence is truthful about the failure either way.
+ */
+function getFinishInBrowserFailureReason(error: unknown): string | null {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+
+  return null;
+}
+
+/**
  * Resolution state of the "I finished this step" verification, derived from
  * the exact pending browser-step request rather than from the fire-and-forget
  * command that starts it.
@@ -77,7 +140,14 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   onStartAutoApply: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   onOpenSafeguards?: () => void;
-  onFinishInBrowser?: (input: FinishInBrowserInput) => void;
+  /**
+   * Reports what the hand-off did so the status beside it can say the same
+   * thing. Every intermediate panel declares this same return type, so the
+   * outcome is not under-reported on the way down. `void` stays accepted so a
+   * handler that reports nothing gets no status at all rather than an
+   * unearned success claim.
+   */
+  onFinishInBrowser?: FinishInBrowserHandler;
   /**
    * Runs the exact verification Needs you runs for the pending browser step on
    * this result. Without it the loop had two homes: Applications sent the user
@@ -197,25 +267,39 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   // the accessibility tree. This section used to restate the same sentence in
   // an sr-only paragraph as well, so the instruction arrived three times
   // (list row, Next step, and here). It is action-only now.
-  // Confirmation after the managed browser was asked to show the paused
-  // application page; reset whenever a different result is selected.
-  const [finishInBrowserStatusResultId, setFinishInBrowserStatusResultId] =
-    useState<string | null>(null);
-  /**
-   * True once this exact result has been handed off to the Job Finder
-   * browser. Pressing the primary action used to leave the button identical
-   * and still primary, so the only proof anything had happened was a passive
-   * grey box; the hand-off now visibly demotes the open action and promotes
-   * the confirm action in its place.
-   */
-  const hasHandedOffToBrowser = Boolean(
+  // What the Job Finder browser hand-off reported for the exact result it ran
+  // for; reset whenever a different result is selected.
+  const [finishInBrowserReport, setFinishInBrowserReport] = useState<{
+    resultId: string;
+    outcome: FinishInBrowserOutcome;
+  } | null>(null);
+  const finishInBrowserOutcome =
     needsManualFieldFinish &&
     visibleApplyResult &&
-    finishInBrowserStatusResultId === visibleApplyResult.id,
-  );
-  const finishInBrowserStatus = hasHandedOffToBrowser
-    ? FINISH_IN_BROWSER_OPENED_STATUS
-    : null;
+    finishInBrowserReport?.resultId === visibleApplyResult.id
+      ? finishInBrowserReport.outcome
+      : null;
+  /**
+   * True once this exact result's application page has actually been opened
+   * in the Job Finder browser. Pressing the primary action used to leave the
+   * button identical and still primary, so the only proof anything had
+   * happened was a passive grey box; a real hand-off now visibly demotes the
+   * open action and promotes the confirm action in its place. A fall-back
+   * that only opened the window, or a failure, must not demote it: the page
+   * still needs opening.
+   */
+  const hasHandedOffToBrowser =
+    finishInBrowserOutcome?.kind === "opened_application_page";
+  const finishInBrowserStatus =
+    finishInBrowserOutcome === null
+      ? null
+      : finishInBrowserOutcome.kind === "opened_application_page"
+        ? FINISH_IN_BROWSER_OPENED_STATUS
+        : finishInBrowserOutcome.kind === "opened_browser_only"
+          ? JOB_FINDER_BROWSER_OPENED_WITHOUT_PAGE_STATUS
+          : formatJobFinderBrowserHandoffFailedStatus(
+              finishInBrowserOutcome.reason,
+            );
   const finishInBrowserUnavailableNoteId = useId();
   const canFinishInBrowser = Boolean(onFinishInBrowser && visibleApplyResult);
   const handleFinishInBrowser = () => {
@@ -223,9 +307,13 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
       return;
     }
 
-    onFinishInBrowser({
+    const resultId = visibleApplyResult.id;
+    const reportOutcome = (outcome: FinishInBrowserOutcome | void) => {
+      setFinishInBrowserReport(outcome ? { resultId, outcome } : null);
+    };
+    const outcome = onFinishInBrowser({
       jobId: visibleApplyResult.jobId,
-      resultId: visibleApplyResult.id,
+      resultId,
       runId: visibleApplyResult.runId,
       applicationRecordId:
         visibleApplyResult.applicationRecordId ?? selectedApplicationRecordId,
@@ -233,7 +321,22 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
         visibleApplyResult.privacyReceipt,
       ),
     });
-    setFinishInBrowserStatusResultId(visibleApplyResult.id);
+
+    if (isFinishInBrowserOutcomePromise(outcome)) {
+      // Nothing is claimed while the hand-off is still running, and any status
+      // left from a previous attempt is dropped rather than left standing as
+      // this attempt's answer.
+      setFinishInBrowserReport(null);
+      void outcome.then(reportOutcome, (error: unknown) => {
+        reportOutcome({
+          kind: "failed",
+          reason: getFinishInBrowserFailureReason(error),
+        });
+      });
+      return;
+    }
+
+    reportOutcome(outcome);
   };
   const canConfirmFinished = Boolean(
     onConfirmFinishedInBrowser &&
@@ -520,10 +623,15 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
             {JOB_FINDER_BROWSER_UNAVAILABLE_NOTE}
           </p>
         ) : null}
-        {finishInBrowserStatus ? (
+        {finishInBrowserStatus && finishInBrowserOutcome ? (
           <p
             aria-live="polite"
-            className="rounded-(--radius-field) border border-primary/25 bg-primary/5 px-3 py-2 text-(length:--text-small) leading-6 text-foreground"
+            className={
+              finishInBrowserOutcome.kind === "opened_application_page"
+                ? "rounded-(--radius-field) border border-primary/25 bg-primary/5 px-3 py-2 text-(length:--text-small) leading-6 text-foreground"
+                : "rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-6 text-foreground"
+            }
+            data-handoff-outcome={finishInBrowserOutcome.kind}
             data-testid="manual-field-finish-status"
             role="status"
           >

@@ -7,6 +7,7 @@ import type { QueueEntry } from "./applications-detail-panel-helpers";
 import {
   ApplicationsDetailPanelRecoveryActionsSection,
   type ConfirmFinishedInBrowserStatus,
+  type FinishInBrowserHandler,
   type FinishInBrowserInput,
 } from "./applications-detail-panel-recovery-actions-section";
 
@@ -24,7 +25,12 @@ export function ApplicationsDetailPanelRecoverySections(props: {
   onStartAutoApply: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
   onOpenSafeguards?: () => void;
-  onFinishInBrowser?: (input: FinishInBrowserInput) => void;
+  /**
+   * Pass-through only. The declared return type has to match the leaf's, or
+   * the outcome the leaf uses to decide what the hand-off status claims would
+   * be under-reported at every intermediate hop.
+   */
+  onFinishInBrowser?: FinishInBrowserHandler;
   onConfirmFinishedInBrowser?: (input: FinishInBrowserInput) => void;
   canConfirmFinishedInBrowser?: boolean;
   confirmFinishedInBrowserStatus?: ConfirmFinishedInBrowserStatus;

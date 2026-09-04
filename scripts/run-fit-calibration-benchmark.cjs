@@ -118,8 +118,33 @@ function parseArgs(argv) {
   return parsed;
 }
 
-function decideExitCode(report, reportOnly) {
-  return report.passed || reportOnly ? 0 : 1;
+/**
+ * A baseline whose schema, corpus, or scorer version no longer matches the
+ * current build cannot surface an unintended ranking regression: every case
+ * reads as changed, so the case diff is noise. That drift is a failure of the
+ * gate itself, so it fails the run instead of being printed and ignored.
+ * Case-level deltas stay informational: an intentional scoring change must
+ * bump the scorer version, and that is the condition gated here.
+ */
+function baselineGateFailures(baselineComparison) {
+  if (!baselineComparison) {
+    return [];
+  }
+
+  return baselineComparison.metadataDeltas.map(
+    (delta) =>
+      `baseline ${delta.field} is ${JSON.stringify(delta.previous)} but this run is ${JSON.stringify(delta.current)}`,
+  );
+}
+
+function decideExitCode(report, reportOnly, baselineComparison) {
+  if (reportOnly) {
+    return 0;
+  }
+
+  return report.passed && baselineGateFailures(baselineComparison).length === 0
+    ? 0
+    : 1;
 }
 
 function numericAggregateDeltas(current, baseline) {
@@ -327,9 +352,20 @@ function main() {
     process.stdout.write(
       `Baseline changes: ${baselineComparison.caseDeltas.length} cases\n`,
     );
+    const baselineFailures = baselineGateFailures(baselineComparison);
+    if (baselineFailures.length > 0) {
+      process.stderr.write(
+        [
+          `Baseline is stale (${baselineFailures.join("; ")}).`,
+          "Its case diff cannot surface an unintended ranking regression until it is regenerated:",
+          `  node scripts/run-fit-calibration-benchmark.cjs --output ${path.relative(repoRoot, args.baseline)}`,
+          "",
+        ].join("\n"),
+      );
+    }
   }
   process.stdout.write(`Report: ${args.output}\n`);
-  return decideExitCode(report, args.reportOnly);
+  return decideExitCode(report, args.reportOnly, baselineComparison);
 }
 
 if (require.main === module) {
@@ -344,6 +380,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  baselineGateFailures,
   caseDeltas,
   decideExitCode,
   metadataDeltas,

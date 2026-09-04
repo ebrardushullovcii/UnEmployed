@@ -1,8 +1,8 @@
-import * as React from "react"
-import { CheckIcon } from "lucide-react"
-import { Checkbox as CheckboxPrimitive } from "radix-ui"
+import * as React from "react";
+import { CheckIcon } from "lucide-react";
+import { Checkbox as CheckboxPrimitive } from "radix-ui";
 
-import { cn } from "@renderer/lib/utils"
+import { cn } from "@renderer/lib/utils";
 
 function Checkbox({
   className,
@@ -12,8 +12,18 @@ function Checkbox({
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        "peer size-4 shrink-0 rounded-none border border-border bg-input outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
-        className
+        // The unchecked box is identified by its outline alone (the checked
+        // state is a solid --primary fill), so that outline is a UI-component
+        // boundary and must clear 3:1. It used --border, which measured
+        // 1.85-1.98:1 in dark; --control-border is the app's published
+        // control boundary and clears 3:1 on every interior surface.
+        // Disabled drops the fill and moves the box onto the disabled tokens
+        // rather than compositing both fill and mark at 50%: the compound
+        // `disabled:data-[state=checked]:` selectors outrank the single-variant
+        // checked rules, so a disabled checked box keeps its shape instead of
+        // staying a washed-out --primary block.
+        "peer size-4 shrink-0 rounded-none border border-(--control-border) bg-input outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring disabled:cursor-not-allowed disabled:border-(--disabled-border) disabled:bg-(--disabled-surface) disabled:text-(--disabled-foreground) data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground disabled:data-[state=checked]:border-(--disabled-border) disabled:data-[state=checked]:bg-(--disabled-surface) disabled:data-[state=checked]:text-(--disabled-foreground)",
+        className,
       )}
       {...props}
     >
@@ -21,10 +31,10 @@ function Checkbox({
         data-slot="checkbox-indicator"
         className="grid place-content-center text-current transition-none"
       >
-          <CheckIcon className="size-3" />
-        </CheckboxPrimitive.Indicator>
+        <CheckIcon className="size-3" />
+      </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
-  )
+  );
 }
 
-export { Checkbox }
+export { Checkbox };

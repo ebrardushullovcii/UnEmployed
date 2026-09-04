@@ -27,10 +27,14 @@ import {
   type PendingActionState,
 } from "./job-finder-pending-actions";
 import type { JobFinderPageContext } from "./job-finder-page-context";
-import type { JobFinderSaveState } from "./job-finder-save-state";
+import type {
+  JobFinderSaveState,
+  JobFinderSaveSurface,
+} from "./job-finder-save-state";
 import {
   createJobFinderSaveCoordinator,
   getJobFinderSaveStateFromReceipt,
+  initialJobFinderSaveState,
   loadJobFinderSaveReceipt,
   persistJobFinderSaveReceipt,
 } from "./job-finder-save-state";
@@ -139,6 +143,54 @@ export function composeLeaveConfirmation(
 }
 
 /**
+ * Identity of one failed-save toast, so acknowledging that exact failure can
+ * never silently swallow a later one. `markSurfaceRevised` re-emits the same
+ * failure with retry guidance attached, which keeps version/attempt/message
+ * identical and therefore stays acknowledged; a retry, a different surface or
+ * a fresh failure produces a different key and speaks up again.
+ */
+export function getJobFinderFailedSaveKey(
+  state: JobFinderSaveState,
+): string | null {
+  return state.state === "failed"
+    ? `${state.version}:${state.attempt}:${state.surface}:${state.message}`
+    : null;
+}
+
+/**
+ * Save surfaces whose unsaved work keeps its own reason in
+ * `composeLeaveConfirmation` after a save fails: `profileSurfaceDirty` covers
+ * the profile family (profile screen and setup answers) and
+ * `resumeWorkspaceDirty` covers Resume Studio. Acknowledging one of those
+ * failures only drops the failure reason; a form that still holds edits keeps
+ * asking on its own.
+ *
+ * `settings` is deliberately absent. Settings sections stage their drafts
+ * locally with no global dirty flag (see `noteSettingsDraftEdited`), so the
+ * failed state is the only thing standing between those staged drafts and a
+ * navigation that discards them.
+ */
+const ACKNOWLEDGEABLE_FAILED_SAVE_SURFACES: readonly JobFinderSaveSurface[] = [
+  "answers",
+  "profile",
+  "resume",
+];
+
+/**
+ * Whether a failed save may be dropped from the leave guards by dismissing its
+ * toast. A settings failure may not: it is released only by the explicit
+ * "Leave without saving" decision (see `resolveUnsavedChangesLeave`), which is
+ * the user answering that exact question, so the failure still never traps the
+ * session.
+ */
+export function canAcknowledgeFailedSave(state: JobFinderSaveState): boolean {
+  return (
+    state.state === "failed" &&
+    ACKNOWLEDGEABLE_FAILED_SAVE_SURFACES.includes(state.surface)
+  );
+}
+
+/**
  * Mirror the composed guard confirmation to the app-owned window-close
  * handshake. Called at every mutation point of `navigationGuardRef` so main
  * always caches whether a native close needs the branded dialog first.
@@ -237,6 +289,32 @@ export function useJobFinderPageController() {
     syncJobFinderWindowCloseGuard(navigationGuardRef.current);
     return () => applyJobFinderWindowCloseGuard(null);
   }, []);
+  // The exact failed toast the user acknowledged. A failed save holds no
+  // in-flight work, so once it is acknowledged it must stop blocking every
+  // route change and every window close for the rest of the session. What
+  // still protects the work depends on the surface: for the profile family
+  // and Resume Studio the dirty-draft flags keep asking (which is why their
+  // toast carries a dismiss control), while a settings failure is only
+  // acknowledged by the explicit "Leave without saving" decision — see
+  // `canAcknowledgeFailedSave`.
+  const acknowledgedFailedSaveKeyRef = useRef<string | null>(null);
+  // One derivation for every consumer of the save status: an acknowledged
+  // failure is presented as idle, so the toast, the route blocker and the
+  // window-close mirror can never disagree about whether it is still live.
+  const publishSaveState = useCallback((state: JobFinderSaveState) => {
+    if (state.state !== "failed") {
+      acknowledgedFailedSaveKeyRef.current = null;
+    }
+
+    const presented =
+      getJobFinderFailedSaveKey(state) !== null &&
+      getJobFinderFailedSaveKey(state) === acknowledgedFailedSaveKeyRef.current
+        ? initialJobFinderSaveState
+        : state;
+    navigationGuardRef.current.saveState = presented;
+    syncJobFinderWindowCloseGuard(navigationGuardRef.current);
+    setSaveState(presented);
+  }, []);
   const saveCoordinatorRef = useRef<ReturnType<
     typeof createJobFinderSaveCoordinator
   > | null>(null);
@@ -245,14 +323,50 @@ export function useJobFinderPageController() {
       initialReceipt: initialSaveReceipt,
       onReceiptChange: (receipt) =>
         persistJobFinderSaveReceipt(window.localStorage, receipt),
-      onStateChange: (state) => {
-        navigationGuardRef.current.saveState = state;
-        syncJobFinderWindowCloseGuard(navigationGuardRef.current);
-        setSaveState(state);
-      },
+      onStateChange: publishSaveState,
     });
   }
   const saveCoordinator = saveCoordinatorRef.current;
+  /**
+   * Records the currently presented failure as acknowledged, so it stops being
+   * a leave reason. No-op when nothing failed.
+   */
+  const acknowledgeCurrentFailedSave = useCallback(() => {
+    const current = navigationGuardRef.current.saveState;
+    const failedKey = getJobFinderFailedSaveKey(current);
+
+    if (failedKey === null) {
+      return;
+    }
+
+    acknowledgedFailedSaveKeyRef.current = failedKey;
+    publishSaveState(current);
+  }, [publishSaveState]);
+  /**
+   * Dismisses whichever status is on screen. A succeeded save clears its
+   * receipt through the coordinator as before; a failed save is acknowledged
+   * here instead, because the coordinator keeps `failed` until a later save of
+   * that exact surface succeeds and there was otherwise no way out of the
+   * navigation and window-close guards short of wiping the workspace.
+   *
+   * A settings failure is the exception and is left blocking: its staged
+   * drafts have no dirty flag of their own, so dropping the failure here would
+   * silently remove their only protection. Its toast therefore offers no
+   * dismiss control, and the failure is released by "Leave without saving"
+   * instead.
+   */
+  const dismissSaveStatus = useCallback(() => {
+    const current = navigationGuardRef.current.saveState;
+
+    if (current.state === "failed") {
+      if (canAcknowledgeFailedSave(current)) {
+        acknowledgeCurrentFailedSave();
+      }
+      return;
+    }
+
+    saveCoordinator.dismissSaved();
+  }, [acknowledgeCurrentFailedSave, saveCoordinator]);
   const [pendingActionState, setPendingActionState] =
     useState<PendingActionState>({});
   const clearResumeLifecyclePending = useCallback(
@@ -636,8 +750,19 @@ export function useJobFinderPageController() {
     // fresh flags.
     applyProfileSurfaceDirty(false);
     applyResumeWorkspaceDirty(false);
+    // The dialog just named the failed save as one of its reasons and the user
+    // answered it, so that failure is discarded with the rest. This is the
+    // only release for a settings failure, whose staged drafts are unmounted
+    // by this very navigation; without it the failure would keep blocking
+    // every later route change and window close with nothing left to protect.
+    acknowledgeCurrentFailedSave();
     routeChangeBlocker.proceed();
-  }, [applyProfileSurfaceDirty, applyResumeWorkspaceDirty, routeChangeBlocker]);
+  }, [
+    acknowledgeCurrentFailedSave,
+    applyProfileSurfaceDirty,
+    applyResumeWorkspaceDirty,
+    routeChangeBlocker,
+  ]);
 
   // Once a navigation commits, its route hint has either been consumed by the
   // action's own status write or belongs to no write at all; drop it so a
@@ -1094,7 +1219,7 @@ export function useJobFinderPageController() {
       applyCopilotVisualCheckpointRequest: null,
       cancelApplyCopilotVisualCheckpointRequest,
       context: null,
-      dismissSavedStatus: saveCoordinator.dismissSaved,
+      dismissSavedStatus: dismissSaveStatus,
       navigateFromShell,
       platform,
       resolveResumeWorkspaceLeaveRequest,
@@ -1116,7 +1241,7 @@ export function useJobFinderPageController() {
     applyCopilotVisualCheckpointRequest,
     cancelApplyCopilotVisualCheckpointRequest,
     context: context!,
-    dismissSavedStatus: saveCoordinator.dismissSaved,
+    dismissSavedStatus: dismissSaveStatus,
     navigateFromShell,
     platform,
     resolveResumeWorkspaceLeaveRequest,

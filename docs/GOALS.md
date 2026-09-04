@@ -1,6 +1,6 @@
 # Goals
 
-Use this for durable product direction. Use `docs/STATUS.md` and `docs/TRACKS.md` only for active state.
+Use this for durable product direction. Current state lives in the code and git history.
 
 ## End State
 
@@ -8,12 +8,6 @@ Build one local-first Electron desktop app for job search, resume preparation,
 user-controlled application automation, and interview prep/live support.
 
 ## Job Finder North Star
-
-This section was reconstructed and independently re-verified on 2026-08-26 from
-the complete 187-user-message record of the days-long OpenCode V2 session
-`ses_fd67af1baffeXnaMeRW37iZm29`, with agent replies consulted only to resolve
-references and implemented safety constraints. When historical preferences
-conflict, the user's latest direction wins.
 
 Job Finder is the current product priority. Its purpose is to let a person move
 from an accurate profile to a large, useful job pipeline and completed
@@ -179,123 +173,24 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) and [ADR 0007](adr/0007-source-generic-br
 
 - Real use of a freshly built Electron app is the primary UX evidence. Automated
   tests are regression and integrity guardrails; they do not prove that a screen
-  is clear, attractive, simple, or useful.
-- Dogfood the complete journey with visible UI actions and realistic data. Inspect
-  screenshots and actual behavior, not only DOM snapshots, stale artifacts, or
-  synthetic counts. Never claim a visual or workflow fix without replaying the
-  affected state in the app. Keep the user informed when a live Electron session
-  starts, stops, or produces evidence so app use never disappears behind test logs.
-- Test both first-use and returning-use paths, populated and empty states, source
-  failures, no-result recovery, interrupted work, original-CV and tailored-CV
-  choices, repeated resume edits, bulk work, restart durability, and the safe
-  employer handoff or autonomous completion according to the selected mode.
-- During iteration, use fresh user-role workers to dogfood changed journeys and
-  feed findings into repeated fix -> live-replay loops. Reserve the canonical
-  sealed blind-persona acceptance wave until the current build works end to end.
-  Blind testers receive a life context and outcome, not route instructions or
-  implementation vocabulary. The user's original 12-persona idea evolved during
-  implementation into the canonical P01-P14 cohort; those 14 personas cover
-  varied occupations, ages, confidence, privacy needs, accessibility, time
-  pressure, and high-volume returning use.
-- In every persona replay, ask the tester to identify the next useful action
-  before taking it. Inability to do so, or reliance on internal terminology or
-  outside hints, is a journey defect even when the control is technically
-  operable.
-- Use independent product-owner, recruiter/resume, visual-design, interaction-UX,
-  accessibility, novice, power-user, adversarial-QA, and market-research roles.
-  Research current resume practice and comparable products when it can improve
-  decisions, but verify recommendations against this product's evidence,
-  privacy, safety, and simplicity constraints before implementing them.
-- Readiness means no known P0 core-flow blocker, no unresolved P1 affecting
-  safety, truth, privacy, durability, accessibility, or repeated confusion, no
-  repeated P1 root cause across personas, and every remaining P2 explicitly
-  triaged. Independent product, design, safety, and persona reviewers must
-  converge on readiness; material dissent is investigated and resolved rather
-  than averaged away. Private-resume wording, live-source relevance,
-  authenticated employer behavior, and personal accessibility still require
-  user-controlled review.
+  is clear, simple, or useful.
+- Dogfood the complete journey with visible UI actions and realistic synthetic
+  data. Inspect screenshots and actual behavior, not DOM snapshots or stale
+  artifacts. Never claim a visual or workflow fix without replaying the affected
+  state in the app.
+- Cover first-use and returning-use paths, populated and empty states, source
+  failures, interrupted work, original-CV and tailored-CV choices, bulk work,
+  restart durability, and the safe employer handoff for the selected mode.
+- A tester who cannot name the next useful action without internal vocabulary
+  or outside hints has found a journey defect, even if the control works.
 - Do not repeatedly run thousand-row suites, full lint, full typecheck, builds,
-  or broad test matrices while iterating. Prefer inspection, live use, and one
-  narrow regression for a confirmed defect. Batch heavy validation once after a
-  coherent fix wave, run it serially on a quiet host, then build and launch only
-  one Electron session at a time. Sparse validation must reduce host load, not
-  stop implementation, read-only review, or product progress.
-
-### Orchestration Contract
-
-- The parent agent is the product owner and coordinator: retain the whole-product
-  goal, define precise assignments, prevent conflicting ownership, evaluate
-  reports critically, integrate findings, and personally verify alignment. Do
-  not disappear into release machinery or narrow audits while the user journey
-  remains unproven. Delegate substantive implementation by default; the parent
-  handles direct edits only when they are small integration work, an urgent
-  unblocker, or necessary to reconcile worker output safely.
-- Delegate substantive research, implementation, design review, QA, and persona
-  use to many independent subagents when scopes can safely run in parallel. All
-  subagents run in the background unless the user explicitly changes that rule,
-  so coordination and integration continue while reports return automatically.
-  Every assignment carries the relevant north-star journey and shared cross-page
-  context, not only a page-local symptom.
-- Put the host-load budget in every worker's original assignment. Unless a brief
-  explicitly requests one narrow check, the worker does not run lint, typecheck,
-  validation, builds, broad tests, Electron, browser automation, or thousand-row
-  suites. Prevent retries through the assignment itself rather than repeatedly
-  stopping commands after they launch.
-- Muse Spark 1.2 Contributor at xhigh reasoning is the default worker for
-  general, exploration, implementation, review, and QA assignments. Do not
-  configure, select, or retry removed worker models. Use DeepSeek sparingly when
-  an important complex decision benefits from a genuinely independent second or
-  third opinion, especially a vision review. When sensitivity justifies it and
-  budget is available, run the same brief through Muse and DeepSeek and reconcile
-  their independent evidence instead of letting one model's framing anchor the
-  other.
-- More workers are useful only when assignments are independent and precise.
-  Parallelize read-only scouting, product roles, design critiques, research, and
-  disjoint file ownership; large background waves are encouraged when those
-  conditions hold. Prefer short rolling waves for implementation, backfilling a
-  safe slot as soon as a worker finishes instead of waiting for an entire wave.
-  Centrally reconcile research and cross-page conventions before assigning
-  fixers so parallel work stays consistent. Serialize builds, Electron sessions,
-  ATS runs, persona launches, and heavy host validation. Never let concurrency
-  overwrite another worker's changes or starve timing-sensitive checks.
-- Treat failed workers as recoverable until proven otherwise. A provider error
-  does not invalidate completed repository work; inspect the shared tree and
-  resume by session ID or relaunch the same scoped assignment. Large Ox waves may
-  lose many workers to transient upstream errors; retry or relaunch the same
-  precise brief before spending a scarce fallback model or pausing useful work.
-- After connectivity loss, host sleep, an accidental stop, or a service restart,
-  check background worker and live-app state before assuming that work continued
-  or relaunching duplicate sessions.
-- Express different reviewer roles, personalities, and goals in precise assignment
-  briefs rather than proliferating permanent special-purpose agent definitions.
-  Use identical briefs across models when an independent model comparison is the
-  point of the exercise.
-- Preserve the user's dirty worktree. Do not reset, clean, revert, stash, stage,
-  delete, commit, or publish without explicit authorization. Never place secrets,
-  personal resumes, credentials, or authenticated browser state in durable docs,
-  fixtures, prompts, or evidence. The already tracked
-  `docs/resume-tests/Ebrar.pdf` remains an explicit pending user privacy decision;
-  do not copy it into new fixtures, prompts, or evidence while that decision is
-  deferred.
-- Keep moving from findings to fixes to fresh live replay. Acceptance sealing,
-  exhaustive evidence, and release paperwork come after the product journey is
-  simple and working, not instead of it.
-
-### Anti-Drift Check
-
-Before starting a new wave, ask:
-
-1. Does this directly improve or verify Profile, discovery, shortlist/triage,
-   resume quality/editing, application preparation or submission, tracking, or a
-   necessary safety/recovery boundary?
-2. Is live product use blocked by this work, or are we polishing acceptance
-   machinery while an obvious user-flow issue remains?
-3. Can independent background workers do it safely while the coordinator keeps
-   the end-to-end journey moving?
-4. Can a narrow check answer the question now, with heavy validation deferred to
-   the integration boundary?
-
-If work does not advance the journey or a necessary release boundary, defer it.
+  or broad matrices while iterating. Prefer inspection, live use, and one narrow
+  regression per confirmed defect; batch heavy validation once per fix wave and
+  run one Electron session at a time.
+- Release acceptance and blind persona waves run only after the user declares a
+  release candidate (ADR 0014). Private-resume wording, live-source relevance,
+  authenticated employer behavior, and personal accessibility always need
+  user-controlled review.
 
 ## Product Shape
 
@@ -322,10 +217,9 @@ If work does not advance the journey or a necessary release boundary, defer it.
 - Quality, truth, and recovery outrank maximum speed: an honest blocker or a
   truthful failure report beats a fast unverifiable claim, and fixes land only
   after root-cause review.
-- Production readiness requires fresh source-bound immutable acceptance
-  evidence plus independent blind usability evidence for the exact released
-  build. User-controlled gates — private resume quality, configured
+- Release acceptance runs only after the user declares a release candidate
+  (ADR 0014). User-controlled gates (private resume quality, configured
   provider/network transport, authenticated application sites,
-  packaging/signing, and personal accessibility — remain separate deployment
+  packaging/signing, and personal accessibility) remain separate deployment
   reviews and are never established by synthetic evidence.
 - Future work should be concrete hardening, target-platform validation, source-generic discovery improvements, authorized capture-protection extensions, or specific regressions.

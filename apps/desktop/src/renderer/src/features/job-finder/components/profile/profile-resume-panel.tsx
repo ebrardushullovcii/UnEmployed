@@ -424,6 +424,17 @@ export function ProfileResumePanel({
     latestResumeImportRun,
   );
   const resumeStatusTone = resumeStripStatus.tone;
+  /* The strip that owns the READY badge owns its qualifier. The detailed
+     per-stage prose lives in the full panel below the whole Basics editor,
+     thousands of pixels down the column, so an import where every AI stage
+     fell back painted an unqualified READY in the only band the user reads.
+     Falling back is normal and successful — it only changes what is worth
+     double-checking — so this stays a short countable fact, not an error. */
+  const compactFallbackHint = resumeImportStageFallbackSummary
+    ? `${resumeImportStageFallbackSummary.hint}.`
+    : fallbackResumeImportWarnings.length > 0
+      ? "Part of this import used the built-in reader."
+      : null;
 
   if (compact) {
     return (
@@ -442,6 +453,14 @@ export function ProfileResumePanel({
             <strong className="min-w-0 truncate text-sm text-(--text-headline)">
               {resumeFileName}
             </strong>
+            {compactFallbackHint ? (
+              <span
+                className="text-sm leading-5 text-foreground-muted"
+                data-profile-resume-fallback-hint
+              >
+                {compactFallbackHint}
+              </span>
+            ) : null}
           </div>
           <p className="text-sm leading-5 text-foreground-muted">
             {panelDescription}
@@ -557,8 +576,16 @@ export function ProfileResumePanel({
             {/* The quality note qualifies the import status, so it sits with
                 it in ordinary sentences. It used to be an uppercase mono
                 `PreferenceList` far below the fold, which read as machine log
-                output rather than as something to act on. */}
-            {fallbackResumeImportWarnings.length > 0 ? (
+                output rather than as something to act on.
+
+                The structured `fallbackKind` recorded on each stage timing is
+                the authority: a run whose stages all fell back must show the
+                note even when the workflow emitted no matching prose (a
+                reworded warning string in main used to silently hide it). The
+                prose warnings remain a fallback for legacy runs recorded
+                before stage timings carried the structured field. */}
+            {resumeImportStageFallbackSummary !== null ||
+            fallbackResumeImportWarnings.length > 0 ? (
               <div
                 className="grid gap-1.5 border-t border-(--surface-panel-border) pt-3"
                 data-profile-resume-quality-note

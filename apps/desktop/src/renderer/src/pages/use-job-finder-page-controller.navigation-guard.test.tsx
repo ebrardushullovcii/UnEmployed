@@ -1,8 +1,18 @@
 // @vitest-environment jsdom
 
-import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
+import type {
+  CandidateProfile,
+  JobFinderWorkspaceSnapshot,
+} from "@unemployed/contracts";
 import { StrictMode } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import {
   createMemoryRouter,
   Link,
@@ -79,7 +89,13 @@ function createReadyWorkspace(): JobFinderWorkspaceSnapshot {
   } as unknown as JobFinderWorkspaceSnapshot;
 }
 
-function configureWindowUnemployed(workspace: JobFinderWorkspaceSnapshot) {
+function configureWindowUnemployed(
+  workspace: JobFinderWorkspaceSnapshot,
+  overrides?: {
+    jobFinder?: Record<string, unknown>;
+    setCloseGuardState?: ReturnType<typeof vi.fn>;
+  },
+) {
   Object.defineProperty(window, "unemployed", {
     configurable: true,
     value: {
@@ -88,8 +104,52 @@ function configureWindowUnemployed(workspace: JobFinderWorkspaceSnapshot) {
       ),
       jobFinder: {
         getWorkspaceBootstrap: vi.fn(() => Promise.resolve(workspace)),
+        ...(overrides?.jobFinder ?? {}),
+      },
+      window: {
+        setCloseGuardState: overrides?.setCloseGuardState ?? vi.fn(),
       },
     } as unknown as Window["unemployed"],
+  });
+}
+
+// Drives one real profile save through the coordinator and lets it reject, so
+// the controller reaches the same `failed` state a transient IPC or database
+// failure produces in the app. The profile family is the surface whose unsaved
+// work keeps its own `profileSurfaceDirty` reason after a failure.
+async function failOneProfileSave(
+  controller: { current: MountedController | null },
+  profile: Record<string, unknown> = { fullName: "Draft" },
+) {
+  act(() => {
+    controller.current?.context?.onSaveProfile(
+      profile as unknown as CandidateProfile,
+    );
+  });
+  await waitFor(() => {
+    expect(controller.current?.saveState.state).toBe("failed");
+    expect(controller.current?.saveState).toMatchObject({
+      surface: "profile",
+    });
+  });
+}
+
+// Same, for the settings surface: its sections stage drafts locally with no
+// dirty flag, so a failed settings save is the only unsaved-work protection
+// those drafts have.
+async function failOneSettingsSave(controller: {
+  current: MountedController | null;
+}) {
+  await act(async () => {
+    await controller.current?.context?.onUpdateWorkspaceBehavior({
+      discoveryOnly: true,
+    });
+  });
+  await waitFor(() => {
+    expect(controller.current?.saveState.state).toBe("failed");
+    expect(controller.current?.saveState).toMatchObject({
+      surface: "settings",
+    });
   });
 }
 
@@ -98,10 +158,12 @@ type MountedController = ReturnType<typeof useJobFinderPageController>;
 // The probe owns the controller plus the unsaved-changes dialog exactly like
 // the real shell: both live above the Outlet, so they stay mounted while the
 // guarded routes swap underneath them.
-function mountGuardedController(options: {
-  initialEntries?: string[];
-  strictMode?: boolean;
-} = {}) {
+function mountGuardedController(
+  options: {
+    initialEntries?: string[];
+    strictMode?: boolean;
+  } = {},
+) {
   const mounted: { current: MountedController | null } = { current: null };
 
   function ControllerProbe() {
@@ -139,13 +201,9 @@ function mountGuardedController(options: {
     { initialEntries: options.initialEntries ?? ["/guard"] },
   );
 
-  const tree = (
-    <RouterProvider router={router} />
-  );
+  const tree = <RouterProvider router={router} />;
 
-  render(
-    options.strictMode ? <StrictMode>{tree}</StrictMode> : tree,
-  );
+  render(options.strictMode ? <StrictMode>{tree}</StrictMode> : tree);
 
   return {
     router,
@@ -177,18 +235,14 @@ async function openUnsavedChangesDialog() {
 }
 
 async function stayOnPage() {
-  fireEvent.click(
-    screen.getByRole("button", { name: "Stay on this page" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Stay on this page" }));
   await waitFor(() => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 }
 
 async function leaveWithoutSaving() {
-  fireEvent.click(
-    screen.getByRole("button", { name: "Leave without saving" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: "Leave without saving" }));
   await waitFor(() => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -252,6 +306,195 @@ describe("composeLeaveConfirmation", () => {
     });
 
     expect(confirmation?.reasons[0]).toContain("The last save failed");
+  });
+});
+
+describe("useJobFinderPageController failed-save acknowledgement", () => {
+  it("releases the navigation and window-close guards when the failed save toast is dismissed", async () => {
+    // One transient save failure used to block every sidebar click and every
+    // Cmd+Q for the rest of the session: nothing cleared `failed` except a
+    // later successful save of that exact surface or wiping the workspace.
+    const setCloseGuardState = vi.fn();
+    configureWindowUnemployed(createReadyWorkspace(), {
+      jobFinder: {
+        saveProfile: vi.fn(() =>
+          Promise.reject(new Error("The workspace database is unavailable.")),
+        ),
+      },
+      setCloseGuardState,
+    });
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const harness = mountGuardedController();
+    await waitForReady(harness);
+
+    await failOneProfileSave(harness);
+    expect(setCloseGuardState).toHaveBeenLastCalledWith({ blocked: true });
+
+    act(() => {
+      void harness.router.navigate("/other");
+    });
+    const dialog = await openUnsavedChangesDialog();
+    expect(dialog.textContent).toContain("The last save failed");
+    await stayOnPage();
+    expect(harness.router.state.location.pathname).toBe("/guard");
+
+    act(() => {
+      harness.current?.dismissSavedStatus();
+    });
+
+    await waitFor(() => {
+      expect(harness.current?.saveState.state).toBe("idle");
+    });
+    expect(setCloseGuardState).toHaveBeenLastCalledWith({ blocked: false });
+
+    act(() => {
+      void harness.router.navigate("/other");
+    });
+    await waitFor(() => {
+      expect(harness.router.state.location.pathname).toBe("/other");
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(confirmSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps unsaved-draft protection after the failed save is dismissed", async () => {
+    configureWindowUnemployed(createReadyWorkspace(), {
+      jobFinder: {
+        saveProfile: vi.fn(() =>
+          Promise.reject(new Error("The workspace database is unavailable.")),
+        ),
+      },
+    });
+    const harness = mountGuardedController();
+    await waitForReady(harness);
+    markDirty(harness);
+
+    await failOneProfileSave(harness);
+
+    act(() => {
+      harness.current?.dismissSavedStatus();
+    });
+    await waitFor(() => {
+      expect(harness.current?.saveState.state).toBe("idle");
+    });
+
+    act(() => {
+      void harness.router.navigate("/other");
+    });
+
+    // Acknowledging the failure never acknowledges the draft: the dirty form
+    // is still the real protection and keeps asking.
+    const dialog = await openUnsavedChangesDialog();
+    expect(dialog.textContent).toContain("Unsaved profile or setup changes");
+    expect(dialog.textContent).not.toContain("The last save failed");
+    await stayOnPage();
+    expect(harness.router.state.location.pathname).toBe("/guard");
+  });
+
+  it("still blocks on a later, different save failure after one was dismissed", async () => {
+    configureWindowUnemployed(createReadyWorkspace(), {
+      jobFinder: {
+        saveProfile: vi.fn(() =>
+          Promise.reject(new Error("The workspace database is unavailable.")),
+        ),
+      },
+    });
+    const harness = mountGuardedController();
+    await waitForReady(harness);
+
+    await failOneProfileSave(harness);
+    act(() => {
+      harness.current?.dismissSavedStatus();
+    });
+    await waitFor(() => {
+      expect(harness.current?.saveState.state).toBe("idle");
+    });
+
+    // A different save, and therefore a different failure, is not covered by
+    // the earlier acknowledgement.
+    await failOneProfileSave(harness, { fullName: "Second draft" });
+
+    act(() => {
+      void harness.router.navigate("/other");
+    });
+    const dialog = await openUnsavedChangesDialog();
+    expect(dialog.textContent).toContain("The last save failed");
+    await stayOnPage();
+    expect(harness.router.state.location.pathname).toBe("/guard");
+  });
+
+  it("keeps a failed settings save blocking, because its staged drafts have no dirty flag", async () => {
+    // Settings sections stage their edits in local component state and feed no
+    // flag into `composeLeaveConfirmation`, so this failure is the only thing
+    // between those drafts and a navigation that discards them.
+    configureWindowUnemployed(createReadyWorkspace(), {
+      jobFinder: {
+        updateWorkspaceBehavior: vi.fn(() =>
+          Promise.reject(new Error("The workspace database is unavailable.")),
+        ),
+      },
+    });
+    const harness = mountGuardedController();
+    await waitForReady(harness);
+
+    await failOneSettingsSave(harness);
+
+    act(() => {
+      harness.current?.dismissSavedStatus();
+    });
+    await waitFor(() => {
+      expect(harness.current?.saveState.state).toBe("failed");
+    });
+
+    act(() => {
+      void harness.router.navigate("/other");
+    });
+    const dialog = await openUnsavedChangesDialog();
+    expect(dialog.textContent).toContain("The last save failed");
+    await stayOnPage();
+    expect(harness.router.state.location.pathname).toBe("/guard");
+  });
+
+  it("releases a failed settings save once the user leaves without saving", async () => {
+    // The one release for a settings failure: the user answered the dialog
+    // that named it, and the navigation it allows unmounts the staged drafts,
+    // so nothing is left to protect and the failure must stop blocking.
+    const setCloseGuardState = vi.fn();
+    configureWindowUnemployed(createReadyWorkspace(), {
+      jobFinder: {
+        updateWorkspaceBehavior: vi.fn(() =>
+          Promise.reject(new Error("The workspace database is unavailable.")),
+        ),
+      },
+      setCloseGuardState,
+    });
+    const harness = mountGuardedController();
+    await waitForReady(harness);
+
+    await failOneSettingsSave(harness);
+    expect(setCloseGuardState).toHaveBeenLastCalledWith({ blocked: true });
+
+    act(() => {
+      void harness.router.navigate("/other");
+    });
+    await openUnsavedChangesDialog();
+    await leaveWithoutSaving();
+    await waitFor(() => {
+      expect(harness.router.state.location.pathname).toBe("/other");
+    });
+
+    await waitFor(() => {
+      expect(harness.current?.saveState.state).toBe("idle");
+    });
+    expect(setCloseGuardState).toHaveBeenLastCalledWith({ blocked: false });
+
+    act(() => {
+      void harness.router.navigate("/guard");
+    });
+    await waitFor(() => {
+      expect(harness.router.state.location.pathname).toBe("/guard");
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
 

@@ -14,6 +14,12 @@ const panelVariants = cva(
       tone: {
         default: null,
         muted: "border-dashed border-border-strong bg-(--surface-fill-subtle)",
+        // Read-only well: inert content (a detail row, a disclosure body, a
+        // technical-details block) recessed into the panel it sits in. It is
+        // the published pair of the well tokens, so consumers stop spelling a
+        // well as `bg-background/NN` - which composites to 1.00-1.08:1 and is
+        // literally no fill at all on the canvas.
+        well: "border-(--surface-well-border) bg-(--surface-well)",
       },
     },
     defaultVariants: {

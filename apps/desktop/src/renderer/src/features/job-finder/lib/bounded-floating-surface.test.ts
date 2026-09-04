@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  BOTTOM_RIGHT_DOCK_ORDER,
   BOUNDED_FLOATING_SURFACE_MIN_USABLE_HEIGHT_PX,
   resolveBoundedFloatingSurfacePlacement,
+  resolveBottomRightDockPlacement,
 } from "./bounded-floating-surface";
 
 /**
@@ -131,5 +133,105 @@ describe("bounded floating surface placement", () => {
 
     expect(placement.width).toBe(184);
     expect(placement.left).toBe(8);
+  });
+});
+
+describe("resolveBottomRightDockPlacement", () => {
+  const NOTICE = {
+    height: 140,
+    id: "notice",
+    order: BOTTOM_RIGHT_DOCK_ORDER.notice,
+    width: 384,
+  };
+  // A second transient status surface. The dock holds only these now: the
+  // Assistant/Copilot launcher left it entirely and is an ordinary button in
+  // each screen's action row.
+  const TOAST = { height: 60, id: "toast", order: 1, width: 384 };
+
+  it("stacks two status surfaces instead of painting one over the other", () => {
+    // The startup recovery notice was `fixed bottom-4 right-4`, the same
+    // corner every other bottom-right surface claimed, and simply covered
+    // whatever was already there.
+    const placement = resolveBottomRightDockPlacement({
+      minTopOffset: 112,
+      noCoverRects: [],
+      occupants: [TOAST, NOTICE],
+      viewport: { height: 920, width: 1440 },
+    });
+
+    const notice = placement.slots.find((slot) => slot.id === "notice");
+    const toast = placement.slots.find((slot) => slot.id === "toast");
+
+    expect(notice?.bottom).toBe(16);
+    // 16 inset + 140 notice + 12 stack gap.
+    expect(toast?.bottom).toBe(168);
+    expect(toast?.bottom).toBeGreaterThan(notice?.bottom ?? 0);
+    expect(notice?.right).toBe(toast?.right);
+  });
+
+  it("lifts the whole stack above an action row in its column", () => {
+    // REACH-04: at 640px the pill landed on a section's own `Add experience`.
+    const placement = resolveBottomRightDockPlacement({
+      minTopOffset: 112,
+      noCoverRects: [{ bottom: 600, left: 1200, right: 1424, top: 560 }],
+      occupants: [NOTICE],
+      viewport: { height: 640, width: 1440 },
+    });
+
+    const noticeTop = 640 - (placement.slots[0]?.bottom ?? 0) - NOTICE.height;
+
+    expect(noticeTop).toBeLessThanOrEqual(560 - 24);
+  });
+
+  it("ignores a row that is nowhere near the dock's column", () => {
+    const placement = resolveBottomRightDockPlacement({
+      minTopOffset: 112,
+      noCoverRects: [{ bottom: 600, left: 0, right: 300, top: 560 }],
+      occupants: [NOTICE],
+      viewport: { height: 640, width: 1440 },
+    });
+
+    expect(placement.slots[0]?.bottom).toBe(16);
+  });
+
+  it("reports a stack top at the window edge, never above it", () => {
+    // A tall occupant in a short window used to make `stackTop` negative, so a
+    // reader bounding its own height against it computed a negative height
+    // instead of stopping at the edge.
+    const placement = resolveBottomRightDockPlacement({
+      minTopOffset: 0,
+      noCoverRects: [],
+      occupants: [{ height: 900, id: "tall", order: 0, width: 384 }],
+      viewport: { height: 400, width: 1440 },
+    });
+
+    expect(placement.stackTop).toBe(0);
+    expect(placement.stackTop).toBeGreaterThanOrEqual(0);
+  });
+
+  it("never lifts the stack past its own ceiling", () => {
+    const placement = resolveBottomRightDockPlacement({
+      minTopOffset: 112,
+      // A row filling the whole window would otherwise push the dock off-screen.
+      noCoverRects: [{ bottom: 620, left: 0, right: 1440, top: 0 }],
+      occupants: [NOTICE],
+      viewport: { height: 640, width: 1440 },
+    });
+
+    expect(placement.stackTop).toBeGreaterThanOrEqual(112);
+  });
+
+  it("reports the top of the stack so non-occupants can stop above it", () => {
+    // The save lane is a right-edge surface whose height ran to the window
+    // bottom, straight through this corner.
+    const placement = resolveBottomRightDockPlacement({
+      minTopOffset: 112,
+      noCoverRects: [],
+      occupants: [NOTICE, TOAST],
+      viewport: { height: 920, width: 1440 },
+    });
+
+    // 920 - (16 clearance + 140 + 12 + 60).
+    expect(placement.stackTop).toBe(692);
   });
 });

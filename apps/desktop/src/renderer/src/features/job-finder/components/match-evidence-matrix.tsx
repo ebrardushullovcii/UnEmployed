@@ -483,7 +483,11 @@ export function MatchEvidenceMatrix({
           className="text-(length:--text-small) leading-6 text-foreground-muted"
           data-testid="fit-dimensions-empty"
         >
-          Nothing else has been checked yet. Open the listing to fill in the
+          {/* The app has no external-URL capability, so this must not tell the
+              user to "open the listing". Copying the link is the action the
+              product actually offers, and is the same wording the title-only
+              note uses. */}
+          Nothing else has been checked yet. Copy the listing link to check the
           role, preference, pay, and evidence details.
         </p>
       )}

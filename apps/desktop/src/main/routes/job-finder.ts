@@ -1,7 +1,12 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { app, BrowserWindow, dialog } from "electron";
-import type { IpcMain, OpenDialogOptions, SaveDialogOptions } from "electron";
+import type {
+  IpcMain,
+  IpcMainInvokeEvent,
+  OpenDialogOptions,
+  SaveDialogOptions,
+} from "electron";
 import {
   ApplicationCrmExportInputSchema,
   ApplicationCrmFileExportResultSchema,
@@ -133,6 +138,11 @@ import {
   defaultBenchmarkCases,
   setJobFinderWorkspaceServiceTestEnv,
 } from "../services/job-finder";
+import {
+  armJobFinderTestSaveFailure,
+  consumeArmedJobFinderTestSaveFailure,
+  type JobFinderSaveChannel,
+} from "../services/job-finder/test-save-failure";
 import { registerJobFinderBootstrapDesktopRoutes } from "../setup/register-job-finder-bootstrap-routes";
 
 function parseAgentDiscoveryRequest(payload: unknown) {
@@ -265,6 +275,25 @@ export function registerJobFinderRouteHandlers(
     }
   >();
 
+  /**
+   * Registers one protected save channel. The only behavior it adds is the
+   * desktop test API's one-shot synthetic save failure, which is inert unless
+   * a tester armed that exact surface while UNEMPLOYED_ENABLE_TEST_API is set.
+   * Production builds run the listener verbatim.
+   */
+  function handleJobFinderSaveRoute<TResult>(
+    channel: JobFinderSaveChannel,
+    listener: (event: IpcMainInvokeEvent, payload: unknown) => Promise<TResult>,
+  ): void {
+    ipcMain.handle(
+      channel,
+      async (event: IpcMainInvokeEvent, payload: unknown) => {
+        consumeArmedJobFinderTestSaveFailure(channel);
+        return listener(event, payload);
+      },
+    );
+  }
+
   ipcMain.handle(
     "job-finder:sync-workspace",
     async (_event, payload: unknown) => {
@@ -339,7 +368,7 @@ export function registerJobFinderRouteHandlers(
     return workspaceMutationResponse(snapshot);
   });
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:save-profile",
     async (_event, payload: unknown) => {
       const profile = CandidateProfileSchema.parse(payload);
@@ -350,7 +379,7 @@ export function registerJobFinderRouteHandlers(
     },
   );
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:save-workspace-inputs",
     async (_event, payload: unknown) => {
       const { profile, searchPreferences, settings } =
@@ -378,7 +407,7 @@ export function registerJobFinderRouteHandlers(
     return workspaceMutationResponse(snapshot);
   });
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:save-search-preferences",
     async (_event, payload: unknown) => {
       const searchPreferences = JobSearchPreferencesSchema.parse(payload);
@@ -634,7 +663,7 @@ export function registerJobFinderRouteHandlers(
     },
   );
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:save-profile-setup-state",
     async (_event, payload: unknown) => {
       const profileSetupState = ProfileSetupStateSchema.parse(payload);
@@ -715,7 +744,7 @@ export function registerJobFinderRouteHandlers(
     },
   );
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:apply-profile-copilot-patch-group",
     async (_event, payload: unknown) => {
       const { patchGroupId } =
@@ -758,7 +787,7 @@ export function registerJobFinderRouteHandlers(
     },
   );
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:save-settings",
     async (_event, payload: unknown) => {
       const settings = JobFinderSettingsSchema.parse(payload);
@@ -769,7 +798,7 @@ export function registerJobFinderRouteHandlers(
     },
   );
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:update-application-defaults",
     async (_event, payload: unknown) => {
       const input = UpdateApplicationDefaultsInputSchema.parse(payload);
@@ -781,7 +810,7 @@ export function registerJobFinderRouteHandlers(
     },
   );
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:update-workspace-behavior",
     async (_event, payload: unknown) => {
       const input = UpdateWorkspaceBehaviorInputSchema.parse(payload);
@@ -793,7 +822,7 @@ export function registerJobFinderRouteHandlers(
     },
   );
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:update-appearance-theme",
     async (_event, payload: unknown) => {
       const appearanceTheme = AppearanceThemeSchema.parse(payload);
@@ -805,7 +834,7 @@ export function registerJobFinderRouteHandlers(
     },
   );
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:update-tracker-crm",
     async (_event, payload: unknown) => {
       const applicationCrm = ApplicationCrmSettingsSchema.parse(payload);
@@ -1019,6 +1048,24 @@ export function registerJobFinderRouteHandlers(
 
     return JobFinderWorkspaceSnapshotSchema.parse(snapshot);
   });
+
+  ipcMain.handle(
+    "job-finder:test-fail-next-save",
+    (_event, payload: unknown) => {
+      if (!isDesktopTestApiEnabled()) {
+        throw new Error(
+          "Desktop test API is disabled. Set UNEMPLOYED_ENABLE_TEST_API=1 to enable scripted UI flows.",
+        );
+      }
+
+      // One-shot and per-surface: the very next save the named surface starts
+      // rejects, then the arm clears itself. Nothing else is affected, and no
+      // application, browser, or submission authority is involved.
+      armJobFinderTestSaveFailure(payload);
+
+      return DesktopTestOkResponseSchema.parse({ ok: true });
+    },
+  );
 
   ipcMain.handle("job-finder:get-performance-snapshot", async () => {
     const service = await getJobFinderWorkspaceService();
@@ -1807,7 +1854,7 @@ export function registerJobFinderRouteHandlers(
     },
   );
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:save-resume-draft",
     async (_event, payload: unknown) => {
       const { draft } = JobFinderSaveResumeDraftInputSchema.parse(payload);
@@ -1818,7 +1865,7 @@ export function registerJobFinderRouteHandlers(
     },
   );
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:restore-resume-draft-revision",
     async (_event, payload: unknown) => {
       const { jobId, revisionId } =
@@ -1967,7 +2014,7 @@ export function registerJobFinderRouteHandlers(
     },
   );
 
-  ipcMain.handle(
+  handleJobFinderSaveRoute(
     "job-finder:apply-resume-patch",
     async (_event, payload: unknown) => {
       const { patch, revisionReason } =

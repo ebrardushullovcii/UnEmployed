@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test } from "vitest";
 import {
   ApplicationRecordSchema,
   ApplicationAnswerRecordSchema,
@@ -10,13 +10,23 @@ import {
   ApplyJobResultSchema,
   SourceDebugEvidenceRefSchema,
   ApplyRunSchema,
+  getDefaultCampaignConfiguration,
+  JobSearchCampaignSchema,
+  type JobSearchCampaign,
+  type JobSearchPreferences,
   ResumeDraftRevisionSchema,
   ResumeDraftSchema,
+  ResumeExportArtifactSchema,
   ResumeValidationResultSchema,
   SourceInstructionArtifactSchema,
+  TailoredAssetSchema,
 } from "@unemployed/contracts";
 
-import { createFileJobFinderRepository } from "./index";
+import {
+  createFileJobFinderRepository,
+  createInMemoryJobFinderRepository,
+  type JobFinderRepository,
+} from "./index";
 import { createSeed } from "./test-fixtures";
 import { MAX_RESUME_DRAFT_REVISIONS_PER_DRAFT } from "./resume-draft-revision-retention";
 import {
@@ -2403,4 +2413,369 @@ describe("persisted row corruption handling", () => {
       await cleanupTempDirectoryWithRetry(temp.tempDirectory);
     }
   });
+});
+
+describe("repository backend parity", () => {
+  const cleanupDirectories: string[] = [];
+  const repositories: JobFinderRepository[] = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      repositories
+        .splice(0)
+        .map((repository) => repository.close().catch(() => undefined)),
+    );
+    await Promise.all(
+      cleanupDirectories.splice(0).map(cleanupTempDirectoryWithRetry),
+    );
+  });
+
+  const backends = [
+    {
+      label: "in memory",
+      create: (): Promise<JobFinderRepository> =>
+        Promise.resolve(createInMemoryJobFinderRepository(createSeed())),
+    },
+    {
+      label: "in SQLite",
+      create: async (): Promise<JobFinderRepository> => {
+        const temp = await createTempRepository("unemployed-backend-parity-");
+        cleanupDirectories.push(temp.tempDirectory);
+        return temp.createRepository();
+      },
+    },
+  ];
+
+  async function createBackend(
+    create: () => Promise<JobFinderRepository>,
+  ): Promise<JobFinderRepository> {
+    const repository = await create();
+    repositories.push(repository);
+    return repository;
+  }
+
+  function createParityDraft(input: {
+    id: string;
+    jobId: string;
+    updatedAt: string;
+    status: "needs_review" | "approved";
+    approvedExportId?: string | null;
+    approvedAt?: string | null;
+  }) {
+    return ResumeDraftSchema.parse({
+      id: input.id,
+      jobId: input.jobId,
+      status: input.status,
+      templateId: "classic_ats",
+      identity: null,
+      sections: [],
+      targetPageCount: 2,
+      generationMethod: "manual",
+      approvedAt: input.approvedAt ?? null,
+      approvedExportId: input.approvedExportId ?? null,
+      staleReason: null,
+      createdAt: "2026-07-30T10:00:00.000Z",
+      updatedAt: input.updatedAt,
+    });
+  }
+
+  function createParityExport(input: {
+    id: string;
+    draftId: string;
+    jobId: string;
+    exportedAt: string;
+    isApproved?: boolean;
+  }) {
+    return ResumeExportArtifactSchema.parse({
+      id: input.id,
+      draftId: input.draftId,
+      jobId: input.jobId,
+      format: "pdf",
+      filePath: `/tmp/${input.id}.pdf`,
+      pageCount: 1,
+      templateId: "classic_ats",
+      exportedAt: input.exportedAt,
+      isApproved: input.isApproved ?? false,
+    });
+  }
+
+  function createParityTailoredAsset(input: {
+    id: string;
+    jobId: string;
+    updatedAt: string;
+  }) {
+    return TailoredAssetSchema.parse({
+      id: input.id,
+      jobId: input.jobId,
+      kind: "resume",
+      status: "ready",
+      label: "Tailored resume",
+      version: "v1",
+      templateName: "Classic ATS",
+      compatibilityScore: 90,
+      progressPercent: 100,
+      updatedAt: input.updatedAt,
+      storagePath: `/tmp/${input.id}.pdf`,
+    });
+  }
+
+  test.each(backends)(
+    "refuses an approved resume export outside approveResumeExport ($label)",
+    async ({ create }) => {
+      const repository = await createBackend(create);
+      const draft = createParityDraft({
+        id: "draft_parity_export",
+        jobId: "job_parity_export",
+        updatedAt: "2026-07-30T11:00:00.000Z",
+        status: "needs_review",
+      });
+      await repository.upsertResumeDraft(draft);
+
+      await expect(
+        Promise.resolve().then(() =>
+          repository.upsertResumeExportArtifact(
+            createParityExport({
+              id: "export_parity_approved",
+              draftId: draft.id,
+              jobId: draft.jobId,
+              exportedAt: "2026-07-30T11:05:00.000Z",
+              isApproved: true,
+            }),
+          ),
+        ),
+      ).rejects.toThrow(
+        "Approved resume exports must be written through approveResumeExport().",
+      );
+      expect(await repository.listResumeExportArtifacts()).toEqual([]);
+
+      await repository.upsertResumeExportArtifact(
+        createParityExport({
+          id: "export_parity_unapproved",
+          draftId: draft.id,
+          jobId: draft.jobId,
+          exportedAt: "2026-07-30T11:05:00.000Z",
+        }),
+      );
+      expect(await repository.listResumeExportArtifacts()).toEqual([
+        expect.objectContaining({
+          id: "export_parity_unapproved",
+          isApproved: false,
+        }),
+      ]);
+    },
+  );
+
+  test.each(backends)(
+    "clears the newest draft's approval when the job text changes ($label)",
+    async ({ create }) => {
+      const repository = await createBackend(create);
+      const job = createSavedJob({
+        id: "job_parity_clear",
+        description: "Original description.",
+      });
+      await repository.commitSavedJobDelta({ upserts: [job] });
+
+      const olderDraft = createParityDraft({
+        id: "draft_parity_older",
+        jobId: job.id,
+        updatedAt: "2026-07-30T10:00:00.000Z",
+        status: "needs_review",
+      });
+      const newerDraft = createParityDraft({
+        id: "draft_parity_newer",
+        jobId: job.id,
+        updatedAt: "2026-07-30T12:00:00.000Z",
+        status: "approved",
+        approvedAt: "2026-07-30T12:00:00.000Z",
+        approvedExportId: "export_parity_newer",
+      });
+      // Insert the abandoned draft first so a first-inserted lookup would
+      // choose it over the newer approved draft.
+      await repository.upsertResumeDraft(olderDraft);
+      await repository.upsertResumeDraft(newerDraft);
+      await repository.approveResumeExport({
+        draft: newerDraft,
+        exportArtifact: createParityExport({
+          id: "export_parity_newer",
+          draftId: newerDraft.id,
+          jobId: job.id,
+          exportedAt: "2026-07-30T12:00:00.000Z",
+          isApproved: true,
+        }),
+      });
+      await repository.upsertTailoredAsset(
+        createParityTailoredAsset({
+          id: "asset_parity_older",
+          jobId: job.id,
+          updatedAt: "2026-07-30T10:00:00.000Z",
+        }),
+      );
+      await repository.upsertTailoredAsset(
+        createParityTailoredAsset({
+          id: "asset_parity_newer",
+          jobId: job.id,
+          updatedAt: "2026-07-30T12:00:00.000Z",
+        }),
+      );
+
+      await repository.commitSavedJobDelta({
+        update: (current) =>
+          current.id === job.id
+            ? { ...current, description: "Rewritten description." }
+            : current,
+        clearResumeApproval: {
+          jobId: job.id,
+          staleReason: "The job description changed.",
+          shouldClear: (previousJob, nextJob) =>
+            previousJob.description !== nextJob.description,
+        },
+      });
+
+      const drafts = await repository.listResumeDrafts();
+      expect(drafts.find((entry) => entry.id === newerDraft.id)).toMatchObject({
+        status: "stale",
+        staleReason: "The job description changed.",
+        approvedAt: null,
+        approvedExportId: null,
+      });
+      expect(drafts.find((entry) => entry.id === olderDraft.id)).toMatchObject({
+        status: "needs_review",
+        staleReason: null,
+      });
+      expect(
+        (await repository.listResumeExportArtifacts()).every(
+          (artifact) => artifact.isApproved === false,
+        ),
+      ).toBe(true);
+      const assets = await repository.listTailoredAssets();
+      expect(
+        assets.find((asset) => asset.id === "asset_parity_newer"),
+      ).toMatchObject({ storagePath: null });
+      expect(
+        assets.find((asset) => asset.id === "asset_parity_older"),
+      ).toMatchObject({ storagePath: "/tmp/asset_parity_older.pdf" });
+    },
+  );
+
+  test.each(backends)(
+    "advances the profile epoch when discovery feedback writes preferences ($label)",
+    async ({ create }) => {
+      const repository = await createBackend(create);
+      const job = createSavedJob({ id: "job_parity_epoch" });
+      await repository.commitSavedJobDelta({ upserts: [job] });
+      const before = await repository.getProfileWithRevision();
+
+      // An ordinary dismissal rewrites the same preferences. It must not
+      // invalidate an in-flight profile operation that captured this epoch.
+      await repository.commitDiscoveryFeedbackUpdate(job.id, (current) => ({
+        result: null,
+        searchPreferences: current.searchPreferences,
+        campaignState: current.campaignState,
+        discoveryState: current.discoveryState,
+      }));
+      expect((await repository.getProfileWithRevision()).revision).toBe(
+        before.revision,
+      );
+
+      await repository.commitDiscoveryFeedbackUpdate(job.id, (current) => ({
+        result: null,
+        searchPreferences: {
+          ...current.searchPreferences,
+          companyBlacklist: [
+            ...current.searchPreferences.companyBlacklist,
+            "Excluded Employer",
+          ],
+        },
+        campaignState: current.campaignState,
+        discoveryState: current.discoveryState,
+      }));
+
+      const after = await repository.getProfileWithRevision();
+      expect(after.revision).toBeGreaterThan(before.revision);
+      expect(
+        (await repository.getSearchPreferences()).companyBlacklist,
+      ).toContain("Excluded Employer");
+
+      // A copilot commit that captured the pre-feedback epoch must fail
+      // closed instead of reverting the exclusion the user just made.
+      const staleCommit = await repository.commitProfileCopilotState({
+        profile: before.profile,
+        searchPreferences: {
+          ...(await repository.getSearchPreferences()),
+          companyBlacklist: [],
+        },
+        profileSetupState: await repository.getProfileSetupState(),
+        expectedProfileRevision: before.revision,
+      });
+      expect(staleCommit).toMatchObject({ status: "stale" });
+      expect(
+        (await repository.getSearchPreferences()).companyBlacklist,
+      ).toContain("Excluded Employer");
+    },
+  );
+
+  test.each(backends)(
+    "advances the profile epoch when campaign preferences are committed ($label)",
+    async ({ create }) => {
+      const repository = await createBackend(create);
+      const before = await repository.getProfileWithRevision();
+      const now = "2026-08-01T10:00:00.000Z";
+      const buildCampaign = (
+        searchPreferences: JobSearchPreferences,
+      ): JobSearchCampaign =>
+        JobSearchCampaignSchema.parse({
+          id: "campaign_parity",
+          name: "Parity campaign",
+          mode: "precision",
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+          searchPreferences,
+          sourceTargetIds: [],
+          ...getDefaultCampaignConfiguration("precision"),
+          schedule: {},
+          progress: { lastUpdatedAt: now },
+        });
+
+      // A campaign-only edit leaves the shared preferences untouched and must
+      // not invalidate an in-flight profile operation.
+      await repository.commitCampaignPreferencesUpdate((current) => ({
+        result: null,
+        campaignState: {
+          campaigns: [buildCampaign(current.searchPreferences)],
+          activeCampaignId: "campaign_parity",
+          notifications: [],
+        },
+        searchPreferences: current.searchPreferences,
+      }));
+      expect((await repository.getProfileWithRevision()).revision).toBe(
+        before.revision,
+      );
+
+      await repository.commitCampaignPreferencesUpdate((current) => {
+        const campaign = buildCampaign(current.searchPreferences);
+        return {
+          result: null,
+          campaignState: {
+            campaigns: [campaign],
+            activeCampaignId: campaign.id,
+            notifications: [],
+          },
+          searchPreferences: {
+            ...current.searchPreferences,
+            companyBlacklist: [
+              ...current.searchPreferences.companyBlacklist,
+              "Campaign Excluded Employer",
+            ],
+          },
+        };
+      });
+
+      const after = await repository.getProfileWithRevision();
+      expect(after.revision).toBeGreaterThan(before.revision);
+      expect(
+        (await repository.getSearchPreferences()).companyBlacklist,
+      ).toContain("Campaign Excluded Employer");
+    },
+  );
 });

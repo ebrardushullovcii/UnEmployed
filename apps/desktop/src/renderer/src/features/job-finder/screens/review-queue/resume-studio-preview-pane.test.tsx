@@ -405,24 +405,274 @@ describe("ResumeStudioPreviewPane", () => {
       expect(columnObserverCallbacks).toHaveLength(1);
       const initialScaleCount = appliedScales.length;
 
-      // A scrollbar flickering in and out moves the measured width by exactly
-      // one pixel. That is layout noise, not a new column to scale to.
-      for (const width of [349, 350, 349, 350, 349, 350]) {
-        columnWidth = width;
+      const alternateColumnWidth = () => {
+        // A scrollbar flickering in and out moves the measured width by exactly
+        // one pixel. That is layout noise, not a new column to scale to.
+        for (const width of [349, 350, 349, 350, 349, 350]) {
+          columnWidth = width;
+          act(() => {
+            for (const callback of columnObserverCallbacks) {
+              callback(
+                [
+                  { contentRect: { width } },
+                ] as unknown as ResizeObserverEntry[],
+                null as unknown as ResizeObserver,
+              );
+            }
+          });
+        }
+      };
+
+      alternateColumnWidth();
+
+      // The resolved scale is re-applied whenever a measurement runs, because a
+      // re-rendered draft replaces the preview document and its fresh body
+      // starts at the stylesheet default. A whole burst of noise therefore
+      // costs at most the one measurement the epsilon guard lets through, and
+      // never a second scale value.
+      expect(appliedScales.length).toBeLessThanOrEqual(initialScaleCount + 1);
+      expect(new Set(appliedScales).size).toBe(1);
+
+      // Settled: further noise adds no writes at all, so nothing is being
+      // re-resolved per event.
+      const settledScaleCount = appliedScales.length;
+      alternateColumnWidth();
+      expect(appliedScales.length).toBe(settledScaleCount);
+      expect(new Set(appliedScales).size).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+      if (ownDescriptor) {
+        Object.defineProperty(Element.prototype, "clientWidth", ownDescriptor);
+      } else {
+        Reflect.deleteProperty(Element.prototype, "clientWidth");
+      }
+    }
+  });
+
+  it("keeps the page inside the visible region instead of cropping it under the scrollbar", () => {
+    // Measured in the built app at 1440x920 and at 1280x720: the pane column,
+    // and the scrollbar gutter the preview scroller reserves out of it. The
+    // pane used to scale the page to the whole column, so its right edge sat
+    // under that gutter and every line lost its tail — the contact line read
+    // "+1 650-353-" under a banner that says to approve the resume shown in the
+    // preview. This asserts in PARENT space: a check taken inside the iframe
+    // compares the document with its own viewport and cannot see this crop.
+    const columns = [
+      { gutter: 15, label: "1440x920", width: 629 },
+      { gutter: 15, label: "1280x720", width: 505 },
+    ];
+    // The chrome between the region's box and the frame, spelled out here so a
+    // change to either padding has to be made in both places: the scroll
+    // region's own `p-0.5` (2px a side) and the page shell's 1px border plus
+    // `p-1.5` (7px a side).
+    const REGION_PADDING = 4;
+    const PAGE_SHELL_CHROME = 14;
+
+    for (const column of columns) {
+      const ownDescriptor = Object.getOwnPropertyDescriptor(
+        Element.prototype,
+        "clientWidth",
+      );
+      Object.defineProperty(Element.prototype, "clientWidth", {
+        configurable: true,
+        get(this: Element) {
+          if (this.hasAttribute("data-resume-preview-width-probe")) {
+            return column.width;
+          }
+          // The scroller is the same box minus the gutter it reserves. That
+          // difference is the width the page actually gets.
+          return this.hasAttribute("data-resume-preview-scroll-region")
+            ? column.width - column.gutter
+            : 0;
+        },
+      });
+
+      const columnObserverCallbacks: ResizeObserverCallback[] = [];
+      class ResizeObserverStub {
+        private readonly callback: ResizeObserverCallback;
+        constructor(callback: ResizeObserverCallback) {
+          this.callback = callback;
+        }
+        disconnect() {}
+        observe(target: Element) {
+          if (target.hasAttribute?.("data-resume-preview-width-probe")) {
+            columnObserverCallbacks.push(this.callback);
+          }
+        }
+        unobserve() {}
+      }
+      vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+
+      try {
+        const rendered = render(
+          <ResumeStudioPreviewPane
+            isDirty={false}
+            isPending={false}
+            onRetry={vi.fn()}
+            onSelectTarget={vi.fn()}
+            preview={preview}
+            previewError={null}
+            previewStatus="ready"
+            selectedEntryId={null}
+            selectedSectionId={null}
+            selectedTargetId={null}
+            templateLabel="Chronology Classic"
+          />,
+        );
+
+        expect(columnObserverCallbacks).toHaveLength(1);
         act(() => {
           for (const callback of columnObserverCallbacks) {
             callback(
-              [{ contentRect: { width } }] as unknown as ResizeObserverEntry[],
+              [
+                { contentRect: { width: column.width } },
+              ] as unknown as ResizeObserverEntry[],
               null as unknown as ResizeObserver,
             );
           }
         });
-      }
 
-      expect(appliedScales.length).toBe(initialScaleCount);
+        const iframe = rendered.container.querySelector("iframe");
+        const frameWidth = Number.parseFloat(iframe?.style.width ?? "");
+        expect(Number.isFinite(frameWidth)).toBe(true);
+
+        // The page, its shell, and the region's padding all have to land inside
+        // the region's visible width.
+        const visibleRegionWidth = column.width - column.gutter;
+        expect({
+          column: column.label,
+          fits:
+            frameWidth + PAGE_SHELL_CHROME + REGION_PADDING <=
+            visibleRegionWidth,
+        }).toEqual({ column: column.label, fits: true });
+      } finally {
+        cleanup();
+        vi.unstubAllGlobals();
+        if (ownDescriptor) {
+          Object.defineProperty(
+            Element.prototype,
+            "clientWidth",
+            ownDescriptor,
+          );
+        } else {
+          Reflect.deleteProperty(Element.prototype, "clientWidth");
+        }
+      }
+    }
+  });
+
+  it("re-applies the resolved scale to a re-rendered preview document", () => {
+    // Every draft re-render replaces the `srcdoc` document, and the fresh body
+    // starts at the stylesheet's `--preview-scale: 1` while the frame keeps the
+    // width computed for the scaled page. Resolving the scale only on a width
+    // change therefore left the reloaded page rendering ~37% too large inside a
+    // frame sized for 73%, cutting the right quarter off every line with no
+    // horizontal scrollbar to say so.
+    const columnWidth = 629;
+    const gutter = 15;
+    const ownDescriptor = Object.getOwnPropertyDescriptor(
+      Element.prototype,
+      "clientWidth",
+    );
+    Object.defineProperty(Element.prototype, "clientWidth", {
+      configurable: true,
+      get(this: Element) {
+        if (this.hasAttribute("data-resume-preview-width-probe")) {
+          return columnWidth;
+        }
+        return this.hasAttribute("data-resume-preview-scroll-region")
+          ? columnWidth - gutter
+          : 0;
+      },
+    });
+
+    const documentObserverCallbacks: ResizeObserverCallback[] = [];
+    const columnObserverCallbacks: ResizeObserverCallback[] = [];
+    class ResizeObserverStub {
+      private readonly callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+      disconnect() {}
+      observe(target: Element) {
+        if (target.hasAttribute?.("data-resume-preview-width-probe")) {
+          columnObserverCallbacks.push(this.callback);
+          return;
+        }
+        documentObserverCallbacks.push(this.callback);
+      }
+      unobserve() {}
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+
+    const appliedScales: string[] = [];
+    vi.spyOn(CSSStyleDeclaration.prototype, "setProperty").mockImplementation(
+      function trackPreviewScale(
+        this: CSSStyleDeclaration,
+        property: string,
+        value: string | null,
+      ) {
+        if (property === "--preview-scale") {
+          appliedScales.push(String(value));
+        }
+      },
+    );
+
+    try {
+      const rendered = render(
+        <ResumeStudioPreviewPane
+          isDirty={false}
+          isPending={false}
+          onRetry={vi.fn()}
+          onSelectTarget={vi.fn()}
+          preview={preview}
+          previewError={null}
+          previewStatus="ready"
+          selectedEntryId={null}
+          selectedSectionId={null}
+          selectedTargetId={null}
+          templateLabel="Chronology Classic"
+        />,
+      );
+
+      act(() => {
+        for (const callback of columnObserverCallbacks) {
+          callback(
+            [
+              { contentRect: { width: columnWidth } },
+            ] as unknown as ResizeObserverEntry[],
+            null as unknown as ResizeObserver,
+          );
+        }
+      });
+
+      const resolvedScale = appliedScales.at(-1);
+      expect(resolvedScale).toBeDefined();
+      expect(Number.parseFloat(String(resolvedScale))).toBeLessThan(1);
+
+      // The document reloads at an unchanged column width, which is exactly the
+      // case the width guard used to skip.
+      const iframe = rendered.container.querySelector("iframe");
+      const scalesBeforeReload = appliedScales.length;
+      act(() => {
+        iframe?.dispatchEvent(new Event("load"));
+      });
+
+      expect(appliedScales.length).toBeGreaterThan(scalesBeforeReload);
+      expect(appliedScales.at(-1)).toBe(resolvedScale);
+      // Still one scale: re-applying it is idempotent, never a second value.
+      expect(new Set(appliedScales).size).toBe(1);
+
+      // A later measurement on the same document keeps the same value too.
+      act(() => {
+        for (const callback of documentObserverCallbacks) {
+          callback([], null as unknown as ResizeObserver);
+        }
+      });
       expect(new Set(appliedScales).size).toBe(1);
     } finally {
       vi.unstubAllGlobals();
+      vi.restoreAllMocks();
       if (ownDescriptor) {
         Object.defineProperty(Element.prototype, "clientWidth", ownDescriptor);
       } else {
@@ -683,6 +933,88 @@ describe("ResumeStudioPreviewPane", () => {
     expect(
       frameDocument.querySelector('[data-resume-selected="true"]'),
     ).not.toBeNull();
+  });
+
+  it("does not throw when the preview document is still parsing on entry, across a compact/desktop resize, or after unmount", () => {
+    const widthProbeCallbacks: ResizeObserverCallback[] = [];
+    class ResizeObserverStub {
+      private readonly callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+      disconnect() {}
+      observe(target: Element) {
+        if (target.hasAttribute?.("data-resume-preview-width-probe")) {
+          widthProbeCallbacks.push(this.callback);
+        }
+      }
+      unobserve() {}
+    }
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+
+    const notifyWidthProbe = (width: number) => {
+      act(() => {
+        for (const callback of widthProbeCallbacks) {
+          callback(
+            [{ contentRect: { width } }] as unknown as ResizeObserverEntry[],
+            null as unknown as ResizeObserver,
+          );
+        }
+      });
+    };
+
+    try {
+      const view = render(
+        <ResumeStudioPreviewPane
+          isDirty={false}
+          isPending={false}
+          onRetry={vi.fn()}
+          onSelectTarget={vi.fn()}
+          preview={preview}
+          previewError={null}
+          previewStatus="ready"
+          selectedEntryId={null}
+          selectedSectionId={null}
+          selectedTargetId={null}
+          templateLabel="Chronology Classic"
+        />,
+      );
+
+      const iframe = document.querySelector("iframe");
+      const frameDocument = iframe?.contentDocument ?? null;
+      expect(frameDocument).not.toBeNull();
+      expect(widthProbeCallbacks).toHaveLength(1);
+
+      // Chromium commits a `srcdoc` navigation before the parser inserts
+      // `<body>`: `contentDocument` is a real document whose `body` is null.
+      Object.defineProperty(frameDocument!, "body", {
+        configurable: true,
+        get: () => null,
+      });
+
+      // The width probe's own observer delivers its first entry a frame after
+      // mount, which on first entry into the studio lands inside exactly that
+      // window.
+      expect(() => notifyWidthProbe(900)).not.toThrow();
+
+      // The same measurement runs from the window `resize` listener, so the
+      // compact <-> desktop switch must survive it too.
+      for (const innerWidth of [1024, 1440]) {
+        vi.stubGlobal("innerWidth", innerWidth);
+        expect(() =>
+          act(() => {
+            window.dispatchEvent(new Event("resize"));
+          }),
+        ).not.toThrow();
+      }
+
+      expect(() => view.unmount()).not.toThrow();
+
+      // A late observer entry must not reach the torn-down frame either.
+      expect(() => notifyWidthProbe(1200)).not.toThrow();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

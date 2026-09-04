@@ -118,6 +118,12 @@ export function getDiscoveryRunCountEvidence(
 export interface DiscoveryResultBandCounts {
   /** Results the app is willing to recommend opening. */
   worthOpening: number;
+  /**
+   * Listings matched by title alone and never checked further. They are
+   * neither recommended nor demoted, so they are counted separately instead
+   * of being folded into either of the other two numbers.
+   */
+  titleMatches?: number;
   /** Weaker matches plus clear mismatches, kept but not recommended. */
   alsoFound: number;
 }
@@ -128,19 +134,31 @@ export interface DiscoveryResultBandCounts {
  * This is the SAME population the run-count sentence describes, split by how
  * strongly the app recommends each row:
  *
- *     kept === worthOpening + alsoFound
+ *     kept === worthOpening + titleMatches + alsoFound
  *
  * Every surface that talks about a finished search uses one of these two
- * formatters, so "15 jobs kept in this search plan" and "2 worth opening · 13 also
- * found" can
- * never disagree about the total. Nothing anywhere may report a raw reviewed
- * volume (the 50 listings a run looked at) as if it were a result count.
+ * formatters, so "15 jobs kept in this search plan" and "0 worth opening · 13
+ * title matches · 2 also found" can never disagree about the total. Nothing
+ * anywhere may report a raw reviewed volume (the 50 listings a run looked at)
+ * as if it were a result count.
+ *
+ * The middle number is printed whenever it is non-zero, and once it is
+ * printed the other two are printed beside it even at zero: "0 worth opening"
+ * is the honest headline for a search that checked nothing past the titles,
+ * and dropping it would leave the middle number reading as a recommendation.
  */
 export function formatDiscoveryResultBandLabel(
   counts: DiscoveryResultBandCounts,
 ): string {
   const worthOpening = normalizeCount(counts.worthOpening);
+  const titleMatches = normalizeCount(counts.titleMatches ?? 0);
   const alsoFound = normalizeCount(counts.alsoFound);
+
+  if (titleMatches > 0) {
+    return `${worthOpening} worth opening · ${titleMatches} title ${
+      titleMatches === 1 ? "match" : "matches"
+    } · ${alsoFound} also found`;
+  }
 
   if (alsoFound > 0) {
     return `${worthOpening} worth opening · ${alsoFound} also found`;
@@ -153,16 +171,21 @@ export function formatDiscoveryResultBandLabel(
  * The reconciling sentence that lets a user connect the banded headline with
  * the "kept" count Home prints.
  *
- * "Kept" means one thing everywhere: the jobs the current search plan holds,
- * which is exactly the population this list shows. A search can save more
- * listings to the device than the active plan's rules retain, so this
- * sentence deliberately does not attribute the total to the last run.
+ * "Kept" means one thing everywhere: the rows this list shows — the current
+ * plan's job ids intersected with the workspace's live discovery jobs, so a
+ * dismissed, applied, or otherwise retired row leaves the count. Every caller
+ * that prints this word must derive it from that same intersection and not
+ * from the plan's own `jobIds` ledger, which is never pruned. A search can
+ * save more listings to the device than the active plan's rules retain, so
+ * this sentence deliberately does not attribute the total to the last run.
  */
 export function formatDiscoveryResultBandTotal(
   counts: DiscoveryResultBandCounts,
 ): string {
   const kept =
-    normalizeCount(counts.worthOpening) + normalizeCount(counts.alsoFound);
+    normalizeCount(counts.worthOpening) +
+    normalizeCount(counts.titleMatches ?? 0) +
+    normalizeCount(counts.alsoFound);
   return `${kept} ${kept === 1 ? "job" : "jobs"} kept in this search plan.`;
 }
 
@@ -191,9 +214,50 @@ export function formatLastSearchSummarySentence(input: {
     return `Your last search: ${input.runCountLabel}.`;
   }
 
-  // Two populations, two different words. Both numbers used to be introduced
-  // as "kept", which read as one number contradicting itself.
-  return `Your last search saved ${savedByRun} new ${
+  return `Your last search: ${formatSavedAndKeptCounts(savedByRun, keptInPlan)}.`;
+}
+
+/**
+ * Home's status line for a search that has just finished.
+ *
+ * It describes the same two populations as {@link
+ * formatLastSearchSummarySentence} and can appear in the same card, so it uses
+ * the same clause rather than a second phrasing of the same facts. Printing
+ * only the run's own total here ("Search finished · 50 new jobs saved") beside
+ * Find jobs' "15 jobs kept in this search plan" read as two screens
+ * contradicting each other about one search.
+ *
+ * When both numbers are the same population there is nothing to reconcile, so
+ * the run's own label — which may also carry its duplicate count — stands.
+ */
+export function formatSearchFinishedStatusLine(input: {
+  runCountLabel: string;
+  savedByRun: number;
+  keptInPlan: number;
+}): string {
+  const savedByRun = normalizeCount(input.savedByRun);
+  const keptInPlan = normalizeCount(input.keptInPlan);
+
+  if (savedByRun === 0 || keptInPlan === savedByRun) {
+    return `Search finished · ${input.runCountLabel}, all on this device.`;
+  }
+
+  return `Search finished · ${formatSavedAndKeptCounts(savedByRun, keptInPlan)}.`;
+}
+
+/**
+ * The one clause that states both populations with the noun that separates
+ * them: "saved" is the device, "kept" is the active search plan. Both numbers
+ * were once introduced as "kept", which read as one number contradicting
+ * itself; later the second lost its verb entirely, which left "· 15 in your
+ * current search plan" beside Find jobs' "15 jobs kept in this search plan"
+ * as two different vocabularies for one fact.
+ */
+function formatSavedAndKeptCounts(
+  savedByRun: number,
+  keptInPlan: number,
+): string {
+  return `${savedByRun} new ${
     savedByRun === 1 ? "job" : "jobs"
-  } on this device · ${keptInPlan} in your current search plan.`;
+  } saved on this device · ${keptInPlan} kept in your current search plan`;
 }

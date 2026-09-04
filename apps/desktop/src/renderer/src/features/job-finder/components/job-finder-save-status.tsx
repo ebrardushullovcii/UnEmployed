@@ -8,6 +8,7 @@ import {
 import { AlertTriangle, Check, LoaderCircle, RotateCcw, X } from "lucide-react";
 import { Button } from "@renderer/components/ui/button";
 import type { JobFinderSaveState } from "@renderer/pages/job-finder-save-state";
+import { useBottomRightDock } from "./bounded-floating-surface";
 
 export const SAVE_SUCCESS_VISIBLE_MS = 5_000;
 export const SAVE_STATUS_DEFAULT_TOP_OFFSET_PX = 16;
@@ -20,6 +21,27 @@ const SAVE_STATUS_VIEWPORT_GAP_PX = 16;
  * runtime because the shell intentionally has a second navigation row at
  * medium widths.
  */
+/**
+ * The lane's own bottom bound. It is a right-edge surface, so a long failed
+ * message could grow all the way down through the bottom-right dock and cover
+ * the Assistant launcher and the recovery notice sitting there. The dock
+ * reports the top of its stack and the lane stops one gap above it.
+ */
+export function getSaveStatusMaxHeight(input: {
+  dockStackTop: number;
+  topOffset: number;
+  viewportGap?: number;
+  viewportHeight: number;
+}): number {
+  const viewportGap = input.viewportGap ?? SAVE_STATUS_VIEWPORT_GAP_PX;
+  const viewportFloor = input.viewportHeight - viewportGap;
+  const dockFloor = Number.isFinite(input.dockStackTop)
+    ? input.dockStackTop - viewportGap
+    : viewportFloor;
+
+  return Math.max(0, Math.min(viewportFloor, dockFloor) - input.topOffset);
+}
+
 export function getSaveStatusTopOffset(input: {
   shellHeaderBottom?: number;
   viewportHeight?: number;
@@ -59,6 +81,19 @@ export function JobFinderSaveStatus(props: {
   saveState: JobFinderSaveState;
 }) {
   const [topOffset, setTopOffset] = useState(SAVE_STATUS_DEFAULT_TOP_OFFSET_PX);
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window === "undefined" ? 0 : window.innerHeight,
+  );
+  // Reads the dock without claiming a slot in it: the lane keeps its own
+  // top-right position and only bounds its height against the corner.
+  const dock = useBottomRightDock({
+    active: false,
+    height: 0,
+    id: "job-finder-save-status",
+    minTopOffset: 0,
+    order: 0,
+    width: 0,
+  });
   const savedMessageKey =
     props.saveState.state === "idle"
       ? "idle"
@@ -107,6 +142,9 @@ export function JobFinderSaveStatus(props: {
       setTopOffset((current) =>
         current === nextOffset ? current : nextOffset,
       );
+      setViewportHeight((current) =>
+        current === window.innerHeight ? current : window.innerHeight,
+      );
     };
 
     const resizeObserver =
@@ -125,8 +163,17 @@ export function JobFinderSaveStatus(props: {
   }, []);
 
   useEffect(() => {
-    if (props.saveState.state !== "saved") {
+    // Only idle and in-flight states clear the dismissal record. A dismissed
+    // failure must stay dismissed for as long as that exact failure is the
+    // current state; a later failure carries a different key and reappears.
+    if (
+      props.saveState.state === "idle" ||
+      props.saveState.state === "saving"
+    ) {
       setDismissedSavedMessageKey(null);
+      return;
+    }
+    if (props.saveState.state !== "saved") {
       return;
     }
     if (autoDismissPaused) {
@@ -152,10 +199,10 @@ export function JobFinderSaveStatus(props: {
     return null;
   }
 
-  if (
-    props.saveState.state === "saved" &&
-    dismissedSavedMessageKey === savedMessageKey
-  ) {
+  // The dismissal key names the exact message, so this hides only the status
+  // the user actually dismissed — a saved confirmation or an acknowledged
+  // failure — and never a later one.
+  if (dismissedSavedMessageKey === savedMessageKey) {
     return null;
   }
 
@@ -175,7 +222,16 @@ export function JobFinderSaveStatus(props: {
         data-save-status={props.saveState.state}
         data-save-state={props.saveState.state}
         style={{
-          maxHeight: `calc(100vh - ${topOffset + SAVE_STATUS_VIEWPORT_GAP_PX}px)`,
+          maxHeight: `${getSaveStatusMaxHeight({
+            dockStackTop: dock.stackTop,
+            topOffset,
+            viewportHeight:
+              viewportHeight > 0
+                ? viewportHeight
+                : typeof window === "undefined"
+                  ? 0
+                  : window.innerHeight,
+          })}px`,
           top: `${topOffset}px`,
         }}
         onBlurCapture={(event) => {
@@ -217,9 +273,28 @@ export function JobFinderSaveStatus(props: {
             {props.saveState.retryBlockedReason}
           </span>
         ) : null}
-        {props.saveState.state === "saved" ? (
+        {/* A failed save has the same dismiss control as a successful one.
+            Without it the toast — and the navigation and window-close guards
+            that read the same failed state — stayed for the rest of the
+            session unless that exact surface saved again. Dismissing only
+            acknowledges the failure: a form that is still dirty keeps its own
+            unsaved-changes protection.
+
+            Settings is the exception. Its sections stage drafts in local state
+            with no dirty flag behind the leave guards, so its failed state is
+            the only thing protecting those drafts and must not be dismissible
+            here; the controller mirrors this rule in
+            `canAcknowledgeFailedSave` and releases a settings failure through
+            the explicit "Leave without saving" decision instead. */}
+        {props.saveState.state === "saved" ||
+        (props.saveState.state === "failed" &&
+          props.saveState.surface !== "settings") ? (
           <Button
-            aria-label={`Dismiss ${props.saveState.label} saved message`}
+            aria-label={
+              props.saveState.state === "saved"
+                ? `Dismiss ${props.saveState.label} saved message`
+                : `Dismiss ${props.saveState.label} save error`
+            }
             onClick={dismissSavedMessage}
             size="icon-sm"
             type="button"

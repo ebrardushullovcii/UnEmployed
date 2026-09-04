@@ -381,7 +381,9 @@ describe("canonical route first paint", () => {
       screen.getByText("Offline catalog; live source search unavailable."),
     ).toBeTruthy();
     expect(screen.queryByTestId("discovery-search-bar-browser")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Open browser" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Open the Job Finder browser" }),
+    ).toBeNull();
     expect(onOpenBrowserSession).not.toHaveBeenCalled();
   });
 
@@ -395,7 +397,9 @@ describe("canonical route first paint", () => {
     renderCanonicalRoute("/job-finder", <JobFinderHomeRoute />, context);
 
     fireEvent.click(
-      await screen.findByRole("button", { name: "Open browser" }),
+      await screen.findByRole("button", {
+        name: "Open the Job Finder browser",
+      }),
     );
 
     expect(onOpenBrowserSession).toHaveBeenCalledTimes(1);

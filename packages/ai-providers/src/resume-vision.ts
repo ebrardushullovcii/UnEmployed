@@ -696,9 +696,13 @@ export function createOpenAiCompatibleResumeVisionProvider(
           error instanceof Error
             ? error.message
             : "Resume vision provider failed.";
+        // Every candidate below comes from the deterministic provider, so the
+        // reported kind and label must be the deterministic ones. Reporting
+        // the configured vision provider here made a timed-out scan
+        // indistinguishable from a model scan everywhere the run is shown.
         return ResumeVisionExtractionResultSchema.parse({
-          analysisProviderKind: "openai_compatible_vision",
-          analysisProviderLabel: status.label,
+          analysisProviderKind: fallbackResult.analysisProviderKind,
+          analysisProviderLabel: fallbackResult.analysisProviderLabel,
           candidates: fallbackResult.candidates,
           warnings: [...fallbackResult.warnings, message],
           notes: [
@@ -707,6 +711,12 @@ export function createOpenAiCompatibleResumeVisionProvider(
           ],
           primaryErrorMessage: message,
           fallbackUsed: true,
+          fallback: {
+            kind: /timed out after \d+s/i.test(message)
+              ? ("timeout" as const)
+              : ("provider_error" as const),
+            reason: message,
+          },
         });
       }
     },

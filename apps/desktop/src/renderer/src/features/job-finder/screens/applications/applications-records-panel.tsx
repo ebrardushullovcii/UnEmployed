@@ -17,6 +17,16 @@ import {
 import { cn } from "@renderer/lib/utils";
 import { EmptyState } from "../../components/empty-state";
 import {
+  jobFinderListRegionClassName,
+  jobFinderListRowBadgeSlotClassName,
+  jobFinderListRowClassName,
+  jobFinderListRowLinesClassName,
+  jobFinderListRowMetaClassName,
+  jobFinderListRowStatusClassName,
+  jobFinderListRowTitleClassName,
+  jobFinderListRowTitleLineClassName,
+} from "../../components/list-row";
+import {
   CollectionPagination,
   COLLECTION_PAGE_SIZE,
 } from "../../components/collection-pagination";
@@ -35,6 +45,7 @@ import {
 import {
   APPLICATION_FILTER_LABELS,
   APPLICATION_FILTERS,
+  formatApplicationFilterAccessibleLabel,
   type ApplicationsViewFilter,
 } from "./applications-filters";
 import {
@@ -124,9 +135,9 @@ export function ApplicationsRecordsPanel({
     [applicationRecords, onSelectRecord],
   );
   // A single record used to wrap five chips onto two rows in a narrow list
-  // column. "All" and "Needs you" always stay (they are the two views a user
-  // switches between), plus any view that actually holds something and the
-  // active view so the current selection can never disappear.
+  // column. "All" and "Waiting on you" always stay (they are the two views a
+  // user switches between), plus any view that actually holds something and
+  // the active view so the current selection can never disappear.
   const visibleFilters = useMemo(
     () =>
       APPLICATION_FILTERS.filter(
@@ -179,6 +190,10 @@ export function ApplicationsRecordsPanel({
             </span>
             {visibleFilters.map((filterOption) => (
               <Button
+                aria-label={formatApplicationFilterAccessibleLabel(
+                  filterOption,
+                  filterCounts[filterOption],
+                )}
                 aria-pressed={activeFilter === filterOption}
                 className={cn(
                   "shrink-0 whitespace-nowrap rounded-full ring-inset focus-visible:ring-inset",
@@ -238,7 +253,10 @@ export function ApplicationsRecordsPanel({
       ) : (
         <ul
           aria-label="Applications"
-          className="grid min-h-0 flex-1 content-start gap-2 overflow-x-hidden overflow-y-auto p-3"
+          className={cn(
+            jobFinderListRegionClassName,
+            "min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
+          )}
           data-locked-pane-scroll-region
           ref={recordsRegionRef}
         >
@@ -279,6 +297,7 @@ export function ApplicationsRecordsPanel({
                     below by tens of pixels. */}
                 <SelectableRow
                   aria-describedby={recordStateDescriptionId}
+                  className={jobFinderListRowClassName}
                   aria-keyshortcuts="ArrowUp ArrowDown Home End"
                   aria-label={`View details for ${employerAriaLabel}`}
                   data-collection-item-id={record.id}
@@ -288,40 +307,49 @@ export function ApplicationsRecordsPanel({
                   }
                   selected={selectedRecord?.id === record.id}
                 >
-                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-1.5">
-                    <div className="grid min-w-0 gap-0.5">
-                      <strong className="font-display min-w-0 break-words font-semibold tracking-[-0.015em] text-foreground">
+                  <div className={jobFinderListRowLinesClassName}>
+                    {/* Title line, with the one badge slot trailing it - the
+                        same slot Find jobs and Shortlisted use. The row's own
+                        description below already reads "Stage <label>", so no
+                        second "Stage" label is announced beside the badge. */}
+                    <div className={jobFinderListRowTitleLineClassName}>
+                      <strong className={jobFinderListRowTitleClassName}>
                         {record.title}
                       </strong>
-                      <SelectableRowLine className="break-words text-(length:--text-small) text-foreground-soft">
-                        {employerLine}
-                      </SelectableRowLine>
-                      {/* One status line only: the stage badge already names
-                          the state, so the latest-activity sentence (which
-                          often repeated this exact next step) is not shown
-                          twice. */}
-                      <SelectableRowLine className="break-words text-(length:--text-small) font-medium leading-5 text-primary">
-                        {nextStepLabel ? `Next: ${nextStepLabel}` : null}
-                      </SelectableRowLine>
+                      <div className={jobFinderListRowBadgeSlotClassName}>
+                        <StatusBadge tone={stage.tone}>
+                          {stage.label}
+                        </StatusBadge>
+                        <SelectableRowLine
+                          className="flex items-center justify-end"
+                          reserve={false}
+                        >
+                          {showAttemptBadge ? (
+                            <StatusBadge
+                              tone={getAttemptTone(record.lastAttemptState)}
+                            >
+                              {attemptLabel}
+                            </StatusBadge>
+                          ) : null}
+                        </SelectableRowLine>
+                      </div>
                     </div>
-                    {/* The row's own description below already reads
-                        "Stage <label>", so no second "Stage" label is
-                        announced beside the badge. */}
-                    <div className="flex min-w-0 flex-col items-end gap-1">
-                      <StatusBadge tone={stage.tone}>{stage.label}</StatusBadge>
-                      <SelectableRowLine
-                        className="flex items-center justify-end"
-                        reserve={false}
-                      >
-                        {showAttemptBadge ? (
-                          <StatusBadge
-                            tone={getAttemptTone(record.lastAttemptState)}
-                          >
-                            {attemptLabel}
-                          </StatusBadge>
-                        ) : null}
-                      </SelectableRowLine>
-                    </div>
+                    <SelectableRowLine
+                      className={jobFinderListRowMetaClassName}
+                    >
+                      {employerLine}
+                    </SelectableRowLine>
+                    {/* One status line only: the stage badge already names the
+                        state, so the latest-activity sentence (which often
+                        repeated this exact next step) is not shown twice. */}
+                    <SelectableRowLine
+                      className={cn(
+                        jobFinderListRowStatusClassName,
+                        "font-medium text-primary",
+                      )}
+                    >
+                      {nextStepLabel ? `Next: ${nextStepLabel}` : null}
+                    </SelectableRowLine>
                   </div>
                   <span className="sr-only" id={recordStateDescriptionId}>
                     {showAttemptBadge

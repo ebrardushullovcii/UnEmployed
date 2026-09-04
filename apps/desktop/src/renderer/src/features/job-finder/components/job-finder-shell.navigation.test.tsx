@@ -13,7 +13,16 @@ import {
 import { Link, MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { JobFinderShell } from "./job-finder-shell";
+import {
+  SHELL_HEADER_MASK_HEIGHT_CLASS,
+  SHELL_HEADER_MASK_HEIGHT_PX,
+  SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
+  SHELL_HEADER_MASK_OPAQUE_STOP_FRACTION,
+  SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_CLASS,
+  SHELL_SCROLLING_ROUTE_TOP_GUTTER_CLASS,
+  SHELL_SCROLLING_ROUTE_TOP_GUTTER_PX,
+} from "../lib/job-finder-shell-gutters";
+import { COMPACT_NAV_PILL_CLASS, JobFinderShell } from "./job-finder-shell";
 
 const windowControlsState = {
   isClosable: true,
@@ -226,7 +235,10 @@ describe("JobFinderShell section navigation", () => {
     // group stays in this row until 1440px, so the reserve is one-sided: a
     // mirrored reserve would squeeze the destination card into a scroller at
     // the 1024px minimum instead of letting it stay on one line.
-    expect(navigation.className).toContain("min-[900px]:pr-80");
+    // Important on purpose: Tailwind v4 emits arbitrary `min-[...]` media
+    // variants before the named breakpoints, so a plain `min-[900px]:pr-80`
+    // loses the cascade to the still-matching `sm:pr-64` that follows it.
+    expect(navigation.className).toContain("min-[900px]:!pr-80");
     expect(navigation.className).not.toContain("min-[900px]:pl-80");
     expect(navigation.contains(notificationGroup)).toBe(false);
 
@@ -377,8 +389,9 @@ describe("JobFinderShell section navigation", () => {
     // the notification group has moved up to the header row, so this row
     // reserves nothing and the card lands on the true window centre.
     expect(sectionNavigation.className).toContain("justify-center");
-    expect(sectionNavigation.className).toContain("min-[900px]:pr-0");
+    expect(sectionNavigation.className).toContain("min-[900px]:!pr-0");
     expect(sectionNavigation.className).not.toContain("min-[900px]:pr-80");
+    expect(sectionNavigation.className).not.toContain("min-[900px]:!pr-80");
     // On macOS the notification group shares the compact row instead of
     // overlaying the right-aligned module navigation at <900px CSS width.
     expect(notificationGroup.className).toContain("sm:top-14");
@@ -698,15 +711,38 @@ describe("JobFinderShell section navigation", () => {
     // Primary rows, attention rows (Companies, Safeguards) and inventory rows
     // (Outcomes, Search plans, Resume approaches) all reach this list.
     expect(countClassNames.length).toBeGreaterThanOrEqual(6);
-    expect(new Set(countClassNames).size).toBe(1);
-    // A count is a number, not a chip: no fill, no pill, right-aligned.
-    const [countClassName] = countClassNames;
+    // Previously this asserted ONE class for every sidebar count and forbade
+    // any fill. That is the defect RC-05 records: an attention count then
+    // rendered as a bare number beside a destination name, so the Companies
+    // badge (pending merge reviews) read as a company inventory count and was
+    // wrong by an order of magnitude. The contract is now: exactly one
+    // inventory treatment, exactly one attention treatment, and the two are
+    // visibly different, so a bare number always means inventory.
+    const inventoryClassNames = countClassNames.filter((className) =>
+      className.includes("bg-transparent"),
+    );
+    const attentionClassNames = countClassNames.filter(
+      (className) => !className.includes("bg-transparent"),
+    );
+    expect(inventoryClassNames.length).toBeGreaterThan(0);
+    expect(attentionClassNames.length).toBeGreaterThan(0);
+    expect(new Set(inventoryClassNames).size).toBe(1);
+    expect(new Set(attentionClassNames).size).toBe(1);
+    expect(inventoryClassNames[0]).not.toBe(attentionClassNames[0]);
+
+    // An inventory count is a number, not a chip: no fill, no pill,
+    // right-aligned.
+    const [countClassName] = inventoryClassNames;
     expect(countClassName).toContain("bg-transparent");
     expect(countClassName).toContain("tabular-nums");
     expect(countClassName).toContain("justify-end");
     expect(countClassName).not.toContain("bg-primary");
     expect(countClassName).not.toContain("bg-(--input)");
     expect(countClassName).not.toContain("rounded-full");
+    // An attention count is filled and carries a noun, so it cannot be read as
+    // inventory volume.
+    expect(attentionClassNames[0]).toContain("bg-primary");
+    expect(attentionClassNames[0]).toContain("rounded-full");
 
     // Collapsing the rail moves every count to the same corner marker; it is
     // still exactly one treatment, never a per-destination variant.
@@ -1464,10 +1500,29 @@ describe("JobFinderShell section navigation", () => {
     expect(visibleLabel?.className).not.toContain("truncate");
     expect(moreButton.className).toContain("shrink-0");
     expect(moreButton.className).not.toContain("max-[899px]");
-    expect(moreButton.className).toContain("bg-(--surface-panel-raised)");
-    // Interactive chrome carries the >=3:1 control boundary, not the inert
-    // panel-chrome border.
-    expect(moreButton.className).toContain("border-(--control-border)");
+    // Previously this required `bg-(--surface-panel-raised)` plus
+    // `border-(--control-border)` on the trigger. That is COMP-31: the trigger
+    // was a bordered, filled, 4px-taller control standing in a row of flat
+    // text pills, so it read as a different class of thing. It now carries the
+    // same pill class as its neighbours; the icon and the active treatment are
+    // what mark it.
+    expect(moreButton.className).not.toContain("bg-(--surface-panel-raised)");
+    expect(moreButton.className).not.toContain("border-(--control-border)");
+    expect(moreButton.className).not.toContain("min-h-10");
+    const siblingPill = within(navigation).getByRole("button", {
+      name: /^Find jobs/,
+    });
+    // Structural tokens only: the active variant legitimately replaces the
+    // pill's weight, colour and bottom-border tokens, and `cn()` merges those
+    // away. What must match is that the trigger is the same kind of control.
+    const REPLACED_BY_ACTIVE_VARIANT =
+      /^(font-|text-muted-foreground$|border-b-|border-transparent$)/;
+    for (const token of COMPACT_NAV_PILL_CLASS.split(/\s+/).filter(
+      (token) => !REPLACED_BY_ACTIVE_VARIANT.test(token),
+    )) {
+      expect(moreButton.className).toContain(token);
+      expect(siblingPill.className).toContain(token);
+    }
     expect(moreButton.querySelector("svg")).toBeTruthy();
     // The icon stays as a shape cue beside the label, and the tooltip plus
     // accessible name remain exactly "More".
@@ -1910,7 +1965,14 @@ describe("JobFinderShell compact nav responsive contract", () => {
       name: /^Find jobs/,
     });
     const inventoryBadge = findJobsButton.querySelector("span:last-child");
-    expect(inventoryBadge?.className).toContain("bg-(--input)");
+    // Previously `bg-(--input)`: the compact nav painted the same number as a
+    // filled pill while the expanded sidebar painted it plain, so one count
+    // had two shapes one breakpoint apart (COMP-07). Both surfaces now share
+    // the one inline treatment.
+    expect(inventoryBadge?.className).toContain("bg-transparent");
+    expect(inventoryBadge?.className).toContain("tabular-nums");
+    expect(inventoryBadge?.className).not.toContain("bg-(--input)");
+    expect(inventoryBadge?.className).not.toContain("rounded-full");
     // Inventory volume is visual-only: hidden from assistive tech traversal
     // while the labeled destination stays the sole announced content.
     expect(inventoryBadge?.getAttribute("aria-hidden")).toBe("true");
@@ -1945,7 +2007,7 @@ describe("JobFinderShell compact nav responsive contract", () => {
     // dropdown trigger that hid which surface was waiting.
     expect(
       within(sidebarWithAttention).getByRole("button", {
-        name: "Safeguards: 1 need attention",
+        name: "Safeguards: 1 blocked",
       }),
     ).toBeTruthy();
     expect(
@@ -1954,9 +2016,10 @@ describe("JobFinderShell compact nav responsive contract", () => {
     const needsYouButton = screen.getByRole("button", {
       name: "Needs you: 1 unresolved",
     });
-    const needsYouBadge = Array.from(
-      needsYouButton.querySelectorAll("span"),
-    ).at(-1);
+    // The badge element itself, not the noun span nested inside it: an
+    // attention count now renders "1 unresolved" so the number can never be
+    // read as inventory volume.
+    const needsYouBadge = needsYouButton.querySelector("span.tabular-nums");
     expect(needsYouBadge?.className).toContain("bg-primary");
     expect(needsYouBadge?.getAttribute("aria-hidden")).toBeNull();
     expect(needsYouButton.textContent).toContain("1");
@@ -1967,17 +2030,15 @@ describe("JobFinderShell compact nav responsive contract", () => {
     fireEvent.click(planningTrigger);
     const safeguardsButton = within(
       screen.getByRole("navigation", { name: "More" }),
-    ).getByRole("button", { name: "Safeguards: 1 need attention" });
-    const attentionBadge = Array.from(
-      safeguardsButton.querySelectorAll("span"),
-    ).at(-1);
-    expect(attentionBadge?.textContent).toBe("1");
+    ).getByRole("button", { name: "Safeguards: 1 blocked" });
+    const attentionBadge = safeguardsButton.querySelector("span.tabular-nums");
+    expect(attentionBadge?.textContent).toBe("1blocked");
     // Attention work waiting on the user stays announced.
     expect(attentionBadge?.getAttribute("aria-hidden")).toBeNull();
     expect(
       within(screen.getByRole("navigation", { name: "More" })).getByRole(
         "button",
-        { name: "Safeguards: 1 need attention" },
+        { name: "Safeguards: 1 blocked" },
       ),
     ).toBeTruthy();
 
@@ -3141,5 +3202,212 @@ describe("JobFinderShell responsive shell contract", () => {
     expect(preventedStates).toEqual([true, false, false, false, false]);
     expect(onNavigate).toHaveBeenCalledTimes(1);
     window.removeEventListener("click", observer);
+  });
+});
+
+/**
+ * Resolve which `pr-*` utility actually wins at a given CSS width.
+ *
+ * jsdom applies no stylesheet, so a `toContain("min-[900px]:pr-0")` assertion
+ * proves only that a class is present — which is exactly how the compact
+ * destination card came to sit 127px left of the module switcher while its
+ * test was green. Tailwind v4 emits arbitrary `min-[…]`/`max-[…]` media
+ * variants BEFORE the named breakpoints (in the shipped stylesheet
+ * `min-[900px]:pr-0` lands at byte 141431 and `sm:pr-64` at 149486), so at
+ * >=900px both matched and the later `sm` rule won at equal specificity. Only
+ * `!important` reverses that.
+ */
+function resolveWinningPaddingRight(
+  className: string,
+  widthPx: number,
+): string | null {
+  const BASE = 0;
+  const ARBITRARY_MEDIA = 1;
+  const NAMED_BREAKPOINT = 2;
+  const NAMED_BREAKPOINT_MIN_WIDTH: Readonly<Record<string, number>> = {
+    lg: 1024,
+    md: 768,
+    sm: 640,
+    xl: 1280,
+  };
+
+  let winner: { important: boolean; rank: number; utility: string } | null =
+    null;
+
+  for (const token of className.split(/\s+/).filter(Boolean)) {
+    const separator = token.lastIndexOf(":");
+    const variant = separator < 0 ? null : token.slice(0, separator);
+    const rawUtility = token.slice(separator + 1);
+    const important = rawUtility.startsWith("!");
+    const utility = important ? rawUtility.slice(1) : rawUtility;
+
+    if (!/^pr-/.test(utility)) {
+      continue;
+    }
+
+    let rank = BASE;
+
+    if (variant !== null) {
+      const min = /^min-\[(\d+)px\]$/.exec(variant);
+      const max = /^max-\[(\d+)px\]$/.exec(variant);
+      const named = NAMED_BREAKPOINT_MIN_WIDTH[variant];
+
+      if (min) {
+        if (widthPx < Number(min[1])) {
+          continue;
+        }
+        rank = ARBITRARY_MEDIA;
+      } else if (max) {
+        if (widthPx > Number(max[1])) {
+          continue;
+        }
+        rank = ARBITRARY_MEDIA;
+      } else if (named !== undefined) {
+        if (widthPx < named) {
+          continue;
+        }
+        rank = NAMED_BREAKPOINT;
+      } else {
+        continue;
+      }
+    }
+
+    const beats =
+      winner === null ||
+      (important && !winner.important) ||
+      (important === winner.important && rank >= winner.rank);
+
+    if (beats) {
+      winner = { important, rank, utility };
+    }
+  }
+
+  return winner?.utility ?? null;
+}
+
+describe("compact navigation shares the header switcher's axis", () => {
+  beforeEach(() => {
+    class ResizeObserverMock {
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    }
+
+    vi.stubGlobal("ResizeObserver", ResizeObserverMock);
+    Object.defineProperty(window, "unemployed", {
+      configurable: true,
+      value: {
+        window: {
+          close: vi.fn().mockResolvedValue(undefined),
+          getControlsState: vi.fn().mockResolvedValue(windowControlsState),
+          minimize: vi.fn().mockResolvedValue(windowControlsState),
+          onControlsStateChange: vi.fn(() => vi.fn()),
+          toggleMaximize: vi.fn().mockResolvedValue(windowControlsState),
+        },
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      configurable: true,
+      value: scrollToMock,
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn().mockReturnValue({ matches: false }),
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function renderShellFor(
+    platform: "darwin" | "win32",
+    route = "/job-finder/discovery",
+  ) {
+    render(
+      <MemoryRouter initialEntries={[route]}>
+        <JobFinderShell platform={platform} workspace={createWorkspace()}>
+          <div>Current screen</div>
+        </JobFinderShell>
+      </MemoryRouter>,
+    );
+
+    return screen.getByRole("navigation", { name: "Job Finder sections" });
+  }
+
+  // The four compact widths the r15 capture measured. The row is
+  // `justify-center` in a single full-width grid column with symmetric
+  // gutters, so the card is on the window centre line exactly when the
+  // trailing reserve resolves to zero.
+  it.each([1024, 1152, 1200, 1280])(
+    "reserves nothing beside the card at %ipx on macOS, where the pills moved up to the header row",
+    (width) => {
+      const navigation = renderShellFor("darwin");
+
+      expect(resolveWinningPaddingRight(navigation.className, width)).toBe(
+        "pr-0",
+      );
+    },
+  );
+
+  it.each([1024, 1152, 1200, 1280])(
+    "keeps the one-sided reserve at %ipx off macOS, where the pills stay in this row",
+    (width) => {
+      const navigation = renderShellFor("win32");
+
+      expect(resolveWinningPaddingRight(navigation.className, width)).toBe(
+        "pr-80",
+      );
+    },
+  );
+
+  it("paints the header mask opaquely across the whole scrolling gutter", () => {
+    // Between the fixed header's bottom edge and the first row of a scrolling
+    // route sits the shell's own 12px `pt-3`. A route's sticky sub-navigation
+    // cannot cover that band — sticky is clamped to its containing block,
+    // which starts below the padding — so the page scrolls through it. The
+    // 4px fade that used to sit there left a readable half-line of the page
+    // floating between two chromes on Settings. The mask's opaque band must
+    // cover at least the whole gutter; the rest of it still fades so the
+    // first row at scroll 0 does not end on a hard edge.
+    // A scrolling route, where the shell owns both gutters.
+    renderShellFor("darwin", "/job-finder/settings");
+
+    const mask = document.querySelector<HTMLElement>(
+      "[data-job-finder-shell-header-mask]",
+    );
+
+    expect(mask?.className).toContain(SHELL_HEADER_MASK_HEIGHT_CLASS);
+    expect(mask?.className).toContain(SHELL_HEADER_MASK_OPAQUE_STOP_CLASS);
+    expect(mask?.className).toContain("from-(--shell-header-bg)");
+    expect(
+      SHELL_HEADER_MASK_HEIGHT_PX * SHELL_HEADER_MASK_OPAQUE_STOP_FRACTION,
+    ).toBeGreaterThanOrEqual(SHELL_SCROLLING_ROUTE_TOP_GUTTER_PX);
+
+    const main = document.querySelector<HTMLElement>("main");
+    expect(main?.className).toContain(SHELL_SCROLLING_ROUTE_TOP_GUTTER_CLASS);
+    expect(main?.className).toContain(
+      SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_CLASS,
+    );
+  });
+
+  it("leaves the sub-900px reserve exactly as it was", () => {
+    // Below the module switcher's own breakpoint there is no axis to share,
+    // and this band is under the 1024px minimum supported width. It must not
+    // change as a side effect of the fix above.
+    expect(
+      resolveWinningPaddingRight(renderShellFor("darwin").className, 800),
+    ).toBe("pr-64");
+    cleanup();
+    expect(
+      resolveWinningPaddingRight(renderShellFor("win32").className, 800),
+    ).toBe("pr-64");
   });
 });

@@ -131,6 +131,98 @@ async function expectSingletonRevisionParity(
   }
 }
 
+/**
+ * The profile revision is the compare-and-swap epoch shared by the profile,
+ * search-preferences and profile-setup-state singletons. Both backends must
+ * keep it monotonic across a reset: rewinding it to 1 makes a token captured
+ * before the reset satisfy the equality check afterwards (a classic ABA hole).
+ */
+async function expectResetEpochParity(
+  createRepository: () => JobFinderRepository | Promise<JobFinderRepository>,
+): Promise<void> {
+  const repository = await createRepository();
+  try {
+    await repository.commitProfileUpdate((current) => ({
+      ...current,
+      headline: "Changed",
+    }));
+    await repository.commitProfileUpdate((current) => ({
+      ...current,
+      summary: "Changed again",
+    }));
+    const beforeReset = await repository.getProfileWithRevision();
+    expect(beforeReset.revision).toBe(3);
+
+    await repository.reset(createSeed());
+
+    const afterReset = await repository.getProfileWithRevision();
+    expect(afterReset.revision).toBeGreaterThan(beforeReset.revision);
+    expect(afterReset.profile).toEqual(createSeed().profile);
+
+    await repository.reset(createSeed());
+    expect(
+      (await repository.getProfileWithRevision()).revision,
+    ).toBeGreaterThan(afterReset.revision);
+  } finally {
+    await repository.close();
+  }
+}
+
+/**
+ * The bootstrap epoch is 1, so a reset that rewinds to 1 lets renderer work
+ * queued against the pre-reset workspace overwrite the freshly seeded one —
+ * and `commitProfileCopilotState` writes search preferences and profile setup
+ * state unconditionally once its compare-and-swap passes, so those are
+ * clobbered too.
+ */
+async function expectPreResetTokenRejected(
+  createRepository: () => JobFinderRepository | Promise<JobFinderRepository>,
+): Promise<void> {
+  const seed = createSeed();
+  const repository = await createRepository();
+  try {
+    const captured = await repository.getProfileWithRevision();
+    expect(captured.revision).toBe(1);
+
+    await repository.reset(createSeed());
+
+    const staleUpdate = await repository.commitProfileUpdate(
+      (current) => ({ ...current, headline: "Pre-reset overwrite" }),
+      { expectedRevision: captured.revision },
+    );
+    expect(staleUpdate.status).toBe("stale");
+    expect((await repository.getProfile()).headline).toBe(
+      seed.profile.headline,
+    );
+
+    await repository.reset(createSeed());
+    const seededPreferences = await repository.getSearchPreferences();
+
+    const staleCopilot = await repository.commitProfileCopilotState({
+      profile: { ...captured.profile, headline: "Pre-reset copilot overwrite" },
+      searchPreferences: {
+        ...seed.searchPreferences,
+        targetRoles: ["Pre-reset role"],
+      },
+      profileSetupState: seed.profileSetupState,
+      messages: [],
+      revisions: [],
+      expectedProfileRevision: captured.revision,
+    });
+    expect(staleCopilot.status).toBe("stale");
+    expect((await repository.getProfile()).headline).toBe(
+      seed.profile.headline,
+    );
+    expect(await repository.getSearchPreferences()).toEqual(seededPreferences);
+    expect((await repository.getSearchPreferences()).targetRoles).not.toContain(
+      "Pre-reset role",
+    );
+    expect(await repository.listProfileCopilotMessages()).toHaveLength(0);
+  } finally {
+    await repository.close();
+  }
+}
+
 describe("singleton profile revisions", () => {
   test("in-memory repository applies, increments, and rejects stale writes", async () => {
     await expectSingletonRevisionParity(() =>
@@ -239,25 +331,43 @@ describe("singleton profile revisions", () => {
     }
   });
 
-  test("reset reinitializes the profile revision deterministically", async () => {
-    const repository = createInMemoryJobFinderRepository(createSeed());
-    try {
-      await repository.commitProfileUpdate((current) => ({
-        ...current,
-        headline: "Changed",
-      }));
-      await repository.commitProfileUpdate((current) => ({
-        ...current,
-        summary: "Changed again",
-      }));
-      expect((await repository.getProfileWithRevision()).revision).toBe(3);
+  test("reset advances the profile revision without rewinding it in both repositories", async () => {
+    await expectResetEpochParity(() =>
+      createInMemoryJobFinderRepository(createSeed()),
+    );
 
-      await repository.reset(createSeed());
-      const reset = await repository.getProfileWithRevision();
-      expect(reset.revision).toBe(1);
-      expect(reset.profile).toEqual(createSeed().profile);
+    const tempDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "unemployed-db-reset-epoch-"),
+    );
+    try {
+      await expectResetEpochParity(() =>
+        createFileJobFinderRepository({
+          filePath: path.join(tempDirectory, "job-finder-state.sqlite"),
+          seed: createSeed(),
+        }),
+      );
     } finally {
-      await repository.close();
+      await cleanupTempDirectoryWithRetry(tempDirectory);
+    }
+  });
+
+  test("a token captured before reset is rejected afterwards in both repositories", async () => {
+    await expectPreResetTokenRejected(() =>
+      createInMemoryJobFinderRepository(createSeed()),
+    );
+
+    const tempDirectory = await mkdtemp(
+      path.join(os.tmpdir(), "unemployed-db-reset-stale-token-"),
+    );
+    try {
+      await expectPreResetTokenRejected(() =>
+        createFileJobFinderRepository({
+          filePath: path.join(tempDirectory, "job-finder-state.sqlite"),
+          seed: createSeed(),
+        }),
+      );
+    } finally {
+      await cleanupTempDirectoryWithRetry(tempDirectory);
     }
   });
 });

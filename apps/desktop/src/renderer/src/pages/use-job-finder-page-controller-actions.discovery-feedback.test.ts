@@ -145,6 +145,40 @@ describe("shared discovery run feedback handler", () => {
     expect(harness.actionState.message).not.toContain("remote method");
   });
 
+  it("keeps the specific recovery action when the cause carries an internal identifier", async () => {
+    // The detail channel proves itself here. This failure names the browser
+    // AND carries a run id, so the user-copy classifier
+    // (`getJobFinderErrorMessage`) replaces the whole sentence with the
+    // generic "Something went wrong" line — which mentions no browser, so
+    // `getDiscoveryRunFailureRecovery` degrades to the generic "retry"
+    // callout and the person loses the one control that fixes it: opening the
+    // Job Finder browser. Feeding the raw detail keeps that action.
+    const runAgentDiscovery = vi
+      .fn<JobFinderShellActions["runAgentDiscovery"]>()
+      .mockRejectedValue(
+        new Error(
+          "Error invoking remote method 'job-finder:run-agent-discovery': Error: discovery_run_9f2c41 could not launch the dedicated browser profile.",
+        ),
+      );
+    const harness = createDiscoveryFeedbackHarness({ runAgentDiscovery });
+
+    harness.pageActions.onRunAgentDiscovery();
+
+    await vi.waitFor(() => {
+      expect(harness.feedbackUpdates.at(-1)?.status).toBe("failed");
+    });
+
+    const terminal = harness.feedbackUpdates.at(-1);
+    expect(terminal?.recovery?.kind).toBe("browser_session");
+    expect(terminal?.recovery?.actionLabel).not.toBeNull();
+    expect(terminal?.recovery?.kind).not.toBe("retry");
+    // Verbatim service detail, with only Electron's transport wrapper gone.
+    expect(terminal?.detail).toBe(
+      "discovery_run_9f2c41 could not launch the dedicated browser profile.",
+    );
+    expect(terminal?.detail).not.toContain("remote method");
+  });
+
   it("classifies provider and network transport failures as connection issues", async () => {
     const runAgentDiscovery = vi
       .fn<JobFinderShellActions["runAgentDiscovery"]>()

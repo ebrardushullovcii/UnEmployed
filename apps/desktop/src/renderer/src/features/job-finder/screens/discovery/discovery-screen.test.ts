@@ -293,6 +293,10 @@ describe("getDiscoverySearchReadiness", () => {
 
 describe("getDiscoveryResultVisibility", () => {
   it("pools weaker and clearly mismatched bound assessments as also found while leaving provisional scores alone", () => {
+    // "Bound" here means the score is a current authority *and* was earned:
+    // both binding fingerprints plus at least one verified dimension. A score
+    // that was never checked past the listing title is withheld, so it is not
+    // banded by that number at all.
     const bind = (job: SavedJob): SavedJob =>
       ({
         ...job,
@@ -301,6 +305,7 @@ describe("getDiscoveryResultVisibility", () => {
           ...job.matchAssessment,
           contextFingerprint: "context",
           postingFingerprint: "posting",
+          dimensions: { roleSuitability: { state: "exact" } },
         },
       }) as unknown as SavedJob;
     const strong = bind(createSavedJob("strong", "strong_fit", 80));
