@@ -35,6 +35,7 @@ interface FakeScanPayload {
 
 interface FakePageOptions {
   scanPayload?: FakeScanPayload | null;
+  scanPayloadSequence?: FakeScanPayload[];
   bodyText?: string;
   snapshot?: string;
   url?: string;
@@ -42,6 +43,7 @@ interface FakePageOptions {
 }
 
 function createCompactFirstFakePage(options: FakePageOptions = {}): Page {
+  let scanIndex = 0;
   const landingUrl = options.url ?? "https://www.linkedin.com/jobs/search/";
   const bodyLocator = {
     async innerText() {
@@ -75,13 +77,13 @@ function createCompactFirstFakePage(options: FakePageOptions = {}): Page {
         typeof fn === "function" &&
         String(fn).includes(COMPACT_SCANNER_FN_NAME)
       ) {
-        if (options.scanPayload === undefined || options.scanPayload === null) {
-          return null;
-        }
+        const payload =
+          options.scanPayloadSequence?.[scanIndex++] ?? options.scanPayload;
+        if (!payload) return null;
         return {
-          structuredPostings: options.scanPayload.structuredPostings ?? [],
-          cardContainers: options.scanPayload.cardContainers ?? [],
-          elements: options.scanPayload.elements ?? [],
+          structuredPostings: payload.structuredPostings ?? [],
+          cardContainers: payload.cardContainers ?? [],
+          elements: payload.elements ?? [],
         };
       }
       return [];
@@ -196,6 +198,37 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
     expect(
       progressActions.filter((action) => action === "compact_page_observation"),
     ).toHaveLength(1);
+  });
+
+  test("waits for delayed listing content before escalating to a model", async () => {
+    const chatWithTools = vi.fn();
+    const extractJobsFromPage = vi.fn();
+    const llmClient: LLMClient = { chatWithTools };
+    const jobExtractor: JobExtractor = { extractJobsFromPage };
+    const result = await runAgentDiscovery(
+      createCompactFirstFakePage({
+        scanPayloadSequence: [
+          {},
+          {
+            elements: [
+              {
+                role: "link",
+                accessibleName: "Frontend Engineer",
+                href: "https://careers.example.test/jobs/123-frontend",
+                jobIdHint: "123",
+              },
+            ],
+          },
+        ],
+      }),
+      createOrdinaryConfig({ targetJobCount: 1 }),
+      llmClient,
+      jobExtractor,
+    );
+    expect(result.jobs.map((job) => job.title)).toEqual(["Frontend Engineer"]);
+    expect(result.incomplete).toBeFalsy();
+    expect(chatWithTools).not.toHaveBeenCalled();
+    expect(extractJobsFromPage).not.toHaveBeenCalled();
   });
 
   test("partial supported observation seeds state once, gives fallback bounded evidence only, and later extraction does not duplicate the retained composite", async () => {

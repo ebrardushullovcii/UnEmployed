@@ -141,6 +141,36 @@ describe("buildJobFinderTaskCenterModel", () => {
     );
   });
 
+  test("does not show the previous search's sources and counts during a new live run", () => {
+    const previous = createDiscoveryRun({
+      id: "previous",
+      state: "completed",
+      targetIds: ["source_a"],
+    });
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        activeDiscoveryRun: previous,
+        recentDiscoveryRuns: [previous],
+      }),
+      isDiscoveryPending: true,
+      isResumeImportPending: false,
+      liveDiscoveryEvents: [
+        {
+          id: "new_event",
+          runId: "new_search",
+          targetId: "source_b",
+          stage: "navigation",
+          jobsPersisted: 0,
+        } as DiscoveryActivityEvent,
+      ],
+    });
+    const task = findTask(model, "discovery");
+    expect(task.id).toBe("new_search");
+    expect(task.sourceLabel).toBe("Aircall careers");
+    expect(task.countLabel).toContain("0 of 1 sources finished");
+    expect(task.countLabel).not.toContain("3 new jobs saved");
+  });
+
   test("projects active discovery lifecycle, source counts, cancellation, and history-only ETA", () => {
     const currentRun = createDiscoveryRun();
     const historicalRun = createDiscoveryRun({
@@ -572,28 +602,27 @@ describe("buildJobFinderTaskCenterModel", () => {
   });
 
   test("keeps a paused apply run cancellable but routes resumption through existing review", () => {
-    const task = findTask(
-      buildJobFinderTaskCenterModel({
-        workspace: createWorkspace({
-          applyRuns: [
-            createApplyRun({
-              state: "paused_for_consent",
-              totalJobs: 3,
-              pendingJobs: 2,
-              blockedJobs: 1,
-            }),
-          ],
-        }),
-        isDiscoveryPending: false,
-        isResumeImportPending: false,
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        applyRuns: [
+          createApplyRun({
+            state: "paused_for_consent",
+            totalJobs: 3,
+            pendingJobs: 2,
+            blockedJobs: 1,
+          }),
+        ],
       }),
-      "apply",
-    );
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+    });
+    const task = findTask(model, "apply");
+    expect(model.activeCount).toBe(0);
 
     expect(task.status).toBe("paused");
     expect(task.stageLabel).toBe("Waiting for your consent");
     expect(task.countLabel).toBe(
-      "1 of 3 application tasks finished · 1 blocked · 0 need attention",
+      "1 of 3 application tasks finished · 1 blocked · Waiting on you",
     );
     expect(task.canCancel).toBe(true);
     expect(task.resumeRoute).toBe("/job-finder/applications");

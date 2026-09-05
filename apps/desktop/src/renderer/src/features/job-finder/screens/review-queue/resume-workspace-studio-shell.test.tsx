@@ -261,7 +261,7 @@ describe("ResumeWorkspaceStudioShell", () => {
     expect(screen.queryByText("Saved draft")).toBeNull();
     expect(
       screen.getByText(
-        "Job Finder creates and verifies the application PDF in the background. Downloading a copy is optional. Final submission stays disabled.",
+        "The application PDF is built and checked when you approve.",
       ),
     ).toBeTruthy();
   });

@@ -733,8 +733,8 @@ export function ResumeWorkspaceStudioShell(
         props.canClearApproval
           ? `Application PDF ready${describeApprovedPageCount(
               props.approvedExportPageCount ?? null,
-            )}. Job Finder created and verified it. Downloading a copy is optional. Final submission stays disabled.`
-          : "Job Finder creates and verifies the application PDF in the background. Downloading a copy is optional. Final submission stays disabled."
+            )}. Download a copy if you want one.`
+          : "The application PDF is built and checked when you approve."
       }
       {...(props.setAsideProposalNote
         ? { setAsideProposalNote: props.setAsideProposalNote }
@@ -1005,14 +1005,6 @@ export function ResumeWorkspaceStudioShell(
               >
                 <div className="grid min-h-0 gap-4 xl:hidden">
                   <div className="grid gap-2.5">
-                    <div className="grid min-w-0 gap-1">
-                      <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
-                        Resume Studio
-                      </p>
-                      <h2 className="leading-tight text-(--text-headline)">
-                        Review and refine your resume.
-                      </h2>
-                    </div>
                     <StudioToolbar
                       canDownloadPdf={canDownloadPdf}
                       isApproved={props.canClearApproval}
@@ -1088,17 +1080,9 @@ export function ResumeWorkspaceStudioShell(
               tabIndex={0}
             >
               <div className="grid shrink-0 gap-2.5 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-2.5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="grid min-w-0 gap-1">
-                    <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
-                      Resume Studio
-                    </p>
-                    <h2 className="leading-tight text-(--text-headline)">
-                      Review and refine your resume.
-                    </h2>
-                  </div>
-                </div>
-
+                {/* No eyebrow or heading here: the job title above names the
+                    screen and the status banner names the step. The column
+                    opens on its controls. */}
                 <StudioToolbar
                   canDownloadPdf={canDownloadPdf}
                   isApproved={props.canClearApproval}

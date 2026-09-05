@@ -282,7 +282,7 @@ describe("MatchEvidenceMatrix", () => {
     expect(view.queryByText("Strong fit")).toBeNull();
     // The hedge itself still appears exactly once, at the top.
     expect(view.getByTestId("fit-title-only-note").textContent).toBe(
-      "Only the listing title could be checked — no pay, location, or requirements were captured. Copy the listing link to check the rest.",
+      "Fit is based on the title alone. Review the listing details before applying.",
     );
     expect(view.getByText("Score and evidence")).toBeTruthy();
     expect(

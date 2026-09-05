@@ -9,11 +9,11 @@ import {
 } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
+import { cn } from "@renderer/lib/cn";
 import { ResumeThemePicker } from "../../components/resume-theme-picker";
 import type { ResumeThemePickerRecommendationContext } from "../../components/resume-theme-picker";
 import {
   getAtsConfidenceLabel,
-  getLaneBadgeVariant,
   getLaneLabel,
   getTemplateOptionLabel,
 } from "../../components/resume-theme-picker-helpers";
@@ -46,7 +46,18 @@ export function ResumeWorkspaceTemplatePanel(
 
   return (
     <section className="surface-panel-shell relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
-      <div className="border-b border-(--surface-panel-border) px-3 py-2">
+      {/* The header only earns its row while the chooser is open or the
+          selection is blocked; the collapsed state is one self-describing
+          line below. */}
+      <div
+        className={cn(
+          "border-b border-(--surface-panel-border) px-3 py-2",
+          selectedTheme &&
+            !chooserOpen &&
+            props.selectedTemplateApprovalEligible &&
+            "hidden",
+        )}
+      >
         <div className="flex flex-wrap items-center gap-2">
           <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
             Template
@@ -63,28 +74,23 @@ export function ResumeWorkspaceTemplatePanel(
 
       <div className="grid gap-2 p-2">
         {selectedTheme && !chooserOpen ? (
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/55 px-3 py-2">
-            <div className="grid min-w-0 gap-1">
-              <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 px-1 py-0.5">
+            <div className="grid min-w-0 gap-0.5">
+              <span className="text-(length:--text-small) leading-4 text-foreground-soft">
+                Template
+              </span>
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
                 <span className="text-sm font-semibold text-foreground">
                   {getTemplateOptionLabel(selectedTheme)}
                 </span>
-                <Badge
-                  variant={getLaneBadgeVariant(
-                    getResumeTemplateDeliveryLane(selectedTheme),
-                  )}
-                >
+                <span className="text-(length:--text-small) leading-4 text-foreground-soft">
                   {getLaneLabel(getResumeTemplateDeliveryLane(selectedTheme))}
-                </Badge>
-                <Badge variant="outline">
+                  {" · "}
                   {getAtsConfidenceLabel(
                     getResumeTemplateAtsConfidence(selectedTheme),
                   )}
-                </Badge>
+                </span>
               </div>
-              <p className="text-(length:--text-small) leading-4 text-foreground-soft">
-                {selectedTheme.fitSummary ?? selectedTheme.description}
-              </p>
             </div>
             <Button
               aria-controls={chooserId}

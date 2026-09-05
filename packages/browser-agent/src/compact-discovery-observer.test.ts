@@ -946,6 +946,43 @@ describe("compact discovery observer pure helpers", () => {
     expect(candidate?.company).toBe("Coalition, inc.");
   });
 
+  test.each([
+    ["Remote Developer Jobs", "/remote-dev-jobs"],
+    ["Build your resume", "/resume"],
+    ["Post a job →", "/hire"],
+    ["Health insurance", "/insurance"],
+  ])("does not turn the navigation link %s into a job", (title, href) => {
+    expect(
+      buildDomCardPostingCandidate({
+        container: makeContainer("nav", [title], { headingText: null }),
+        element: {
+          href,
+          accessibleName: title,
+          jobIdHint: null,
+          companyHref: null,
+          companyLabel: null,
+        },
+        pageUrl: "https://careers.example.test/",
+      }),
+    ).toBeNull();
+  });
+
+  test("keeps a sparse vacancy with a job-detail route", () => {
+    expect(
+      buildDomCardPostingCandidate({
+        container: null,
+        element: {
+          href: "/careers/ui-engineer",
+          accessibleName: "UI Engineer",
+          jobIdHint: null,
+          companyHref: null,
+          companyLabel: null,
+        },
+        pageUrl: "https://careers.example.test/",
+      })?.title,
+    ).toBe("UI Engineer");
+  });
+
   test("derives Wellfound numeric job ids from /jobs/{id}-slug URLs", () => {
     expect(
       deriveSourceJobIdFromUrl(

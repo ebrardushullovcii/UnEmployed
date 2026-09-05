@@ -331,13 +331,13 @@ export function ReviewQueueMissionPanel({
         {selectedItem && selectedJob ? (
           <>
             <div className="surface-card-tint grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
+              {/* The heading already says "for this job"; the caption stays
+                  for assistive tech only. */}
               <div className="grid gap-1">
                 <span className="text-xs font-semibold uppercase tracking-(--tracking-heading) text-foreground-soft">
                   Resume for this job
                 </span>
-                <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-                  Applies to this job only.
-                </p>
+                <p className="sr-only">Applies to this job only.</p>
               </div>
               {selectedItem.resumeReview.status === "approved" ? (
                 // Approved work is destructive to change, so the control is

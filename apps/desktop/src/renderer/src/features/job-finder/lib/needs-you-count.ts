@@ -61,6 +61,6 @@ export function countWorkspaceNeedsYouItems(
 ): number {
   return countNeedsYouItems({
     groupedDecisions: workspace.intelligence?.groupedDecisions ?? [],
-    requests: workspace.userActionRequests,
+    requests: workspace.userActionRequests ?? [],
   });
 }

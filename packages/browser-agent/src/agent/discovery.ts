@@ -1,3 +1,4 @@
+import { setTimeout as waitForPageContent } from "node:timers/promises";
 import type { Page } from "playwright";
 import type {
   DiscoveryCompactObservation,
@@ -87,7 +88,7 @@ const DISCOVERY_YIELD_EXHAUSTION_MIN_CANDIDATES = 2;
 // ---------------------------------------------------------------------------
 // Deterministic compact-first observation (ADR 0013 tier two)
 //
-// Ordinary discovery captures exactly one compact observation of the landed
+// Ordinary discovery captures a bounded compact observation of the landed
 // surface before any model call. These helpers only build caller-owned
 // identity and bounded fallback evidence; capture, merge, and control
 // execution policy stay with the observer contract and the run loop.
@@ -749,7 +750,7 @@ export async function runAgentDiscovery(
 
     // Compact-first deterministic observation (ADR 0013 tier two), ordinary
     // discovery only. Source-debug phases keep their own observation policy
-    // and skip this slice entirely. Capture happens exactly once here, before
+    // and skip this slice entirely. Capture happens here, with two bounded retries for a still-empty layout, before
     // any executeToolCall or LLM call: enough inventory ends the run with zero
     // model calls and zero legacy extraction tool calls; otherwise one bounded
     // summary message seeds the existing batch/model path unchanged. Capture
@@ -760,7 +761,7 @@ export async function runAgentDiscovery(
         return buildInterruptedBeforeModelWorkResult();
       }
 
-      const observation = await captureCompactDiscoveryObservation({
+      let observation = await captureCompactDiscoveryObservation({
         page: pageRef.current,
         targetId: buildCompactObservationTargetId(
           selectedStartingUrl,
@@ -771,6 +772,38 @@ export async function runAgentDiscovery(
         revision: 1,
         observedAt: new Date().toISOString(),
       });
+
+      // Client-rendered listings can arrive just after the document settles.
+      // Retry only an empty layout, before spending model calls on fallback.
+      for (
+        let retry = 1;
+        retry <= 2 &&
+        observation.kind === "unsupported" &&
+        observation.reason === "unsupported_layout";
+        retry += 1
+      ) {
+        emitProgress({
+          currentAction: "waiting_for_listing_content",
+          currentUrl: state.currentUrl,
+          jobsFound: state.collectedJobs.length,
+          stepCount: state.stepCount,
+          waitReason: "waiting_on_page",
+          message: "Waiting for the job listings to finish loading.",
+        });
+        try {
+          await waitForPageContent(1_000, undefined, signal ? { signal } : {});
+        } catch (error) {
+          if (signal?.aborted) return buildInterruptedBeforeModelWorkResult();
+          throw error;
+        }
+        observation = await captureCompactDiscoveryObservation({
+          page: pageRef.current,
+          targetId: observation.targetId,
+          observationId: observation.observationId,
+          revision: retry + 1,
+          observedAt: new Date().toISOString(),
+        });
+      }
 
       if (signal?.aborted) {
         return buildInterruptedBeforeModelWorkResult();
@@ -808,6 +841,17 @@ export async function runAgentDiscovery(
             debugFindings: pendingDebugFindings,
           });
         }
+      }
+
+      if (observation.kind === "unsupported") {
+        emitProgress({
+          currentAction: "compact_page_observation",
+          currentUrl: state.currentUrl,
+          jobsFound: state.collectedJobs.length,
+          stepCount: state.stepCount,
+          waitReason: "extracting_jobs",
+          message: `Quick page scan could not read this page (${observation.reason}${observation.detail ? `: ${observation.detail}` : ""}). Trying the full-page reader.`,
+        });
       }
 
       appendConversationMessage(state, {

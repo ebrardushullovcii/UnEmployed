@@ -42,6 +42,23 @@ const FIELD_SAVE_PAUSE_PATTERN =
 const FIELD_CONFLICT_PATTERN =
   /prefilled application values need manual review|conflicting (?:application )?fields|mismatched prefilled|do not match the exact saved candidate profile|review the conflicting/i;
 
+const BACKGROUND_PAGE_PAUSE_PATTERN =
+  /blocked a background page request|blocked a form submission before your review/i;
+
+export function applyResultIsBackgroundPagePause(
+  result: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null,
+): boolean {
+  return Boolean(
+    result && BACKGROUND_PAGE_PAUSE_PATTERN.test(getApplyResultCorpus(result)),
+  );
+}
+
+export const BACKGROUND_PAGE_PAUSE_ACTION =
+  "Open a fresh application page in the Job Finder browser. Review the fields and attach your approved resume there before sending it.";
+
+const BACKGROUND_PAGE_PAUSE_REASON =
+  "Job Finder could not continue preparing this page automatically. No application was sent.";
+
 /** Plain-language next action when a job site blocks automatic preparation. */
 export const SITE_BLOCKED_AUTOMATIC_PREP_NEXT_STEP = `This job site blocked automatic prep. Reset ${JOB_FINDER_BROWSER_NAME} in Safeguards, then finish the application on the site yourself.`;
 
@@ -158,6 +175,10 @@ export function getManualFieldFinishReason(
     return null;
   }
 
+  if (applyResultIsBackgroundPagePause(result)) {
+    return BACKGROUND_PAGE_PAUSE_REASON;
+  }
+
   return applyResultIsFieldSavePause(result)
     ? FIELD_SAVE_PAUSE_REASON
     : MANUAL_FIELD_CONFLICT_REASON;
@@ -166,6 +187,9 @@ export function getManualFieldFinishReason(
 export function getManualFieldFinishNextStep(
   result: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null,
 ): string {
+  if (applyResultIsBackgroundPagePause(result)) {
+    return `${BACKGROUND_PAGE_PAUSE_REASON} ${BACKGROUND_PAGE_PAUSE_ACTION}`;
+  }
   return applyResultIsFieldSavePause(result)
     ? FIELD_SAVE_PAUSE_NEXT_STEP
     : MANUAL_FIELD_FINISH_NEXT_STEP;
@@ -174,6 +198,9 @@ export function getManualFieldFinishNextStep(
 export function getManualFieldFinishGuidance(
   result: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null,
 ): string {
+  if (applyResultIsBackgroundPagePause(result)) {
+    return getManualFieldFinishNextStep(result);
+  }
   return applyResultIsFieldSavePause(result)
     ? FIELD_SAVE_PAUSE_GUIDANCE
     : MANUAL_FIELD_FINISH_GUIDANCE;
@@ -346,10 +373,13 @@ export function applyResultNeedsManualFieldFinish(
     return false;
   }
 
-  return MANUAL_FIELD_FINISH_PATTERN.test(
-    [result.summary, result.detail, result.blockerSummary]
-      .filter(Boolean)
-      .join(" "),
+  return (
+    applyResultIsBackgroundPagePause(result) ||
+    MANUAL_FIELD_FINISH_PATTERN.test(
+      [result.summary, result.detail, result.blockerSummary]
+        .filter(Boolean)
+        .join(" "),
+    )
   );
 }
 

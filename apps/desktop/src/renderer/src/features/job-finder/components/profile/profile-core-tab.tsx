@@ -54,11 +54,7 @@ export function ProfileCoreTab({ profileForm }: ProfileCoreTabProps) {
   return (
     <div className="grid gap-6">
       <section className="grid content-start gap-(--gap-card)">
-        <ProfileSectionHeader
-          eyebrow="Basics"
-          title="Personal details"
-          description="Start with the basics employers expect first: name, contact info, location, and key links."
-        />
+        <ProfileSectionHeader eyebrow="Basics" title="Personal details" />
 
         {/* One shared field list with guided setup › Basics: same fields,
             same order, same labels. */}

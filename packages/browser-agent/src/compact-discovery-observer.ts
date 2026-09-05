@@ -323,7 +323,7 @@ export function compactDiscoveryInPageScan(
 
   // Generic list-item semantics only; class-name heuristics stay out.
   const CONTAINER_SELECTOR =
-    'article, li, [role="listitem"], [role="article"], [role="option"]';
+    'article, li, tr, [role="row"], [role="listitem"], [role="article"], [role="option"]';
   const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
 
   const containerByKey = new Map<string, { node: Element; key: string }>();
@@ -677,6 +677,30 @@ export function compactDiscoveryInPageScan(
       continue;
     }
 
+    // Some pages put a URL-less JobPosting beside its visible title link.
+    // Bind only a single root posting to an exact title in the same card.
+    const rootPosting = asRecord(parsed);
+    const localCard = script.closest(CONTAINER_SELECTOR);
+    const localTitle = collapse(rootPosting?.title).toLowerCase();
+    const localTitleLinks =
+      rootPosting &&
+      readRecordTypes(rootPosting).includes("jobposting") &&
+      localTitle &&
+      localCard
+        ? Array.from(localCard.querySelectorAll<HTMLAnchorElement>("a[href]"))
+            .filter(
+              (anchor) =>
+                collapse(anchor.textContent).toLowerCase() === localTitle,
+            )
+            .map(resolveAbsoluteHref)
+            .filter((href): href is string => href !== null)
+        : [];
+    const uniqueLocalTitleLinks = [...new Set(localTitleLinks)];
+    const localPostingUrl =
+      uniqueLocalTitleLinks.length === 1
+        ? (uniqueLocalTitleLinks[0] ?? null)
+        : null;
+
     const queue: unknown[] = [parsed];
     let visited = 0;
     while (queue.length > 0 && visited < maxJsonLdQueueNodes) {
@@ -719,7 +743,9 @@ export function compactDiscoveryInPageScan(
         canonicalUrl:
           typeof record.url === "string" && record.url.trim()
             ? record.url.trim().slice(0, 2048)
-            : null,
+            : record === rootPosting
+              ? localPostingUrl
+              : null,
         title: collapse(record.title).slice(0, 200) || null,
         company:
           collapse(
@@ -1294,7 +1320,10 @@ export function buildDomCardPostingCandidate(input: {
   const consumeLine = (rawLine: string): void => {
     for (const segment of expandInlineMetadataSegments(rawLine)) {
       const value = cleanText(segment);
-      if (!value) {
+      if (
+        !value ||
+        value.replace(/\s+verified$/i, "").toLowerCase() === title.toLowerCase()
+      ) {
         continue;
       }
 
@@ -1362,6 +1391,26 @@ export function buildDomCardPostingCandidate(input: {
     (input.container?.easyApplyHint ?? false) ||
     EASY_APPLY_HINT_PATTERN.test(accessibleName) ||
     lines.some((line) => EASY_APPLY_HINT_PATTERN.test(line));
+
+  // An ordinary link is a navigation action, not evidence of a vacancy.
+  // Keep sparse posting links when the page provides an identity or a detail
+  // route, and cards when they carry metadata beyond the linked title.
+  const hasPostingIdentity = Boolean(
+    input.element.jobIdHint || deriveSourceJobIdFromUrl(canonicalUrl),
+  );
+  const hasDetailRoute =
+    /\/(?:jobs?|careers?|positions?|openings?)\/[^/]+/i.test(
+      new URL(canonicalUrl).pathname,
+    );
+  if (
+    !hasPostingIdentity &&
+    !hasDetailRoute &&
+    ((!headingText && !location && !salaryText && !postedAtText) ||
+      (!company && !location && !salaryText && !postedAtText && !description) ||
+      lines.some((line) => /^(?:ad|advertisement)$/i.test(cleanText(line))))
+  ) {
+    return null;
+  }
 
   return {
     sourceJobId:
@@ -2207,8 +2256,8 @@ function buildDomCardCandidates(
     containersByKey.set(container.key, container);
   }
 
-  // Choose the primary element per container: prefer href-bearing elements,
-  // then the longest accessible name, preserving scan order as tie-breaker.
+  // Prefer the card title link over longer category/filter link labels.
+  // Preserve scan order when the evidence is otherwise equivalent.
   // Only pre-routed open-posting elements reach this stage, so pagination and
   // overlay-close controls can never become posting candidates.
   const primaryElementByContainer = new Map<
@@ -2225,9 +2274,17 @@ function buildDomCardCandidates(
 
     if (element.containerKey) {
       const current = primaryElementByContainer.get(element.containerKey);
+      const heading = cleanText(
+        containersByKey.get(element.containerKey)?.headingText,
+      ).toLowerCase();
+      const matchesHeading = (candidate: ScannedInteractiveElement): boolean =>
+        Boolean(heading) &&
+        cleanText(candidate.accessibleName).toLowerCase() === heading;
       if (
         !current ||
-        element.accessibleName.length > current.accessibleName.length
+        (matchesHeading(element) && !matchesHeading(current)) ||
+        (matchesHeading(element) === matchesHeading(current) &&
+          element.accessibleName.length > current.accessibleName.length)
       ) {
         primaryElementByContainer.set(element.containerKey, element);
       }

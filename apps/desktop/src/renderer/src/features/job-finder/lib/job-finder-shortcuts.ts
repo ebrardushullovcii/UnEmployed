@@ -24,13 +24,13 @@ export const JOB_FINDER_SHORTCUTS: readonly JobFinderShortcutDefinition[] = [
   {
     combo: "mod+k",
     id: "open-global-search",
-    label: "Search current plan and workspace",
+    label: "Search your workspace",
     scope: "Anywhere in Job Finder",
   },
   {
     combo: "/",
     id: "open-global-search",
-    label: "Search current plan and workspace",
+    label: "Search your workspace",
     scope: "Outside text fields, controls, and dialogs",
   },
   {

@@ -597,7 +597,7 @@ describe("ProfileCopilotRail", () => {
       panel?.querySelector('[data-profile-copilot-movement-help="true"]'),
     ).toBeNull();
     expect(
-      panel?.querySelector('[data-profile-copilot-provider-disclosure="true"]'),
+      panel?.querySelector('[data-profile-copilot-provider-link="true"]'),
     ).not.toBeNull();
     expect(document.activeElement).toBe(textarea);
     expect(panel?.style.width).toBe("360px");

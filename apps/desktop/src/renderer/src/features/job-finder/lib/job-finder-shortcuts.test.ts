@@ -124,14 +124,14 @@ describe("job finder shortcut registry", () => {
         combos: [["⌘", "K"]],
         id: "open-global-search",
         rowId: "open-global-search::Anywhere in Job Finder",
-        label: "Search current plan and workspace",
+        label: "Search your workspace",
         scope: "Anywhere in Job Finder",
       },
       {
         combos: [["/"]],
         id: "open-global-search",
         rowId: "open-global-search::Outside text fields, controls, and dialogs",
-        label: "Search current plan and workspace",
+        label: "Search your workspace",
         scope: "Outside text fields, controls, and dialogs",
       },
       {

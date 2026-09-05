@@ -19,10 +19,7 @@ import { StatusBadge } from "../../components/status-badge";
 import { ApplicationsDetailPanelActivitySections } from "./applications-detail-panel-activity-sections";
 import { ApplicationsApplicationDocuments } from "./applications-application-documents";
 import { ApplicationsDetailPanelEmptyState } from "./applications-detail-panel-empty-state";
-import {
-  APPLICATION_DETAIL_FACT_LABEL_CLASS,
-  ApplicationsDetailFactStrip,
-} from "./applications-detail-fact-strip";
+import { ApplicationsDetailFactStrip } from "./applications-detail-fact-strip";
 import {
   buildQueueEntries,
   applicationNeedsPrimaryRecovery,
@@ -326,22 +323,24 @@ export function ApplicationsDetailPanel({
       {selectedRecordCompanyId &&
       onOpenCompany &&
       selectedRecordEmployerDisplay ? (
-        <div className="grid gap-2 @[34rem]/detail:grid-cols-2">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          {/* Reference links, not actions: text links read as "also
+              available" rather than as one more thing to do. */}
           <Button
-            className="h-10 justify-start px-3.5 text-sm font-medium normal-case tracking-normal"
+            className="h-auto px-0 text-sm font-medium normal-case tracking-normal"
             onClick={() => onOpenCompany(selectedRecordCompanyId)}
             size="compact"
             type="button"
-            variant="secondary"
+            variant="link"
           >
             View {selectedRecordEmployerDisplay} in Companies
           </Button>
           {canPrepareInterview ? (
             <Button
               asChild
-              className="h-10 justify-start px-3.5 text-sm font-medium normal-case tracking-normal"
+              className="h-auto px-0 text-sm font-medium normal-case tracking-normal"
               size="compact"
-              variant="secondary"
+              variant="link"
             >
               <a
                 href={`#${buildInterviewHelperApplicationHref({
@@ -382,18 +381,21 @@ export function ApplicationsDetailPanel({
       id="applications-detail-content"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="grid gap-1">
-          <p className={APPLICATION_DETAIL_FACT_LABEL_CLASS}>Details</p>
+        <div className="grid min-w-0 gap-0.5">
+          {/* Title first, employer under it: the same order as the row the
+              reader just clicked. The "Details" eyebrow said nothing the
+              panel did not already show. */}
           {selectedRecord ? (
-            selectedRecordEmployerDisplay ? (
-              <strong className="text-(length:--text-body) text-(--text-headline)">
-                {selectedRecordEmployerDisplay}
-              </strong>
-            ) : (
-              <strong className="text-(length:--text-body) text-(--text-headline)">
+            <>
+              <h2 className="min-w-0 break-words font-semibold tracking-tight text-(--text-headline)">
                 {selectedRecord.title}
-              </strong>
-            )
+              </h2>
+              {selectedRecordEmployerDisplay ? (
+                <span className="text-(length:--text-small) text-foreground-soft">
+                  {selectedRecordEmployerDisplay}
+                </span>
+              ) : null}
+            </>
           ) : (
             <strong className="text-(length:--text-body) text-muted-foreground">
               Nothing selected

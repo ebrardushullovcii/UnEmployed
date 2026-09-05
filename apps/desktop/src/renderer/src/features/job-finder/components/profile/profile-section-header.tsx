@@ -18,11 +18,10 @@ export function ProfileSectionHeader({
   return (
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div className="grid gap-1.5">
-        {eyebrow ? (
-          <p className="text-(length:--text-field-label) font-medium uppercase tracking-(--tracking-label) text-foreground-muted">
-            {eyebrow}
-          </p>
-        ) : null}
+        {/* The eyebrow is kept for assistive tech only: on screen it repeated
+            the active tab's name above every section title, which stacked
+            three headings before the first field. */}
+        {eyebrow ? <span className="sr-only">{eyebrow}. </span> : null}
         <div className="grid gap-1.5">
           <h2
             className="text-(length:--text-section-title) font-semibold tracking-[-0.02em] text-(--text-headline) outline-none"

@@ -104,15 +104,11 @@ export function ProfileSetupSummaryCards(props: {
     return (
       <Card className="min-w-0 overflow-hidden border-(--surface-panel-border) bg-(--surface-panel)">
         <CardHeader className="gap-3 border-b border-border/30 pb-5">
-          <Badge className="w-fit" variant="outline">
-            First step
-          </Badge>
           <CardTitle>Start with the resume you already have.</CardTitle>
           <CardDescription className="max-w-2xl">
-            Import your resume and Job Finder fills in your profile, then asks
-            only about gaps. The file is copied into this app&apos;s private
-            folder; if an AI provider is configured, the extracted text is sent
-            to it for analysis.
+            Job Finder fills in your profile from it and asks only about the
+            gaps. The file stays on this device; if an AI provider is
+            configured, the extracted text is sent to it for analysis.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 pt-6">
@@ -143,10 +139,8 @@ export function ProfileSetupSummaryCards(props: {
               }}
               type="button"
             >
-              <span className="mb-2 inline-flex w-fit items-center rounded-full border border-primary/60 px-2 py-0.5 text-(length:--text-tiny) uppercase tracking-[0.18em] text-primary">
-                Recommended
-              </span>
-              <span className="mt-1 inline-flex w-fit items-center gap-2 rounded-(--radius-button) border border-primary bg-primary px-4 py-2 font-semibold text-(--primary-foreground) shadow-[0_1px_0_var(--surface-inset-highlight)] group-hover:bg-primary/90">
+              <span className="sr-only">Recommended. </span>
+              <span className="inline-flex w-fit items-center gap-2 rounded-(--radius-button) border border-primary bg-primary px-4 py-2 font-semibold text-(--primary-foreground) shadow-[0_1px_0_var(--surface-inset-highlight)] group-hover:bg-primary/90">
                 <FolderOpen className="size-4 shrink-0" />
                 {props.isImportResumePending
                   ? props.resumeImportProgress === null
@@ -155,12 +149,11 @@ export function ProfileSetupSummaryCards(props: {
                   : "Choose my resume file"}
               </span>
               <span className="mt-3 block text-sm leading-6 text-foreground-soft">
-                Opens a file browser · PDF, DOCX, TXT, or Markdown · review
-                before anything is approved
+                PDF, DOCX, TXT, or Markdown. You review everything before it is
+                used.
               </span>
-              <span className="mt-2 block text-(length:--text-small) leading-5 text-foreground-muted">
-                Scanned image PDFs have no readable text — pick a text-based
-                file or continue manually.
+              <span className="mt-1 block text-(length:--text-small) leading-5 text-foreground-muted">
+                Scanned image PDFs have no readable text.
               </span>
             </button>
             <button
@@ -217,8 +210,7 @@ export function ProfileSetupSummaryCards(props: {
               </li>
             </ul>
             <p className="mt-3 border-t border-border/25 pt-3 text-sm leading-6 text-foreground-soft">
-              Guided setup is five short steps, saved as you go — the last one
-              is optional, and you can stop after any step and pick back up
+              Five short steps, saved as you go. Stop after any step and pick up
               later.
             </p>
           </div>
@@ -384,6 +376,7 @@ export function ProfileSetupPathCard(props: {
 }
 
 export function ProfileSetupReviewQueueCard(props: {
+  compact?: boolean;
   actionsDisabledReason?: string | null;
   isReviewItemPending: (reviewItemId: string) => boolean;
   items: readonly ProfileSetupReviewItemDisplay[];
@@ -465,15 +458,21 @@ export function ProfileSetupReviewQueueCard(props: {
       <CardHeader className="gap-2 border-b border-border/30 pb-5">
         {/* The stepper chip above owns the count for this step; this card
             owns the items themselves and never restates the number. */}
-        <CardTitle>Still to confirm on this step</CardTitle>
+        <CardTitle>
+          {props.compact
+            ? "Suggested search targets"
+            : "Still to confirm on this step"}
+        </CardTitle>
         <CardDescription>
           {props.items.length === 0
             ? "Nothing to confirm on this step."
-            : "Imported suggestions stay here until you confirm, dismiss, or clear them. Required details stay here until you fill them in."}
+            : props.compact
+              ? "Confirm the targets you want to search for, or edit them in the form below."
+              : "Imported suggestions stay here until you confirm, dismiss, or clear them. Required details stay here until you fill them in."}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-6">
-        {queueEditHints.length > 0 ? (
+        {!props.compact && queueEditHints.length > 0 ? (
           <div
             className="grid gap-1 rounded-(--radius-field) border border-dashed border-border/40 bg-background/70 p-3 text-sm leading-6 text-foreground-soft"
             data-profile-setup-review-queue-edit-hint
@@ -485,7 +484,9 @@ export function ProfileSetupReviewQueueCard(props: {
         ) : null}
         {props.items.length === 0 ? null : (
           <ScrollArea className="min-h-0 flex-1">
-            <div className="grid gap-3 pr-4">
+            <div
+              className={`grid gap-3 pr-4 ${props.compact ? "md:grid-cols-2" : ""}`}
+            >
               {props.items.map((item) => {
                 const isRowReviewActionPending = isReviewActionPending(item.id);
                 const itemCopy = getProfileSetupReviewItemCopy(item);
@@ -634,7 +635,7 @@ export function ProfileSetupReviewQueueCard(props: {
                         </div>
                       </div>
                     ) : null}
-                    {item.sourceSnippet ? (
+                    {item.sourceSnippet && !props.compact ? (
                       <div className="mt-3 flex gap-2 rounded-(--radius-field) bg-secondary/30 p-3 text-sm text-foreground-soft">
                         <AlertCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                         <p>{item.sourceSnippet}</p>

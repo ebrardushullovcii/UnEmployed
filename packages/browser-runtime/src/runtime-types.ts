@@ -31,6 +31,8 @@ import type {
 } from "./application-submission-browser-hands";
 
 export interface OpenBrowserSessionOptions {
+  /** Open a clean manual page without replacing an existing automation page. */
+  reuseExistingPage?: boolean;
   targetUrl?: string | null;
   targetId?: string | null;
 }

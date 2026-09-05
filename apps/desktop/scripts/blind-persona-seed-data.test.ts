@@ -960,10 +960,10 @@ describe("blind persona deterministic seed data", () => {
       100_000,
     );
     expect(calculateBlindPersonaStateDigest(first.P13)).toBe(
-      "2742db7f36a9676485cd68a92da7387a9197149cbf9205f3bf93d179534aac22",
+      "3a919ac27ff314d69b50da9a72bbbf18644b0f0ba4a8f55e53f258a8bc6ea587",
     );
     expect(calculateBlindPersonaStateDigest(first.P14)).toBe(
-      "0fa005e08744a46e8578f083f3d15dd9d40dcac1fb18713be22a14bf1f229b28",
+      "56627feba69bee1b57a477df4efab525edafe167657d8528b1447e678dbb9026",
     );
     expect(calculateBlindPersonaStateDigest(first.P13)).toBe(
       calculateBlindPersonaStateDigest(second.P13),

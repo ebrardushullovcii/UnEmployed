@@ -658,7 +658,9 @@ describe("ApplicationsRecordsPanel", () => {
     );
     expect(rowRegion?.textContent ?? "").not.toMatch(/In progress/);
     expect(screen.getByText("Needs recovery")).not.toBeNull();
-    expect(screen.getByText("Attempt failed")).not.toBeNull();
+    // "Needs recovery" already says the attempt failed; the row carries one
+    // badge, and the failure detail lives in the panel.
+    expect(screen.queryByText("Attempt failed")).toBeNull();
 
     const rowAction = screen.getByRole("button", {
       name: "View details for Staff Product Designer at Consent Labs",

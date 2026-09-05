@@ -1,5 +1,6 @@
 import type { SavedJob } from "@unemployed/contracts";
 import { getMatchAssessmentPresentation } from "@renderer/features/job-finder/lib/match-assessment-presentation";
+import { assessmentTitleMissesTargetRoles } from "@unemployed/job-finder/discovery-ordering";
 
 /**
  * Renderer-level floor for the default Results view. A job whose current
@@ -72,7 +73,14 @@ export function getDiscoveryResultGroup(job: SavedJob): DiscoveryResultGroupId {
   }
 
   if (getMatchAssessmentPresentation(job).isScoreWithheld) {
-    return "unchecked";
+    // "Title matches · not yet checked" has to mean the title matched. A
+    // card-only listing whose title never matched a target role ("Full-Stack
+    // Designer" for a software-engineer search) has been checked as far as it
+    // can be, and what was checked did not fit: it belongs with the weaker
+    // matches, still one click away, not in the leading unchecked band.
+    return assessmentTitleMissesTargetRoles(job.matchAssessment)
+      ? "weaker"
+      : "unchecked";
   }
 
   return job.matchAssessment.score < DISCOVERY_WEAKER_MATCH_SCORE_FLOOR
@@ -167,7 +175,8 @@ const groupCopy: Record<
     // show, so that would send the user somewhere that cannot answer them.
     // Kept to a short caption so it labels the band instead of restating the
     // run-level warning that names the source on the same screen.
-    description: "Matched on the title alone; no job description was read.",
+    description:
+      "Matched on the title alone; the full requirements have not been assessed.",
     label: "Title matches · not yet checked",
   },
   // Both of the bands below are the two halves of the one pool the summary

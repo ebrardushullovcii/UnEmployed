@@ -2,14 +2,14 @@
 
 ## Pick the smallest check
 
-| Change | Run |
-| --- | --- |
-| package-local code | `pnpm validate:package <alias>` (`desktop`, `job-finder`, `browser-agent`, `browser-runtime`, `contracts`) |
-| contracts or IPC | `pnpm validate:contracts` plus typecheck of affected packages |
-| discovery or source-debug | `pnpm source-generic:check` plus focused package tests |
-| desktop UI | `pnpm validate:desktop` plus the matching `ui:*` harness from `apps/desktop/package.json` |
-| broad cross-package behavior | `pnpm verify:affected` |
-| release candidate, only when the user declares one | `pnpm verify`, then `pnpm test:evidence` (ADR 0014) |
+| Change                                             | Run                                                                                                        |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| package-local code                                 | `pnpm validate:package <alias>` (`desktop`, `job-finder`, `browser-agent`, `browser-runtime`, `contracts`) |
+| contracts or IPC                                   | `pnpm validate:contracts` plus typecheck of affected packages                                              |
+| discovery or source-debug                          | `pnpm source-generic:check` plus focused package tests                                                     |
+| desktop UI                                         | `pnpm validate:desktop` plus the matching `ui:*` harness from `apps/desktop/package.json`                  |
+| broad cross-package behavior                       | `pnpm verify:affected`                                                                                     |
+| release candidate, only when the user declares one | `pnpm verify`, then `pnpm test:evidence` (ADR 0014)                                                        |
 
 Other entry points: `pnpm test:correctness`, `pnpm test:performance` (serial, no coverage, by design), `pnpm test:coverage`, `pnpm format`, `pnpm knip`, `pnpm structure:check`.
 
@@ -23,7 +23,7 @@ Other entry points: `pnpm test:correctness`, `pnpm test:performance` (serial, no
 ## Testing the built app
 
 - Build first: `pnpm --filter @unemployed/desktop build`. Scripts that launch `out/main/index.cjs` run whatever was last built.
-- Use a temporary user-data directory and synthetic data (`apps/desktop/test-fixtures/job-finder/resume-import-sample.txt` or `docs/resume-tests/`), never the user's real workspace.
+- Use a temporary user-data directory and synthetic data (`apps/desktop/test-fixtures/job-finder/resume-import-sample.txt`), never the user's real workspace. `docs/resume-tests/` includes personal resumes; it is not a synthetic fixture source.
 - Serialize isolated Electron launches; audit for leftover processes you own before launching another.
 - Harness commands live in `apps/desktop/package.json` (`ui:*`, `test:job-finder-*`, `test:interview-helper-*`). `:built` variants use the existing build; the others rebuild.
 - For an isolated production import without a native picker: `node apps/desktop/scripts/seed-product-quality-audit.mjs --user-data-dir <dir> --resume <synthetic-resume>`.

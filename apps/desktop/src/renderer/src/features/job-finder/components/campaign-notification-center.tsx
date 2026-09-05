@@ -72,11 +72,12 @@ export function CampaignNotificationCenter(props: {
           </h2>
           {/* Same breathing room between title and description as the other
               sections on this page. */}
-          <p className="mt-3 text-xs text-foreground-muted">
-            {hasNotifications
-              ? `${props.notifications.length} total · ${unreadCount} unread`
-              : "Strong matches and blocked work appear here. No external email or push is used."}
-          </p>
+          {/* The empty state below already explains what lands here. */}
+          {hasNotifications ? (
+            <p className="mt-3 text-xs text-foreground-muted">
+              {`${props.notifications.length} total · ${unreadCount} unread`}
+            </p>
+          ) : null}
         </div>
         {hasUnread ? (
           <Button

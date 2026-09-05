@@ -45,6 +45,10 @@ import {
   tokenize,
   uniqueStrings,
 } from "./shared";
+import {
+  TITLE_MATCHES_TARGET_ROLES_REASON,
+  TITLE_MISSES_TARGET_ROLES_GAPS,
+} from "../discovery-ordering";
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1707,23 +1711,17 @@ export function createMatchAssessment<
   } else if (roleFamilyMismatch) {
     score -= 28;
     scoreCeiling = Math.min(scoreCeiling, 39);
-    gaps.push(
-      "Role family is outside the current target roles, so this is unlikely to be a useful match.",
-    );
+    gaps.push(TITLE_MISSES_TARGET_ROLES_GAPS[0]!);
   } else if (matchesRole) {
     score += 16;
-    reasons.push("Role title aligns closely with the current target roles.");
+    reasons.push(TITLE_MATCHES_TARGET_ROLES_REASON);
   } else if (roleFamilyUnclear) {
     score -= 22;
     scoreCeiling = Math.min(scoreCeiling, 50);
-    gaps.push(
-      "The title does not show a clear connection to the current target role families.",
-    );
+    gaps.push(TITLE_MISSES_TARGET_ROLES_GAPS[1]!);
   } else {
     score -= 12;
-    gaps.push(
-      "Role title is adjacent to the target list but not an exact fit.",
-    );
+    gaps.push(TITLE_MISSES_TARGET_ROLES_GAPS[2]!);
   }
 
   if (!hasSavedLocationConstraint) {

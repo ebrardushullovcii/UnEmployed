@@ -168,6 +168,7 @@ export function createJobFinderWorkspaceService(
     exportFileVerifier,
     repository,
     researchAdapter,
+    fetchListingHtml,
   } = options;
   const activeDiscoveryAbortControllerRef = {
     current: null as AbortController | null,
@@ -561,6 +562,7 @@ export function createJobFinderWorkspaceService(
       }
     },
     ...(researchAdapter ? { researchAdapter } : {}),
+    ...(fetchListingHtml ? { fetchListingHtml } : {}),
   };
 
   const snapshotProfileMethods = createWorkspaceSnapshotProfileMethods(context);

@@ -1824,11 +1824,15 @@ export function JobFinderShell({
               data-job-finder-sidebar-secondary
               role="group"
             >
+              {/* The section keeps its accessible name, but no visible
+                  label: painting "Everything else" directly above "Your data"
+                  stacked two eyebrows with nothing between them. A hairline
+                  separates the journey rows from these groups instead. */}
+              <span className="sr-only">Everything else</span>
               <span
-                className={cn(SIDEBAR_GROUP_EYEBROW_CLASS, "font-semibold")}
-              >
-                Everything else
-              </span>
+                aria-hidden="true"
+                className="mx-3 border-t border-(--surface-panel-border)"
+              />
               {menuGroups.map((group) => (
                 <div
                   key={group.label}

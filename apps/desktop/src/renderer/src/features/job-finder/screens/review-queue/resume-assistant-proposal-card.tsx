@@ -164,10 +164,15 @@ function ProposalGroundingVerdict(props: {
           <p key={`grounding_reason_${reasonIndex}`}>{reason}</p>
         ))}
         {provenance.targetFound && provenance.sourceRefs.length > 0 ? (
-          <SourceRefsList
-            sourceRefs={provenance.sourceRefs}
-            variant="compact"
-          />
+          <details className="min-w-0">
+            <summary className="list-item cursor-pointer py-1 font-medium text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              Supporting evidence ({provenance.sourceRefs.length})
+            </summary>
+            <SourceRefsList
+              sourceRefs={provenance.sourceRefs}
+              variant="compact"
+            />
+          </details>
         ) : null}
       </div>
     </div>
@@ -401,7 +406,14 @@ export function ResumeAssistantProposalCard(props: {
           );
         })}
       </div>
-      {pending ? (
+      {/* The set-level line earns its box when it says something the
+          per-change verdicts above do not: a block, a blocker the resume
+          already carries, or a roll-up across several changes. For one clean
+          change it repeated the line directly above it. */}
+      {pending &&
+      (proposalVerdict.tone === "blocked" ||
+        proposalVerdict.unresolvedBlockerCount > 0 ||
+        props.message.patches.length > 1) ? (
         <p
           className={
             proposalVerdict.tone === "blocked"

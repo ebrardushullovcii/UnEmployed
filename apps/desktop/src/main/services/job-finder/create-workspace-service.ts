@@ -27,7 +27,10 @@ import {
   type WorkspaceDatabaseRecoveryRequiredDetails,
   type WorkspaceDatabaseRestoreTelemetryEvent,
 } from "@unemployed/db";
-import { createJobFinderWorkspaceService } from "@unemployed/job-finder";
+import {
+  createDefaultListingHtmlFetcher,
+  createJobFinderWorkspaceService,
+} from "@unemployed/job-finder";
 import { createLocalJobFinderDocumentManager } from "../../adapters/job-finder-document-manager";
 import { createLocalResumeExportFileVerifier } from "../../adapters/job-finder-export-file-verifier";
 import { createEmptyJobFinderRepositoryState } from "../../adapters/job-finder-initial-state";
@@ -559,6 +562,9 @@ export async function createJobFinderWorkspaceServiceAsync(
     browserRuntime,
     candidateAssetResolver: getCandidateAssetLibrary(),
     ...(researchAdapter ? { researchAdapter } : {}),
+    // Listing bodies are read over plain HTTP from the main process; the
+    // package only reads when a host hands it a reader, so tests stay offline.
+    fetchListingHtml: createDefaultListingHtmlFetcher(),
   });
   repositoryByWorkspaceService.set(workspaceService, jobFinderRepository);
 

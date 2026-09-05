@@ -438,7 +438,7 @@ export function ApplicationsCrmViews(props: {
   }
 
   return (
-    <section className="surface-panel-shell @container/tracker flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
+    <section className="surface-panel-shell @container/tracker flex min-h-0 max-h-128 min-w-0 flex-1 flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border)">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-5 py-3">
         <div>
           {/* Same panel-title rule as the Preparation list: the base scale
@@ -566,7 +566,7 @@ export function ApplicationsCrmViews(props: {
 
       {props.view === "table" && filteredRecords.length > 0 ? (
         <div
-          className="min-h-0 flex-1 overflow-auto"
+          className="min-h-28 flex-1 overflow-auto"
           data-locked-pane-scroll-region
         >
           {/* A fixed 50rem minimum turned this table into a horizontally

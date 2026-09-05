@@ -1073,7 +1073,9 @@ function buildRelevantResumeClaimSupport(
       overlap: calculateTokenOverlap(claimText, evidence.text),
       exact:
         normalizeText(claimText) === normalizeText(evidence.text) ||
-        matchesWholePhrase(evidence.text, claimText),
+        matchesWholePhrase(evidence.text, claimText) ||
+        (!evidence.ref.sourceId.startsWith("profile:target-role:") &&
+          matchesWholePhrase(claimText, evidence.text)),
     }))
     .filter((entry) => entry.exact || entry.overlap >= 0.25)
     .sort(

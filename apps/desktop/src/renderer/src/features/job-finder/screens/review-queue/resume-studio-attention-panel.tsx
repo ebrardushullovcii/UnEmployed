@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from "react";
 import { Button } from "@renderer/components/ui/button";
+import { cn } from "@renderer/lib/cn";
 
 /**
  * Stable selector the compact header's attention chip focuses and scrolls to.
@@ -44,19 +45,39 @@ export function ResumeStudioAttentionPanel(
   props: ResumeStudioAttentionPanelProps,
 ) {
   const headingId = useId();
+  // With nothing to flag, the panel is one quiet line about the PDF. A boxed
+  // "Resume checks" section around a single sentence read as an empty
+  // warning; the label stays for assistive tech only.
+  // Optional suggestions do not count: the issue list renders them as its own
+  // collapsed disclosure, so they never make this a warning box.
+  const quiet =
+    props.attentionItemCount === 0 &&
+    !props.claimConfirmationPanel &&
+    !props.setAsideProposalNote &&
+    !props.exportBlockedReason &&
+    !props.approvalBlockedReason;
 
   return (
     <section
       aria-labelledby={headingId}
-      className="grid min-w-0 shrink-0 gap-2.5 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-2.5"
+      className={cn(
+        "grid min-w-0 shrink-0 gap-2.5",
+        quiet
+          ? "px-1"
+          : "rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-2.5",
+      )}
       data-resume-studio-attention-panel
+      data-resume-studio-attention-quiet={quiet ? "true" : undefined}
       tabIndex={-1}
     >
       {/* An eyebrow is a label, not a heading. As an `h2` it polluted the
           document outline and rendered a 19px level at 11px, above its own 16px
           `h3` children. It keeps the id so it still names this region. */}
       <p
-        className="font-display text-(length:--text-eyebrow) font-semibold uppercase tracking-(--tracking-caps) text-primary"
+        className={cn(
+          "font-display text-(length:--text-eyebrow) font-semibold uppercase tracking-(--tracking-caps) text-primary",
+          quiet && "sr-only",
+        )}
         id={headingId}
       >
         {props.attentionItemCount > 0

@@ -49,3 +49,7 @@ export {
   restoreSafeguardEntry,
   updateBatchSampleReview,
 } from "./internal/safeguard-operations";
+export {
+  createDefaultListingHtmlFetcher,
+  type ListingHtmlFetcher,
+} from "./internal/listing-detail-enrichment";

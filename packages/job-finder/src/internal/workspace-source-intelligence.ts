@@ -1654,13 +1654,36 @@ function htmlToText(value: string | null | undefined): string {
     return "";
   }
 
-  return value
+  // Public providers can return escaped HTML. Decode it before removing
+  // markup and before truncating summaries, or a summary contains only tags.
+  let decoded = value;
+  for (let pass = 0; pass < 2; pass += 1) {
+    decoded = decoded
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, '"')
+      .replace(/&apos;|&#39;/gi, "'")
+      .replace(/&#(x[0-9a-f]+|\d+);/gi, (entity, code: string) => {
+        const point = code.toLowerCase().startsWith("x")
+          ? Number.parseInt(code.slice(1), 16)
+          : Number.parseInt(code, 10);
+        return point > 0 && point <= 0x10ffff
+          ? String.fromCodePoint(point)
+          : entity;
+      });
+  }
+
+  return decoded
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?\s*>|<\/(?:p|div|li|ul|ol|h[1-6])\s*>/gi, "\n\n")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
-    .replace(/\s+/g, " ")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -1923,6 +1946,11 @@ export async function collectPublicProviderJobs(input: {
             }
 
             const description = htmlToText(job.description);
+            const summaryText = description.replace(/\s+/g, " ").trim();
+            const summary =
+              summaryText.length > SUMMARY_MAX_LENGTH
+                ? `${summaryText.slice(0, SUMMARY_MAX_LENGTH).replace(/\s+\S*$/, "")}…`
+                : summaryText;
             const applicationUrl = job.applicationUrl ?? job.canonicalUrl;
             const canonicalUrl = isExactProviderJobTarget(
               job,
@@ -1958,7 +1986,7 @@ export async function collectPublicProviderJobs(input: {
                 ),
                 discoveredAt: new Date().toISOString(),
                 salaryText: null,
-                summary: description.slice(0, SUMMARY_MAX_LENGTH) || null,
+                summary: summary || null,
                 description: description || job.title,
                 keySkills: [],
                 responsibilities: [],

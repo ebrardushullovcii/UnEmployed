@@ -218,7 +218,14 @@ describe("ResumeAssistantProposalCard grounding", () => {
 
     // The verdict used to be a collapsed `<details>` summary, so the panel
     // showed a bare uppercase label with no body directly above Accept.
-    expect(renderResult.container.querySelector("details")).toBeNull();
+    expect(
+      screen
+        .getByText("Checked against your saved evidence")
+        .closest("details"),
+    ).toBeNull();
+    expect(
+      screen.getByText("Supporting evidence (1)").closest("details")?.open,
+    ).toBe(false);
 
     const grounding = renderResult.container.querySelector(
       "[data-resume-proposal-grounding]",

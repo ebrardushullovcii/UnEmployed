@@ -22,6 +22,10 @@ import {
   parseModelJsonResponse,
   parseModelReasoningEffort,
 } from "./openai-compatible-transport";
+import {
+  buildModelRequestHeaders,
+  modelConversationKeys,
+} from "./model-request-identity";
 
 const DEFAULT_BROWSER_VISUAL_MODEL = "gpt-5.6-luna";
 const DEFAULT_BROWSER_VISUAL_BASE_URL = DEFAULT_OPENCODE_GO_BASE_URL;
@@ -512,10 +516,13 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
         {
           method: "POST",
           signal: controller.signal,
-          headers: {
-            Authorization: `Bearer ${validatedOptions.apiKey}`,
-            "Content-Type": "application/json",
-          },
+          headers: buildModelRequestHeaders({
+            apiKey: validatedOptions.apiKey,
+            baseUrl: validatedOptions.baseUrl,
+            conversationKey: modelConversationKeys.pageExtraction(
+              input.snapshot.url ?? "",
+            ),
+          }),
           body: JSON.stringify(
             buildModelRequestBody({
               apiMode,

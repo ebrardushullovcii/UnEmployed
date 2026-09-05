@@ -418,7 +418,7 @@ describe("ApplicationsDetailPanelOverviewSections dedupe", () => {
     ).toBeNull();
   });
 
-  it("owns title and next step once and leaves company, stage, and state to other regions", () => {
+  it("owns the next step once and leaves title, company, stage, and state to other regions", () => {
     const attempt: ApplicationAttempt = {
       id: "attempt_1",
       jobId: "job_1",
@@ -458,7 +458,9 @@ describe("ApplicationsDetailPanelOverviewSections dedupe", () => {
       />,
     );
 
-    expect(screen.getAllByText("Senior Product Designer")).toHaveLength(1);
+    // The panel header owns title and employer now; the overview only owns
+    // the next step.
+    expect(screen.queryByText("Senior Product Designer")).toBeNull();
     expect(screen.queryByText("Signal Systems")).toBeNull();
     expect(screen.queryByText("Needs action")).toBeNull();
     expect(
@@ -721,11 +723,13 @@ describe("ApplicationsDetailPanel container contract", () => {
 
     const panel = container.firstElementChild;
     expect(panel?.className).toContain("@container/detail");
-    expect(container.querySelector('div[class*="34rem"]')).toBeTruthy();
+    // The reference links flow inline as text links now; no two-column grid.
+    expect(container.querySelector('div[class*="34rem"]')).toBeNull();
     expect(
       screen.getByRole("region", { name: "Application status" }),
     ).toBeTruthy();
-    expect(screen.getAllByText("Waiting on consent")).toHaveLength(1);
+    // A paused run with a saved next action is the user's gate, not a consent.
+    expect(screen.getAllByText("Needs you")).toHaveLength(1);
 
     // The selected-record body is the pane's single bounded primary scroll
     // region, so the locked layout routes wheel and keyboard scrolling to it.

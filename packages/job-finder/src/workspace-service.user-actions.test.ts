@@ -133,6 +133,98 @@ describe("workspace user action inbox operations", () => {
     expect(snapshot.userActionEvents.at(-1)?.operation).toBe("open_page");
   });
 
+  test("opens a fresh manual page only for an application blocked during background loading", async () => {
+    const seed = createSeed();
+    seed.applicationRecords = [
+      ApplicationRecordSchema.parse({
+        id: "application_job_ready",
+        jobId: "job_ready",
+        title: "Senior Product Designer",
+        company: "Signal Systems",
+        status: "ready_for_review",
+        lastActionLabel: "Application started",
+        nextActionLabel: "Complete sign-in",
+        lastUpdatedAt: "2026-07-30T08:00:00.000Z",
+      }),
+    ];
+    seed.applyRuns = [
+      ApplyRunSchema.parse({
+        id: "apply_run_1",
+        campaignId: null,
+        state: "completed",
+        jobIds: ["job_ready"],
+        currentJobId: null,
+        createdAt: "2026-07-30T08:00:00.000Z",
+        updatedAt: "2026-07-30T08:00:00.000Z",
+        completedAt: "2026-07-30T08:00:00.000Z",
+        summary: "Application preparation paused for sign-in.",
+        detail: "The exact application remains resumable.",
+        totalJobs: 1,
+        pendingJobs: 0,
+      }),
+    ];
+    seed.applyJobResults = [
+      ApplyJobResultSchema.parse({
+        id: "apply_result_1",
+        runId: "apply_run_1",
+        jobId: "job_ready",
+        applicationRecordId: "application_job_ready",
+        state: "blocked",
+        summary: "Sign in to continue.",
+        detail: "The browser is waiting for user-owned authentication.",
+        startedAt: "2026-07-30T08:00:00.000Z",
+        updatedAt: "2026-07-30T08:00:00.000Z",
+      }),
+    ];
+    seed.userActionRequests = [
+      createRequest({
+        kind: "other",
+        summary:
+          "Job Finder blocked a background page request before it could continue preparing this application.",
+        scope: {
+          type: "application",
+          source: "target_site",
+          runId: "apply_run_1",
+          jobId: "job_ready",
+          applicationRecordId: "application_job_ready",
+          resultId: "apply_result_1",
+          replayCheckpointId: "checkpoint_1",
+        },
+        verification: {
+          type: "page_blocker_absent",
+          blockerFingerprint: "background_request",
+          expectedPageFingerprint: null,
+        },
+      }),
+    ];
+    const inspectSourceAccess = vi.fn(() =>
+      Promise.resolve(authenticatedResult),
+    );
+    const harness = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: createRuntime(inspectSourceAccess),
+    });
+    const openSession = vi.spyOn(harness.browserRuntime, "openSession");
+
+    const snapshot = await harness.workspaceService.performUserAction({
+      action: "open_page",
+      requestId: "action_login",
+      commandId: "command_open",
+      expectedRevision: 1,
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+
+    expect(openSession).toHaveBeenCalledWith("target_site", {
+      targetUrl: "https://boards.example.com/jobs",
+      reuseExistingPage: false,
+    });
+    expect(inspectSourceAccess).not.toHaveBeenCalled();
+    expect(snapshot.userActionRequests[0]?.state).toBe("page_opened");
+    expect(snapshot.userActionEvents.at(-1)?.operation).toBe("open_page");
+  });
+
   test("resolves Done only after strong same-origin browser evidence", async () => {
     const seed = createSeed();
     seed.userActionRequests = [createRequest()];

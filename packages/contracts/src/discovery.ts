@@ -811,6 +811,34 @@ export type JobPostingDetailQuality = z.infer<
   typeof JobPostingDetailQualitySchema
 >;
 
+/**
+ * The one attempt Job Finder made to read this listing's own page after a
+ * card-only capture. Recorded so the product neither re-reads a page every
+ * time it looks at the job nor hides that it tried and what it found.
+ */
+export const listingDetailFetchOutcomeValues = [
+  "enriched",
+  "partial",
+  "no_detail",
+  "fetch_failed",
+  "blocked",
+  "unsupported_url",
+] as const;
+export const ListingDetailFetchOutcomeSchema = z.enum(
+  listingDetailFetchOutcomeValues,
+);
+export type ListingDetailFetchOutcome = z.infer<
+  typeof ListingDetailFetchOutcomeSchema
+>;
+
+export const ListingDetailFetchSchema = z.object({
+  attemptedAt: IsoDateTimeSchema,
+  outcome: ListingDetailFetchOutcomeSchema,
+  method: z.enum(["json_ld", "page_text"]).nullable().default(null),
+  detail: NonEmptyStringSchema.nullable().default(null),
+});
+export type ListingDetailFetch = z.infer<typeof ListingDetailFetchSchema>;
+
 export const JobPostingSchema = z.object({
   source: JobSourceSchema,
   sourceJobId: NonEmptyStringSchema,
@@ -835,6 +863,7 @@ export const JobPostingSchema = z.object({
   salaryText: NonEmptyStringSchema.nullable(),
   normalizedCompensation: NormalizedCompensationSchema.default({}),
   detailQuality: JobPostingDetailQualitySchema.default("card_only"),
+  listingDetailFetch: ListingDetailFetchSchema.nullable().default(null),
   summary: NonEmptyStringSchema.nullable().default(null),
   description: NonEmptyStringSchema,
   keySkills: z.array(NonEmptyStringSchema).default([]),
@@ -966,6 +995,39 @@ export function buildDiscoveryCardOnlyEvidenceWarning(
   const label = sourceLabel.trim();
 
   return `Only listing titles and card details were read from ${label.length > 0 ? label : "this source"}; no job description was captured, so match details for these results are unchecked.`;
+}
+
+/**
+ * Removes the card-only sentence from a run or target warning once it stopped
+ * being true (the listing bodies were read after the scan). Other warnings in
+ * the same string are kept; an emptied string becomes null.
+ */
+export function stripDiscoveryCardOnlyEvidenceWarning(
+  warning: string | null | undefined,
+): string | null {
+  if (!warning) {
+    return null;
+  }
+  const sentinel = "\u0000";
+  const [prefix = "", suffix = ""] =
+    buildDiscoveryCardOnlyEvidenceWarning(sentinel).split(sentinel);
+  if (prefix.length === 0) {
+    return warning;
+  }
+  const start = warning.indexOf(prefix);
+  if (start < 0) {
+    return warning;
+  }
+  const suffixStart = warning.indexOf(suffix, start + prefix.length);
+  if (suffixStart < 0) {
+    return warning;
+  }
+  const stripped = `${warning.slice(0, start)}${warning.slice(
+    suffixStart + suffix.length,
+  )}`
+    .replace(/\s{2,}/gu, " ")
+    .trim();
+  return stripped.length > 0 ? stripped : null;
 }
 
 /**

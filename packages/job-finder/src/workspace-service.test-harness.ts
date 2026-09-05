@@ -7,7 +7,10 @@ import {
   createInMemoryJobFinderRepository,
   type JobFinderRepositorySeed,
 } from "@unemployed/db";
-import { createJobFinderWorkspaceService } from "./index";
+import {
+  createJobFinderWorkspaceService,
+  type ListingHtmlFetcher,
+} from "./index";
 import { createSeed } from "./workspace-service.test-fixtures";
 import {
   createAiClient,
@@ -28,6 +31,7 @@ export function createWorkspaceServiceHarness(
       sha256?(filePath: string): Promise<string>;
     };
     researchAdapter?: ReturnType<typeof createResearchAdapter>;
+    fetchListingHtml?: ListingHtmlFetcher;
   } = {},
 ) {
   const repository = createInMemoryJobFinderRepository(
@@ -50,6 +54,9 @@ export function createWorkspaceServiceHarness(
     documentManager,
     exportFileVerifier,
     researchAdapter,
+    ...(options.fetchListingHtml
+      ? { fetchListingHtml: options.fetchListingHtml }
+      : {}),
   });
 
   return {

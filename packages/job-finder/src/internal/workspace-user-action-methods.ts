@@ -473,6 +473,12 @@ export function createWorkspaceUserActionMethods(
 
       await ctx.openRunBrowserSession(request.scope.source, {
         targetUrl: request.actionUrl,
+        // A page blocked before preparation still carries automation guards.
+        // Explicit manual handoff needs a fresh page; preserve the old tab.
+        ...(isApplicationPrepareOnlyUserAction(request) &&
+        /blocked a background page request/i.test(request.summary)
+          ? { reuseExistingPage: false }
+          : {}),
       });
     }
 

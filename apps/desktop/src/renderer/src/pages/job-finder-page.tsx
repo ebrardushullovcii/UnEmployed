@@ -874,9 +874,13 @@ function JobFinderOpeningShell() {
               data-job-finder-sidebar-secondary
               role="group"
             >
-              <span className={cn(sidebarGroupEyebrowClass, "font-semibold")}>
-                Everything else
-              </span>
+              {/* Same treatment as the loaded shell: accessible name only,
+                  with a hairline standing in for the visible label. */}
+              <span className="sr-only">Everything else</span>
+              <span
+                aria-hidden="true"
+                className="mx-3 border-t border-(--surface-panel-border)"
+              />
               {openingShellSecondaryGroups.map((group) => (
                 <div
                   aria-label={group.label}

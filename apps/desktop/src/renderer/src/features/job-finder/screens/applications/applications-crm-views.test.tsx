@@ -512,7 +512,7 @@ describe("ApplicationsCrmViews locked pane scroll regions", () => {
     );
 
     const region = expectSingleLeafScrollRegion(container);
-    expect(region.className).toContain("min-h-0 flex-1 overflow-auto");
+    expect(region.className).toContain("flex-1 overflow-auto");
     expect(
       region.querySelector(
         'table[aria-labelledby="application-tracker-heading"]',

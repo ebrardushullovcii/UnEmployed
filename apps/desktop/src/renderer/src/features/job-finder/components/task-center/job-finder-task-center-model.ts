@@ -221,13 +221,19 @@ function buildDiscoveryTask(
 ): JobFinderTaskCenterItem | null {
   const recentRuns = input.workspace.recentDiscoveryRuns ?? [];
   const liveEvent = input.liveDiscoveryEvents?.at(-1) ?? null;
-  const run =
-    input.workspace.activeDiscoveryRun ??
-    (liveEvent
-      ? (recentRuns.find((candidate) => candidate.id === liveEvent.runId) ??
+  const activeRun = input.workspace.activeDiscoveryRun;
+  // A new search publishes activity before its workspace snapshot arrives.
+  // Never combine that activity with the previous search's sources or counts.
+  const run = liveEvent
+    ? activeRun?.id === liveEvent.runId
+      ? activeRun
+      : (recentRuns.find((candidate) => candidate.id === liveEvent.runId) ??
         null)
-      : null) ??
-    newestBy(recentRuns, (candidate) => candidate.startedAt);
+    : input.isDiscoveryPending
+      ? activeRun?.state === "running"
+        ? activeRun
+        : null
+      : (activeRun ?? newestBy(recentRuns, (candidate) => candidate.startedAt));
 
   if (!run && !input.isDiscoveryPending && !liveEvent) {
     return null;
@@ -237,7 +243,11 @@ function buildDiscoveryTask(
     ? run.targetIds
     : liveEvent?.targetId
       ? [liveEvent.targetId]
-      : [];
+      : input.isDiscoveryPending
+        ? input.workspace.searchPreferences.discovery.targets
+            .filter((target) => target.enabled)
+            .map((target) => target.id)
+        : [];
   const targetIdCounts = countTargetIds(targetIds);
   const countEvidence = getDiscoveryRunCountEvidence(run, liveEvent);
   const targetsPlanned = run?.summary.targetsPlanned || targetIds.length;
@@ -510,7 +520,14 @@ function buildApplyTask(
       input.workspace,
       run.currentJobId ?? run.jobIds[0] ?? null,
     ),
-    countLabel: `${finishedJobs} of ${run.totalJobs} application tasks finished · ${run.blockedJobs} blocked · ${run.failedJobs} need attention`,
+    countLabel: [
+      `${finishedJobs} of ${run.totalJobs} application tasks finished`,
+      run.blockedJobs > 0 ? `${run.blockedJobs} blocked` : null,
+      run.failedJobs > 0 ? `${run.failedJobs} need attention` : null,
+      needsReview ? "Waiting on you" : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
     historyEstimateLabel:
       status === "active"
         ? historyEstimate(
@@ -614,9 +631,7 @@ export function buildJobFinderTaskCenterModel(
   ].filter((item): item is JobFinderTaskCenterItem => item !== null);
 
   return {
-    activeCount: items.filter(
-      (item) => item.status === "active" || item.status === "paused",
-    ).length,
+    activeCount: items.filter((item) => item.status === "active").length,
     items,
   };
 }

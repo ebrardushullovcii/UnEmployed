@@ -1,9 +1,10 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 
 import {
   classifyResumeClaimGrounding,
   RESUME_CLAIM_SUPPORT_EVIDENCE_CAP,
   selectResumeRewrite,
+  compactJobDescriptionForModel,
 } from "./resume-generation-grounding";
 
 describe("resume generation grounding", () => {
@@ -916,7 +917,7 @@ describe("classifyResumeClaimGrounding", () => {
     expect(conservative.gaps).toEqual([
       {
         type: "inference_not_allowed",
-        values: ["group_1", "table", "reservation", "flow", "order", "modul"],
+        values: ["group_1", "table", "reservation", "flow", "order", "module"],
       },
     ]);
 
@@ -929,6 +930,20 @@ describe("classifyResumeClaimGrounding", () => {
     ]);
     expect(aggressive.anchorRatio).toBe(0.25);
     expect(aggressive.gaps).toEqual([]);
+  });
+
+  test("keeps ordinary plural nouns aligned with their singular evidence", () => {
+    const result = classify(
+      "Built accessible interfaces and reliable services.",
+      [
+        makeEvidence(
+          "experience:role_1:summary",
+          "Built an accessible interface and a reliable service.",
+        ),
+      ],
+    );
+    expect(result.verdict).toBe("covered");
+    expect(result.gaps).toEqual([]);
   });
 
   test("allows a generic technologies label only when the listed skills are evidenced", () => {
@@ -1066,5 +1081,37 @@ describe("classifyResumeClaimGrounding", () => {
         .map((_, index) => `experience:bulk:${index}`),
     );
     expect(second).toEqual(first);
+  });
+});
+
+describe("compactJobDescriptionForModel", () => {
+  it("passes a short body through untouched", () => {
+    expect(
+      compactJobDescriptionForModel("Build APIs.\n\nRequirements: .NET."),
+    ).toBe("Build APIs.\n\nRequirements: .NET.");
+  });
+
+  it("keeps requirement paragraphs and drops boilerplate first when the body is long", () => {
+    const requirement =
+      "Requirements: 5+ years with .NET Core, REST APIs and Azure.";
+    const boilerplate = Array.from(
+      { length: 40 },
+      (_, index) =>
+        `About us ${index}: we are a venture-backed company founded in 2015 with a mission to change manufacturing forever and a generous benefits package.`,
+    );
+    const body = [
+      ...boilerplate.slice(0, 20),
+      requirement,
+      ...boilerplate.slice(20),
+    ].join("\n\n");
+
+    const compacted = compactJobDescriptionForModel(body, 1_500);
+
+    expect(compacted.length).toBeLessThanOrEqual(1_500);
+    expect(compacted).toContain(requirement);
+    // Order is preserved: the requirement sits after whichever boilerplate
+    // survived ahead of it, never hoisted to the top.
+    const kept = compacted.split("\n\n");
+    expect(kept.indexOf(requirement)).toBeGreaterThanOrEqual(0);
   });
 });

@@ -37,7 +37,7 @@ export interface FitEvidenceDepth {
 }
 
 export const FIT_TITLE_ONLY_REASON =
-  "Only the listing title could be checked — no pay, location, or requirements were captured. Copy the listing link to check the rest.";
+  "Fit is based on the title alone. Review the listing details before applying.";
 
 export function getFitEvidenceDepth(
   assessment: MatchAssessment,

@@ -414,7 +414,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                     ? `Last time, ${JOB_FINDER_BROWSER_NAME} could not open this employer page, so preparation stopped before anything was filled or submitted. That failed attempt did not count against today's application slots. Run preparation again below when you are ready.`
                     : needsResumeAttachment
                       ? `The approved resume was not attached. ${externalWriteRecoveryText} Use the action below to approve that attachment. Job Finder will prepare the page and stop before the final submit control.`
-                      : "Start a fresh safe run for this job without leaving Applications. Each recovery action creates a new run, uses one of today's remaining application slots, and still stops before any final submit click."}
+                      : "Starts a fresh run for this job. It uses one of today's application slots and still stops before the final submit."}
             </p>
           )}
         </div>

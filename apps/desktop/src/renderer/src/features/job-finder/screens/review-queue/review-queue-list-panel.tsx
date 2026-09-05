@@ -504,26 +504,22 @@ export function ReviewQueueListPanel({
                   type="button"
                 >
                   {/* Title line, with the one badge slot trailing it - the
-                      same slot Find jobs and Applications use. The badge used
-                      to float on its own row above the title, which is what
-                      made this list read as a different kind of list. It still
-                      always occupies its slot: rendering it only for
-                      unselected rows made the whole list jump on every
-                      selection change. */}
+                      same slot Find jobs and Applications use. The badge
+                      renders for every row, selected or not: hiding it on the
+                      selected row made that row look stripped of its state
+                      rather than merely selected. */}
                   <div className={jobFinderListRowTitleLineClassName}>
                     <strong className={jobFinderListRowTitleClassName}>
                       {item.title}
                     </strong>
                     <div className={jobFinderListRowBadgeSlotClassName}>
                       <SelectableRowLine className="flex justify-end">
-                        {selectedItem?.jobId === item.jobId ? null : (
-                          <StatusBadge
-                            className="min-w-24 shrink-0 whitespace-normal break-normal [overflow-wrap:normal]"
-                            tone={workflowStatus.tone}
-                          >
-                            {workflowStatus.label}
-                          </StatusBadge>
-                        )}
+                        <StatusBadge
+                          className="max-w-none shrink-0 whitespace-nowrap"
+                          tone={workflowStatus.tone}
+                        >
+                          {workflowStatus.label}
+                        </StatusBadge>
                       </SelectableRowLine>
                     </div>
                   </div>
@@ -539,19 +535,15 @@ export function ReviewQueueListPanel({
                       </span>
                     ) : null;
                   })()}
-                  {/* Same rule as the state chip above, and the same reserved
-                      slot: the detail header already states the selected job's
-                      resume state, so the selected row does not restate it —
-                      but the line still holds its height. */}
+                  {/* The resume-state caption renders on every row too, so a
+                      selected row keeps the same shape as its neighbours. */}
                   <SelectableRowLine
                     className={cn(
                       jobFinderListRowStatusClassName,
                       "font-medium text-foreground-soft",
                     )}
                   >
-                    {selectedItem?.jobId === item.jobId
-                      ? null
-                      : getReviewQueueResumePolicyCaption(item)}
+                    {getReviewQueueResumePolicyCaption(item)}
                   </SelectableRowLine>
                   {batchActionsOpen && queueSelectionDisabled ? (
                     <span

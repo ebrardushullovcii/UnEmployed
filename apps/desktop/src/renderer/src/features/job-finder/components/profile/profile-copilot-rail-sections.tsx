@@ -587,17 +587,16 @@ export function ProfileCopilotComposer(props: {
               ? "Assistant is thinking…"
               : "Enter to send · Shift+Enter for a new line")}
         </p>
-        <details
-          className="relative shrink-0 text-(length:--text-tiny) text-muted-foreground"
-          data-profile-copilot-provider-disclosure="true"
+        {/* A real link, not a disclosure: the old popover note rendered inside
+            the panel's clipped box and painted over the composer. Settings is
+            where the provider and data-sharing choices actually live. */}
+        <a
+          className="shrink-0 rounded-sm text-(length:--text-tiny) leading-4 text-muted-foreground underline decoration-from-font underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          data-profile-copilot-provider-link="true"
+          href="#/job-finder/settings"
         >
-          <summary className="w-fit cursor-pointer list-none rounded-sm leading-4 underline decoration-from-font underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-            AI settings
-          </summary>
-          <p className="absolute bottom-full right-0 z-10 mb-1 max-w-52 rounded-(--radius-field) border border-border/40 bg-card p-2 leading-4 text-foreground-soft shadow-lg">
-            Uses your configured AI provider and data-sharing settings.
-          </p>
-        </details>
+          AI settings
+        </a>
       </div>
     </div>
   );

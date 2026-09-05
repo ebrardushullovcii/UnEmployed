@@ -77,7 +77,7 @@ function isTaskCenterOpen(): boolean {
 async function openSearchDialog() {
   fireEvent.keyDown(document.body, { ctrlKey: true, key: "k" });
   await screen.findByRole("dialog", {
-    name: "Search current plan and workspace",
+    name: "Search your workspace",
   });
 }
 
@@ -163,7 +163,7 @@ describe("JobFinderShell stacked overlay ownership", () => {
 
   const searchDialogQuery = () =>
     screen.queryByRole("dialog", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
 
   it("closes a Planning popover opened above the Task Center one layer per Escape", async () => {
@@ -214,7 +214,7 @@ describe("JobFinderShell stacked overlay ownership", () => {
 
     fireEvent.keyDown(
       screen.getByRole("combobox", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
       { key: "Escape" },
     );
@@ -231,12 +231,12 @@ describe("JobFinderShell stacked overlay ownership", () => {
     renderShell();
 
     const searchOpener = screen.getByRole("button", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
     searchOpener.focus();
     fireEvent.click(searchOpener);
     await screen.findByRole("dialog", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
 
     await openTaskCenter();
@@ -247,7 +247,7 @@ describe("JobFinderShell stacked overlay ownership", () => {
 
     fireEvent.keyDown(
       screen.getByRole("combobox", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
       { key: "Escape" },
     );
@@ -293,7 +293,7 @@ describe("JobFinderShell stacked overlay ownership", () => {
 
     await openSearchDialog();
     const input = screen.getByRole("combobox", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
     fireEvent.change(input, { target: { value: "platform engineer" } });
     await screen.findByText(/1 result/);
@@ -338,7 +338,7 @@ describe("JobFinderShell stacked overlay ownership", () => {
 
     fireEvent.keyDown(
       screen.getByRole("combobox", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
       { key: "Escape" },
     );

@@ -4112,6 +4112,67 @@ export async function runGenericApplicationPreparation(input: {
     });
   let currentPage = input.page;
   let resumeAttached = false;
+  // Background traffic the page makes on its own (analytics beacons, GraphQL
+  // reads, locale files) is rejected by the guard regardless; rejecting it is
+  // the containment. Until the runtime has filled or clicked anything, such a
+  // rejection cannot be a consequence of the runtime's work, so it is noted
+  // and tolerated rather than escalated into a manual-review stop. The moment
+  // the runtime mutates the page, every new rejection is a stop again, because
+  // it could be the site saving a field the runtime just touched. Submit-like
+  // and containment attempts (popups, downloads, new windows) are never
+  // tolerated.
+  let runtimeHasMutatedPage = false;
+  const toleratedBlockedAttemptKeys = new Set<string>();
+  const blockedAttemptKey = (attempt: PrepareOnlyBlockedAttempt): string =>
+    `${attempt.kind}|${attempt.method}|${attempt.url ?? ""}|${attempt.at}`;
+  const isPageOwnBackgroundTraffic = (
+    attempt: PrepareOnlyBlockedAttempt,
+  ): boolean =>
+    !attempt.kind.includes("submit") &&
+    attempt.kind !== "popup_open" &&
+    attempt.kind !== "download" &&
+    attempt.kind !== "window_open";
+  const unacknowledgedBlockedAttempt = (
+    attempt: PrepareOnlyBlockedAttempt | null | undefined,
+  ): PrepareOnlyBlockedAttempt | null => {
+    if (!attempt) {
+      return null;
+    }
+    if (toleratedBlockedAttemptKeys.has(blockedAttemptKey(attempt))) {
+      return null;
+    }
+    if (!runtimeHasMutatedPage && isPageOwnBackgroundTraffic(attempt)) {
+      toleratedBlockedAttemptKeys.add(blockedAttemptKey(attempt));
+      checkpoints.push({
+        id: `checkpoint_${executionInput.job.id}_tolerated_background_request_${toleratedBlockedAttemptKeys.size}`,
+        at: new Date().toISOString(),
+        label: "Blocked a background page request",
+        detail: `The page tried a ${attempt.method} ${attempt.kind.replace(/_/g, " ")} request${
+          attempt.url ? ` to ${attempt.url}` : ""
+        } on its own before Job Finder touched any field. The request was blocked and nothing was sent; preparation continued.`,
+        state: "in_progress",
+        visualEvidence: [],
+      });
+      return null;
+    }
+    return attempt;
+  };
+  // A site's delayed save (change fires on blur, or a debounced autosave)
+  // can surface only in the settle check after the fill loop. Naming the
+  // field it most plausibly belongs to keeps that stop as truthful as the
+  // immediate post-fill stop instead of calling it a background request.
+  let lastFilledField: {
+    kind: ApplicationAttemptQuestion["kind"];
+    label: string;
+  } | null = null;
+  const stopForBlockedAttempt = (
+    attempt: PrepareOnlyBlockedAttempt,
+  ): ApplyExecutionResult =>
+    lastFilledField &&
+    !attempt.kind.includes("submit") &&
+    isPageOwnBackgroundTraffic(attempt)
+      ? buildGuardSafetyStop(attempt, lastFilledField)
+      : buildGuardSafetyStop(attempt);
   const loadCurrentResumeBytes = () =>
     loadVerifiedResumeBytes(executionInput.resumeArtifact);
 
@@ -4183,13 +4244,16 @@ export async function runGenericApplicationPreparation(input: {
       attempt.kind === "popup_open" ||
       attempt.kind === "download" ||
       attempt.kind === "window_open";
+    const pageRequestStop = !containmentStop && !interruptedField;
     const summary = containmentStop
       ? attempt.kind === "download"
         ? "The application page attempted an unexpected file download"
         : "The application page attempted to open an unexpected popup"
-      : resumeInterrupted
-        ? "Resume attachment needs your help"
-        : "The application page could not safely save a prepared field";
+      : pageRequestStop
+        ? "The application page needs manual review"
+        : resumeInterrupted
+          ? "Resume attachment needs your help"
+          : "The application page could not safely save a prepared field";
     const containmentDetail =
       attempt.kind === "download"
         ? `The application page tried to start a file download${
@@ -4200,9 +4264,13 @@ export async function runGenericApplicationPreparation(input: {
           } while preparation was running. The runtime blocked or immediately closed the popup window and stopped before any further action.`;
     const detail = containmentStop
       ? containmentDetail
-      : resumeInterrupted
-        ? `The application site tried to upload the approved resume file while '${fieldLabel}' was being prepared, but this run did not have permission for that external save. The blocked attempt transmitted nothing, and the selected file remains only inside the open page. Finish this employer-owned step yourself in the open application, or cancel; Job Finder will still never activate the final submit control.`
-        : `The application site tried to save '${fieldLabel}' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.`;
+      : pageRequestStop
+        ? attempt.kind.includes("submit")
+          ? "Job Finder blocked a form submission before your review and stopped preparing this application. Review the application in the browser; no submission was made."
+          : "Job Finder blocked a background page request before it could continue preparing this application. This does not prove the site tried to save an answer. Review the application in the browser; no submission was made."
+        : resumeInterrupted
+          ? `The application site tried to upload the approved resume file while '${fieldLabel}' was being prepared, but this run did not have permission for that external save. The blocked attempt transmitted nothing, and the selected file remains only inside the open page. Finish this employer-owned step yourself in the open application, or cancel; Job Finder will still never activate the final submit control.`
+          : `The application site tried to save '${fieldLabel}' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.`;
     return buildManualSafetyStop({
       summary,
       detail,
@@ -4210,14 +4278,19 @@ export async function runGenericApplicationPreparation(input: {
         ? attempt.kind === "download"
           ? "Paused before an unexpected download"
           : "Paused before an unexpected popup"
-        : resumeInterrupted
-          ? "Paused before the resume could be attached"
-          : "Paused before the application field could be saved",
-      nextActionLabel: containmentStop
-        ? "Review the open application manually"
-        : resumeInterrupted
-          ? "Complete the resume step manually in the open application, or cancel"
-          : "Complete the affected step manually in the open application, or cancel",
+        : pageRequestStop
+          ? attempt.kind.includes("submit")
+            ? "Paused before a form submission"
+            : "Paused after a blocked background page request"
+          : resumeInterrupted
+            ? "Paused before the resume could be attached"
+            : "Paused before the application field could be saved",
+      nextActionLabel:
+        containmentStop || pageRequestStop
+          ? "Review the open application manually"
+          : resumeInterrupted
+            ? "Complete the resume step manually in the open application, or cancel"
+            : "Complete the affected step manually in the open application, or cancel",
     });
   };
 
@@ -4274,7 +4347,9 @@ export async function runGenericApplicationPreparation(input: {
         executionInput.intermediateMutationsAuthorized === true,
         executionInput.intermediateMutationAllowedOrigins ?? [],
       );
-      const existingBlockedAttempt = guard.blockedAttempts.at(-1) ?? null;
+      const existingBlockedAttempt = unacknowledgedBlockedAttempt(
+        guard.blockedAttempts.at(-1),
+      );
       if (existingBlockedAttempt) {
         return buildGuardSafetyStop(existingBlockedAttempt);
       }
@@ -4392,6 +4467,7 @@ export async function runGenericApplicationPreparation(input: {
     seenInspections.add(inspectionSignature);
 
     const filledControlSignatures = new Set<string>();
+
     const mismatchedQuestions: ApplicationAttemptQuestion[] = [];
     for (const control of inspection.controls) {
       input.signal?.throwIfAborted();
@@ -4485,7 +4561,9 @@ export async function runGenericApplicationPreparation(input: {
           executionInput.intermediateMutationsAuthorized === true,
           executionInput.intermediateMutationAllowedOrigins ?? [],
         );
-        const blockedAttempt = guard.blockedAttempts.at(-1) ?? null;
+        const blockedAttempt = unacknowledgedBlockedAttempt(
+          guard.blockedAttempts.at(-1),
+        );
         if (blockedAttempt) {
           return buildGuardSafetyStop(blockedAttempt);
         }
@@ -4546,6 +4624,9 @@ export async function runGenericApplicationPreparation(input: {
       let fillResult: GroundedControlFillResult | null = null;
       const verifiedExternalWritesBefore =
         getVerifiedIntermediateWriteCount(currentPage);
+      // From the first fill attempt on, a blocked request may be the site
+      // reacting to the runtime's own input, so tolerance ends here.
+      runtimeHasMutatedPage = true;
       try {
         fillResult = await fillGroundedControlWithinPolicy({
           page: currentPage,
@@ -4572,7 +4653,9 @@ export async function runGenericApplicationPreparation(input: {
         if (postFillServiceWorkerStop) {
           return postFillServiceWorkerStop;
         }
-        blockedAttempt = await getLatestBlockedPrepareOnlyAttempt(currentPage);
+        blockedAttempt = unacknowledgedBlockedAttempt(
+          await getLatestBlockedPrepareOnlyAttempt(currentPage),
+        );
       } catch (error) {
         const detail = `The prepare-only safety guard could not be re-verified after a field interaction, so the runtime stopped immediately: ${describeUnknownError(error, "Unknown guard verification failure.")}`;
         return buildManualSafetyStop({
@@ -4603,6 +4686,12 @@ export async function runGenericApplicationPreparation(input: {
         continue;
       }
 
+      if (fillResult === "filled") {
+        lastFilledField = {
+          kind: answer.kind,
+          label: getQuestionPrompt(control),
+        };
+      }
       if (fillResult === "filled" || fillResult === "already_matches") {
         filledControlSignatures.add(controlSignature);
         const question = buildGroundedQuestion({
@@ -4656,9 +4745,11 @@ export async function runGenericApplicationPreparation(input: {
         executionInput.intermediateMutationsAuthorized === true,
         executionInput.intermediateMutationAllowedOrigins ?? [],
       );
-      const blockedAttempt = guard.blockedAttempts.at(-1) ?? null;
+      const blockedAttempt = unacknowledgedBlockedAttempt(
+        guard.blockedAttempts.at(-1),
+      );
       if (blockedAttempt) {
-        return buildGuardSafetyStop(blockedAttempt);
+        return stopForBlockedAttempt(blockedAttempt);
       }
       // File uploads and controlled form widgets can rerender the application
       // form after earlier fields were filled. Give the page a brief settling
@@ -4789,10 +4880,11 @@ export async function runGenericApplicationPreparation(input: {
       if (postSettleServiceWorkerStop) {
         return postSettleServiceWorkerStop;
       }
-      const blockedAfterSettle =
-        await getLatestBlockedPrepareOnlyAttempt(currentPage);
+      const blockedAfterSettle = unacknowledgedBlockedAttempt(
+        await getLatestBlockedPrepareOnlyAttempt(currentPage),
+      );
       if (blockedAfterSettle) {
-        return buildGuardSafetyStop(blockedAfterSettle);
+        return stopForBlockedAttempt(blockedAfterSettle);
       }
 
       inspection = await inspectApplicationPage(currentPage);
@@ -4929,8 +5021,9 @@ export async function runGenericApplicationPreparation(input: {
     );
     let blockedBeforeCheckpoint: PrepareOnlyBlockedAttempt | null;
     try {
-      blockedBeforeCheckpoint =
-        await getLatestBlockedPrepareOnlyAttempt(currentPage);
+      blockedBeforeCheckpoint = unacknowledgedBlockedAttempt(
+        await getLatestBlockedPrepareOnlyAttempt(currentPage),
+      );
     } catch (error) {
       const detail = `The prepare-only safety guard could not be re-verified before evaluating final application actions, so the runtime stopped immediately: ${describeUnknownError(error, "Unknown guard verification failure.")}`;
       return buildManualSafetyStop({
@@ -4941,7 +5034,7 @@ export async function runGenericApplicationPreparation(input: {
       });
     }
     if (blockedBeforeCheckpoint) {
-      return buildGuardSafetyStop(blockedBeforeCheckpoint);
+      return stopForBlockedAttempt(blockedBeforeCheckpoint);
     }
 
     const preReturnServiceWorkerStop =
@@ -5033,9 +5126,11 @@ export async function runGenericApplicationPreparation(input: {
     const safeAdvanceSignature = createActionSemanticSignature(safeAdvance);
     try {
       const guard = await ensurePrepareOnlyMutationGuard(currentPage, false);
-      const blockedBeforeClick = guard.blockedAttempts.at(-1) ?? null;
+      const blockedBeforeClick = unacknowledgedBlockedAttempt(
+        guard.blockedAttempts.at(-1),
+      );
       if (blockedBeforeClick) {
-        return buildGuardSafetyStop(blockedBeforeClick);
+        return stopForBlockedAttempt(blockedBeforeClick);
       }
       const preClickServiceWorkerStop =
         await serviceWorkerSafetyStopAt("pre_advance_click");
@@ -5043,6 +5138,7 @@ export async function runGenericApplicationPreparation(input: {
         return preClickServiceWorkerStop;
       }
 
+      runtimeHasMutatedPage = true;
       const clickResult = await clickCurrentSafeActionBySignature({
         page: currentPage,
         expectedSignature: safeAdvanceSignature,
@@ -5061,10 +5157,11 @@ export async function runGenericApplicationPreparation(input: {
         });
       }
 
-      const blockedAfterClick =
-        await getLatestBlockedPrepareOnlyAttempt(currentPage);
+      const blockedAfterClick = unacknowledgedBlockedAttempt(
+        await getLatestBlockedPrepareOnlyAttempt(currentPage),
+      );
       if (blockedAfterClick) {
-        return buildGuardSafetyStop(blockedAfterClick);
+        return stopForBlockedAttempt(blockedAfterClick);
       }
 
       await currentPage
@@ -5120,10 +5217,11 @@ export async function runGenericApplicationPreparation(input: {
   }
 
   try {
-    const blockedAtLimit =
-      await getLatestBlockedPrepareOnlyAttempt(currentPage);
+    const blockedAtLimit = unacknowledgedBlockedAttempt(
+      await getLatestBlockedPrepareOnlyAttempt(currentPage),
+    );
     if (blockedAtLimit) {
-      return buildGuardSafetyStop(blockedAtLimit);
+      return stopForBlockedAttempt(blockedAtLimit);
     }
     const limitServiceWorkerStop =
       await serviceWorkerSafetyStopAt("step_limit");

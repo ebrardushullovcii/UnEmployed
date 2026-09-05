@@ -242,7 +242,9 @@ describe("ReviewQueueScreen tailored draft preparation (controlled)", () => {
 
     // The detail header owns the selected job's state; the selected list row
     // no longer prints the same chip beside it, so exactly one appears.
-    expect(screen.getAllByText("Needs approval").length).toBe(1);
+    // Once on the selected row (rows keep their badge when selected) and once
+    // in the detail header.
+    expect(screen.getAllByText("Needs approval").length).toBe(2);
     expect(screen.queryByText("Ready to prepare")).toBeNull();
   });
 
@@ -891,7 +893,7 @@ describe("ReviewQueueScreen job details honesty", () => {
     // read as five contradictions of it.
     expect(
       screen.getAllByText(
-        "Only the listing title could be checked — no pay, location, or requirements were captured. Copy the listing link to check the rest.",
+        "Fit is based on the title alone. Review the listing details before applying.",
       ),
     ).toHaveLength(2);
     expect(

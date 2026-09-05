@@ -23,6 +23,7 @@ import type {
   JobFinderDocumentManager,
   ResumeResearchAdapter,
 } from "./workspace-service-contracts";
+import type { ListingHtmlFetcher } from "./listing-detail-enrichment";
 
 export interface ResumeExportFileVerifier {
   exists(filePath: string): Promise<boolean>;
@@ -110,6 +111,12 @@ export interface WorkspaceServiceContext {
     options?: OpenBrowserSessionOptions,
   ) => Promise<void>;
   closeRunBrowserSession: (source: JobSource) => Promise<void>;
+  /**
+   * Plain-HTTP page reader for listing bodies (see
+   * `listing-detail-enrichment.ts`). Optional so tests inject a fake and the
+   * desktop supplies the default fetcher.
+   */
+  fetchListingHtml?: ListingHtmlFetcher;
   updateJob: (
     jobId: string,
     updater: (job: SavedJob) => SavedJob,

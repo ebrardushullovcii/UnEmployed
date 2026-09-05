@@ -76,6 +76,22 @@ describe("describeResumeGenerationPath", () => {
     expect(disclosure?.canRetryWithAi).toBe(true);
   });
 
+  it("names a missing listing body plainly and offers no retry", () => {
+    const disclosure = describeResumeGenerationPath({
+      generationMethod: "deterministic",
+      generationReason: "listing_text_missing",
+      generationDetail: null,
+      notes: [],
+    });
+
+    expect(disclosure?.message).toMatch(
+      /^This listing's text was not captured, so the resume could not be tailored to it/,
+    );
+    // Not a model failure: nothing is gained by asking again without text.
+    expect(disclosure?.message).not.toMatch(/built-in generator/);
+    expect(disclosure?.canRetryWithAi).toBe(false);
+  });
+
   it("explains rejected model proposals and offers a retry", () => {
     const disclosure = describeResumeGenerationPath({
       generationMethod: "deterministic",

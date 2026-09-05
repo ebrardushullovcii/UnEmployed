@@ -1804,7 +1804,6 @@ export function renderResumeTemplateHtml(
     .header-pivot { justify-items: start; text-align: left; gap: 0.17rem; border-top: 0.055in solid var(--accent); border-bottom: 1px solid var(--line); padding: 0.16in 0 0.14in; }
     .meta { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.18rem 0.55rem; color: var(--muted); font-size: 0.82rem; }
     .meta-left { justify-content: flex-start; }
-    .meta span + span::before { content: '|'; color: var(--line); margin-right: 0.55rem; }
     .meta-longform { justify-content: flex-end; font-size: 0.75rem; gap: 0.12rem 0.4rem; }
     .meta-stack { display: grid; gap: 0.08rem; color: var(--muted); font-size: 0.8rem; }
     .meta-pill-list { list-style: none; padding-left: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.12rem 0.5rem; color: var(--muted); }

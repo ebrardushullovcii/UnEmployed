@@ -84,6 +84,51 @@ describe("compactDiscoveryInPageScan live employer binding", () => {
     await browser?.close();
   }, 60_000);
 
+  test("uses title links and same-card structured evidence instead of category links or ads", async () => {
+    const page = await browser!.newPage();
+    const pageUrl = "https://careers.example.test/list";
+    await loadFixturePage(
+      page,
+      pageUrl,
+      `<!doctype html><html><body><table>
+      <tr><td><script type="application/ld+json">${JSON.stringify({
+        "@type": "JobPosting",
+        title: "QA Engineer",
+        hiringOrganization: { name: "Example Labs" },
+        description:
+          "Build browser test automation with TypeScript and review application requirements.",
+      })}</script><a href="/jobs/123-qa-engineer"><h2>QA Engineer</h2></a>
+      <h3>Example Labs</h3></td><td><a aria-label="Remote Quality Assurance Jobs" href="/quality-assurance">Quality assurance</a></td></tr>
+      <tr><td><a href="/jobs/456-data-engineer"><h2>Data Engineer</h2></a><p>Data Engineer VERIFIED</p><p>Data Works</p><p>Remote</p></td>
+      <td><a aria-label="Remote Data Engineering Jobs" href="/data-engineering">Data Engineering</a></td></tr>
+      <tr><td><a href="/insurance">Insurance Partner</a><a href="/insurance">Health coverage for remote workers</a><p>Ad</p></td></tr>
+      </table></body></html>`,
+    );
+    const observation = await captureCompactDiscoveryObservation({
+      page,
+      targetId: "target_generic",
+      observationId: "obs_generic",
+      revision: 1,
+      observedAt: "2026-09-04T22:00:00.000Z",
+    });
+    if (observation.kind !== "supported")
+      throw new Error(observation.detail ?? "Unsupported fixture");
+    expect(observation.postingCandidates).toHaveLength(2);
+    expect(
+      observation.postingCandidates.map((candidate) => candidate.canonicalUrl),
+    ).toEqual([
+      "https://careers.example.test/jobs/123-qa-engineer",
+      "https://careers.example.test/jobs/456-data-engineer",
+    ]);
+    expect(observation.postingCandidates[0]).toMatchObject({
+      company: "Example Labs",
+      description:
+        "Build browser test automation with TypeScript and review application requirements.",
+    });
+    expect(observation.postingCandidates[1]?.company).toBe("Data Works");
+    await page.close();
+  });
+
   test("binds employer profile href + label on nested job anchors", async () => {
     expect(browser).not.toBeNull();
     const page = await browser!.newPage();

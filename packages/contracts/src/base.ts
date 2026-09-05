@@ -544,6 +544,9 @@ export const assetGenerationReasonValues = [
   "provider_timeout",
   "provider_output_unverified",
   "forced_deterministic",
+  // The posting carried no listing body (card-only capture), so there was
+  // nothing to tailor toward and the model was never asked.
+  "listing_text_missing",
 ] as const;
 
 export const AssetGenerationReasonSchema = z.enum(assetGenerationReasonValues);

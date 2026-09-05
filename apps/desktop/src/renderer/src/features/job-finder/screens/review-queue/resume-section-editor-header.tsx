@@ -27,6 +27,9 @@ interface ResumeSectionHeaderActionsProps {
 // Section actions appear once per section, not once per row, so they can
 // afford their visible names: a row of bare glyphs made the section header
 // unreadable while the per-bullet rows stay icon-only for density.
+// Quiet, small, one line: the section list repeats this toolbar ten times, so
+// each button carries a one-word visible label and the full verb in its
+// accessible name and tooltip.
 const sectionActionClassName = "text-foreground-soft";
 
 export function ResumeSectionHeaderActions(
@@ -92,17 +95,17 @@ export function ResumeSectionHeaderActions(
               `${section.included ? "Hidden" : "Shown"} section`,
             )
           }
-          size="compact"
+          size="xs"
           title={includeLabel}
           type="button"
           variant="ghost"
         >
           {section.included ? (
-            <EyeOff className="size-4" />
+            <EyeOff className="size-3.5" />
           ) : (
-            <Eye className="size-4" />
+            <Eye className="size-3.5" />
           )}
-          {includeLabel}
+          {section.included ? "Hide" : "Show"}
         </Button>
         <Button
           aria-label={lockLabel}
@@ -120,22 +123,24 @@ export function ResumeSectionHeaderActions(
               `${section.locked ? "Unlocked" : "Locked"} section`,
             )
           }
-          size="compact"
+          size="xs"
           title={lockLabel}
           type="button"
           variant="ghost"
         >
           {section.locked ? (
-            <LockOpen className="size-4" />
+            <LockOpen className="size-3.5" />
           ) : (
-            <Lock className="size-4" />
+            <Lock className="size-3.5" />
           )}
-          {lockLabel}
+          {section.locked ? "Unlock" : "Lock"}
         </Button>
         {/* The per-section "Rewrite" was one of three unlabelled-blast-radius
             AI entry points on this screen. Every AI action now belongs to the
             single Assistant, which states what it replaces before it runs. */}
-        {hasEntries ? (
+        {/* Only offered once the order has actually been changed: a disabled
+            "Reset order" on every untouched section was a dead control. */}
+        {hasEntries && isManualOrder ? (
           <Button
             aria-label="Reset to chronology"
             className={sectionActionClassName}
@@ -154,12 +159,12 @@ export function ResumeSectionHeaderActions(
                 "Reset entry order to chronology",
               );
             }}
-            size="compact"
+            size="xs"
             title="Reset to chronology"
             type="button"
             variant="ghost"
           >
-            <ArrowDownAZ className="size-4" />
+            <ArrowDownAZ className="size-3.5" />
             Reset order
           </Button>
         ) : null}

@@ -17,6 +17,7 @@ import {
   type JobSource,
   type SavedJob,
   type SourceIntelligenceProviderKey,
+  stripDiscoveryCardOnlyEvidenceWarning,
 } from "@unemployed/contracts";
 import {
   getDiscoveryListingRecencyKey,
@@ -33,6 +34,7 @@ import {
   createMatchAssessment,
   enrichDiscoveredPosting,
   mergeDiscoveredPostings,
+  toSavedJobId,
 } from "./matching";
 import { createMatchAssessmentSession } from "./match-assessment-session";
 import {
@@ -93,6 +95,11 @@ import {
 import { createUniqueId, normalizeText, uniqueStrings } from "./shared";
 import { createJobIdentityIndex } from "./job-identity";
 import { assessJobPostingDetailQuality } from "./job-posting-detail-quality";
+import {
+  describeListingDetailEnrichment,
+  enrichSavedJobListingDetails,
+  jobNeedsListingDetail,
+} from "./listing-detail-enrichment";
 
 const DISCOVERY_ACTIVITY_SAMPLE_LIMIT = 3;
 const LOW_YIELD_TECHNICAL_DISCOVERY_FLOOR = 6;
@@ -1193,6 +1200,9 @@ export function createWorkspaceDiscoveryMethods(
       ...startingDiscovery.discoveryLedger,
     ];
     const touchedSavedJobIds = new Set<string>();
+    // Every posting this run retained (new or re-seen), by saved-job id: the
+    // population the listing-detail read stage is allowed to touch.
+    const runRetainedJobIds = new Set<string>();
     const touchedPendingJobIds = new Set<string>();
     workingSavedJobs.forEach((job) => touchedSavedJobIds.add(job.id));
     workingPendingJobs.forEach((job) => touchedPendingJobIds.add(job.id));
@@ -1675,8 +1685,7 @@ export function createWorkspaceDiscoveryMethods(
               posting: triagedPosting,
               evaluatedAt: triagedPosting.discoveredAt,
             });
-            const retainedJob =
-              retainedJobIndex.find(triagedPosting) ?? null;
+            const retainedJob = retainedJobIndex.find(triagedPosting) ?? null;
             const ledgerDecision = shouldSkipPostingFromLedger({
               ledgerEntry,
               posting: triagedPosting,
@@ -1770,11 +1779,17 @@ export function createWorkspaceDiscoveryMethods(
           checkpointState.budgetedCount += budgetedNewPostings.length;
           checkpointState.reviewedCount +=
             budgetedNewPostings.length + upgradeCandidates.length;
-          const budgetedPostings = [...budgetedNewPostings, ...upgradeCandidates];
+          const budgetedPostings = [
+            ...budgetedNewPostings,
+            ...upgradeCandidates,
+          ];
 
           const mergeSeedJobs = settings.discoveryOnly
             ? mergeSavedJobs(workingSavedJobs, workingPendingJobs)
             : workingSavedJobs;
+          for (const posting of budgetedPostings) {
+            runRetainedJobIds.add(toSavedJobId(posting));
+          }
           const mergeResult = mergeDiscoveredPostings(
             profile,
             enrichedPreferences,
@@ -1994,8 +2009,7 @@ export function createWorkspaceDiscoveryMethods(
           );
 
           try {
-            const triageOutcome =
-              runTriageAndLedgerForPostings(newRawPostings);
+            const triageOutcome = runTriageAndLedgerForPostings(newRawPostings);
 
             const { mergeResult, jobsPersisted, jobsStaged } =
               mergeAndAccountPostings(
@@ -2010,9 +2024,7 @@ export function createWorkspaceDiscoveryMethods(
             // never inflate the run's found/kept total.
             activeRun = updateRunSummary(activeRun, {
               validJobsFound:
-                activeRun.summary.validJobsFound +
-                jobsPersisted +
-                jobsStaged,
+                activeRun.summary.validJobsFound + jobsPersisted + jobsStaged,
               jobsPersisted: activeRun.summary.jobsPersisted + jobsPersisted,
               jobsStaged: activeRun.summary.jobsStaged + jobsStaged,
               jobsSkippedByLedger:
@@ -2039,8 +2051,7 @@ export function createWorkspaceDiscoveryMethods(
                 ...entry,
                 jobsReviewed: checkpointState.reviewedCount,
                 jobsFound:
-                  checkpointState.jobsPersisted +
-                  checkpointState.jobsStaged,
+                  checkpointState.jobsPersisted + checkpointState.jobsStaged,
                 jobsPersisted: checkpointState.jobsPersisted,
                 jobsStaged: checkpointState.jobsStaged,
                 jobsSkippedByLedger: checkpointState.skippedByLedger,
@@ -2222,6 +2233,12 @@ export function createWorkspaceDiscoveryMethods(
         });
         const freshnessSummary =
           formatDiscoveryFreshnessDigest(freshnessDigest);
+        // Re-seen postings never reach the merge (their content is unchanged),
+        // but a card the last search left unread is still a card: it is in
+        // this run's retained population for the listing-detail read.
+        for (const posting of collectedJobs) {
+          runRetainedJobIds.add(toSavedJobId(posting));
+        }
         const collectedProviderKey = getDiscoveryProviderKey({
           target,
           intelligence: collected.intelligence,
@@ -2546,6 +2563,120 @@ export function createWorkspaceDiscoveryMethods(
         // microtasks for fast API sources. Give Electron a real event-loop turn
         // so window messages and IPC remain responsive during large catalogs.
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      }
+
+      // Read the listing bodies the compact scan did not. Every job this run
+      // retained as a card gets one plain-HTTP read of its own page, then a
+      // fresh score from the same assessment session, before the run is
+      // declared finished: "Search finished" should mean the results are
+      // scored, not that a list of titles arrived. Bounded (count, time,
+      // concurrency) and never fatal: a page that will not read stays a
+      // title match with the attempt recorded on the job.
+      const enrichmentCandidates = workingSavedJobs.filter(
+        (job) => runRetainedJobIds.has(job.id) && jobNeedsListingDetail(job),
+      );
+      // No reader configured means no reads: the desktop composes the
+      // plain-HTTP reader in; tests and other hosts opt in explicitly so a
+      // fixture URL is never fetched for real.
+      if (
+        ctx.fetchListingHtml &&
+        enrichmentCandidates.length > 0 &&
+        !executionSignal.aborted
+      ) {
+        const fetchListingHtml = ctx.fetchListingHtml;
+        const readEvent = (message: string) =>
+          createDiscoveryEvent({
+            runId,
+            timestamp: new Date().toISOString(),
+            kind: "info",
+            stage: "extraction",
+            waitReason: "extracting_jobs",
+            targetId: null,
+            adapterKind: null,
+            resolvedAdapterKind: null,
+            message,
+            url: null,
+            jobsFound:
+              activeRun.summary.jobsPersisted + activeRun.summary.jobsStaged,
+            jobsPersisted: activeRun.summary.jobsPersisted,
+            jobsStaged: activeRun.summary.jobsStaged,
+            duplicatesMerged: activeRun.summary.duplicatesMerged,
+            invalidSkipped: activeRun.summary.invalidSkipped,
+          });
+        emitActivity(
+          readEvent(
+            `Reading listing details for ${enrichmentCandidates.length} ${
+              enrichmentCandidates.length === 1 ? "job" : "jobs"
+            }`,
+          ),
+        );
+        try {
+          const enrichment = await enrichSavedJobListingDetails({
+            jobs: enrichmentCandidates,
+            fetchHtml: fetchListingHtml,
+            assess: assessmentSession.assess,
+            signal: executionSignal,
+          });
+          if (enrichment.changedJobIds.length > 0) {
+            const enrichedById = new Map(
+              enrichment.jobs.map((job) => [job.id, job]),
+            );
+            workingSavedJobs = workingSavedJobs.map(
+              (job) => enrichedById.get(job.id) ?? job,
+            );
+            for (const jobId of enrichment.changedJobIds) {
+              touchedSavedJobIds.add(jobId);
+            }
+            // The scan-time "only cards were read" warning stops being true
+            // for a target once any of its retained jobs has a body.
+            const targetsWithBodies = new Set(
+              workingSavedJobs
+                .filter(
+                  (job) =>
+                    runRetainedJobIds.has(job.id) &&
+                    job.detailQuality !== "card_only",
+                )
+                .flatMap((job) =>
+                  job.provenance.map((entry) => entry.targetId),
+                ),
+            );
+            activeRun = {
+              ...activeRun,
+              targetExecutions: activeRun.targetExecutions.map((execution) =>
+                targetsWithBodies.has(execution.targetId)
+                  ? {
+                      ...execution,
+                      warning: stripDiscoveryCardOnlyEvidenceWarning(
+                        execution.warning,
+                      ),
+                    }
+                  : execution,
+              ),
+            };
+            if (targetsWithBodies.size > 0) {
+              activeRun = updateRunSummary(activeRun, {
+                warnings: activeRun.summary.warnings
+                  .map((warning) =>
+                    stripDiscoveryCardOnlyEvidenceWarning(warning),
+                  )
+                  .filter((warning): warning is string => Boolean(warning)),
+              });
+            }
+            await persistWorkingSavedJobs();
+          }
+          emitActivity(
+            readEvent(describeListingDetailEnrichment(enrichment.summary)),
+          );
+        } catch (error) {
+          if (executionSignal.aborted) {
+            throw error;
+          }
+          emitActivity(
+            readEvent(
+              `Listing details could not be read this time: ${describeUnknownThrowable(error)}`,
+            ),
+          );
+        }
       }
 
       const completedTargets = activeRun.targetExecutions.filter(

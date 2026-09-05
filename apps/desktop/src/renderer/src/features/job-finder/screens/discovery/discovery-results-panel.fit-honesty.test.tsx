@@ -185,12 +185,12 @@ describe("Find jobs fit honesty", () => {
     const srOnly = screen.getByTestId(`discovery-result-fit-sr-${job.id}`);
     expect(srOnly.className).toContain("sr-only");
     expect(srOnly.textContent).toBe(
-      "Overall fit: title match only, not scored. Only the listing title could be checked — no pay, location, or requirements were captured. Copy the listing link to check the rest.",
+      "Overall fit: title match only, not scored. Fit is based on the title alone. Review the listing details before applying.",
     );
     // …and it is the row's only carrier of that reason.
-    expect(
-      screen.getAllByText(/Only the listing title could be checked/),
-    ).toEqual([srOnly]);
+    expect(screen.getAllByText(/Fit is based on the title alone/)).toEqual([
+      srOnly,
+    ]);
   });
 
   it("prints 'Fit not assessed' with no number for an unbound assessment", () => {

@@ -135,7 +135,7 @@ export function buildWorkspaceStatusCopy(input: {
           ? "This resume is approved. Any new edit or template change will require approval again."
           : availableExportToApprove
             ? "This resume is ready to approve."
-            : "Review the preview, then approve when you are ready. Downloading a copy is optional.";
+            : "Review the preview, then approve when you are ready.";
   const approvalStateLabel = approvalBlockedReason
     ? "Approval needs decisions"
     : selectedTemplateApprovalEligible

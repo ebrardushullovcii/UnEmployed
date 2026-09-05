@@ -35,6 +35,7 @@ function createCatalogJob(overrides: Partial<JobPosting> = {}): JobPosting {
     source: "target_site",
     sourceJobId: "catalog_job_1",
     discoveryMethod: "catalog_seed",
+    listingDetailFetch: null,
     canonicalUrl: "https://jobs.example.com/roles/catalog_job_1",
     applicationUrl: "https://jobs.example.com/roles/catalog_job_1/apply",
     title: "Lead Designer",

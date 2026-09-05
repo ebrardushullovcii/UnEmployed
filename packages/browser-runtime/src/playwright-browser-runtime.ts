@@ -870,6 +870,7 @@ async function resolveAutomationPageForContext(
     targetUrl?: string | null;
     bringToFront?: boolean;
     closeOtherPages?: boolean;
+    reuseExistingPage?: boolean;
     onPageResolved?: (page: Page) => void;
   } = {},
 ): Promise<Page> {
@@ -886,13 +887,15 @@ async function resolveAutomationPageForContext(
     openPages.find((page) => !isHttpUrlLike(page.url())) ?? null;
   const reusableLivePage = selectLiveHttpPage(openPages);
   const page =
-    exactTargetPage ??
-    blankPage ??
-    reusableLivePage ??
-    (await context.newPage());
+    options.reuseExistingPage === false
+      ? await context.newPage()
+      : (exactTargetPage ??
+        blankPage ??
+        reusableLivePage ??
+        (await context.newPage()));
   options.onPageResolved?.(page);
 
-  if (options.closeOtherPages) {
+  if (options.closeOtherPages && options.reuseExistingPage !== false) {
     await Promise.allSettled(
       openPages
         .filter((candidate) => candidate !== page)
@@ -916,6 +919,7 @@ async function prepareAutomationPageForTarget(
     navigationTimeoutMs?: number;
     acceptTargetOriginAfterTimeout?: boolean;
     closeOtherPages?: boolean;
+    reuseExistingPage?: boolean;
     signal?: AbortSignal;
     onPageResolved?: (page: Page) => void;
   },
@@ -928,6 +932,9 @@ async function prepareAutomationPageForTarget(
   const page = await resolveAutomationPageForContext(context, {
     targetUrl: options.targetUrl,
     bringToFront: false,
+    ...(options.reuseExistingPage !== undefined
+      ? { reuseExistingPage: options.reuseExistingPage }
+      : {}),
     ...(options.closeOtherPages !== undefined
       ? { closeOtherPages: options.closeOtherPages }
       : {}),
@@ -1444,6 +1451,7 @@ export function createBrowserAgentRuntime(
 
   async function openSessionAtTarget(input: {
     source: JobSource;
+    reuseExistingPage?: boolean;
     targetUrl?: string | null;
   }): Promise<BrowserSessionState> {
     const normalizedTargetUrl =
@@ -1451,6 +1459,9 @@ export function createBrowserAgentRuntime(
     if (isHttpUrlLike(normalizedTargetUrl)) {
       await prepareAutomationPageForTarget(await getContext(), {
         targetUrl: normalizedTargetUrl,
+        ...(input.reuseExistingPage !== undefined
+          ? { reuseExistingPage: input.reuseExistingPage }
+          : {}),
         bringToFront: true,
         closeOtherPages: true,
         navigationTimeoutMs: 8_000,
@@ -1625,6 +1636,9 @@ export function createBrowserAgentRuntime(
       return openSessionAtTarget({
         source,
         targetUrl: options?.targetUrl ?? null,
+        ...(options?.reuseExistingPage !== undefined
+          ? { reuseExistingPage: options.reuseExistingPage }
+          : {}),
       });
     },
     async closeSession(source) {

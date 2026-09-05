@@ -354,7 +354,10 @@ function createPosting(
   });
 }
 
-async function collectGreenhouseJobs(updatedAt: string | null) {
+async function collectGreenhouseJobs(
+  updatedAt: string | null,
+  content = "<p>Teach software engineering.</p>",
+) {
   const target = createGreenhouseTarget();
   const intelligence = inferSourceIntelligenceFromTarget({
     target,
@@ -374,7 +377,7 @@ async function collectGreenhouseJobs(updatedAt: string | null) {
               "https://job-boards.greenhouse.io/remote/jobs/4622190",
             location: { name: "New York, NY" },
             updated_at: updatedAt,
-            content: "<p>Teach software engineering.</p>",
+            content,
           },
         ],
       }),
@@ -388,6 +391,20 @@ async function collectGreenhouseJobs(updatedAt: string | null) {
 }
 
 describe("collectPublicProviderJobs", () => {
+  test("decodes escaped provider markup before summarizing the job", async () => {
+    const result = await collectGreenhouseJobs(
+      null,
+      "&lt;div class=&quot;content-intro&quot;&gt;&lt;strong&gt;About the role:&lt;/strong&gt;&lt;/div&gt;" +
+        "&lt;p&gt;Build React &amp;amp; TypeScript interfaces. Ship &#8220;accessible&#8221; UI.&lt;/p&gt;" +
+        "&lt;script&gt;ignore this script&lt;/script&gt;",
+    );
+    expect(result.jobs[0]?.description).toBe(
+      "About the role:\n\nBuild React & TypeScript interfaces. Ship “accessible” UI.",
+    );
+    expect(result.jobs[0]?.summary).toBe(
+      "About the role: Build React & TypeScript interfaces. Ship “accessible” UI.",
+    );
+  });
   test("collects current Ashby board jobs through the reusable posting API", async () => {
     const target = createAshbyTarget();
     const intelligence = inferSourceIntelligenceFromTarget({

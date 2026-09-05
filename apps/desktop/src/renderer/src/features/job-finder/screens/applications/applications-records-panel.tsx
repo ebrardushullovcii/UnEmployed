@@ -263,10 +263,14 @@ export function ApplicationsRecordsPanel({
           {pagedRecords.map((record) => {
             const stage = getApplicationStagePresentation(record);
             const attemptLabel = getAttemptLabel(record.lastAttemptState);
-            // Stage "Needs you" already covers paused prep; hiding the
-            // redundant "Needs follow-up" attempt badge reduces badge noise.
+            // The stage badge already says the record is stuck; a second
+            // badge restating how ("Needs follow-up", "Attempt failed") was
+            // badge noise. The attempt detail stays in the panel.
             const showAttemptBadge = !(
-              stage.label === "Needs you" && attemptLabel === "Needs follow-up"
+              (stage.label === "Needs you" &&
+                attemptLabel === "Needs follow-up") ||
+              (stage.label === "Needs recovery" &&
+                attemptLabel === "Attempt failed")
             );
             const nextStepLabel =
               getApplicationReadableNextStepLabel(
@@ -352,7 +356,14 @@ export function ApplicationsRecordsPanel({
                     </SelectableRowLine>
                   </div>
                   <span className="sr-only" id={recordStateDescriptionId}>
-                    {showAttemptBadge
+                    {/* The visible badge is deduplicated; the description
+                        still names a failed attempt for assistive tech, since
+                        "Needs recovery" alone does not say why. */}
+                    {attemptLabel &&
+                    !(
+                      stage.label === "Needs you" &&
+                      attemptLabel === "Needs follow-up"
+                    )
                       ? `Stage ${stage.label}. Preparation attempt ${attemptLabel}.`
                       : `Stage ${stage.label}.`}
                   </span>

@@ -99,8 +99,8 @@ describe("ResumeSectionHeaderActions", () => {
     renderHeader(buildSection({ entryOrderMode: "manual" }));
 
     for (const [actionName, visibleLabel] of [
-      ["Hide section", "Hide section"],
-      ["Lock section", "Lock section"],
+      ["Hide section", "Hide"],
+      ["Lock section", "Lock"],
       ["Reset to chronology", "Reset order"],
     ] as const) {
       const action = screen.getByRole("button", { name: actionName });
@@ -157,11 +157,11 @@ describe("ResumeSectionHeaderActions", () => {
     });
   });
 
-  it("disables reset-to-chronology while the section already uses chronology", () => {
+  it("offers reset-to-chronology only once the order was changed by hand", () => {
     renderHeader(buildSection());
 
     expect(
-      screen.getByRole("button", { name: "Reset to chronology" }),
-    ).toHaveProperty("disabled", true);
+      screen.queryByRole("button", { name: "Reset to chronology" }),
+    ).toBeNull();
   });
 });

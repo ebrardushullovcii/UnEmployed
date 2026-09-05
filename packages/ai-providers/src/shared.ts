@@ -440,6 +440,8 @@ export interface JobFinderAiClient {
 export interface ChatWithToolsOptions {
   signal?: AbortSignal;
   maxOutputTokens?: number;
+  /** Which product conversation this turn continues; see model-request-identity. */
+  conversationKey?: string;
 }
 
 export interface AgentCapableJobFinderAiClient extends JobFinderAiClient {

@@ -33,6 +33,7 @@ import {
   parseModelJsonResponse,
   parseModelReasoningEffort,
 } from "./openai-compatible-transport";
+import { buildModelRequestHeaders } from "./model-request-identity";
 
 const execFileAsync = promisify(execFile);
 
@@ -553,10 +554,11 @@ export function createOpenAiCompatibleInterviewCueCardProvider(
         {
           method: "POST",
           signal: controller.signal,
-          headers: {
-            Authorization: `Bearer ${validatedOptions.apiKey}`,
-            "Content-Type": "application/json",
-          },
+          headers: buildModelRequestHeaders({
+            apiKey: validatedOptions.apiKey,
+            baseUrl: validatedOptions.baseUrl,
+            conversationKey: `interview:${input.sessionId}`,
+          }),
           body: JSON.stringify(
             buildModelRequestBody({
               apiMode,
@@ -698,10 +700,11 @@ export function createOpenAiCompatibleInterviewScreenshotVisionProvider(
         {
           method: "POST",
           signal: controller.signal,
-          headers: {
-            Authorization: `Bearer ${validatedOptions.apiKey}`,
-            "Content-Type": "application/json",
-          },
+          headers: buildModelRequestHeaders({
+            apiKey: validatedOptions.apiKey,
+            baseUrl: validatedOptions.baseUrl,
+            conversationKey: `interview-screenshots:${input.batchId}`,
+          }),
           body: JSON.stringify(
             buildModelRequestBody({
               apiMode,
@@ -947,9 +950,12 @@ export function createOpenAiCompatibleInterviewTranscriptionProvider(
         {
           method: "POST",
           signal: controller.signal,
-          headers: {
-            Authorization: `Bearer ${validatedOptions.apiKey}`,
-          },
+          headers: buildModelRequestHeaders({
+            apiKey: validatedOptions.apiKey,
+            baseUrl: validatedOptions.baseUrl,
+            conversationKey: `interview-audio:${input.source}`,
+            contentType: null,
+          }),
           body: formData,
         },
       );
@@ -1291,9 +1297,8 @@ export function createInterviewHelperProvidersFromEnvironment(
 
   if (!apiKey) {
     return {
-      cueCardProvider: createDeterministicInterviewCueCardProvider(
-        deterministicReason,
-      ),
+      cueCardProvider:
+        createDeterministicInterviewCueCardProvider(deterministicReason),
       screenshotVisionProvider,
       transcriptionProvider:
         localTranscriptionProvider ?? deterministicTranscriptionProvider,

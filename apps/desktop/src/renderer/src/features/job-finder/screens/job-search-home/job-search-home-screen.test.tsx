@@ -729,7 +729,7 @@ describe("JobSearchHomeScreen", () => {
     // An empty workspace has nothing to search yet.
     expect(
       screen.queryByRole("combobox", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
     ).toBeNull();
 
@@ -1175,17 +1175,17 @@ describe("JobSearchHomeScreen", () => {
     // blocked item — which stays reachable from Notifications and the badges.
     expect(
       screen.getByRole("heading", {
-        name: "Review 4 jobs from your last search",
+        name: "Review 4 shortlisted jobs",
       }),
     ).toBeTruthy();
-    expect(primaryButtons[0]?.textContent).toContain("Review jobs");
+    expect(primaryButtons[0]?.textContent).toContain("Open Shortlisted");
     fireEvent.click(
       screen.getByRole("button", { name: "Review source health" }),
     );
     expect(onNavigate).toHaveBeenCalledWith(
       "/job-finder/profile?section=sources&focus=job-sources#profile-job-sources",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Review jobs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Shortlisted" }));
     expect(onNavigate).toHaveBeenCalledWith("/job-finder/review-queue");
     // And the loop can always be continued from Home.
     fireEvent.click(screen.getByRole("button", { name: "Search again" }));
@@ -1236,9 +1236,7 @@ describe("JobSearchHomeScreen", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/saved 15 new jobs saved/)).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Review search results" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Open Find jobs" }));
     expect(onNavigate).toHaveBeenCalledWith("/job-finder/discovery");
   });
 
@@ -1782,7 +1780,7 @@ describe("JobSearchHomeScreen", () => {
     // Never-verified / guidance-only attention: neutral, not red.
     const neutralBadge = within(
       screen.getByTestId("source-health-badge-top"),
-    ).getByText(/1 need attention/);
+    ).getByText(/1 needs attention/);
     expect(neutralBadge.className).not.toContain("text-critical");
     expect(neutralBadge.className).toContain("text-foreground-soft");
     expect(
@@ -1825,7 +1823,7 @@ describe("JobSearchHomeScreen", () => {
     // A recorded failure on an enabled source is the only red state.
     const failingBadge = within(
       screen.getByTestId("source-health-badge-top"),
-    ).getByText(/1 need attention/);
+    ).getByText(/1 needs attention/);
     expect(failingBadge.className).toContain("text-critical");
   });
 

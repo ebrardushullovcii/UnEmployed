@@ -211,7 +211,7 @@ export function DiscoveryFiltersPanel({
     searchPreferences.locations.length === 0 &&
     searchPreferences.workModes.length > 0 &&
     searchPreferences.workModes.every((workMode) => workMode === "remote");
-  const sections = useMemo<
+  const rawCriteriaSections = useMemo<
     Array<{
       label: string;
       values: SectionValue[];
@@ -289,6 +289,25 @@ export function DiscoveryFiltersPanel({
     ],
     [isRemoteOnlySearch, searchPreferences, totalSourceCount],
   );
+  // One primary at a time: on a blank workspace every section is empty, and
+  // four primary buttons in a column read as four competing starts. The first
+  // empty section keeps the primary treatment; the rest wait as secondary.
+  const criteriaSections = useMemo(() => {
+    let primaryAssigned = false;
+    return rawCriteriaSections.map((section) => {
+      if (!section.editAction || section.editAction.variant !== "primary") {
+        return section;
+      }
+      if (section.values.length === 0 && !primaryAssigned) {
+        primaryAssigned = true;
+        return section;
+      }
+      return {
+        ...section,
+        editAction: { ...section.editAction, variant: "secondary" as const },
+      };
+    });
+  }, [rawCriteriaSections]);
 
   const enabledTargets = searchPreferences.discovery.targets.filter(
     (target) => target.enabled,
@@ -410,7 +429,7 @@ export function DiscoveryFiltersPanel({
         >
           <DiscoverySearchSections
             sectionHeadingPrefix={sectionHeadingPrefix}
-            sections={sections}
+            sections={criteriaSections}
           />
 
           <div className="grid min-w-0 gap-2 border-t border-(--surface-panel-border) px-3 py-3">

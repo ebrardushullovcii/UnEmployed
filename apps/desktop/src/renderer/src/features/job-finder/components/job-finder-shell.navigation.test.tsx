@@ -2091,7 +2091,7 @@ describe("JobFinderShell compact nav responsive contract", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Keyboard shortcuts" });
     const shortcutText = dialog.textContent ?? "";
-    expect(shortcutText).toContain("Search current plan and workspace");
+    expect(shortcutText).toContain("Search your workspace");
     expect(shortcutText).toContain("Show or hide the sidebar");
     // Aliases are separate keycaps, each on the row whose scope it fires in,
     // never merged into one broken token beside a two-scope paragraph. A
@@ -2273,7 +2273,7 @@ describe("JobFinderShell keyboard shortcuts", () => {
         await waitFor(() =>
           expect(
             screen.getByRole("dialog", {
-              name: "Search current plan and workspace",
+              name: "Search your workspace",
             }),
           ),
         );
@@ -2343,12 +2343,12 @@ describe("JobFinderShell keyboard shortcuts", () => {
 
     fireEvent.keyDown(document, { ctrlKey: true, key: "k" });
     const dialog = await screen.findByRole("dialog", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
     expect(dialog.getAttribute("aria-modal")).toBe("true");
 
     const input = screen.getByRole("combobox", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
     expect(document.activeElement).toBe(input);
 
@@ -2361,7 +2361,7 @@ describe("JobFinderShell keyboard shortcuts", () => {
     );
     expect(
       screen.queryByRole("dialog", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
     ).toBeNull();
   });
@@ -2371,19 +2371,19 @@ describe("JobFinderShell keyboard shortcuts", () => {
 
     fireEvent.keyDown(document, { metaKey: true, key: "k" });
     await screen.findByRole("dialog", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
 
     fireEvent.keyDown(document, { metaKey: true, key: "k" });
 
     expect(
       screen.getAllByRole("dialog", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
     ).toHaveLength(1);
     expect(document.activeElement).toBe(
       screen.getByRole("combobox", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
     );
   });
@@ -2392,24 +2392,24 @@ describe("JobFinderShell keyboard shortcuts", () => {
     renderShellWithShortcuts({});
 
     const opener = screen.getByRole("button", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
     opener.focus();
     fireEvent.click(opener);
     await screen.findByRole("dialog", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
 
     fireEvent.keyDown(
       screen.getByRole("combobox", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
       { key: "Escape" },
     );
 
     expect(
       screen.queryByRole("dialog", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
     ).toBeNull();
     expect(document.activeElement).toBe(opener);
@@ -2420,13 +2420,13 @@ describe("JobFinderShell keyboard shortcuts", () => {
 
     fireEvent.keyDown(document.body, { key: "/" });
     await screen.findByRole("dialog", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(
       screen.queryByRole("dialog", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
     ).toBeNull();
 
@@ -2439,7 +2439,7 @@ describe("JobFinderShell keyboard shortcuts", () => {
     fireEvent.keyDown(editableField, { key: "/" });
     expect(
       screen.queryByRole("dialog", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
     ).toBeNull();
 
@@ -2448,7 +2448,7 @@ describe("JobFinderShell keyboard shortcuts", () => {
     fireEvent.keyDown(document, { key: "/" });
     expect(
       screen.queryByRole("dialog", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
     ).toBeNull();
     expect(screen.getByRole("navigation", { name: "More" }));
@@ -2659,7 +2659,7 @@ describe("JobFinderShell responsive shell contract", () => {
       // Utilities stay unique and reachable in the 640-899 band.
       expect(
         screen.getAllByRole("button", {
-          name: "Search current plan and workspace",
+          name: "Search your workspace",
         }),
       ).toHaveLength(1);
       expect(screen.getAllByLabelText("Tasks: 0 active")).toHaveLength(1);

@@ -29,7 +29,8 @@ export function selectCampaignJobIds(
   );
 
   return new Set(
-    activeCampaign?.jobIds ?? workspace.discoveryJobs.map((job) => job.id),
+    activeCampaign?.jobIds ??
+      (workspace.discoveryJobs ?? []).map((job) => job.id),
   );
 }
 
@@ -44,7 +45,7 @@ export function countDiscoveryVisibleJobs(
   campaignJobIds: ReadonlySet<string> = selectCampaignJobIds(workspace),
 ): number {
   return countDiscoveryDefaultVisibleResults(
-    workspace.discoveryJobs.filter((job) => campaignJobIds.has(job.id)),
+    (workspace.discoveryJobs ?? []).filter((job) => campaignJobIds.has(job.id)),
   );
 }
 
@@ -52,15 +53,16 @@ export function countShortlistedJobs(
   workspace: JobFinderWorkspaceSnapshot,
   campaignJobIds: ReadonlySet<string> = selectCampaignJobIds(workspace),
 ): number {
-  return workspace.reviewQueue.filter((item) => campaignJobIds.has(item.jobId))
-    .length;
+  return (workspace.reviewQueue ?? []).filter((item) =>
+    campaignJobIds.has(item.jobId),
+  ).length;
 }
 
 export function countApplicationRecords(
   workspace: JobFinderWorkspaceSnapshot,
   campaignJobIds: ReadonlySet<string> = selectCampaignJobIds(workspace),
 ): number {
-  return workspace.applicationRecords.filter((record) =>
+  return (workspace.applicationRecords ?? []).filter((record) =>
     campaignJobIds.has(record.jobId),
   ).length;
 }

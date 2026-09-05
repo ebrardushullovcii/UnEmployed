@@ -1,6 +1,6 @@
 # UnEmployed
 
-Local-first Electron monorepo (pnpm + turbo) with two modules: `Job Finder` and `Interview Helper`. Doc map: `docs/README.md`. Decisions: `docs/adr/`. Code is the source of truth for current behavior.
+Local-first Electron monorepo (pnpm + turbo) with two modules: `Job Finder` and `Interview Helper`. Doc map: `docs/README.md`. Read relevant `docs/adr/` decisions before changing behavior they govern; code shows current behavior, not permission to discard a deliberate decision.
 
 ## Rules
 

@@ -410,6 +410,23 @@ describe("manual field-finish helpers", () => {
     );
   });
 
+  it("offers browser handoff for a blocked background request without inventing a field save", () => {
+    const result = createResult({
+      summary: "The application page needs manual review",
+      detail:
+        "Job Finder blocked a background page request before it could continue preparing this application.",
+      state: "awaiting_review",
+    });
+    expect(applyResultNeedsManualFieldFinish(result)).toBe(true);
+    expect(applyResultIsFieldSavePause(result)).toBe(false);
+    expect(getManualFieldFinishNextStep(result)).toContain(
+      "Open a fresh application page in the Job Finder browser.",
+    );
+    expect(getManualFieldFinishReason(result)).not.toMatch(
+      /conflict|save a field/i,
+    );
+  });
+
   it("explains a prepare-only autosave pause without claiming a field conflict", () => {
     const result = createResult({
       summary: "The application page could not safely save a prepared field",

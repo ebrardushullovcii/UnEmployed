@@ -44,7 +44,7 @@ const sampleEntries = [
 function typeQuery(query: string) {
   fireEvent.change(
     screen.getByRole("combobox", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     }),
     {
       target: { value: query },
@@ -152,17 +152,17 @@ describe("JobFinderGlobalSearchDialog", () => {
     renderDialog();
 
     const dialog = screen.getByRole("dialog", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
     expect(dialog.getAttribute("aria-modal")).toBe("true");
     expect(document.activeElement).toBe(
       screen.getByRole("combobox", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
     );
     expect(
       screen.getByText(
-        "Jobs, applications, and documents are from the active search plan. All search plans remain searchable.",
+        "Jobs, applications, and documents come from the active search plan. Other search plans are also searchable.",
       ),
     ).toBeTruthy();
     expect(appRoot.getAttribute("inert")).toBe("");
@@ -187,14 +187,14 @@ describe("JobFinderGlobalSearchDialog", () => {
 
     typeQuery("typescript");
     const input = screen.getByRole("combobox", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Tab" });
 
     expect(document.activeElement).not.toBe(document.body);
     const dialog = screen.getByRole("dialog", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
     expect(dialog.contains(document.activeElement)).toBe(true);
 
@@ -204,7 +204,7 @@ describe("JobFinderGlobalSearchDialog", () => {
     });
     expect(
       screen
-        .getByRole("dialog", { name: "Search current plan and workspace" })
+        .getByRole("dialog", { name: "Search your workspace" })
         .contains(document.activeElement),
     ).toBe(true);
   });
@@ -218,7 +218,7 @@ describe("JobFinderGlobalSearchDialog", () => {
     await waitFor(() =>
       expect(
         screen.getByRole("dialog", {
-          name: "Search current plan and workspace",
+          name: "Search your workspace",
         }),
       ),
     );
@@ -228,7 +228,7 @@ describe("JobFinderGlobalSearchDialog", () => {
     await waitFor(() =>
       expect(
         screen.queryByRole("dialog", {
-          name: "Search current plan and workspace",
+          name: "Search your workspace",
         }),
       ).toBeNull(),
     );
@@ -253,7 +253,7 @@ describe("JobFinderGlobalSearchDialog", () => {
     await waitFor(() =>
       expect(
         screen.queryByRole("dialog", {
-          name: "Search current plan and workspace",
+          name: "Search your workspace",
         }),
       ).toBeNull(),
     );
@@ -291,7 +291,7 @@ describe("JobFinderGlobalSearchDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(
       screen.queryByRole("dialog", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
     ).toBeNull();
   });
@@ -329,7 +329,7 @@ describe("JobFinderGlobalSearch", () => {
       <JobFinderGlobalSearch entries={sampleEntries} onNavigate={onNavigate} />,
     );
     const input = screen.getByRole("combobox", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
 
     typeQuery("platform engineer");
@@ -371,7 +371,7 @@ describe("JobFinderGlobalSearch", () => {
       <JobFinderGlobalSearch entries={sampleEntries} onNavigate={onNavigate} />,
     );
     const input = screen.getByRole("combobox", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
 
     typeQuery("typescript");
@@ -408,7 +408,7 @@ describe("JobFinderGlobalSearch", () => {
       <JobFinderGlobalSearch entries={sampleEntries} onNavigate={onNavigate} />,
     );
     const input = screen.getByRole("combobox", {
-      name: "Search current plan and workspace",
+      name: "Search your workspace",
     });
 
     typeQuery("typescript");
@@ -448,13 +448,13 @@ describe("JobFinderGlobalSearch", () => {
     typeQuery("engineer");
     fireEvent.keyDown(
       screen.getByRole("combobox", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
       { key: "ArrowDown" },
     );
     fireEvent.keyDown(
       screen.getByRole("combobox", {
-        name: "Search current plan and workspace",
+        name: "Search your workspace",
       }),
       { key: "ArrowDown" },
     );

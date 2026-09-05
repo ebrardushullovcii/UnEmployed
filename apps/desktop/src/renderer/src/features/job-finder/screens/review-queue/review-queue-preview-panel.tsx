@@ -21,6 +21,7 @@ import {
   isResumeGenerationInProgress,
   needsResumeGeneration,
 } from "./review-queue-status";
+import { formatDateOnly } from "../../lib/job-finder-utils";
 
 interface ReviewQueuePreviewPanelProps {
   /** Seconds the current preparation has been running. */
@@ -382,11 +383,9 @@ export function ReviewQueuePreviewPanel({
             </div>
             {selectedItem.resumeReview.status === "approved" ? (
               <p className="text-(length:--text-small) text-foreground-soft">
-                Approved on{" "}
-                {new Date(
-                  selectedItem.resumeReview.approvedAt,
-                ).toLocaleString()}
-                . This is the PDF used when you prepare the application.
+                Approved {formatDateOnly(selectedItem.resumeReview.approvedAt)}
+                {" · "}
+                used when you prepare the application.
               </p>
             ) : null}
             {selectedItem.resumeReview.status === "needs_review" ? (
@@ -401,24 +400,20 @@ export function ReviewQueuePreviewPanel({
                 and approve it again before preparing the application.
               </p>
             ) : null}
+            {/* The panel header above already carries the one primary action
+                for this state ("Review and approve resume"); a second boxed
+                "Next step" with the same destination was a duplicate CTA. A
+                quiet text link keeps the destination reachable from here. */}
             {selectedItem.resumeReview.status !== "approved" ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-(--radius-field) border border-primary/20 bg-primary/8 px-4 py-4">
-                <div className="grid gap-1">
-                  <p className="label-mono-xs text-primary">Next step</p>
-                  <p className="text-sm leading-6 text-foreground-soft">
-                    Open the workspace to review the live document, then approve
-                    it. Job Finder creates the application PDF in the
-                    background.
-                  </p>
-                </div>
-                <Button
-                  onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
-                  type="button"
-                  variant="primary"
-                >
-                  Open resume workspace
-                </Button>
-              </div>
+              <Button
+                className="h-auto w-fit px-0 text-sm"
+                onClick={() => onEditResumeWorkspace(selectedItem.jobId)}
+                size="compact"
+                type="button"
+                variant="link"
+              >
+                Open resume workspace
+              </Button>
             ) : null}
             {selectedAsset.previewSections.map((section, sectionIndex) => (
               <div

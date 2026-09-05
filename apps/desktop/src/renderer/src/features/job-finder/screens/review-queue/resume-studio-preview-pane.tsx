@@ -6,7 +6,6 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { JobFinderResumePreview } from "@unemployed/contracts";
-import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import { cn } from "@renderer/lib/cn";
 import { getJobFinderScrollBehavior } from "../../lib/job-finder-scroll-behavior";
@@ -607,39 +606,46 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
             when the badges need the width. */}
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <div className="grid min-w-0 flex-1 basis-56 gap-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <p className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
+            {/* One quiet line, not a row of chips: what this is, whether it
+                shows saved or unsaved content, and the optional suggestions
+                as a text action. The template name lives in the template row
+                of the tools column, so it is not repeated here. */}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-(length:--text-small) leading-5">
+              <p className="font-semibold text-(--text-headline)">
                 Resume preview
               </p>
               {props.previewStatus === "loading" ? (
-                <Badge variant="section">
+                <span className="inline-flex items-center gap-1 text-foreground-soft">
                   <LoaderCircle className="size-3.5 animate-spin" />
                   Refreshing
-                </Badge>
+                </span>
               ) : null}
               {props.previewStatus === "ready" ? (
-                <Badge variant={props.isDirty ? "default" : "section"}>
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1",
+                    props.isDirty ? "text-primary" : "text-foreground-soft",
+                  )}
+                >
                   <CheckCircle2 className="size-3.5" />
                   {props.isDirty
                     ? "Unsaved edits rendered"
                     : "Saved draft rendered"}
-                </Badge>
+                </span>
               ) : null}
               {props.templateLabel ? (
-                <Badge variant="section">{props.templateLabel}</Badge>
+                <span className="sr-only">{props.templateLabel}</span>
               ) : null}
               {warningCount > 0 ? (
-                <Badge asChild variant="outline">
-                  <button
-                    className="cursor-pointer hover:bg-accent hover:text-accent-foreground"
-                    data-resume-preview-suggestions
-                    onClick={focusValidationSuggestions}
-                    title="Show the optional suggestions"
-                    type="button"
-                  >
-                    {warningCount} suggestion{warningCount === 1 ? "" : "s"}
-                  </button>
-                </Badge>
+                <button
+                  className="cursor-pointer rounded-sm text-foreground-soft underline decoration-from-font underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                  data-resume-preview-suggestions
+                  onClick={focusValidationSuggestions}
+                  title="Show the optional suggestions"
+                  type="button"
+                >
+                  {warningCount} suggestion{warningCount === 1 ? "" : "s"}
+                </button>
               ) : null}
             </div>
             {refreshFeedback ? (

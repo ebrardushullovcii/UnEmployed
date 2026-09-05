@@ -222,13 +222,13 @@ describe("DiscoveryResultsPanel workspace scale", () => {
     expect(
       row.querySelector('[data-testid^="discovery-result-fit-sr-"]')
         ?.textContent,
-    ).toContain("Only the listing title could be checked");
+    ).toContain("Fit is based on the title alone");
     const heading = screen.getByTestId("discovery-results-group-unchecked");
     expect(heading.textContent).toContain(
       "Title matches · not yet checked (1)",
     );
     expect(heading.textContent).toContain(
-      "Matched on the title alone; no job description was read.",
+      "Matched on the title alone; the full requirements have not been assessed.",
     );
     expect(row.textContent).toContain(
       "Overall fit: title match only, not scored",

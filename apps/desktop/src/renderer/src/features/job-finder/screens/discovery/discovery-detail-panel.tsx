@@ -55,6 +55,7 @@ import {
   DISCOVERY_DETAIL_REGION_ID,
 } from "./discovery-accessibility";
 import { getDiscoverySourceLabels } from "./discovery-source-attribution";
+import { describeMissingListingText } from "@renderer/features/job-finder/lib/listing-detail-fetch-copy";
 
 /**
  * The bare workflow value reads as a verdict on the job itself ("APPROVED"),
@@ -490,6 +491,20 @@ export function DiscoveryDetailPanel({
       ? ""
       : text;
   })();
+  const fullListingText = jobDescriptionToText(
+    selectedJob?.description,
+    true,
+  ).trim();
+  const hasFullListingText =
+    fullListingText.replace(/\s+/g, " ").length > listingText.length &&
+    fullListingText.toLowerCase() !== selectedJob?.title.trim().toLowerCase();
+  // Sources hand over summaries cut mid-sentence ("...data science, A"). When
+  // the full text is one click away, end the excerpt on a whole word with an
+  // ellipsis instead of a dangling fragment.
+  const listingExcerpt =
+    listingText && hasFullListingText && !/[.!?…]["')\]]?$/.test(listingText)
+      ? `${listingText.replace(/\s+\S*$/, "")}…`
+      : listingText;
   // One honest sentence instead of a wall of cards: the hedge when nothing was
   // verified, otherwise the first saved reason.
   const whyItFitsLine = selectedJob
@@ -806,9 +821,21 @@ export function DiscoveryDetailPanel({
                     About this job
                   </span>
                   <p className="text-(length:--text-body) leading-7 text-foreground-soft">
-                    {listingText ||
-                      "The listing text was not captured, so this job was only matched on its title. Copy the original listing link below and open it in your browser to read it."}
+                    {listingExcerpt ||
+                      describeMissingListingText(
+                        selectedJob.listingDetailFetch,
+                      )}
                   </p>
+                  {hasFullListingText ? (
+                    <details key={selectedJob.id} className="min-w-0">
+                      <summary className="cursor-pointer py-2 text-(length:--text-small) font-medium text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                        Read full job description
+                      </summary>
+                      <p className="mt-2 whitespace-pre-line break-words text-(length:--text-body) leading-7 text-foreground-soft">
+                        {fullListingText}
+                      </p>
+                    </details>
+                  ) : null}
                 </div>
 
                 <div

@@ -74,12 +74,12 @@ describe("ReviewQueueListPanel", () => {
     );
 
     const status = screen.getByText("Needs resume");
-    expect(status.className).toContain("min-w-24");
+    // One line, never wrapped mid-label: the badge keeps its width and the
+    // title yields instead.
     expect(status.className).toContain("shrink-0");
-    expect(status.className).toContain("break-normal");
-    expect(status.className).not.toContain("break-words");
-    expect(status.className).toContain("[overflow-wrap:normal]");
-    expect(status.className).not.toContain("[overflow-wrap:anywhere]");
+    // `whitespace-nowrap` wins over the badge base's overflow-wrap: with no
+    // wrap opportunity there is nothing for break-words to act on.
+    expect(status.className).toContain("whitespace-nowrap");
   });
 
   it("keeps the empty shortlist focused on finding jobs with one recovery action", () => {

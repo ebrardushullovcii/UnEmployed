@@ -25,6 +25,7 @@ import {
   type ReviseResumeDraftInput,
 } from "./shared";
 import { compactOpenAiCompatibleUserPayload } from "./openai-compatible-request-compaction";
+import { modelConversationKeys } from "./model-request-identity";
 
 const EmptyInputSchema = z.object({});
 const ContentInputSchema = z.object({ content: z.string().trim().min(1) });
@@ -79,6 +80,7 @@ function jsonSafe(value: unknown): unknown {
 
 function createModelAdapter(
   client: AgentCapableJobFinderAiClient,
+  conversationKey?: string,
 ): AgentTaskModel {
   const status = client.getStatus();
   return {
@@ -104,7 +106,10 @@ function createModelAdapter(
           return { role: message.role, content: message.content };
         }),
         [...input.tools],
-        input.signal ? { signal: input.signal } : undefined,
+        {
+          ...(input.signal ? { signal: input.signal } : {}),
+          ...(conversationKey ? { conversationKey } : {}),
+        },
       );
     },
   };
@@ -165,7 +170,10 @@ export async function runProfileCopilotAgentTask(input: {
     ].join(" "),
     state: input.request,
     initialDraft,
-    model: createModelAdapter(input.client),
+    model: createModelAdapter(
+      input.client,
+      modelConversationKeys.profileCopilot(input.request.profile),
+    ),
     tools: [
       {
         name: "read_profile_context",
@@ -454,7 +462,10 @@ export async function runResumeEditAgentTask(input: {
     ].join(" "),
     state: input.request,
     initialDraft,
-    model: createModelAdapter(input.client),
+    model: createModelAdapter(
+      input.client,
+      modelConversationKeys.resumeForJob(input.request.job),
+    ),
     tools: [
       {
         name: "read_resume_context",

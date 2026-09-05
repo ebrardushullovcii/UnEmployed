@@ -130,6 +130,32 @@ export function isProvisionalMatchAssessment(
 }
 
 /**
+ * The scorer's own sentences about the listing title versus the saved target
+ * roles. They are the reasons and gaps the renderer reads back, so they live
+ * here as constants rather than as strings the two sides could drift apart on.
+ */
+export const TITLE_MATCHES_TARGET_ROLES_REASON =
+  "Role title aligns closely with the current target roles.";
+export const TITLE_MISSES_TARGET_ROLES_GAPS: readonly string[] = [
+  "Role family is outside the current target roles, so this is unlikely to be a useful match.",
+  "The title does not show a clear connection to the current target role families.",
+  "Role title is adjacent to the target list but not an exact fit.",
+];
+
+/**
+ * Whether the assessment positively recorded that the listing title did not
+ * match a saved target role. Absence of any title verdict (older rows, seeds,
+ * fixtures) reports false: only an explicit miss counts.
+ */
+export function assessmentTitleMissesTargetRoles(
+  assessment: Partial<Pick<SavedJob["matchAssessment"], "gaps">>,
+): boolean {
+  return (assessment.gaps ?? []).some((gap) =>
+    TITLE_MISSES_TARGET_ROLES_GAPS.includes(gap),
+  );
+}
+
+/**
  * Tie-breaks applied after the clear-mismatch penalty, assessment confidence,
  * and (for authoritative assessments) fit score:
  * detail-enriched listings first, then newest listing timestamp (postedAt,

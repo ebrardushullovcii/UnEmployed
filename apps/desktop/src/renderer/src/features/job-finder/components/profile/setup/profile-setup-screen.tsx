@@ -332,6 +332,21 @@ export function ProfileSetupScreen(props: {
     [readinessPresentation],
   );
 
+  const reviewQueue = (
+    <ProfileSetupReviewQueueCard
+      compact={profileSetupState.currentStep === "targeting"}
+      actionsDisabledReason={
+        setupActionsDisabledReason ??
+        (hasUserDraftChanges ? unsavedSetupReviewActionsMessage : null)
+      }
+      isReviewItemPending={isReviewItemPending}
+      items={currentStepReviewItems}
+      latestResumeImportReviewCandidates={latestResumeImportReviewCandidates}
+      onApplyReviewAction={onApplyProfileSetupReviewAction}
+      onEditReviewItem={handleEditReviewItem}
+    />
+  );
+
   return (
     <LockedScreenLayout
       bottomContent={
@@ -449,6 +464,7 @@ export function ProfileSetupScreen(props: {
               : "wide-editor"
           }
         >
+          {profileSetupState.currentStep === "targeting" ? reviewQueue : null}
           <div
             className="grid gap-6 min-h-0 scroll-mt-4 sm:scroll-mt-[8.25rem] min-[1440px]:!scroll-mt-[4.5rem]"
             id="profile-setup-step-editor"
@@ -508,19 +524,7 @@ export function ProfileSetupScreen(props: {
           </div>
 
           <div className={profileSetupLayoutClassNames.reviewRail}>
-            <ProfileSetupReviewQueueCard
-              actionsDisabledReason={
-                setupActionsDisabledReason ??
-                (hasUserDraftChanges ? unsavedSetupReviewActionsMessage : null)
-              }
-              isReviewItemPending={isReviewItemPending}
-              items={currentStepReviewItems}
-              latestResumeImportReviewCandidates={
-                latestResumeImportReviewCandidates
-              }
-              onApplyReviewAction={onApplyProfileSetupReviewAction}
-              onEditReviewItem={handleEditReviewItem}
-            />
+            {profileSetupState.currentStep !== "targeting" ? reviewQueue : null}
 
             <ProfileCopilotRail
               busy={profileCopilotActionsBusy}

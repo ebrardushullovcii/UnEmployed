@@ -1218,6 +1218,45 @@ describe("resume workspace quality helpers", () => {
     ).toBe(unprofessionalSummary);
   });
 
+  test("grounds a concise summary in short candidate skill and role evidence without accepting a new technology", () => {
+    const { profile, job } = getSeedContext();
+    const candidate = {
+      ...profile,
+      headline: "Senior Product Engineer",
+      summary:
+        "Product engineer focused on reliable workflow software and accessible frontend systems.",
+      skills: ["React", "TypeScript", "Accessibility"],
+      baseResume: {
+        ...profile.baseResume,
+        textContent:
+          "Frontend Engineer\nDelivered customer-facing React applications.\nBuilt TypeScript workflow tools for operations teams.",
+      },
+    };
+    const assess = (text: string) =>
+      validateResumeDraft({
+        draft: updateSection(
+          createBaseDraft(),
+          "section_summary",
+          (section) => ({ ...section, text, origin: "ai_generated" }),
+        ),
+        job,
+        profile: candidate,
+      }).claimAssessments.find(
+        (claim) => claim.sectionId === "section_summary",
+      );
+
+    expect(
+      assess(
+        "Frontend engineer building workflow software and accessible interfaces with React and TypeScript.",
+      )?.status,
+    ).toBe("paraphrase");
+    expect(
+      assess(
+        "Frontend engineer building workflow software and accessible interfaces with Kubernetes.",
+      )?.status,
+    ).toBe("unsupported");
+  });
+
   test("assesses every visible generated claim against candidate-only evidence", () => {
     const { profile, job } = getSeedContext();
     const groundedClaim = "Led design-system rollout across core surfaces.";

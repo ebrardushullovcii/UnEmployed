@@ -4,6 +4,8 @@ import type {
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
 import {
+  applyResultIsBackgroundPagePause,
+  BACKGROUND_PAGE_PAUSE_ACTION,
   applyResultIsFieldSavePause,
   applyResultIsServiceWorkerBlocked,
   applyResultNeedsManualFieldFinish,
@@ -57,20 +59,19 @@ export function ApplicationsDetailPanelOverviewSections(props: {
   const manualFinishReason = getManualFieldFinishReason(visibleApplyResult);
   const readableHighlightedNextStep = isServiceWorkerBlocked
     ? SITE_BLOCKED_AUTOMATIC_PREP_NEXT_STEP
-    : isFieldSavePause
-      ? FIELD_SAVE_PAUSE_ACTION
-      : needsManualFieldFinish
-        ? MANUAL_FIELD_FINISH_NEXT_STEP
-        : needsResumeAttachment
-          ? "The approved resume is prepared but was not attached. Approve and retry the resume attachment before reviewing the final form."
-          : (getApplicationReadableNextStepLabel(highlightedNextStep) ??
-            highlightedNextStep);
+    : applyResultIsBackgroundPagePause(visibleApplyResult)
+      ? BACKGROUND_PAGE_PAUSE_ACTION
+      : isFieldSavePause
+        ? FIELD_SAVE_PAUSE_ACTION
+        : needsManualFieldFinish
+          ? MANUAL_FIELD_FINISH_NEXT_STEP
+          : needsResumeAttachment
+            ? "The approved resume is prepared but was not attached. Approve and retry the resume attachment before reviewing the final form."
+            : (getApplicationReadableNextStepLabel(highlightedNextStep) ??
+              highlightedNextStep);
 
   return (
     <>
-      <h2 className="min-w-0 break-words font-semibold tracking-tight text-(--text-headline)">
-        {selectedRecord.title}
-      </h2>
       {highlightedNextStep ||
       isServiceWorkerBlocked ||
       needsManualFieldFinish ? (

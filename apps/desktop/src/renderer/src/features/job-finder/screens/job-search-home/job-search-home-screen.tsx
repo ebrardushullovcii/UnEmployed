@@ -12,6 +12,13 @@ import { CampaignNotificationCenter } from "../../components/campaign-notificati
 import { StatusBadge } from "../../components/status-badge";
 import { buildJobFinderGlobalSearchEntries } from "../../lib/build-job-finder-global-search-entries";
 import {
+  countApplicationRecords,
+  countDiscoveryVisibleJobs,
+  countNeedsYou,
+  countShortlistedJobs,
+  selectCampaignJobIds,
+} from "../../lib/destination-counts";
+import {
   formatDiscoveryRunCountLabel,
   formatLastSearchSummarySentence,
   formatSearchFinishedStatusLine,
@@ -113,7 +120,9 @@ function formatSourceHealthCounts(counts: {
   const parts: string[] = [];
   if (counts.healthy > 0) parts.push(`${counts.healthy} healthy`);
   if (counts.needsAttention > 0) {
-    parts.push(`${counts.needsAttention} need attention`);
+    parts.push(
+      `${counts.needsAttention} ${counts.needsAttention === 1 ? "needs" : "need"} attention`,
+    );
   }
   if (counts.running > 0) parts.push(`${counts.running} running`);
   return parts.length > 0 ? parts.join(" · ") : null;
@@ -244,6 +253,31 @@ export function JobSearchHomeScreen(props: {
   const profileSetupRoute = "/job-finder/profile/setup";
   const discoveryRoute = "/job-finder/discovery";
   const reviewQueueRoute = "/job-finder/review-queue";
+  // The page promises "see progress"; these four numbers are that progress,
+  // read from the same counters the sidebar badges use so they never disagree.
+  const pipelineJobIds = selectCampaignJobIds(props.workspace);
+  const pipeline = [
+    {
+      label: "Jobs found",
+      count: countDiscoveryVisibleJobs(props.workspace, pipelineJobIds),
+      route: discoveryRoute,
+    },
+    {
+      label: "Shortlisted",
+      count: countShortlistedJobs(props.workspace, pipelineJobIds),
+      route: reviewQueueRoute,
+    },
+    {
+      label: "Applications",
+      count: countApplicationRecords(props.workspace, pipelineJobIds),
+      route: "/job-finder/applications",
+    },
+    {
+      label: "Needs you",
+      count: countNeedsYou(props.workspace),
+      route: "/job-finder/actions",
+    },
+  ] as const;
 
   const profileSetupCardLabel = isFreshProfileSetup
     ? "Set up your profile"
@@ -305,9 +339,9 @@ export function JobSearchHomeScreen(props: {
   const searchLoopRecommendation =
     showReturningDashboardModules && !canRunFirstSearch && awaitingReview > 0
       ? {
-          label: `Review ${awaitingReview} ${
+          label: `Review ${awaitingReview} shortlisted ${
             awaitingReview === 1 ? "job" : "jobs"
-          } from your last search`,
+          }`,
           detail: lastSearchSentence
             ? `${lastSearchSentence} Open Shortlisted to decide which ones deserve a tailored resume.`
             : "Open Shortlisted to decide which ones deserve a tailored resume.",
@@ -589,6 +623,30 @@ export function JobSearchHomeScreen(props: {
         </div>
       ) : null}
 
+      {showReturningDashboardModules ? (
+        <nav
+          aria-label="Your pipeline"
+          className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4"
+          data-testid="home-pipeline"
+        >
+          {pipeline.map((stage) => (
+            <button
+              key={stage.label}
+              className="surface-panel-shell grid min-w-0 gap-0.5 rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-3 text-left outline-none transition-colors hover:border-(--control-border-hover) hover:bg-secondary/35 focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => props.onNavigate(stage.route)}
+              type="button"
+            >
+              <span className="text-(length:--text-heading-2) font-semibold tabular-nums leading-tight text-(--text-headline)">
+                {stage.count}
+              </span>
+              <span className="text-(length:--text-small) text-foreground-soft">
+                {stage.label}
+              </span>
+            </button>
+          ))}
+        </nav>
+      ) : null}
+
       {/* One recommended action, full width. Home used to put a second card
           of plan controls beside it, so the page opened with two competing
           places to act. */}
@@ -625,7 +683,7 @@ export function JobSearchHomeScreen(props: {
                 : canRunFirstSearch
                   ? "Search now"
                   : recommendedIsReviewQueue && searchLoopRecommendation
-                    ? "Review jobs"
+                    ? "Open Shortlisted"
                     : recommendedActionButtonLabel}
           </Button>
           {showReviewResultsAction ? (
@@ -636,7 +694,7 @@ export function JobSearchHomeScreen(props: {
               type="button"
               variant="outline"
             >
-              Review search results
+              Open Find jobs
             </Button>
           ) : null}
           {canContinueSearch ? (

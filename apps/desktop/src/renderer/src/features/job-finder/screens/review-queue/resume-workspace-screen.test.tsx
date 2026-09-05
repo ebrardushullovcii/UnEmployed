@@ -712,9 +712,7 @@ describe("ResumeWorkspaceScreen", () => {
     // finished, inspectable fact instead of leaving present-tense copy up.
     expect(
       document.querySelector("[data-resume-pdf-status]")?.textContent,
-    ).toBe(
-      "Application PDF ready · 1 page. Job Finder created and verified it. Downloading a copy is optional. Final submission stays disabled.",
-    );
+    ).toBe("Application PDF ready · 1 page. Download a copy if you want one.");
     expect(
       screen.getAllByRole("button", {
         name: /Prepare application|Approve resume|Download PDF/,

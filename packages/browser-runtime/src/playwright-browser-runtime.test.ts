@@ -1675,6 +1675,89 @@ describe("playwright browser runtime", () => {
     }
   });
 
+  test("opens a fresh manual page without navigating or closing the guarded application page", async () => {
+    const userDataDir = await mkdtemp(
+      join(tmpdir(), "unemployed-browser-runtime-target-open-"),
+    );
+
+    try {
+      const chromeExecutablePath = join(userDataDir, "chrome.exe");
+      await writeFile(chromeExecutablePath, "", "utf8");
+      const debugPort = await reserveFreePort();
+      const launchedChromeProcess = createMockChildProcess({ pid: 56565 });
+
+      const fakePage = {
+        bringToFront: vi.fn().mockResolvedValue(undefined),
+        goto: vi.fn().mockResolvedValue(undefined),
+        isClosed: () => false,
+        url: () => "about:blank",
+      };
+      const guardedPage = {
+        close: vi.fn(),
+        goto: vi.fn(),
+        isClosed: () => false,
+        url: () => "https://example.com/jobs/sign-in",
+      };
+      const fakeContext = {
+        newPage: vi.fn().mockResolvedValue(fakePage),
+        pages: () => [guardedPage],
+      };
+      const fakeBrowser = {
+        close: vi.fn(),
+        contexts: () => [fakeContext],
+        isConnected: () => true,
+        once: vi.fn(() => fakeBrowser),
+      };
+
+      let debuggerReadyChecks = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => {
+          debuggerReadyChecks += 1;
+          if (debuggerReadyChecks === 1) {
+            return Promise.reject(new Error("debugger not ready yet"));
+          }
+
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({}),
+          } as Response);
+        }),
+      );
+
+      execFileMock.mockImplementation((...args: unknown[]) => {
+        maybeInvokeExecFileCallback(args);
+      });
+
+      spawnMock.mockReturnValue(launchedChromeProcess);
+      connectOverCDPMock.mockResolvedValue(fakeBrowser);
+
+      const { createBrowserAgentRuntime } =
+        await import("./playwright-browser-runtime");
+      const runtime = createBrowserAgentRuntime({
+        userDataDir,
+        chromeExecutablePath,
+        debugPort,
+      });
+
+      await runtime.openSession("target_site", {
+        targetUrl: "https://example.com/jobs/sign-in",
+        reuseExistingPage: false,
+      });
+
+      expect(fakePage.goto).toHaveBeenCalledWith(
+        "https://example.com/jobs/sign-in",
+        { timeout: 8_000, waitUntil: "domcontentloaded" },
+      );
+      expect(fakePage.bringToFront).toHaveBeenCalled();
+      expect(fakeContext.newPage).toHaveBeenCalledOnce();
+      expect(guardedPage.goto).not.toHaveBeenCalled();
+      expect(guardedPage.close).not.toHaveBeenCalled();
+    } finally {
+      await rm(userDataDir, { recursive: true, force: true });
+    }
+  });
+
   test("openSession navigates a visible blank startup tab even when another live page exists", async () => {
     const userDataDir = await mkdtemp(
       join(tmpdir(), "unemployed-browser-runtime-target-visible-blank-"),

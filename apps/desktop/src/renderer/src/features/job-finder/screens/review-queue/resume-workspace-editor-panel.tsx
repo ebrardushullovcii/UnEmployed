@@ -246,16 +246,6 @@ export function ResumeWorkspaceEditorPanel(
           <p className="text-(length:--text-small) leading-5 text-foreground-soft xl:hidden">
             {helperMessage}
           </p>
-          {/* Section rows now carry labelled text buttons, so the old
-              "row icons … hover to see what it does" sentence described
-              controls that no longer exist. */}
-          <p
-            className="text-(length:--text-tiny) leading-5 text-foreground-muted"
-            data-resume-editor-icon-hint
-          >
-            Open a section to edit it. Each section can be hidden, locked, or
-            reordered from its own row of buttons.
-          </p>
           {props.draft.generationMethod === "ai" ? (
             <div
               className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-2 text-(length:--text-small) leading-5 text-foreground-soft"

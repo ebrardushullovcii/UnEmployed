@@ -149,6 +149,13 @@ import type {
   WorkspaceServiceContext,
 } from "./workspace-service-context";
 import type { JobFinderWorkspaceService } from "./workspace-service-contracts";
+import {
+  enrichSavedJobListingDetails,
+  jobNeedsListingDetail,
+} from "./listing-detail-enrichment";
+import { createMatchAssessmentSession } from "./match-assessment-session";
+import { enrichSearchPreferencesFromProfile } from "./workspace-helpers";
+import { createMatchAssessment } from "./matching";
 
 function buildRecoveryInstructions(input: {
   blockerSummary: string | null;
@@ -335,6 +342,75 @@ async function assertCurrentResumeProfile(
 export function createWorkspaceApplicationMethods(
   ctx: WorkspaceServiceContext,
 ): WorkspaceApplicationMethods {
+  /**
+   * Shortlisting is the moment the job's body starts to matter: the tailored
+   * resume is written toward it and the fit score gates "Prepare". If the
+   * search left this job as a card, read its page now, once, and re-score.
+   * Never fatal: a page that will not read leaves the shortlist unchanged.
+   */
+  async function readListingDetailForShortlistedJob(
+    jobId: string,
+  ): Promise<void> {
+    const fetchListingHtml = ctx.fetchListingHtml;
+    if (!fetchListingHtml) {
+      return;
+    }
+    try {
+      const savedJobs = await ctx.repository.listSavedJobs();
+      const job = savedJobs.find((entry) => entry.id === jobId);
+      if (!job || !jobNeedsListingDetail(job)) {
+        return;
+      }
+      const [profile, searchPreferences] = await Promise.all([
+        ctx.repository.getProfile(),
+        ctx.repository.getSearchPreferences(),
+      ]);
+      const session = createMatchAssessmentSession({
+        profile,
+        searchPreferences: enrichSearchPreferencesFromProfile(
+          searchPreferences,
+          profile,
+        ),
+        calculate: createMatchAssessment,
+      });
+      const enrichment = await enrichSavedJobListingDetails({
+        jobs: [job],
+        fetchHtml: fetchListingHtml,
+        assess: session.assess,
+        timeBudgetMs: 9_000,
+      });
+      const next = enrichment.jobs[0];
+      if (!next || enrichment.changedJobIds.length === 0) {
+        return;
+      }
+      await ctx.repository.commitSavedJobDelta({
+        update: (current) =>
+          current.id === jobId
+            ? SavedJobSchema.parse({
+                ...current,
+                company: next.company,
+                location: next.location,
+                description: next.description,
+                summary: next.summary,
+                salaryText: next.salaryText,
+                postedAt: next.postedAt,
+                employmentType: next.employmentType,
+                workMode: next.workMode,
+                applicationUrl: next.applicationUrl,
+                normalizedCompensation: next.normalizedCompensation,
+                screeningHints: next.screeningHints,
+                detailQuality: next.detailQuality,
+                listingDetailFetch: next.listingDetailFetch,
+                matchAssessment: next.matchAssessment,
+              })
+            : current,
+      });
+    } catch {
+      // The shortlist itself succeeded; the body stays unread for now and the
+      // job records nothing, so the next look can try again.
+    }
+  }
+
   const ACTIVITY_PAUSED_MESSAGE =
     "Browser and application activity is paused. Resume it from the Job Finder command center before starting new work.";
 
@@ -3064,6 +3140,8 @@ export function createWorkspaceApplicationMethods(
             job.resumeApplicationMode ?? defaultResumeApplicationMode,
         }));
       }
+
+      await readListingDetailForShortlistedJob(jobId);
 
       return ctx.getWorkspaceSnapshot();
     },

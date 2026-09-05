@@ -3,6 +3,7 @@ import {
   AgentProviderStatusSchema,
   ProfileCopilotReplySchema,
   ResumeDraftPatchSchema,
+  assessJobPostingDetailQuality,
   type ProfileCopilotReply,
   type ToolCall,
 } from "@unemployed/contracts";
@@ -61,8 +62,20 @@ import {
   runProfileCopilotAgentTask,
   runResumeEditAgentTask,
 } from "./agent-capabilities";
+import {
+  buildModelRequestHeaders,
+  createInstanceConversationKey,
+  modelConversationKeys,
+} from "./model-request-identity";
 
 const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
+/**
+ * A first tailored draft is the largest structured output the product asks
+ * for: every section rewritten against a full listing body with evidence
+ * references. Sixty seconds cut real drafts off mid-generation on slower
+ * models and reported them as failures; the extraction budget fits the work.
+ */
+const DEFAULT_RESUME_DRAFT_TIMEOUT_MS = 120_000;
 const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 120_000;
 const DEFAULT_RESUME_IMPORT_STAGE_TIMEOUT_MS: Record<
   Exclude<ResumeImportExtractionStage, "shared_memory">,
@@ -232,6 +245,10 @@ export function createOpenAiCompatibleJobFinderAiClient(
       : "The configured AI provider settings are invalid. Check the model and base URL before enabling model-backed resume extraction.",
   });
 
+  // Requests that belong to no product conversation share one id per client
+  // instance, so even background work is attributable and cacheable.
+  const instanceConversationKey = createInstanceConversationKey();
+
   async function fetchModelJson(
     operation: OpenAiCompatibleJsonOperation,
     systemPrompt: string,
@@ -239,6 +256,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
     options?: {
       timeoutMs?: number;
       signal?: AbortSignal;
+      /** Which conversation this request continues; see model-request-identity. */
+      conversationKey?: string;
     },
   ): Promise<unknown> {
     if (!validatedOptions) {
@@ -289,10 +308,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
             {
               method: "POST",
               signal: controller.signal,
-              headers: {
-                Authorization: `Bearer ${validatedOptions.apiKey}`,
-                "Content-Type": "application/json",
-              },
+              headers: buildModelRequestHeaders({
+                apiKey: validatedOptions.apiKey,
+                baseUrl: validatedOptions.baseUrl,
+                conversationKey:
+                  options?.conversationKey ?? instanceConversationKey,
+              }),
               body: JSON.stringify(
                 buildModelRequestBody({
                   apiMode,
@@ -377,6 +398,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
             validatedOptions?.resumeExtractionTimeoutMs ??
             validatedOptions?.requestTimeoutMs ??
             DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS,
+          conversationKey: modelConversationKeys.resumeImport(input.resumeText),
         },
       );
       const deterministicSupplement = buildDeterministicResumeProfileExtraction(
@@ -461,6 +483,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
           input.strategy,
         ),
         buildGroundedResumeRewriteModelPayload(input),
+        {
+          timeoutMs:
+            validatedOptions?.requestTimeoutMs ??
+            DEFAULT_RESUME_DRAFT_TIMEOUT_MS,
+          conversationKey: modelConversationKeys.resumeForJob(input.job),
+        },
       );
       return completeTailoredResumeDraft(payload, input);
     },
@@ -476,6 +504,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           "Avoid touching locked content by leaving it unchanged.",
         ].join(" "),
         input,
+        { conversationKey: modelConversationKeys.resumeForJob(input.job) },
       );
       const normalizedPayload =
         payload && typeof payload === "object" && !Array.isArray(payload)
@@ -517,6 +546,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
           "Natural requests such as 'look for jobs around 3-4k a month around New York' may produce both a preferred-location operation and a compensation operation. Preserve 3000-4000 as monthly values rather than converting the user-facing range to annual text.",
         ].join(" "),
         input,
+        {
+          conversationKey: modelConversationKeys.profileCopilot(input.profile),
+        },
       );
       const normalizedPayload =
         payload && typeof payload === "object" && !Array.isArray(payload)
@@ -537,6 +569,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
         "tailorResume",
         buildResumeRewriteProposalPrompt(input.searchPreferences.tailoringMode),
         buildGroundedResumeRewriteModelPayload(input),
+        { conversationKey: modelConversationKeys.resumeForJob(input.job) },
       );
       return completeTailoredResumeDraft(payload, {
         profile: input.profile,
@@ -556,6 +589,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
           "Keep explanations specific to the provided profile and job.",
         ].join(" "),
         input,
+        { conversationKey: modelConversationKeys.jobFit(input.job) },
       );
       return JobFitAssessmentSchema.parse(payload);
     },
@@ -600,6 +634,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
         {
           timeoutMs,
           ...(input.signal ? { signal: input.signal } : {}),
+          conversationKey: modelConversationKeys.pageExtraction(input.pageUrl),
         },
       );
 
@@ -688,10 +723,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
               {
                 method: "POST",
                 signal: controller.signal,
-                headers: {
-                  Authorization: `Bearer ${validatedOptions.apiKey}`,
-                  "Content-Type": "application/json",
-                },
+                headers: buildModelRequestHeaders({
+                  apiKey: validatedOptions.apiKey,
+                  baseUrl: validatedOptions.baseUrl,
+                  conversationKey:
+                    options?.conversationKey ?? instanceConversationKey,
+                }),
                 body: requestBody,
               },
             );
@@ -775,6 +812,9 @@ export function createOpenAiCompatibleJobFinderAiClient(
     },
   };
 }
+
+const LISTING_TEXT_MISSING_DETAIL =
+  "The listing text was not captured, so there was nothing to tailor the resume toward; your original wording was kept.";
 
 function buildProviderFailureProvenance(error: unknown) {
   const detail = summarizeError(error);
@@ -1004,6 +1044,25 @@ export function createJobFinderAiClientFromEnvironment(
       }
     },
     async createResumeDraft(input) {
+      // A card-only posting has no listing body. Asking the model to tailor
+      // toward a bare title wastes the request and comes back as "no usable
+      // proposals", which the studio then reports as a model failure. State
+      // the real reason and keep the grounded wording instead.
+      if (assessJobPostingDetailQuality(input.job) === "card_only") {
+        const fallback = await fallbackClient.createResumeDraft(input);
+        return {
+          ...fallback,
+          generationProvenance: {
+            method: "deterministic" as const,
+            reason: "listing_text_missing" as const,
+            detail: LISTING_TEXT_MISSING_DETAIL,
+          },
+          notes: uniqueStrings([
+            ...fallback.notes,
+            LISTING_TEXT_MISSING_DETAIL,
+          ]),
+        };
+      }
       try {
         return await primaryClient.createResumeDraft(input);
       } catch (error) {

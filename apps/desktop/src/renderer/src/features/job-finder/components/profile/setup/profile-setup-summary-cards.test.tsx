@@ -166,7 +166,7 @@ describe("ProfileSetupSummaryCards", () => {
     expect(container?.textContent).toContain(
       "Start with the resume you already have.",
     );
-    expect(container?.textContent).toContain("asks only about gaps");
+    expect(container?.textContent).toContain("asks only about the gaps");
     expect(container?.textContent).toContain(
       "the extracted text is sent to it for analysis",
     );
@@ -182,7 +182,7 @@ describe("ProfileSetupSummaryCards", () => {
         (button) => button.textContent,
       ),
     ).toEqual([
-      "RecommendedChoose my resume fileOpens a file browser · PDF, DOCX, TXT, or Markdown · review before anything is approvedScanned image PDFs have no readable text — pick a text-based file or continue manually.",
+      "Recommended. Choose my resume filePDF, DOCX, TXT, or Markdown. You review everything before it is used.Scanned image PDFs have no readable text.",
       "Enter details manuallyBegin with contact details and target roles; add the rest when it becomes useful.Start manually",
     ]);
 
@@ -227,7 +227,8 @@ describe("ProfileSetupSummaryCards", () => {
     // A persisted import can end in needs_text; the caveat now sits with the
     // file picker as one short hint instead of inside the intro paragraph.
     expect(text).toContain("Scanned image PDFs have no readable text");
-    expect(text).toContain("pick a text-based file or continue manually");
+    // The recovery path itself (manual entry) sits beside the import card;
+    // the note only needs to name the limitation.
   });
 
   it("explains commitments with plain language and compact effort framing", () => {
@@ -242,8 +243,8 @@ describe("ProfileSetupSummaryCards", () => {
 
     // Effort framing stays compact: total size plus recoverability, without
     // enumerating individual steps before the first choice is made.
-    expect(text).toContain("five short steps, saved as you go");
-    expect(text).toContain("stop after any step and pick back up later");
+    expect(text).toContain("Five short steps, saved as you go");
+    expect(text).toContain("Stop after any step and pick up later");
     expect(text).not.toContain("in this order");
 
     // Legal-style disclaimers are gone from the first screen.

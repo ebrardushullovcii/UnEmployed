@@ -87,16 +87,14 @@ describe("ProfileCopilotComposer", () => {
     expect(button?.hasAttribute("disabled")).toBe(true);
   });
 
-  test("keeps provider disclosure behind one compact AI settings detail", () => {
+  test("links AI settings to the Settings screen instead of a popover note", () => {
     renderComposer({ isPendingHere: false });
     expect(container?.textContent).toContain("AI settings");
     expect(container?.textContent).not.toContain("Keyboard & movement help");
     expect(container?.textContent).not.toContain("Ask for an edit");
     expect(container?.textContent).not.toContain("Send request");
     expect(
-      container?.querySelector(
-        '[data-profile-copilot-provider-disclosure="true"]',
-      ),
+      container?.querySelector('[data-profile-copilot-provider-link="true"]'),
     ).not.toBeNull();
   });
 
@@ -116,8 +114,8 @@ describe("ProfileCopilotComposer", () => {
     const movementHelp = container?.querySelector<HTMLElement>(
       '[data-profile-copilot-movement-help="true"]',
     );
-    const providerDisclosure = container?.querySelector<HTMLElement>(
-      '[data-profile-copilot-provider-disclosure="true"]',
+    const providerLink = container?.querySelector<HTMLElement>(
+      '[data-profile-copilot-provider-link="true"]',
     );
 
     expect(composer?.className).toContain("shrink-0");
@@ -132,7 +130,7 @@ describe("ProfileCopilotComposer", () => {
     expect(sendRow?.className).toContain("flex");
     expect(sendRow?.className).not.toContain("sticky");
     expect(movementHelp).toBeNull();
-    expect(providerDisclosure).not.toBeNull();
+    expect(providerLink?.getAttribute("href")).toBe("#/job-finder/settings");
     expect(container?.textContent).not.toContain("Send request");
   });
 

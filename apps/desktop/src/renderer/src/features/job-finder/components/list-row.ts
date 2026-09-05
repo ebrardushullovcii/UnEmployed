@@ -77,8 +77,10 @@ const jobFinderListRowTitleLineClassName =
  * 45% of the line, and `flex-wrap` can now actually run: extra badges stack
  * onto further lines inside the slot instead of eating the title.
  */
+// `shrink-0`: the slot keeps its content width and the title wraps instead,
+// so a badge is never truncated to "NEEDS APPR…" beside a long title.
 const jobFinderListRowBadgeSlotClassName =
-  "flex min-w-0 max-w-[55%] flex-wrap items-center justify-end gap-1.5";
+  "flex min-w-0 max-w-[55%] shrink-0 flex-wrap items-center justify-end gap-1.5";
 
 /**
  * The one inner line rhythm: title -> meta -> status. All three lists stack

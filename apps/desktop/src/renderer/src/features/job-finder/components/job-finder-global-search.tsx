@@ -26,8 +26,7 @@ const kindLabels: Record<JobFinderGlobalSearchKind, string> = {
   job: "Jobs and companies",
 };
 
-export const JOB_FINDER_GLOBAL_SEARCH_LABEL =
-  "Search current plan and workspace";
+export const JOB_FINDER_GLOBAL_SEARCH_LABEL = "Search your workspace";
 
 export function JobFinderGlobalSearch(props: {
   campaignId?: string | null;
@@ -171,9 +170,9 @@ export function JobFinderGlobalSearch(props: {
       >
         {JOB_FINDER_GLOBAL_SEARCH_LABEL}
       </label>
-      <p className="text-xs text-foreground-muted" id={scopeHelpId}>
-        Jobs, applications, and documents are from the active search plan. All
-        search plans remain searchable.
+      <p className="sr-only" id={scopeHelpId}>
+        Jobs, applications, and documents come from the active search plan.
+        Other search plans are also searchable.
       </p>
       <Input
         aria-activedescendant={activeOptionId}

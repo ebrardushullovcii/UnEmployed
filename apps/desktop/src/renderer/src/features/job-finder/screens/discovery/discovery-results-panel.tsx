@@ -1609,6 +1609,13 @@ export function DiscoveryResultsPanel({
                   sourceLabels.length > 0
                     ? sourceLabels.join(", ")
                     : "Source unavailable";
+                // A careers-site source repeats the employer's own name; the
+                // meta line then read "Canonical • Remote · Canonical".
+                const sourceRepeatsEmployer =
+                  sourceLabels.length === 1 &&
+                  Boolean(job.company) &&
+                  sourceLabels[0]?.trim().toLowerCase() ===
+                    job.company?.trim().toLowerCase();
                 const listingActivity = getListingActivity(job);
                 const activity = presentListingActivity(listingActivity);
                 const activityDescription =
@@ -1661,6 +1668,20 @@ export function DiscoveryResultsPanel({
                             {job.title}
                           </strong>
                           <div className={jobFinderListRowBadgeSlotClassName}>
+                            {isCoveredByUncheckedBand ? null : (
+                              <span
+                                aria-label={assessment.headlineScoreAriaLabel}
+                                className={cn(
+                                  "text-(length:--text-small) font-semibold tabular-nums",
+                                  assessment.isScoreWithheld
+                                    ? "text-foreground-soft"
+                                    : "text-(--text-headline)",
+                                )}
+                                data-testid={`discovery-result-fit-${job.id}`}
+                              >
+                                {assessment.headlineScoreLabel}
+                              </span>
+                            )}
                             {/* The default "review before applying" verdict is the
                                 baseline for every row, so only a stronger or
                                 weaker verdict earns a badge in the list; the
@@ -1726,66 +1747,78 @@ export function DiscoveryResultsPanel({
                               canonicalUrl: job.canonicalUrl,
                               separator: " • ",
                             });
-                          if (employerLocationLine) {
-                            return (
-                              <>
-                                <span
-                                  className={cn(
-                                    jobFinderListRowMetaClassName,
-                                    "font-medium",
-                                  )}
-                                  data-testid={`discovery-result-employer-${job.id}`}
-                                  title={employerLocationLine}
-                                >
-                                  {employerLocationLine}
-                                </span>
-                                {/* Exactly one accessible source mention per
-                                      row: the visible prefix is decorative and
-                                      the sr-only prefix completes the sentence. */}
-                                <span
-                                  className="flex min-w-0 max-w-full text-(length:--text-small) text-foreground-soft"
-                                  data-testid={`discovery-result-source-${job.id}`}
-                                  title={`Found on ${sourceText}`}
-                                >
-                                  <span className="sr-only">Found on </span>
-                                  <span className="min-w-0 truncate">
-                                    {sourceText}
-                                  </span>
-                                </span>
-                              </>
-                            );
-                          }
-                          // No usable employer: say so plainly and quietly
-                          // instead of a "Listing · {source}" line that reads
-                          // like a company named "Listing".
+                          // One meta line: employer and location, then the
+                          // source it was found on. A source on its own line
+                          // read as a second, unexplained company name.
+                          // Exactly one accessible source mention per row:
+                          // the visible separator is decorative and the
+                          // sr-only prefix completes the sentence.
                           return (
                             <span
-                              className="flex min-w-0 max-w-full items-baseline gap-1 text-(length:--text-small) text-foreground-soft"
-                              data-testid={`discovery-result-source-${job.id}`}
-                              title={`Employer not listed · ${sourceText}`}
+                              className={cn(
+                                jobFinderListRowMetaClassName,
+                                "flex min-w-0 items-baseline gap-1.5",
+                              )}
+                              {...(employerLocationLine
+                                ? {}
+                                : {
+                                    "data-testid": `discovery-result-source-${job.id}`,
+                                    title: `Employer not listed · ${sourceText}`,
+                                  })}
                             >
-                              <span className="shrink-0">
-                                Employer not listed ·
+                              <span
+                                className={cn(
+                                  "min-w-0 break-words",
+                                  employerLocationLine
+                                    ? "font-medium"
+                                    : "shrink-0",
+                                )}
+                                data-testid={`discovery-result-employer-${job.id}`}
+                                title={employerLocationLine || undefined}
+                              >
+                                {employerLocationLine || "Employer not listed"}
                               </span>
-                              <span className="sr-only">Found on </span>
-                              <span className="min-w-0 truncate">
-                                {sourceText}
+                              <span
+                                aria-hidden="true"
+                                className={cn(
+                                  "shrink-0",
+                                  sourceRepeatsEmployer &&
+                                    employerLocationLine &&
+                                    "sr-only",
+                                )}
+                              >
+                                {" · "}
+                              </span>
+                              <span
+                                className={cn(
+                                  "flex min-w-0 max-w-[45%] shrink-0",
+                                  sourceRepeatsEmployer &&
+                                    employerLocationLine &&
+                                    "sr-only",
+                                )}
+                                {...(employerLocationLine
+                                  ? {
+                                      "data-testid": `discovery-result-source-${job.id}`,
+                                      title: `Found on ${sourceText}`,
+                                    }
+                                  : {})}
+                              >
+                                <span className="sr-only">Found on </span>
+                                <span className="min-w-0 truncate">
+                                  {sourceText}
+                                </span>
                               </span>
                             </span>
                           );
                         })()}
 
-                        {/* The fit verdict belongs beside the title it is about,
-                          not ~500px away at the far edge of a wide row. When
-                          the evidence behind the number is only the listing
-                          title the number is withheld here and kept inside
-                          "How this was scored" with its evidence. */}
+                        {/* The fit verdict sits on the title line beside its
+                          badge (see the badge slot above). The reason behind
+                          it is a comfortable-density line only; compact rows
+                          stay two lines. When the evidence behind the number
+                          is only the listing title the number is withheld and
+                          kept inside "How this was scored" with its evidence. */}
                         {isCoveredByUncheckedBand ? (
-                          // The divider is a visual carrier only: it is a plain
-                          // div outside the arrow-key traversal, so a row
-                          // reached by keyboard would otherwise lose both the
-                          // verdict and the reason the visible rows just gave
-                          // up. Both survive here in one line.
                           <span
                             className="sr-only"
                             data-testid={`discovery-result-fit-sr-${job.id}`}
@@ -1794,33 +1827,17 @@ export function DiscoveryResultsPanel({
                               ? `${assessment.headlineScoreAriaLabel}. ${rowReason}`
                               : assessment.headlineScoreAriaLabel}
                           </span>
-                        ) : (
-                          <div className="grid min-w-0 gap-1">
-                            <span
-                              aria-label={assessment.headlineScoreAriaLabel}
-                              className={cn(
-                                "text-(length:--text-body) font-semibold",
-                                assessment.isScoreWithheld
-                                  ? "text-foreground-soft"
-                                  : "text-(--text-headline)",
-                              )}
-                              data-testid={`discovery-result-fit-${job.id}`}
-                            >
-                              {assessment.headlineScoreLabel}
-                            </span>
-                            {rowReason ? (
-                              <span
-                                className={cn(
-                                  jobFinderListRowStatusClassName,
-                                  "text-foreground-soft",
-                                )}
-                                data-testid={`discovery-result-fit-reason-${job.id}`}
-                              >
-                                {rowReason}
-                              </span>
-                            ) : null}
-                          </div>
-                        )}
+                        ) : rowReason && density !== "compact" ? (
+                          <span
+                            className={cn(
+                              jobFinderListRowStatusClassName,
+                              "text-foreground-soft",
+                            )}
+                            data-testid={`discovery-result-fit-reason-${job.id}`}
+                          >
+                            {rowReason}
+                          </span>
+                        ) : null}
                       </div>
 
                       {/* Below xl the inspector stacks under this list, so a

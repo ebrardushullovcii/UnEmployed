@@ -461,7 +461,15 @@ describe("ai provider config and fallback behavior", () => {
         profile: createProfile(),
         searchPreferences: createPreferences(),
         settings: createSettings(),
-        job: createJobPosting(),
+        // A real listing body: card-only postings skip the model on purpose
+        // (see the card-only test), so the timeout path needs text to tailor.
+        job: {
+          ...createJobPosting(),
+          description: Array.from(
+            { length: 80 },
+            (_, index) => `requirement ${index}`,
+          ).join(" "),
+        },
         resumeText: "Resume text",
       });
 
@@ -472,6 +480,54 @@ describe("ai provider config and fallback behavior", () => {
       });
       expect(result.notes).toContain(
         "Primary AI draft creation failed: Model request timed out after 60s",
+      );
+    } finally {
+      restoreFetch();
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("never asks the model to tailor toward a card-only posting", async () => {
+    const restoreFetch = mockRejectedFetch(
+      new Error("the model must not be called for a card-only posting"),
+    );
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+      const posting = createJobPosting();
+
+      const result = await client.createResumeDraft({
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...posting,
+          // A compact-scan capture: the title stands in for the body and
+          // nothing structured was read.
+          description: posting.title,
+          keySkills: [],
+          responsibilities: [],
+          minimumQualifications: [],
+          preferredQualifications: [],
+          benefits: [],
+        },
+        resumeText: "Resume text",
+      });
+
+      expect(result.generationProvenance).toEqual({
+        method: "deterministic",
+        reason: "listing_text_missing",
+        detail:
+          "The listing text was not captured, so there was nothing to tailor the resume toward; your original wording was kept.",
+      });
+      // No request went out, so nothing was logged as a fallback.
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(result.notes).not.toContain(
+        "Fell back to the deterministic resume draft creator after the model call failed.",
       );
     } finally {
       restoreFetch();

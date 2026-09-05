@@ -479,12 +479,26 @@ export function ResumeGuidedEditsPopup(props: {
     // corner-anchored pill, so the panel folds out of — and back into — that
     // button's own rect.
     const dockedRect = dockedLauncherRef.current?.getBoundingClientRect();
+    // Fold out from the far right of the launcher's own row, not from the
+    // button itself: the button sits left of "Approve resume", and a panel
+    // hung from its right edge straddled the preview/tools seam and hid the
+    // preview the edits are about. Hugging the row's right edge keeps the
+    // whole preview visible; only the tools column sits under the panel.
+    const dockedRowRect = dockedLauncherRef.current
+      ?.closest("[data-resume-studio-compact-header]")
+      ?.getBoundingClientRect();
     const restingCorner =
       !isOpen &&
       !hasCustomPosition &&
       dockedRect &&
       (dockedRect.width > 0 || dockedRect.height > 0)
-        ? { bottom: dockedRect.bottom, right: dockedRect.right }
+        ? {
+            bottom: dockedRect.bottom,
+            right:
+              dockedRowRect && dockedRowRect.right > dockedRect.right
+                ? dockedRowRect.right
+                : dockedRect.right,
+          }
         : null;
     // The resting corner wins when it applies: it is exactly where the pill is
     // painted, and it stays correct even before the launcher has been laid out.

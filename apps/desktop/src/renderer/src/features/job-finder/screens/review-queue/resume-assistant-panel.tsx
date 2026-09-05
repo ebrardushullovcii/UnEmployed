@@ -386,7 +386,7 @@ export function ResumeAssistantPanel(props: ResumeAssistantPanelProps) {
               </div>
             ) : (
               <Button
-                className="h-auto max-w-full whitespace-normal text-left"
+                className="h-auto min-h-8 max-w-full whitespace-normal py-1.5 text-left leading-5"
                 data-resume-assistant-regenerate
                 disabled={props.isWorkspacePending || props.assistantPending}
                 onClick={() => setIsRegenerateConfirmOpen(true)}

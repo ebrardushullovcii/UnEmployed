@@ -526,7 +526,9 @@ export function ApplicationsScreen(props: {
 
   return (
     <LockedScreenLayout
-      contentClassName="xl:overflow-hidden"
+      contentClassName={
+        workspaceView === "crm" ? "overflow-y-auto" : "xl:overflow-hidden"
+      }
       // Applications is a two-pane route like Find jobs and Shortlisted, so it
       // needs the same viewport bound they pass. Without it the grid's `1fr`
       // row resolves to max-content, the workspace grid's `xl:h-full` resolves
@@ -645,7 +647,11 @@ export function ApplicationsScreen(props: {
       }
     >
       <div
-        className="grid min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,0.95fr)_minmax(30rem,1.45fr)] xl:items-start xl:overflow-hidden"
+        className={
+          workspaceView === "crm"
+            ? "grid min-w-0 items-stretch gap-4"
+            : "grid min-w-0 items-stretch gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(22rem,0.95fr)_minmax(30rem,1.45fr)] xl:items-start xl:overflow-hidden"
+        }
         id="applications-workspace-content"
       >
         {workspaceView === "crm" ? (

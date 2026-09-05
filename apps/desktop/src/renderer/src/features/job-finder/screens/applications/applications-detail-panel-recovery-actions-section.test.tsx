@@ -401,9 +401,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     expect(getByRole("status").textContent).not.toMatch(
       /stop before the final submit control/i,
     );
-    expect(
-      getByText(/still stops before any final submit click/i),
-    ).toBeTruthy();
+    expect(getByText(/still stops before the final submit/i)).toBeTruthy();
     const pendingButton = getByRole("button", { name: /preparing safely/i });
     expect(getByText(/can take up to a minute/i)).toBeTruthy();
     // Pending keeps the control exposed but inert instead of natively

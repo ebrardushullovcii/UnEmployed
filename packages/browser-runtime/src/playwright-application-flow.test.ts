@@ -818,6 +818,7 @@ function createTestSettings() {
 
 async function runApplicationScenario(input: {
   steps: readonly FakeApplicationStep[];
+  initialBlockedAttempts?: FakeApplicationState["guardBlockedAttempts"];
   mode?: "prepare_only" | "submit_when_ready";
   accountCreationAuthorized?: boolean;
   submitAuthorized?: boolean;
@@ -854,6 +855,9 @@ async function runApplicationScenario(input: {
         ? { unverifiableFrameUrls: input.unverifiableFrameUrls }
         : {}),
     });
+    fakeApplication.state.guardBlockedAttempts.push(
+      ...(input.initialBlockedAttempts ?? []),
+    );
     const fakeContext = {
       pages: () => [fakeApplication.page],
       newPage: () => Promise.resolve(fakeApplication.page),
@@ -2651,6 +2655,93 @@ describe("Playwright prepare-only application flow", () => {
     );
   });
 
+  test("tolerates the page's own background request before any fill, noting it and continuing", async () => {
+    const { result, state } = await runApplicationScenario({
+      submitAuthorized: false,
+      initialBlockedAttempts: [
+        {
+          kind: "fetch",
+          method: "GET",
+          url: "https://example.test/locales/en.json",
+          at: "2026-09-05T00:00:00.000Z",
+        },
+      ],
+      steps: [{ controls: [{ label: "Email address", inputType: "email" }] }],
+    });
+
+    // The request was rejected by the guard (that is the containment); it
+    // happened before the runtime touched anything, so it cannot be a saved
+    // field, and stopping on it made every site with load-time traffic
+    // unpreparable. The run records it and carries on.
+    expect(state.filledValues.has("Email address")).toBe(true);
+    expect(
+      result.checkpoints.some(
+        (checkpoint) =>
+          checkpoint.label === "Blocked a background page request" &&
+          checkpoint.detail.includes("preparation continued"),
+      ),
+    ).toBe(true);
+    expect(result.summary).not.toBe("The application page needs manual review");
+    expect(result.externalWrites ?? []).toEqual([]);
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("still stops on a submit-like or containment attempt even before any fill", async () => {
+    const { result, state } = await runApplicationScenario({
+      submitAuthorized: false,
+      initialBlockedAttempts: [
+        {
+          kind: "dom_submit",
+          method: "POST",
+          url: "https://example.test/apply",
+          at: "2026-09-05T00:00:00.000Z",
+        },
+      ],
+      steps: [{ controls: [{ label: "Email address", inputType: "email" }] }],
+    });
+
+    expect(state.filledValues.size).toBe(0);
+    expect(result.summary).toBe("The application page needs manual review");
+    expect(result.detail).toContain("blocked a form submission");
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("stops on a background request that arrives after the runtime has filled a field", async () => {
+    const { result, state } = await runApplicationScenario({
+      submitAuthorized: false,
+      initialBlockedAttempts: [
+        {
+          kind: "fetch",
+          method: "GET",
+          url: "https://example.test/locales/en.json",
+          at: "2026-09-05T00:00:00.000Z",
+        },
+      ],
+      steps: [
+        {
+          controls: [
+            { label: "Email address", inputType: "email" },
+            { label: "Phone", inputType: "tel" },
+          ],
+          mutationTriggerLabel: "Email address",
+          blockedAttemptAfterMutation: {
+            kind: "xhr",
+            method: "POST",
+          },
+        },
+      ],
+    });
+
+    // The load-time request was tolerated; the one that followed the fill
+    // was not, and the run stopped without claiming the field was saved.
+    expect(state.guardBlockedAttempts).toHaveLength(2);
+    expect(result.summary).toBe(
+      "The application page could not safely save a prepared field",
+    );
+    expect(result.blocker?.code).toBe("requires_manual_review");
+    expect(result.submittedAt).toBeNull();
+  });
+
   test("stops honestly when the prepare-only guard blocks a mutating page request", async () => {
     const { result, state } = await runApplicationScenario({
       submitAuthorized: false,
@@ -2825,9 +2916,8 @@ describe("Playwright prepare-only application flow", () => {
 
     expect(state.clickedLabels).toEqual(["Continue"]);
     expect(state.guardBlockedAttempts).toHaveLength(1);
-    expect(result.summary).toBe(
-      "The application page could not safely save a prepared field",
-    );
+    expect(result.summary).toBe("The application page needs manual review");
+    expect(result.detail).toContain("blocked a form submission");
     expect(result.submittedAt).toBeNull();
     expect(result.outcome).toBeNull();
   });

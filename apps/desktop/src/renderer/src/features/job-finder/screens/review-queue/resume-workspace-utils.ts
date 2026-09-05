@@ -105,6 +105,16 @@ export function describeResumeGenerationPath(
         `${FIRST_DRAFT_PREFIX} because the AI draft failed${detail ? ` (${detail})` : ""}.`,
         true,
       );
+    case "listing_text_missing":
+      // Not a model failure and not retryable: the AI was never asked because
+      // there was no listing body. Retrying would change nothing.
+      return {
+        canRetryWithAi: false,
+        message:
+          "This listing's text was not captured, so the resume could not be tailored to it and keeps your original wording. Read the listing before applying, or apply with your original resume.",
+        originSentence:
+          "This listing's text was not captured, so the resume could not be tailored to it and keeps your original wording.",
+      };
     case "provider_output_unverified":
       return disclose(
         `${detail ?? "The AI draft's proposals could not be verified against your saved evidence"}${detail?.endsWith(".") ? "" : "."} ${FIRST_DRAFT_PREFIX} instead.`,

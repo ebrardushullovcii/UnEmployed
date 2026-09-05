@@ -124,8 +124,8 @@ export function getApplicationSubmissionAnswer(
   return {
     headline: "Not submitted.",
     detail: employer
-      ? `Job Finder prepared this application at ${employer} and attached your approved resume. Reviewing it and sending it stays yours to do.`
-      : "Job Finder prepared this application and attached your approved resume. Reviewing it and sending it stays yours to do.",
+      ? `This application has not been sent to ${employer}. Check the preparation details below, then review the fields and resume in the Job Finder browser before sending it.`
+      : "This application has not been sent. Check the preparation details below, then review the fields and resume in the Job Finder browser before sending it.",
     submitted: false,
   };
 }
@@ -149,6 +149,19 @@ export function getApplicationStagePresentation(record: ApplicationRecord): {
     record.lastAttemptState === "failed"
   ) {
     return { label: "Needs recovery", tone: "critical" };
+  }
+
+  // A paused run that recorded its own gate (sign in, finish a step in the
+  // browser) files it as a "requested" consent, but the user is not being
+  // asked to consent to anything: the site is waiting on them. When the run
+  // saved what to do next, that is the stage.
+  if (
+    shouldPresentConsentState(record) &&
+    record.consentSummary.status === "requested" &&
+    record.lastAttemptState === "paused" &&
+    record.nextActionLabel
+  ) {
+    return { label: "Needs you", tone: "active" };
   }
 
   if (
@@ -225,6 +238,15 @@ export function getApplicationNextStepLabel(record: ApplicationRecord): string {
 
   if (
     shouldPresentConsentState(record) &&
+    record.consentSummary.status === "requested" &&
+    record.lastAttemptState === "paused" &&
+    record.nextActionLabel
+  ) {
+    return record.nextActionLabel;
+  }
+
+  if (
+    shouldPresentConsentState(record) &&
     record.consentSummary.status === "requested"
   ) {
     return "Choose continue or skip in Consent requests below.";
@@ -269,6 +291,10 @@ export function getApplicationReadableNextStepLabel(
     SERVICE_WORKER_LIKE_NEXT_STEP.test(trimmed)
   ) {
     return SITE_BLOCKED_AUTOMATIC_PREP_LIST_NEXT_STEP;
+  }
+
+  if (/sign in manually,? then retry preparation/i.test(trimmed)) {
+    return "Sign in on the site in the Job Finder browser, then run preparation again";
   }
 
   if (MANUAL_OPEN_APPLICATION_FINISH_NEXT_STEP.test(trimmed)) {

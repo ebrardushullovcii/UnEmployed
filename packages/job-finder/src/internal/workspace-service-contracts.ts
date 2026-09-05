@@ -91,6 +91,7 @@ import type {
 } from "@unemployed/db";
 import type { ResumeExportFileVerifier } from "./workspace-service-context";
 import type { ResumeRenderDocument } from "./resume-workspace-structure";
+import type { ListingHtmlFetcher } from "./listing-detail-enrichment";
 
 export interface JobFinderWorkspaceResetOptions {
   /**
@@ -615,4 +616,6 @@ export interface CreateJobFinderWorkspaceServiceOptions {
   browserRuntime: BrowserSessionRuntime;
   candidateAssetResolver?: CandidateAssetResolver;
   researchAdapter?: ResumeResearchAdapter;
+  /** Plain-HTTP listing page reader; tests inject a fake, production defaults. */
+  fetchListingHtml?: ListingHtmlFetcher;
 }

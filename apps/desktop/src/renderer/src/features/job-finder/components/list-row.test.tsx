@@ -320,12 +320,11 @@ describe("one Job Finder list treatment", () => {
 
     const slotClasses = (badgeSlot.getAttribute("class") ?? "").split(" ");
     // jsdom performs no layout, so the invariant is asserted on the box
-    // contract instead of a measured width. `shrink-0` pins the slot at
-    // max-content, which makes `flex-wrap` unreachable and hands the entire
-    // overflow to the `min-w-0` title beside it - a horizontal scrollbar on
-    // Find jobs and silent clipping on the other two.
-    expect(slotClasses).not.toContain("shrink-0");
-    expect(slotClasses).toContain("min-w-0");
+    // contract instead of a measured width. `shrink-0` keeps the slot from
+    // being squeezed narrower than its widest badge (which clipped labels to
+    // "NEEDS APPR…" beside long titles); `max-w-[55%]` still caps it, so a
+    // crowded slot wraps its badges inside that cap instead of growing.
+    expect(slotClasses).toContain("shrink-0");
     expect(slotClasses).toContain("flex-wrap");
     // The title keeps at least 45% of the line no matter how many badges land.
     expect(slotClasses).toContain("max-w-[55%]");

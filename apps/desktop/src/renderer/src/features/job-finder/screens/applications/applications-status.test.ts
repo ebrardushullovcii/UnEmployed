@@ -6,6 +6,7 @@ import {
   getApplicationNextStepLabel,
   getApplicationReadableNextStepLabel,
   getApplicationStagePresentation,
+  getApplicationSubmissionAnswer,
 } from "./applications-status";
 
 function createRecord(
@@ -25,6 +26,15 @@ function createRecord(
 }
 
 describe("applications status helpers", () => {
+  it("does not claim a resume was attached when preparation paused before filling", () => {
+    const answer = getApplicationSubmissionAnswer(
+      createRecord({ lastAttemptState: "paused" }),
+    );
+    expect(answer.headline).toBe("Not submitted.");
+    expect(answer.detail).toContain("has not been sent to Acme");
+    expect(answer.detail).not.toMatch(/attached|prepared this application/);
+    expect(answer.submitted).toBe(false);
+  });
   it("keeps the consent-declined stage while showing the paused next action as latest activity", () => {
     const record = createRecord({
       consentSummary: { status: "declined", pendingCount: 0 },
@@ -126,6 +136,28 @@ describe("applications status helpers", () => {
     ).toBe(FINISH_IN_JOB_FINDER_BROWSER_LIST_NEXT_STEP);
     expect(FINISH_IN_JOB_FINDER_BROWSER_LIST_NEXT_STEP).toMatch(
       /the Job Finder browser/,
+    );
+  });
+
+  it("names the user's own gate when a paused run saved what to do next", () => {
+    const record = createRecord({
+      consentSummary: { status: "requested", pendingCount: 1 },
+      nextActionLabel: "Sign in manually, then retry preparation",
+      lastAttemptState: "paused",
+    });
+
+    // The site is waiting on the user, not asking for consent.
+    expect(getApplicationStagePresentation(record)).toEqual({
+      label: "Needs you",
+      tone: "active",
+    });
+    expect(getApplicationNextStepLabel(record)).toBe(
+      "Sign in manually, then retry preparation",
+    );
+    expect(
+      getApplicationReadableNextStepLabel(getApplicationNextStepLabel(record)),
+    ).toBe(
+      "Sign in on the site in the Job Finder browser, then run preparation again",
     );
   });
 

@@ -116,7 +116,7 @@ function normalizeToken(value: string): string {
     normalized = normalized.slice(0, -2);
   } else if (normalized.length > 5 && normalized.endsWith("ies")) {
     normalized = `${normalized.slice(0, -3)}y`;
-  } else if (normalized.length > 5 && normalized.endsWith("es")) {
+  } else if (normalized.length > 5 && /(?:s|x|z|ch|sh)es$/.test(normalized)) {
     normalized = normalized.slice(0, -2);
   } else if (normalized.length > 4 && normalized.endsWith("s")) {
     normalized = normalized.slice(0, -1);
@@ -402,7 +402,7 @@ export function buildGroundedResumeRewriteModelPayload(
     targetJob: {
       title: input.job.title,
       company: input.job.company,
-      description: input.job.description,
+      description: compactJobDescriptionForModel(input.job.description),
       responsibilities: input.job.responsibilities,
       minimumQualifications: input.job.minimumQualifications,
       preferredQualifications: input.job.preferredQualifications,
@@ -1554,4 +1554,60 @@ export function selectResumeRewrite(input: {
     referencedEvidenceText: referencedEvidence.map((item) => item.text),
     inferred: parsed.inferred,
   };
+}
+
+const MODEL_JOB_DESCRIPTION_MAX_CHARS = 6_000;
+const REQUIREMENT_PARAGRAPH_SIGNAL =
+  /\b(responsibilit|requirement|qualification|must have|nice to have|you will|you'll|you have|experience|skills?|proficien|familiar|years|degree|stack|tools?|technolog|what we.re looking for|who you are|about the role|about this role|the role)\b/iu;
+const BOILERPLATE_PARAGRAPH_SIGNAL =
+  /\b(equal opportunity|equal employment|discriminat|accommodation|privacy|cookie|benefits? (?:include|package)|401\(k\)|dental|vision insurance|paid time off|pto\b|unlimited vacation|about (?:us|the company)|our mission|we are a|founded in|backed by|series [a-f]\b|valuation)/iu;
+
+/**
+ * Keeps a long listing body inside a budget the model handles well, and keeps
+ * the right parts: the paragraphs that describe the work and its requirements
+ * stay, company boilerplate and benefits go first. Order is preserved so the
+ * model still reads a coherent listing. Short bodies pass through untouched.
+ */
+export function compactJobDescriptionForModel(
+  description: string,
+  maxChars: number = MODEL_JOB_DESCRIPTION_MAX_CHARS,
+): string {
+  if (description.length <= maxChars) {
+    return description;
+  }
+  const paragraphs = description
+    .split(/\n{2,}|\n(?=• )/u)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  const ranked = paragraphs.map((text, index) => ({
+    index,
+    text,
+    priority: REQUIREMENT_PARAGRAPH_SIGNAL.test(text)
+      ? 0
+      : BOILERPLATE_PARAGRAPH_SIGNAL.test(text)
+        ? 2
+        : 1,
+  }));
+  const kept = new Set<number>();
+  let used = 0;
+  for (const priority of [0, 1, 2]) {
+    for (const entry of ranked) {
+      if (entry.priority !== priority) {
+        continue;
+      }
+      const cost = entry.text.length + 2;
+      if (used + cost > maxChars) {
+        continue;
+      }
+      kept.add(entry.index);
+      used += cost;
+    }
+  }
+  const compacted = ranked
+    .filter((entry) => kept.has(entry.index))
+    .map((entry) => entry.text)
+    .join("\n\n");
+  return compacted.length > 0
+    ? compacted
+    : description.slice(0, maxChars).trimEnd();
 }

@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SavedJobSchema, type SavedJob } from "@unemployed/contracts";
+import { TITLE_MISSES_TARGET_ROLES_GAPS } from "@unemployed/job-finder/discovery-ordering";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -38,6 +39,7 @@ function job(input: {
   provisional?: boolean;
   recommendation?: string;
   titleOnly?: boolean;
+  gaps?: readonly string[];
 }): SavedJob {
   return SavedJobSchema.parse({
     id: input.id,
@@ -60,7 +62,7 @@ function job(input: {
     matchAssessment: {
       score: input.score,
       reasons: ["Relevant experience"],
-      gaps: [],
+      gaps: [...(input.gaps ?? [])],
       recommendation: input.recommendation ?? "review_before_applying",
       ...(input.titleOnly
         ? {}
@@ -128,6 +130,30 @@ describe("discovery result bands", () => {
         }),
       ),
     ).toBe("mismatches");
+  });
+
+  it("files a title-only row under weaker matches when the scorer recorded that the title missed every target role", () => {
+    // "Title matches · not yet checked" must mean the title matched. A card-
+    // only "Full-Stack Designer" for a software-engineer search was checked as
+    // far as it could be, and the one thing checked did not fit.
+    for (const gap of TITLE_MISSES_TARGET_ROLES_GAPS) {
+      expect(
+        getDiscoveryResultGroup(
+          job({ id: "title_miss", score: 64, titleOnly: true, gaps: [gap] }),
+        ),
+      ).toBe("weaker");
+    }
+    // Only an explicit miss demotes; a row with no title verdict stays put.
+    expect(
+      getDiscoveryResultGroup(
+        job({
+          id: "title_silent",
+          score: 64,
+          titleOnly: true,
+          gaps: ["Pay not stated."],
+        }),
+      ),
+    ).toBe("unchecked");
   });
 
   it("keeps a title-only row out of both the recommended and the also-found pools", () => {
@@ -249,7 +275,7 @@ describe("discovery result bands", () => {
     // that holds nothing the row does not already show.
     const description = headings.get("title_only")?.description ?? "";
     expect(description).toBe(
-      "Matched on the title alone; no job description was read.",
+      "Matched on the title alone; the full requirements have not been assessed.",
     );
     for (const promise of ["Open", "open", "browser", "link"]) {
       expect(description).not.toContain(promise);
@@ -546,7 +572,7 @@ describe("discovery three-band result counts", () => {
       "Title matches · not yet checked (14)",
     );
     expect(headings[0]!.textContent).toContain(
-      "Matched on the title alone; no job description was read.",
+      "Matched on the title alone; the full requirements have not been assessed.",
     );
     expect(screen.getByTestId("discovery-result-count").textContent).toContain(
       "0 worth opening · 14 title matches · 0 also found",
@@ -570,7 +596,7 @@ describe("discovery three-band result counts", () => {
         srOnly: true,
         // The divider is a plain div outside the arrow-key traversal, so the
         // reason the visible rows gave up survives on the row itself.
-        text: "Overall fit: title match only, not scored. Only the listing title could be checked — no pay, location, or requirements were captured. Copy the listing link to check the rest.",
+        text: "Overall fit: title match only, not scored. Fit is based on the title alone. Review the listing details before applying.",
       })),
     );
   });
@@ -645,7 +671,7 @@ describe("discovery three-band result counts", () => {
     ).toBe("Title match only");
     expect(
       screen.getByTestId("discovery-result-fit-reason-conflicted").textContent,
-    ).toContain("Only the listing title could be checked");
+    ).toContain("Fit is based on the title alone");
     expect(
       screen.queryByTestId("discovery-result-fit-sr-conflicted"),
     ).toBeNull();
@@ -675,7 +701,7 @@ describe("discovery three-band result counts", () => {
     ).toBe("Title match only");
     expect(
       screen.getByTestId("discovery-result-fit-reason-title_only").textContent,
-    ).toContain("Only the listing title could be checked");
+    ).toContain("Fit is based on the title alone");
   });
 
   it("names the unchecked band and says what would fill it in", () => {
@@ -697,7 +723,7 @@ describe("discovery three-band result counts", () => {
       "Title matches · not yet checked (1)",
     );
     expect(heading.textContent).toContain(
-      "Matched on the title alone; no job description was read.",
+      "Matched on the title alone; the full requirements have not been assessed.",
     );
   });
 

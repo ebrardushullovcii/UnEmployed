@@ -420,17 +420,19 @@ describe("DiscoveryFiltersPanel", () => {
         getByRole("link", { name: "Add roles" }) as HTMLAnchorElement
       ).getAttribute("href"),
     ).toBe("/job-finder/profile?section=preferences&focus=target-roles");
+    // Only the first empty section is the primary start; the rest are
+    // secondary so the column has one obvious next step.
     expect(
       getByRole("link", { name: "Add roles" }).getAttribute("data-variant"),
     ).toBe("primary");
     expect(
       getByRole("link", { name: "Add locations" }).getAttribute("data-variant"),
-    ).toBe("primary");
+    ).toBe("secondary");
     expect(
       getByRole("link", { name: "Set work modes" }).getAttribute(
         "data-variant",
       ),
-    ).toBe("primary");
+    ).toBe("secondary");
     expect(
       (
         getByRole("link", { name: "Set work modes" }) as HTMLAnchorElement
@@ -1076,6 +1078,7 @@ describe("DiscoveryFiltersPanel", () => {
               discoveryFeedback: null,
               resumeApplicationMode: null,
               latestMatchAssessmentAudit: null,
+              listingDetailFetch: null,
             },
           ]}
           onRecoveryAction={onRecoveryAction}
