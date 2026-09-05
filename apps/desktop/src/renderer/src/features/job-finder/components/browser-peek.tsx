@@ -23,6 +23,10 @@ import type {
   DesktopBrowserState,
 } from "@unemployed/contracts";
 import {
+  JOB_FINDER_BROWSER_LABEL,
+  OPEN_JOB_FINDER_BROWSER_ACTION,
+} from "../lib/job-finder-browser-handoff-copy";
+import {
   subscribeToJobFinderOverlays,
   useJobFinderOverlayOwnership,
 } from "../lib/job-finder-overlay-ownership";
@@ -208,8 +212,8 @@ export function BrowserPeek() {
         className="browser-peek-trigger"
         type="button"
         disabled={!bridge}
-        aria-label={`Open browser · ${status}`}
-        title={`Browser · ${status}`}
+        aria-label={`${OPEN_JOB_FINDER_BROWSER_ACTION} · ${status}`}
+        title={`${JOB_FINDER_BROWSER_LABEL} · ${status}`}
         onClick={() => void command({ type: "open" })}
       >
         <Globe2 size={16} aria-hidden="true" />
