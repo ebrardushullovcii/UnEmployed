@@ -1,0 +1,204 @@
+import { EventEmitter } from "node:events";
+import type { WebContents } from "electron";
+import { WebSocket } from "ws";
+import { afterEach, describe, expect, test } from "vitest";
+import { BrowserCdpBridge, type BrowserCdpPage } from "./browser-cdp-bridge";
+
+type Message = {
+  id?: number;
+  method?: string;
+  sessionId?: string;
+  params?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error?: { message: string };
+};
+const resources: Array<() => void> = [];
+afterEach(() => {
+  for (const dispose of resources.splice(0).reverse()) dispose();
+});
+
+async function fixture() {
+  const debuggerEvents = new EventEmitter();
+  const calls: Array<{
+    method: string;
+    params: unknown;
+    sessionId: string | undefined;
+  }> = [];
+  let attached = false;
+  const debuggerApi = Object.assign(debuggerEvents, {
+    isAttached: () => attached,
+    attach: () => {
+      attached = true;
+    },
+    detach: () => {
+      attached = false;
+    },
+    sendCommand: (method: string, params: unknown, sessionId?: string) => {
+      calls.push({ method, params, sessionId });
+      if (method === "Target.getTargetInfo")
+        return Promise.resolve({ targetInfo: { targetId: "owned-page" } });
+      if (method === "Target.detachFromTarget")
+        debuggerEvents.emit("message", {}, "Target.detachedFromTarget", {
+          sessionId: "native-worker",
+          targetId: "worker-target",
+        });
+      return Promise.resolve({});
+    },
+  });
+  const contents = Object.assign(new EventEmitter(), {
+    debugger: debuggerApi,
+    isDestroyed: () => false,
+    getTitle: () => "Synthetic page",
+    getURL: () => "https://example.test/",
+  }) as unknown as WebContents;
+  const page: BrowserCdpPage = { id: "owned-tab", contents };
+  const bridge = new BrowserCdpBridge({
+    pages: () => [page],
+    createPage: () => Promise.reject(new Error("Not used")),
+    closePage: () => undefined,
+    selectPage: () => undefined,
+    onPageCreated: () => () => undefined,
+    userAgent: () => "Synthetic browser",
+  });
+  const transport = await bridge.start();
+  resources.push(() => bridge.close());
+  return { bridge, transport, calls, debuggerEvents };
+}
+
+async function connect(transport: {
+  endpoint: string;
+  headers: Record<string, string>;
+}) {
+  const socket = new WebSocket(transport.endpoint, {
+    headers: transport.headers,
+  });
+  resources.push(() => socket.terminate());
+  const messages: Message[] = [];
+  const pending = new Map<number, (value: Message) => void>();
+  socket.on("message", (data) => {
+    const message = JSON.parse(
+      Buffer.isBuffer(data)
+        ? data.toString("utf8")
+        : Buffer.from(data as ArrayBuffer).toString("utf8"),
+    ) as Message;
+    messages.push(message);
+    if (message.id !== undefined) {
+      pending.get(message.id)?.(message);
+      pending.delete(message.id);
+    }
+  });
+  await new Promise<void>((resolve, reject) => {
+    socket.once("open", resolve);
+    socket.once("error", reject);
+  });
+  let sequence = 0;
+  const send = (
+    method: string,
+    params: Record<string, unknown> = {},
+    sessionId?: string,
+  ) =>
+    new Promise<Message>((resolve) => {
+      const id = ++sequence;
+      pending.set(id, resolve);
+      socket.send(
+        JSON.stringify({
+          id,
+          method,
+          params,
+          ...(sessionId ? { sessionId } : {}),
+        }),
+      );
+    });
+  return { socket, messages, send };
+}
+
+describe("scoped embedded browser transport", () => {
+  test("rejects unauthenticated and browser-origin clients", async () => {
+    const { transport } = await fixture();
+    for (const headers of [
+      {},
+      { ...transport.headers, Origin: "https://example.test" },
+    ]) {
+      const socket = new WebSocket(transport.endpoint, { headers });
+      resources.push(() => socket.terminate());
+      const message = await new Promise<string>((resolve) =>
+        socket.once("error", (error) => resolve(error.message)),
+      );
+      expect(message).toContain("403");
+    }
+    const client = await connect(transport);
+    expect(
+      (await client.send("Target.getTargets")).result?.targetInfos,
+    ).toEqual([expect.objectContaining({ targetId: "owned-page" })]);
+  });
+
+  test("refuses unknown targets, root page commands, and profile storage", async () => {
+    const { transport, calls } = await fixture();
+    const client = await connect(transport);
+    expect(
+      (await client.send("Target.attachToTarget", { targetId: "app-renderer" }))
+        .error?.message,
+    ).toContain("not owned");
+    expect(
+      (await client.send("Runtime.evaluate", { expression: "process.env" }))
+        .error?.message,
+    ).toContain("page session is required");
+    expect((await client.send("Storage.getCookies")).error?.message).toContain(
+      "Unsupported scoped",
+    );
+    expect(
+      calls.some(
+        (call) =>
+          call.method === "Runtime.evaluate" ||
+          call.method === "Storage.getCookies",
+      ),
+    ).toBe(false);
+  });
+
+  test("detaches a service worker through its parent without closing the page", async () => {
+    const { transport, debuggerEvents, calls } = await fixture();
+    const client = await connect(transport);
+    await client.send("Target.setAutoAttach", { autoAttach: true });
+    const parent = String(
+      client.messages.find(
+        (message) => message.method === "Target.attachedToTarget",
+      )?.params?.sessionId,
+    );
+    debuggerEvents.emit("message", {}, "Target.attachedToTarget", {
+      sessionId: "native-worker",
+      targetInfo: {
+        targetId: "worker-target",
+        type: "service_worker",
+        url: "https://example.test/sw.js",
+      },
+      waitingForDebugger: true,
+    });
+    // A request/response round trip drains the preceding event on the same socket.
+    await client.send("Browser.getVersion");
+    const childEvent = client.messages.find(
+      (message) =>
+        message.method === "Target.attachedToTarget" &&
+        message.sessionId === parent,
+    );
+    const child = String(childEvent?.params?.sessionId);
+    expect(child).not.toBe("undefined");
+    await client.send("Target.detachFromTarget", { sessionId: child }, parent);
+    expect(calls).toContainEqual({
+      method: "Target.detachFromTarget",
+      params: { sessionId: "native-worker" },
+      sessionId: undefined,
+    });
+    const detached = client.messages.filter(
+      (message) => message.method === "Target.detachedFromTarget",
+    );
+    expect(detached).toHaveLength(1);
+    expect(detached[0]?.sessionId).toBe(parent);
+    expect(detached[0]?.params).toMatchObject({
+      sessionId: child,
+      targetId: "worker-target",
+    });
+    expect(
+      (await client.send("Runtime.enable", {}, parent)).error,
+    ).toBeUndefined();
+  });
+});

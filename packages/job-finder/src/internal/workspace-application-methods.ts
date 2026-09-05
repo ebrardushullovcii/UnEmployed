@@ -1827,7 +1827,9 @@ export function createWorkspaceApplicationMethods(
           if (activeSource && !keepSessionAlive) {
             await ctx.closeRunBrowserSession(activeSource);
           }
-          await ctx.openRunBrowserSession(job.source);
+          await ctx.openRunBrowserSession(job.source, {
+            purpose: "automation",
+          });
           activeSource = job.source;
           shouldCloseActiveSessionOnExit = false;
           if (await stopIfRunWasCancelled()) {

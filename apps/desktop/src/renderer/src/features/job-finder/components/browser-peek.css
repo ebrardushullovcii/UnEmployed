@@ -1,0 +1,384 @@
+.browser-peek-trigger {
+  display: inline-flex;
+  height: 40px;
+  min-width: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 11px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-button);
+  background: var(--surface-panel);
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 550;
+  position: relative;
+}
+.browser-peek-trigger:hover {
+  color: var(--foreground);
+  background: var(--secondary);
+}
+.browser-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+.browser-status-dot.is-working {
+  animation: browser-breathe 1.8s ease-in-out infinite;
+}
+.browser-status-dot.needs-you {
+  background: #d99c35;
+}
+.browser-peek-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  background: color-mix(in srgb, var(--background) 48%, transparent);
+  backdrop-filter: blur(7px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 44px 30px;
+}
+.browser-peek {
+  width: min(1180px, 100%);
+  height: min(820px, 100%);
+  display: flex;
+  flex-direction: column;
+  min-height: 310px;
+  background: var(--surface-panel);
+  color: var(--foreground);
+  border: 1px solid
+    color-mix(in srgb, var(--control-border) 80%, var(--foreground) 20%);
+  border-radius: 22px;
+  padding: 6px;
+  box-shadow:
+    0 28px 100px #0005,
+    0 4px 18px #0002;
+  font-size: 12px;
+  overflow: hidden;
+}
+.browser-peek.is-expanded {
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+}
+.browser-peek button {
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.browser-peek button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.browser-peek button:focus-visible,
+.browser-peek input:focus-visible,
+.browser-peek-trigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.browser-peek-heading {
+  height: 43px;
+  min-height: 43px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 15px;
+  gap: 12px;
+}
+.browser-peek-brand,
+.browser-window-actions,
+.browser-peek-status {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+.browser-peek-brand > span:first-of-type {
+  font-weight: 650;
+  font-size: 13px;
+}
+.browser-peek-divider {
+  height: 12px;
+  width: 1px;
+  background: var(--control-border);
+}
+.browser-peek-status {
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browser-window-actions {
+  gap: 5px;
+}
+.browser-window-actions button {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  color: var(--muted-foreground);
+  background: var(--secondary);
+}
+.browser-window-actions button:hover {
+  color: var(--foreground);
+  background: var(--accent);
+}
+.browser-window-actions .browser-close:hover {
+  background: #d7484830;
+  color: #df6666;
+}
+.browser-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px 9px 5px;
+  overflow-x: auto;
+  min-height: 35px;
+}
+.browser-tab {
+  display: flex;
+  align-items: center;
+  min-width: 75px;
+  max-width: 190px;
+  flex: 1;
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--secondary) 50%, transparent);
+}
+.browser-tab.is-active {
+  background: var(--secondary);
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px var(--control-border);
+}
+.browser-tab button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 8px;
+  flex: 1;
+}
+.browser-tab button:first-child span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browser-tab button:last-child {
+  padding: 5px;
+  margin-right: 3px;
+  border-radius: 4px;
+}
+.browser-tab button:last-child:hover {
+  background: var(--accent);
+}
+.browser-add-tab {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  color: var(--muted-foreground);
+}
+.browser-address-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px 10px;
+  min-height: 48px;
+}
+.browser-address-row > button {
+  width: 27px;
+  height: 29px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--muted-foreground);
+}
+.browser-address-row > button:hover {
+  background: var(--secondary);
+}
+.browser-address-row form {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  background: var(--background);
+  border: 1px solid var(--control-border);
+  border-radius: 10px;
+  padding: 0 9px;
+  color: var(--muted-foreground);
+}
+.browser-address-row input {
+  background: transparent;
+  outline: none !important;
+  color: var(--foreground);
+  font-size: 12px;
+  min-width: 0;
+  flex: 1;
+}
+.browser-address-row form:focus-within {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 15%, transparent);
+}
+.browser-address-row form button {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+}
+.browser-page-viewport {
+  flex: 1;
+  min-height: 100px;
+  position: relative;
+  border-radius: 12px;
+  background: var(--background);
+  overflow: hidden;
+  border: 1px solid var(--control-border);
+}
+.browser-welcome {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  gap: 12px;
+}
+.browser-welcome-icon {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 22px;
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  margin-bottom: 7px;
+  border: 1px solid var(--control-border);
+}
+.browser-welcome h2 {
+  font-size: 25px;
+  letter-spacing: -0.8px;
+  font-weight: 550;
+  line-height: 1.25;
+}
+.browser-welcome p {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  max-width: 330px;
+  line-height: 1.7;
+}
+.browser-welcome-go {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 15px;
+  background: var(--foreground);
+  color: var(--background);
+  border-radius: 9px;
+  margin-top: 8px;
+}
+.browser-welcome-notes {
+  display: flex;
+  gap: 20px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  margin-top: 24px;
+}
+.browser-welcome-notes span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.browser-peek-footer {
+  min-height: 43px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 9px 1px;
+  color: var(--muted-foreground);
+}
+.browser-import,
+.browser-control {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 7px;
+}
+.browser-import:hover {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+.browser-control {
+  border: 1px solid var(--control-border);
+  background: var(--secondary);
+  color: var(--foreground);
+  margin-left: auto;
+}
+.browser-footer-hint {
+  font-size: 11px;
+  flex: 1;
+  text-align: center;
+}
+.browser-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 13px;
+  margin: 0 5px 7px;
+  border: 1px solid var(--control-border);
+  border-radius: 9px;
+  background: var(--secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.browser-notice strong {
+  font-weight: 600;
+}
+.browser-spin {
+  animation: browser-spin 1s linear infinite;
+}
+@keyframes browser-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes browser-breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (max-width: 900px) {
+  .browser-trigger-label {
+    display: none;
+  }
+  .browser-peek-trigger {
+    padding: 0 10px;
+  }
+  .browser-peek-backdrop {
+    padding: 58px 14px 14px;
+  }
+  .browser-peek-footer {
+    gap: 5px;
+  }
+  .browser-footer-hint {
+    display: none;
+  }
+  .browser-welcome-notes {
+    flex-direction: column;
+    gap: 9px;
+  }
+  .browser-peek-status {
+    max-width: 250px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .browser-spin,
+  .browser-status-dot.is-working {
+    animation: none;
+  }
+}

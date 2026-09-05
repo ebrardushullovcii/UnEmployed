@@ -31,6 +31,8 @@ import type {
 } from "./application-submission-browser-hands";
 
 export interface OpenBrowserSessionOptions {
+  /** Automation setup must not steal focus from a user-minimized browser. */
+  purpose?: "automation" | "manual";
   /** Open a clean manual page without replacing an existing automation page. */
   reuseExistingPage?: boolean;
   targetUrl?: string | null;

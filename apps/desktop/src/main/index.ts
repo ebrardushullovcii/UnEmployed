@@ -6,6 +6,7 @@ import { loadDesktopEnvironment } from "./setup/env";
 import { configureInterviewMediaPermissions } from "./setup/interview-media-permissions";
 import { areAdvancedInterviewSurfacesEnabled } from "./setup/interview-surface-mode";
 import { registerCoreDesktopRoutes } from "./setup/register-core-routes";
+import { getEmbeddedBrowser } from "./services/browser/embedded-browser";
 import {
   configureDesktopUserDataDirectory,
   getDesktopStartupDiagnosticsPath,
@@ -60,11 +61,15 @@ type InterviewOverlayModule = typeof InterviewOverlayApi;
 type InterviewSessionControlsModule = typeof InterviewSessionControlsApi;
 
 let jobFinderServicesPromise: Promise<JobFinderServices> | null = null;
-let campaignSchedulerModulePromise: Promise<CampaignSchedulerModule> | null = null;
-let candidateAssetLibraryModulePromise: Promise<CandidateAssetLibraryModule> | null = null;
+let campaignSchedulerModulePromise: Promise<CampaignSchedulerModule> | null =
+  null;
+let candidateAssetLibraryModulePromise: Promise<CandidateAssetLibraryModule> | null =
+  null;
 let interviewHelperModulePromise: Promise<InterviewHelperModule> | null = null;
-let interviewOverlayModulePromise: Promise<InterviewOverlayModule> | null = null;
-let interviewSessionControlsModulePromise: Promise<InterviewSessionControlsModule> | null = null;
+let interviewOverlayModulePromise: Promise<InterviewOverlayModule> | null =
+  null;
+let interviewSessionControlsModulePromise: Promise<InterviewSessionControlsModule> | null =
+  null;
 
 function loadJobFinderServices() {
   jobFinderServicesPromise ??= import("./services/job-finder");
@@ -72,16 +77,14 @@ function loadJobFinderServices() {
 }
 
 function loadCampaignSchedulerModule() {
-  campaignSchedulerModulePromise ??= import(
-    "./services/job-finder/campaign-scheduler"
-  );
+  campaignSchedulerModulePromise ??=
+    import("./services/job-finder/campaign-scheduler");
   return campaignSchedulerModulePromise;
 }
 
 function loadCandidateAssetLibraryModule() {
-  candidateAssetLibraryModulePromise ??= import(
-    "./services/job-finder/candidate-asset-library-instance"
-  );
+  candidateAssetLibraryModulePromise ??=
+    import("./services/job-finder/candidate-asset-library-instance");
   return candidateAssetLibraryModulePromise;
 }
 
@@ -91,16 +94,13 @@ function loadInterviewHelperModule() {
 }
 
 function loadInterviewOverlayModule() {
-  interviewOverlayModulePromise ??= import(
-    "./setup/interview-overlay-windows"
-  );
+  interviewOverlayModulePromise ??= import("./setup/interview-overlay-windows");
   return interviewOverlayModulePromise;
 }
 
 function loadInterviewSessionControlsModule() {
-  interviewSessionControlsModulePromise ??= import(
-    "./setup/interview-session-controls"
-  );
+  interviewSessionControlsModulePromise ??=
+    import("./setup/interview-session-controls");
   return interviewSessionControlsModulePromise;
 }
 
@@ -173,7 +173,9 @@ function loadInterviewHelperRoutes(): Promise<void> {
 
 function createMainWindowSafely(): BrowserWindow | null {
   try {
-    return createMainWindow(currentDir);
+    const window = createMainWindow(currentDir);
+    getEmbeddedBrowser().attachWindow(window);
+    return window;
   } catch (error) {
     recordStartupDiagnostic("main window creation failed", error);
     console.error("[Desktop] Failed to create the main window.", error);

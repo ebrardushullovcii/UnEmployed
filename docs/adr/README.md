@@ -22,6 +22,7 @@ ADRs capture durable decisions and rejected alternatives. Use them to avoid reop
 | [0014](0014-product-iteration-loop-over-release-ceremony.md)         | accepted   | Product iteration loop over release ceremony           |
 | [0015](0015-minimal-agent-guidance.md)                               | accepted   | Minimal agent guidance                                 |
 | [0016](0016-listing-body-read-over-plain-http.md)                    | accepted   | Listing bodies are read over plain HTTP after the scan |
+| [0017](0017-embedded-job-finder-browser.md)                          | accepted   | Embedded Job Finder browser                            |
 
 ## Policy
 

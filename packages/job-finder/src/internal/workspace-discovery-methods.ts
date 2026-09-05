@@ -933,6 +933,7 @@ async function collectTargetJobs(input: {
       }),
     );
     await ctx.openRunBrowserSession(adapterKind, {
+      purpose: "automation",
       targetUrl: target.startingUrl,
       targetId: target.id,
     });

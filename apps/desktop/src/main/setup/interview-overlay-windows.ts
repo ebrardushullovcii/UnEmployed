@@ -501,7 +501,7 @@ export async function verifyInterviewOverlayCaptureProtection(): Promise<
 
   const capturedAt = new Date().toISOString();
   const screenImage = source.thumbnail;
-  const screenBitmap = screenImage.getBitmap();
+  const screenBitmap = screenImage.toBitmap();
   const screenSize = screenImage.getSize();
   const scaleX = screenSize.width / display.bounds.width;
   const scaleY = screenSize.height / display.bounds.height;
@@ -516,7 +516,7 @@ export async function verifyInterviewOverlayCaptureProtection(): Promise<
         width: Math.round(bounds.width * scaleX),
         height: Math.round(bounds.height * scaleY),
       });
-    const overlayBitmap = resizedOverlay.getBitmap();
+    const overlayBitmap = resizedOverlay.toBitmap();
     const overlaySize = resizedOverlay.getSize();
     const cropOriginX = Math.max(0, Math.round(bounds.x * scaleX));
     const cropOriginY = Math.max(0, Math.round(bounds.y * scaleY));

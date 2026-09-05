@@ -13,6 +13,8 @@ interface SettingsRuntimeSummaryProps {
 
 function getBrowserLabel(driver: BrowserSessionState["driver"]): string {
   switch (driver) {
+    case "embedded_browser_agent":
+      return "Built-in browser session";
     case "chrome_profile_agent":
       return "Connected Chrome session";
     default:

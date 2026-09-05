@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer as nativeIpcRenderer } from "electron";
+import { browserBridge } from "./browser";
 import type {
   ApplicationCrmBulkStageMutationInput,
   ApplicationCrmExportInput,
@@ -309,6 +310,7 @@ function toSaveWorkspaceInputsPayload(
 }
 
 const desktopApi = {
+  browser: browserBridge,
   ping: () => ipcRenderer.invoke("system:ping") as Promise<DesktopPlatformPing>,
   window: {
     close: () => ipcRenderer.invoke("window:close") as Promise<{ ok: true }>,

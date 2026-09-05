@@ -1,3 +1,5 @@
+import { getEmbeddedBrowser } from "../browser/embedded-browser";
+import { withEmbeddedBrowserActivity } from "../browser/embedded-browser-runtime";
 import {
   type BrowserVisualAnalysisInput,
   type BrowserVisualObservationSet,
@@ -419,7 +421,12 @@ export function createDesktopBrowserRuntime(
 
   if (isBrowserAgentEnabled(env)) {
     const aiClient = input.aiClient ?? createDesktopJobFinderAiClient(env);
-    const runtime = createBrowserAgentRuntime({
+    const embedded =
+      env.UNEMPLOYED_BROWSER_HOST === "external" ||
+      (desktopTestApiEnabled && env.UNEMPLOYED_BROWSER_HOST !== "embedded")
+        ? null
+        : getEmbeddedBrowser();
+    const baseRuntime = createBrowserAgentRuntime({
       userDataDir: getBrowserAgentProfileDirectory(),
       headless: isBrowserHeadlessEnabled(env),
       ...(env.UNEMPLOYED_CHROME_PATH
@@ -429,7 +436,20 @@ export function createDesktopBrowserRuntime(
       jobExtractor: (runtimeInput) =>
         aiClient.extractJobsFromPage(runtimeInput),
       aiClient,
+      ...(embedded
+        ? {
+            browserHost: {
+              connect: () => embedded.connect(),
+              getOpenBrowser: () => embedded.getOpenBrowser(),
+              close: () => embedded.releaseAutomationSession(),
+              assertAutomationSafe: () => embedded.assertAutomationSafe(),
+            },
+          }
+        : {}),
     });
+    const runtime = embedded
+      ? withEmbeddedBrowserActivity(baseRuntime, embedded)
+      : baseRuntime;
 
     if (
       desktopTestApiEnabled &&
@@ -567,6 +587,23 @@ export async function createJobFinderWorkspaceServiceAsync(
     fetchListingHtml: createDefaultListingHtmlFetcher(),
   });
   repositoryByWorkspaceService.set(workspaceService, jobFinderRepository);
+  if (
+    env.UNEMPLOYED_BROWSER_HOST !== "external" &&
+    (!desktopTestApiEnabled || env.UNEMPLOYED_BROWSER_HOST === "embedded")
+  ) {
+    const browser = getEmbeddedBrowser();
+    browser.syncActivityPaused(
+      (await jobFinderRepository.getActivityControl()).paused,
+    );
+    browser.setActivityHooks({
+      pause: async (reason) => {
+        await workspaceService.setActivityControl({ paused: true, reason });
+      },
+      resume: async () => {
+        await workspaceService.setActivityControl({ paused: false });
+      },
+    });
+  }
 
   // One-time lossless adoption for legacy pristine targetless workspaces.
   // Runs through the canonical save path; a failure must never block startup,

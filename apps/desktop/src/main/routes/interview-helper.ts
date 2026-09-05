@@ -196,9 +196,9 @@ export function registerInterviewHelperRouteHandlers(ipcMain: IpcMain) {
 
   ipcMain.handle(
     "interview-helper:write-clipboard-text",
-    (_event, payload: unknown) => {
+    async (_event, payload: unknown) => {
       const input = InterviewClipboardWriteInputSchema.parse(payload);
-      clipboard.writeText(input.text);
+      await clipboard.writeText(input.text);
       return { written: true as const };
     },
   );

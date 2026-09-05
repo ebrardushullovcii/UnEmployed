@@ -507,6 +507,7 @@ export async function runSourceDebugWorkflow(
       currentUrl: normalizedTarget.startingUrl,
     });
     await ctx.openRunBrowserSession(adapterKind, {
+      purpose: "automation",
       targetUrl: normalizedTarget.startingUrl,
       targetId: normalizedTarget.id,
     });

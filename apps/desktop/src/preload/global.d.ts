@@ -1,4 +1,5 @@
 import type {
+  DesktopBrowserBridge,
   ApplicationAuthorityEnvelope,
   ApplicationAuthorityEnvelopeMutationResult,
   ApplicationAuthorityReadiness,
@@ -144,6 +145,7 @@ import type {
 declare global {
   interface Window {
     unemployed: {
+      browser: DesktopBrowserBridge;
       ping: () => Promise<DesktopPlatformPing>;
       window: {
         close: () => Promise<{ ok: true }>;

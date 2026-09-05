@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { BrowserPeek } from "./browser-peek";
 import {
   useCallback,
   useEffect,
@@ -1706,6 +1707,7 @@ export function JobFinderShell({
               tailoredDraftPreparation={tailoredDraftPreparation}
               workspace={workspace}
             />
+            <BrowserPeek />
             {actionScreen ? (
               <button
                 aria-current={activeScreen === "actions" ? "page" : undefined}

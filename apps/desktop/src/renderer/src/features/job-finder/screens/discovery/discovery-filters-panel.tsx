@@ -324,7 +324,9 @@ export function DiscoveryFiltersPanel({
   const runOneSourceHeadingId = `${sectionHeadingPrefix}-run-one-source`;
   const chromeProfileSession =
     discoverySessions.find(
-      (session) => session.driver === "chrome_profile_agent",
+      (session) =>
+        session.driver === "chrome_profile_agent" ||
+        session.driver === "embedded_browser_agent",
     ) ?? null;
   const displaySessionSnapshot: BrowserSessionState = chromeProfileSession
     ? {
