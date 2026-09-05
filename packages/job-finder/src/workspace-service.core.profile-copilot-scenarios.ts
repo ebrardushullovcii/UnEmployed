@@ -88,20 +88,136 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.profile.narrative.professionalStory).toBe(
       "Product systems leader who turns complex operating workflows into reliable, scalable experiences.",
     );
-    expect(snapshot.profileSetupState.reviewItems.find((item) => item.id === reviewItemId)?.status).toBe(
-      "edited",
-    );
+    expect(
+      snapshot.profileSetupState.reviewItems.find(
+        (item) => item.id === reviewItemId,
+      )?.status,
+    ).toBe("edited");
     expect(messages).toHaveLength(2);
-    expect(messages.find((message) => message.role === "assistant")?.patchGroups[0]).toEqual(
+    const persistedPatchGroup = messages.find(
+      (message) => message.role === "assistant",
+    )?.patchGroups[0];
+    expect(persistedPatchGroup).toEqual(
       expect.objectContaining({
-        id: patchGroupId,
         applyMode: "applied",
       }),
     );
+    expect(persistedPatchGroup?.id).not.toBe(patchGroupId);
     expect(revisions[0]).toEqual(
       expect.objectContaining({
         trigger: "assistant_patch",
-        patchGroupId,
+        patchGroupId: persistedPatchGroup?.id,
+      }),
+    );
+  });
+
+  test("profile copilot isolates repeated provider patch IDs across turns", async () => {
+    const providerPatchGroupId = "profile_proposal_1";
+    const responseHeadlines = [
+      "First proposed headline",
+      "Second proposed headline",
+    ];
+    let responseIndex = 0;
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      aiClient: {
+        ...createAiClient(),
+        reviseCandidateProfile() {
+          const headline = responseHeadlines[responseIndex++];
+          if (!headline) {
+            throw new Error("Unexpected extra Profile Copilot response.");
+          }
+
+          return Promise.resolve({
+            content: `I prepared ${headline}.`,
+            patchGroups: [
+              {
+                id: providerPatchGroupId,
+                summary: `Set headline to ${headline}`,
+                applyMode: "needs_review" as const,
+                operations: [
+                  {
+                    operation: "replace_identity_fields" as const,
+                    value: { headline },
+                  },
+                ],
+                createdAt: "2026-04-12T10:30:00.000Z",
+              },
+            ],
+          });
+        },
+      },
+    });
+
+    const firstProposal = await workspaceService.proposeProfileCopilotChange(
+      "set my headline to the first proposal",
+      { surface: "profile", section: "basics" },
+    );
+    const firstAssistant = firstProposal.profileCopilotMessages.find(
+      (message) => message.role === "assistant",
+    );
+    const firstPatchGroup = firstAssistant?.patchGroups[0];
+    expect(firstPatchGroup).toBeDefined();
+    if (!firstAssistant || !firstPatchGroup) {
+      throw new Error("Expected the first Profile Copilot proposal.");
+    }
+    expect(firstPatchGroup.id).not.toBe(providerPatchGroupId);
+
+    const secondProposal = await workspaceService.proposeProfileCopilotChange(
+      "set my headline to the second proposal",
+      { surface: "profile", section: "basics" },
+    );
+    const assistantMessages = secondProposal.profileCopilotMessages.filter(
+      (message) => message.role === "assistant",
+    );
+    const secondAssistant = assistantMessages[1];
+    const secondPatchGroup = secondAssistant?.patchGroups[0];
+    expect(secondPatchGroup).toBeDefined();
+    if (!secondAssistant || !secondPatchGroup) {
+      throw new Error("Expected the second Profile Copilot proposal.");
+    }
+    expect(secondPatchGroup.id).not.toBe(providerPatchGroupId);
+    expect(secondPatchGroup.id).not.toBe(firstPatchGroup.id);
+
+    const rejectedSnapshot =
+      await workspaceService.rejectProfileCopilotPatchGroup(firstPatchGroup.id);
+    expect(
+      rejectedSnapshot.profileCopilotMessages.find(
+        (message) => message.id === firstAssistant.id,
+      )?.patchGroups[0]?.applyMode,
+    ).toBe("rejected");
+
+    const appliedSnapshot =
+      await workspaceService.applyProfileCopilotPatchGroup(secondPatchGroup.id);
+    expect(appliedSnapshot.profile.headline).toBe("Second proposed headline");
+    expect(
+      appliedSnapshot.profileCopilotMessages.find(
+        (message) => message.id === firstAssistant.id,
+      )?.patchGroups[0]?.applyMode,
+    ).toBe("rejected");
+    expect(
+      appliedSnapshot.profileCopilotMessages.find(
+        (message) => message.id === secondAssistant.id,
+      )?.patchGroups[0]?.applyMode,
+    ).toBe("applied");
+
+    const revisions = await repository.listProfileRevisions();
+    expect(revisions).toHaveLength(1);
+    const appliedRevision = revisions[0];
+    expect(appliedRevision).toEqual(
+      expect.objectContaining({
+        messageId: secondAssistant.id,
+        patchGroupId: secondPatchGroup.id,
+      }),
+    );
+
+    const undoneSnapshot = await workspaceService.undoProfileRevision(
+      appliedRevision!.id,
+    );
+    expect(undoneSnapshot.profile.headline).toBe(createSeed().profile.headline);
+    expect(undoneSnapshot.profileRevisions[0]).toEqual(
+      expect.objectContaining({
+        trigger: "undo",
+        restoredFromRevisionId: appliedRevision!.id,
       }),
     );
   });
@@ -123,7 +239,10 @@ describe("createJobFinderWorkspaceService", () => {
             {
               operation: "replace_search_preferences_fields",
               value: {
-                targetRoles: ["Principal Product Designer", "Design Systems Lead"],
+                targetRoles: [
+                  "Principal Product Designer",
+                  "Design Systems Lead",
+                ],
                 locations: ["Remote", "Berlin"],
               },
             },
@@ -140,29 +259,30 @@ describe("createJobFinderWorkspaceService", () => {
       },
     });
 
-    const rejectedSnapshot = await workspaceService.rejectProfileCopilotPatchGroup(
-      reviewPatchGroupId,
-    );
+    const rejectedSnapshot =
+      await workspaceService.rejectProfileCopilotPatchGroup(reviewPatchGroupId);
     expect(
-      rejectedSnapshot.profileCopilotMessages
-        .find((message) => message.id === assistantMessageId)
-        ?.patchGroups[0]?.applyMode,
+      rejectedSnapshot.profileCopilotMessages.find(
+        (message) => message.id === assistantMessageId,
+      )?.patchGroups[0]?.applyMode,
     ).toBe("rejected");
 
-    const appliedSnapshot = await workspaceService.applyProfileCopilotPatchGroup(
-      reviewPatchGroupId,
-    );
+    const appliedSnapshot =
+      await workspaceService.applyProfileCopilotPatchGroup(reviewPatchGroupId);
     const revisions = await repository.listProfileRevisions();
 
     expect(appliedSnapshot.searchPreferences.targetRoles).toEqual([
       "Principal Product Designer",
       "Design Systems Lead",
     ]);
-    expect(appliedSnapshot.searchPreferences.locations).toEqual(["Remote", "Berlin"]);
+    expect(appliedSnapshot.searchPreferences.locations).toEqual([
+      "Remote",
+      "Berlin",
+    ]);
     expect(
-      appliedSnapshot.profileCopilotMessages
-        .find((message) => message.id === assistantMessageId)
-        ?.patchGroups[0]?.applyMode,
+      appliedSnapshot.profileCopilotMessages.find(
+        (message) => message.id === assistantMessageId,
+      )?.patchGroups[0]?.applyMode,
     ).toBe("applied");
     expect(revisions[0]?.patchGroupId).toBe(reviewPatchGroupId);
   });
@@ -185,7 +305,8 @@ describe("createJobFinderWorkspaceService", () => {
                 recordId: "experience_1",
               },
               label: "Senior systems designer at Signal Systems",
-              reason: "Work-history records stay review-first so resume tailoring and fit scoring do not assume the wrong role details.",
+              reason:
+                "Work-history records stay review-first so resume tailoring and fit scoring do not assume the wrong role details.",
               severity: "critical",
               status: "pending",
               proposedValue: null,
@@ -207,7 +328,9 @@ describe("createJobFinderWorkspaceService", () => {
         step: "background",
       },
     );
-    const assistantMessage = snapshot.profileCopilotMessages.find((message) => message.role === "assistant");
+    const assistantMessage = snapshot.profileCopilotMessages.find(
+      (message) => message.role === "assistant",
+    );
     const patchGroup = assistantMessage?.patchGroups[0];
     const revisions = await repository.listProfileRevisions();
 
@@ -215,9 +338,12 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.profile.experiences[0]?.workMode).toEqual(["hybrid"]);
     expect(revisions).toHaveLength(0);
 
-    const appliedSnapshot = await workspaceService.applyProfileCopilotPatchGroup(patchGroup!.id);
+    const appliedSnapshot =
+      await workspaceService.applyProfileCopilotPatchGroup(patchGroup!.id);
 
-    expect(appliedSnapshot.profile.experiences[0]?.workMode).toEqual(["remote"]);
+    expect(appliedSnapshot.profile.experiences[0]?.workMode).toEqual([
+      "remote",
+    ]);
     expect(appliedSnapshot.profileRevisions[0]).toEqual(
       expect.objectContaining({
         trigger: "assistant_patch",
@@ -245,7 +371,9 @@ describe("createJobFinderWorkspaceService", () => {
     expect(afterApply.profile.headline).toBe("Principal Product Designer");
     expect(revisionId).toBeTruthy();
 
-    const undoneSnapshot = await workspaceService.undoProfileRevision(revisionId!);
+    const undoneSnapshot = await workspaceService.undoProfileRevision(
+      revisionId!,
+    );
 
     expect(undoneSnapshot.profile.headline).toBe(seed.profile.headline);
     expect(undoneSnapshot.profileRevisions[0]).toEqual(
@@ -301,7 +429,9 @@ describe("createJobFinderWorkspaceService", () => {
       "Product-focused frontend engineer who turns complex workflows into reliable systems.",
     );
     expect(
-      snapshot.profileSetupState.reviewItems.find((item) => item.id === "review_story")?.status,
+      snapshot.profileSetupState.reviewItems.find(
+        (item) => item.id === "review_story",
+      )?.status,
     ).toBe("edited");
   });
 
@@ -327,7 +457,8 @@ describe("createJobFinderWorkspaceService", () => {
                 recordId: null,
               },
               label: "Years of experience",
-              reason: "Confirm the imported years of experience before setup is complete.",
+              reason:
+                "Confirm the imported years of experience before setup is complete.",
               severity: "recommended",
               status: "pending",
               proposedValue: "7",
@@ -352,7 +483,9 @@ describe("createJobFinderWorkspaceService", () => {
 
     expect(snapshot.profile.yearsExperience).toBe(7);
     expect(
-      snapshot.profileSetupState.reviewItems.find((item) => item.id === "review_years_experience")?.status,
+      snapshot.profileSetupState.reviewItems.find(
+        (item) => item.id === "review_years_experience",
+      )?.status,
     ).toBe("confirmed");
     expect(snapshot.profileRevisions[0]).toEqual(
       expect.objectContaining({
@@ -383,7 +516,8 @@ describe("createJobFinderWorkspaceService", () => {
                 recordId: null,
               },
               label: "Years of experience",
-              reason: "Confirm the imported years of experience before setup is complete.",
+              reason:
+                "Confirm the imported years of experience before setup is complete.",
               severity: "recommended",
               status: "pending",
               proposedValue: "9",
@@ -416,13 +550,19 @@ describe("createJobFinderWorkspaceService", () => {
 
     expect(snapshot.profile.yearsExperience).toBe(9);
     expect(
-      snapshot.profileSetupState.reviewItems.find((item) => item.id === "review_years_experience")?.status,
+      snapshot.profileSetupState.reviewItems.find(
+        (item) => item.id === "review_years_experience",
+      )?.status,
     ).toBe("edited");
     expect(snapshot.profileRevisions).toHaveLength(3);
     expect(messages).toHaveLength(6);
-    expect(messages.filter((message) => message.role === "user").map((message) => message.content)).toEqual(
-      requests,
-    );
-    expect(messages.filter((message) => message.role === "assistant")).toHaveLength(3);
+    expect(
+      messages
+        .filter((message) => message.role === "user")
+        .map((message) => message.content),
+    ).toEqual(requests);
+    expect(
+      messages.filter((message) => message.role === "assistant"),
+    ).toHaveLength(3);
   });
 });

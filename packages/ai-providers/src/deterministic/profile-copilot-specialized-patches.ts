@@ -5,7 +5,6 @@ import {
   createUniqueId,
   deriveRequestedDetail,
   detectRequestedRemoteEligibility,
-  detectRequestedTargetSalary,
   detectRequestedVisaSponsorship,
   detectRequestedWorkMode,
   detectRequestedYearsExperience,
@@ -20,11 +19,34 @@ import {
   requestLooksLikeWorkModePreferenceEdit,
   trimNonEmptyString,
 } from "./profile-copilot-helpers";
+import {
+  buildSalaryCommandOutcome,
+  type SalaryCommandOutcome,
+} from "./profile-copilot-salary";
+import { fieldDescriptors } from "./profile-copilot-field-updates";
+import {
+  segmentCommandClauses,
+  type ForeignCommandFamily,
+} from "./profile-copilot-field-updates-shared";
+
+function extractSpecialistClauseText(
+  input: ReviseCandidateProfileInput,
+  family: ForeignCommandFamily,
+): string | null {
+  const clause = segmentCommandClauses(input.request, fieldDescriptors).find(
+    (candidate) =>
+      candidate.family === family && candidate.isAcceptedCommand,
+  );
+
+  return clause?.text ?? null;
+}
 
 function buildYearsExperiencePatchGroup(
   input: ReviseCandidateProfileInput,
 ): ProfileCopilotPatchGroup | null {
-  const requestedYearsExperience = detectRequestedYearsExperience(input.request);
+  const requestedYearsExperience = detectRequestedYearsExperience(
+    input.request,
+  );
 
   if (requestedYearsExperience === null) {
     return null;
@@ -51,7 +73,10 @@ function buildYearsExperiencePatchGroup(
     operations.push({
       operation: "resolve_review_items",
       reviewItemIds: [item.id],
-      resolutionStatus: getMatchingResolutionStatus(item, requestedYearsExperience),
+      resolutionStatus: getMatchingResolutionStatus(
+        item,
+        requestedYearsExperience,
+      ),
     });
   }
 
@@ -70,30 +95,8 @@ function buildYearsExperiencePatchGroup(
 
 function buildTargetSalaryPatchGroup(
   input: ReviseCandidateProfileInput,
-): ProfileCopilotPatchGroup | null {
-  const requestedTargetSalary = detectRequestedTargetSalary(input.request);
-
-  if (
-    requestedTargetSalary === null ||
-    requestedTargetSalary === input.searchPreferences.targetSalaryUsd
-  ) {
-    return null;
-  }
-
-  return {
-    id: createUniqueId("profile_patch_group"),
-    summary: "Update expected salary",
-    applyMode: "applied",
-    operations: [
-      {
-        operation: "replace_search_preferences_fields",
-        value: {
-          targetSalaryUsd: requestedTargetSalary,
-        },
-      },
-    ],
-    createdAt: new Date().toISOString(),
-  };
+): SalaryCommandOutcome {
+  return buildSalaryCommandOutcome(input);
 }
 
 function buildExperienceWorkModePatchGroup(
@@ -146,15 +149,24 @@ function buildCurrentLocationPatchGroup(
   const normalizedRequest = input.request.toLowerCase();
 
   if (
-    !/location/.test(normalizedRequest) ||
-    /preferred locations|excluded locations|relocation locations|relocation regions/.test(normalizedRequest)
+    !/\blocation\b/.test(normalizedRequest) ||
+    /preferred locations|excluded locations|relocation locations|relocation regions|relocation answer/.test(
+      normalizedRequest,
+    )
   ) {
     return null;
   }
 
-  const detail = deriveRequestedDetail(input.request) ?? trimNonEmptyString(input.request);
+  const locationClause = extractSpecialistClauseText(input, "current_location");
 
-  if (!detail || !looksLikeExplicitAnswer(input.request)) {
+  if (!locationClause) {
+    return null;
+  }
+
+  const detail =
+    deriveRequestedDetail(locationClause) ?? trimNonEmptyString(locationClause);
+
+  if (!detail || !looksLikeExplicitAnswer(locationClause)) {
     return null;
   }
 
@@ -199,9 +211,16 @@ function buildTargetRolesPatchGroup(
     return null;
   }
 
-  const detail = deriveRequestedDetail(input.request) ?? trimNonEmptyString(input.request);
+  const rolesClause = extractSpecialistClauseText(input, "target_roles");
 
-  if (!detail || !looksLikeExplicitAnswer(input.request)) {
+  if (!rolesClause) {
+    return null;
+  }
+
+  const detail =
+    deriveRequestedDetail(rolesClause) ?? trimNonEmptyString(rolesClause);
+
+  if (!detail || !looksLikeExplicitAnswer(rolesClause)) {
     return null;
   }
 
@@ -240,15 +259,24 @@ function buildTargetRolesPatchGroup(
 function buildWorkEligibilityPatchGroup(
   input: ReviseCandidateProfileInput,
 ): ProfileCopilotPatchGroup | null {
-  const requestedVisaSponsorship = detectRequestedVisaSponsorship(input.request);
-  const requestedRemoteEligibility = detectRequestedRemoteEligibility(input.request);
+  if (/\bvisa sponsorship answer\b/i.test(input.request)) {
+    return null;
+  }
+
+  const requestedVisaSponsorship = detectRequestedVisaSponsorship(
+    input.request,
+  );
+  const requestedRemoteEligibility = detectRequestedRemoteEligibility(
+    input.request,
+  );
   const matchingExperience = findMentionedExperience(input);
   const workEligibilityValue: Record<string, boolean> = {};
   const workEligibilityReviewItemIds = new Set<string>();
 
   if (
     requestedVisaSponsorship !== null &&
-    requestedVisaSponsorship !== input.profile.workEligibility.requiresVisaSponsorship
+    requestedVisaSponsorship !==
+      input.profile.workEligibility.requiresVisaSponsorship
   ) {
     workEligibilityValue.requiresVisaSponsorship = requestedVisaSponsorship;
     findPendingRelevantReviewItems(
@@ -375,18 +403,31 @@ function buildPreferredWorkModePatchGroup(
   };
 }
 
-export function buildSpecializedPatchGroups(
+export interface SpecializedPatchResult {
+  groups: ProfileCopilotPatchGroup[];
+  clarificationQuestion: string | null;
+}
+
+export function buildSpecializedPatchResults(
   input: ReviseCandidateProfileInput,
-): ProfileCopilotPatchGroup[] | null {
+): SpecializedPatchResult | null {
+  const salaryOutcome = buildTargetSalaryPatchGroup(input);
   const groups = [
     buildExperienceWorkModePatchGroup(input),
     buildYearsExperiencePatchGroup(input),
     buildCurrentLocationPatchGroup(input),
     buildTargetRolesPatchGroup(input),
-    buildTargetSalaryPatchGroup(input),
+    salaryOutcome.kind === "group" ? salaryOutcome.group : null,
     buildWorkEligibilityPatchGroup(input),
     buildPreferredWorkModePatchGroup(input),
   ].filter((group): group is ProfileCopilotPatchGroup => group !== null);
 
-  return groups.length > 0 ? groups : null;
+  const clarificationQuestion =
+    salaryOutcome.kind === "clarification" ? salaryOutcome.question : null;
+
+  if (groups.length === 0 && clarificationQuestion === null) {
+    return null;
+  }
+
+  return { groups, clarificationQuestion };
 }

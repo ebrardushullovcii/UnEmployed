@@ -1,1037 +1,1471 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test } from "vitest";
 import {
   buildStructuredCandidateJobs,
+  inferEmployerFromCompanyProfileHref,
   isJobPreferenceAligned,
+  isLikelyJobListingHubUrl,
+  isLikelySiteUtilityJob,
+  observeLearnedSearchSurfaceRoutes,
   shouldCanonicalizeSearchSurfaceDetailRoute,
-} from './job-extraction'
+  type SearchResultCardCandidate,
+} from "./job-extraction";
 
-describe('buildStructuredCandidateJobs', () => {
-  test('builds jobs from generic search-result card candidates without site-specific rules', () => {
+describe("buildStructuredCandidateJobs", () => {
+  test("builds jobs from generic search-result card candidates without site-specific rules", () => {
     const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://jobs.example.com/search',
+      pageUrl: "https://jobs.example.com/search",
       maxJobs: 5,
       cardCandidates: [
         {
-          canonicalUrl: 'https://jobs.example.com/roles/frontend-engineer?utm_source=test',
-          anchorText: 'Frontend Engineer',
-          headingText: 'Frontend Engineer',
+          canonicalUrl:
+            "https://jobs.example.com/roles/frontend-engineer?utm_source=test",
+          anchorText: "Frontend Engineer",
+          headingText: "Frontend Engineer",
           lines: [
-            'Frontend Engineer',
-            'Acme',
-            'Remote',
-            'Build product interfaces for customer workflows.',
-            'Posted 2 days ago',
-            'Easy Apply',
+            "Frontend Engineer",
+            "Acme",
+            "Remote",
+            "Build product interfaces for customer workflows.",
+            "Posted 2 days ago",
+            "Easy Apply",
           ],
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        sourceJobId: 'jobs_example_com_roles_frontend_engineer',
-        canonicalUrl: 'https://jobs.example.com/roles/frontend-engineer',
-        title: 'Frontend Engineer',
-        company: 'Acme',
-        location: 'Remote',
-        applyPath: 'easy_apply',
+        sourceJobId: "jobs_example_com_roles_frontend_engineer",
+        canonicalUrl: "https://jobs.example.com/roles/frontend-engineer",
+        title: "Frontend Engineer",
+        company: "Acme",
+        location: "Remote",
+        applyPath: "easy_apply",
         easyApplyEligible: true,
         postedAt: null,
-        postedAtText: 'Posted 2 days ago',
-        summary: 'Build product interfaces for customer workflows.',
+        postedAtText: "Posted 2 days ago",
+        summary: "Build product interfaces for customer workflows.",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('prefers richer structured data when it is available on the page', () => {
+  test("infers employer from /company/{slug}/ listing URLs (Wellfound-style)", () => {
     const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://jobs.example.com/search',
+      pageUrl: "https://wellfound.com/jobs",
       maxJobs: 5,
-      structuredDataCandidates: [
-        {
-          canonicalUrl: 'https://jobs.example.com/roles/frontend-engineer',
-          sourceJobId: 'job_schema_1',
-          title: 'Frontend Engineer',
-          company: 'Acme',
-          location: 'Remote',
-          description: 'Build product interfaces for the hiring platform.',
-          summary: 'Build product interfaces.',
-          postedAt: '2026-03-20T10:00:00.000Z',
-          salaryText: '$120k',
-          workMode: ['remote'],
-          applyPath: 'easy_apply',
-          easyApplyEligible: true,
-          keySkills: ['React', 'TypeScript'],
-          responsibilities: ['Build hiring workflows'],
-          minimumQualifications: ['3+ years with React'],
-          employmentType: 'Full-time',
-        },
-      ],
       cardCandidates: [
         {
-          canonicalUrl: 'https://jobs.example.com/roles/frontend-engineer',
-          anchorText: 'Frontend Engineer',
-          headingText: 'Frontend Engineer',
-          lines: ['Frontend Engineer', 'Acme', 'Remote'],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        sourceJobId: 'job_schema_1',
-        canonicalUrl: 'https://jobs.example.com/roles/frontend-engineer',
-        title: 'Frontend Engineer',
-        company: 'Acme',
-        location: 'Remote',
-        description: 'Build product interfaces for the hiring platform.',
-        salaryText: '$120k',
-        applyPath: 'easy_apply',
-        easyApplyEligible: true,
-        keySkills: ['React', 'TypeScript'],
-        responsibilities: ['Build hiring workflows'],
-        minimumQualifications: ['3+ years with React'],
-        employmentType: 'Full-time',
-      }),
-    ])
-  })
-
-  test('keeps cleaner structured fields when a merged card adds LinkedIn-style UI noise', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl:
-        'https://www.linkedin.com/jobs/search/?keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
-      maxJobs: 5,
-      structuredDataCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4399165260/?trackingId=abc123',
-          sourceJobId: '4399165260',
-          title: 'Senior Full Stack Engineer (Typescript)',
-          company: 'Fresha',
-          location: 'Pristina (On-site)',
-          description: 'Build product systems for salons and marketplaces.',
-          summary: 'Build product systems.',
-          applyPath: 'unknown',
-          easyApplyEligible: false,
-          keySkills: ['TypeScript'],
-        },
-      ],
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4399165260/?trackingId=noisy-card',
-          anchorText:
-            'Senior Full Stack Engineer (Typescript) (Verified job) Fresha • Pristina (On-site) Dismiss Senior Full Stack Engineer (Typescript) job 1 connection works here Viewed · Promoted',
+          canonicalUrl:
+            "https://wellfound.com/company/signal-systems/jobs/123456-software-engineer",
+          anchorText: "Software Engineer",
           headingText: null,
           lines: [
-            'Senior Full Stack Engineer (Typescript) (Verified job) Fresha • Pristina (On-site) Dismiss Senior Full Stack Engineer (Typescript) job 1 connection works here Viewed · Promoted',
+            "Software Engineer",
+            "Remote",
+            "Build backend services for hiring workflows.",
           ],
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        sourceJobId: '4399165260',
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4399165260/',
-        title: 'Senior Full Stack Engineer (Typescript)',
-        company: 'Fresha',
-        location: 'Pristina (On-site)',
+        title: "Software Engineer",
+        company: "Signal Systems",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('normalizes LinkedIn detail tracking params so duplicate job variants merge into one candidate', () => {
+  test("infers employer from company profile href when job URL is /jobs/{id}-…", () => {
     const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina',
+      pageUrl: "https://wellfound.com/role/r/software-engineer",
       maxJobs: 5,
       cardCandidates: [
         {
           canonicalUrl:
-            'https://www.linkedin.com/jobs/view/4404592001/?eBP=NOT_ELIGIBLE_FOR_CHARGING&refId=abc123',
-          anchorText: 'Frontend Engineer',
-          headingText: 'Frontend Engineer',
-          lines: ['Frontend Engineer', 'Jobs Ai', 'Remote'],
-        },
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4404592001/',
-          anchorText: 'Frontend Engineer',
-          headingText: 'Frontend Engineer',
-          lines: ['Frontend Engineer', 'Jobs Ai', 'Remote'],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4404592001/',
-        title: 'Frontend Engineer',
-        company: 'Jobs Ai',
-      }),
-    ])
-  })
-
-  test('normalizes LinkedIn currentJobId routes into stable job view urls when the card proves the id', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/collections/recommended/',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl:
-            'https://www.linkedin.com/jobs/search/?currentJobId=4404057151&geoId=104640522&keywords=Senior%20Full-Stack%20Software%20Engineer',
-          sourceJobIdHint: '4404057151',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
+            "https://wellfound.com/jobs/4634158-ai-product-engineer",
+          anchorText: "AI Product Engineer",
+          headingText: "AI Product Engineer",
+          companyHref: "https://wellfound.com/company/signal-systems",
           lines: [
-            'Full Stack Developer (AI-First)',
-            'Full Circle Agency',
-            'Pristina (Remote)',
+            "AI Product Engineer",
+            "Remote",
+            "Ship AI product workflows for hiring teams.",
           ],
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4404057151/',
-        sourceJobId: '4404057151',
-        title: 'Full Stack Developer (AI-First)',
-        company: 'Full Circle Agency',
-        location: 'Pristina (Remote)',
+        title: "AI Product Engineer",
+        company: "Signal Systems",
+        canonicalUrl: "https://wellfound.com/jobs/4634158-ai-product-engineer",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('prefers a card-level LinkedIn job id hint over the shared selected currentJobId route', () => {
+  test("does not invent an employer from a bare /jobs/{id}-… URL alone", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://wellfound.com/role/r/software-engineer",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://wellfound.com/jobs/4634158-ai-product-engineer",
+          anchorText: "AI Product Engineer",
+          headingText: "AI Product Engineer",
+          lines: [
+            "AI Product Engineer",
+            "Remote · Full-time",
+            "Ship AI product workflows for hiring teams.",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toHaveLength(1);
+    // Without company-path evidence, never invent from the numeric job id or
+    // title slug in the URL.
+    expect(jobs[0]?.company).not.toMatch(/4634158|Ai Product Engineer/i);
+    expect(jobs[0]?.company).not.toBe("Signal Systems");
+  });
+
+  test("inferEmployerFromCompanyProfileHref accepts hubs and rejects noise", () => {
+    expect(
+      inferEmployerFromCompanyProfileHref(
+        "https://wellfound.com/company/signal-systems",
+      ),
+    ).toBe("Signal Systems");
+    expect(
+      inferEmployerFromCompanyProfileHref(
+        "https://wellfound.com/company/signal-systems/jobs/1-role",
+      ),
+    ).toBe("Signal Systems");
+    expect(
+      inferEmployerFromCompanyProfileHref(
+        "https://wellfound.com/company/sigma-computing-2",
+      ),
+    ).toBe("Sigma Computing");
+    expect(
+      inferEmployerFromCompanyProfileHref("https://wellfound.com/jobs/1-role"),
+    ).toBeNull();
+    expect(
+      inferEmployerFromCompanyProfileHref("https://wellfound.com/company/jobs"),
+    ).toBeNull();
+  });
+
+  test("prefers richer structured data when it is available on the page", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://jobs.example.com/search",
+      maxJobs: 5,
+      structuredDataCandidates: [
+        {
+          canonicalUrl: "https://jobs.example.com/roles/frontend-engineer",
+          sourceJobId: "job_schema_1",
+          title: "Frontend Engineer",
+          company: "Acme",
+          location: "Remote",
+          description: "Build product interfaces for the hiring platform.",
+          summary: "Build product interfaces.",
+          postedAt: "2026-03-20T10:00:00.000Z",
+          providerUpdatedAt: "2026-03-20T12:30:00+02:00",
+          salaryText: "$120k",
+          workMode: ["remote"],
+          applyPath: "easy_apply",
+          easyApplyEligible: true,
+          keySkills: ["React", "TypeScript"],
+          responsibilities: ["Build hiring workflows"],
+          minimumQualifications: ["3+ years with React"],
+          employmentType: "Full-time",
+        },
+      ],
+      cardCandidates: [
+        {
+          canonicalUrl: "https://jobs.example.com/roles/frontend-engineer",
+          anchorText: "Frontend Engineer",
+          headingText: "Frontend Engineer",
+          lines: ["Frontend Engineer", "Acme", "Remote"],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        sourceJobId: "job_schema_1",
+        canonicalUrl: "https://jobs.example.com/roles/frontend-engineer",
+        title: "Frontend Engineer",
+        company: "Acme",
+        location: "Remote",
+        description: "Build product interfaces for the hiring platform.",
+        salaryText: "$120k",
+        applyPath: "easy_apply",
+        easyApplyEligible: true,
+        keySkills: ["React", "TypeScript"],
+        responsibilities: ["Build hiring workflows"],
+        providerUpdatedAt: "2026-03-20T10:30:00.000Z",
+        minimumQualifications: ["3+ years with React"],
+        employmentType: "Full-time",
+      }),
+    ]);
+  });
+
+  test("keeps cleaner structured fields when a merged card adds LinkedIn-style UI noise", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        'https://www.linkedin.com/jobs/search/?currentJobId=4404057151&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
+        "https://www.linkedin.com/jobs/search/?keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
       maxJobs: 5,
+      structuredDataCandidates: [
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/4399165260/?trackingId=abc123",
+          sourceJobId: "4399165260",
+          title: "Senior Full Stack Engineer (Typescript)",
+          company: "Fresha",
+          location: "Pristina (On-site)",
+          description: "Build product systems for salons and marketplaces.",
+          summary: "Build product systems.",
+          applyPath: "unknown",
+          easyApplyEligible: false,
+          keySkills: ["TypeScript"],
+        },
+      ],
       cardCandidates: [
         {
           canonicalUrl:
-            'https://www.linkedin.com/jobs/search/?currentJobId=4404057151&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
-          sourceJobIdHint: '4404542575',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
+            "https://www.linkedin.com/jobs/view/4399165260/?trackingId=noisy-card",
+          anchorText:
+            "Senior Full Stack Engineer (Typescript) (Verified job) Fresha • Pristina (On-site) Dismiss Senior Full Stack Engineer (Typescript) job 1 connection works here Viewed · Promoted",
+          headingText: null,
           lines: [
-            'Full Stack Developer (AI-First)',
-            'Full Circle Agency',
-            'Pristina (Remote)',
+            "Senior Full Stack Engineer (Typescript) (Verified job) Fresha • Pristina (On-site) Dismiss Senior Full Stack Engineer (Typescript) job 1 connection works here Viewed · Promoted",
           ],
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4404542575/',
-        sourceJobId: '4404542575',
-        title: 'Full Stack Developer (AI-First)',
-        company: 'Full Circle Agency',
+        sourceJobId: "4399165260",
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4399165260/",
+        title: "Senior Full Stack Engineer (Typescript)",
+        company: "Fresha",
+        location: "Pristina (On-site)",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('does not canonicalize a seeded LinkedIn currentJobId search route when the card does not prove that id', () => {
+  test("normalizes a repeated structured title before company and location metadata", () => {
     const jobs = buildStructuredCandidateJobs({
-      pageUrl:
-        'https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
+      pageUrl: "https://www.linkedin.com/jobs/view/4399165260/",
+      maxJobs: 5,
+      structuredDataCandidates: [
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4399165260/",
+          sourceJobId: "4399165260",
+          title:
+            "Senior Full Stack Engineer (Typescript) Senior Full Stack Engineer (Typescript) Fresha Pristina, District of Pristina, Kosovo (Hybrid)",
+          company: "Fresha",
+          location: "Pristina, District of Pristina, Kosovo (Hybrid)",
+          description: "Build product systems for salons and marketplaces.",
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        title: "Senior Full Stack Engineer (Typescript)",
+        company: "Fresha",
+        location: "Pristina, District of Pristina, Kosovo (Hybrid)",
+      }),
+    ]);
+  });
+
+  test("normalizes the same repeated title when it comes from a generic result card", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://jobs.example.com/search",
       maxJobs: 5,
       cardCandidates: [
         {
           canonicalUrl:
-            'https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
+            "https://jobs.example.com/roles/senior-full-stack-engineer",
+          anchorText:
+            "Senior Full Stack Engineer (Typescript) Senior Full Stack Engineer (Typescript)",
+          headingText:
+            "Senior Full Stack Engineer (Typescript) Senior Full Stack Engineer (Typescript)",
           lines: [
-            'Full Stack Developer (AI-First)',
-            'Full Circle Agency',
-            'Pristina (Remote)',
+            "Senior Full Stack Engineer (Typescript) Senior Full Stack Engineer (Typescript)",
+            "Fresha",
+            "Pristina (Hybrid)",
+            "Build product systems for salons and marketplaces.",
           ],
         },
       ],
-    })
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        title: "Senior Full Stack Engineer (Typescript)",
+        company: "Fresha",
+        location: "Pristina (Hybrid)",
+      }),
+    ]);
+  });
+
+  test("preserves legitimate role and team wording that repeats a role token", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://jobs.example.com/roles/engineer-productivity",
+      maxJobs: 5,
+      structuredDataCandidates: [
+        {
+          canonicalUrl: "https://jobs.example.com/roles/engineer-productivity",
+          sourceJobId: "engineer_productivity",
+          title: "Senior Engineer, Engineer Productivity",
+          company: "Acme",
+          location: "Remote",
+          description: "Improve the developer experience and build systems.",
+        },
+      ],
+    });
+
+    expect(jobs[0]?.title).toBe("Senior Engineer, Engineer Productivity");
+  });
+
+  test("normalizes LinkedIn detail tracking params so duplicate job variants merge into one candidate", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/4404592001/?eBP=NOT_ELIGIBLE_FOR_CHARGING&refId=abc123",
+          anchorText: "Frontend Engineer",
+          headingText: "Frontend Engineer",
+          lines: ["Frontend Engineer", "Jobs Ai", "Remote"],
+        },
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4404592001/",
+          anchorText: "Frontend Engineer",
+          headingText: "Frontend Engineer",
+          lines: ["Frontend Engineer", "Jobs Ai", "Remote"],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4404592001/",
+        title: "Frontend Engineer",
+        company: "Jobs Ai",
+      }),
+    ]);
+  });
+
+  test("normalizes selected-job query routes into stable detail urls learned from observed links", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://jobs.example.com/search?q=frontend&selected_job_id=4399165260",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://jobs.example.com/search?q=frontend&selected_job_id=4399165260",
+          sourceJobIdHint: "4404057151",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
+          lines: [
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Pristina (Remote)",
+          ],
+        },
+        {
+          canonicalUrl: "https://jobs.example.com/jobs/4386674431/",
+          anchorText: "Senior Backend Engineer",
+          headingText: "Senior Backend Engineer",
+          lines: ["Senior Backend Engineer", "Odiin", "Prishtina, Kosovo"],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: "https://jobs.example.com/jobs/4404057151/",
+          sourceJobId: "4404057151",
+          title: "Full Stack Developer (AI-First)",
+          company: "Full Circle Agency",
+          location: "Pristina (Remote)",
+        }),
+      ]),
+    );
+  });
+
+  test("prefers a card-level job id hint over the shared selected-job route on the same page", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://jobs.example.com/search?selected_job_id=4404057151&q=frontend",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://jobs.example.com/search?selected_job_id=4404057151&q=frontend",
+          sourceJobIdHint: "4404542575",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
+          lines: [
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Pristina (Remote)",
+          ],
+        },
+        {
+          canonicalUrl: "https://jobs.example.com/jobs/4386674431/",
+          anchorText: "Senior Backend Engineer",
+          headingText: "Senior Backend Engineer",
+          lines: ["Senior Backend Engineer", "Odiin", "Prishtina, Kosovo"],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: "https://jobs.example.com/jobs/4404542575/",
+          sourceJobId: "4404542575",
+          title: "Full Stack Developer (AI-First)",
+          company: "Full Circle Agency",
+        }),
+      ]),
+    );
+  });
+
+  test("learns distinct detail-route shapes per host across two boards in one batch", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+      maxJobs: 8,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+          sourceJobIdHint: "4404057151",
+          anchorText: "Frontend Engineer",
+          headingText: "Frontend Engineer",
+          lines: ["Frontend Engineer", "Odiin", "Remote"],
+        },
+        {
+          canonicalUrl: "https://jobs.example.com/openings/4386674431",
+          anchorText: "Platform Engineer",
+          headingText: "Platform Engineer",
+          lines: ["Platform Engineer", "Acme", "Hybrid"],
+        },
+        {
+          canonicalUrl:
+            "https://careers.acme.io/careers/search?q=platform&selected_job_id=4400784689",
+          sourceJobIdHint: "4404592001",
+          anchorText: "QA Automation Engineer",
+          headingText: "QA Automation Engineer",
+          lines: ["QA Automation Engineer", "Acme Labs", "Pristina"],
+        },
+        {
+          canonicalUrl: "https://careers.acme.io/careers/openings/4386851676/",
+          anchorText: "Backend Engineer",
+          headingText: "Backend Engineer",
+          lines: ["Backend Engineer", "Crossing Hurdles", "EMEA (Remote)"],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: "https://jobs.example.com/openings/4404057151",
+          sourceJobId: "4404057151",
+          title: "Frontend Engineer",
+        }),
+        expect.objectContaining({
+          canonicalUrl: "https://careers.acme.io/careers/openings/4404592001/",
+          sourceJobId: "4404592001",
+          title: "QA Automation Engineer",
+        }),
+      ]),
+    );
+  });
+
+  test("keeps partial seeded-search cards when no detail-route shape was observed for the host", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+          sourceJobIdHint: "4404057151",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
+          lines: [
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Pristina (Remote)",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl: "https://jobs.example.com/search?q=frontend",
+        title: "Full Stack Developer (AI-First)",
+        company: "Full Circle Agency",
+      }),
+    ]);
+    expect(jobs[0]?.sourceJobId).toContain("full_stack_developer_ai_first");
+    expect(jobs[0]?.sourceJobId).not.toBe("4404057151");
+  });
+
+  test("does not build detail urls from malformed or non-numeric id hints", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+          sourceJobIdHint: "role_backend_crossing_hurdles",
+          anchorText: "Back-End Engineer",
+          headingText: "Back-End Engineer",
+          lines: ["Back-End Engineer", "Crossing Hurdles", "Prishtina, Kosovo"],
+        },
+        {
+          canonicalUrl: "https://jobs.example.com/jobs/4386674431/",
+          anchorText: "Platform Engineer",
+          headingText: "Platform Engineer",
+          lines: ["Platform Engineer", "Acme", "Hybrid"],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: "https://jobs.example.com/search?q=frontend",
+          title: "Back-End Engineer",
+        }),
+      ]),
+    );
+  });
+
+  test("refuses cross-origin detail templates when canonicalizing hinted cards", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://careers.acme.io/careers/search?q=platform&selected_job_id=4400784689",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+          sourceJobIdHint: "4404057151",
+          anchorText: "Frontend Engineer",
+          headingText: "Frontend Engineer",
+          lines: ["Frontend Engineer", "Odiin", "Remote"],
+        },
+        {
+          canonicalUrl: "https://careers.acme.io/careers/openings/4386851676/",
+          anchorText: "Backend Engineer",
+          headingText: "Backend Engineer",
+          lines: ["Backend Engineer", "Crossing Hurdles", "EMEA (Remote)"],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalUrl: "https://jobs.example.com/search?q=frontend",
+          title: "Frontend Engineer",
+        }),
+      ]),
+    );
+  });
+
+  test("does not canonicalize a seeded selected-job search route when the card does not prove that id", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://jobs.example.com/search?selected_job_id=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://jobs.example.com/search?selected_job_id=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
+          lines: [
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Pristina (Remote)",
+          ],
+        },
+      ],
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
         canonicalUrl:
-          'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
-        title: 'Full Stack Developer (AI-First)',
-        company: 'Full Circle Agency',
+          "https://jobs.example.com/search?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
+        title: "Full Stack Developer (AI-First)",
+        company: "Full Circle Agency",
       }),
-    ])
-    expect(jobs[0]?.sourceJobId).toContain('full_stack_developer_ai_first')
-  })
+    ]);
+    expect(jobs[0]?.sourceJobId).toContain("full_stack_developer_ai_first");
+  });
 
-  test('does not collapse multiple visible LinkedIn cards onto the shared seeded search currentJobId route', () => {
+  test("does not collapse multiple visible cards onto the shared seeded search route", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        'https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
+        "https://jobs.example.com/search?selected_job_id=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
       maxJobs: 5,
       cardCandidates: [
         {
           canonicalUrl:
-            'https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
-          anchorText: 'Frontend Engineer',
-          headingText: 'Frontend Engineer',
-          lines: ['Frontend Engineer', 'Odiin', 'Prishtina, Kosovo'],
+            "https://jobs.example.com/search?selected_job_id=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+          anchorText: "Frontend Engineer",
+          headingText: "Frontend Engineer",
+          lines: ["Frontend Engineer", "Odiin", "Prishtina, Kosovo"],
         },
         {
           canonicalUrl:
-            'https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
-          lines: ['Full Stack Developer (AI-First)', 'Full Circle Agency', 'Pristina (Remote)'],
+            "https://jobs.example.com/search?selected_job_id=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
+          lines: [
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Pristina (Remote)",
+          ],
         },
       ],
-    })
+    });
 
-    expect(jobs).toHaveLength(2)
+    expect(jobs).toHaveLength(2);
     expect(jobs).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ title: 'Full Stack Developer (AI-First)' }),
-        expect.objectContaining({ title: 'Frontend Engineer' }),
+        expect.objectContaining({ title: "Full Stack Developer (AI-First)" }),
+        expect.objectContaining({ title: "Frontend Engineer" }),
       ]),
-    )
-  })
+    );
+  });
 
-  test('does not collapse multiple visible LinkedIn cards onto the shared seeded search route when fallback capture has no card-level id proof', () => {
+  test("does not collapse multiple visible cards onto the shared seeded search route when fallback capture has no card-level id proof", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        'https://www.linkedin.com/jobs/search/?keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
+        "https://careers.acme.io/careers/search?keywords=Senior%20Frontend%20Engineer&location=Prishtina",
       maxJobs: 5,
       cardCandidates: [
         {
           canonicalUrl:
-            'https://www.linkedin.com/jobs/search/?keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
-          anchorText: 'Senior Frontend Engineer',
-          headingText: 'Senior Frontend Engineer',
-          lines: ['Senior Frontend Engineer', 'Odiin', 'Prishtina, Kosovo'],
+            "https://careers.acme.io/careers/search?keywords=Senior%20Frontend%20Engineer&location=Prishtina",
+          anchorText: "Senior Frontend Engineer",
+          headingText: "Senior Frontend Engineer",
+          lines: ["Senior Frontend Engineer", "Odiin", "Prishtina, Kosovo"],
         },
         {
           canonicalUrl:
-            'https://www.linkedin.com/jobs/search/?keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
+            "https://careers.acme.io/careers/search?keywords=Senior%20Frontend%20Engineer&location=Prishtina",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
           lines: [
-            'Full Stack Developer (AI-First)',
-            'Full Circle Agency',
-            'Prishtina (Remote)',
-            'Dismiss Full Stack Developer (AI-First) job',
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Prishtina (Remote)",
+            "Dismiss Full Stack Developer (AI-First) job",
           ],
         },
       ],
-    })
+    });
 
-    expect(jobs).toHaveLength(2)
+    expect(jobs).toHaveLength(2);
     expect(jobs).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ title: 'Full Stack Developer (AI-First)' }),
-        expect.objectContaining({ title: 'Senior Frontend Engineer' }),
+        expect.objectContaining({ title: "Full Stack Developer (AI-First)" }),
+        expect.objectContaining({ title: "Senior Frontend Engineer" }),
       ]),
-    )
-    expect(new Set(jobs.map((job) => job.sourceJobId)).size).toBe(2)
-  })
+    );
+    expect(new Set(jobs.map((job) => job.sourceJobId)).size).toBe(2);
+  });
 
-  test('sanitizes LinkedIn-style noisy metadata lines into clean company and location fields', () => {
+  test("sanitizes LinkedIn-style noisy metadata lines into clean company and location fields", () => {
     const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/collections/recommended/',
+      pageUrl: "https://www.linkedin.com/jobs/collections/recommended/",
       maxJobs: 5,
       cardCandidates: [
         {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4399165260/?trackingId=noisy-card',
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/4399165260/?trackingId=noisy-card",
           anchorText:
-            'Senior Full Stack Engineer (Typescript) (Verified job) Fresha • Pristina (On-site) Dismiss Senior Full Stack Engineer (Typescript) job 1 connection works here Viewed · Promoted',
-          headingText: 'Senior Full Stack Engineer (Typescript)',
+            "Senior Full Stack Engineer (Typescript) (Verified job) Fresha • Pristina (On-site) Dismiss Senior Full Stack Engineer (Typescript) job 1 connection works here Viewed · Promoted",
+          headingText: "Senior Full Stack Engineer (Typescript)",
           lines: [
-            'Senior Full Stack Engineer (Typescript)',
-            'Fresha • Pristina (On-site) Dismiss Senior Full Stack Engineer (Typescript) job 1 connection works here Viewed · Promoted',
+            "Senior Full Stack Engineer (Typescript)",
+            "Fresha • Pristina (On-site) Dismiss Senior Full Stack Engineer (Typescript) job 1 connection works here Viewed · Promoted",
           ],
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4399165260/',
-        title: 'Senior Full Stack Engineer (Typescript)',
-        company: 'Fresha',
-        location: 'Pristina (On-site)',
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4399165260/",
+        title: "Senior Full Stack Engineer (Typescript)",
+        company: "Fresha",
+        location: "Pristina (On-site)",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('prefers the fuller LinkedIn dismiss-title when the visible heading is truncated', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4400784689/?trackingId=noisy-card',
-          anchorText:
-            '.NET Software Developer Quipu GmbH • Pristina (Hybrid) Dismiss .NET Software Developer job 1 connection works here Viewed · Promoted',
-          headingText: '.NET',
-          lines: [
-            '.NET',
-            'Quipu GmbH • Pristina (Hybrid) Dismiss .NET Software Developer job 1 connection works here Viewed · Promoted',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4400784689/',
-        title: '.NET Software Developer',
-        company: 'Quipu GmbH',
-        location: 'Pristina (Hybrid)',
-      }),
-    ])
-  })
-
-  test('recovers repeated LinkedIn technical titles before company and location pollution', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4400784689/?trackingId=noisy-card',
-          anchorText:
-            '.NET Software Developer .NET Software Developer Quipu GmbH Pristina, District of Pristina, Kosovo (Hybrid)',
-          headingText:
-            '.NET Software Developer .NET Software Developer Quipu GmbH Pristina,',
-          lines: [
-            '.NET Software Developer .NET Software Developer Quipu GmbH Pristina, District of Pristina, Kosovo (Hybrid)',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4400784689/',
-        title: '.NET Software Developer',
-      }),
-    ])
-  })
-
-  test('recovers the fuller LinkedIn dismiss-title from card lines when anchor text is still truncated', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Backend+Engineer&location=Pristina',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4400784690/?trackingId=noisy-card',
-          anchorText: 'Backend',
-          headingText: 'Backend',
-          lines: [
-            'Backend',
-            'Acme • Pristina (Remote) Dismiss Backend TypeScript Engineer job 1 connection works here Viewed · Promoted',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4400784690/',
-        title: 'Backend TypeScript Engineer',
-        company: 'Acme',
-        location: 'Pristina (Remote)',
-      }),
-    ])
-  })
-
-  test('recovers fuller LinkedIn titles from dismiss labels when the visible title stops at seniority phrasing', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Full+Stack+Developer&location=Pristina',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4404592001/?trackingId=noisy-card',
-          anchorText: 'Mid-Level to Senior',
-          headingText: 'Mid-Level to Senior',
-          lines: [
-            'Mid-Level to Senior',
-            'MKY Treuhandpartner GmbH',
-            'Pristina (Hybrid)',
-            'Dismiss Mid-Level to Senior Software Developer job',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4404592001/',
-        title: 'Mid-Level to Senior Software Developer',
-        company: 'MKY Treuhandpartner GmbH',
-        location: 'Pristina (Hybrid)',
-      }),
-    ])
-  })
-
-  test('recovers fuller LinkedIn titles from dismiss labels when the visible title is only a single seniority token', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4386674431/?trackingId=noisy-card',
-          anchorText: 'Senior',
-          headingText: 'Senior',
-          lines: [
-            'Senior',
-            'Lodgify',
-            'Remote',
-            'Dismiss Senior Software Engineer job',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4386674431/',
-        title: 'Senior Software Engineer',
-        company: 'Lodgify',
-        location: 'Remote',
-      }),
-    ])
-  })
-
-  test('recovers a stronger LinkedIn title from metadata when the heading is generic and the line repeats the title with verification noise', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/collections/recommended/',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4385358746/',
-          anchorText: 'Senior',
-          headingText: 'Senior',
-          lines: [
-            'Senior',
-            'Senior Go Developer Senior Go Developer with verification Proxify Kosovo (Remote) 3 school alumni work here Promoted',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4385358746/',
-        title: 'Senior Go Developer',
-        company: 'Proxify',
-        location: 'Kosovo (Remote)',
-      }),
-    ])
-  })
-
-  test('does not keep a title-echo verification line as the company on LinkedIn cards', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_experienced/',
-          anchorText: 'Experienced Software Engineer',
-          headingText: 'Experienced Software Engineer',
-          lines: [
-            'Experienced Software Engineer',
-            'Experienced Software Engineer Experienced Software Engineer with verification',
-            'Proxify',
-            'Kosovo (Remote)',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_experienced/',
-        title: 'Experienced Software Engineer',
-        company: 'Proxify',
-        location: 'Kosovo (Remote)',
-      }),
-    ])
-  })
-
-  test('strips malformed title-overlap fragments from confidential LinkedIn company metadata', () => {
+  test("prefers the fuller LinkedIn dismiss-title when the visible heading is truncated", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
+        "https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina",
       maxJobs: 5,
       cardCandidates: [
         {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4404057151/',
-          anchorText: 'Full',
-          headingText: 'Full',
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/4400784689/?trackingId=noisy-card",
+          anchorText:
+            ".NET Software Developer Quipu GmbH • Pristina (Hybrid) Dismiss .NET Software Developer job 1 connection works here Viewed · Promoted",
+          headingText: ".NET",
           lines: [
-            'Full',
-            'Full Stack Engineer Full Stack Engineer Confidential',
-            'Remote',
+            ".NET",
+            "Quipu GmbH • Pristina (Hybrid) Dismiss .NET Software Developer job 1 connection works here Viewed · Promoted",
           ],
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4404057151/',
-        title: 'Full Stack Engineer',
-        company: 'Confidential',
-        location: 'Remote',
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4400784689/",
+        title: ".NET Software Developer",
+        company: "Quipu GmbH",
+        location: "Pristina (Hybrid)",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('splits polluted LinkedIn titles that append company text with an at separator', () => {
+  test("recovers repeated LinkedIn technical titles before company and location pollution", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
+        "https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina",
       maxJobs: 5,
       cardCandidates: [
         {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_backend_crossing_hurdles/',
-          anchorText: 'Back-End Engineer | at Crossing Hurdles',
-          headingText: 'Back-End Engineer | at Crossing Hurdles',
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/4400784689/?trackingId=noisy-card",
+          anchorText:
+            ".NET Software Developer .NET Software Developer Quipu GmbH Pristina, District of Pristina, Kosovo (Hybrid)",
+          headingText:
+            ".NET Software Developer .NET Software Developer Quipu GmbH Pristina,",
           lines: [
-            'Back-End Engineer | at Crossing Hurdles',
-            'Prishtina, Kosovo',
+            ".NET Software Developer .NET Software Developer Quipu GmbH Pristina, District of Pristina, Kosovo (Hybrid)",
           ],
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_backend_crossing_hurdles/',
-        title: 'Back-End Engineer',
-        company: 'Crossing Hurdles',
-        location: 'Prishtina, Kosovo',
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4400784689/",
+        title: ".NET Software Developer",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('recovers the technical title when a polluted LinkedIn heading reverses company and title around an at separator', () => {
+  test("recovers the fuller LinkedIn dismiss-title from card lines when anchor text is still truncated", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
+        "https://www.linkedin.com/jobs/search/?keywords=Backend+Engineer&location=Pristina",
       maxJobs: 5,
       cardCandidates: [
         {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4386851676/',
-          anchorText:
-            'Crossing Hurdles EMEA (Remote) $230K/yr - $280K/yr at Software Engineer (Fullstack)',
-          headingText:
-            'Crossing Hurdles EMEA (Remote) $230K/yr - $280K/yr at Software Engineer (Fullstack)',
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/4400784690/?trackingId=noisy-card",
+          anchorText: "Backend",
+          headingText: "Backend",
           lines: [
-            'Crossing Hurdles EMEA (Remote) $230K/yr - $280K/yr at Software Engineer (Fullstack)',
-            'Crossing Hurdles',
-            'EMEA (Remote)',
+            "Backend",
+            "Acme • Pristina (Remote) Dismiss Backend TypeScript Engineer job 1 connection works here Viewed · Promoted",
           ],
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4386851676/',
-        title: 'Software Engineer (Fullstack)',
-        company: 'Crossing Hurdles',
-        location: 'EMEA (Remote)',
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4400784690/",
+        title: "Backend TypeScript Engineer",
+        company: "Acme",
+        location: "Pristina (Remote)",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('sanitizes repeated LinkedIn title overlap even when the fallback title already has multiple words', () => {
+  test("recovers fuller LinkedIn titles from dismiss labels when the visible title stops at seniority phrasing", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
+        "https://www.linkedin.com/jobs/search/?keywords=Full+Stack+Developer&location=Pristina",
       maxJobs: 5,
       cardCandidates: [
         {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4404057151/',
-          anchorText: 'Full Stack Engineer Full',
-          headingText: 'Full Stack Engineer Full',
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/4404592001/?trackingId=noisy-card",
+          anchorText: "Mid-Level to Senior",
+          headingText: "Mid-Level to Senior",
           lines: [
-            'Full Stack Engineer Full Stack Engineer Confidential',
-            'Remote',
+            "Mid-Level to Senior",
+            "MKY Treuhandpartner GmbH",
+            "Pristina (Hybrid)",
+            "Dismiss Mid-Level to Senior Software Developer job",
           ],
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4404057151/',
-        title: 'Full Stack Engineer',
-        company: 'Confidential',
-        location: 'Remote',
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4404592001/",
+        title: "Mid-Level to Senior Software Developer",
+        company: "MKY Treuhandpartner GmbH",
+        location: "Pristina (Hybrid)",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('prefers the recovered LinkedIn repeated title over a duplicated concatenated heading', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_frontend_concat/',
-          anchorText: 'Senior Frontend Engineer Senior Frontend Engineer Fresha',
-          headingText: 'Senior Frontend Engineer Senior Frontend Engineer Fresha',
-          lines: [
-            'Senior Frontend Engineer Senior Frontend Engineer Fresha • Pristina (On-site) 1 connection works here Viewed · Promoted',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_frontend_concat/',
-        title: 'Senior Frontend Engineer',
-        company: 'Fresha',
-        location: 'Pristina (On-site)',
-      }),
-    ])
-  })
-
-  test('prefers the dismiss title when a LinkedIn heading is polluted with trailing company text', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_mky_polluted_heading/',
-          anchorText:
-            'Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH • Pristina (Hybrid) Dismiss Mid-Level to Senior Software Developer job Viewed · Promoted',
-          headingText:
-            'Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH',
-          lines: [
-            'Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH • Pristina (Hybrid) Dismiss Mid-Level to Senior Software Developer job Viewed · Promoted',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_mky_polluted_heading/',
-        title: 'Mid-Level to Senior Software Developer',
-        company: 'MKY Treuhandpartner GmbH',
-        location: 'Pristina (Hybrid)',
-      }),
-    ])
-  })
-
-  test('prefers the dismiss title when a LinkedIn heading repeats the title before the company', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_mky_repeated_heading/',
-          anchorText:
-            'Mid-Level to Senior Software Developer Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH • Pristina (Hybrid) Dismiss Mid-Level to Senior Software Developer job Viewed · Promoted',
-          headingText:
-            'Mid-Level to Senior Software Developer Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH',
-          lines: [
-            'Mid-Level to Senior Software Developer Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH • Pristina (Hybrid) Dismiss Mid-Level to Senior Software Developer job Viewed · Promoted',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_mky_repeated_heading/',
-        title: 'Mid-Level to Senior Software Developer',
-        company: 'MKY Treuhandpartner GmbH',
-        location: 'Pristina (Hybrid)',
-      }),
-    ])
-  })
-
-  test('prefers the dismiss title when a LinkedIn heading is polluted with trailing company text for Quipu-style cards', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_quipu_polluted_heading/',
-          anchorText:
-            '.NET Software Developer Quipu GmbH • Pristina (Hybrid) Dismiss .NET Software Developer job 1 connection works here Viewed · Promoted',
-          headingText: '.NET Software Developer Quipu GmbH',
-          lines: [
-            '.NET Software Developer Quipu GmbH • Pristina (Hybrid) Dismiss .NET Software Developer job 1 connection works here Viewed · Promoted',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_quipu_polluted_heading/',
-        title: '.NET Software Developer',
-        company: 'Quipu GmbH',
-        location: 'Pristina (Hybrid)',
-      }),
-    ])
-  })
-
-  test('prefers the dismiss title when a LinkedIn heading repeats the title before Quipu company text', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_quipu_repeated_heading/',
-          anchorText:
-            '.NET Software Developer .NET Software Developer Quipu GmbH • Pristina (Hybrid) Dismiss .NET Software Developer job 1 connection works here Viewed · Promoted',
-          headingText: '.NET Software Developer .NET Software Developer Quipu GmbH',
-          lines: [
-            '.NET Software Developer .NET Software Developer Quipu GmbH • Pristina (Hybrid) Dismiss .NET Software Developer job 1 connection works here Viewed · Promoted',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_quipu_repeated_heading/',
-        title: '.NET Software Developer',
-        company: 'Quipu GmbH',
-        location: 'Pristina (Hybrid)',
-      }),
-    ])
-  })
-
-  test('keeps the richer LinkedIn candidate when the same job url first appears through a weak nested card', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina',
-      maxJobs: 5,
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4404057151/?trackingId=weak-card',
-          anchorText: 'Full',
-          headingText: 'Full',
-          lines: ['Full', 'Confidential Careers'],
-        },
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/4404057151/?trackingId=rich-card',
-          anchorText:
-            'Fullstack Developer | Remote Confidential Careers Dismiss Fullstack Developer | Remote job',
-          headingText: 'Fullstack Developer',
-          lines: [
-            'Fullstack Developer',
-            'Confidential Careers',
-            'Remote',
-            'Dismiss Fullstack Developer | Remote job',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/4404057151/',
-        title: 'Fullstack Developer',
-        company: 'Confidential Careers',
-        location: 'Remote',
-      }),
-    ])
-  })
-
-  test('prioritizes extracted jobs that better match the saved role and location when maxJobs is small', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina',
-      maxJobs: 1,
-      searchPreferences: {
-        targetRoles: ['Senior Full-Stack Software Engineer'],
-        locations: ['Prishtina, Kosovo'],
-      },
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_frontend/',
-          anchorText: 'Senior Frontend Engineer',
-          headingText: 'Senior Frontend Engineer',
-          lines: ['Senior Frontend Engineer', 'Fresha', 'Pristina (On-site)'],
-        },
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack/',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
-          lines: ['Full Stack Developer (AI-First)', 'Full Circle Agency', 'Pristina (Remote)'],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack/',
-        title: 'Full Stack Developer (AI-First)',
-      }),
-    ])
-  })
-
-  test('does not let broad software engineer titles outrank the stronger full-stack card under the review cap', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina',
-      maxJobs: 1,
-      searchPreferences: {
-        targetRoles: ['Senior Full-Stack Software Engineer'],
-        locations: ['Prishtina, Kosovo'],
-      },
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_broad/',
-          anchorText: 'Experienced Software Engineer',
-          headingText: 'Experienced Software Engineer',
-          lines: ['Experienced Software Engineer', 'Broad Co', 'Prishtina, Kosovo'],
-        },
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack/',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
-          lines: ['Full Stack Developer (AI-First)', 'Full Circle Agency', 'Prishtina (Remote)'],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack/',
-        title: 'Full Stack Developer (AI-First)',
-      }),
-    ])
-  })
-
-  test('prefers the local full-stack card over a broader Kosovo-only full-stack match under the review cap', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina',
-      maxJobs: 1,
-      searchPreferences: {
-        targetRoles: ['Senior Full-Stack Software Engineer'],
-        locations: ['Prishtina, Kosovo'],
-      },
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_broad_kosovo/',
-          anchorText: 'Senior Fullstack (MERN) Developer',
-          headingText: 'Senior Fullstack (MERN) Developer',
-          lines: ['Senior Fullstack (MERN) Developer', 'Proxify', 'Kosovo (Remote)'],
-        },
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack_local/',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
-          lines: ['Full Stack Developer (AI-First)', 'Full Circle Agency', 'Prishtina (Remote)'],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack_local/',
-        title: 'Full Stack Developer (AI-First)',
-      }),
-    ])
-  })
-
-  test('does not let a polluted LinkedIn software-developer card outrank the local full-stack card under the review cap', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina',
-      maxJobs: 1,
-      searchPreferences: {
-        targetRoles: ['Senior Full-Stack Software Engineer'],
-        locations: ['Prishtina, Kosovo'],
-      },
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_mky_polluted/',
-          anchorText:
-            'Mid-Level to Senior Software Developer Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH • Pristina, District of Pristina, Kosovo (Hybrid) Dismiss Mid-Level to Senior Software Developer job Viewed · Promoted',
-          headingText:
-            'Mid-Level to Senior Software Developer Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH',
-          lines: [
-            'Mid-Level to Senior Software Developer Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH • Pristina, District of Pristina, Kosovo (Hybrid) Dismiss Mid-Level to Senior Software Developer job Viewed · Promoted',
-          ],
-        },
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack_local/',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
-          lines: [
-            'Full Stack Developer (AI-First)',
-            'Full Circle Agency',
-            'Pristina (Remote)',
-            'Dismiss Full Stack Developer (AI-First) job',
-          ],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack_local/',
-        title: 'Full Stack Developer (AI-First)',
-      }),
-    ])
-  })
-
-  test('downranks malformed LinkedIn candidates so cleaner full-stack cards win the review cap', () => {
-    const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina',
-      maxJobs: 1,
-      searchPreferences: {
-        targetRoles: ['Senior Full-Stack Software Engineer'],
-        locations: ['Prishtina, Kosovo'],
-      },
-      cardCandidates: [
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_malformed/',
-          anchorText: 'Full',
-          headingText: 'Full',
-          lines: ['Full', 'Full Full with verification', 'Remote'],
-        },
-        {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack/',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
-          lines: ['Full Stack Developer (AI-First)', 'Full Circle Agency', 'Prishtina (Remote)'],
-        },
-      ],
-    })
-
-    expect(jobs).toEqual([
-      expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/role_fullstack/',
-        title: 'Full Stack Developer (AI-First)',
-      }),
-    ])
-  })
-
-  test('prefers real LinkedIn results-list cards over detail-pane contamination when selecting the capped batch', () => {
+  test("recovers fuller LinkedIn titles from dismiss labels when the visible title is only a single seniority token", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
+        "https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/4386674431/?trackingId=noisy-card",
+          anchorText: "Senior",
+          headingText: "Senior",
+          lines: [
+            "Senior",
+            "Lodgify",
+            "Remote",
+            "Dismiss Senior Software Engineer job",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4386674431/",
+        title: "Senior Software Engineer",
+        company: "Lodgify",
+        location: "Remote",
+      }),
+    ]);
+  });
+
+  test("recovers a stronger LinkedIn title from metadata when the heading is generic and the line repeats the title with verification noise", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://www.linkedin.com/jobs/collections/recommended/",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4385358746/",
+          anchorText: "Senior",
+          headingText: "Senior",
+          lines: [
+            "Senior",
+            "Senior Go Developer Senior Go Developer with verification Proxify Kosovo (Remote) 3 school alumni work here Promoted",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4385358746/",
+        title: "Senior Go Developer",
+        company: "Proxify",
+        location: "Kosovo (Remote)",
+      }),
+    ]);
+  });
+
+  test("does not keep a title-echo verification line as the company on LinkedIn cards", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/role_experienced/",
+          anchorText: "Experienced Software Engineer",
+          headingText: "Experienced Software Engineer",
+          lines: [
+            "Experienced Software Engineer",
+            "Experienced Software Engineer Experienced Software Engineer with verification",
+            "Proxify",
+            "Kosovo (Remote)",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl: "https://www.linkedin.com/jobs/view/role_experienced/",
+        title: "Experienced Software Engineer",
+        company: "Proxify",
+        location: "Kosovo (Remote)",
+      }),
+    ]);
+  });
+
+  test("strips malformed title-overlap fragments from confidential LinkedIn company metadata", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4404057151/",
+          anchorText: "Full",
+          headingText: "Full",
+          lines: [
+            "Full",
+            "Full Stack Engineer Full Stack Engineer Confidential",
+            "Remote",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4404057151/",
+        title: "Full Stack Engineer",
+        company: "Confidential",
+        location: "Remote",
+      }),
+    ]);
+  });
+
+  test("splits polluted LinkedIn titles that append company text with an at separator", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/role_backend_crossing_hurdles/",
+          anchorText: "Back-End Engineer | at Crossing Hurdles",
+          headingText: "Back-End Engineer | at Crossing Hurdles",
+          lines: [
+            "Back-End Engineer | at Crossing Hurdles",
+            "Prishtina, Kosovo",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/role_backend_crossing_hurdles/",
+        title: "Back-End Engineer",
+        company: "Crossing Hurdles",
+        location: "Prishtina, Kosovo",
+      }),
+    ]);
+  });
+
+  test("recovers the technical title when a polluted LinkedIn heading reverses company and title around an at separator", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4386851676/",
+          anchorText:
+            "Crossing Hurdles EMEA (Remote) $230K/yr - $280K/yr at Software Engineer (Fullstack)",
+          headingText:
+            "Crossing Hurdles EMEA (Remote) $230K/yr - $280K/yr at Software Engineer (Fullstack)",
+          lines: [
+            "Crossing Hurdles EMEA (Remote) $230K/yr - $280K/yr at Software Engineer (Fullstack)",
+            "Crossing Hurdles",
+            "EMEA (Remote)",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4386851676/",
+        title: "Software Engineer (Fullstack)",
+        company: "Crossing Hurdles",
+        location: "EMEA (Remote)",
+      }),
+    ]);
+  });
+
+  test("sanitizes repeated LinkedIn title overlap even when the fallback title already has multiple words", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4404057151/",
+          anchorText: "Full Stack Engineer Full",
+          headingText: "Full Stack Engineer Full",
+          lines: [
+            "Full Stack Engineer Full Stack Engineer Confidential",
+            "Remote",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4404057151/",
+        title: "Full Stack Engineer",
+        company: "Confidential",
+        location: "Remote",
+      }),
+    ]);
+  });
+
+  test("prefers the recovered LinkedIn repeated title over a duplicated concatenated heading", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/role_frontend_concat/",
+          anchorText:
+            "Senior Frontend Engineer Senior Frontend Engineer Fresha",
+          headingText:
+            "Senior Frontend Engineer Senior Frontend Engineer Fresha",
+          lines: [
+            "Senior Frontend Engineer Senior Frontend Engineer Fresha • Pristina (On-site) 1 connection works here Viewed · Promoted",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/role_frontend_concat/",
+        title: "Senior Frontend Engineer",
+        company: "Fresha",
+        location: "Pristina (On-site)",
+      }),
+    ]);
+  });
+
+  test("prefers the dismiss title when a LinkedIn heading is polluted with trailing company text", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/role_mky_polluted_heading/",
+          anchorText:
+            "Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH • Pristina (Hybrid) Dismiss Mid-Level to Senior Software Developer job Viewed · Promoted",
+          headingText:
+            "Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH",
+          lines: [
+            "Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH • Pristina (Hybrid) Dismiss Mid-Level to Senior Software Developer job Viewed · Promoted",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/role_mky_polluted_heading/",
+        title: "Mid-Level to Senior Software Developer",
+        company: "MKY Treuhandpartner GmbH",
+        location: "Pristina (Hybrid)",
+      }),
+    ]);
+  });
+
+  test("prefers the dismiss title when a LinkedIn heading repeats the title before the company", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/role_mky_repeated_heading/",
+          anchorText:
+            "Mid-Level to Senior Software Developer Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH • Pristina (Hybrid) Dismiss Mid-Level to Senior Software Developer job Viewed · Promoted",
+          headingText:
+            "Mid-Level to Senior Software Developer Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH",
+          lines: [
+            "Mid-Level to Senior Software Developer Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH • Pristina (Hybrid) Dismiss Mid-Level to Senior Software Developer job Viewed · Promoted",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/role_mky_repeated_heading/",
+        title: "Mid-Level to Senior Software Developer",
+        company: "MKY Treuhandpartner GmbH",
+        location: "Pristina (Hybrid)",
+      }),
+    ]);
+  });
+
+  test("prefers the dismiss title when a LinkedIn heading is polluted with trailing company text for Quipu-style cards", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/role_quipu_polluted_heading/",
+          anchorText:
+            ".NET Software Developer Quipu GmbH • Pristina (Hybrid) Dismiss .NET Software Developer job 1 connection works here Viewed · Promoted",
+          headingText: ".NET Software Developer Quipu GmbH",
+          lines: [
+            ".NET Software Developer Quipu GmbH • Pristina (Hybrid) Dismiss .NET Software Developer job 1 connection works here Viewed · Promoted",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/role_quipu_polluted_heading/",
+        title: ".NET Software Developer",
+        company: "Quipu GmbH",
+        location: "Pristina (Hybrid)",
+      }),
+    ]);
+  });
+
+  test("prefers the dismiss title when a LinkedIn heading repeats the title before Quipu company text", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/role_quipu_repeated_heading/",
+          anchorText:
+            ".NET Software Developer .NET Software Developer Quipu GmbH • Pristina (Hybrid) Dismiss .NET Software Developer job 1 connection works here Viewed · Promoted",
+          headingText:
+            ".NET Software Developer .NET Software Developer Quipu GmbH",
+          lines: [
+            ".NET Software Developer .NET Software Developer Quipu GmbH • Pristina (Hybrid) Dismiss .NET Software Developer job 1 connection works here Viewed · Promoted",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/role_quipu_repeated_heading/",
+        title: ".NET Software Developer",
+        company: "Quipu GmbH",
+        location: "Pristina (Hybrid)",
+      }),
+    ]);
+  });
+
+  test("keeps the richer LinkedIn candidate when the same job url first appears through a weak nested card", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Software+Engineer&location=Pristina",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/4404057151/?trackingId=weak-card",
+          anchorText: "Full",
+          headingText: "Full",
+          lines: ["Full", "Confidential Careers"],
+        },
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/4404057151/?trackingId=rich-card",
+          anchorText:
+            "Fullstack Developer | Remote Confidential Careers Dismiss Fullstack Developer | Remote job",
+          headingText: "Fullstack Developer",
+          lines: [
+            "Fullstack Developer",
+            "Confidential Careers",
+            "Remote",
+            "Dismiss Fullstack Developer | Remote job",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl: "https://www.linkedin.com/jobs/view/4404057151/",
+        title: "Fullstack Developer",
+        company: "Confidential Careers",
+        location: "Remote",
+      }),
+    ]);
+  });
+
+  test("prioritizes extracted jobs that better match the saved role and location when maxJobs is small", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina",
       maxJobs: 1,
       searchPreferences: {
-        targetRoles: ['Senior Full-Stack Software Engineer'],
-        locations: ['Prishtina, Kosovo'],
+        targetRoles: ["Senior Full-Stack Software Engineer"],
+        locations: ["Prishtina, Kosovo"],
       },
       cardCandidates: [
         {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/detail-pane-frontend/',
-          anchorText: 'Senior Frontend Engineer',
-          headingText: 'Senior Frontend Engineer',
-          lines: ['Senior Frontend Engineer', 'Odiin', 'Prishtina, Kosovo'],
+          canonicalUrl: "https://www.linkedin.com/jobs/view/role_frontend/",
+          anchorText: "Senior Frontend Engineer",
+          headingText: "Senior Frontend Engineer",
+          lines: ["Senior Frontend Engineer", "Fresha", "Pristina (On-site)"],
+        },
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/role_fullstack/",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
+          lines: [
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Pristina (Remote)",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl: "https://www.linkedin.com/jobs/view/role_fullstack/",
+        title: "Full Stack Developer (AI-First)",
+      }),
+    ]);
+  });
+
+  test("does not let broad software engineer titles outrank the stronger full-stack card under the review cap", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina",
+      maxJobs: 1,
+      searchPreferences: {
+        targetRoles: ["Senior Full-Stack Software Engineer"],
+        locations: ["Prishtina, Kosovo"],
+      },
+      cardCandidates: [
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/role_broad/",
+          anchorText: "Experienced Software Engineer",
+          headingText: "Experienced Software Engineer",
+          lines: [
+            "Experienced Software Engineer",
+            "Broad Co",
+            "Prishtina, Kosovo",
+          ],
+        },
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/role_fullstack/",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
+          lines: [
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Prishtina (Remote)",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl: "https://www.linkedin.com/jobs/view/role_fullstack/",
+        title: "Full Stack Developer (AI-First)",
+      }),
+    ]);
+  });
+
+  test("prefers the local full-stack card over a broader Kosovo-only full-stack match under the review cap", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina",
+      maxJobs: 1,
+      searchPreferences: {
+        targetRoles: ["Senior Full-Stack Software Engineer"],
+        locations: ["Prishtina, Kosovo"],
+      },
+      cardCandidates: [
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/role_broad_kosovo/",
+          anchorText: "Senior Fullstack (MERN) Developer",
+          headingText: "Senior Fullstack (MERN) Developer",
+          lines: [
+            "Senior Fullstack (MERN) Developer",
+            "Proxify",
+            "Kosovo (Remote)",
+          ],
+        },
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/role_fullstack_local/",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
+          lines: [
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Prishtina (Remote)",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/role_fullstack_local/",
+        title: "Full Stack Developer (AI-First)",
+      }),
+    ]);
+  });
+
+  test("does not let a polluted LinkedIn software-developer card outrank the local full-stack card under the review cap", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina",
+      maxJobs: 1,
+      searchPreferences: {
+        targetRoles: ["Senior Full-Stack Software Engineer"],
+        locations: ["Prishtina, Kosovo"],
+      },
+      cardCandidates: [
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/role_mky_polluted/",
+          anchorText:
+            "Mid-Level to Senior Software Developer Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH • Pristina, District of Pristina, Kosovo (Hybrid) Dismiss Mid-Level to Senior Software Developer job Viewed · Promoted",
+          headingText:
+            "Mid-Level to Senior Software Developer Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH",
+          lines: [
+            "Mid-Level to Senior Software Developer Mid-Level to Senior Software Developer MKY Treuhandpartner GmbH • Pristina, District of Pristina, Kosovo (Hybrid) Dismiss Mid-Level to Senior Software Developer job Viewed · Promoted",
+          ],
+        },
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/role_fullstack_local/",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
+          lines: [
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Pristina (Remote)",
+            "Dismiss Full Stack Developer (AI-First) job",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/role_fullstack_local/",
+        title: "Full Stack Developer (AI-First)",
+      }),
+    ]);
+  });
+
+  test("downranks malformed LinkedIn candidates so cleaner full-stack cards win the review cap", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina",
+      maxJobs: 1,
+      searchPreferences: {
+        targetRoles: ["Senior Full-Stack Software Engineer"],
+        locations: ["Prishtina, Kosovo"],
+      },
+      cardCandidates: [
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/role_malformed/",
+          anchorText: "Full",
+          headingText: "Full",
+          lines: ["Full", "Full Full with verification", "Remote"],
+        },
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/role_fullstack/",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
+          lines: [
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Prishtina (Remote)",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([
+      expect.objectContaining({
+        canonicalUrl: "https://www.linkedin.com/jobs/view/role_fullstack/",
+        title: "Full Stack Developer (AI-First)",
+      }),
+    ]);
+  });
+
+  test("prefers real LinkedIn results-list cards over detail-pane contamination when selecting the capped batch", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
+      maxJobs: 1,
+      searchPreferences: {
+        targetRoles: ["Senior Full-Stack Software Engineer"],
+        locations: ["Prishtina, Kosovo"],
+      },
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/detail-pane-frontend/",
+          anchorText: "Senior Frontend Engineer",
+          headingText: "Senior Frontend Engineer",
+          lines: ["Senior Frontend Engineer", "Odiin", "Prishtina, Kosovo"],
           captureMeta: {
             domOrder: 0,
-            rootTagName: 'aside',
+            rootTagName: "aside",
             rootRole: null,
-            rootClassName: 'jobs-search__job-details detail-pane',
+            rootClassName: "jobs-search__job-details detail-pane",
             hasJobDataset: false,
             sameRootJobAnchorCount: 5,
             inLikelyResultsList: false,
@@ -1043,20 +1477,21 @@ describe('buildStructuredCandidateJobs', () => {
           },
         },
         {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/fullstack-list-card/',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/fullstack-list-card/",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
           lines: [
-            'Full Stack Developer (AI-First)',
-            'Full Circle Agency',
-            'Prishtina (Remote)',
-            'Dismiss Full Stack Developer (AI-First) job',
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Prishtina (Remote)",
+            "Dismiss Full Stack Developer (AI-First) job",
           ],
           captureMeta: {
             domOrder: 1,
-            rootTagName: 'li',
-            rootRole: 'listitem',
-            rootClassName: 'jobs-search-results__list-item job-card-container',
+            rootTagName: "li",
+            rootRole: "listitem",
+            rootClassName: "jobs-search-results__list-item job-card-container",
             hasJobDataset: true,
             sameRootJobAnchorCount: 1,
             inLikelyResultsList: true,
@@ -1068,36 +1503,217 @@ describe('buildStructuredCandidateJobs', () => {
           },
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/fullstack-list-card/',
-        title: 'Full Stack Developer (AI-First)',
+        canonicalUrl: "https://www.linkedin.com/jobs/view/fullstack-list-card/",
+        title: "Full Stack Developer (AI-First)",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('prefers visible in-viewport LinkedIn results cards when selecting the capped batch', () => {
+  test("parses LinkedIn composite result cards without dropping or contaminating jobs", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
-      maxJobs: 1,
+        "https://www.linkedin.com/jobs/search/?keywords=Senior%20Full-Stack%20Software%20Engineer&geoId=92000000&f_WT=2",
+      maxJobs: 50,
       searchPreferences: {
-        targetRoles: ['Senior Full-Stack Software Engineer'],
-        locations: ['Prishtina, Kosovo'],
+        targetRoles: ["Senior Full-Stack Software Engineer"],
+        locations: [],
       },
       cardCandidates: [
         {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/offscreen-fullstack-role/',
-          anchorText: 'Senior Full Stack Engineer',
-          headingText: 'Senior Full Stack Engineer',
-          lines: ['Senior Full Stack Engineer', 'Broader Co', 'Prishtina, Kosovo'],
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4445516986/",
+          sourceJobIdHint: "4445516986",
+          anchorText:
+            "Senior Full Stack Engineer (Node/React) - Remote Senior Full Stack Engineer (Node/React) - Remote with verification",
+          headingText: null,
+          lines: [
+            "Senior Full Stack Engineer (Node/React) - Remote Senior Full Stack Engineer (Node/React) - Remote with verification",
+            "Dismiss Senior Full Stack Engineer (Node/React) - Remote job",
+            "Senior Full Stack Engineer (Node/React) - Remote Senior Full Stack Engineer (Node/React) - Remote with verification Kake Bengaluru, Karnataka, India (Remote) Actively reviewing applicants 1 week ago Easy Apply",
+          ],
+        },
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4444154507/",
+          sourceJobIdHint: "4444154507",
+          anchorText:
+            "Senior Full Stack Software Engineer (React/Node) Senior Full Stack Software Engineer (React/Node) with verification",
+          headingText: null,
+          lines: [
+            "Senior Full Stack Software Engineer (React/Node) Senior Full Stack Software Engineer (React/Node) with verification",
+            "Dismiss Senior Full Stack Software Engineer (React/Node) job",
+            "Senior Full Stack Software Engineer (React/Node) Senior Full Stack Software Engineer (React/Node) with verification Reputation United States (Remote) 401(k), +1 benefit 1 week ago",
+          ],
+        },
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4451384800/",
+          sourceJobIdHint: "4451384800",
+          anchorText:
+            "Frontend Developer - TypeScript (Remote)Frontend Developer - TypeScript (Remote)",
+          headingText: null,
+          lines: [
+            "Frontend Developer - TypeScript (Remote)Frontend Developer - TypeScript (Remote)",
+            "Dismiss Frontend Developer - TypeScript (Remote) job",
+            "Frontend Developer - TypeScript (Remote) Frontend Developer - TypeScript (Remote) Hire Feed EMEA (Remote) 23 hours ago Within the past 24 hours",
+          ],
+        },
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4450348065/",
+          sourceJobIdHint: "4450348065",
+          anchorText:
+            "Software Engineer (Frontend) Software Engineer (Frontend) with verification",
+          headingText: null,
+          lines: [
+            "Software Engineer (Frontend) Software Engineer (Frontend) with verification",
+            "Dismiss Software Engineer (Frontend) job",
+            "Software Engineer (Frontend) Software Engineer (Frontend) with verification Aditude United States (Remote) $115K/yr - $135K/yr · Vision benefit Viewed",
+          ],
+        },
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4448560474/",
+          sourceJobIdHint: "4448560474",
+          anchorText:
+            "Software Engineer II, Fullstack Software Engineer II, Fullstack with verification",
+          headingText: null,
+          lines: [
+            "Software Engineer II, Fullstack Software Engineer II, Fullstack with verification",
+            "Dismiss Software Engineer II, Fullstack job",
+            "Software Engineer II, Fullstack Software Engineer II, Fullstack with verification Dave United States (Remote) Vision, 401(k) 6 days ago",
+          ],
+        },
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4451999999/",
+          sourceJobIdHint: "4451999999",
+          anchorText:
+            "JavaScript Frontend Developer (Remote)JavaScript Frontend Developer",
+          headingText: null,
+          lines: [
+            "JavaScript Frontend Developer (Remote)JavaScript Frontend Developer",
+            "Dismiss JavaScript Frontend Developer (Remote) JavaScript Frontend Developer job",
+            "JavaScript Frontend Developer (Remote) JavaScript Frontend Developer Quik Hire Staffing EMEA (Remote) 21 minutes ago Within the past 24 hours",
+          ],
+          companyText: "Quik Hire Staffing",
+          locationText: "EMEA (Remote)",
+        },
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4451606720/",
+          sourceJobIdHint: "4451606720",
+          anchorText:
+            "MERN Stack Developer | MongoDB | Express.js | React | Node.jsMERN Stack Developer | MongoDB | Express.js | React | Node.js",
+          headingText: null,
+          lines: [
+            "MERN Stack Developer | MongoDB | Express.js | React | Node.jsMERN Stack Developer | MongoDB | Express.js | React | Node.js",
+            "Dismiss MERN Stack Developer | MongoDB | Express.js | React | Node.js job",
+            "MERN Stack Developer | MongoDB | Express.js | React | Node.js MERN Stack Developer | MongoDB | Express.js | React | Node.js Wake Up Whistle India (Remote) 41 minutes ago Within the past 24 hours",
+          ],
+        },
+        {
+          canonicalUrl: "https://www.linkedin.com/jobs/view/4452600000/",
+          sourceJobIdHint: "4452600000",
+          anchorText:
+            "Full Stack - React and Node.js developer Full Stack - React and Node.js developer",
+          headingText: null,
+          companyText: "Shortcastle Technologies",
+          locationText: "Hyderabad, Telangana, India (Remote)",
+          lines: [
+            "Full Stack - React and Node.js developer Full Stack - React and Node.js developer",
+            "Dismiss Full Stack - React and Node.js developer job",
+            "Full Stack - React and Node.js developer Full Stack - React and Node.js developer Shortcastle Technologies Hyderabad, Telangana, India (Remote)",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toHaveLength(8);
+    expect(
+      jobs.map(({ sourceJobId, title, company, location }) => ({
+        sourceJobId,
+        title,
+        company,
+        location,
+      })),
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          sourceJobId: "4445516986",
+          title: "Senior Full Stack Engineer (Node/React) - Remote",
+          company: "Kake",
+          location: "Bengaluru, Karnataka, India (Remote)",
+        },
+        {
+          sourceJobId: "4444154507",
+          title: "Senior Full Stack Software Engineer (React/Node)",
+          company: "Reputation",
+          location: "United States (Remote)",
+        },
+        {
+          sourceJobId: "4451384800",
+          title: "Frontend Developer - TypeScript (Remote)",
+          company: "Hire Feed",
+          location: "EMEA (Remote)",
+        },
+        {
+          sourceJobId: "4450348065",
+          title: "Software Engineer (Frontend)",
+          company: "Aditude",
+          location: "United States (Remote)",
+        },
+        {
+          sourceJobId: "4448560474",
+          title: "Software Engineer II, Fullstack",
+          company: "Dave",
+          location: "United States (Remote)",
+        },
+        {
+          sourceJobId: "4451999999",
+          title: "JavaScript Frontend Developer",
+          company: "Quik Hire Staffing",
+          location: "EMEA (Remote)",
+        },
+        {
+          sourceJobId: "4451606720",
+          title:
+            "MERN Stack Developer | MongoDB | Express.js | React | Node.js",
+          company: "Wake Up Whistle",
+          location: "India (Remote)",
+        },
+        {
+          sourceJobId: "4452600000",
+          title: "Full Stack - React and Node.js developer",
+          company: "Shortcastle Technologies",
+          location: "Hyderabad, Telangana, India (Remote)",
+        },
+      ]),
+    );
+  });
+
+  test("prefers visible in-viewport LinkedIn results cards when selecting the capped batch", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl:
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
+      maxJobs: 1,
+      searchPreferences: {
+        targetRoles: ["Senior Full-Stack Software Engineer"],
+        locations: ["Prishtina, Kosovo"],
+      },
+      cardCandidates: [
+        {
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/offscreen-fullstack-role/",
+          anchorText: "Senior Full Stack Engineer",
+          headingText: "Senior Full Stack Engineer",
+          lines: [
+            "Senior Full Stack Engineer",
+            "Broader Co",
+            "Prishtina, Kosovo",
+          ],
           captureMeta: {
             domOrder: 0,
-            rootTagName: 'li',
-            rootRole: 'listitem',
-            rootClassName: 'jobs-search-results__list-item job-card-container',
+            rootTagName: "li",
+            rootRole: "listitem",
+            rootClassName: "jobs-search-results__list-item job-card-container",
             hasJobDataset: true,
             sameRootJobAnchorCount: 1,
             inLikelyResultsList: true,
@@ -1113,20 +1729,21 @@ describe('buildStructuredCandidateJobs', () => {
           },
         },
         {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/fullstack-visible-card/',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/fullstack-visible-card/",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
           lines: [
-            'Full Stack Developer (AI-First)',
-            'Full Circle Agency',
-            'Prishtina (Remote)',
-            'Dismiss Full Stack Developer (AI-First) job',
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Prishtina (Remote)",
+            "Dismiss Full Stack Developer (AI-First) job",
           ],
           captureMeta: {
             domOrder: 1,
-            rootTagName: 'li',
-            rootRole: 'listitem',
-            rootClassName: 'jobs-search-results__list-item job-card-container',
+            rootTagName: "li",
+            rootRole: "listitem",
+            rootClassName: "jobs-search-results__list-item job-card-container",
             hasJobDataset: true,
             sameRootJobAnchorCount: 1,
             inLikelyResultsList: true,
@@ -1142,36 +1759,38 @@ describe('buildStructuredCandidateJobs', () => {
           },
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/fullstack-visible-card/',
-        title: 'Full Stack Developer (AI-First)',
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/fullstack-visible-card/",
+        title: "Full Stack Developer (AI-First)",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('does not let LinkedIn surface quality displace the better full-stack role under the final cap', () => {
+  test("does not let LinkedIn surface quality displace the better full-stack role under the final cap", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl:
-        'https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo',
+        "https://www.linkedin.com/jobs/search/?keywords=Senior+Full-Stack+Software+Engineer&location=Prishtina%2C+Kosovo",
       maxJobs: 1,
       searchPreferences: {
-        targetRoles: ['Senior Full-Stack Software Engineer'],
-        locations: ['Prishtina, Kosovo'],
+        targetRoles: ["Senior Full-Stack Software Engineer"],
+        locations: ["Prishtina, Kosovo"],
       },
       cardCandidates: [
         {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/visible-frontend-card/',
-          anchorText: 'Senior Frontend Engineer',
-          headingText: 'Senior Frontend Engineer',
-          lines: ['Senior Frontend Engineer', 'Odiin', 'Prishtina, Kosovo'],
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/visible-frontend-card/",
+          anchorText: "Senior Frontend Engineer",
+          headingText: "Senior Frontend Engineer",
+          lines: ["Senior Frontend Engineer", "Odiin", "Prishtina, Kosovo"],
           captureMeta: {
             domOrder: 0,
-            rootTagName: 'li',
-            rootRole: 'listitem',
-            rootClassName: 'jobs-search-results__list-item job-card-container',
+            rootTagName: "li",
+            rootRole: "listitem",
+            rootClassName: "jobs-search-results__list-item job-card-container",
             hasJobDataset: true,
             sameRootJobAnchorCount: 1,
             inLikelyResultsList: true,
@@ -1187,20 +1806,21 @@ describe('buildStructuredCandidateJobs', () => {
           },
         },
         {
-          canonicalUrl: 'https://www.linkedin.com/jobs/view/offscreen-fullstack-card/',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
+          canonicalUrl:
+            "https://www.linkedin.com/jobs/view/offscreen-fullstack-card/",
+          anchorText: "Full Stack Developer (AI-First)",
+          headingText: "Full Stack Developer (AI-First)",
           lines: [
-            'Full Stack Developer (AI-First)',
-            'Full Circle Agency',
-            'Prishtina (Remote)',
-            'Dismiss Full Stack Developer (AI-First) job',
+            "Full Stack Developer (AI-First)",
+            "Full Circle Agency",
+            "Prishtina (Remote)",
+            "Dismiss Full Stack Developer (AI-First) job",
           ],
           captureMeta: {
             domOrder: 1,
-            rootTagName: 'li',
-            rootRole: 'listitem',
-            rootClassName: 'jobs-search-results__list-item job-card-container',
+            rootTagName: "li",
+            rootRole: "listitem",
+            rootClassName: "jobs-search-results__list-item job-card-container",
             hasJobDataset: true,
             sameRootJobAnchorCount: 1,
             inLikelyResultsList: true,
@@ -1216,222 +1836,462 @@ describe('buildStructuredCandidateJobs', () => {
           },
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        canonicalUrl: 'https://www.linkedin.com/jobs/view/offscreen-fullstack-card/',
-        title: 'Full Stack Developer (AI-First)',
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/offscreen-fullstack-card/",
+        title: "Full Stack Developer (AI-First)",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('recovers sparse weak-target cards by deriving company from same-host detail urls and splitting composite titles', () => {
+  test("recovers sparse weak-target cards by deriving company from same-host detail urls and splitting composite titles", () => {
     const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://kosovajob.com/',
+      pageUrl: "https://kosovajob.com/",
       maxJobs: 5,
       cardCandidates: [
         {
-          canonicalUrl: 'https://kosovajob.com/shopaz/category-manager-fashion-sports-outdoor-e-commerce',
-          anchorText: 'Category Manager, Fashion, Sports & Outdoor (E-Commerce) Prishtinë 11 ditë',
+          canonicalUrl:
+            "https://kosovajob.com/shopaz/category-manager-fashion-sports-outdoor-e-commerce",
+          anchorText:
+            "Category Manager, Fashion, Sports & Outdoor (E-Commerce) Prishtinë 11 ditë",
           headingText: null,
           lines: [
-            'Category Manager, Fashion, Sports & Outdoor (E-Commerce) Prishtinë 11 ditë',
+            "Category Manager, Fashion, Sports & Outdoor (E-Commerce) Prishtinë 11 ditë",
           ],
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        sourceJobId: 'kosovajob_com_shopaz_category_manager_fashion_sports_outdoor_e_commerce',
-        canonicalUrl: 'https://kosovajob.com/shopaz/category-manager-fashion-sports-outdoor-e-commerce',
-        title: 'Category Manager, Fashion, Sports & Outdoor (E-Commerce)',
-        company: 'Shopaz',
-        location: 'Prishtinë',
-        postedAtText: '11 ditë',
+        sourceJobId:
+          "kosovajob_com_shopaz_category_manager_fashion_sports_outdoor_e_commerce",
+        canonicalUrl:
+          "https://kosovajob.com/shopaz/category-manager-fashion-sports-outdoor-e-commerce",
+        title: "Category Manager, Fashion, Sports & Outdoor (E-Commerce)",
+        company: "Shopaz",
+        location: "Prishtinë",
+        postedAtText: "11 ditë",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('prefers technical weak-board jobs over non-technical local matches for technical searches', () => {
+  test("prefers technical weak-board jobs over non-technical local matches for technical searches", () => {
     const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://kosovajob.com/',
+      pageUrl: "https://kosovajob.com/",
       maxJobs: 2,
       searchPreferences: {
-        targetRoles: ['Senior Full-Stack Software Engineer'],
-        locations: ['Prishtina, Kosovo'],
+        targetRoles: ["Senior Full-Stack Software Engineer"],
+        locations: ["Prishtina, Kosovo"],
       },
       cardCandidates: [
         {
-          canonicalUrl: 'https://kosovajob.com/company-x/software-developer-prishtine',
-          anchorText: 'Software Developer',
+          canonicalUrl:
+            "https://kosovajob.com/company-x/software-developer-prishtine",
+          anchorText: "Software Developer",
           headingText: null,
           lines: [
-            'Software Developer',
-            'Company X',
-            'Prishtinë',
-            '2 ditë',
-            'React',
-            'TypeScript',
-            'Node.js',
+            "Software Developer",
+            "Company X",
+            "Prishtinë",
+            "2 ditë",
+            "React",
+            "TypeScript",
+            "Node.js",
           ],
         },
         {
-          canonicalUrl: 'https://kosovajob.com/shopaz/category-manager-fashion-sports-outdoor-e-commerce',
-          anchorText: 'Category Manager, Fashion, Sports & Outdoor (E-Commerce)',
+          canonicalUrl:
+            "https://kosovajob.com/shopaz/category-manager-fashion-sports-outdoor-e-commerce",
+          anchorText:
+            "Category Manager, Fashion, Sports & Outdoor (E-Commerce)",
           headingText: null,
           lines: [
-            'Category Manager, Fashion, Sports & Outdoor (E-Commerce)',
-            'SHOPAZ',
-            'Prishtinë',
-            '2 ditë',
-            'Merchandising',
-            'Retail Operations',
+            "Category Manager, Fashion, Sports & Outdoor (E-Commerce)",
+            "SHOPAZ",
+            "Prishtinë",
+            "2 ditë",
+            "Merchandising",
+            "Retail Operations",
           ],
         },
       ],
-    })
+    });
 
     expect(jobs).toEqual([
       expect.objectContaining({
-        title: 'Software Developer',
+        title: "Software Developer",
       }),
       expect.objectContaining({
-        title: 'Category Manager, Fashion, Sports & Outdoor (E-Commerce)',
+        title: "Category Manager, Fashion, Sports & Outdoor (E-Commerce)",
       }),
-    ])
-  })
+    ]);
+  });
 
-  test('does not treat generic path prefixes as company names when recovering sparse cards', () => {
+  test("does not treat generic path prefixes as company names when recovering sparse cards", () => {
     const jobs = buildStructuredCandidateJobs({
-      pageUrl: 'https://jobs.example.com/search',
+      pageUrl: "https://jobs.example.com/search",
       maxJobs: 5,
       cardCandidates: [
         {
-          canonicalUrl: 'https://jobs.example.com/jobs/frontend-engineer-remote',
-          anchorText: 'Frontend Engineer Remote 2 days ago',
+          canonicalUrl:
+            "https://jobs.example.com/jobs/frontend-engineer-remote",
+          anchorText: "Frontend Engineer Remote 2 days ago",
           headingText: null,
-          lines: ['Frontend Engineer Remote 2 days ago'],
+          lines: ["Frontend Engineer Remote 2 days ago"],
         },
       ],
-    })
+    });
 
-    expect(jobs).toEqual([])
-  })
-})
+    expect(jobs).toEqual([]);
+  });
+});
 
-describe('isJobPreferenceAligned', () => {
-  test('does not treat local non-technical jobs as aligned for technical searches', () => {
+describe("isJobPreferenceAligned", () => {
+  test("does not treat local non-technical jobs as aligned for technical searches", () => {
     expect(
       isJobPreferenceAligned({
         searchPreferences: {
-          targetRoles: ['Senior Full-Stack Software Engineer'],
-          locations: ['Prishtina, Kosovo'],
+          targetRoles: ["Senior Full-Stack Software Engineer"],
+          locations: ["Prishtina, Kosovo"],
         },
         job: {
-          sourceJobId: 'job_local_retail',
-          canonicalUrl: 'https://kosovajob.com/jobs/local-retail',
-          title: 'Category Manager',
-          company: 'Shopaz',
-          location: 'Prishtinë',
-          description: 'Retail merchandising and category planning.',
+          sourceJobId: "job_local_retail",
+          canonicalUrl: "https://kosovajob.com/jobs/local-retail",
+          title: "Category Manager",
+          company: "Shopaz",
+          location: "Prishtinë",
+          description: "Retail merchandising and category planning.",
           salaryText: null,
-          summary: 'Retail merchandising and category planning.',
+          summary: "Retail merchandising and category planning.",
           postedAt: null,
           workMode: [],
-          applyPath: 'unknown',
+          applyPath: "unknown",
           easyApplyEligible: false,
-          keySkills: ['Merchandising'],
+          keySkills: ["Merchandising"],
         },
       }),
-    ).toBe(false)
-  })
+    ).toBe(false);
+  });
 
-  test('treats adjacent technical jobs as aligned for technical searches', () => {
+  test("treats adjacent technical jobs as aligned for technical searches", () => {
     expect(
       isJobPreferenceAligned({
         searchPreferences: {
-          targetRoles: ['Senior Full-Stack Software Engineer'],
-          locations: ['Prishtina, Kosovo'],
+          targetRoles: ["Senior Full-Stack Software Engineer"],
+          locations: ["Prishtina, Kosovo"],
         },
         job: {
-          sourceJobId: 'job_local_software',
-          canonicalUrl: 'https://kosovajob.com/jobs/local-software',
-          title: 'Software Developer',
-          company: 'Acme Tech',
-          location: 'Prishtinë',
-          description: 'Build internal web apps with React and Node.js.',
+          sourceJobId: "job_local_software",
+          canonicalUrl: "https://kosovajob.com/jobs/local-software",
+          title: "Software Developer",
+          company: "Acme Tech",
+          location: "Prishtinë",
+          description: "Build internal web apps with React and Node.js.",
           salaryText: null,
-          summary: 'React and TypeScript role.',
+          summary: "React and TypeScript role.",
           postedAt: null,
           workMode: [],
-          applyPath: 'unknown',
+          applyPath: "unknown",
           easyApplyEligible: false,
-          keySkills: ['React', 'TypeScript'],
+          keySkills: ["React", "TypeScript"],
         },
       }),
-    ).toBe(true)
-  })
+    ).toBe(true);
+  });
 
-  test('treats clearly technical platform roles as aligned for technical searches even without explicit skill overlap', () => {
+  test("treats clearly technical platform roles as aligned for technical searches even without explicit skill overlap", () => {
     expect(
       isJobPreferenceAligned({
         searchPreferences: {
-          targetRoles: ['Senior Full-Stack Software Engineer'],
-          locations: ['Prishtina, Kosovo'],
+          targetRoles: ["Senior Full-Stack Software Engineer"],
+          locations: ["Prishtina, Kosovo"],
         },
         job: {
-          sourceJobId: 'job_platform_engineer',
-          canonicalUrl: 'https://kosovajob.com/jobs/platform-engineer',
-          title: 'Platform Engineer',
-          company: 'Acme Cloud',
-          location: 'Prishtinë',
-          description: 'Own cloud infrastructure, platform services, and backend delivery systems.',
+          sourceJobId: "job_platform_engineer",
+          canonicalUrl: "https://kosovajob.com/jobs/platform-engineer",
+          title: "Platform Engineer",
+          company: "Acme Cloud",
+          location: "Prishtinë",
+          description:
+            "Own cloud infrastructure, platform services, and backend delivery systems.",
           salaryText: null,
-          summary: 'Platform and cloud engineering role.',
+          summary: "Platform and cloud engineering role.",
           postedAt: null,
           workMode: [],
-          applyPath: 'unknown',
+          applyPath: "unknown",
           easyApplyEligible: false,
           keySkills: [],
         },
       }),
-    ).toBe(true)
-  })
-})
+    ).toBe(true);
+  });
+});
 
-describe('shouldCanonicalizeSearchSurfaceDetailRoute', () => {
-  test('returns false for seeded LinkedIn search cards without a card-level id proof', () => {
+describe("shouldCanonicalizeSearchSurfaceDetailRoute", () => {
+  const learnedEvidence = observeLearnedSearchSurfaceRoutes({
+    pageUrl:
+      "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+    observedUrls: [
+      "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+      "https://jobs.example.com/jobs/4386674431/",
+    ],
+  });
+  const seededCard: SearchResultCardCandidate = {
+    canonicalUrl:
+      "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+    anchorText: "Full Stack Developer (AI-First)",
+    headingText: "Full Stack Developer (AI-First)",
+    lines: [
+      "Full Stack Developer (AI-First)",
+      "Full Circle Agency",
+      "Pristina (Remote)",
+    ],
+  };
+
+  test("returns false for seeded search cards without a card-level id proof", () => {
     expect(
       shouldCanonicalizeSearchSurfaceDetailRoute({
         pageUrl:
-          'https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
-        candidate: {
-          canonicalUrl:
-            'https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
-          lines: ['Full Stack Developer (AI-First)', 'Full Circle Agency', 'Pristina (Remote)'],
-        },
+          "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+        candidate: { ...seededCard },
+        evidence: learnedEvidence,
       }),
-    ).toBe(false)
-  })
+    ).toBe(false);
+  });
 
-  test('returns true when the card has its own LinkedIn job id hint', () => {
+  test("returns true when the card has its own id hint and the host detail shape was learned", () => {
     expect(
       shouldCanonicalizeSearchSurfaceDetailRoute({
         pageUrl:
-          'https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
-        candidate: {
-          canonicalUrl:
-            'https://www.linkedin.com/jobs/search/?currentJobId=4399165260&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo',
-          sourceJobIdHint: '4404542575',
-          anchorText: 'Full Stack Developer (AI-First)',
-          headingText: 'Full Stack Developer (AI-First)',
-          lines: ['Full Stack Developer (AI-First)', 'Full Circle Agency', 'Pristina (Remote)'],
-        },
+          "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+        candidate: { ...seededCard, sourceJobIdHint: "4404542575" },
+        evidence: learnedEvidence,
       }),
-    ).toBe(true)
-  })
-})
+    ).toBe(true);
+  });
+
+  test("returns false when the host has no learned detail-route shape", () => {
+    const unrelatedEvidence = observeLearnedSearchSurfaceRoutes({
+      pageUrl:
+        "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+      observedUrls: [
+        "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+      ],
+    });
+
+    expect(
+      shouldCanonicalizeSearchSurfaceDetailRoute({
+        pageUrl:
+          "https://jobs.example.com/search?selected_job_id=4399165260&q=frontend",
+        candidate: { ...seededCard, sourceJobIdHint: "4404542575" },
+        evidence: unrelatedEvidence,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isLikelySiteUtilityJob", () => {
+  test("flags KosovaJob-style navigation pages", () => {
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/blog",
+        title: "Blog",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/kontakt",
+        title: "Kontakt",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/krijo-cv",
+        title: "Krijo CV",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/privacy-policy",
+        title: "Politikë e Privatësisë",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/politika-e-privatesise",
+        title: "Politikë e Privatësisë dhe Mbrojtjes së të Dhënave Personale",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://example.com/legal/privacy",
+        title: "Privacy Policy",
+      }),
+    ).toBe(true);
+  });
+
+  test("flags live Maya KosovaJob compound privacy title and Albanian path", () => {
+    const mayaLiveTitle =
+      "Politikë e Privatësisë dhe Mbrojtjes së të Dhënave Personale";
+    const mayaLiveUrl = "https://kosovajob.com/politika-e-privatesise";
+
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/jobs",
+        title: mayaLiveTitle,
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: mayaLiveUrl,
+        title: "Unrelated chrome label",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: mayaLiveUrl,
+        title: mayaLiveTitle,
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/politike-e-privatesise",
+        title: "Politike e Privatesise",
+      }),
+    ).toBe(true);
+  });
+
+  test("does not flag real job detail routes", () => {
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl:
+          "https://kosovajob.com/jobs/view/software-engineer-remote",
+        title: "Software Engineer",
+      }),
+    ).toBe(false);
+  });
+
+  test("flags Wellfound-style view-all navigation links", () => {
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/jobs",
+        title: "View all engineering jobs",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/jobs",
+        title: "Sign up with Google",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/jobs",
+        title: "11 open positions",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl:
+          "https://wellfound.com/company/signal-systems/jobs/123456-engineer",
+        title: "Software Engineer",
+      }),
+    ).toBe(false);
+  });
+
+  test("flags Maya-wave KosovaJob and Wellfound company-hub chrome", () => {
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/llogaritja-e-pages",
+        title: "Llogarite Pagën",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://kosovajob.com/publiko",
+        title: "Publiko Konkurs",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/company/lamatic",
+        title: "Lamatic.ai",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/candidates/overview",
+        title: "Why Wellfound",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://fb.com/kosovajob",
+        title: "www.fb.com/kosovajob",
+      }),
+    ).toBe(true);
+  });
+
+  test("flags bare /jobs hub and browse/hiring-data chrome regardless of title", () => {
+    expect(isLikelyJobListingHubUrl("https://wellfound.com/jobs")).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/jobs",
+        title: "Data Engineer",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/hiring-data",
+        title: "Engineering hiring trends",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/browse/remote-engineering-jobs",
+        title: "Remote engineering jobs",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://wellfound.com/jobs/4505800-data-engineer",
+        title: "Data Engineer",
+      }),
+    ).toBe(false);
+  });
+
+  test("excludes navigation capture metadata from structured results", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://kosovajob.com/jobs",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl: "https://kosovajob.com/blog",
+          anchorText: "Blog",
+          headingText: "Blog",
+          lines: ["Blog", "KosovaJob", "Remote", "Read company news."],
+          captureMeta: {
+            domOrder: 0,
+            rootTagName: "a",
+            rootRole: null,
+            rootClassName: null,
+            hasJobDataset: false,
+            sameRootJobAnchorCount: 1,
+            inLikelyResultsList: false,
+            inAside: false,
+            inHeader: false,
+            inNavigation: true,
+            inDetailPane: false,
+            hasDismissLabel: false,
+          },
+        },
+      ],
+    });
+
+    expect(jobs).toEqual([]);
+  });
+});

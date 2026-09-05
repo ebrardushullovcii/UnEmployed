@@ -253,7 +253,7 @@ async function launchAppForScenario({ seededInput }) {
   try {
     const window = await app.firstWindow();
     await window.waitForLoadState("domcontentloaded");
-    await waitForProfileOrSetupHeading(window);
+    await waitForJobFinderBridge(window);
     let resetWorkspaceSnapshot = null;
     if (seededInput) {
       await seedWorkspace(window, seededInput);
@@ -273,15 +273,12 @@ async function launchAppForScenario({ seededInput }) {
   }
 }
 
-async function waitForProfileOrSetupHeading(window, timeout = 15000) {
-  await Promise.any([
-    window
-      .getByRole("heading", { level: 1, name: "Your profile" })
-      .waitFor({ timeout }),
-    window
-      .getByRole("heading", { level: 1, name: "Guided setup" })
-      .waitFor({ timeout }),
-  ]);
+async function waitForJobFinderBridge(window, timeout = 15000) {
+  await window.waitForFunction(
+    () => Boolean(window.unemployed?.jobFinder),
+    undefined,
+    { timeout },
+  );
 }
 
 async function resolveUsableWindow(app, preferredWindow = null) {
@@ -293,7 +290,7 @@ async function resolveUsableWindow(app, preferredWindow = null) {
     }
 
     await candidate.waitForLoadState("domcontentloaded").catch(() => undefined);
-    await waitForProfileOrSetupHeading(candidate).catch(() => undefined);
+    await waitForJobFinderBridge(candidate).catch(() => undefined);
     if (!candidate.isClosed()) {
       return candidate;
     }
@@ -314,7 +311,7 @@ async function resolveUsableWindow(app, preferredWindow = null) {
     }),
   ]);
   await firstWindow.waitForLoadState("domcontentloaded");
-  await waitForProfileOrSetupHeading(firstWindow);
+  await waitForJobFinderBridge(firstWindow);
   return firstWindow;
 }
 
@@ -650,6 +647,7 @@ function buildSourceDebugSummary(result) {
 }
 
 function buildDiscoverySummary(snapshot) {
+  snapshot = snapshot?.snapshot ?? snapshot;
   if (!snapshot) {
     return null;
   }
@@ -847,7 +845,8 @@ async function executeBenchmarkPairScenarios({
             target.id,
           ),
       );
-      const discoverySnapshot = discoveryTimed.value ?? null;
+      const discoverySnapshot =
+        discoveryTimed.value?.snapshot ?? discoveryTimed.value ?? null;
       const discoveryTargetRoles = Array.isArray(
         discoverySnapshot?.searchPreferences?.targetRoles,
       )
@@ -926,7 +925,7 @@ async function runCurrentWorkspaceRunAllScenario(app, window, targets) {
     await restoreWorkspaceSnapshot(activeWindow, resetWorkspaceSnapshot);
   }
 
-  const snapshot = result.value ?? null;
+  const snapshot = result.value?.snapshot ?? result.value ?? null;
   const effectiveTargetRoles = Array.isArray(
     snapshot?.searchPreferences?.targetRoles,
   )
@@ -1047,7 +1046,7 @@ async function main() {
 
       currentWorkspaceWindow = await currentWorkspaceApp.firstWindow();
       await currentWorkspaceWindow.waitForLoadState("domcontentloaded");
-      await waitForProfileOrSetupHeading(currentWorkspaceWindow);
+      await waitForJobFinderBridge(currentWorkspaceWindow);
       const resolved = await resolveCurrentWorkspaceTargets(
         currentWorkspaceWindow,
         requestedSingleTargetIds,
@@ -1141,7 +1140,9 @@ async function main() {
     browserAgentEnabledEffective: resolveBrowserAgentEnabledEffective(),
     browserHeadless:
       process.env.UNEMPLOYED_BROWSER_HEADLESS ?? "(default=false)",
-    browserHeadlessEffective: isEnabled(process.env.UNEMPLOYED_BROWSER_HEADLESS),
+    browserHeadlessEffective: isEnabled(
+      process.env.UNEMPLOYED_BROWSER_HEADLESS,
+    ),
     outputLabel,
     results,
   };

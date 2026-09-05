@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import { IsoDateTimeSchema, NonEmptyStringSchema } from "./base";
 import {
+  AgentTaskExecutionReceiptSchema,
+  AgentTaskMessageAttributionSchema,
+} from "./agent-task";
+import {
   CandidateAnswerBankSchema,
   CandidateApplicationIdentitySchema,
   CandidateCertificationSchema,
@@ -23,7 +27,11 @@ import {
   ProfileSetupStateSchema,
   ProfileSetupStepSchema,
 } from "./profile-setup";
-import { JobSearchPreferencesSchema } from "./discovery";
+import {
+  CompensationPreferenceObjectSchema,
+  JobSearchPreferencesObjectSchema,
+  JobSearchPreferencesSchema,
+} from "./discovery";
 
 export const profileCopilotRoleValues = ["user", "assistant"] as const;
 export const ProfileCopilotRoleSchema = z.enum(profileCopilotRoleValues);
@@ -75,21 +83,7 @@ function requireAtLeastOneField<TSchema extends z.ZodRawShape>(
 ) {
   return schema.refine(
     (value) =>
-      Object.entries(value).some(([, fieldValue]) => {
-        if (fieldValue === undefined || fieldValue === null) {
-          return false;
-        }
-
-        if (typeof fieldValue === "string") {
-          return fieldValue.trim().length > 0;
-        }
-
-        if (Array.isArray(fieldValue)) {
-          return fieldValue.length > 0;
-        }
-
-        return true;
-      }),
+      Object.values(value).some((fieldValue) => fieldValue !== undefined),
     {
       message,
     },
@@ -133,10 +127,11 @@ export type ProfileWorkEligibilityPatchFields = z.infer<
   typeof ProfileWorkEligibilityPatchFieldsSchema
 >;
 
-export const ProfileProfessionalSummaryPatchFieldsSchema = requireAtLeastOneField(
-  CandidateProfessionalSummarySchema.partial(),
-  "Professional summary updates must include at least one field.",
-);
+export const ProfileProfessionalSummaryPatchFieldsSchema =
+  requireAtLeastOneField(
+    CandidateProfessionalSummarySchema.partial(),
+    "Professional summary updates must include at least one field.",
+  );
 export type ProfileProfessionalSummaryPatchFields = z.infer<
   typeof ProfileProfessionalSummaryPatchFieldsSchema
 >;
@@ -157,10 +152,11 @@ export type ProfileAnswerBankPatchFields = z.infer<
   typeof ProfileAnswerBankPatchFieldsSchema
 >;
 
-export const ProfileApplicationIdentityPatchFieldsSchema = requireAtLeastOneField(
-  CandidateApplicationIdentitySchema.partial(),
-  "Application identity updates must include at least one field.",
-);
+export const ProfileApplicationIdentityPatchFieldsSchema =
+  requireAtLeastOneField(
+    CandidateApplicationIdentitySchema.partial(),
+    "Application identity updates must include at least one field.",
+  );
 export type ProfileApplicationIdentityPatchFields = z.infer<
   typeof ProfileApplicationIdentityPatchFieldsSchema
 >;
@@ -186,7 +182,7 @@ export type ProfileCoreListPatchFields = z.infer<
 >;
 
 export const ProfileSearchPreferencesPatchFieldsSchema = requireAtLeastOneField(
-  JobSearchPreferencesSchema.pick({
+  JobSearchPreferencesObjectSchema.pick({
     approvalMode: true,
     companyBlacklist: true,
     companyWhitelist: true,
@@ -211,6 +207,15 @@ export type ProfileSearchPreferencesPatchFields = z.infer<
   typeof ProfileSearchPreferencesPatchFieldsSchema
 >;
 
+export const ProfileCompensationPreferencePatchFieldsSchema =
+  requireAtLeastOneField(
+    CompensationPreferenceObjectSchema.partial(),
+    "Compensation-preference updates must include at least one field.",
+  );
+export type ProfileCompensationPreferencePatchFields = z.infer<
+  typeof ProfileCompensationPreferencePatchFieldsSchema
+>;
+
 export const ProfileCopilotReviewResolutionStatusSchema = z.enum([
   "confirmed",
   "edited",
@@ -226,9 +231,10 @@ const UpsertCandidateExperienceInputSchema = CandidateExperienceSchema.extend({
 const UpsertCandidateEducationInputSchema = CandidateEducationSchema.extend({
   id: NonEmptyStringSchema.nullable().default(null),
 });
-const UpsertCandidateCertificationInputSchema = CandidateCertificationSchema.extend({
-  id: NonEmptyStringSchema.nullable().default(null),
-});
+const UpsertCandidateCertificationInputSchema =
+  CandidateCertificationSchema.extend({
+    id: NonEmptyStringSchema.nullable().default(null),
+  });
 const UpsertCandidateLinkInputSchema = CandidateLinkSchema.extend({
   id: NonEmptyStringSchema.nullable().default(null),
 });
@@ -238,12 +244,14 @@ const UpsertCandidateProjectInputSchema = CandidateProjectSchema.extend({
 const UpsertCandidateLanguageInputSchema = CandidateLanguageSchema.extend({
   id: NonEmptyStringSchema.nullable().default(null),
 });
-const UpsertCandidateProofBankEntryInputSchema = CandidateProofBankEntrySchema.extend({
-  id: NonEmptyStringSchema.nullable().default(null),
-});
-const UpsertCandidateReusableAnswerInputSchema = CandidateReusableAnswerSchema.extend({
-  id: NonEmptyStringSchema.nullable().default(null),
-});
+const UpsertCandidateProofBankEntryInputSchema =
+  CandidateProofBankEntrySchema.extend({
+    id: NonEmptyStringSchema.nullable().default(null),
+  });
+const UpsertCandidateReusableAnswerInputSchema =
+  CandidateReusableAnswerSchema.extend({
+    id: NonEmptyStringSchema.nullable().default(null),
+  });
 
 export const ProfileCopilotPatchOperationSchema = z.discriminatedUnion(
   "operation",
@@ -283,6 +291,10 @@ export const ProfileCopilotPatchOperationSchema = z.discriminatedUnion(
     z.object({
       operation: z.literal("replace_search_preferences_fields"),
       value: ProfileSearchPreferencesPatchFieldsSchema,
+    }),
+    z.object({
+      operation: z.literal("replace_compensation_preferences_fields"),
+      value: ProfileCompensationPreferencePatchFieldsSchema,
     }),
     z.object({
       operation: z.literal("upsert_experience_record"),
@@ -376,6 +388,7 @@ export const ProfileCopilotMessageSchema = z.object({
   content: NonEmptyStringSchema,
   context: ProfileCopilotContextSchema.default({ surface: "general" }),
   patchGroups: z.array(ProfileCopilotPatchGroupSchema).default([]),
+  executionAttribution: AgentTaskMessageAttributionSchema.nullable().optional(),
   createdAt: IsoDateTimeSchema,
 });
 export type ProfileCopilotMessage = z.infer<typeof ProfileCopilotMessageSchema>;
@@ -384,8 +397,12 @@ export const profileRevisionTriggerValues = [
   "assistant_patch",
   "undo",
 ] as const;
-export const ProfileRevisionTriggerSchema = z.enum(profileRevisionTriggerValues);
-export type ProfileRevisionTrigger = z.infer<typeof ProfileRevisionTriggerSchema>;
+export const ProfileRevisionTriggerSchema = z.enum(
+  profileRevisionTriggerValues,
+);
+export type ProfileRevisionTrigger = z.infer<
+  typeof ProfileRevisionTriggerSchema
+>;
 
 export const ProfileRevisionSchema = z.object({
   id: NonEmptyStringSchema,
@@ -417,6 +434,7 @@ export type ProfileRevisionSummary = z.infer<
 export const ProfileCopilotReplySchema = z.object({
   content: NonEmptyStringSchema,
   patchGroups: z.array(ProfileCopilotPatchGroupSchema).default([]),
+  executionReceipt: AgentTaskExecutionReceiptSchema.nullable().optional(),
 });
 export type ProfileCopilotReply = z.infer<typeof ProfileCopilotReplySchema>;
 

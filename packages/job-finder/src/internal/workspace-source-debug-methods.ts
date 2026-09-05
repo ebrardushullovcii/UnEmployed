@@ -4,6 +4,11 @@ import type {
   SourceDebugRunDetails,
   SourceDebugRunRecord,
 } from "@unemployed/contracts";
+import {
+  persistAutomaticSourceDebugSafeguard,
+  persistSourceDebugCampaignNotifications,
+  selectLatestSourceDebugRun,
+} from "./automatic-safeguards";
 import { createWorkspaceSourceDebugStoreMethods } from "./workspace-source-debug-store-methods";
 import { runSourceDebugWorkflow } from "./workspace-source-debug-workflow";
 import type { WorkspaceServiceContext } from "./workspace-service-context";
@@ -30,7 +35,13 @@ export function createWorkspaceSourceDebugMethods(
       reviewInstructionId?: string | null;
     },
     onProgress?: (event: SourceDebugProgressEvent) => void,
-  ) => Promise<ReturnType<WorkspaceServiceContext["getWorkspaceSnapshot"]> extends Promise<infer T> ? T : never>;
+  ) => Promise<
+    ReturnType<WorkspaceServiceContext["getWorkspaceSnapshot"]> extends Promise<
+      infer T
+    >
+      ? T
+      : never
+  >;
 } {
   const storeMethods = createWorkspaceSourceDebugStoreMethods(ctx);
 
@@ -46,15 +57,73 @@ export function createWorkspaceSourceDebugMethods(
     return promise;
   }
 
+  async function runSourceDebugWithAutomaticEffects(
+    targetId: string,
+    signal?: AbortSignal,
+    options?: {
+      clearExistingInstructions?: boolean;
+      reviewInstructionId?: string | null;
+    },
+    onProgress?: (event: SourceDebugProgressEvent) => void,
+  ) {
+    try {
+      return await runSourceDebugWorkflow(
+        ctx,
+        targetId,
+        signal,
+        options,
+        onProgress,
+      );
+    } finally {
+      // The workflow persists its terminal record before returning (and also
+      // before rethrowing a non-cancellation failure). Re-read that durable
+      // record so a restart/retry derives the same notification and safeguard
+      // facts without relying on an in-memory result.
+      try {
+        const runs = await ctx.repository.listSourceDebugRuns();
+        const run = selectLatestSourceDebugRun(runs, targetId);
+        if (run) {
+          await persistSourceDebugCampaignNotifications(ctx, run).catch(
+            () => {},
+          );
+
+          const campaignState = await ctx.repository.getCampaignState();
+          if (campaignState) {
+            const relevantCampaigns = campaignState.campaigns.filter(
+              (campaign) => campaign.sourceTargetIds.includes(targetId),
+            );
+            await Promise.all(
+              relevantCampaigns.map((campaign) =>
+                persistAutomaticSourceDebugSafeguard({
+                  ctx,
+                  campaign,
+                  targetIds: [targetId],
+                  now: run.completedAt ?? run.updatedAt,
+                }).catch(() => {}),
+              ),
+            );
+          }
+        }
+      } catch {
+        // Automatic facts are secondary to the source-debug result. Never
+        // mask the original workflow result/error with a bookkeeping issue.
+      }
+    }
+  }
+
   return {
     runSourceDebugWorkflow: (targetId, signal, options, onProgress) =>
       trackSourceDebugPromise(
-        runSourceDebugWorkflow(ctx, targetId, signal, options, onProgress),
+        runSourceDebugWithAutomaticEffects(
+          targetId,
+          signal,
+          options,
+          onProgress,
+        ),
       ),
     async runSourceDebug(targetId, signal, onProgress) {
       return trackSourceDebugPromise(
-        runSourceDebugWorkflow(
-          ctx,
+        runSourceDebugWithAutomaticEffects(
           targetId,
           signal,
           {
@@ -104,7 +173,12 @@ export function createWorkspaceSourceDebugMethods(
     acceptSourceInstructionDraft(targetId, instructionId) {
       return storeMethods.acceptSourceInstructionDraft(targetId, instructionId);
     },
-    async verifySourceInstructions(targetId, instructionId, signal, onProgress) {
+    async verifySourceInstructions(
+      targetId,
+      instructionId,
+      signal,
+      onProgress,
+    ) {
       const artifacts = await ctx.repository.listSourceInstructionArtifacts();
       const artifact = artifacts.find(
         (entry) => entry.id === instructionId && entry.targetId === targetId,
@@ -115,8 +189,7 @@ export function createWorkspaceSourceDebugMethods(
       }
 
       return trackSourceDebugPromise(
-        runSourceDebugWorkflow(
-          ctx,
+        runSourceDebugWithAutomaticEffects(
           targetId,
           signal,
           {

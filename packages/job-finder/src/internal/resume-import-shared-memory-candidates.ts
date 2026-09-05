@@ -4,7 +4,11 @@ import {
   type ResumeImportFieldCandidate,
 } from "@unemployed/contracts";
 
-import { isObject, toStringArray } from "./resume-import-common";
+import {
+  isObject,
+  toNarrativeStringArray,
+  toStringArray,
+} from "./resume-import-common";
 import { normalizeText } from "./shared";
 
 export function promoteGroundedSharedMemoryCandidates(
@@ -46,10 +50,10 @@ export function promoteGroundedSharedMemoryCandidates(
       )
       .map((candidate) => normalizeText(candidate.value)),
   );
-  const groundedExperiences = candidates.filter(
+  const experienceCandidates = candidates.filter(
     (candidate) =>
       candidate.target.section === "experience" &&
-      candidate.resolution === "auto_applied" &&
+      candidate.resolution !== "rejected" &&
       isObject(candidate.value),
   );
   const groundedLinkUrls = new Set(
@@ -71,6 +75,50 @@ export function promoteGroundedSharedMemoryCandidates(
   );
 
   return candidates.map((candidate) => {
+    if (
+      candidate.target.section === "proof_point" &&
+      candidate.resolutionReason !== "review_confirmed" &&
+      isObject(candidate.value)
+    ) {
+      const proof = candidate.value;
+      const proofTitle =
+        typeof proof.title === "string" ? normalizeText(proof.title) : "";
+      const proofClaim =
+        typeof proof.claim === "string" ? normalizeText(proof.claim) : "";
+      const duplicatesExperienceAchievement = experienceCandidates.some(
+        (experienceCandidate) => {
+          if (!isObject(experienceCandidate.value)) {
+            return false;
+          }
+
+          const experience = experienceCandidate.value;
+          const experienceTitle =
+            typeof experience.title === "string"
+              ? normalizeText(experience.title)
+              : "";
+          const achievements = toNarrativeStringArray(
+            experience.achievements,
+          ).map((entry) => normalizeText(entry));
+
+          return (
+            proofTitle.length > 0 &&
+            proofClaim.length > 0 &&
+            proofTitle === experienceTitle &&
+            achievements.includes(proofClaim)
+          );
+        },
+      );
+
+      if (duplicatesExperienceAchievement) {
+        return {
+          ...candidate,
+          resolution: "rejected",
+          resolutionReason: "redundant_with_experience_achievement",
+          resolvedAt: new Date().toISOString(),
+        };
+      }
+    }
+
     if (candidate.resolution !== "needs_review") {
       return candidate;
     }
@@ -84,7 +132,16 @@ export function promoteGroundedSharedMemoryCandidates(
           typeof candidate.evidenceText === "string" &&
           summaryValues.has(normalizeText(candidate.evidenceText))))
     ) {
-      return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+      // The resume summary already lands in the professional summary, which is
+      // the field resumes read. Copying the identical paragraph into the
+      // professional story too left the user editing one summary in three
+      // places, so an identical value is dropped instead of duplicated.
+      return {
+        ...candidate,
+        resolution: "rejected",
+        resolutionReason: "redundant_with_professional_summary",
+        resolvedAt: new Date().toISOString(),
+      };
     }
 
     if (
@@ -93,7 +150,17 @@ export function promoteGroundedSharedMemoryCandidates(
       typeof candidate.value === "string" &&
       summaryValues.has(normalizeText(candidate.value))
     ) {
-      return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+      // "How would you introduce yourself?" is a spoken answer that goes into
+      // application forms. Pre-filling it with the written resume paragraph
+      // put text the user was told to rewrite into their applications. Setup
+      // offers the summary as a one-click suggestion instead, so the
+      // identical paragraph is dropped rather than silently applied.
+      return {
+        ...candidate,
+        resolution: "rejected",
+        resolutionReason: "redundant_with_professional_summary",
+        resolvedAt: new Date().toISOString(),
+      };
     }
 
     if (
@@ -102,7 +169,11 @@ export function promoteGroundedSharedMemoryCandidates(
       typeof candidate.value === "string" &&
       emailValues.has(normalizeText(candidate.value))
     ) {
-      return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+      return {
+        ...candidate,
+        resolution: "auto_applied",
+        resolvedAt: new Date().toISOString(),
+      };
     }
 
     if (
@@ -111,16 +182,26 @@ export function promoteGroundedSharedMemoryCandidates(
       typeof candidate.value === "string" &&
       phoneValues.has(normalizeText(candidate.value))
     ) {
-      return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+      return {
+        ...candidate,
+        resolution: "auto_applied",
+        resolvedAt: new Date().toISOString(),
+      };
     }
 
     if (
       candidate.target.section === "application_identity" &&
       candidate.target.key === "preferredLinkUrls" &&
       toStringArray(candidate.value).length > 0 &&
-      toStringArray(candidate.value).every((url) => groundedLinkUrls.has(normalizeText(url)))
+      toStringArray(candidate.value).every((url) =>
+        groundedLinkUrls.has(normalizeText(url)),
+      )
     ) {
-      return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+      return {
+        ...candidate,
+        resolution: "auto_applied",
+        resolvedAt: new Date().toISOString(),
+      };
     }
 
     if (
@@ -130,30 +211,51 @@ export function promoteGroundedSharedMemoryCandidates(
       candidate.confidence >= 0.9 &&
       candidate.sourceBlockIds.length > 0
     ) {
-      return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+      return {
+        ...candidate,
+        resolution: "auto_applied",
+        resolvedAt: new Date().toISOString(),
+      };
     }
 
-    if (candidate.target.section === "proof_point" && isObject(candidate.value)) {
+    if (
+      candidate.target.section === "proof_point" &&
+      isObject(candidate.value)
+    ) {
       const proof = candidate.value;
-      const proofTitle = typeof proof.title === "string" ? normalizeText(proof.title) : "";
-      const proofClaim = typeof proof.claim === "string" ? normalizeText(proof.claim) : "";
+      const proofTitle =
+        typeof proof.title === "string" ? normalizeText(proof.title) : "";
+      const proofClaim =
+        typeof proof.claim === "string" ? normalizeText(proof.claim) : "";
 
-      const isGrounded = groundedExperiences.some((experienceCandidate) => {
+      const isGrounded = experienceCandidates.some((experienceCandidate) => {
         if (!isObject(experienceCandidate.value)) {
           return false;
         }
 
         const experience = experienceCandidate.value;
-        const experienceTitle = typeof experience.title === "string" ? normalizeText(experience.title) : "";
-        const achievements = toStringArray(experience.achievements).map((entry) =>
-          normalizeText(entry),
-        );
+        const experienceTitle =
+          typeof experience.title === "string"
+            ? normalizeText(experience.title)
+            : "";
+        const achievements = toNarrativeStringArray(
+          experience.achievements,
+        ).map((entry) => normalizeText(entry));
 
-        return proofTitle.length > 0 && proofClaim.length > 0 && proofTitle === experienceTitle && achievements.includes(proofClaim);
+        return (
+          proofTitle.length > 0 &&
+          proofClaim.length > 0 &&
+          proofTitle === experienceTitle &&
+          achievements.includes(proofClaim)
+        );
       });
 
       if (isGrounded) {
-        return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+        return {
+          ...candidate,
+          resolution: "auto_applied",
+          resolvedAt: new Date().toISOString(),
+        };
       }
 
       if (
@@ -164,7 +266,11 @@ export function promoteGroundedSharedMemoryCandidates(
         typeof proof.claim === "string" &&
         proof.claim.trim().length > 0
       ) {
-        return { ...candidate, resolution: "auto_applied", resolvedAt: new Date().toISOString() };
+        return {
+          ...candidate,
+          resolution: "auto_applied",
+          resolvedAt: new Date().toISOString(),
+        };
       }
     }
 
@@ -176,11 +282,17 @@ export function normalizeSharedMemoryCandidates(
   candidates: readonly ResumeImportFieldCandidate[],
 ): ResumeImportFieldCandidate[] {
   return candidates.map((candidate) => {
-    if (candidate.target.section !== "proof_point" || candidate.target.key === "record") {
+    if (
+      candidate.target.section !== "proof_point" ||
+      candidate.target.key === "record"
+    ) {
       return candidate;
     }
 
-    if (candidate.target.key === "careerTransition" && typeof candidate.value === "string") {
+    if (
+      candidate.target.key === "careerTransition" &&
+      typeof candidate.value === "string"
+    ) {
       return ResumeImportFieldCandidateSchema.parse({
         ...candidate,
         target: {

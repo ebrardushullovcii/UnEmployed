@@ -1,6 +1,7 @@
 import {
   AgentProviderStatusSchema,
   BrowserVisualAnalysisInputSchema,
+  BrowserVisualObservationSchema,
   BrowserVisualObservationSetSchema,
   type AgentProviderStatus,
   type BrowserVisualAnalysisInput,
@@ -10,12 +11,24 @@ import {
 } from "@unemployed/contracts";
 import { z } from "zod";
 import {
-  buildChatCompletionsUrl,
+  buildModelRequestBody,
+  buildModelUrl,
+  DEFAULT_OPENCODE_GO_BASE_URL,
+  DEFAULT_VISION_MODEL_API_MODE,
+  DEFAULT_VISION_MODEL_REASONING_EFFORT,
+  modelApiModes,
+  modelReasoningEfforts,
+  parseModelApiMode,
   parseModelJsonResponse,
+  parseModelReasoningEffort,
 } from "./openai-compatible-transport";
+import {
+  buildModelRequestHeaders,
+  modelConversationKeys,
+} from "./model-request-identity";
 
-const DEFAULT_BROWSER_VISUAL_MODEL = "FelidaeAI-Omni-3.6";
-const DEFAULT_BROWSER_VISUAL_BASE_URL = "https://ai.automatedpros.link/v1";
+const DEFAULT_BROWSER_VISUAL_MODEL = "gpt-5.6-luna";
+const DEFAULT_BROWSER_VISUAL_BASE_URL = DEFAULT_OPENCODE_GO_BASE_URL;
 const DEFAULT_BROWSER_VISUAL_TIMEOUT_MS = 120_000;
 
 export const OpenAiCompatibleBrowserVisualProviderOptionsSchema = z.object({
@@ -23,6 +36,8 @@ export const OpenAiCompatibleBrowserVisualProviderOptionsSchema = z.object({
   baseUrl: z.string().trim().url(),
   model: z.string().trim().min(1),
   label: z.string().trim().min(1).optional(),
+  apiMode: z.enum(modelApiModes).optional(),
+  reasoningEffort: z.enum(modelReasoningEfforts).optional(),
   requestTimeoutMs: z.number().int().min(1_000).optional(),
 });
 export type OpenAiCompatibleBrowserVisualProviderOptions = z.infer<
@@ -145,6 +160,81 @@ function createQuestionContextId(input: {
   return `visual_question_${input.snapshotId.replace(/[^a-zA-Z0-9_-]/g, "_")}_${input.observationSetId.replace(/[^a-zA-Z0-9_-]/g, "_")}_${input.index + 1}`;
 }
 
+function normalizeObservationKind(
+  value: unknown,
+): BrowserVisualObservation["kind"] {
+  if (typeof value !== "string") return "uncertainty";
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  const aliases: Record<string, BrowserVisualObservation["kind"]> = {
+    application_data: "field_control",
+    control: "visible_control",
+    page: "uncertainty",
+    submit_control: "button_state",
+  };
+  return (
+    aliases[normalized] ??
+    ([
+      "blocker",
+      "visible_control",
+      "job_card_clue",
+      "apply_path_clue",
+      "field_control",
+      "validation_error",
+      "button_state",
+      "upload_control",
+      "question_context",
+      "recovery_note",
+      "uncertainty",
+    ].includes(normalized)
+      ? (normalized as BrowserVisualObservation["kind"])
+      : "uncertainty")
+  );
+}
+
+function normalizeObservationSeverity(
+  value: unknown,
+): BrowserVisualObservation["severity"] {
+  if (value === "critical" || value === "warning" || value === "info") {
+    return value;
+  }
+  if (value === "blocking" || value === "error" || value === "high") {
+    return "critical";
+  }
+  if (value === "warn" || value === "medium") return "warning";
+  return "info";
+}
+
+function normalizeObservations(
+  value: unknown,
+  snapshotId: string,
+): BrowserVisualObservation[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const candidate = entry as Record<string, unknown>;
+    const label =
+      typeof candidate.label === "string" ? candidate.label.trim() : "";
+    const description =
+      typeof candidate.description === "string"
+        ? candidate.description.trim()
+        : "";
+    if (!label || !description) return [];
+    const parsed = BrowserVisualObservationSchema.safeParse({
+      ...candidate,
+      id:
+        typeof candidate.id === "string" && candidate.id.trim()
+          ? candidate.id.trim()
+          : `visual_observation_${snapshotId.replace(/[^a-zA-Z0-9_-]/g, "_")}_${index + 1}`,
+      kind: normalizeObservationKind(candidate.kind),
+      severity: normalizeObservationSeverity(candidate.severity),
+    });
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
 function normalizeQuestionContexts(
   value: unknown,
   base: { snapshotId: string; observationSetId: string },
@@ -214,14 +304,15 @@ function normalizeVisualPayload(input: {
     buttonStates: toStringArray(payload.buttonStates),
     recoveryNotes: toStringArray(payload.recoveryNotes),
     uncertainty: toStringArray(payload.uncertainty),
-    observations: Array.isArray(payload.observations) ? payload.observations : [],
+    observations: normalizeObservations(
+      payload.observations,
+      input.analysisInput.snapshot.id,
+    ),
     questionContexts: normalizeQuestionContexts(payload.questionContexts, {
       snapshotId: input.analysisInput.snapshot.id,
       observationSetId,
     }),
-    reconciliations: Array.isArray(payload.reconciliations)
-      ? payload.reconciliations
-      : [],
+    reconciliations: [],
     rejectedOutputReasons: toStringArray(payload.rejectedOutputReasons),
   };
 
@@ -407,7 +498,9 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
     input: BrowserVisualAnalysisInput,
   ): Promise<unknown> {
     if (!validatedOptions) {
-      throw new Error("The configured browser vision provider settings are invalid.");
+      throw new Error(
+        "The configured browser vision provider settings are invalid.",
+      );
     }
 
     const includeImagePayload =
@@ -417,80 +510,92 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
     const localTimeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const response = await fetch(buildChatCompletionsUrl(validatedOptions.baseUrl), {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          Authorization: `Bearer ${validatedOptions.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: validatedOptions.model,
-          temperature: 0.1,
-          response_format: { type: "json_object" },
-          messages: [
-            {
-              role: "system",
-              content: [
-                "You classify a browser screenshot into safe structured observations.",
-                "Return JSON only. Do not provide browser actions, selectors, generated answers, saved jobs, final submit advice, or site-specific workflow rules.",
-                "Allowed content: blockers, visibleControls, jobCardClues, applyPathClues, fieldControls, validationErrors, buttonStates, questionContexts, recoveryNotes, uncertainty, observations, and reconciliations.",
-                "Keep findings generic and descriptive; no CSS selectors, no click/fill/navigate instructions, and no final-submit guidance.",
-              ].join(" "),
-            },
-            {
-              role: "user",
-              content: [
+      const apiMode = validatedOptions.apiMode ?? "chat_completions";
+      const response = await fetch(
+        buildModelUrl(validatedOptions.baseUrl, apiMode),
+        {
+          method: "POST",
+          signal: controller.signal,
+          headers: buildModelRequestHeaders({
+            apiKey: validatedOptions.apiKey,
+            baseUrl: validatedOptions.baseUrl,
+            conversationKey: modelConversationKeys.pageExtraction(
+              input.snapshot.url ?? "",
+            ),
+          }),
+          body: JSON.stringify(
+            buildModelRequestBody({
+              apiMode,
+              model: validatedOptions.model,
+              reasoningEffort: validatedOptions.reasoningEffort,
+              jsonOutput: true,
+              messages: [
                 {
-                  type: "text",
-                  text: JSON.stringify({
-                    snapshot: {
-                      id: input.snapshot.id,
-                      purpose: input.snapshot.purpose,
-                      mode: input.snapshot.mode,
-                      url: input.snapshot.url,
-                      pageTitle: input.snapshot.pageTitle,
-                      label: input.snapshot.label,
-                      warnings: input.snapshot.warnings,
-                    },
-                    context: input.context,
-                    outputContract: {
-                      summary: "short descriptive text or null",
-                      blockers: "string[]",
-                      visibleControls: "string[]",
-                      jobCardClues: "string[]",
-                      applyPathClues: "string[]",
-                      fieldControls: "string[]",
-                      validationErrors: "string[]",
-                      buttonStates: "string[]",
-                      recoveryNotes: "string[]",
-                      uncertainty: "string[]",
-                      observations:
-                        "array of {kind,label,description,confidence,severity,tags}; no selectors/actions",
-                      reconciliations:
-                        "array of {targetKind,status,domSummary,visualSummary,confidence,recommendedHandling}; no actions",
-                    },
-                  }),
+                  role: "system",
+                  content: [
+                    "You classify a browser screenshot into safe structured observations.",
+                    "Return JSON only. Do not provide browser actions, selectors, generated answers, saved jobs, final submit advice, or site-specific workflow rules.",
+                    "Allowed content: blockers, visibleControls, jobCardClues, applyPathClues, fieldControls, validationErrors, buttonStates, questionContexts, recoveryNotes, uncertainty, observations, and reconciliations.",
+                    "Keep findings generic and descriptive; no CSS selectors, no click/fill/navigate instructions, and no final-submit guidance.",
+                  ].join(" "),
                 },
-                ...(includeImagePayload
-                  ? [
-                      {
-                        type: "image_url",
-                        image_url: {
-                          url: input.snapshot.dataUrl!,
-                          detail:
-                            input.snapshot.mode === "full_page" ? "high" : "auto",
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "text",
+                      text: JSON.stringify({
+                        snapshot: {
+                          id: input.snapshot.id,
+                          purpose: input.snapshot.purpose,
+                          mode: input.snapshot.mode,
+                          url: input.snapshot.url,
+                          pageTitle: input.snapshot.pageTitle,
+                          label: input.snapshot.label,
+                          warnings: input.snapshot.warnings,
                         },
-                      },
-                    ]
-                  : []),
+                        context: input.context,
+                        outputContract: {
+                          summary: "short descriptive text or null",
+                          blockers: "string[]",
+                          visibleControls: "string[]",
+                          jobCardClues: "string[]",
+                          applyPathClues: "string[]",
+                          fieldControls: "string[]",
+                          validationErrors: "string[]",
+                          buttonStates: "string[]",
+                          recoveryNotes: "string[]",
+                          uncertainty: "string[]",
+                          observations:
+                            "array of {label,description,kind,confidence,severity,tags}; kind must be blocker, visible_control, job_card_clue, apply_path_clue, field_control, validation_error, button_state, upload_control, question_context, recovery_note, or uncertainty; severity must be info, warning, or critical; no selectors/actions",
+                          reconciliations:
+                            "Return an empty array; DOM reconciliation is performed locally.",
+                        },
+                      }),
+                    },
+                    ...(includeImagePayload
+                      ? [
+                          {
+                            type: "image_url",
+                            image_url: {
+                              url: input.snapshot.dataUrl!,
+                              detail:
+                                input.snapshot.mode === "full_page"
+                                  ? "high"
+                                  : "auto",
+                            },
+                          },
+                        ]
+                      : []),
+                  ],
+                },
               ],
-            },
-          ],
-        }),
-      });
+            }),
+          ),
+        },
+      );
 
-      return parseModelJsonResponse(response);
+      return parseModelJsonResponse(response, apiMode);
     } catch (error) {
       throw normalizeTimeoutLikeError(error, timeoutMs);
     } finally {
@@ -504,12 +609,14 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
     },
     async analyzeBrowserVisualSnapshot(input) {
       const analysisInput = BrowserVisualAnalysisInputSchema.parse(input);
-      const fallbackResult = await fallback.analyzeBrowserVisualSnapshot(
-        analysisInput,
-      );
+      const fallbackResult =
+        await fallback.analyzeBrowserVisualSnapshot(analysisInput);
 
       if (!validatedOptions || !analysisInput.snapshot.dataUrl) {
-        return fallbackResult;
+        return BrowserVisualObservationSetSchema.parse({
+          ...fallbackResult,
+          fallbackUsed: Boolean(validatedOptions),
+        });
       }
 
       if (analysisInput.snapshot.retention.redactionLevel === "sensitive") {
@@ -519,6 +626,7 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
             ...fallbackResult.uncertainty,
             "Sensitive visual snapshot was not uploaded to the configured vision provider; deterministic visual fallback was used.",
           ],
+          fallbackUsed: true,
         });
       }
 
@@ -532,14 +640,51 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
 
         return BrowserVisualObservationSetSchema.parse({
           ...primary,
-          blockers: [...new Set([...primary.blockers, ...fallbackResult.blockers])],
-          visibleControls: [...new Set([...primary.visibleControls, ...fallbackResult.visibleControls])],
-          jobCardClues: [...new Set([...primary.jobCardClues, ...fallbackResult.jobCardClues])],
-          applyPathClues: [...new Set([...primary.applyPathClues, ...fallbackResult.applyPathClues])],
-          fieldControls: [...new Set([...primary.fieldControls, ...fallbackResult.fieldControls])],
-          validationErrors: [...new Set([...primary.validationErrors, ...fallbackResult.validationErrors])],
-          buttonStates: [...new Set([...primary.buttonStates, ...fallbackResult.buttonStates])],
-          recoveryNotes: [...new Set([...primary.recoveryNotes, ...fallbackResult.recoveryNotes])],
+          blockers: [
+            ...new Set([...primary.blockers, ...fallbackResult.blockers]),
+          ],
+          visibleControls: [
+            ...new Set([
+              ...primary.visibleControls,
+              ...fallbackResult.visibleControls,
+            ]),
+          ],
+          jobCardClues: [
+            ...new Set([
+              ...primary.jobCardClues,
+              ...fallbackResult.jobCardClues,
+            ]),
+          ],
+          applyPathClues: [
+            ...new Set([
+              ...primary.applyPathClues,
+              ...fallbackResult.applyPathClues,
+            ]),
+          ],
+          fieldControls: [
+            ...new Set([
+              ...primary.fieldControls,
+              ...fallbackResult.fieldControls,
+            ]),
+          ],
+          validationErrors: [
+            ...new Set([
+              ...primary.validationErrors,
+              ...fallbackResult.validationErrors,
+            ]),
+          ],
+          buttonStates: [
+            ...new Set([
+              ...primary.buttonStates,
+              ...fallbackResult.buttonStates,
+            ]),
+          ],
+          recoveryNotes: [
+            ...new Set([
+              ...primary.recoveryNotes,
+              ...fallbackResult.recoveryNotes,
+            ]),
+          ],
           observations: uniqueBy(
             [...primary.observations, ...fallbackResult.observations],
             visualObservationKey,
@@ -548,7 +693,10 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
             [...primary.questionContexts, ...fallbackResult.questionContexts],
             visualQuestionContextKey,
           ),
-          uncertainty: [...new Set([...primary.uncertainty, ...fallbackResult.uncertainty])],
+          uncertainty: [
+            ...new Set([...primary.uncertainty, ...fallbackResult.uncertainty]),
+          ],
+          fallbackUsed: false,
         });
       } catch (error) {
         const message =
@@ -568,6 +716,7 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
             ...fallbackResult.uncertainty,
             "Configured browser visual provider failed; deterministic visual fallback was used.",
           ],
+          fallbackUsed: true,
         });
       }
     },
@@ -597,6 +746,16 @@ export function createBrowserVisualAnalysisProviderFromEnvironment(
       env.UNEMPLOYED_BROWSER_VISION_MODEL ??
       env.UNEMPLOYED_AI_VISION_MODEL ??
       DEFAULT_BROWSER_VISUAL_MODEL,
+    apiMode:
+      parseModelApiMode(
+        env.UNEMPLOYED_BROWSER_VISION_API_MODE ??
+          env.UNEMPLOYED_AI_VISION_API_MODE,
+      ) ?? DEFAULT_VISION_MODEL_API_MODE,
+    reasoningEffort:
+      parseModelReasoningEffort(
+        env.UNEMPLOYED_BROWSER_VISION_REASONING_EFFORT ??
+          env.UNEMPLOYED_AI_VISION_REASONING_EFFORT,
+      ) ?? DEFAULT_VISION_MODEL_REASONING_EFFORT,
     label: "Browser visual analysis",
     requestTimeoutMs:
       parseConfiguredNumber(env.UNEMPLOYED_BROWSER_VISION_TIMEOUT_MS) ??

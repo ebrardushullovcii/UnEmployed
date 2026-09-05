@@ -7,26 +7,32 @@ import type {
   SourceInstructionArtifact,
 } from "@unemployed/contracts";
 import {
+  FRESH_START_CANDIDATE_PROFILE_ID,
   JobFinderDiscoveryStateSchema,
+  JobFinderIntelligenceStateSchema,
   SavedJobDiscoveryProvenanceSchema,
   SavedJobSchema,
   SourceInstructionArtifactSchema,
 } from "@unemployed/contracts";
 
-export type SourceDebugPhaseMap<TValue> = Partial<Record<SourceDebugPhase, TValue>>;
+export type SourceDebugPhaseMap<TValue> = Partial<
+  Record<SourceDebugPhase, TValue>
+>;
 
-export function createSavedJob(input: typeof SavedJobSchema["_input"]): SavedJob {
+export function createSavedJob(
+  input: (typeof SavedJobSchema)["_input"],
+): SavedJob {
   return SavedJobSchema.parse(input);
 }
 
 export function createSavedJobDiscoveryProvenance(
-  input: typeof SavedJobDiscoveryProvenanceSchema["_input"],
+  input: (typeof SavedJobDiscoveryProvenanceSchema)["_input"],
 ): SavedJobDiscoveryProvenance {
   return SavedJobDiscoveryProvenanceSchema.parse(input);
 }
 
 export function createSourceInstructionArtifact(
-  input: typeof SourceInstructionArtifactSchema["_input"],
+  input: (typeof SourceInstructionArtifactSchema)["_input"],
 ): SourceInstructionArtifact {
   return SourceInstructionArtifactSchema.parse(input);
 }
@@ -96,7 +102,8 @@ export function createSeed(): JobFinderRepositorySeed {
           title: "Design-system rollout",
           claim:
             "Led design-system rollout across core product surfaces used by design and operations teams.",
-          heroMetric: "Adoption reached 80% of core product surfaces within two quarters.",
+          heroMetric:
+            "Adoption reached 80% of core product surfaces within two quarters.",
           supportingContext:
             "Worked across product, engineering, and operations to standardize component and content patterns.",
           roleFamilies: ["product design", "design systems", "platform"],
@@ -107,9 +114,12 @@ export function createSeed(): JobFinderRepositorySeed {
       answerBank: {
         workAuthorization:
           "Authorized to work in the United Kingdom and open to remote roles across Europe.",
-        visaSponsorship: "Do not currently require visa sponsorship for UK-based roles.",
-        relocation: "Open to relocation for the right platform or systems role.",
-        travel: "Open to occasional travel for workshops and planning meetings.",
+        visaSponsorship:
+          "Do not currently require visa sponsorship for UK-based roles.",
+        relocation:
+          "Open to relocation for the right platform or systems role.",
+        travel:
+          "Open to occasional travel for workshops and planning meetings.",
         noticePeriod: "Available after a 30-day notice period.",
         availability: "Available to interview now and start within 30 days.",
         salaryExpectations:
@@ -130,6 +140,8 @@ export function createSeed(): JobFinderRepositorySeed {
         fileName: "alex-vanguard.pdf",
         uploadedAt: "2026-03-20T10:00:00.000Z",
         storagePath: "/tmp/alex-vanguard.pdf",
+        sha256:
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         textContent:
           "Alex Vanguard\nSenior systems designer\nLondon, UK\nalex@example.com\n+44 7700 900123\nhttps://alex.example.com\nhttps://www.linkedin.com/in/alex-vanguard\n\n10 years of experience building resilient workflow tools with Figma, React, and design systems.",
         textUpdatedAt: "2026-03-20T10:00:00.000Z",
@@ -232,6 +244,13 @@ export function createSeed(): JobFinderRepositorySeed {
       minimumSalaryUsd: 170000,
       targetSalaryUsd: null,
       salaryCurrency: "USD",
+      compensation: {
+        minimum: 170000,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "inherited",
+      },
       approvalMode: "review_before_submit",
       tailoringMode: "balanced",
       companyBlacklist: [],
@@ -258,7 +277,7 @@ export function createSeed(): JobFinderRepositorySeed {
     },
     profileSetupState: {
       status: "completed",
-      currentStep: "ready_check",
+      currentStep: "targeting",
       completedAt: "2026-03-20T10:02:00.000Z",
       reviewItems: [],
       lastResumedAt: null,
@@ -426,6 +445,8 @@ export function createSeed(): JobFinderRepositorySeed {
         previewSections: [],
         generationMethod: "deterministic",
         notes: [],
+        failureMessage: null,
+        failedAt: null,
       },
       {
         id: "asset_generating",
@@ -443,6 +464,8 @@ export function createSeed(): JobFinderRepositorySeed {
         previewSections: [],
         generationMethod: "deterministic",
         notes: [],
+        failureMessage: null,
+        failedAt: null,
       },
     ],
     resumeDrafts: [],
@@ -459,8 +482,16 @@ export function createSeed(): JobFinderRepositorySeed {
     applicationArtifactRefs: [],
     applicationReplayCheckpoints: [],
     applicationConsentRequests: [],
+    applicationAuthorityEnvelopes: [],
+    submissionPreflights: [],
+    submissionExecutionGrants: [],
+    submissionIdempotencyRecords: [],
+    submissionArmedMarkers: [],
+    submissionOutcomeRecords: [],
     applicationRecords: [],
     applicationAttempts: [],
+    userActionRequests: [],
+    userActionEvents: [],
     sourceDebugRuns: [],
     sourceDebugAttempts: [],
     sourceInstructionArtifacts: [],
@@ -489,6 +520,53 @@ export function createSeed(): JobFinderRepositorySeed {
       recentSourceDebugRuns: [],
       pendingDiscoveryJobs: [],
     }),
+    campaigns: [],
+    activeCampaignId: null,
+    campaignNotifications: [],
+    activityControl: { paused: false, pausedAt: null, reason: null },
+    intelligence: JobFinderIntelligenceStateSchema.parse({}),
+  };
+}
+
+/**
+ * Seed profile in the canonical first-run state, mirroring
+ * `createFreshStartCandidateProfile()`: no persisted identity facts and no
+ * preferred application contact. Fixtures that model a first resume import
+ * must start from this shape so the resume identity gate legitimately lets the
+ * imported resume establish the profile identity instead of failing closed on
+ * a mismatch with a different seeded person.
+ */
+export function createFreshStartSeedProfile(): JobFinderRepositorySeed["profile"] {
+  const profile = createSeed().profile;
+
+  return {
+    ...profile,
+    id: FRESH_START_CANDIDATE_PROFILE_ID,
+    firstName: null,
+    middleName: null,
+    lastName: null,
+    fullName: null,
+    preferredDisplayName: null,
+    headline: null,
+    summary: null,
+    currentLocation: null,
+    currentCity: null,
+    currentRegion: null,
+    currentCountry: null,
+    yearsExperience: 0,
+    email: null,
+    secondaryEmail: null,
+    phone: null,
+    applicationIdentity: {
+      ...profile.applicationIdentity,
+      preferredEmail: null,
+      preferredPhone: null,
+    },
+    baseResume: {
+      ...profile.baseResume,
+      extractionStatus: "not_started",
+      lastAnalyzedAt: null,
+    },
   };
 }
 

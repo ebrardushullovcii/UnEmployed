@@ -137,6 +137,111 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     expect(extraction.summary).toBeNull();
   });
 
+  test("does not infer a collaborator's profession as an experience skill", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Casey Rowan",
+          "Senior Frontend Engineer",
+          "EXPERIENCE",
+          "Cedar Ledger — Frontend Engineer",
+          "June 2018 - February 2021",
+          "- Built account-management workflows with React, GraphQL, and Node.js.",
+          "- Partnered with product designers to improve form completion and error recovery.",
+          "SKILLS",
+          "React, TypeScript, GraphQL, Node.js",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.experiences[0]?.skills).toEqual(
+      expect.arrayContaining(["React", "GraphQL", "Node.js"]),
+    );
+    expect(extraction.experiences[0]?.skills).not.toContain("Product Design");
+  });
+
+  test("keeps explicit work modes and grounded job-scoped skills on the matching experience", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "CASEY ROWAN",
+          "Senior Frontend Engineer",
+          "casey.rowan@example.test | +1 555 010 2401 | Portland, Oregon",
+          "SUMMARY",
+          "Frontend engineer with eight years of experience building accessible web applications and design systems for logistics and financial-services teams. Strong in React, TypeScript, testing, performance, and mentoring.",
+          "EXPERIENCE",
+          "Senior Frontend Engineer — Northstar Parcel Software",
+          "March 2021–Present | Portland, Oregon",
+          "- Led a React and TypeScript shipment-tracking redesign used by 18 internal operations teams.",
+          "- Reduced median page-load time from 4.2 seconds to 1.9 seconds by splitting bundles and removing duplicate requests.",
+          "- Built an accessible component library with Storybook and automated axe checks.",
+          "- Mentored four engineers and introduced Vitest integration tests for critical workflows.",
+          "Frontend Engineer — Cedar Ledger",
+          "June 2018–February 2021 | Remote",
+          "- Built account-management workflows with React, GraphQL, and Node.js.",
+          "- Partnered with product designers to improve form completion and error recovery.",
+          "EDUCATION",
+          "Bachelor of Science in Computer Science — Oregon State University, 2018",
+          "SKILLS",
+          "React, TypeScript, JavaScript, HTML, CSS, GraphQL, Node.js, Vitest, Playwright, Storybook, accessibility, performance optimization",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.experiences).toHaveLength(2);
+
+    const northstar = extraction.experiences.find(
+      (experience) => experience.companyName === "Northstar Parcel Software",
+    );
+    const cedar = extraction.experiences.find(
+      (experience) => experience.companyName === "Cedar Ledger",
+    );
+
+    expect(northstar).toMatchObject({
+      title: "Senior Frontend Engineer",
+      location: "Portland, Oregon",
+      workMode: [],
+    });
+    expect(northstar?.achievements).toHaveLength(4);
+    expect(northstar?.skills).toEqual(
+      expect.arrayContaining([
+        "React",
+        "TypeScript",
+        "Storybook",
+        "Vitest",
+        "Accessibility",
+        "axe",
+        "Performance Optimization",
+      ]),
+    );
+
+    expect(cedar).toMatchObject({
+      title: "Frontend Engineer",
+      location: "Remote",
+      workMode: ["remote"],
+    });
+    expect(cedar?.achievements).toHaveLength(2);
+    expect(cedar?.skills).toEqual(
+      expect.arrayContaining(["React", "GraphQL", "Node.js"]),
+    );
+    expect(cedar?.skills).not.toEqual(
+      expect.arrayContaining([
+        "Storybook",
+        "Vitest",
+        "Performance Optimization",
+      ]),
+    );
+  });
   test("derives years of experience from single-digit slash month ranges", () => {
     const extraction = buildDeterministicResumeProfileExtraction(
       {
@@ -214,6 +319,36 @@ describe("buildDeterministicResumeProfileExtraction", () => {
         }),
       ]),
     );
+  });
+
+  test("uses the primary current role instead of a nested project heading as the headline", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Ebrar Dushullovci",
+          "Address: Prishtina, Kosovo (Home)",
+          "ABOUT MYSELF",
+          "A full-stack developer focused on production automation systems.",
+          "WORK EXPERIENCE",
+          "SENIOR FULL-STACK SOFTWARE ENGINEER – AUTOMATEDPROS – 01/07/2023 – Current – REMOTE, KOSOVO",
+          "• Engineered a real-time restaurant order platform.",
+          "Project Lead (React, Next.js) – QA Management System",
+          "• Developed a QA Management System with React and Next.js.",
+          "SENIOR FULL-STACK SOFTWARE ENGINEER (PART-TIME CONSULTANT) – INFOTECH L.L.C – 01/11/2021 – Current – REMOTE, KOSOVO",
+          "• Provided on-call architecture and performance triage.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.headline).toBe("Senior Full-Stack Software Engineer");
+    expect(extraction.targetRoles).toEqual([
+      "Senior Full-Stack Software Engineer",
+    ]);
   });
 
   test("does not inflate ISO month date ranges into a full year of experience", () => {
@@ -460,6 +595,29 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     });
   });
 
+  test("parses an associate degree before a school name on one line", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "EDUCATION",
+          "Associate of Applied Science in Business Administration — Columbus State Community College, 2021",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.education[0]).toMatchObject({
+      schoolName: "Columbus State Community College",
+      degree: "Associate of Applied Science",
+      fieldOfStudy: "Business Administration",
+      endDate: "2021",
+    });
+  });
+
   test("parses school and degree education entries split across adjacent lines", () => {
     const extraction = buildDeterministicResumeProfileExtraction(
       {
@@ -665,5 +823,229 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     expect(titles.some((title) => title?.includes("Real-time Tracking"))).toBe(
       false,
     );
+  });
+
+  test("keeps stacked role headers and background sections associated with their records", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "EXPERIENCE",
+          "Northstar Labs",
+          "Senior Product Engineer",
+          "Amsterdam, Netherlands",
+          "March 2022 - Present",
+          "Built TypeScript workflow tools for operations teams.",
+          "- Reduced manual review time by 28% through a guided validation queue.",
+          "Harbor Studio",
+          "Frontend Engineer",
+          "Rotterdam, Netherlands",
+          "January 2019 - February 2022",
+          "Delivered customer-facing React applications.",
+          "- Shipped a reusable component library across four products.",
+          "PROJECTS",
+          "Queue Insight",
+          "Lead Developer",
+          "Open-source workflow diagnostics dashboard built with TypeScript.",
+          "https://example.test/queue-insight",
+          "CERTIFICATIONS",
+          "AWS Certified Developer - Associate",
+          "Amazon Web Services",
+          "Issued June 2023",
+          "EDUCATION",
+          "Delft University of Technology",
+          "BSc Computer Science",
+          "2015 - 2018",
+          "LANGUAGES",
+          "English - Professional working proficiency",
+          "Dutch - Native",
+          "SKILLS",
+          "TypeScript, React, Accessibility, AWS",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.experiences).toEqual([
+      expect.objectContaining({
+        companyName: "Northstar Labs",
+        title: "Senior Product Engineer",
+        location: "Amsterdam, Netherlands",
+        startDate: "March 2022",
+        isCurrent: true,
+      }),
+      expect.objectContaining({
+        companyName: "Harbor Studio",
+        title: "Frontend Engineer",
+        location: "Rotterdam, Netherlands",
+        startDate: "January 2019",
+        endDate: "February 2022",
+      }),
+    ]);
+    expect(extraction.experiences[0]?.achievements).toContain(
+      "Reduced manual review time by 28% through a guided validation queue.",
+    );
+    expect(extraction.education[0]).toMatchObject({
+      schoolName: "Delft University of Technology",
+      degree: "BSc Computer Science",
+    });
+    expect(extraction.projects[0]).toMatchObject({
+      name: "Queue Insight",
+      role: "Lead Developer",
+    });
+    expect(extraction.certifications[0]).toMatchObject({
+      name: "AWS Certified Developer - Associate",
+      issuer: "Amazon Web Services",
+      issueDate: "June 2023",
+    });
+    expect(extraction.spokenLanguages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          language: "English",
+          proficiency: "Professional working proficiency",
+        }),
+        expect.objectContaining({ language: "Dutch", proficiency: "Native" }),
+      ]),
+    );
+  });
+
+  test("supports title-first stacked headers and carries an employer across consecutive roles", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "EXPERIENCE",
+          "Senior Product Engineer",
+          "Northstar Labs",
+          "Amsterdam, Netherlands",
+          "March 2022 - Present",
+          "Built workflow tools for operations teams.",
+          "Product Engineer",
+          "January 2020 - February 2022",
+          "Maintained the same product platform for internal teams.",
+          "Frontend Engineer",
+          "Harbor Studio",
+          "Rotterdam, Netherlands",
+          "January 2018 - December 2019",
+          "Delivered customer-facing applications.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.experiences).toEqual([
+      expect.objectContaining({
+        title: "Senior Product Engineer",
+        companyName: "Northstar Labs",
+        location: "Amsterdam, Netherlands",
+      }),
+      expect.objectContaining({
+        title: "Product Engineer",
+        companyName: "Northstar Labs",
+        location: "Amsterdam, Netherlands",
+      }),
+      expect.objectContaining({
+        title: "Frontend Engineer",
+        companyName: "Harbor Studio",
+        location: "Rotterdam, Netherlands",
+      }),
+    ]);
+  });
+
+  test("splits ● bullet glyphs into separate achievements instead of one summary paragraph", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Ryan Holstien",
+          "Senior Software Engineer",
+          "ryanholstien993@outlook.com",
+          "EXPERIENCE",
+          "Senior Software Engineer — DataHub, Remote, CA (Dec 2021–Feb 2026)",
+          "● Designed C# and .NET services for a behavioral-health platform, using GitHub Copilot and ChatGPT to speed",
+          "coding, refactoring, and docs while improving release quality and delivery pace.",
+          "● Built ASP.NET Core REST APIs and internal microservices integrating scheduling, billing, and EHR-adjacent",
+          "workflows, reducing manual handoffs and supporting reliable low-latency operations.",
+          "● Optimized MongoDB collections with better schema design, compound indexes, and query tuning, cutting read",
+          "latency on provider and appointment workflows in production environments.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.experiences).toHaveLength(1);
+    const entry = extraction.experiences[0];
+    expect(entry?.title).toBe("Senior Software Engineer");
+    expect(entry?.companyName).toBe("DataHub");
+    expect(entry?.summary).toBeNull();
+    expect(entry?.achievements).toHaveLength(3);
+    expect(entry?.achievements[0]).toMatch(/^Designed C# and \.NET services/);
+    expect(entry?.achievements[1]).toMatch(/^Built ASP ?\.NET Core REST APIs/);
+    expect(entry?.achievements[2]).toMatch(/^Optimized MongoDB collections/);
+    expect(JSON.stringify(entry)).not.toContain("●");
+  });
+
+  test("splits inline ● bullets that PDF extraction glued onto the previous sentence", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Ryan Holstien",
+          "Senior Software Engineer",
+          "EXPERIENCE",
+          "Senior Software Engineer — DataHub, Remote, CA (Dec 2021–Feb 2026)",
+          "● Designed C# and .NET services for a behavioral-health platform while improving release quality and delivery pace. ● Built ASP.NET Core REST APIs and internal microservices integrating scheduling, billing, and EHR-adjacent workflows.",
+          "● Optimized MongoDB collections with better schema design, compound indexes, and query tuning.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    const entry = extraction.experiences[0];
+    expect(entry?.summary).toBeNull();
+    expect(entry?.achievements).toHaveLength(3);
+    expect(JSON.stringify(entry)).not.toContain("●");
+  });
+
+  test("seeds target roles from the headline and the two most recent role titles", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Ryan Holstien",
+          "Senior Software Engineer",
+          "EXPERIENCE",
+          "Staff Backend Engineer — DataHub, Remote, CA (Dec 2021–Feb 2026)",
+          "● Designed C# and .NET services for a behavioral-health platform while improving release quality.",
+          "Senior Software Engineer — Cedar Ledger, Remote (Jun 2018–Nov 2021)",
+          "● Built account-management workflows with React, GraphQL, and Node.js for enterprise customers.",
+          "Software Engineer — Harbor Studio, Rotterdam (Jan 2015–May 2018)",
+          "● Shipped front-end features for a design collaboration product used by agencies.",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.headline).toBe("Senior Software Engineer");
+    expect(extraction.targetRoles).toEqual([
+      "Senior Software Engineer",
+      "Staff Backend Engineer",
+    ]);
+    expect(extraction.targetRoles.length).toBeLessThanOrEqual(3);
   });
 });

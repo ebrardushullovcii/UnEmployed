@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,62 @@ async function writeJson(fileName, value) {
     `${JSON.stringify(value, null, 2)}\n`,
     "utf8",
   );
+}
+
+const LOCAL_PATH_KEYS = new Set([
+  "approvedFilePath",
+  "filePath",
+  "storagePath",
+]);
+
+function safeFileName(filePath) {
+  return path.posix.basename(path.win32.basename(filePath));
+}
+
+function sanitizeWorkspaceArtifact(value) {
+  const localPaths = new Map();
+  const collectLocalPaths = (current) => {
+    if (Array.isArray(current)) {
+      current.forEach(collectLocalPaths);
+      return;
+    }
+    if (!current || typeof current !== "object") {
+      return;
+    }
+    for (const [key, entry] of Object.entries(current)) {
+      if (LOCAL_PATH_KEYS.has(key) && typeof entry === "string") {
+        localPaths.set(entry, safeFileName(entry));
+      } else {
+        collectLocalPaths(entry);
+      }
+    }
+  };
+  collectLocalPaths(value);
+
+  const sanitize = (current) => {
+    if (Array.isArray(current)) {
+      return current.map(sanitize);
+    }
+    if (typeof current === "string") {
+      return [...localPaths.entries()]
+        .sort(([left], [right]) => right.length - left.length)
+        .reduce(
+          (safeValue, [localPath, fileName]) =>
+            safeValue.replaceAll(localPath, fileName),
+          current,
+        );
+    }
+    if (!current || typeof current !== "object") {
+      return current;
+    }
+    return Object.fromEntries(
+      Object.entries(current).flatMap(([key, entry]) =>
+        LOCAL_PATH_KEYS.has(key) ? [] : [[key, sanitize(entry)]],
+      ),
+    );
+  };
+
+  return sanitize(value);
 }
 
 async function waitForCondition(
@@ -272,10 +328,54 @@ function getLatestBy(items, getTimestamp) {
 }
 
 async function waitForProfileOrSetupHeading(window) {
-  await window
-    .locator("h1")
-    .filter({ hasText: /Your profile|Guided setup|Senior Product Designer/ })
-    .waitFor({ timeout: 15000 });
+  await window.waitForFunction(
+    () => Boolean(window.unemployed?.jobFinder?.test),
+    undefined,
+    { timeout: 15000 },
+  );
+  await window.evaluate(() => {
+    window.location.hash = "#/job-finder/profile";
+  });
+  const waitForHeading = () =>
+    window.waitForFunction(
+      () => {
+        const heading = document.querySelector("h1");
+        return /Your profile|Guided setup/.test(heading?.textContent ?? "");
+      },
+      undefined,
+      { timeout: 15000 },
+    );
+  try {
+    await waitForHeading();
+  } catch (error) {
+    await window.reload();
+    await window.waitForLoadState("domcontentloaded");
+    await window.waitForFunction(
+      () => Boolean(window.unemployed?.jobFinder?.test),
+      undefined,
+      { timeout: 15000 },
+    );
+    await window.evaluate(() => {
+      window.location.hash = "#/job-finder/profile";
+    });
+    try {
+      await waitForHeading();
+      return;
+    } catch {
+      // Fall through to the detailed first-failure diagnostic below.
+    }
+    const pageState = await window.evaluate(() => ({
+      hash: window.location.hash,
+      headings: Array.from(document.querySelectorAll("h1")).map(
+        (heading) => heading.textContent,
+      ),
+      bodyText: document.body.innerText.slice(0, 500),
+    }));
+    throw new Error(
+      `Profile route did not become ready: ${JSON.stringify(pageState)}`,
+      { cause: error },
+    );
+  }
 }
 
 function summaryField(window) {
@@ -290,7 +390,9 @@ function editorFieldByTarget(window, targetId) {
 
 function assistantField(window) {
   return window
-    .locator('[data-testid="resume-assistant-input"]:visible')
+    .locator(
+      '[data-resume-guided-edits-open="true"] textarea[aria-label="Message the Assistant"]:visible',
+    )
     .first();
 }
 
@@ -314,7 +416,9 @@ async function loadResumeWorkspaceDemo(window, previewMode = "ok") {
 
 async function openResumeWorkspace(window) {
   await window
-    .getByRole("button", { name: /Open resume workspace/i })
+    .getByRole("button", {
+      name: /Open resume workspace|Review and approve resume/i,
+    })
     .first()
     .click();
   await window
@@ -430,21 +534,24 @@ async function getActiveEditorLabel(window) {
 }
 
 async function getTemplateBadgeText(window) {
-  return (
-    (
-      await window
-        .getByText(/^Template:/)
-        .first()
-        .textContent()
-    )?.trim() ?? null
-  );
+  const selectedTemplateLabel = await window
+    .locator("[data-resume-template-toggle]:visible")
+    .first()
+    .locator("xpath=ancestor::section[1]")
+    .locator("span.text-sm.font-semibold")
+    .first()
+    .textContent();
+
+  return selectedTemplateLabel?.trim() ?? null;
 }
 
 function templateStrategyPanel(window) {
   return window
-    .locator("section")
-    .filter({ hasText: "Template strategy" })
-    .first();
+    .locator(
+      "[data-resume-template-toggle]:visible, [data-resume-template-option]:visible",
+    )
+    .first()
+    .locator("xpath=ancestor::section[1]");
 }
 
 async function clickLocatorViaDom(locator, description) {
@@ -456,6 +563,15 @@ async function clickLocatorViaDom(locator, description) {
       `Could not click ${description}: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+}
+
+async function clickShellNavigationWithMouse(window, name) {
+  const navigation = window.locator(
+    'nav[aria-label="Job Finder sections"]:visible, nav[aria-label="Job Finder sidebar destinations"]:visible',
+  );
+  const control = navigation.getByRole("button", { name }).first();
+  await control.waitFor({ state: "visible", timeout: 10_000 });
+  await control.evaluate((element) => element.click());
 }
 
 async function clickTemplateStrategyVariant(window, variantLabel, buttonText) {
@@ -496,10 +612,15 @@ async function captureResumeWorkspace() {
     });
 
     const window = await app.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+    await window.waitForFunction(
+      () => Boolean(window.unemployed?.jobFinder?.test),
+      undefined,
+      { timeout: 15_000 },
+    );
     await window.evaluate(async (theme) => {
       await window.unemployed.jobFinder.test?.setSystemThemeOverride(theme);
     }, process.env.UNEMPLOYED_TEST_SYSTEM_THEME ?? "dark");
-    await window.waitForLoadState("domcontentloaded");
     await waitForProfileOrSetupHeading(window);
     await window.setViewportSize({ width, height });
 
@@ -507,7 +628,7 @@ async function captureResumeWorkspace() {
 
     const studioResults = {};
 
-    await window.getByRole("button", { name: /^Shortlisted/ }).click();
+    await clickShellNavigationWithMouse(window, /^Shortlisted/);
     await window
       .getByRole("heading", { level: 1, name: "Shortlisted jobs" })
       .waitFor({ timeout: 10000 });
@@ -605,6 +726,11 @@ async function captureResumeWorkspace() {
       path: path.join(outputDir, "03-preview-recovered.png"),
     });
 
+    const resumeProofDetails = window
+      .locator("details")
+      .filter({ hasText: /Resume proof details/ })
+      .first();
+    await resumeProofDetails.locator(":scope > summary").click();
     await window
       .getByText("Saved research", { exact: true })
       .first()
@@ -614,10 +740,15 @@ async function captureResumeWorkspace() {
       path: path.join(outputDir, "04-resume-workspace-sources.png"),
     });
 
-    await window
-      .getByText("Template strategy", { exact: true })
-      .first()
-      .waitFor({ timeout: 10000 });
+    await window.getByText("Template", { exact: true }).first().waitFor({
+      timeout: 10000,
+    });
+    const changeTemplateButton = window.getByRole("button", {
+      name: "Change template",
+    });
+    if (await changeTemplateButton.isVisible()) {
+      await changeTemplateButton.click();
+    }
     const recommendedTemplateLabels = await templateStrategyPanel(window)
       .locator('[data-slot="badge"]')
       .evaluateAll((elements) =>
@@ -643,12 +774,15 @@ async function captureResumeWorkspace() {
     const preTemplatePreviewSrcdoc = await getPreviewSrcdoc(window);
     await clickTemplateStrategyVariant(
       window,
-      "Engineering Spec · Skills First",
-      "Use this template",
+      "Engineering Spec · Technical Brief",
+      "Use template",
     );
     await waitForCondition(
       async () =>
-        (await getTemplateBadgeText(window)) === "Template: Engineering Spec",
+        window
+          .getByText("Engineering Spec · Technical Brief", { exact: true })
+          .first()
+          .isVisible(),
       "template header badge to reflect the recommended template selection",
     );
     await waitForPreviewReady(window, {
@@ -659,8 +793,12 @@ async function captureResumeWorkspace() {
       path: path.join(outputDir, "04c-template-selected-engineering-spec.png"),
     });
 
-    const unsavedPreviewSentinel =
-      "Senior systems designer with strong workflow automation, design-system, and operations-platform experience.";
+    const savedSummaryBeforePreviewEdit = getDraftSummaryText(
+      await getResumeWorkspace(window, "job_ready"),
+    );
+    const unsavedPreviewSentinel = savedSummaryBeforePreviewEdit.endsWith(".")
+      ? savedSummaryBeforePreviewEdit.slice(0, -1)
+      : `${savedSummaryBeforePreviewEdit}.`;
     await summaryField(window).fill(unsavedPreviewSentinel);
     await visiblePreviewPane(window)
       .locator("span:visible", { hasText: /^Unsaved edits rendered$/ })
@@ -787,9 +925,10 @@ async function captureResumeWorkspace() {
       .evaluate((input) => {
         const article = input.closest("article");
         const buttons = Array.from(article?.querySelectorAll("button") ?? []);
-        const moveDownButton = buttons.find((button) =>
-          button.textContent?.toLowerCase().includes("move down"),
-        );
+        const moveDownButton = buttons.find((button) => {
+          const label = button.getAttribute("aria-label")?.toLowerCase() ?? "";
+          return label.startsWith("move ") && label.endsWith(" down");
+        });
 
         if (!(moveDownButton instanceof HTMLButtonElement)) {
           throw new Error(
@@ -820,8 +959,7 @@ async function captureResumeWorkspace() {
       .getByRole("button", { name: "Reset to chronology" })
       .evaluateAll((buttons) => {
         const resetButton = buttons.find(
-          (button) =>
-            button instanceof HTMLButtonElement && !button.disabled,
+          (button) => button instanceof HTMLButtonElement && !button.disabled,
         );
 
         if (!(resetButton instanceof HTMLButtonElement)) {
@@ -858,20 +996,17 @@ async function captureResumeWorkspace() {
     );
     const resetOrderWorkspace = await getResumeWorkspace(window, "job_ready");
     let resetPreviewOrder = [];
-    await waitForCondition(
-      async () => {
-        const resetPreviewHtml = await getPreviewSrcdoc(window);
-        resetPreviewOrder = getPreviewEntryOrder(
-          resetPreviewHtml,
-          beforeManualOrder,
-        );
-        return (
-          JSON.stringify(resetPreviewOrder) ===
-          JSON.stringify(getExperienceEntryIds(resetOrderWorkspace))
-        );
-      },
-      "visible reset preview order to match reset editor order",
-    );
+    await waitForCondition(async () => {
+      const resetPreviewHtml = await getPreviewSrcdoc(window);
+      resetPreviewOrder = getPreviewEntryOrder(
+        resetPreviewHtml,
+        beforeManualOrder,
+      );
+      return (
+        JSON.stringify(resetPreviewOrder) ===
+        JSON.stringify(getExperienceEntryIds(resetOrderWorkspace))
+      );
+    }, "visible reset preview order to match reset editor order");
     assert(
       JSON.stringify(resetPreviewOrder) ===
         JSON.stringify(getExperienceEntryIds(resetOrderWorkspace)),
@@ -918,41 +1053,105 @@ async function captureResumeWorkspace() {
       path: path.join(outputDir, "07-after-manual-edit.png"),
     });
 
+    const assistantDraftBefore = await getResumeWorkspace(window, "job_ready");
     const previousMessageCount = (
       await getResumeAssistantMessages(window, "job_ready")
     ).length;
-    await window.getByRole("button", { name: "Open guided edits" }).click();
+    await window.getByRole("button", { name: /^Open the Assistant/ }).click();
     await waitForCondition(
       async () =>
         await window
           .locator('[data-resume-guided-edits-open="true"]')
           .first()
           .isVisible(),
-      "guided edits popup to open",
+      "the Assistant panel to open",
     );
     await assistantField(window).fill(
-      "Shorten the summary and tighten one experience bullet for ATS readability.",
+      "Shorten the summary for ATS readability.",
     );
-    await window.getByRole("button", { name: "Send request" }).click();
-    await waitForCondition(async () => {
-      const messages = await getResumeAssistantMessages(window, "job_ready");
-      const lastAssistant = [...messages]
-        .reverse()
-        .find((message) => message.role === "assistant");
-      const sendButtonLabel = await window
-        .getByRole("button", { name: /Send request|Updating/i })
-        .textContent();
-      return (
-        messages.length > previousMessageCount &&
-        lastAssistant?.role === "assistant" &&
-        lastAssistant.content.trim().length > 0 &&
-        lastAssistant.content !== "Updating your draft..." &&
-        sendButtonLabel?.includes("Send request")
+    await window.getByRole("button", { name: "Send message" }).click();
+    await waitForCondition(
+      async () => {
+        const messages = await getResumeAssistantMessages(window, "job_ready");
+        const lastAssistant = [...messages]
+          .reverse()
+          .find((message) => message.role === "assistant");
+        return (
+          messages.length > previousMessageCount &&
+          lastAssistant?.role === "assistant" &&
+          lastAssistant.content.trim().length > 0 &&
+          lastAssistant.content !== "Updating your draft..."
+        );
+      },
+      "assistant reply in resume workspace demo",
+      60_000,
+    );
+    const proposedMessages = await getResumeAssistantMessages(
+      window,
+      "job_ready",
+    );
+    const pendingProposal = [...proposedMessages]
+      .reverse()
+      .find(
+        (message) =>
+          message.role === "assistant" && message.proposalStatus === "pending",
       );
-    }, "assistant reply in resume workspace demo");
+    assert(
+      pendingProposal?.patches.length > 0,
+      "Expected the Assistant to create a pending proposal with at least one patch.",
+    );
+    const assistantDraftProposed = await getResumeWorkspace(
+      window,
+      "job_ready",
+    );
+    assert(
+      JSON.stringify(assistantDraftProposed.draft) ===
+        JSON.stringify(assistantDraftBefore.draft),
+      "The Assistant changed the saved draft before the user approved its proposal.",
+    );
     await window.screenshot({
       animations: "disabled",
-      path: path.join(outputDir, "08-after-assistant.png"),
+      path: path.join(outputDir, "08-assistant-proposal.png"),
+    });
+
+    const assistantDialog = window.getByRole("dialog", {
+      name: /^Assistant$/,
+    });
+    await assistantDialog
+      .getByRole("button", { name: /Accept selected \(\d+\)/i })
+      .click();
+    await waitForCondition(async () => {
+      const messages = await getResumeAssistantMessages(window, "job_ready");
+      return messages.some(
+        (message) =>
+          message.id === pendingProposal.id &&
+          message.proposalStatus === "accepted" &&
+          message.resolvedPatchIds.length > 0,
+      );
+    }, "explicit acceptance of the Assistant proposal");
+    const assistantDraftAccepted = await getResumeWorkspace(
+      window,
+      "job_ready",
+    );
+    assert(
+      JSON.stringify(assistantDraftAccepted.draft) !==
+        JSON.stringify(assistantDraftBefore.draft),
+      "The saved draft did not change after the user approved the Assistant proposal.",
+    );
+    Object.assign(studioResults, {
+      guidedEditsProposal: {
+        draftUnchangedBeforeApproval: true,
+        proposalId: pendingProposal.id,
+        proposedPatchCount: pendingProposal.patches.length,
+        acceptedPatchCount: (
+          await getResumeAssistantMessages(window, "job_ready")
+        ).find((message) => message.id === pendingProposal.id)?.resolvedPatchIds
+          .length,
+      },
+    });
+    await window.screenshot({
+      animations: "disabled",
+      path: path.join(outputDir, "08b-assistant-approved.png"),
     });
 
     await window.getByRole("button", { name: "Export PDF" }).click();
@@ -961,6 +1160,25 @@ async function captureResumeWorkspace() {
         (await getResumeWorkspace(window, "job_ready")).exports.length > 0,
       "resume export in demo flow",
     );
+    const exportedWorkspace = await getResumeWorkspace(window, "job_ready");
+    const latestExport = [...exportedWorkspace.exports].sort((left, right) =>
+      right.exportedAt.localeCompare(left.exportedAt),
+    )[0];
+    assert(
+      latestExport,
+      "Expected the exported resume artifact to be available.",
+    );
+    await copyFile(
+      latestExport.filePath,
+      path.join(outputDir, "09-exported-resume.pdf"),
+    );
+    await writeJson("09-exported-resume.json", {
+      format: latestExport.format,
+      isApproved: latestExport.isApproved,
+      pageCount: latestExport.pageCount,
+      sha256: latestExport.sha256 ?? null,
+      templateId: latestExport.templateId,
+    });
     await window.screenshot({
       animations: "disabled",
       path: path.join(outputDir, "09-after-export.png"),
@@ -970,12 +1188,18 @@ async function captureResumeWorkspace() {
     await window
       .getByRole("heading", { level: 1, name: "Shortlisted jobs" })
       .waitFor({ timeout: 10000 });
-    const gatedApproveButton = window.getByRole("button", {
-      name: "Start apply copilot",
+    const gatedPrepareButtons = window.getByRole("button", {
+      name: /^Prepare application/,
     });
-    if (!(await gatedApproveButton.isDisabled())) {
+    const enabledPrepareButtonCount = await gatedPrepareButtons.evaluateAll(
+      (buttons) =>
+        buttons.filter(
+          (button) => button instanceof HTMLButtonElement && !button.disabled,
+        ).length,
+    );
+    if (enabledPrepareButtonCount > 0) {
       throw new Error(
-        "Start apply copilot should stay disabled before resume approval.",
+        "Prepare application should stay unavailable before resume approval.",
       );
     }
     await window.screenshot({
@@ -988,7 +1212,7 @@ async function captureResumeWorkspace() {
     await waitForPreviewReady(window, getPreviewExpectation(reopenedWorkspace));
 
     const approveButton = window.getByRole("button", {
-      name: "Approve current PDF",
+      name: /Approve (?:this|current) PDF/,
     });
     await approveButton.waitFor({ timeout: 10000 });
     await approveButton.click();
@@ -1008,12 +1232,14 @@ async function captureResumeWorkspace() {
     await window
       .getByRole("heading", { level: 1, name: "Shortlisted jobs" })
       .waitFor({ timeout: 10000 });
-    const readyApproveButton = window.getByRole("button", {
-      name: "Start apply copilot",
-    });
+    const readyApproveButton = window
+      .getByRole("button", {
+        name: /^Prepare application/,
+      })
+      .first();
     if (await readyApproveButton.isDisabled()) {
       throw new Error(
-        "Start apply copilot should be enabled after resume approval.",
+        "Prepare application should be enabled after resume approval.",
       );
     }
     await window.screenshot({
@@ -1022,10 +1248,36 @@ async function captureResumeWorkspace() {
     });
 
     await readyApproveButton.click();
-    await window.getByRole("button", { name: /^Applications/ }).click();
-    await window
-      .getByRole("heading", { level: 1, name: "Applications" })
-      .waitFor({ timeout: 10000 });
+    const checkpointDialog = window.getByRole("dialog");
+    await checkpointDialog.waitFor({ timeout: 10000 });
+    await checkpointDialog
+      .getByRole("button", { name: "Prepare application", exact: true })
+      .click();
+    await waitForCondition(async () => {
+      const currentWorkspace = await getWorkspace(window);
+      return currentWorkspace.applicationRecords.length > 0;
+    }, "application record created by the prepare-only run");
+    await window.evaluate(() => {
+      window.location.hash = "#/job-finder/applications";
+    });
+    try {
+      await window
+        .locator("h1")
+        .filter({ hasText: /^Applications$/ })
+        .waitFor({ timeout: 10000 });
+    } catch (error) {
+      const pageState = await window.evaluate(() => ({
+        hash: window.location.hash,
+        headings: Array.from(document.querySelectorAll("h1")).map(
+          (heading) => heading.textContent,
+        ),
+        bodyText: document.body.innerText.slice(0, 750),
+      }));
+      throw new Error(
+        `Applications route did not become ready: ${JSON.stringify(pageState)}`,
+        { cause: error },
+      );
+    }
     await window.screenshot({
       animations: "disabled",
       path: path.join(outputDir, "13-applications-after-apply.png"),
@@ -1060,7 +1312,10 @@ async function captureResumeWorkspace() {
     }
 
     await writeJson("studio-preview-results.json", studioResults);
-    await writeJson("workspace-after-demo.json", workspace);
+    await writeJson(
+      "workspace-after-demo.json",
+      sanitizeWorkspaceArtifact(workspace),
+    );
   } finally {
     if (app) {
       try {

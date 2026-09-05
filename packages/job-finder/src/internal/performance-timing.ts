@@ -54,15 +54,24 @@ export function computeTimelineSummary<TKey extends string>(input: {
       atMs: toEpochMs(event.timestamp),
       key: event.key,
     }))
-    .filter((event) => hasFiniteWindow && event.atMs >= startedAtMs && event.atMs <= completedAtMs)
+    .filter(
+      (event) =>
+        hasFiniteWindow &&
+        event.atMs >= startedAtMs &&
+        event.atMs <= completedAtMs,
+    )
     .sort((left, right) => left.atMs - right.atMs);
   const durationsMsByKey = new Map<TKey, number>();
-  const totalDurationMs = calculateDurationMs(input.startedAt, input.completedAt);
+  const totalDurationMs = calculateDurationMs(
+    input.startedAt,
+    input.completedAt,
+  );
   const firstEventMs =
     normalizedEvents.length > 0
       ? calculateDurationMs(input.startedAt, normalizedEvents[0]!.atMs)
       : null;
-  let longestGapMs = normalizedEvents.length > 0 ? firstEventMs ?? 0 : totalDurationMs;
+  let longestGapMs =
+    normalizedEvents.length > 0 ? (firstEventMs ?? 0) : totalDurationMs;
 
   for (let index = 0; index < normalizedEvents.length; index += 1) {
     const currentEvent = normalizedEvents[index]!;
@@ -89,6 +98,7 @@ export function serializeOrderedDurationEntries<TKey extends string, TOutput>(
   durationsMsByKey: ReadonlyMap<TKey, number>,
   order: readonly TKey[],
   createEntry: (key: TKey, durationMs: number) => TOutput,
+  options: { includeZero?: boolean } = {},
 ): TOutput[] {
   const orderedEntries: TOutput[] = [];
   const remaining = new Map(durationsMsByKey);
@@ -96,7 +106,10 @@ export function serializeOrderedDurationEntries<TKey extends string, TOutput>(
   for (const key of order) {
     const durationMs = remaining.get(key);
 
-    if (durationMs == null || durationMs <= 0) {
+    if (
+      durationMs == null ||
+      (options.includeZero ? durationMs < 0 : durationMs <= 0)
+    ) {
       continue;
     }
 
@@ -109,7 +122,10 @@ export function serializeOrderedDurationEntries<TKey extends string, TOutput>(
   for (const key of leftoverKeys) {
     const durationMs = remaining.get(key);
 
-    if (durationMs == null || durationMs <= 0) {
+    if (
+      durationMs == null ||
+      (options.includeZero ? durationMs < 0 : durationMs <= 0)
+    ) {
       continue;
     }
 

@@ -25,6 +25,7 @@ export function ProfileSourceDebugReviewModal(props: {
   targetLabel: string;
 }) {
   const dialogTitleId = useId();
+  const dialogDescriptionId = useId();
   const recentRunsLabelId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const selectedRun = useMemo(
@@ -34,7 +35,12 @@ export function ProfileSourceDebugReviewModal(props: {
       null,
     [props.recentRuns, props.selectedRunId],
   );
-  useModalFocusTrap(props.open, dialogRef, props.onClose);
+  // Initial focus stays on the labelled container so screen readers announce
+  // the dialog heading and description; focusing "Check again" first would
+  // skip that context entirely. Trap, Escape, and focus restore are unchanged.
+  useModalFocusTrap(props.open, dialogRef, props.onClose, {
+    initialFocus: "dialog",
+  });
 
   if (!props.open) {
     return null;
@@ -49,6 +55,7 @@ export function ProfileSourceDebugReviewModal(props: {
       onClick={props.onClose}
     >
       <div
+        aria-describedby={dialogDescriptionId}
         aria-labelledby={dialogTitleId}
         aria-modal="true"
         className="surface-panel-shell mx-auto flex min-h-0 max-h-[min(88vh,960px)] w-full max-w-6xl flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) shadow-(--modal-shadow)"
@@ -68,7 +75,10 @@ export function ProfileSourceDebugReviewModal(props: {
             >
               {props.targetLabel}
             </h2>
-            <p className="text-[0.9rem] leading-6 text-foreground-soft">
+            <p
+              className="text-[0.9rem] leading-6 text-foreground-soft"
+              id={dialogDescriptionId}
+            >
               Review what the latest source check found before relying on this
               source in search.
             </p>

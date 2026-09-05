@@ -1,4 +1,9 @@
-import type { BrowserSessionState, JobSearchPreferences } from '@unemployed/contracts'
+import {
+  annualizeCompensationAmount,
+  type BrowserSessionState,
+  type CompensationPreference,
+  type JobSearchPreferences,
+} from '@unemployed/contracts'
 
 export function cloneValue<TValue>(value: TValue): TValue {
   return structuredClone(value)
@@ -24,6 +29,14 @@ function escapeRegex(value: string): string {
 }
 
 const knownCompensationPeriods = new Set(['yr', 'year', 'years', 'annual', 'annum', 'mo', 'month', 'months', 'wk', 'week', 'weeks', 'day', 'days', 'hr', 'hrs', 'hour', 'hours'])
+const compensationPeriodAliases: Record<string, string> = {
+  hourly: 'hour',
+  daily: 'day',
+  weekly: 'week',
+  monthly: 'month',
+  yearly: 'year',
+  annually: 'annual',
+}
 const annualCompensationMultipliers: Record<string, number> = {
   yr: 1,
   year: 1,
@@ -43,7 +56,7 @@ const annualCompensationMultipliers: Record<string, number> = {
   hour: 2080,
   hours: 2080
 }
-const salaryNumberPattern = /(\d[\d,]*(?:\.\d+)?)(?:\s*)([km])?/gi
+const salaryNumberPattern = /(\d[\d,]*(?:\.\d+)?)(?:\s*([km])\b)?/gi
 const secondaryCompensationBeforePattern = /\b(bonus|commission|sign[- ]?on|equity|ote)\b/i
 const secondaryCompensationAfterPattern = /^(?:[:-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i
 
@@ -56,11 +69,9 @@ interface ParsedSalaryNumber {
 function readPeriodUnit(salaryText: string, startIndex: number): string | null {
   const followingText = salaryText.slice(startIndex).trimStart().toLowerCase()
 
-  if (!followingText.startsWith('/')) {
-    return null
-  }
-
-  const periodUnit = followingText.match(/^\/\s*([a-z]+)/)?.[1] ?? ''
+  const rawPeriodUnit =
+    followingText.match(/^(?:(?:\/|per\b|a\b)\s*)?([a-z]+)/)?.[1] ?? ''
+  const periodUnit = compensationPeriodAliases[rawPeriodUnit] ?? rawPeriodUnit
   return knownCompensationPeriods.has(periodUnit) ? periodUnit : null
 }
 
@@ -176,6 +187,43 @@ export function parseSalaryFloor(salaryText: string | null): number | null {
   }
 
   return Math.min(...parsedNumbers)
+}
+
+function detectCurrencyCode(salaryText: string | null): string | null {
+  if (!salaryText) {
+    return null
+  }
+
+  const normalized = salaryText.toLowerCase()
+  if (normalized.includes('usd') || salaryText.includes('$')) return 'USD'
+  if (normalized.includes('eur') || salaryText.includes('€')) return 'EUR'
+  if (normalized.includes('gbp') || salaryText.includes('£')) return 'GBP'
+  return null
+}
+
+export function meetsCompensationMinimum(
+  salaryText: string | null,
+  preference: CompensationPreference,
+): boolean {
+  if (
+    preference.minimum === null ||
+    preference.currencyStatus === 'needs_clarification' ||
+    preference.currency === null
+  ) {
+    return true
+  }
+
+  const listingFloor = parseSalaryFloor(salaryText)
+  const listingCurrency = detectCurrencyCode(salaryText)
+  if (
+    listingFloor === null ||
+    listingCurrency === null ||
+    listingCurrency !== preference.currency.toUpperCase()
+  ) {
+    return true
+  }
+
+  return listingFloor >= annualizeCompensationAmount(preference.minimum, preference.interval)
 }
 
 export function buildSessionBlockedResult(session: BrowserSessionState): Error {

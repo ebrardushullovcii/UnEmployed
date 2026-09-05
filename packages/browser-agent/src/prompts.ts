@@ -52,7 +52,14 @@ export function createSystemPrompt(config: AgentConfig): string {
   const preferredLocations =
     config.searchPreferences.locations.length > 0
       ? config.searchPreferences.locations.join(", ")
-      : "Not specified";
+      : "No geographic constraint";
+  const workModes = config.searchPreferences.workModes?.length
+    ? config.searchPreferences.workModes.join(", ")
+    : "Not specified";
+  const locationBoundary =
+    config.searchPreferences.locations.length === 0
+      ? "No preferred location was supplied. Do not infer or add the candidate's current or resume location as a search constraint."
+      : null;
 
   const siteInstructions = config.promptContext.siteInstructions?.length
     ? config.promptContext.siteInstructions
@@ -63,7 +70,7 @@ export function createSystemPrompt(config: AgentConfig): string {
     ? config.promptContext.toolUsageNotes
         .map((instruction) => `- ${instruction}`)
         .join("\n")
-      : "- Use navigate only for in-scope pages\n- Use extract_jobs when meaningful job content is visible\n- Finish as soon as the configured target is satisfied";
+    : "- Use navigate only for in-scope pages\n- Use extract_jobs when meaningful job content is visible\n- Finish as soon as the configured target is satisfied or the source is proven exhausted";
   const taskPacket = config.promptContext.taskPacket;
   const seededSearchQuery = describeSeededSearchQuery(config);
   const taskPacketBlock = taskPacket
@@ -100,6 +107,7 @@ export function createSystemPrompt(config: AgentConfig): string {
 USER PROFILE:
 - Target roles: ${targetRoles}
 - Preferred locations: ${preferredLocations}
+- Work modes: ${workModes}
 - Experience level: ${config.userProfile.yearsExperience != null ? `${config.userProfile.yearsExperience} years` : "Not specified"}
 - Skills: ${config.userProfile.skills?.join(", ") || "Not specified"}
 
@@ -111,8 +119,18 @@ ${
 ${config.promptContext.siteLabel} is experimental. If the page structure looks unreliable, prefer a smaller high-confidence result set over low-quality guesses.`
     : ""
 }
-${seededSearchQuery ? `${seededSearchQuery}
-` : ""}Jobs may appear in any language. Do not treat non-English listings as lower quality just because of language, and preserve the original job language when extracting content.
+${
+  seededSearchQuery
+    ? `${seededSearchQuery}
+`
+    : ""
+}Jobs may appear in any language. Do not treat non-English listings as lower quality just because of language, and preserve the original job language when extracting content.
+${
+  locationBoundary
+    ? `${locationBoundary}
+`
+    : ""
+}Collect job cards in batches from results surfaces before spending steps opening individual details. Scroll or paginate the results container and extract each newly loaded batch until the target is reached or the source is genuinely exhausted.
 Your goal: ${taskPacket ? "Complete the current phase goal with proven evidence and a structured finish." : `Find up to ${config.targetJobCount} relevant job postings.`}
 ${taskPacket ? "When a TASK PACKET is present, the phase goal is more important than collecting a large job count. Do not stop at the first visible jobs if key controls, entry paths, or blockers still need to be proven." : ""}
 ${taskPacket ? "When a TASK PACKET is present, prior-phase summaries, known facts, and avoid lists are reference-only hints. Re-check important assumptions on the live page before you treat them as true." : ""}
@@ -135,7 +153,7 @@ TOOLS AVAILABLE:
 - go_back: Return to search results from a job detail page
 - extract_jobs: Extract job data when you see job listings
 - capture_visual_snapshot: Capture bounded visual evidence only when DOM/ARIA/text is weak; observations are schema-validated and cannot direct actions, selectors, saved jobs, generated answers, or submit behavior
-- finish: ${taskPacket ? "End only when you can summarize the phase outcome with proven findings or a clear blocker" : `End when you have ${config.targetJobCount} jobs`}
+- finish: ${taskPacket ? "End only when you can summarize the phase outcome with proven findings or a clear blocker" : `End when you have ${config.targetJobCount} jobs or when you have proven the source has no more reachable relevant jobs`}
 
 TOOL USAGE NOTES:
 ${toolUsageNotes}

@@ -15,16 +15,16 @@ import type {
 } from "./source-instruction-types";
 import { parseSourceInstructionReviewOverride } from "./source-instruction-types";
 import { extractJsonObjectString } from "./source-instruction-quality";
-import {
-  compactSourceInstructionReviewPhaseContexts,
-} from "./shared-agent-handoff-compaction";
+import { compactSourceInstructionReviewPhaseContexts } from "./shared-agent-handoff-compaction";
 import { SOURCE_DEBUG_PHASES } from "./workspace-defaults";
 
 function resolveSourceInstructionReviewCompactionPolicy(input: {
   compactionPolicy: Partial<SharedAgentCompactionPolicy>;
   modelContextWindowTokens: number | null;
 }): SharedAgentCompactionPolicy {
-  const basePolicy = SharedAgentCompactionPolicySchema.parse(input.compactionPolicy);
+  const basePolicy = SharedAgentCompactionPolicySchema.parse(
+    input.compactionPolicy,
+  );
 
   if (
     typeof input.modelContextWindowTokens !== "number" ||
@@ -82,14 +82,20 @@ const SOURCE_INSTRUCTION_REVIEW_RESPONSE_SHAPE = {
 } satisfies SourceInstructionReviewOverride;
 
 const MIN_SOURCE_INSTRUCTION_REVIEW_OUTPUT_TOKENS = 512;
-const SOURCE_INSTRUCTION_REVIEW_TIMEOUT_MS = 20_000;
+const MAX_SOURCE_INSTRUCTION_REVIEW_OUTPUT_TOKENS = 4_096;
+const SOURCE_INSTRUCTION_REVIEW_TIMEOUT_MS = 60_000;
 
 function buildReviewTimeoutSignal(signal?: AbortSignal): {
   signal: AbortSignal;
   cleanup: () => void;
 } {
-  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
-    const timeoutSignal = AbortSignal.timeout(SOURCE_INSTRUCTION_REVIEW_TIMEOUT_MS);
+  if (
+    typeof AbortSignal !== "undefined" &&
+    typeof AbortSignal.timeout === "function"
+  ) {
+    const timeoutSignal = AbortSignal.timeout(
+      SOURCE_INSTRUCTION_REVIEW_TIMEOUT_MS,
+    );
 
     if (!signal) {
       return {
@@ -269,14 +275,18 @@ export async function reviewSourceInstructionArtifactWithAi(input: {
     return null;
   }
 
-  const effectiveCompactionPolicy = resolveSourceInstructionReviewCompactionPolicy({
-    compactionPolicy: input.compactionPolicy,
-    modelContextWindowTokens: input.modelContextWindowTokens,
-  });
+  const effectiveCompactionPolicy =
+    resolveSourceInstructionReviewCompactionPolicy({
+      compactionPolicy: input.compactionPolicy,
+      modelContextWindowTokens: input.modelContextWindowTokens,
+    });
   const chatWithTools = input.aiClient.chatWithTools;
-  const maxOutputTokens = Math.max(
-    MIN_SOURCE_INSTRUCTION_REVIEW_OUTPUT_TOKENS,
-    effectiveCompactionPolicy.minimumResponseHeadroomTokens,
+  const maxOutputTokens = Math.min(
+    MAX_SOURCE_INSTRUCTION_REVIEW_OUTPUT_TOKENS,
+    Math.max(
+      MIN_SOURCE_INSTRUCTION_REVIEW_OUTPUT_TOKENS,
+      effectiveCompactionPolicy.minimumResponseHeadroomTokens,
+    ),
   );
 
   const compacted = compactSourceInstructionReviewPhaseContexts({

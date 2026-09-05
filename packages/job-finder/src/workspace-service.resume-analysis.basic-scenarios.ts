@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   createExtractionAiClient,
+  createFreshStartSeedProfile,
   createResumeExtraction,
   createSeed,
   createWorkspaceServiceHarness,
@@ -12,11 +13,8 @@ describe("createJobFinderWorkspaceService", () => {
       seed: {
         ...createSeed(),
         profile: {
-          ...createSeed().profile,
-          fullName: "Candidate",
+          ...createFreshStartSeedProfile(),
           headline: "Placeholder headline",
-          email: null,
-          phone: null,
           portfolioUrl: null,
           linkedinUrl: null,
           baseResume: {
@@ -44,9 +42,11 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.profile.baseResume.extractionStatus).toBe("ready");
     expect(snapshot.searchPreferences.salaryCurrency).toBe("USD");
     expect(snapshot.latestResumeImportRun?.status).toBe("review_ready");
-    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).toEqual(
-      expect.arrayContaining(["Headline", "Summary"]),
-    );
+    expect(
+      snapshot.latestResumeImportReviewCandidates.map(
+        (candidate) => candidate.label,
+      ),
+    ).toEqual(expect.arrayContaining(["Headline", "Summary"]));
     expect(
       candidates.some(
         (candidate) =>
@@ -66,13 +66,13 @@ describe("createJobFinderWorkspaceService", () => {
     ).toBe(true);
   });
 
-  test("maps two-part locations to city and region without forcing a country", async () => {
+  test("derives country from an unambiguous state-backed resume location", async () => {
     const seed = createSeed();
     const { workspaceService } = createWorkspaceServiceHarness({
       seed: {
         ...seed,
         profile: {
-          ...seed.profile,
+          ...createFreshStartSeedProfile(),
           baseResume: {
             ...seed.profile.baseResume,
             extractionStatus: "not_started",
@@ -93,7 +93,10 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.profile.currentLocation).toBe("New York, NY");
     expect(snapshot.profile.currentCity).toBe("New York");
     expect(snapshot.profile.currentRegion).toBe("NY");
-    expect(snapshot.profile.currentCountry).toBeNull();
+    expect(snapshot.profile.currentCountry).toBe("United States");
+    expect(snapshot.profile.workEligibility.authorizedWorkCountries).toEqual(
+      [],
+    );
   });
 
   test("keeps saved links, projects, and languages when extracted records are invalid", async () => {
@@ -156,7 +159,9 @@ describe("createJobFinderWorkspaceService", () => {
 
     expect(snapshot.profile.links).toEqual(seed.profile.links);
     expect(snapshot.profile.projects).toEqual(seed.profile.projects);
-    expect(snapshot.profile.spokenLanguages).toEqual(seed.profile.spokenLanguages);
+    expect(snapshot.profile.spokenLanguages).toEqual(
+      seed.profile.spokenLanguages,
+    );
   });
 
   test("retains the latest import run summary and unresolved candidate previews", async () => {
@@ -164,7 +169,7 @@ describe("createJobFinderWorkspaceService", () => {
       seed: {
         ...createSeed(),
         profile: {
-          ...createSeed().profile,
+          ...createFreshStartSeedProfile(),
           baseResume: {
             ...createSeed().profile.baseResume,
             extractionStatus: "not_started",
@@ -179,8 +184,12 @@ describe("createJobFinderWorkspaceService", () => {
     const snapshot = await workspaceService.analyzeProfileFromResume();
 
     expect(snapshot.latestResumeImportRun?.status).toBe("review_ready");
-    expect(snapshot.latestResumeImportRun?.candidateCounts.autoApplied).toBeGreaterThan(0);
-    expect(snapshot.latestResumeImportReviewCandidates.length).toBeGreaterThan(0);
+    expect(
+      snapshot.latestResumeImportRun?.candidateCounts.autoApplied,
+    ).toBeGreaterThan(0);
+    expect(snapshot.latestResumeImportReviewCandidates.length).toBeGreaterThan(
+      0,
+    );
     expect(snapshot.latestResumeImportReviewCandidates[0]?.label).toBeTruthy();
   });
 
@@ -249,7 +258,9 @@ describe("createJobFinderWorkspaceService", () => {
       "12 years of experience building React, TypeScript, and design systems",
     );
     expect(snapshot.profile.yearsExperience).toBe(12);
-    const reviewLabels = snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label);
+    const reviewLabels = snapshot.latestResumeImportReviewCandidates.map(
+      (candidate) => candidate.label,
+    );
     expect(reviewLabels).not.toContain("First name");
     expect(reviewLabels).not.toContain("Last name");
     expect(reviewLabels).not.toContain("Summary");
@@ -262,7 +273,7 @@ describe("createJobFinderWorkspaceService", () => {
       seed: {
         ...seed,
         profile: {
-          ...seed.profile,
+          ...createFreshStartSeedProfile(),
           baseResume: {
             ...seed.profile.baseResume,
             extractionStatus: "not_started",
@@ -325,11 +336,13 @@ describe("createJobFinderWorkspaceService", () => {
 
     const snapshot = await workspaceService.analyzeProfileFromResume();
 
-    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).toEqual(
-      expect.arrayContaining(["Headline", "Work history"]),
-    );
     expect(
-      snapshot.profileSetupState.reviewItems.find((item) => item.label === "Headline"),
+      snapshot.profileSetupState.reviewItems.map((item) => item.label),
+    ).toEqual(expect.arrayContaining(["Headline", "Work history"]));
+    expect(
+      snapshot.profileSetupState.reviewItems.find(
+        (item) => item.label === "Headline",
+      ),
     ).toEqual(
       expect.objectContaining({
         status: "pending",
@@ -446,7 +459,8 @@ describe("createJobFinderWorkspaceService", () => {
       (item) => item.label === "Email",
     );
 
-    expect(snapshot.profileSetupState.currentStep).toBe("answers");
+    // Retired step ids migrate onto the visible step that owns them.
+    expect(snapshot.profileSetupState.currentStep).toBe("extras");
     expect(emailReviewItem?.status).toBe("pending");
   });
 });

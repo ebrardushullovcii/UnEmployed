@@ -1,0 +1,21 @@
+JULES MORGAN
+QA and Customer Support Specialist
+jules.morgan@example.test | Columbus, Ohio
+
+SUMMARY
+QA and customer support specialist seeking a fully remote role. Experienced with keyboard-driven work, clear defect reports, support tickets, and written troubleshooting.
+
+EXPERIENCE
+QA and Support Specialist - Harbor Street Software
+January 2023-Present
+- Reproduce customer-reported defects and write step-by-step browser test notes.
+- Manage email support tickets and document workarounds for recurring issues.
+- Test web workflows using keyboard navigation and report accessibility barriers.
+
+Customer Support Assistant - Linden Services
+September 2021-December 2022
+- Answered account questions by email and maintained accurate case notes.
+- Escalated technical problems with screenshots and reproducible steps.
+
+SKILLS
+Manual QA, defect reproduction, support tickets, written troubleshooting, keyboard accessibility, remote collaboration

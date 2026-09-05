@@ -1,5 +1,5 @@
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   createAgentAiClient,
   createAgentBrowserRuntime,
@@ -43,7 +43,9 @@ describe("createJobFinderWorkspaceService", () => {
         basedOnRunId: "debug_run_draft",
         basedOnAttemptIds: ["debug_attempt_draft"],
         notes: "Accepted draft guidance.",
-        navigationGuidance: ["Use the accepted draft recommendation route first."],
+        navigationGuidance: [
+          "Use the accepted draft recommendation route first.",
+        ],
         searchGuidance: [
           "Open the accepted draft collection before trying broader search.",
         ],
@@ -98,10 +100,11 @@ describe("createJobFinderWorkspaceService", () => {
       }),
     ];
 
-    const catalog = await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
-      "target_site",
-      createSeed().searchPreferences,
-    );
+    const catalog =
+      await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
+        "target_site",
+        createSeed().searchPreferences,
+      );
     const baseAgentRuntime = createAgentBrowserRuntime(catalog.jobs);
     const capturedInstructionsByLabel = new Map<string, readonly string[]>();
     const browserRuntime: BrowserSessionRuntime = {
@@ -119,7 +122,10 @@ describe("createJobFinderWorkspaceService", () => {
       aiClient: createAgentAiClient(),
     });
 
-    await workspaceService.runAgentDiscovery(() => {}, new AbortController().signal);
+    await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+    );
 
     expect(capturedInstructionsByLabel.get("Draft target")).toEqual(
       expect.arrayContaining([
@@ -127,18 +133,18 @@ describe("createJobFinderWorkspaceService", () => {
         "[Search] Open the accepted draft collection before trying broader search.",
       ]),
     );
-    expect(capturedInstructionsByLabel.get("Draft target")?.join("\n")).not.toContain(
-      "validated jobs search route directly",
-    );
+    expect(
+      capturedInstructionsByLabel.get("Draft target")?.join("\n"),
+    ).not.toContain("validated jobs search route directly");
     expect(capturedInstructionsByLabel.get("Validated target")).toEqual(
       expect.arrayContaining([
         "[Navigation] Use the validated jobs search route directly.",
         "[Search] Use the validated location filter after opening the results page.",
       ]),
     );
-    expect(capturedInstructionsByLabel.get("Validated target")?.join("\n")).not.toContain(
-      "accepted draft recommendation route first",
-    );
+    expect(
+      capturedInstructionsByLabel.get("Validated target")?.join("\n"),
+    ).not.toContain("accepted draft recommendation route first");
   });
 
   test("source debug reuses learned route hints for later phases and uses tighter phase budgets", async () => {
@@ -217,10 +223,13 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source, options) {
-        capturedPhaseInputs.set(options.taskPacket?.strategyLabel ?? options.siteLabel, {
-          startingUrls: [...options.startingUrls],
-          maxSteps: options.maxSteps,
-        });
+        capturedPhaseInputs.set(
+          options.taskPacket?.strategyLabel ?? options.siteLabel,
+          {
+            startingUrls: [...options.startingUrls],
+            maxSteps: options.maxSteps,
+          },
+        );
         return baseRuntime.runAgentDiscovery!(source, options);
       },
     };
@@ -260,11 +269,13 @@ describe("createJobFinderWorkspaceService", () => {
     expect(capturedPhaseInputs.get("Replay Verification")?.maxSteps).toBe(10);
 
     const latestRun = (await repository.listSourceDebugRuns())[0];
-    const siteStructureAttempt = (await repository.listSourceDebugAttempts()).find(
-      (attempt) => attempt.phase === "site_structure_mapping",
-    );
+    const siteStructureAttempt = (
+      await repository.listSourceDebugAttempts()
+    ).find((attempt) => attempt.phase === "site_structure_mapping");
     const startEvidence = (await repository.listSourceDebugEvidenceRefs()).find(
-      (entry) => entry.attemptId === siteStructureAttempt?.id && entry.label === "Starting URL",
+      (entry) =>
+        entry.attemptId === siteStructureAttempt?.id &&
+        entry.label === "Starting URL",
     );
 
     expect(latestRun?.instructionArtifactId).toBeTruthy();
@@ -304,7 +315,9 @@ describe("createJobFinderWorkspaceService", () => {
         searchGuidance: [
           "Use https://example.com/careers/open-roles/search?team=product to reach filtered results.",
         ],
-        detailGuidance: ["Open the role detail page from the careers collection."],
+        detailGuidance: [
+          "Open the role detail page from the careers collection.",
+        ],
         applyGuidance: ["Apply starts from the role detail page."],
         warnings: [],
         versionInfo: {
@@ -327,7 +340,8 @@ describe("createJobFinderWorkspaceService", () => {
           source: "target_site",
           sourceJobId: "example_source_debug_seeded",
           discoveryMethod: "catalog_seed",
-          canonicalUrl: "https://example.com/careers/open-roles/frontend-engineer",
+          canonicalUrl:
+            "https://example.com/careers/open-roles/frontend-engineer",
           title: "Frontend Engineer",
           company: "Example Co",
           location: "Remote",
@@ -349,10 +363,13 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source, options) {
-        capturedPhaseInputs.set(options.taskPacket?.strategyLabel ?? options.siteLabel, {
-          startingUrls: [...options.startingUrls],
-          maxSteps: options.maxSteps,
-        });
+        capturedPhaseInputs.set(
+          options.taskPacket?.strategyLabel ?? options.siteLabel,
+          {
+            startingUrls: [...options.startingUrls],
+            maxSteps: options.maxSteps,
+          },
+        );
         return baseRuntime.runAgentDiscovery!(source, options);
       },
     };
@@ -385,7 +402,7 @@ describe("createJobFinderWorkspaceService", () => {
     });
   });
 
-  test("provider-backed targets skip low-value mapping phases during source debug", async () => {
+  test("provider-backed targets validate through the public API without browser phases", async () => {
     const seed = createSeed();
     seed.searchPreferences.discovery.targets[0] = {
       ...seed.searchPreferences.discovery.targets[0]!,
@@ -396,6 +413,22 @@ describe("createJobFinderWorkspaceService", () => {
       draftInstructionId: null,
       validatedInstructionId: null,
     };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          jobs: [
+            {
+              id: 4622190,
+              title: "Software Engineer",
+              absolute_url:
+                "https://job-boards.greenhouse.io/remote/jobs/4622190",
+              location: { name: "Remote" },
+              content: "<p>Build remote software.</p>",
+            },
+          ],
+        }),
+    } as Response);
 
     const capturedPhaseInputs = new Map<
       string,
@@ -429,10 +462,13 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source, options) {
-        capturedPhaseInputs.set(options.taskPacket?.strategyLabel ?? options.siteLabel, {
-          startingUrls: [...options.startingUrls],
-          maxSteps: options.maxSteps,
-        });
+        capturedPhaseInputs.set(
+          options.taskPacket?.strategyLabel ?? options.siteLabel,
+          {
+            startingUrls: [...options.startingUrls],
+            maxSteps: options.maxSteps,
+          },
+        );
         return baseRuntime.runAgentDiscovery!(source, options);
       },
     };
@@ -448,23 +484,17 @@ describe("createJobFinderWorkspaceService", () => {
 
     await workspaceService.runSourceDebug("target_greenhouse_remote");
 
-    expect(capturedPhaseInputs.get("Access Auth Probe")).toEqual({
-      startingUrls: ["https://job-boards.greenhouse.io/remote"],
-      maxSteps: 16,
-    });
-    expect(capturedPhaseInputs.has("Site Structure Mapping")).toBe(false);
-    expect(capturedPhaseInputs.has("Search Filter Probe")).toBe(false);
-    expect(capturedPhaseInputs.get("Job Detail Validation")?.maxSteps).toBe(15);
-    expect(capturedPhaseInputs.get("Apply Path Validation")?.maxSteps).toBe(15);
-    expect(capturedPhaseInputs.get("Replay Verification")?.maxSteps).toBe(13);
-
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(capturedPhaseInputs.size).toBe(0);
     const latestRun = (await repository.listSourceDebugRuns())[0];
-    expect(latestRun?.phases).toEqual([
-      "access_auth_probe",
-      "job_detail_validation",
-      "apply_path_validation",
-      "replay_verification",
-    ]);
+    expect(latestRun?.phases).toEqual(["replay_verification"]);
+    expect(latestRun?.timing?.browserSetupMs).toBeNull();
+    const latestArtifact = (
+      await repository.listSourceInstructionArtifacts()
+    ).at(-1);
+    expect(latestArtifact?.status).toBe("validated");
+    expect(latestArtifact?.warnings).toEqual([]);
+    fetchSpy.mockRestore();
   });
 
   test("search filter probe prefers proven collection routes when no search route hint exists", async () => {
@@ -491,7 +521,7 @@ describe("createJobFinderWorkspaceService", () => {
           'Click "Show all top job picks for you" to open https://www.linkedin.com/jobs/collections/recommended/.',
         ],
         searchGuidance: [
-          'Recommendation routes are the primary way to access different job collections.',
+          "Recommendation routes are the primary way to access different job collections.",
         ],
         detailGuidance: [],
         applyGuidance: [],
@@ -539,10 +569,13 @@ describe("createJobFinderWorkspaceService", () => {
     const browserRuntime: BrowserSessionRuntime = {
       ...baseRuntime,
       runAgentDiscovery(source, options) {
-        capturedPhaseInputs.set(options.taskPacket?.strategyLabel ?? options.siteLabel, {
-          startingUrls: [...options.startingUrls],
-          maxSteps: options.maxSteps,
-        });
+        capturedPhaseInputs.set(
+          options.taskPacket?.strategyLabel ?? options.siteLabel,
+          {
+            startingUrls: [...options.startingUrls],
+            maxSteps: options.maxSteps,
+          },
+        );
         return baseRuntime.runAgentDiscovery!(source, options);
       },
     };

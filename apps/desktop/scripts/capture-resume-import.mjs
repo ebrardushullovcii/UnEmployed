@@ -59,6 +59,7 @@ async function writeJson(fileName, value) {
 }
 
 async function waitForProfileOrSetupHeading(window) {
+  await window.evaluate(() => { window.location.hash = '#/job-finder/profile' })
   await window.waitForFunction(() => {
     const heading = document.querySelector('h1')
     return heading?.textContent?.includes('Guided setup') || heading?.textContent?.includes('Your profile')
@@ -127,7 +128,7 @@ async function captureResumeImport() {
     failIfExpectationMisses(reloadedSnapshot)
     await writeJson('workspace-after-reload.json', reloadedSnapshot)
 
-    await window.getByRole('tab', { name: /Experience/i }).click()
+    await window.getByRole('tab', { name: /Work history/i }).click()
     await window.getByRole('heading', { level: 2, name: 'Work history' }).waitFor({ timeout: 15000 })
 
     const visibleExperienceCards = await window.evaluate(() => {

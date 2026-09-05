@@ -1,9 +1,12 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  ProfileAnswerBankPatchFieldsSchema,
+  ProfileCoreListPatchFieldsSchema,
   ProfileCopilotMessageSchema,
   ProfileCopilotPatchGroupSchema,
   ProfileCopilotReplySchema,
+  ProfileIdentityPatchFieldsSchema,
   ProfileRevisionSchema,
 } from "./index";
 
@@ -12,7 +15,8 @@ describe("contracts profile copilot schemas", () => {
     const message = ProfileCopilotMessageSchema.parse({
       id: "profile_message_1",
       role: "assistant",
-      content: "I tightened your positioning and suggested a stronger target role list.",
+      content:
+        "I tightened your positioning and suggested a stronger target role list.",
       context: {
         surface: "setup",
         step: "essentials",
@@ -27,7 +31,8 @@ describe("contracts profile copilot schemas", () => {
               operation: "replace_identity_fields",
               value: {
                 headline: "Senior Product Designer",
-                summary: "Designs operational systems that help teams move faster.",
+                summary:
+                  "Designs operational systems that help teams move faster.",
               },
             },
             {
@@ -57,7 +62,8 @@ describe("contracts profile copilot schemas", () => {
           record: {
             id: null,
             title: "Improved activation",
-            claim: "Raised product activation by 18% after redesigning onboarding.",
+            claim:
+              "Raised product activation by 18% after redesigning onboarding.",
             heroMetric: "+18% activation",
             supportingContext: null,
             roleFamilies: ["product_design"],
@@ -111,6 +117,25 @@ describe("contracts profile copilot schemas", () => {
     });
   });
 
+  test("accepts explicit nullable and list clears but still rejects empty patches", () => {
+    expect(
+      ProfileIdentityPatchFieldsSchema.parse({ secondaryEmail: null }),
+    ).toEqual({
+      secondaryEmail: null,
+    });
+    expect(ProfileCoreListPatchFieldsSchema.parse({ skills: [] })).toEqual({
+      skills: [],
+    });
+    expect(
+      ProfileAnswerBankPatchFieldsSchema.parse({ availability: null }),
+    ).toEqual({
+      availability: null,
+    });
+
+    expect(ProfileIdentityPatchFieldsSchema.safeParse({}).success).toBe(false);
+    expect(ProfileCoreListPatchFieldsSchema.safeParse({}).success).toBe(false);
+  });
+
   test("parses newly supported approval-mode preference updates", () => {
     const patchGroup = ProfileCopilotPatchGroupSchema.parse({
       id: "profile_patch_group_approval_mode",
@@ -135,7 +160,8 @@ describe("contracts profile copilot schemas", () => {
 
   test("parses provider replies and revision snapshots", () => {
     const reply = ProfileCopilotReplySchema.parse({
-      content: "I found one safe wording improvement and one proof-point suggestion.",
+      content:
+        "I found one safe wording improvement and one proof-point suggestion.",
       patchGroups: [
         {
           id: "profile_patch_group_3",

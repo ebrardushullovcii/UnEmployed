@@ -44,6 +44,14 @@ export const tailoringModeValues = [
 export const TailoringModeSchema = z.enum(tailoringModeValues);
 export type TailoringMode = z.infer<typeof TailoringModeSchema>;
 
+export const resumeApplicationModeValues = [
+  "tailored_per_job",
+  "original_resume",
+] as const;
+
+export const ResumeApplicationModeSchema = z.enum(resumeApplicationModeValues);
+export type ResumeApplicationMode = z.infer<typeof ResumeApplicationModeSchema>;
+
 export const appearanceThemeValues = ["dark", "light", "system"] as const;
 
 export const AppearanceThemeSchema = z.enum(appearanceThemeValues);
@@ -149,7 +157,10 @@ export function normalizeWorkModeList(value: unknown): unknown {
 
   if (typeof value === "string") {
     if (!value.trim()) return [];
-    return value.split(/\s*,\s*/).filter(Boolean).map(normalizeWorkModeValue);
+    return value
+      .split(/\s*,\s*/)
+      .filter(Boolean)
+      .map(normalizeWorkModeValue);
   }
 
   return value;
@@ -210,12 +221,11 @@ export const browserDriverValues = [
 export const BrowserDriverSchema = z.enum(browserDriverValues);
 export type BrowserDriver = z.infer<typeof BrowserDriverSchema>;
 
-export const browserRunCloseoutModeValues = [
-  "closed",
-  "kept_alive",
-] as const;
+export const browserRunCloseoutModeValues = ["closed", "kept_alive"] as const;
 
-export const BrowserRunCloseoutModeSchema = z.enum(browserRunCloseoutModeValues);
+export const BrowserRunCloseoutModeSchema = z.enum(
+  browserRunCloseoutModeValues,
+);
 export type BrowserRunCloseoutMode = z.infer<
   typeof BrowserRunCloseoutModeSchema
 >;
@@ -522,6 +532,25 @@ export const assetGenerationMethodValues = [
 
 export const AssetGenerationMethodSchema = z.enum(assetGenerationMethodValues);
 export type AssetGenerationMethod = z.infer<typeof AssetGenerationMethodSchema>;
+
+/**
+ * Why a generated asset ended up on the deterministic path. `null` means the
+ * configured model produced the accepted content. The reason is recorded by
+ * the AI boundary that made the decision, never inferred from note prose.
+ */
+export const assetGenerationReasonValues = [
+  "no_provider_configured",
+  "provider_failed",
+  "provider_timeout",
+  "provider_output_unverified",
+  "forced_deterministic",
+  // The posting carried no listing body (card-only capture), so there was
+  // nothing to tailor toward and the model was never asked.
+  "listing_text_missing",
+] as const;
+
+export const AssetGenerationReasonSchema = z.enum(assetGenerationReasonValues);
+export type AssetGenerationReason = z.infer<typeof AssetGenerationReasonSchema>;
 
 export const aiProviderKindValues = [
   "deterministic",

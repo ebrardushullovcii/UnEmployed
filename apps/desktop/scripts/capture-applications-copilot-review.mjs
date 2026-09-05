@@ -1,6 +1,3 @@
-/* eslint-env node, browser */
-/* global process, setTimeout, document */
-
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -39,10 +36,42 @@ async function waitForCondition(check, description, timeoutMs = 15000, intervalM
 }
 
 async function waitForProfileOrSetupHeading(window) {
-  await window.waitForFunction(() => {
-    const heading = document.querySelector('h1')
-    return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')
-  }, undefined, { timeout: 15000 })
+  await window.waitForFunction(() => Boolean(window.unemployed?.jobFinder?.test), undefined, { timeout: 15000 })
+  await window.evaluate(() => {
+    window.location.hash = '#/job-finder/profile'
+  })
+  const waitForHeading = () =>
+    window.waitForFunction(
+      () => {
+        const heading = document.querySelector('h1')
+        return /Your profile|Guided setup/.test(heading?.textContent ?? '')
+      },
+      undefined,
+      { timeout: 15000 },
+    )
+
+  try {
+    await waitForHeading()
+  } catch (error) {
+    await window.reload()
+    await window.waitForLoadState('domcontentloaded')
+    await window.waitForFunction(() => Boolean(window.unemployed?.jobFinder?.test), undefined, { timeout: 15000 })
+    await window.evaluate(() => {
+      window.location.hash = '#/job-finder/profile'
+    })
+
+    try {
+      await waitForHeading()
+      return
+    } catch {
+      const pageState = await window.evaluate(() => ({
+        bodyText: document.body.innerText.slice(0, 500),
+        hash: window.location.hash,
+        headings: Array.from(document.querySelectorAll('h1')).map((heading) => heading.textContent),
+      }))
+      throw new Error(`Profile route did not become ready: ${JSON.stringify(pageState)}`, { cause: error })
+    }
+  }
 }
 
 async function getResumeWorkspace(window, jobId) {
@@ -54,6 +83,17 @@ async function getResumeWorkspace(window, jobId) {
 
 async function getWorkspace(window) {
   return window.evaluate(() => window.unemployed.jobFinder.getWorkspace())
+}
+
+async function getApplicationDocuments(window, jobId, applicationRecordId) {
+  return window.evaluate(
+    async ({ currentJobId, currentApplicationRecordId }) =>
+      window.unemployed.jobFinder.listApplicationDocuments({
+        jobId: currentJobId,
+        applicationRecordId: currentApplicationRecordId,
+      }),
+    { currentJobId: jobId, currentApplicationRecordId: applicationRecordId },
+  )
 }
 
 async function getSelectedApplyReviewData(window) {
@@ -169,14 +209,22 @@ async function captureApplicationsCopilotReview() {
 
     await window.getByRole('button', { name: /Back to Shortlisted/i }).click()
     await window.getByRole('heading', { level: 1, name: 'Shortlisted jobs' }).waitFor({ timeout: 10000 })
-    const startApplyCopilotButton = window.getByRole('button', { name: 'Start apply copilot' })
+    const startApplyCopilotButton = window.getByRole('button', { name: 'Prepare application' })
     if (await startApplyCopilotButton.isDisabled()) {
-      throw new Error('Start apply copilot should be enabled after resume approval.')
+      throw new Error('Prepare application should be enabled after resume approval.')
     }
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '02-review-queue-approved.png') })
 
     await startApplyCopilotButton.click()
-    await window.getByRole('heading', { level: 1, name: 'Applications' }).waitFor({ timeout: 10000 })
+    const checkpointDialog = window.getByRole('dialog')
+    await checkpointDialog.waitFor({ timeout: 10000 })
+    await checkpointDialog.getByRole('button', { name: 'Prepare application', exact: true }).click()
+    await waitForCondition(
+      async () => (await getWorkspace(window)).applicationRecords.length > 0,
+      'application record created by the prepare-only run',
+    )
+    await window.evaluate(() => { window.location.hash = '#/job-finder/applications' })
+    await window.locator('h1').filter({ hasText: /^Applications$/ }).waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '03-applications-open.png') })
 
     const reviewDataHeading = window.getByText('Apply run review data', { exact: true })
@@ -184,7 +232,7 @@ async function captureApplicationsCopilotReview() {
     await reviewDataSection.waitFor({ timeout: 10000 })
     await reviewDataSection.getByText('Replay checkpoints', { exact: true }).waitFor({ timeout: 10000 })
     await reviewDataSection.getByText('Retained artifacts', { exact: true }).waitFor({ timeout: 10000 })
-    await reviewDataSection.getByText('Attached tailored resume', { exact: true }).first().waitFor({ timeout: 10000 })
+    await reviewDataSection.getByText('Attached selected resume', { exact: true }).first().waitFor({ timeout: 10000 })
     await window.screenshot({ animations: 'disabled', path: path.join(outputDir, '04-applications-copilot-review-data.png') })
 
     const reviewData = await getSelectedApplyReviewData(window)
@@ -224,8 +272,57 @@ async function captureApplicationsCopilotReview() {
       throw new Error('Expected persisted apply review data to include replay checkpoints.')
     }
 
+    const applicationDocumentsHeading = window.getByText('Application documents', { exact: true })
+    await applicationDocumentsHeading.scrollIntoViewIfNeeded()
+    await applicationDocumentsHeading.waitFor({ timeout: 10000 })
+    await window.getByRole('button', { name: 'Generate grounded proposal' }).click()
+
+    const documentEditor = window.getByLabel('Edit proposed text')
+    await documentEditor.waitFor({ timeout: 10000 })
+    await window.screenshot({
+      animations: 'disabled',
+      path: path.join(outputDir, '05-grounded-document-proposal.png'),
+    })
+
+    const proposedContent = await documentEditor.inputValue()
+    await documentEditor.fill(
+      `${proposedContent.trim()}\n\nI would welcome the opportunity to discuss this work and the role.`,
+    )
+    await window.getByRole('button', { name: 'Save edit as new revision' }).click()
+    await window.getByText(/Saved user-authored revision \d+\./).waitFor({ timeout: 10000 })
+    await window.screenshot({
+      animations: 'disabled',
+      path: path.join(outputDir, '06-user-edited-document-revision.png'),
+    })
+
+    await window.getByRole('button', { name: 'Approve exact revision' }).click()
+    await window
+      .getByText('Approved and added to Documents & assets for prepare-only use.', { exact: true })
+      .waitFor({ timeout: 10000 })
+    await window.getByRole('button', { name: 'Export .txt' }).waitFor({ timeout: 10000 })
+    await window.screenshot({
+      animations: 'disabled',
+      path: path.join(outputDir, '07-approved-application-document.png'),
+    })
+
+    const applicationDocuments = await getApplicationDocuments(
+      window,
+      reviewData.selectedRecord.jobId,
+      reviewData.selectedRecord.id,
+    )
+    const approvedDocument = applicationDocuments.documents.find(
+      (document) => document.status === 'approved',
+    )
+    if (!approvedDocument?.outputAsset?.id) {
+      throw new Error('Expected the approved application document to create a Candidate Asset.')
+    }
+    if (!approvedDocument.requiresGroundingReview || approvedDocument.authorship !== 'user_edited') {
+      throw new Error('Expected the approved manual edit to retain user-authored grounding review provenance.')
+    }
+
     const workspace = await getWorkspace(window)
     await writeJson('apply-run-details.json', reviewData)
+    await writeJson('application-documents.json', applicationDocuments)
     await writeJson('workspace-after-review.json', workspace)
   } finally {
     if (app) {

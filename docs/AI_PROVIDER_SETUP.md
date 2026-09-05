@@ -1,0 +1,263 @@
+# AI provider setup
+
+UnEmployed uses a mixed OpenCode Go route:
+
+- DeepSeek V4 Flash with `max` reasoning handles normal text and tool-based
+  agent work through Chat Completions.
+- GPT-5.6 Luna with `high` reasoning handles image-only résumé, browser, and
+  Interview Helper analysis through the Responses API.
+- Audio transcription remains local Whisper or an explicit audio-model concern.
+
+This supersedes the earlier Luna-for-everything provider selection while
+preserving the contract-first agent boundaries from ADR 0009. See ADR 0010.
+
+## Recommended production setup
+
+Create an OpenCode Go key, then use the same key for both text and vision:
+
+```dotenv
+UNEMPLOYED_AI_API_KEY=your-opencode-go-key
+UNEMPLOYED_AI_BASE_URL=https://opencode.ai/zen/go/v1
+UNEMPLOYED_AI_MODEL=deepseek-v4-flash
+UNEMPLOYED_AI_API_MODE=chat_completions
+UNEMPLOYED_AI_REASONING_EFFORT=max
+
+UNEMPLOYED_AI_VISION_BASE_URL=https://opencode.ai/zen/go/v1
+UNEMPLOYED_AI_VISION_MODEL=gpt-5.6-luna
+UNEMPLOYED_AI_VISION_API_MODE=responses
+UNEMPLOYED_AI_VISION_REASONING_EFFORT=high
+UNEMPLOYED_RESUME_VISION_MODEL=gpt-5.6-luna
+UNEMPLOYED_RESUME_VISION_REASONING_EFFORT=high
+UNEMPLOYED_BROWSER_VISION_MODEL=gpt-5.6-luna
+UNEMPLOYED_BROWSER_VISION_REASONING_EFFORT=high
+UNEMPLOYED_INTERVIEW_AI_MODEL=deepseek-v4-flash
+UNEMPLOYED_INTERVIEW_AI_API_MODE=chat_completions
+UNEMPLOYED_INTERVIEW_REASONING_EFFORT=max
+UNEMPLOYED_INTERVIEW_VISION_MODEL=gpt-5.6-luna
+UNEMPLOYED_INTERVIEW_VISION_API_MODE=responses
+UNEMPLOYED_INTERVIEW_VISION_REASONING_EFFORT=high
+```
+
+Use the raw API model IDs shown above. The `opencode-go/...` prefix is only for
+OpenCode's own configuration file, not direct HTTP API requests. Provider
+output remains locally parsed and schema-validated before it can modify Job
+Finder state.
+
+Audio configuration is intentionally not included in this mixed provider routing.
+Keep local Whisper or an explicit audio-capable transcription model configured
+for Interview Helper audio.
+
+## Temporary Muse Contributor dogfood override
+
+For current local dogfood only, the owner selected OpenCode Go's Muse Spark 1.2
+Contributor model for shared text, tool-based agent work, and image-capable
+surfaces. Muse Contributor accepts image input on this route; Luna is not used
+in the local override:
+
+```dotenv
+UNEMPLOYED_AI_API_KEY=your-opencode-go-key
+UNEMPLOYED_AI_BASE_URL=https://opencode.ai/zen/go/v1
+UNEMPLOYED_AI_MODEL=muse-spark-1.2-contributor
+UNEMPLOYED_AI_API_MODE=responses
+UNEMPLOYED_AI_REASONING_EFFORT=xhigh
+
+UNEMPLOYED_AI_VISION_BASE_URL=https://opencode.ai/zen/go/v1
+UNEMPLOYED_AI_VISION_MODEL=muse-spark-1.2-contributor
+UNEMPLOYED_AI_VISION_API_MODE=responses
+UNEMPLOYED_AI_VISION_REASONING_EFFORT=xhigh
+```
+
+The shared text variables cover Job Finder generative work, browser-agent
+tool loops, and Interview Helper text unless a narrower override is present.
+The shared vision variables cover resume visual analysis, browser visual
+analysis, and Interview Helper screenshot analysis unless a narrower override
+is present. Audio transcription remains local Whisper or a separately
+configured audio model.
+
+OpenCode Go serves `muse-spark-1.2-contributor` on the Responses API
+(`https://opencode.ai/zen/go/v1/responses`). Chat Completions is the wrong
+transport for this model and can drop tool-call streams. This is a temporary
+dogfood override, not an end-to-end capability, quality, privacy, or release
+acceptance result.
+
+`muse-spark-1.2-contributor` is the discounted Go contributor model, not the
+zero-cost Zen route `muse-spark-1.2-contributor-free`. OpenCode's published
+terms state that prompts and completions on the contributor route may be used
+to train future Meta models. Do not send a private resume, credentials,
+application answers, interview media, or other personal/confidential data
+through this route without explicit informed user consent. Use synthetic data
+for initial testing. Keep the API key only in ignored `.env.local`, never
+documentation or tracked examples, and rotate any temporary key shared through
+a conversation.
+
+Live Job Finder search during a desktop test-API session also requires
+`UNEMPLOYED_TEST_API_USE_LIVE_AI=1` for model/tool escalation.
+`UNEMPLOYED_ENABLE_TEST_API=1` alone forces the deterministic client (no
+`chatWithTools`). Discovery still runs the ADR 0013 compact-first page scan and
+can finish with zero-new / already-saved results when that scan finds listings;
+model escalation is unavailable until live AI is enabled.
+
+ADR 0010 remains the accepted production route until synthetic capability
+tests, privacy review, and owner acceptance justify a new routing decision.
+If Muse Contributor on Go is adopted beyond temporary dogfood, update ADR 0010
+(or supersede it), the recommended production setup above, `.env.example`, and
+provider acceptance evidence together.
+
+## Manual Zen fallback when Go quota is exhausted
+
+This is **operational guidance for agents and developers**, not application
+behavior. UnEmployed does **not** auto-switch AI routes, rotate models, or
+recover from quota errors at runtime. When Go usage is exhausted or rate
+limited, edit ignored `.env.local` manually and restart the desktop app.
+
+### Endpoints
+
+| Route              | Base URL                        | Billing                 |
+| ------------------ | ------------------------------- | ----------------------- |
+| **Go (primary)**   | `https://opencode.ai/zen/go/v1` | Paid contributor quota  |
+| **Zen (fallback)** | `https://opencode.ai/zen/v1`    | Free tier (`cost: "0"`) |
+
+The same OpenCode API key works on both endpoints.
+
+### Primary (local dogfood default)
+
+Keep Go with Muse Contributor on the Responses API:
+
+```dotenv
+UNEMPLOYED_AI_BASE_URL=https://opencode.ai/zen/go/v1
+UNEMPLOYED_AI_MODEL=muse-spark-1.2-contributor
+UNEMPLOYED_AI_API_MODE=responses
+UNEMPLOYED_AI_VISION_BASE_URL=https://opencode.ai/zen/go/v1
+UNEMPLOYED_AI_VISION_MODEL=muse-spark-1.2-contributor
+UNEMPLOYED_AI_VISION_API_MODE=responses
+```
+
+### When Go quota or rate limit is hit
+
+Switch **all** shared base URLs in `.env.local` to Zen and point each surface
+at the appropriate free model:
+
+```dotenv
+UNEMPLOYED_AI_BASE_URL=https://opencode.ai/zen/v1
+UNEMPLOYED_AI_MODEL=deepseek-v4-flash-free
+UNEMPLOYED_AI_API_MODE=chat_completions
+
+UNEMPLOYED_AI_VISION_BASE_URL=https://opencode.ai/zen/v1
+UNEMPLOYED_AI_VISION_MODEL=muse-spark-1.2-contributor-free
+UNEMPLOYED_AI_VISION_API_MODE=responses
+```
+
+- **Text / tool loops:** `deepseek-v4-flash-free` via Chat Completions (no
+  vision).
+- **Vision surfaces** (resume, browser, Interview screenshots):
+  `muse-spark-1.2-contributor-free` via Responses (has vision input).
+
+### Rotating on Zen rate limits
+
+If Zen returns HTTP 429, manually swap the **text** model in `.env.local`:
+
+1. Start with `deepseek-v4-flash-free` (Chat Completions).
+2. On rate limit, switch text to `muse-spark-1.2-contributor-free`
+   (Responses, `UNEMPLOYED_AI_API_MODE=responses`).
+3. On the next rate limit, switch back to `deepseek-v4-flash-free`.
+
+Keep vision on `muse-spark-1.2-contributor-free` throughout — DeepSeek Free
+does not accept image input. Restart the app after each change.
+
+### Operator caveats
+
+- **Tool calling:** Zen free models may not reliably stream tool calls.
+  Discovery and browser-agent loops that depend on `chatWithTools` can fail or
+  behave differently on the free tier. Go Muse Contributor is the safer route
+  for tool-based work.
+- **Not a product feature:** Do not add automatic route rotation, fallback
+  env vars, or retry logic to `packages/ai-providers` for this workflow.
+- **Signals to watch for:** HTTP 401 with insufficient balance / credits,
+  `CreditsError`, or HTTP 429 on Go → time to switch to Zen manually.
+- **Privacy:** Zen free contributor models may be used for model training per
+  OpenCode terms. Use synthetic data until you accept that tradeoff.
+
+## Desktop test API precedence for Interview Helper
+
+With `UNEMPLOYED_ENABLE_TEST_API=1`, Interview Helper providers resolve to the
+deterministic runtime regardless of ambient interview or shared credentials.
+Live AI during a test-API run requires the explicit, narrowly named opt-in:
+
+```dotenv
+UNEMPLOYED_INTERVIEW_TEST_USE_LIVE_AI=1
+```
+
+Production runs with the test API absent keep configured behavior unchanged,
+and explicitly configured local STT commands stay available under the test API
+because they execute offline. The release acceptance harness additionally
+strips every `UNEMPLOYED_INTERVIEW_*_API_KEY` variable plus the shared
+`UNEMPLOYED_AI_API_KEY`, `UNEMPLOYED_AI_VISION_API_KEY`, and
+`UNEMPLOYED_RESUME_VISION_API_KEY` keys (and this opt-in) from its launch
+environment, so no ambient developer-shell credential can win. The Job Finder
+resume benchmarks keep their own documented `--use-configured-ai`
+`UNEMPLOYED_TEST_API_USE_LIVE_AI` exceptions; this Interview Helper switch is
+separate and narrower.
+
+## Local Codex subscription proxy
+
+For local evaluation without a separate OpenAI Platform key, use the pinned
+[openai-oauth](https://github.com/EvanZhouDev/openai-oauth) npm proxy. It is
+an unofficial community integration, so keep it loopback-only and do not
+deploy it as a shared service. Version 2.0.0 exposes both /v1/responses and
+/v1/chat/completions, discovers the models available to the current Codex
+account, and reads the same local Codex OAuth file.
+
+Start and verify the proxy:
+
+    npx --yes openai-oauth@2.0.0 login
+    npx --yes openai-oauth@2.0.0 --host 127.0.0.1 --port 10531 --detach
+    npx --yes openai-oauth@2.0.0 status
+    Invoke-RestMethod http://127.0.0.1:10531/v1/models
+
+If Codex is already signed in locally, the explicit login step may not be
+needed. The client key is a non-secret placeholder because the proxy is bound
+to loopback:
+
+    UNEMPLOYED_AI_API_KEY=unused
+    UNEMPLOYED_AI_BASE_URL=http://127.0.0.1:10531/v1
+    UNEMPLOYED_AI_MODEL=gpt-5.6-luna
+    UNEMPLOYED_AI_API_MODE=responses
+    UNEMPLOYED_AI_REASONING_EFFORT=high
+    UNEMPLOYED_RESUME_VISION_MODEL=gpt-5.6-luna
+
+Before using it with candidate data:
+
+- keep the host fixed to 127.0.0.1, never a LAN or public interface;
+- pin and review the package version instead of executing an unbounded latest
+  version in repeatable workflows;
+- verify gpt-5.6-luna appears in /v1/models;
+- verify text, image input, structured output, tools, and high reasoning using
+  synthetic data;
+- do not use this bridge for the normal OpenCode Go production route;
+- stop the local proxy when it is no longer needed:
+
+  npx --yes openai-oauth@2.0.0 stop
+
+## Compatibility fallback
+
+A legacy provider can still be used explicitly:
+
+```dotenv
+UNEMPLOYED_AI_API_MODE=chat_completions
+```
+
+That mode is now the intended DeepSeek text route. Keep Luna image work on the
+separate Responses route.
+
+## Verification
+
+With a configured OpenCode Go key:
+
+1. confirm `GET https://opencode.ai/zen/go/v1/models` is reachable;
+2. run `pnpm validate:package ai-providers`;
+3. open Settings and confirm the normal provider reports
+   `deepseek-v4-flash`;
+4. use synthetic candidate data for the first resume, vision, and tool-loop
+   smoke checks;
+5. preserve the application safety boundary: final submission authorization
+   stays false regardless of provider.

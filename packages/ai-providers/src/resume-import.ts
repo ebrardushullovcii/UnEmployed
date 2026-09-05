@@ -14,6 +14,10 @@ import {
 } from "@unemployed/contracts";
 import { z } from "zod";
 
+import {
+  experienceSectionHeadingPattern,
+  nonExperienceSectionHeadingPattern,
+} from "./deterministic/constants";
 import { buildCandidateConfidenceBreakdown } from "./resume-import-helpers";
 
 export const resumeImportExtractionStageValues = [
@@ -28,6 +32,28 @@ export const ResumeImportExtractionStageSchema = z.enum(
 export type ResumeImportExtractionStage = z.infer<
   typeof ResumeImportExtractionStageSchema
 >;
+export const ResumeImportStageExtractionTimingSchema = z.object({
+  durationMs: z.number().int().min(0),
+  primaryProviderMs: z.number().int().min(0).nullable().default(null),
+  deterministicFallbackMs: z.number().int().min(0).nullable().default(null),
+});
+export type ResumeImportStageExtractionTiming = z.infer<
+  typeof ResumeImportStageExtractionTimingSchema
+>;
+
+/**
+ * Recorded when a stage asked the configured model, did not get an answer, and
+ * silently continued on the deterministic reader. The stage still returns
+ * candidates, so nothing else in the pipeline can tell the difference; this is
+ * the only place the degradation is observable.
+ */
+export const ResumeImportStageFallbackSchema = z.object({
+  kind: z.enum(["timeout", "provider_error"]),
+  reason: NonEmptyStringSchema,
+});
+export type ResumeImportStageFallback = z.infer<
+  typeof ResumeImportStageFallbackSchema
+>;
 
 export const ResumeImportStageExtractionResultSchema = z.object({
   stage: ResumeImportExtractionStageSchema,
@@ -35,6 +61,10 @@ export const ResumeImportStageExtractionResultSchema = z.object({
   analysisProviderLabel: NonEmptyStringSchema,
   candidates: z.array(ResumeImportFieldCandidateDraftSchema).default([]),
   notes: z.array(NonEmptyStringSchema).default([]),
+  timing: ResumeImportStageExtractionTimingSchema.nullable().optional(),
+  // Optional, like `timing`: only the fallback-aware client records it, and a
+  // stage that reached the model has nothing to declare.
+  fallback: ResumeImportStageFallbackSchema.nullable().optional(),
 });
 export type ResumeImportStageExtractionResult = z.infer<
   typeof ResumeImportStageExtractionResultSchema
@@ -53,11 +83,20 @@ const stageSectionHints: Record<
 > = {
   identity_summary: ["identity", "summary", "contact"],
   experience: ["experience"],
-  background: ["skills", "education", "certifications", "projects", "languages"],
+  background: [
+    "skills",
+    "education",
+    "certifications",
+    "projects",
+    "languages",
+  ],
   shared_memory: ["summary", "experience", "projects", "skills", "contact"],
 };
 
-function matchesAnyPattern(value: string, patterns: readonly RegExp[]): boolean {
+function matchesAnyPattern(
+  value: string,
+  patterns: readonly RegExp[],
+): boolean {
   return patterns.some((pattern) => pattern.test(value));
 }
 
@@ -96,7 +135,9 @@ function sliceHeadingRange(
   return blocks.slice(startIndex, stopIndex === -1 ? undefined : stopIndex);
 }
 
-function dedupeBlocks(blocks: readonly ResumeDocumentBlock[]): ResumeDocumentBlock[] {
+function dedupeBlocks(
+  blocks: readonly ResumeDocumentBlock[],
+): ResumeDocumentBlock[] {
   const seen = new Set<string>();
 
   return blocks.filter((block) => {
@@ -117,7 +158,9 @@ function sortBlocksForStructuredExtraction(
       return left.pageNumber - right.pageNumber;
     }
 
-    const topDelta = (left.bbox?.top ?? left.readingOrder) - (right.bbox?.top ?? right.readingOrder);
+    const topDelta =
+      (left.bbox?.top ?? left.readingOrder) -
+      (right.bbox?.top ?? right.readingOrder);
     if (Math.abs(topDelta) > 1) {
       return topDelta;
     }
@@ -139,8 +182,20 @@ const stageTargetSections: Record<
 > = {
   identity_summary: ["identity", "contact", "location", "search_preferences"],
   experience: ["experience"],
-  background: ["education", "certification", "link", "project", "language", "skill"],
-  shared_memory: ["narrative", "proof_point", "answer_bank", "application_identity"],
+  background: [
+    "education",
+    "certification",
+    "link",
+    "project",
+    "language",
+    "skill",
+  ],
+  shared_memory: [
+    "narrative",
+    "proof_point",
+    "answer_bank",
+    "application_identity",
+  ],
 };
 
 export function buildValuePreview(value: unknown): string | null {
@@ -180,13 +235,13 @@ export function selectBlocksForResumeImportStage(
   const blocks = sortBlocksForStructuredExtraction(documentBundle.blocks);
   const experienceBlocks = sliceHeadingRange(
     blocks,
-    [/^work experience$/i, /^experience$/i],
-    [/^education(?: and training)?$/i, /^language skills$/i, /^certifications?$/i],
+    [experienceSectionHeadingPattern],
+    [nonExperienceSectionHeadingPattern],
   );
   const skillsBlocks = sliceHeadingRange(
     blocks,
     [/^skills$/i, /^technical skills$/i, /^core skills$/i, /^key skills$/i],
-    [/^work experience$/i, /^experience$/i],
+    [experienceSectionHeadingPattern],
   );
   const educationBlocks = sliceHeadingRange(
     blocks,
@@ -198,8 +253,14 @@ export function selectBlocksForResumeImportStage(
     [/^language skills$/i],
     [/^certifications?$/i],
   );
-  const preSkillsCutoff = findHeadingIndex(blocks, 0, [/^skills$/i, /^work experience$/i, /^experience$/i]);
-  const introBlocks = blocks.slice(0, preSkillsCutoff === -1 ? Math.min(blocks.length, 16) : preSkillsCutoff);
+  const preSkillsCutoff = findHeadingIndex(blocks, 0, [
+    /^skills$/i,
+    experienceSectionHeadingPattern,
+  ]);
+  const introBlocks = blocks.slice(
+    0,
+    preSkillsCutoff === -1 ? Math.min(blocks.length, 16) : preSkillsCutoff,
+  );
 
   if (stage === "identity_summary") {
     const selected = dedupeBlocks([
@@ -240,7 +301,9 @@ export function selectBlocksForResumeImportStage(
   }
 
   const preferredHints = new Set(stageSectionHints[stage]);
-  const preferredBlocks = blocks.filter((block) => preferredHints.has(block.sectionHint));
+  const preferredBlocks = blocks.filter((block) =>
+    preferredHints.has(block.sectionHint),
+  );
 
   if (preferredBlocks.length > 0) {
     return preferredBlocks;
@@ -253,7 +316,9 @@ export function sanitizeStageCandidates(
   input: ExtractResumeImportStageInput,
   output: ResumeImportStageExtractionResult,
 ): ResumeImportStageExtractionResult {
-  const validBlockIds = new Set(input.documentBundle.blocks.map((block) => block.id));
+  const validBlockIds = new Set(
+    input.documentBundle.blocks.map((block) => block.id),
+  );
   const validSections = new Set(stageTargetSections[input.stage]);
 
   const candidates = output.candidates.flatMap((candidate) => {
@@ -264,8 +329,11 @@ export function sanitizeStageCandidates(
     return [
       ResumeImportFieldCandidateDraftSchema.parse({
         ...candidate,
-        valuePreview: candidate.valuePreview ?? buildValuePreview(candidate.value),
-        sourceBlockIds: candidate.sourceBlockIds.filter((id) => validBlockIds.has(id)),
+        valuePreview:
+          candidate.valuePreview ?? buildValuePreview(candidate.value),
+        sourceBlockIds: candidate.sourceBlockIds.filter((id) =>
+          validBlockIds.has(id),
+        ),
         confidenceBreakdown:
           candidate.confidenceBreakdown ??
           buildCandidateConfidenceBreakdown({
@@ -303,6 +371,11 @@ export const ResumeVisionExtractionResultSchema = z.object({
   notes: z.array(NonEmptyStringSchema).default([]),
   warnings: z.array(NonEmptyStringSchema).default([]),
   primaryErrorMessage: NonEmptyStringSchema.nullable().default(null),
+  fallbackUsed: z.boolean().optional(),
+  // Same optional contract as the text stages: only a provider that actually
+  // lost its model call declares one, and the declared kind is what the run
+  // reports, so a degraded visual scan can never read as a model result.
+  fallback: ResumeImportStageFallbackSchema.nullable().optional(),
 });
 export type ResumeVisionExtractionResult = z.infer<
   typeof ResumeVisionExtractionResultSchema

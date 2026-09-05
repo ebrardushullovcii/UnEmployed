@@ -1,4 +1,8 @@
-import { ResumeImportFieldCandidateSchema, type ResumeDocumentBundle, type ResumeImportFieldCandidate } from "@unemployed/contracts";
+import {
+  ResumeImportFieldCandidateSchema,
+  type ResumeDocumentBundle,
+  type ResumeImportFieldCandidate,
+} from "@unemployed/contracts";
 import { buildValuePreview } from "@unemployed/ai-providers";
 
 import { isObject } from "./resume-import-common";
@@ -16,7 +20,9 @@ function parseCompanyMarkerText(text: string): {
 } {
   const match = text
     .trim()
-    .match(/^([A-Z0-9&.'()/-]+(?:\s+[A-Z0-9&.'()/-]+)*)\s*[–—-]\s*([A-Z][A-Z\s.'-]+,\s*[A-Z][A-Z\s.'-]+)$/);
+    .match(
+      /^([A-Z0-9&.'()/-]+(?:\s+[A-Z0-9&.'()/-]+)*)\s*[–—-]\s*([A-Z][A-Z\s.'-]+,\s*[A-Z][A-Z\s.'-]+)$/,
+    );
 
   if (!match) {
     return { companyName: null, location: null };
@@ -40,7 +46,7 @@ function looksLikeContinuationPrefix(lines: readonly string[]): boolean {
   let sawBullet = false;
 
   for (const line of lines) {
-    if (line.startsWith("•")) {
+    if (/^[•●▪◦‣■]/.test(line)) {
       sawBullet = true;
       continue;
     }
@@ -70,7 +76,9 @@ function inferCompanyMarkerFromPreviousPageContinuation(
     return null;
   }
 
-  const currentPage = bundle.pages.find((page) => page.pageNumber === sourceBlock.pageNumber);
+  const currentPage = bundle.pages.find(
+    (page) => page.pageNumber === sourceBlock.pageNumber,
+  );
   const previousPage = bundle.pages.find(
     (page) => page.pageNumber === sourceBlock.pageNumber - 1,
   );
@@ -125,7 +133,9 @@ function inferCompanyMarkerFromPageFlow(
     return null;
   }
 
-  const pages = [...bundle.pages].sort((left, right) => left.pageNumber - right.pageNumber);
+  const pages = [...bundle.pages].sort(
+    (left, right) => left.pageNumber - right.pageNumber,
+  );
 
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
     const page = pages[pageIndex];
@@ -166,7 +176,11 @@ function inferCompanyMarkerFromPageFlow(
       return null;
     }
 
-    for (let previousPageIndex = pageIndex - 1; previousPageIndex >= 0; previousPageIndex -= 1) {
+    for (
+      let previousPageIndex = pageIndex - 1;
+      previousPageIndex >= 0;
+      previousPageIndex -= 1
+    ) {
       const previousPage = pages[previousPageIndex];
 
       if (!previousPage?.text) {
@@ -178,7 +192,11 @@ function inferCompanyMarkerFromPageFlow(
         .map((line) => line.trim())
         .filter(Boolean);
 
-      for (let previousLineIndex = previousLines.length - 1; previousLineIndex >= 0; previousLineIndex -= 1) {
+      for (
+        let previousLineIndex = previousLines.length - 1;
+        previousLineIndex >= 0;
+        previousLineIndex -= 1
+      ) {
         const line = previousLines[previousLineIndex];
 
         if (!line || !isCompanyMarkerText(line)) {
@@ -218,13 +236,19 @@ export function enrichExperienceCandidatesFromNearbyMarkers(
 
     const sourceBlockId = candidate.sourceBlockIds[0];
     if (sourceBlockId) {
-      const sourceIndex = bundle.blocks.findIndex((block) => block.id === sourceBlockId);
+      const sourceIndex = bundle.blocks.findIndex(
+        (block) => block.id === sourceBlockId,
+      );
 
       if (sourceIndex !== -1) {
         const sourceBlock = bundle.blocks[sourceIndex];
 
         if (sourceBlock) {
-          for (let index = sourceIndex - 1; index >= 0 && index >= sourceIndex - 12; index -= 1) {
+          for (
+            let index = sourceIndex - 1;
+            index >= 0 && index >= sourceIndex - 12;
+            index -= 1
+          ) {
             const block = bundle.blocks[index];
 
             if (!block || block.pageNumber !== sourceBlock.pageNumber) {
@@ -243,11 +267,13 @@ export function enrichExperienceCandidatesFromNearbyMarkers(
             const nextValue = {
               ...experienceValue,
               companyName:
-                typeof experienceValue.companyName === "string" && experienceValue.companyName.trim()
+                typeof experienceValue.companyName === "string" &&
+                experienceValue.companyName.trim()
                   ? experienceValue.companyName
                   : marker.companyName,
               location:
-                typeof experienceValue.location === "string" && experienceValue.location.trim()
+                typeof experienceValue.location === "string" &&
+                experienceValue.location.trim()
                   ? experienceValue.location
                   : marker.location,
             };
@@ -255,31 +281,39 @@ export function enrichExperienceCandidatesFromNearbyMarkers(
             return ResumeImportFieldCandidateSchema.parse({
               ...candidate,
               label:
-                typeof experienceValue.title === "string" && experienceValue.title && marker.companyName
+                typeof experienceValue.title === "string" &&
+                experienceValue.title &&
+                marker.companyName
                   ? `${experienceValue.title} at ${marker.companyName}`
                   : candidate.label,
               value: nextValue,
               valuePreview: buildValuePreview(nextValue),
-              sourceBlockIds: uniqueStrings([block.id, ...candidate.sourceBlockIds]),
+              sourceBlockIds: uniqueStrings([
+                block.id,
+                ...candidate.sourceBlockIds,
+              ]),
               confidence: Math.min(0.78, candidate.confidence + 0.12),
             });
           }
 
-          const previousPageMarker = inferCompanyMarkerFromPreviousPageContinuation(
-            bundle,
-            sourceBlock,
-            candidate.evidenceText,
-          );
+          const previousPageMarker =
+            inferCompanyMarkerFromPreviousPageContinuation(
+              bundle,
+              sourceBlock,
+              candidate.evidenceText,
+            );
 
           if (previousPageMarker?.companyName || previousPageMarker?.location) {
             const nextValue = {
               ...experienceValue,
               companyName:
-                typeof experienceValue.companyName === "string" && experienceValue.companyName.trim()
+                typeof experienceValue.companyName === "string" &&
+                experienceValue.companyName.trim()
                   ? experienceValue.companyName
                   : previousPageMarker.companyName,
               location:
-                typeof experienceValue.location === "string" && experienceValue.location.trim()
+                typeof experienceValue.location === "string" &&
+                experienceValue.location.trim()
                   ? experienceValue.location
                   : previousPageMarker.location,
             };
@@ -301,17 +335,22 @@ export function enrichExperienceCandidatesFromNearbyMarkers(
       }
     }
 
-    const pageFlowMarker = inferCompanyMarkerFromPageFlow(bundle, candidate.evidenceText);
+    const pageFlowMarker = inferCompanyMarkerFromPageFlow(
+      bundle,
+      candidate.evidenceText,
+    );
 
     if (pageFlowMarker?.companyName || pageFlowMarker?.location) {
       const nextValue = {
         ...experienceValue,
         companyName:
-          typeof experienceValue.companyName === "string" && experienceValue.companyName.trim()
+          typeof experienceValue.companyName === "string" &&
+          experienceValue.companyName.trim()
             ? experienceValue.companyName
             : pageFlowMarker.companyName,
         location:
-          typeof experienceValue.location === "string" && experienceValue.location.trim()
+          typeof experienceValue.location === "string" &&
+          experienceValue.location.trim()
             ? experienceValue.location
             : pageFlowMarker.location,
       };

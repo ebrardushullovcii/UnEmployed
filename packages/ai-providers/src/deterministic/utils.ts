@@ -1,4 +1,10 @@
-import { knownPersonalWebsitePlatformDomains, likelyPersonalWebsitePaths, resumeSectionHeadings } from "./constants";
+import {
+  experienceSectionHeadingPattern,
+  knownPersonalWebsitePlatformDomains,
+  likelyPersonalWebsitePaths,
+  nonExperienceSectionHeadingPattern,
+  resumeSectionHeadings,
+} from "./constants";
 
 export function uniqueStrings(values: readonly string[]): string[] {
   const seen = new Set<string>();
@@ -29,27 +35,110 @@ export function splitLines(value: string): string[] {
   return value.split(/\r?\n/).map(cleanLine).filter(Boolean);
 }
 
+/**
+ * Bullet glyphs commonly emitted by PDF/DOCX text extraction. The plain dash
+ * variants (`–`, `—`) only count when a space follows them so a wrapped date
+ * range such as "– Current" is not mistaken for a list marker.
+ */
+const strongBulletGlyphClass = "[•●▪◦‣■□➢➤►]";
+const bulletPrefixPattern = new RegExp(
+  `^(?:${strongBulletGlyphClass}|[*-]|[–—](?=\\s))\\s*`,
+);
+const inlineBulletSplitPattern = new RegExp(
+  `\\s+(?=${strongBulletGlyphClass}\\s)`,
+);
+
+export function isBulletLine(value: string): boolean {
+  return bulletPrefixPattern.test(value.trimStart());
+}
+
+export function stripBulletPrefix(value: string): string {
+  return value.trimStart().replace(bulletPrefixPattern, "");
+}
+
+/**
+ * Splits a line that carries several bullet items inline ("… pace. ● Built
+ * …") into one line per item. A mid-line glyph only starts a new item when
+ * the preceding text ends a sentence or the following item is long enough to
+ * read as prose, so contact rows and "Title • Company • Dates" headers that
+ * use the glyph as a separator stay intact.
+ */
+export function splitInlineBulletLine(value: string): string[] {
+  const cleaned = cleanLine(value);
+
+  if (!cleaned) {
+    return [];
+  }
+
+  const segments = cleaned.split(inlineBulletSplitPattern);
+
+  if (segments.length === 1) {
+    return [cleaned];
+  }
+
+  const result: string[] = [];
+
+  for (const segment of segments) {
+    const previous = result[result.length - 1];
+    const wordCount = stripBulletPrefix(segment)
+      .split(/\s+/)
+      .filter(Boolean).length;
+
+    if (previous === undefined || /[.;!?)]$/.test(previous) || wordCount >= 5) {
+      result.push(segment);
+      continue;
+    }
+
+    result[result.length - 1] = cleanLine(`${previous} ${segment}`);
+  }
+
+  return result;
+}
+
 export function clampScore(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
-export function extractRegexMatch(value: string, expression: RegExp): string | null {
+export function extractRegexMatch(
+  value: string,
+  expression: RegExp,
+): string | null {
   const match = value.match(expression);
   return cleanLine(match?.[0] ?? "") || null;
 }
 
-export function extractFirstUrl(value: string, expression: RegExp): string | null {
+export function extractFirstUrl(
+  value: string,
+  expression: RegExp,
+): string | null {
   const match = value.match(expression);
   return match?.[0] ?? null;
 }
 
-export function isResumeSectionHeading(line: string): boolean {
-  return resumeSectionHeadings.has(line.toUpperCase());
+export function normalizeResumeSectionHeading(line: string): string {
+  return cleanLine(line)
+    .replace(/[:\-–—]+$/g, "")
+    .trim()
+    .toUpperCase();
 }
 
-export function findSectionBodyLines(lines: readonly string[], heading: string): string[] {
+export function isResumeSectionHeading(line: string): boolean {
+  const normalized = normalizeResumeSectionHeading(line);
+
+  return (
+    resumeSectionHeadings.has(normalized) ||
+    experienceSectionHeadingPattern.test(line.trim()) ||
+    nonExperienceSectionHeadingPattern.test(line.trim())
+  );
+}
+
+export function findSectionBodyLines(
+  lines: readonly string[],
+  heading: string,
+): string[] {
+  const normalizedHeading = normalizeResumeSectionHeading(heading);
   const startIndex = lines.findIndex(
-    (line) => line.toUpperCase() === heading.toUpperCase(),
+    (line) => normalizeResumeSectionHeading(line) === normalizedHeading,
   );
 
   if (startIndex === -1) {
@@ -164,7 +253,10 @@ export function isLikelyPersonalWebsiteUrl(url: string): boolean {
   }
 }
 
-export function buildGenericCanonicalUrl(url: string, baseUrl?: string): string {
+export function buildGenericCanonicalUrl(
+  url: string,
+  baseUrl?: string,
+): string {
   const trimmedUrl = url.trim();
 
   if (!trimmedUrl) {
@@ -228,7 +320,9 @@ export function buildGenericJobId(url: string): string {
   }
 }
 
-export function describeInvalidFieldCounts(fieldCounts: Map<string, number>): string {
+export function describeInvalidFieldCounts(
+  fieldCounts: Map<string, number>,
+): string {
   const rankedFields = [...fieldCounts.entries()]
     .sort(
       (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),

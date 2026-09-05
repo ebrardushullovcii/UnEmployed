@@ -1,15 +1,26 @@
 import { describe, expect, test, vi } from "vitest";
 
 import {
+  PROFILE_SETUP_PLACEHOLDER_HEADLINE,
+  PROFILE_SETUP_PLACEHOLDER_SUMMARY,
+} from "@unemployed/contracts";
+
+import {
   mergeEducationRecords,
   mergeExperienceRecords,
 } from "./internal/profile-merge";
-import { createSeed } from "./workspace-service.test-fixtures";
+import {
+  createFreshStartSeedProfile,
+  createSeed,
+} from "./workspace-service.test-fixtures";
 import {
   createAiClient,
   createWorkspaceServiceHarness,
 } from "./workspace-service.test-support";
-import { createStageCandidate, createTestBundle } from "./workspace-service.resume-analysis.shared";
+import {
+  createStageCandidate,
+  createTestBundle,
+} from "./workspace-service.resume-analysis.shared";
 
 describe("resume import deduplication", () => {
   test("reconciles duplicate experience candidates with different record ids into one review item", async () => {
@@ -41,7 +52,11 @@ describe("resume import deduplication", () => {
             analysisProviderLabel: "Test AI",
             candidates: [
               createStageCandidate({
-                target: { section: "experience", key: "record", recordId: "experience_1" },
+                target: {
+                  section: "experience",
+                  key: "record",
+                  recordId: "experience_1",
+                },
                 label: "Senior Software Engineer at Mercury",
                 value: {
                   companyName: "Mercury",
@@ -66,7 +81,11 @@ describe("resume import deduplication", () => {
                 overall: 0.76,
               }),
               createStageCandidate({
-                target: { section: "experience", key: "record", recordId: "experience_8" },
+                target: {
+                  section: "experience",
+                  key: "record",
+                  recordId: "experience_8",
+                },
                 label: "Senior Software Engineer at Mercury",
                 value: {
                   companyName: "Mercury",
@@ -124,19 +143,33 @@ describe("resume import deduplication", () => {
       runId: run?.id ?? "",
     });
     const experienceCandidates = candidates.filter(
-      (candidate) => candidate.target.section === "experience" && candidate.target.key === "record",
+      (candidate) =>
+        candidate.target.section === "experience" &&
+        candidate.target.key === "record",
     );
 
-    expect(snapshot.latestResumeImportReviewCandidates.filter((candidate) => candidate.target.section === "experience")).toHaveLength(1);
+    expect(
+      snapshot.latestResumeImportReviewCandidates.filter(
+        (candidate) => candidate.target.section === "experience",
+      ),
+    ).toHaveLength(1);
     expect(experienceCandidates).toHaveLength(2);
-    expect(experienceCandidates.filter((candidate) => candidate.resolution === "needs_review")).toHaveLength(1);
-    expect(experienceCandidates.filter((candidate) => candidate.resolution === "rejected")).toHaveLength(1);
+    expect(
+      experienceCandidates.filter(
+        (candidate) => candidate.resolution === "needs_review",
+      ),
+    ).toHaveLength(1);
+    expect(
+      experienceCandidates.filter(
+        (candidate) => candidate.resolution === "rejected",
+      ),
+    ).toHaveLength(1);
   });
 
   test("keeps text import usable when the vision branch fails", async () => {
     const seed = createSeed();
     const { repository, workspaceService } = createWorkspaceServiceHarness({
-      seed,
+      seed: { ...seed, profile: createFreshStartSeedProfile() },
       aiClient: {
         ...createAiClient(),
         extractResumeImportStage(input) {
@@ -298,7 +331,11 @@ describe("resume import deduplication", () => {
             analysisProviderLabel: "Test vision",
             candidates: [
               createStageCandidate({
-                target: { section: "identity", key: "headline", recordId: null },
+                target: {
+                  section: "identity",
+                  key: "headline",
+                  recordId: null,
+                },
                 label: "Headline",
                 value: "Misleading visual candidate",
                 sourceBlockIds: [],
@@ -338,12 +375,18 @@ describe("resume import deduplication", () => {
     });
 
     const run = await repository.getLatestResumeImportRun();
-    const candidates = await repository.listResumeImportFieldCandidates({ runId: run?.id ?? "" });
+    const candidates = await repository.listResumeImportFieldCandidates({
+      runId: run?.id ?? "",
+    });
 
     expect(visionCalls).toBe(0);
     expect(run?.modelRoles?.vision.status).toBe("skipped");
-    expect(run?.modelRoles?.vision.warning).toBe("No local resume page images were available for the vision branch.");
-    expect(candidates.some((candidate) => candidate.sourceKind === "vision_omni")).toBe(false);
+    expect(run?.modelRoles?.vision.warning).toBe(
+      "No local resume page images were available for the vision branch.",
+    );
+    expect(
+      candidates.some((candidate) => candidate.sourceKind === "vision_omni"),
+    ).toBe(false);
   });
 
   test("records configured vision provider failures even when fallback candidates are returned", async () => {
@@ -370,7 +413,9 @@ describe("resume import deduplication", () => {
             analysisProviderKind: "openai_compatible_vision",
             analysisProviderLabel: "Test vision",
             candidates: [],
-            notes: ["Configured vision failed; fallback returned no candidates."],
+            notes: [
+              "Configured vision failed; fallback returned no candidates.",
+            ],
             warnings: ["Vision model request timed out after 1s"],
             primaryErrorMessage: "Vision model request timed out after 1s",
           });
@@ -422,13 +467,15 @@ describe("resume import deduplication", () => {
 
     expect(run?.status).not.toBe("failed");
     expect(run?.modelRoles?.vision.status).toBe("timed_out");
-    expect(run?.modelRoles?.vision.errorMessage).toBe("Vision model request timed out after 1s");
+    expect(run?.modelRoles?.vision.errorMessage).toBe(
+      "Vision model request timed out after 1s",
+    );
   });
 
   test("times out a slow vision branch without waiting beyond text completion", async () => {
     const seed = createSeed();
     const { repository, workspaceService } = createWorkspaceServiceHarness({
-      seed,
+      seed: { ...seed, profile: createFreshStartSeedProfile() },
       aiClient: {
         ...createAiClient(),
         extractResumeImportStage(input) {
@@ -534,15 +581,17 @@ describe("resume import deduplication", () => {
     const profile = await repository.getProfile();
 
     expect(run?.modelRoles?.vision.status).toBe("running");
-    expect(run?.modelRoles?.vision.warning).toContain("text import completed");
-    expect(run?.modelRoles?.vision.providerKind).toBe("openai_compatible_vision");
+    expect(run?.modelRoles?.vision.warning).toContain("text import is ready");
+    expect(run?.modelRoles?.vision.providerKind).toBe(
+      "openai_compatible_vision",
+    );
     expect(profile.email).toBe("jamie@example.com");
   });
 
   test("does not wait for a hung vision branch with the default long provider deadline", async () => {
     const seed = createSeed();
     const { repository, workspaceService } = createWorkspaceServiceHarness({
-      seed,
+      seed: { ...seed, profile: createFreshStartSeedProfile() },
       aiClient: {
         ...createAiClient(),
         extractResumeImportStage(input) {
@@ -644,7 +693,7 @@ describe("resume import deduplication", () => {
     expect(run?.status).toBe("applied");
     expect(run?.modelRoles?.vision.status).toBe("running");
     expect(run?.modelRoles?.vision.timeoutMs).toBe(600_000);
-    expect(run?.modelRoles?.vision.warning).toContain("text import completed");
+    expect(run?.modelRoles?.vision.warning).toContain("text import is ready");
     expect(profile.email).toBe("jamie@example.com");
   });
 
@@ -659,7 +708,8 @@ describe("resume import deduplication", () => {
         lastName: "Candidate",
         fullName: "New Candidate",
         headline: "Import your resume to begin",
-        summary: "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+        summary:
+          "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
         currentLocation: "Set your preferred location",
         experiences: [],
         education: [],
@@ -722,7 +772,11 @@ describe("resume import deduplication", () => {
             candidates: [
               {
                 ...createStageCandidate({
-                  target: { section: "identity", key: "headline", recordId: null },
+                  target: {
+                    section: "identity",
+                    key: "headline",
+                    recordId: null,
+                  },
                   label: "Headline",
                   value: "Staff Platform Engineer",
                   sourceBlockIds: [],
@@ -794,16 +848,23 @@ describe("resume import deduplication", () => {
 
     expect(returnedRun?.modelRoles?.vision.status).toBe("running");
 
-    await vi.waitFor(async () => {
-      const run = await repository.getLatestResumeImportRun();
-      expect(run?.modelRoles?.vision.status).toBe("completed");
-    }, { timeout: 1000, interval: 10 });
+    await vi.waitFor(
+      async () => {
+        const run = await repository.getLatestResumeImportRun();
+        expect(run?.modelRoles?.vision.status).toBe("completed");
+      },
+      { timeout: 1000, interval: 10 },
+    );
 
     const finalRun = await repository.getLatestResumeImportRun();
-    const candidates = await repository.listResumeImportFieldCandidates({ runId: finalRun?.id ?? "" });
+    const candidates = await repository.listResumeImportFieldCandidates({
+      runId: finalRun?.id ?? "",
+    });
     const profile = await repository.getProfile();
 
-    expect(candidates.some((candidate) => candidate.sourceKind === "vision_omni")).toBe(true);
+    expect(
+      candidates.some((candidate) => candidate.sourceKind === "vision_omni"),
+    ).toBe(true);
     expect(profile.headline).toBe("Staff Platform Engineer");
   });
 
@@ -866,7 +927,11 @@ describe("resume import deduplication", () => {
             candidates: [
               {
                 ...createStageCandidate({
-                  target: { section: "identity", key: "headline", recordId: null },
+                  target: {
+                    section: "identity",
+                    key: "headline",
+                    recordId: null,
+                  },
                   label: "Headline",
                   value: "Staff Platform Engineer",
                   sourceBlockIds: [],
@@ -899,10 +964,12 @@ describe("resume import deduplication", () => {
         ...seed.profile.baseResume,
         id: "resume_deferred_preserve_review",
         fileName: "resume.pdf",
-        textContent: "Jamie Rivers\nBuilds resilient workflow tools for complex teams.",
+        textContent:
+          "Jamie Rivers\nBuilds resilient workflow tools for complex teams.",
       },
       documentBundle: createTestBundle({
-        fullText: "Jamie Rivers\nBuilds resilient workflow tools for complex teams.",
+        fullText:
+          "Jamie Rivers\nBuilds resilient workflow tools for complex teams.",
       }),
       visionArtifact: {
         id: "vision_artifact_deferred_preserve_review_test",
@@ -935,9 +1002,15 @@ describe("resume import deduplication", () => {
     });
 
     const runBeforeReview = await repository.getLatestResumeImportRun();
-    const summaryCandidate = (await repository.listResumeImportFieldCandidates({
-      runId: runBeforeReview?.id ?? "",
-    })).find((candidate) => candidate.target.section === "identity" && candidate.target.key === "summary");
+    const summaryCandidate = (
+      await repository.listResumeImportFieldCandidates({
+        runId: runBeforeReview?.id ?? "",
+      })
+    ).find(
+      (candidate) =>
+        candidate.target.section === "identity" &&
+        candidate.target.key === "summary",
+    );
 
     expect(summaryCandidate?.resolution).toBe("needs_review");
 
@@ -946,12 +1019,21 @@ describe("resume import deduplication", () => {
         ...runBeforeReview!,
         candidateCounts: {
           ...runBeforeReview!.candidateCounts,
-          needsReview: Math.max(0, runBeforeReview!.candidateCounts.needsReview - 1),
+          needsReview: Math.max(
+            0,
+            runBeforeReview!.candidateCounts.needsReview - 1,
+          ),
           rejected: runBeforeReview!.candidateCounts.rejected + 1,
         },
       },
-      documentBundles: await repository.listResumeImportDocumentBundles({ runId: runBeforeReview?.id ?? "" }),
-      fieldCandidates: (await repository.listResumeImportFieldCandidates({ runId: runBeforeReview?.id ?? "" })).map((candidate) =>
+      documentBundles: await repository.listResumeImportDocumentBundles({
+        runId: runBeforeReview?.id ?? "",
+      }),
+      fieldCandidates: (
+        await repository.listResumeImportFieldCandidates({
+          runId: runBeforeReview?.id ?? "",
+        })
+      ).map((candidate) =>
         candidate.id === summaryCandidate?.id
           ? {
               ...candidate,
@@ -963,19 +1045,28 @@ describe("resume import deduplication", () => {
       ),
     });
 
-    await vi.waitFor(async () => {
-      const run = await repository.getLatestResumeImportRun();
-      expect(run?.modelRoles?.vision.status).toBe("completed");
-    }, { timeout: 1000, interval: 10 });
+    await vi.waitFor(
+      async () => {
+        const run = await repository.getLatestResumeImportRun();
+        expect(run?.modelRoles?.vision.status).toBe("completed");
+      },
+      { timeout: 1000, interval: 10 },
+    );
 
     const finalCandidates = await repository.listResumeImportFieldCandidates({
       runId: runBeforeReview?.id ?? "",
     });
-    const finalSummaryCandidate = finalCandidates.find((candidate) => candidate.id === summaryCandidate?.id);
+    const finalSummaryCandidate = finalCandidates.find(
+      (candidate) => candidate.id === summaryCandidate?.id,
+    );
 
     expect(finalSummaryCandidate?.resolution).toBe("rejected");
     expect(finalSummaryCandidate?.resolutionReason).toBe("setup_dismissed");
-    expect(finalCandidates.some((candidate) => candidate.sourceKind === "vision_omni")).toBe(true);
+    expect(
+      finalCandidates.some(
+        (candidate) => candidate.sourceKind === "vision_omni",
+      ),
+    ).toBe(true);
   });
 
   test("persists text and vision branch failures when neither branch has candidates", async () => {
@@ -1063,7 +1154,9 @@ describe("resume import deduplication", () => {
     expect(run?.modelRoles?.text.status).toBe("failed");
     expect(run?.modelRoles?.text.errorMessage).toBe("text branch exploded");
     expect(run?.modelRoles?.vision.status).toBe("timed_out");
-    expect(run?.modelRoles?.vision.errorMessage).toContain("timed out after 20ms");
+    expect(run?.modelRoles?.vision.errorMessage).toContain(
+      "timed out after 20ms",
+    );
   });
 
   test("can produce review candidates when text extraction fails but vision succeeds", async () => {
@@ -1098,7 +1191,11 @@ describe("resume import deduplication", () => {
             candidates: [
               {
                 ...createStageCandidate({
-                  target: { section: "identity", key: "headline", recordId: null },
+                  target: {
+                    section: "identity",
+                    key: "headline",
+                    recordId: null,
+                  },
                   label: "Headline",
                   value: "Staff Platform Engineer",
                   sourceBlockIds: [],
@@ -1165,50 +1262,61 @@ describe("resume import deduplication", () => {
     });
 
     const run = await repository.getLatestResumeImportRun();
-    const candidates = await repository.listResumeImportFieldCandidates({ runId: run?.id ?? "" });
+    const candidates = await repository.listResumeImportFieldCandidates({
+      runId: run?.id ?? "",
+    });
 
     expect(run?.status).toBe("review_ready");
     expect(run?.modelRoles?.text.status).toBe("failed");
-    expect(candidates.some((candidate) => candidate.sourceKind === "vision_omni" && candidate.resolution === "needs_review")).toBe(true);
+    expect(
+      candidates.some(
+        (candidate) =>
+          candidate.sourceKind === "vision_omni" &&
+          candidate.resolution === "needs_review",
+      ),
+    ).toBe(true);
   });
 
   test("mergeExperienceRecords treats current and empty-end-date duplicates as the same record", () => {
-    const merged = mergeExperienceRecords([], [
-      {
-        companyName: "Mercury",
-        companyUrl: null,
-        title: "Senior Software Engineer",
-        employmentType: null,
-        location: "New York City Metropolitan Area",
-        workMode: [],
-        startDate: "Aug 2024",
-        endDate: "",
-        isCurrent: true,
-        summary: null,
-        achievements: [],
-        skills: [],
-        domainTags: [],
-        peopleManagementScope: null,
-        ownershipScope: null,
-      },
-      {
-        companyName: "Mercury",
-        companyUrl: null,
-        title: "Senior Software Engineer",
-        employmentType: null,
-        location: "New York City Metropolitan Area",
-        workMode: ["remote"],
-        startDate: "2024-08",
-        endDate: null,
-        isCurrent: true,
-        summary: "Leads core product work.",
-        achievements: ["Improved frontend performance."],
-        skills: ["React"],
-        domainTags: [],
-        peopleManagementScope: null,
-        ownershipScope: null,
-      },
-    ]);
+    const merged = mergeExperienceRecords(
+      [],
+      [
+        {
+          companyName: "Mercury",
+          companyUrl: null,
+          title: "Senior Software Engineer",
+          employmentType: null,
+          location: "New York City Metropolitan Area",
+          workMode: [],
+          startDate: "Aug 2024",
+          endDate: "",
+          isCurrent: true,
+          summary: null,
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          companyName: "Mercury",
+          companyUrl: null,
+          title: "Senior Software Engineer",
+          employmentType: null,
+          location: "New York City Metropolitan Area",
+          workMode: ["remote"],
+          startDate: "2024-08",
+          endDate: null,
+          isCurrent: true,
+          summary: "Leads core product work.",
+          achievements: ["Improved frontend performance."],
+          skills: ["React"],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+    );
 
     expect(merged).toHaveLength(1);
     expect(merged[0]).toMatchObject({
@@ -1222,26 +1330,29 @@ describe("resume import deduplication", () => {
   });
 
   test("mergeEducationRecords dedupes equivalent education records with different date formats", () => {
-    const merged = mergeEducationRecords([], [
-      {
-        schoolName: "Florida State University",
-        degree: "Bachelor's Degree",
-        fieldOfStudy: "Computer Science",
-        location: null,
-        startDate: "May 2011",
-        endDate: "Sept 2015",
-        summary: null,
-      },
-      {
-        schoolName: "Florida State University",
-        degree: "Bachelor's Degree",
-        fieldOfStudy: "Computer Science",
-        location: null,
-        startDate: "2011-05",
-        endDate: "2015-09",
-        summary: "Graduated with honors.",
-      },
-    ]);
+    const merged = mergeEducationRecords(
+      [],
+      [
+        {
+          schoolName: "Florida State University",
+          degree: "Bachelor's Degree",
+          fieldOfStudy: "Computer Science",
+          location: null,
+          startDate: "May 2011",
+          endDate: "Sept 2015",
+          summary: null,
+        },
+        {
+          schoolName: "Florida State University",
+          degree: "Bachelor's Degree",
+          fieldOfStudy: "Computer Science",
+          location: null,
+          startDate: "2011-05",
+          endDate: "2015-09",
+          summary: "Graduated with honors.",
+        },
+      ],
+    );
 
     expect(merged).toHaveLength(1);
     expect(merged[0]).toMatchObject({
@@ -1254,26 +1365,29 @@ describe("resume import deduplication", () => {
   });
 
   test("mergeEducationRecords dedupes school and degree matches even when dates are missing", () => {
-    const merged = mergeEducationRecords([], [
-      {
-        schoolName: "University of Pennsylvania",
-        degree: "Bachelor of Computer Science, 2014",
-        fieldOfStudy: null,
-        location: null,
-        startDate: null,
-        endDate: null,
-        summary: null,
-      },
-      {
-        schoolName: "University of Pennsylvania",
-        degree: "Bachelor of Computer Science, 2014",
-        fieldOfStudy: null,
-        location: null,
-        startDate: null,
-        endDate: null,
-        summary: "2014 – 2018",
-      },
-    ]);
+    const merged = mergeEducationRecords(
+      [],
+      [
+        {
+          schoolName: "University of Pennsylvania",
+          degree: "Bachelor of Computer Science, 2014",
+          fieldOfStudy: null,
+          location: null,
+          startDate: null,
+          endDate: null,
+          summary: null,
+        },
+        {
+          schoolName: "University of Pennsylvania",
+          degree: "Bachelor of Computer Science, 2014",
+          fieldOfStudy: null,
+          location: null,
+          startDate: null,
+          endDate: null,
+          summary: "2014 – 2018",
+        },
+      ],
+    );
 
     expect(merged).toHaveLength(1);
     expect(merged[0]).toMatchObject({
@@ -1315,43 +1429,80 @@ describe("resume import deduplication", () => {
     expect(merged[0]?.degree).toBe("Bachelor of Science (B.S.)");
   });
 
+  test("mergeEducationRecords dedupes a combined degree and field against split fields", () => {
+    const merged = mergeEducationRecords(
+      [],
+      [
+        {
+          schoolName: "Oregon State University",
+          degree: "Bachelor of Science",
+          fieldOfStudy: "Computer Science",
+          location: null,
+          startDate: null,
+          endDate: "2018",
+          summary: null,
+        },
+        {
+          schoolName: "Oregon State University",
+          degree: "Bachelor of Science in Computer Science",
+          fieldOfStudy: null,
+          location: null,
+          startDate: null,
+          endDate: "2018",
+          summary: null,
+        },
+      ],
+    );
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      schoolName: "Oregon State University",
+      degree: "Bachelor of Science in Computer Science",
+      fieldOfStudy: "Computer Science",
+      endDate: "2018",
+    });
+  });
+
   test("mergeExperienceRecords dedupes equivalent records across full slash and iso date formats", () => {
-    const merged = mergeExperienceRecords([], [
-      {
-        companyName: "AUTOMATEDPROS",
-        companyUrl: null,
-        title: "Chief Experience Officer",
-        employmentType: null,
-        location: "Remote, Kosovo",
-        workMode: [],
-        startDate: "2021-11-13",
-        endDate: "2023-06-30",
-        isCurrent: false,
-        summary: "Led customer experience initiatives.",
-        achievements: [],
-        skills: [],
-        domainTags: [],
-        peopleManagementScope: null,
-        ownershipScope: null,
-      },
-      {
-        companyName: "AUTOMATEDPROS",
-        companyUrl: null,
-        title: "Chief Experience Officer",
-        employmentType: null,
-        location: "Remote, Kosovo",
-        workMode: [],
-        startDate: "13/11/2021",
-        endDate: "30/06/2023",
-        isCurrent: false,
-        summary: null,
-        achievements: ["Managed and guided the QA team."],
-        skills: [],
-        domainTags: [],
-        peopleManagementScope: null,
-        ownershipScope: null,
-      },
-    ]);
+    const merged = mergeExperienceRecords(
+      [],
+      [
+        {
+          companyName: "AUTOMATEDPROS",
+          companyUrl: null,
+          title: "Chief Experience Officer",
+          employmentType: null,
+          location: "Remote, Kosovo",
+          workMode: [],
+          startDate: "2021-11-13",
+          endDate: "2023-06-30",
+          isCurrent: false,
+          summary: "Led customer experience initiatives.",
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          companyName: "AUTOMATEDPROS",
+          companyUrl: null,
+          title: "Chief Experience Officer",
+          employmentType: null,
+          location: "Remote, Kosovo",
+          workMode: [],
+          startDate: "13/11/2021",
+          endDate: "30/06/2023",
+          isCurrent: false,
+          summary: null,
+          achievements: ["Managed and guided the QA team."],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+    );
 
     expect(merged).toHaveLength(1);
     expect(merged[0]).toMatchObject({
@@ -1365,42 +1516,45 @@ describe("resume import deduplication", () => {
   });
 
   test("mergeExperienceRecords dedupes equivalent records across single-digit slash and iso month formats", () => {
-    const merged = mergeExperienceRecords([], [
-      {
-        companyName: "Mercury",
-        companyUrl: null,
-        title: "Senior Software Engineer",
-        employmentType: null,
-        location: "Remote",
-        workMode: [],
-        startDate: "7/2023",
-        endDate: "6/2024",
-        isCurrent: false,
-        summary: null,
-        achievements: [],
-        skills: [],
-        domainTags: [],
-        peopleManagementScope: null,
-        ownershipScope: null,
-      },
-      {
-        companyName: "Mercury",
-        companyUrl: null,
-        title: "Senior Software Engineer",
-        employmentType: null,
-        location: "Remote",
-        workMode: ["remote"],
-        startDate: "2023-07",
-        endDate: "2024-06",
-        isCurrent: false,
-        summary: "Led core product work.",
-        achievements: ["Improved frontend performance."],
-        skills: ["React"],
-        domainTags: [],
-        peopleManagementScope: null,
-        ownershipScope: null,
-      },
-    ]);
+    const merged = mergeExperienceRecords(
+      [],
+      [
+        {
+          companyName: "Mercury",
+          companyUrl: null,
+          title: "Senior Software Engineer",
+          employmentType: null,
+          location: "Remote",
+          workMode: [],
+          startDate: "7/2023",
+          endDate: "6/2024",
+          isCurrent: false,
+          summary: null,
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          companyName: "Mercury",
+          companyUrl: null,
+          title: "Senior Software Engineer",
+          employmentType: null,
+          location: "Remote",
+          workMode: ["remote"],
+          startDate: "2023-07",
+          endDate: "2024-06",
+          isCurrent: false,
+          summary: "Led core product work.",
+          achievements: ["Improved frontend performance."],
+          skills: ["React"],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+    );
 
     expect(merged).toHaveLength(1);
     expect(merged[0]).toMatchObject({
@@ -1511,62 +1665,61 @@ describe("resume import deduplication", () => {
   });
 
   test("mergeExperienceRecords does not collapse distinct jobs when company and location are missing", () => {
-    const merged = mergeExperienceRecords([], [
-      {
-        companyName: null,
-        companyUrl: null,
-        title: "Software Engineer",
-        employmentType: null,
-        location: null,
-        workMode: [],
-        startDate: "2024-08",
-        endDate: null,
-        isCurrent: true,
-        summary: null,
-        achievements: [],
-        skills: [],
-        domainTags: [],
-        peopleManagementScope: null,
-        ownershipScope: null,
-      },
-      {
-        companyName: "Mercury",
-        companyUrl: null,
-        title: "Software Engineer",
-        employmentType: null,
-        location: "Remote",
-        workMode: [],
-        startDate: "Aug 2024",
-        endDate: null,
-        isCurrent: true,
-        summary: "Distinct employer.",
-        achievements: [],
-        skills: [],
-        domainTags: [],
-        peopleManagementScope: null,
-        ownershipScope: null,
-      },
-    ]);
+    const merged = mergeExperienceRecords(
+      [],
+      [
+        {
+          companyName: null,
+          companyUrl: null,
+          title: "Software Engineer",
+          employmentType: null,
+          location: null,
+          workMode: [],
+          startDate: "2024-08",
+          endDate: null,
+          isCurrent: true,
+          summary: null,
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+        {
+          companyName: "Mercury",
+          companyUrl: null,
+          title: "Software Engineer",
+          employmentType: null,
+          location: "Remote",
+          workMode: [],
+          startDate: "Aug 2024",
+          endDate: null,
+          isCurrent: true,
+          summary: "Distinct employer.",
+          achievements: [],
+          skills: [],
+          domainTags: [],
+          peopleManagementScope: null,
+          ownershipScope: null,
+        },
+      ],
+    );
 
     expect(merged).toHaveLength(2);
   });
 
-  test("auto-applies grounded fresh-start placeholder replacements while allowing weaker fields to stay review-first", async () => {
+  test("auto-applies grounded fresh-start fields while inferred search preferences stay review-first", async () => {
     const seed = createSeed();
     const { workspaceService } = createWorkspaceServiceHarness({
       seed: {
         ...seed,
         profile: {
-          ...seed.profile,
-          id: "candidate_fresh_start",
-          firstName: "New",
-          lastName: "Candidate",
-          fullName: "New Candidate",
-          headline: "Import your resume to begin",
-          summary:
-            "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
-          currentLocation: "Set your preferred location",
-          yearsExperience: 0,
+          // Legacy first-run workspace: the instructional headline and summary
+          // strings were persisted before the fresh-start seed stopped writing
+          // them, so this import must still replace them.
+          ...createFreshStartSeedProfile(),
+          headline: PROFILE_SETUP_PLACEHOLDER_HEADLINE,
+          summary: PROFILE_SETUP_PLACEHOLDER_SUMMARY,
           experiences: [],
           targetRoles: [],
         },
@@ -1620,7 +1773,9 @@ describe("resume import deduplication", () => {
 
     expect(snapshot.profile.fullName).toBe("Ryan Holstien");
     expect(snapshot.profile.headline).toBe("Senior Software Engineer");
-    expect(snapshot.profile.summary).toContain("10+ years of experience building secure, scalable healthcare and SaaS platforms");
+    expect(snapshot.profile.summary).toContain(
+      "10+ years of experience building secure, scalable healthcare and SaaS platforms",
+    );
     expect(snapshot.profile.currentLocation).toBe("Cedar Park, TX 78613");
     expect(snapshot.profile.yearsExperience).toBe(10);
     expect(snapshot.profile.experiences).toEqual([
@@ -1634,19 +1789,27 @@ describe("resume import deduplication", () => {
         (candidate) => candidate.target.section === "experience",
       ),
     ).toBe(false);
-    expect(snapshot.latestResumeImportRun?.status).toBe("applied");
-    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
-      "Work history",
-    );
-    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toEqual(
-      expect.arrayContaining(["Years of experience"]),
-    );
-    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
-      "Headline",
-    );
-    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
-      "Summary",
-    );
+    const pendingTargetingKeys = snapshot.latestResumeImportReviewCandidates
+      .filter((candidate) => candidate.target.section === "search_preferences")
+      .map((candidate) => candidate.target.key);
+
+    expect(snapshot.searchPreferences.targetRoles).toEqual([]);
+    expect(snapshot.searchPreferences.locations).toEqual([]);
+    expect(pendingTargetingKeys).toContain("targetRoles");
+    expect(pendingTargetingKeys).toContain("locations");
+    expect(snapshot.latestResumeImportRun?.status).toBe("review_ready");
+    expect(
+      snapshot.profileSetupState.reviewItems.map((item) => item.label),
+    ).not.toContain("Work history");
+    expect(
+      snapshot.profileSetupState.reviewItems.map((item) => item.label),
+    ).not.toEqual(expect.arrayContaining(["Years of experience"]));
+    expect(
+      snapshot.profileSetupState.reviewItems.map((item) => item.label),
+    ).not.toContain("Headline");
+    expect(
+      snapshot.profileSetupState.reviewItems.map((item) => item.label),
+    ).not.toContain("Summary");
   });
 
   test("derives and auto-applies years of experience from dated work history on fresh-start imports", async () => {
@@ -1712,9 +1875,11 @@ describe("resume import deduplication", () => {
     });
 
     expect(snapshot.profile.yearsExperience).toBe(10);
-    expect(["applied", "review_ready"]).toContain(snapshot.latestResumeImportRun?.status);
-    expect(snapshot.profileSetupState.reviewItems.map((item) => item.label)).not.toContain(
-      "Years of experience",
+    expect(["applied", "review_ready"]).toContain(
+      snapshot.latestResumeImportRun?.status,
     );
+    expect(
+      snapshot.profileSetupState.reviewItems.map((item) => item.label),
+    ).not.toContain("Years of experience");
   });
 });

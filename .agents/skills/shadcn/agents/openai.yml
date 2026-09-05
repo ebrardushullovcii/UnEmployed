@@ -1,5 +1,0 @@
-interface:
-  display_name: "shadcn/ui"
-  short_description: "Work with shadcn/ui components, registries, presets, and styling."
-  icon_small: "./assets/shadcn-small.png"
-  icon_large: "./assets/shadcn.png"

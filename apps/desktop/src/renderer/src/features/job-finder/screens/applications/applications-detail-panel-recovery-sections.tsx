@@ -1,95 +1,99 @@
 import type {
-  ApplyRunDetails,
+  GlobalDailyApplicationPreparationCapacity,
+  JobFinderExactApplicationTarget,
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
 import type { QueueEntry } from "./applications-detail-panel-helpers";
-import { ApplicationsDetailPanelRecoveryActionsSection } from "./applications-detail-panel-recovery-actions-section";
-import { ApplicationsDetailPanelRunHistorySection } from "./applications-detail-panel-run-history-section";
-import { ApplicationsDetailPanelSubmitApprovalSection } from "./applications-detail-panel-submit-approval-section";
+import {
+  ApplicationsDetailPanelRecoveryActionsSection,
+  type ConfirmFinishedInBrowserStatus,
+  type FinishInBrowserHandler,
+  type FinishInBrowserInput,
+} from "./applications-detail-panel-recovery-actions-section";
 
+/**
+ * Recovery keeps only the action group here; the per-run history now lives in
+ * the collapsed Technical details block rendered by the activity sections.
+ */
 export function ApplicationsDetailPanelRecoverySections(props: {
-  applyRunHistory: Array<{
-    result: JobFinderWorkspaceSnapshot["applyJobResults"][number];
-    run: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
-  }>;
   canRestageAutoRun: boolean;
   canRestageQueueRun: boolean;
+  dailyPreparationCapacity: GlobalDailyApplicationPreparationCapacity | null;
   excludedQueueRecoveryEntries: QueueEntry[];
   isApplyPending: boolean;
-  isApplyRunPending: (runId: string) => boolean;
-  isSelectedRunPending: boolean;
-  onApproveApplyRun: (runId: string) => void;
-  onCancelApplyRun: (runId: string) => void;
-  onRevokeApplyRunApproval: (runId: string) => void;
-  onSelectApplyRun: (runId: string) => void;
-  onStartApplyCopilot: (jobId: string) => void;
-  onStartAutoApply: (jobId: string) => void;
+  onStartApplyCopilot: (input: JobFinderExactApplicationTarget) => void;
+  onStartAutoApply: (input: JobFinderExactApplicationTarget) => void;
   onStartAutoApplyQueue: (jobIds: string[]) => void;
-  selectedApplyRunDetails: ApplyRunDetails | null;
-  selectedApplyRunId: string | null;
+  onOpenSafeguards?: () => void;
+  /**
+   * Pass-through only. The declared return type has to match the leaf's, or
+   * the outcome the leaf uses to decide what the hand-off status claims would
+   * be under-reported at every intermediate hop.
+   */
+  onFinishInBrowser?: FinishInBrowserHandler;
+  onConfirmFinishedInBrowser?: (input: FinishInBrowserInput) => void;
+  canConfirmFinishedInBrowser?: boolean;
+  confirmFinishedInBrowserStatus?: ConfirmFinishedInBrowserStatus;
+  confirmFinishedInBrowserBlockerText?: string | null;
   selectedQueueOutcomeEntries: QueueEntry[];
   selectedQueueRecoveryEntries: QueueEntry[];
   selectedQueueRecoveryJobIds: string[];
   selectedRecordJobId: string;
+  selectedApplicationRecordId: string;
   selectedRun: JobFinderWorkspaceSnapshot["applyRuns"][number] | null;
-  visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] | null;
+  visibleApplyResult:
+    | JobFinderWorkspaceSnapshot["applyJobResults"][number]
+    | null;
 }) {
   const {
-    applyRunHistory,
     canRestageAutoRun,
     canRestageQueueRun,
+    dailyPreparationCapacity,
     excludedQueueRecoveryEntries,
     isApplyPending,
-    isApplyRunPending,
-    isSelectedRunPending,
-    onApproveApplyRun,
-    onCancelApplyRun,
-    onRevokeApplyRunApproval,
-    onSelectApplyRun,
     onStartApplyCopilot,
     onStartAutoApply,
     onStartAutoApplyQueue,
-    selectedApplyRunDetails,
-    selectedApplyRunId,
+    onOpenSafeguards,
+    onFinishInBrowser,
+    onConfirmFinishedInBrowser,
+    canConfirmFinishedInBrowser,
+    confirmFinishedInBrowserStatus,
+    confirmFinishedInBrowserBlockerText,
     selectedQueueOutcomeEntries,
     selectedQueueRecoveryEntries,
     selectedQueueRecoveryJobIds,
+    selectedApplicationRecordId,
     selectedRecordJobId,
     selectedRun,
     visibleApplyResult,
   } = props;
 
   return (
-    <>
-      <ApplicationsDetailPanelRecoveryActionsSection
-        applyRunHistoryCount={applyRunHistory.length}
-        canRestageAutoRun={canRestageAutoRun}
-        canRestageQueueRun={canRestageQueueRun}
-        excludedQueueRecoveryEntries={excludedQueueRecoveryEntries}
-        isApplyPending={isApplyPending}
-        onStartApplyCopilot={onStartApplyCopilot}
-        onStartAutoApply={onStartAutoApply}
-        onStartAutoApplyQueue={onStartAutoApplyQueue}
-        selectedQueueOutcomeEntries={selectedQueueOutcomeEntries}
-        selectedQueueRecoveryEntries={selectedQueueRecoveryEntries}
-        selectedQueueRecoveryJobIds={selectedQueueRecoveryJobIds}
-        selectedRecordJobId={selectedRecordJobId}
-        selectedRun={selectedRun}
-        visibleApplyResult={visibleApplyResult}
-      />
-      <ApplicationsDetailPanelRunHistorySection
-        applyRunHistory={applyRunHistory}
-        onSelectApplyRun={onSelectApplyRun}
-        selectedApplyRunId={selectedApplyRunId}
-      />
-      <ApplicationsDetailPanelSubmitApprovalSection
-        isApplyRunPending={isApplyRunPending}
-        isSelectedRunPending={isSelectedRunPending}
-        onApproveApplyRun={onApproveApplyRun}
-        onCancelApplyRun={onCancelApplyRun}
-        onRevokeApplyRunApproval={onRevokeApplyRunApproval}
-        selectedApplyRunDetails={selectedApplyRunDetails}
-      />
-    </>
+    <ApplicationsDetailPanelRecoveryActionsSection
+      canRestageAutoRun={canRestageAutoRun}
+      canRestageQueueRun={canRestageQueueRun}
+      dailyPreparationCapacity={dailyPreparationCapacity}
+      excludedQueueRecoveryEntries={excludedQueueRecoveryEntries}
+      isApplyPending={isApplyPending}
+      onStartApplyCopilot={onStartApplyCopilot}
+      onStartAutoApply={onStartAutoApply}
+      onStartAutoApplyQueue={onStartAutoApplyQueue}
+      {...(onOpenSafeguards ? { onOpenSafeguards } : {})}
+      {...(onFinishInBrowser ? { onFinishInBrowser } : {})}
+      {...(onConfirmFinishedInBrowser ? { onConfirmFinishedInBrowser } : {})}
+      canConfirmFinishedInBrowser={canConfirmFinishedInBrowser ?? false}
+      confirmFinishedInBrowserStatus={confirmFinishedInBrowserStatus ?? "idle"}
+      confirmFinishedInBrowserBlockerText={
+        confirmFinishedInBrowserBlockerText ?? null
+      }
+      selectedQueueOutcomeEntries={selectedQueueOutcomeEntries}
+      selectedQueueRecoveryEntries={selectedQueueRecoveryEntries}
+      selectedQueueRecoveryJobIds={selectedQueueRecoveryJobIds}
+      selectedApplicationRecordId={selectedApplicationRecordId}
+      selectedRecordJobId={selectedRecordJobId}
+      selectedRun={selectedRun}
+      visibleApplyResult={visibleApplyResult}
+    />
   );
 }

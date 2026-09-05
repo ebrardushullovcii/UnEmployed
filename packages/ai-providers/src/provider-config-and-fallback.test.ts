@@ -1,8 +1,9 @@
-import { describe, expect, test, vi } from 'vitest'
+import { describe, expect, test, vi } from "vitest";
+import type { ResumeDocumentBundle } from "@unemployed/contracts";
 import {
   createJobFinderAiClientFromEnvironment,
-  createOpenAiCompatibleJobFinderAiClient
-} from './index'
+  createOpenAiCompatibleJobFinderAiClient,
+} from "./index";
 import {
   createEnvironment,
   createJobPosting,
@@ -12,183 +13,603 @@ import {
   mockCapturingJsonFetch,
   mockJsonFetch,
   mockRejectedFetch,
-  mockTextFetch
-} from './test-fixtures'
+  mockTextFetch,
+} from "./test-fixtures";
 
-describe('ai provider config and fallback behavior', () => {
-  test('surfaces non-json provider errors without raw response details', async () => {
-    const restoreFetch = mockTextFetch('<html>Bad Gateway</html>', {
+function createFastPathResumeBundle(): ResumeDocumentBundle {
+  const lines = [
+    "CASEY ROWAN",
+    "casey.rowan@example.test | Portland, Oregon",
+    "SUMMARY",
+    "Frontend engineer with eight years of experience building accessible products.",
+    "EXPERIENCE",
+    "Senior Frontend Engineer — Northstar Parcel Software",
+    "March 2021–Present | Portland, Oregon",
+    "Reduced median page-load time from 4.2 seconds to 1.9 seconds.",
+  ];
+
+  return {
+    id: "fast_path_bundle",
+    runId: "fast_path_run",
+    sourceResumeId: "fast_path_resume",
+    sourceFileKind: "plain_text",
+    primaryParserKind: "plain_text",
+    parserKinds: ["plain_text"],
+    createdAt: "2026-07-31T00:00:00.000Z",
+    warnings: [],
+    languageHints: ["en"],
+    pages: [],
+    blocks: lines.map((text, index) => ({
+      id: `fast_path_block_${index + 1}`,
+      pageNumber: 1,
+      readingOrder: index,
+      text,
+      kind: ["SUMMARY", "EXPERIENCE"].includes(text)
+        ? ("heading" as const)
+        : ("paragraph" as const),
+      sectionHint:
+        index < 2
+          ? ("identity" as const)
+          : index < 4
+            ? ("summary" as const)
+            : ("experience" as const),
+      bbox: null,
+      sourceParserKinds: ["plain_text" as const],
+      sourceConfidence: 0.98,
+    })),
+    fullText: lines.join("\n"),
+  };
+}
+
+describe("ai provider config and fallback behavior", () => {
+  test("surfaces non-json provider errors without raw response details", async () => {
+    const restoreFetch = mockTextFetch("<html>Bad Gateway</html>", {
       status: 502,
-      headers: { 'Content-Type': 'text/html' }
-    })
+      headers: { "Content-Type": "text/html" },
+    });
 
     try {
       const client = createOpenAiCompatibleJobFinderAiClient({
-        apiKey: 'test-key',
-        baseUrl: 'https://example.com/v1',
-        model: 'test-model',
-        label: 'AI resume agent'
-      })
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+        label: "AI resume agent",
+      });
 
-      await expect(client.tailorResume({
-        profile: createProfile(),
-        searchPreferences: createPreferences(),
-        settings: createSettings(),
-        job: createJobPosting(),
-        resumeText: 'Resume text'
-      })).rejects.toThrow('Model request failed with status 502')
+      await expect(
+        client.tailorResume({
+          profile: createProfile(),
+          searchPreferences: createPreferences(),
+          settings: createSettings(),
+          job: createJobPosting(),
+          resumeText: "Resume text",
+        }),
+      ).rejects.toThrow("Model request failed with status 502");
     } finally {
-      restoreFetch()
+      restoreFetch();
     }
-  })
+  });
 
-  test('falls back to deterministic mode without an API key', () => {
-    const client = createJobFinderAiClientFromEnvironment(createEnvironment({
-      UNEMPLOYED_AI_API_KEY: undefined
-    }))
+  test("falls back to deterministic mode without an API key", () => {
+    const client = createJobFinderAiClientFromEnvironment(
+      createEnvironment({
+        UNEMPLOYED_AI_API_KEY: undefined,
+      }),
+    );
 
-    expect(client.getStatus().kind).toBe('deterministic')
-  })
+    expect(client.getStatus().kind).toBe("deterministic");
+  });
 
-  test('configures the AI provider when the API key is present', () => {
-    const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+  test("configures the AI provider when the API key is present", () => {
+    const client = createJobFinderAiClientFromEnvironment(createEnvironment());
 
     expect(client.getStatus()).toMatchObject({
-      kind: 'openai_compatible',
-      model: 'test-model',
-      label: 'AI resume agent',
-      modelContextWindowTokens: 196_000
-    })
-  })
+      kind: "openai_compatible",
+      model: "test-model",
+      label: "AI resume agent",
+      modelContextWindowTokens: 196_000,
+    });
+  });
 
-  test('allows a direct OpenAI-compatible client to override the model context window', () => {
+  test("defaults ordinary text work to DeepSeek V4 on OpenCode Go", () => {
+    const client = createJobFinderAiClientFromEnvironment({
+      UNEMPLOYED_AI_API_KEY: "go-test-key",
+    });
+
+    expect(client.getStatus()).toMatchObject({
+      kind: "openai_compatible",
+      model: "deepseek-v4-flash",
+      label: "AI resume agent",
+    });
+  });
+
+  test("allows a direct OpenAI-compatible client to override the model context window", () => {
     const client = createOpenAiCompatibleJobFinderAiClient({
-      apiKey: 'test-key',
-      baseUrl: 'https://example.com/v1',
-      model: 'test-model',
-      label: 'AI resume agent',
+      apiKey: "test-key",
+      baseUrl: "https://example.com/v1",
+      model: "test-model",
+      label: "AI resume agent",
       contextWindowTokens: 128_000,
-    })
+    });
 
     expect(client.getStatus()).toMatchObject({
-      kind: 'openai_compatible',
-      model: 'test-model',
-      label: 'AI resume agent',
+      kind: "openai_compatible",
+      model: "test-model",
+      label: "AI resume agent",
       ready: true,
       modelContextWindowTokens: 128_000,
-    })
-  })
+    });
+  });
 
-  test('marks the OpenAI-compatible client as not ready when config is invalid', () => {
+  test("keeps optional shared-memory suggestions off the remote import critical path", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchSpy = vi.fn(() =>
+      Promise.reject(new Error("shared-memory import should stay local")),
+    );
+    globalThis.fetch = fetchSpy as typeof fetch;
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+      const result = await client.extractResumeImportStage({
+        stage: "shared_memory",
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        documentBundle: createFastPathResumeBundle(),
+      });
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(result.analysisProviderKind).toBe("deterministic");
+      expect(result.timing?.durationMs).toEqual(expect.any(Number));
+      expect(result.timing?.primaryProviderMs).toBeNull();
+      expect(result.timing?.deterministicFallbackMs).toEqual(
+        expect.any(Number),
+      );
+      expect(
+        result.candidates.some(
+          (candidate) =>
+            candidate.target.section === "proof_point" &&
+            candidate.sourceBlockIds.length > 0,
+        ),
+      ).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("bounds default remote core-stage latency and returns grounded local extraction", async () => {
+    vi.useFakeTimers();
+    const originalFetch = globalThis.fetch;
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const fetchSpy = vi.fn(
+      (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          signal?.addEventListener(
+            "abort",
+            () => {
+              reject(
+                new DOMException("This operation was aborted", "AbortError"),
+              );
+            },
+            { once: true },
+          );
+        }),
+    );
+    globalThis.fetch = fetchSpy as typeof fetch;
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+      let settled = false;
+      const resultPromise = client
+        .extractResumeImportStage({
+          stage: "identity_summary",
+          existingProfile: createProfile(),
+          existingSearchPreferences: createPreferences(),
+          documentBundle: createFastPathResumeBundle(),
+        })
+        .finally(() => {
+          settled = true;
+        });
+
+      await vi.advanceTimersByTimeAsync(24_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+
+      const result = await resultPromise;
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(result.analysisProviderKind).toBe("deterministic");
+      // A timed-out stage used to return with no note and no reason, which made
+      // it indistinguishable from a stage the model actually answered.
+      expect(result.fallback).toEqual({
+        kind: "timeout",
+        reason: "Model request timed out after 25s",
+      });
+      expect(result.notes).toContain(
+        "Fell back to the deterministic staged resume importer after the model call failed.",
+      );
+      expect(result.notes).toContain(
+        "Primary AI import stage failed: Model request timed out after 25s",
+      );
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("25s"));
+      expect(
+        result.candidates.some(
+          (candidate) =>
+            candidate.target.section === "identity" &&
+            candidate.target.key === "fullName" &&
+            candidate.value === "CASEY ROWAN" &&
+            candidate.sourceBlockIds.length > 0,
+        ),
+      ).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+      errorSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  test("records a provider-error fallback reason when a core stage call fails", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const restoreFetch = mockRejectedFetch(new Error("upstream stage failure"));
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+      const result = await client.extractResumeImportStage({
+        stage: "experience",
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        documentBundle: createFastPathResumeBundle(),
+      });
+
+      expect(result.analysisProviderKind).toBe("deterministic");
+      expect(result.fallback).toEqual({
+        kind: "provider_error",
+        reason: "upstream stage failure",
+      });
+      expect(result.notes).toContain(
+        "Primary AI import stage failed: upstream stage failure",
+      );
+    } finally {
+      restoreFetch();
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("leaves the fallback reason unset when a core stage reaches the model", async () => {
+    const client = createJobFinderAiClientFromEnvironment(createEnvironment());
+    const result = await client.extractResumeImportStage({
+      stage: "shared_memory",
+      existingProfile: createProfile(),
+      existingSearchPreferences: createPreferences(),
+      documentBundle: createFastPathResumeBundle(),
+    });
+
+    // `shared_memory` is deterministic by design, so it never lost a model
+    // call and must not be reported as a degraded stage.
+    expect(result.fallback ?? null).toBeNull();
+  });
+
+  test("marks the OpenAI-compatible client as not ready when config is invalid", () => {
     const client = createOpenAiCompatibleJobFinderAiClient({
-      apiKey: 'test-key',
-      baseUrl: 'not-a-url',
-      model: '',
-      label: 'AI resume agent'
-    })
+      apiKey: "test-key",
+      baseUrl: "not-a-url",
+      model: "",
+      label: "AI resume agent",
+    });
 
     expect(client.getStatus()).toMatchObject({
-      kind: 'openai_compatible',
+      kind: "openai_compatible",
       ready: false,
       model: null,
       baseUrl: null,
-      label: 'AI resume agent'
-    })
-  })
+      label: "AI resume agent",
+    });
+  });
 
-  test('falls back from profile extraction with logged error details and merged notes', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const restoreFetch = mockRejectedFetch(new Error('upstream extraction failure'))
+  test("falls back from profile extraction with logged error details and merged notes", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const restoreFetch = mockRejectedFetch(
+      new Error("upstream extraction failure"),
+    );
 
     try {
-      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
 
       const result = await client.extractProfileFromResume({
         existingProfile: createProfile(),
         existingSearchPreferences: createPreferences(),
-        resumeText: 'Alex Vanguard\nLondon, UK\nReact engineer'
-      })
+        resumeText: "Alex Vanguard\nLondon, UK\nReact engineer",
+      });
 
-      expect(result.analysisProviderKind).toBe('deterministic')
-      expect(result.notes).toContain('Fell back to the deterministic resume parser after the model call failed.')
-      expect(result.notes).toContain('Primary AI extraction failed: upstream extraction failure')
+      expect(result.analysisProviderKind).toBe("deterministic");
+      expect(result.notes).toContain(
+        "Fell back to the deterministic resume parser after the model call failed.",
+      );
+      expect(result.notes).toContain(
+        "Primary AI extraction failed: upstream extraction failure",
+      );
       expect(errorSpy).toHaveBeenCalledWith(
-        '[AI Provider] extractProfileFromResume failed; falling back to deterministic client. upstream extraction failure'
-      )
+        "[AI Provider] extractProfileFromResume failed; falling back to deterministic client. upstream extraction failure",
+      );
     } finally {
-      restoreFetch()
-      errorSpy.mockRestore()
+      restoreFetch();
+      errorSpy.mockRestore();
     }
-  })
+  });
 
-  test('uses the configured resume extraction timeout when normalizing abort-like provider failures', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const restoreFetch = mockRejectedFetch(new DOMException('This operation was aborted', 'AbortError'))
+  test("reports deterministic provenance when the model returns valid JSON that is not an extraction object", async () => {
+    // Valid JSON that is not a plain object parses cleanly, so the primary
+    // client never threw and never reached the catch that records a fallback.
+    for (const content of ["[]", '"just a sentence"', "null"]) {
+      const restoreFetch = mockJsonFetch({
+        choices: [{ message: { content } }],
+      });
+
+      try {
+        const client =
+          createJobFinderAiClientFromEnvironment(createEnvironment());
+
+        const result = await client.extractProfileFromResume({
+          existingProfile: createProfile(),
+          existingSearchPreferences: createPreferences(),
+          resumeText: "Alex Vanguard\nLondon, UK\nReact engineer",
+        });
+
+        expect(result.analysisProviderKind, content).toBe("deterministic");
+        expect(result.notes, content).toContain(
+          "Fell back to the deterministic resume parser after the model call failed.",
+        );
+        expect(result.notes, content).toContain(
+          "Primary AI extraction failed: the model returned a response that was not a resume extraction object.",
+        );
+      } finally {
+        restoreFetch();
+      }
+    }
+  });
+
+  test("keeps model provenance when the model returns a usable extraction object", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              fullName: "Alex Vanguard",
+              headline: "React engineer",
+            }),
+          },
+        },
+      ],
+    });
 
     try {
-      const client = createJobFinderAiClientFromEnvironment(createEnvironment({
-        UNEMPLOYED_AI_RESUME_TIMEOUT_MS: '90000'
-      }))
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
 
       const result = await client.extractProfileFromResume({
         existingProfile: createProfile(),
         existingSearchPreferences: createPreferences(),
-        resumeText: 'Alex Vanguard\nLondon, UK\nReact engineer'
-      })
+        resumeText: "Alex Vanguard\nLondon, UK\nReact engineer",
+      });
 
-      expect(result.analysisProviderKind).toBe('deterministic')
-      expect(result.notes).toContain('Primary AI extraction failed: Model request timed out after 90s')
-      expect(errorSpy).toHaveBeenCalledWith(
-        '[AI Provider] extractProfileFromResume failed; falling back to deterministic client. Model request timed out after 90s'
-      )
+      expect(result.analysisProviderKind).toBe("openai_compatible");
+      expect(result.fullName).toBe("Alex Vanguard");
+      expect(result.notes).not.toContain(
+        "Fell back to the deterministic resume parser after the model call failed.",
+      );
     } finally {
-      restoreFetch()
-      errorSpy.mockRestore()
+      restoreFetch();
     }
-  })
+  });
 
-  test('falls back from tailoring with logged error details and merged notes', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const restoreFetch = mockRejectedFetch(new Error('upstream tailoring failure'))
+  test("uses the configured resume extraction timeout when normalizing abort-like provider failures", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const restoreFetch = mockRejectedFetch(
+      new DOMException("This operation was aborted", "AbortError"),
+    );
 
     try {
-      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+      const client = createJobFinderAiClientFromEnvironment(
+        createEnvironment({
+          UNEMPLOYED_AI_RESUME_TIMEOUT_MS: "90000",
+        }),
+      );
+
+      const result = await client.extractProfileFromResume({
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: "Alex Vanguard\nLondon, UK\nReact engineer",
+      });
+
+      expect(result.analysisProviderKind).toBe("deterministic");
+      expect(result.notes).toContain(
+        "Primary AI extraction failed: Model request timed out after 90s",
+      );
+      expect(errorSpy).toHaveBeenCalledWith(
+        "[AI Provider] extractProfileFromResume failed; falling back to deterministic client. Model request timed out after 90s",
+      );
+    } finally {
+      restoreFetch();
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("records a timeout reason when the primary draft call times out", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const restoreFetch = mockRejectedFetch(
+      new Error("Model request timed out after 60s"),
+    );
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+
+      const result = await client.createResumeDraft({
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        // A real listing body: card-only postings skip the model on purpose
+        // (see the card-only test), so the timeout path needs text to tailor.
+        job: {
+          ...createJobPosting(),
+          description: Array.from(
+            { length: 80 },
+            (_, index) => `requirement ${index}`,
+          ).join(" "),
+        },
+        resumeText: "Resume text",
+      });
+
+      expect(result.generationProvenance).toEqual({
+        method: "deterministic",
+        reason: "provider_timeout",
+        detail: "Model request timed out after 60s",
+      });
+      expect(result.notes).toContain(
+        "Primary AI draft creation failed: Model request timed out after 60s",
+      );
+    } finally {
+      restoreFetch();
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("never asks the model to tailor toward a card-only posting", async () => {
+    const restoreFetch = mockRejectedFetch(
+      new Error("the model must not be called for a card-only posting"),
+    );
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+      const posting = createJobPosting();
+
+      const result = await client.createResumeDraft({
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...posting,
+          // A compact-scan capture: the title stands in for the body and
+          // nothing structured was read.
+          description: posting.title,
+          keySkills: [],
+          responsibilities: [],
+          minimumQualifications: [],
+          preferredQualifications: [],
+          benefits: [],
+        },
+        resumeText: "Resume text",
+      });
+
+      expect(result.generationProvenance).toEqual({
+        method: "deterministic",
+        reason: "listing_text_missing",
+        detail:
+          "The listing text was not captured, so there was nothing to tailor the resume toward; your original wording was kept.",
+      });
+      // No request went out, so nothing was logged as a fallback.
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(result.notes).not.toContain(
+        "Fell back to the deterministic resume draft creator after the model call failed.",
+      );
+    } finally {
+      restoreFetch();
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("records no_provider_configured when no API key is present", async () => {
+    const client = createJobFinderAiClientFromEnvironment({});
+
+    const result = await client.createResumeDraft({
+      profile: createProfile(),
+      searchPreferences: createPreferences(),
+      settings: createSettings(),
+      job: createJobPosting(),
+      resumeText: "Resume text",
+    });
+
+    expect(result.generationProvenance).toMatchObject({
+      method: "deterministic",
+      reason: "no_provider_configured",
+    });
+  });
+
+  test("falls back from tailoring with logged error details and merged notes", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const restoreFetch = mockRejectedFetch(
+      new Error("upstream tailoring failure"),
+    );
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
 
       const result = await client.tailorResume({
         profile: createProfile(),
         searchPreferences: createPreferences(),
         settings: createSettings(),
         job: createJobPosting(),
-        resumeText: 'Resume text'
-      })
+        resumeText: "Resume text",
+      });
 
-      expect(result.notes).toContain('Fell back to the deterministic resume tailorer after the model call failed.')
-      expect(result.notes).toContain('Primary AI tailoring failed: upstream tailoring failure')
+      expect(result.notes).toContain(
+        "Fell back to the deterministic resume tailorer after the model call failed.",
+      );
+      expect(result.notes).toContain(
+        "Primary AI tailoring failed: upstream tailoring failure",
+      );
+      expect(result.generationProvenance).toEqual({
+        method: "deterministic",
+        reason: "provider_failed",
+        detail: "upstream tailoring failure",
+      });
       expect(errorSpy).toHaveBeenCalledWith(
-        '[AI Provider] tailorResume failed; falling back to deterministic client. upstream tailoring failure'
-      )
+        "[AI Provider] tailorResume failed; falling back to deterministic client. upstream tailoring failure",
+      );
     } finally {
-      restoreFetch()
-      errorSpy.mockRestore()
+      restoreFetch();
+      errorSpy.mockRestore();
     }
-  })
+  });
 
-  test('uses deterministic profile copilot reply when the model returns guidance-only but deterministic can structure the edit', async () => {
+  test("uses deterministic profile copilot reply when the model returns guidance-only but deterministic can structure the edit", async () => {
     const restoreFetch = mockJsonFetch({
       choices: [
         {
           message: {
             content: JSON.stringify({
-              content: 'I reviewed the setup essentials context, but I could not turn that request into a safe structured profile edit.',
-              patchGroups: []
-            })
-          }
-        }
-      ]
-    })
+              content:
+                "I reviewed the setup essentials context, but I could not turn that request into a safe structured profile edit.",
+              patchGroups: [],
+            }),
+          },
+        },
+      ],
+    });
 
     try {
-      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
 
       const reply = await client.reviseCandidateProfile({
         profile: {
@@ -196,39 +617,41 @@ describe('ai provider config and fallback behavior', () => {
           yearsExperience: 6,
         },
         searchPreferences: createPreferences(),
-        context: { surface: 'setup', step: 'essentials' },
+        context: { surface: "setup", step: "essentials" },
         relevantReviewItems: [],
-        request: 'change my experience to only 5 years',
-      })
+        request: "change my experience to only 5 years",
+      });
 
-      expect(reply.patchGroups).toHaveLength(1)
+      expect(reply.patchGroups).toHaveLength(1);
       expect(reply.patchGroups[0]?.operations[0]).toEqual({
-        operation: 'replace_identity_fields',
+        operation: "replace_identity_fields",
         value: {
           yearsExperience: 5,
         },
-      })
+      });
     } finally {
-      restoreFetch()
+      restoreFetch();
     }
-  })
+  });
 
-  test('uses deterministic profile copilot reply when the model gives generic no-op guidance for an existing job source request', async () => {
+  test("uses deterministic profile copilot reply when the model gives generic no-op guidance for an existing job source request", async () => {
     const restoreFetch = mockJsonFetch({
       choices: [
         {
           message: {
             content: JSON.stringify({
-              content: 'I reviewed that request in the profile context, but I could not turn it into a safe structured profile edit yet.',
-              patchGroups: []
-            })
-          }
-        }
-      ]
-    })
+              content:
+                "I reviewed that request in the profile context, but I could not turn it into a safe structured profile edit yet.",
+              patchGroups: [],
+            }),
+          },
+        },
+      ],
+    });
 
     try {
-      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
 
       const reply = await client.reviseCandidateProfile({
         profile: createProfile(),
@@ -238,13 +661,13 @@ describe('ai provider config and fallback behavior', () => {
             historyLimit: 5,
             targets: [
               {
-                id: 'target_linkedin_jobs',
-                label: 'LinkedIn Jobs',
-                startingUrl: 'https://www.linkedin.com/jobs/search/',
+                id: "target_linkedin_jobs",
+                label: "LinkedIn Jobs",
+                startingUrl: "https://www.linkedin.com/jobs/search/",
                 enabled: true,
-                adapterKind: 'auto',
+                adapterKind: "auto",
                 customInstructions: null,
-                instructionStatus: 'missing',
+                instructionStatus: "missing",
                 validatedInstructionId: null,
                 draftInstructionId: null,
                 lastDebugRunId: null,
@@ -254,34 +677,36 @@ describe('ai provider config and fallback behavior', () => {
             ],
           },
         },
-        context: { surface: 'profile', section: 'preferences' },
+        context: { surface: "profile", section: "preferences" },
         relevantReviewItems: [],
-        request: 'please add linkedin jobs again',
-      })
+        request: "please add linkedin jobs again",
+      });
 
-      expect(reply.patchGroups).toEqual([])
-      expect(reply.content).toContain('already saved')
+      expect(reply.patchGroups).toEqual([]);
+      expect(reply.content).toContain("already saved");
     } finally {
-      restoreFetch()
+      restoreFetch();
     }
-  })
+  });
 
-  test('uses deterministic profile copilot reply when the model gives generic no-op guidance for a direct github url', async () => {
+  test("uses deterministic profile copilot reply when the model gives generic no-op guidance for a direct github url", async () => {
     const restoreFetch = mockJsonFetch({
       choices: [
         {
           message: {
             content: JSON.stringify({
-              content: 'I reviewed that request in the profile context, but I could not turn it into a safe structured profile edit yet.',
-              patchGroups: []
-            })
-          }
-        }
-      ]
-    })
+              content:
+                "I reviewed that request in the profile context, but I could not turn it into a safe structured profile edit yet.",
+              patchGroups: [],
+            }),
+          },
+        },
+      ],
+    });
 
     try {
-      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
 
       const reply = await client.reviseCandidateProfile({
         profile: {
@@ -289,62 +714,69 @@ describe('ai provider config and fallback behavior', () => {
           githubUrl: null,
         },
         searchPreferences: createPreferences(),
-        context: { surface: 'profile', section: 'preferences' },
+        context: { surface: "profile", section: "preferences" },
         relevantReviewItems: [],
-        request: 'https://github.com/ebrardushullovcii',
-      })
+        request: "https://github.com/ebrardushullovcii",
+      });
 
-      expect(reply.patchGroups).toHaveLength(1)
+      expect(reply.patchGroups).toHaveLength(1);
       expect(reply.patchGroups[0]?.operations[0]).toEqual({
-        operation: 'replace_identity_fields',
+        operation: "replace_identity_fields",
         value: {
-          githubUrl: 'https://github.com/ebrardushullovcii',
+          githubUrl: "https://github.com/ebrardushullovcii",
         },
-      })
+      });
     } finally {
-      restoreFetch()
+      restoreFetch();
     }
-  })
+  });
 
-  test('uses deterministic profile copilot clarification when the model gives generic no-op guidance for visa sponsorship', async () => {
+  test("uses deterministic profile copilot clarification when the model gives generic no-op guidance for visa sponsorship", async () => {
     const restoreFetch = mockJsonFetch({
       choices: [
         {
           message: {
             content: JSON.stringify({
-              content: 'I reviewed that request in the profile context, but I could not turn it into a safe structured profile edit yet.',
-              patchGroups: []
-            })
-          }
-        }
-      ]
-    })
+              content:
+                "I reviewed that request in the profile context, but I could not turn it into a safe structured profile edit yet.",
+              patchGroups: [],
+            }),
+          },
+        },
+      ],
+    });
 
     try {
-      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
 
       const reply = await client.reviseCandidateProfile({
         profile: createProfile(),
         searchPreferences: createPreferences(),
-        context: { surface: 'profile', section: 'preferences' },
+        context: { surface: "profile", section: "preferences" },
         relevantReviewItems: [],
-        request: 'update visa sponsorship',
-      })
+        request: "update visa sponsorship",
+      });
 
-      expect(reply.patchGroups).toEqual([])
-      expect(reply.content).toContain('I need visa sponsorship')
+      expect(reply.patchGroups).toEqual([]);
+      expect(reply.content).toContain("I need visa sponsorship");
     } finally {
-      restoreFetch()
+      restoreFetch();
     }
-  })
+  });
 
-  test('falls back cleanly for very large profile copilot requests when the primary model call fails', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const restoreFetch = mockRejectedFetch(new Error('upstream profile failure'))
-    const longRequest = `change my experience to only 5 years ${'background detail '.repeat(5000)}`
+  test("falls back cleanly for very large profile copilot requests when the primary model call fails", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const restoreFetch = mockRejectedFetch(
+      new Error("upstream profile failure"),
+    );
+    const longRequest = `change my experience to only 5 years ${"background detail ".repeat(5000)}`;
 
     try {
-      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
 
       const reply = await client.reviseCandidateProfile({
         profile: {
@@ -352,85 +784,284 @@ describe('ai provider config and fallback behavior', () => {
           yearsExperience: 6,
         },
         searchPreferences: createPreferences(),
-        context: { surface: 'setup', step: 'essentials' },
+        context: { surface: "setup", step: "essentials" },
         relevantReviewItems: [],
         request: longRequest,
-      })
+      });
 
-      expect(reply.content.trim().length).toBeGreaterThan(0)
-      expect(Array.isArray(reply.patchGroups)).toBe(true)
+      expect(reply.content.trim().length).toBeGreaterThan(0);
+      expect(Array.isArray(reply.patchGroups)).toBe(true);
       expect(errorSpy).toHaveBeenCalledWith(
-        '[AI Provider] reviseCandidateProfile failed; falling back to deterministic client. upstream profile failure'
-      )
+        "[AI Provider] reviseCandidateProfile failed; falling back to deterministic client. upstream profile failure",
+      );
     } finally {
-      restoreFetch()
-      errorSpy.mockRestore()
+      restoreFetch();
+      errorSpy.mockRestore();
     }
-  })
+  });
 
-  test('compacts oversized resume import stage payloads before sending them to the model', async () => {
+  test("supplements sparse model experience records with grounded deterministic work modes and role skills", async () => {
+    const resumeLines = [
+      "CASEY ROWAN",
+      "Senior Frontend Engineer",
+      "casey.rowan@example.test | +1 555 010 2401 | Portland, Oregon",
+      "SUMMARY",
+      "Frontend engineer with eight years of experience building accessible web applications and design systems. Strong in React, TypeScript, testing, performance, and mentoring.",
+      "EXPERIENCE",
+      "Senior Frontend Engineer — Northstar Parcel Software",
+      "March 2021–Present | Portland, Oregon",
+      "- Led a React and TypeScript shipment-tracking redesign used by 18 internal operations teams.",
+      "- Reduced median page-load time from 4.2 seconds to 1.9 seconds by splitting bundles and removing duplicate requests.",
+      "- Built an accessible component library with Storybook and automated axe checks.",
+      "- Mentored four engineers and introduced Vitest integration tests for critical workflows.",
+      "Frontend Engineer — Cedar Ledger",
+      "June 2018–February 2021 | Remote",
+      "- Built account-management workflows with React, GraphQL, and Node.js.",
+      "- Partnered with product designers to improve form completion and error recovery.",
+      "EDUCATION",
+      "Bachelor of Science in Computer Science — Oregon State University, 2018",
+      "SKILLS",
+      "React, TypeScript, JavaScript, HTML, CSS, GraphQL, Node.js, Vitest, Playwright, Storybook, accessibility, performance optimization",
+    ];
+    const blocks = resumeLines.map((text, index) => ({
+      id: `casey_block_${index + 1}`,
+      pageNumber: 1,
+      readingOrder: index,
+      text,
+      kind: ["SUMMARY", "EXPERIENCE", "EDUCATION", "SKILLS"].includes(text)
+        ? ("heading" as const)
+        : ("paragraph" as const),
+      sectionHint:
+        index < 3
+          ? ("identity" as const)
+          : index < 5
+            ? ("summary" as const)
+            : index < 16
+              ? ("experience" as const)
+              : index < 18
+                ? ("education" as const)
+                : ("skills" as const),
+      bbox: null,
+      sourceParserKinds: ["plain_text" as const],
+      sourceConfidence: 0.98,
+    }));
+    const documentBundle: ResumeDocumentBundle = {
+      id: "casey_bundle",
+      runId: "casey_run",
+      sourceResumeId: "casey_resume",
+      sourceFileKind: "plain_text",
+      primaryParserKind: "plain_text",
+      parserKinds: ["plain_text"],
+      createdAt: "2026-07-31T00:00:00.000Z",
+      warnings: [],
+      languageHints: ["en"],
+      pages: [],
+      blocks,
+      fullText: resumeLines.join("\n"),
+    };
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              candidates: [
+                {
+                  target: {
+                    section: "experience",
+                    key: "record",
+                    recordId: "experience_1",
+                  },
+                  label:
+                    "Senior Frontend Engineer at Northstar Parcel Software",
+                  value: {
+                    companyName: "Northstar Parcel Software",
+                    companyUrl: null,
+                    title: "Senior Frontend Engineer",
+                    employmentType: null,
+                    location: "Portland, Oregon",
+                    workMode: [],
+                    startDate: "March 2021",
+                    endDate: null,
+                    isCurrent: true,
+                    summary: null,
+                    achievements: resumeLines
+                      .slice(8, 12)
+                      .map((line) => line.replace(/^- /, "")),
+                    skills: ["React", "TypeScript"],
+                    domainTags: [],
+                    peopleManagementScope: null,
+                    ownershipScope: null,
+                  },
+                  evidenceText: resumeLines.slice(6, 12).join(" "),
+                  sourceBlockIds: blocks.slice(6, 12).map((block) => block.id),
+                  confidence: 0.94,
+                  notes: [],
+                  alternatives: [],
+                },
+                {
+                  target: {
+                    section: "experience",
+                    key: "record",
+                    recordId: "experience_2",
+                  },
+                  label: "Frontend Engineer at Cedar Ledger",
+                  value: {
+                    companyName: "Cedar Ledger",
+                    companyUrl: null,
+                    title: "Frontend Engineer",
+                    employmentType: null,
+                    location: "Remote",
+                    workMode: [],
+                    startDate: "June 2018",
+                    endDate: "February 2021",
+                    isCurrent: false,
+                    summary: null,
+                    achievements: resumeLines
+                      .slice(14, 16)
+                      .map((line) => line.replace(/^- /, "")),
+                    skills: ["React", "GraphQL", "Node.js"],
+                    domainTags: [],
+                    peopleManagementScope: null,
+                    ownershipScope: null,
+                  },
+                  evidenceText: resumeLines.slice(12, 16).join(" "),
+                  sourceBlockIds: blocks.slice(12, 16).map((block) => block.id),
+                  confidence: 0.94,
+                  notes: [],
+                  alternatives: [],
+                },
+              ],
+              notes: [],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+      const result = await client.extractResumeImportStage({
+        stage: "experience",
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        documentBundle,
+      });
+      expect(result.timing?.durationMs).toBeGreaterThanOrEqual(0);
+      expect(result.timing?.primaryProviderMs).toBeGreaterThanOrEqual(0);
+      expect(result.timing?.deterministicFallbackMs).toBeGreaterThanOrEqual(0);
+      const primaryCandidates = result.candidates.filter(
+        (candidate) =>
+          !candidate.notes.includes("deterministic_stage_fallback"),
+      );
+      const northstar = primaryCandidates.find(
+        (candidate) => candidate.target.recordId === "experience_1",
+      );
+      const cedar = primaryCandidates.find(
+        (candidate) => candidate.target.recordId === "experience_2",
+      );
+
+      expect(northstar?.value).toMatchObject({ workMode: [] });
+      expect(
+        northstar?.value &&
+          typeof northstar.value === "object" &&
+          !Array.isArray(northstar.value)
+          ? northstar.value.skills
+          : null,
+      ).toEqual([
+        "React",
+        "TypeScript",
+        "Vitest",
+        "Storybook",
+        "axe",
+        "Performance Optimization",
+        "Accessibility",
+      ]);
+      expect(cedar?.value).toMatchObject({ workMode: ["remote"] });
+      expect(
+        cedar?.value &&
+          typeof cedar.value === "object" &&
+          !Array.isArray(cedar.value)
+          ? cedar.value.skills
+          : null,
+      ).toEqual(["React", "GraphQL", "Node.js"]);
+    } finally {
+      restoreFetch();
+    }
+  });
+  test("compacts oversized resume import stage payloads before sending them to the model", async () => {
     const capture = mockCapturingJsonFetch({
       choices: [
         {
           message: {
             content: JSON.stringify({
               candidates: [],
-              notes: []
-            })
-          }
-        }
-      ]
-    })
+              notes: [],
+            }),
+          },
+        },
+      ],
+    });
 
     try {
-      const client = createJobFinderAiClientFromEnvironment(createEnvironment())
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
 
       await client.extractResumeImportStage({
-        stage: 'experience',
+        stage: "experience",
         existingProfile: createProfile(),
         existingSearchPreferences: createPreferences(),
         documentBundle: {
-          id: 'bundle_1',
-          runId: 'run_1',
-          sourceResumeId: 'resume_1',
-          sourceFileKind: 'pdf',
-          primaryParserKind: 'pdfjs_text',
-          parserKinds: ['pdfjs_text'],
-          createdAt: '2026-03-20T10:00:00.000Z',
+          id: "bundle_1",
+          runId: "run_1",
+          sourceResumeId: "resume_1",
+          sourceFileKind: "pdf",
+          primaryParserKind: "pdfjs_text",
+          parserKinds: ["pdfjs_text"],
+          createdAt: "2026-03-20T10:00:00.000Z",
           languageHints: [],
-          warnings: Array.from({ length: 20 }, (_, index) => `Warning ${index + 1} ${'detail '.repeat(40)}`),
+          warnings: Array.from(
+            { length: 20 },
+            (_, index) => `Warning ${index + 1} ${"detail ".repeat(40)}`,
+          ),
           pages: [],
           blocks: Array.from({ length: 80 }, (_, index) => ({
             id: `block_${index + 1}`,
             pageNumber: 1 + Math.floor(index / 20),
             readingOrder: index,
-            text: `Experience block ${index + 1} ${'resume evidence '.repeat(200)}`,
-            kind: 'paragraph',
-            sectionHint: 'experience',
+            text: `Experience block ${index + 1} ${"resume evidence ".repeat(200)}`,
+            kind: "paragraph",
+            sectionHint: "experience",
             bbox: {
               left: 0,
               top: index * 10,
               width: 100,
               height: 10,
             },
-            sourceParserKinds: ['pdfjs_text'],
+            sourceParserKinds: ["pdfjs_text"],
             sourceConfidence: 0.9,
           })),
           fullText: null,
         },
-      })
+      });
 
-      const body = JSON.parse(capture.getCapturedBody()) as { messages?: Array<{ content?: string }> }
-      const userPayload = JSON.parse(body.messages?.[1]?.content ?? '{}') as {
-        documentBundle?: { blocks?: Array<{ text?: string }> }
-      }
+      const body = JSON.parse(capture.getCapturedBody()) as {
+        messages?: Array<{ content?: string }>;
+      };
+      const userPayload = JSON.parse(body.messages?.[1]?.content ?? "{}") as {
+        documentBundle?: { blocks?: Array<{ text?: string }> };
+      };
 
-      expect(userPayload.documentBundle?.blocks).toBeDefined()
-      expect(Array.isArray(userPayload.documentBundle?.blocks)).toBe(true)
-      expect((userPayload.documentBundle?.blocks?.length ?? 0)).toBeLessThanOrEqual(32)
-      expect(userPayload.documentBundle?.blocks?.[0]?.text).toContain('[truncated')
+      expect(userPayload.documentBundle?.blocks).toBeDefined();
+      expect(Array.isArray(userPayload.documentBundle?.blocks)).toBe(true);
+      expect(
+        userPayload.documentBundle?.blocks?.length ?? 0,
+      ).toBeLessThanOrEqual(32);
+      expect(userPayload.documentBundle?.blocks?.[0]?.text).toContain(
+        "[truncated",
+      );
     } finally {
-      capture.restore()
+      capture.restore();
     }
-  })
-})
+  });
+});

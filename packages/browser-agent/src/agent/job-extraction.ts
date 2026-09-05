@@ -1,12 +1,8 @@
-import type { JobPosting } from "@unemployed/contracts";
-
 import {
-  buildSearchSurfaceDetailUrl,
-  getSearchSurfaceRouteRuleForUrl,
-  isSearchSurfaceDetailPath,
-  isSearchSurfaceResultPath,
-  readEmbeddedSearchSurfaceJobId,
-} from "./search-surface-routes";
+  formatEmployerLabelFromSlug,
+  sanitizeObservedEmployerLabel,
+  type JobPosting,
+} from "@unemployed/contracts";
 
 export type ExtractedJobInput = Pick<
   JobPosting,
@@ -28,6 +24,7 @@ export type ExtractedJobInput = Pick<
     Pick<
       JobPosting,
       | "postedAtText"
+      | "providerUpdatedAt"
       | "responsibilities"
       | "minimumQualifications"
       | "preferredQualifications"
@@ -51,6 +48,7 @@ export interface StructuredDataJobCandidate {
   summary?: string | null;
   postedAt?: string | null;
   postedAtText?: string | null;
+  providerUpdatedAt?: string | null;
   salaryText?: string | null;
   workMode?: readonly string[] | null;
   applyPath?: JobPosting["applyPath"] | null;
@@ -73,6 +71,10 @@ export interface SearchResultCardCandidate {
   anchorText: string;
   headingText: string | null;
   lines: string[];
+  companyText?: string | null;
+  /** Absolute `/company/{slug}` (or company job) href observed on the card. */
+  companyHref?: string | null;
+  locationText?: string | null;
   sourceJobIdHint?: string | null;
   captureMeta?: SearchResultCardCaptureMeta | null;
 }
@@ -253,6 +255,61 @@ const GENERIC_JOB_PATH_SEGMENTS = new Set([
   "karriere",
   "karrier",
 ]);
+const SITE_UTILITY_PATH_SEGMENTS = new Set([
+  "about",
+  "about-us",
+  "blog",
+  "blogs",
+  "browse",
+  "candidates",
+  "contact",
+  "contact-us",
+  "faq",
+  "help",
+  "hire",
+  "hiring-data",
+  "support",
+  "privacy",
+  "privacy-policy",
+  "cookie-policy",
+  "politika-e-privatesise",
+  "politike-e-privatesise",
+  "politike-privatesise",
+  "politika-privatesise",
+  "mbrojtja-e-te-dhenave",
+  "mbrojtja-e-te-dhenave-personale",
+  "terms",
+  "terms-of-service",
+  "legal",
+  "login",
+  "log-in",
+  "signin",
+  "sign-in",
+  "signup",
+  "sign-up",
+  "register",
+  "account",
+  "kontakt",
+  "krijo-cv",
+  "create-cv",
+  "create-resume",
+  "llogaritja-e-pages",
+  "location",
+  "news",
+  "press",
+  "publiko",
+  "role",
+  "careers-home",
+]);
+const SITE_UTILITY_TITLE_PATTERN =
+  /^(blog|blogs|news|about|about us|contact|contact us|kontakt|faq|help|support|privacy|privacy policy|cookie policy|politik[eë]\s+e\s+privat[eë]sis[eë]|politika\s+e\s+privat[eë]sis[eë]|terms|sign in|log in|login|register|sign up|create cv|krijo cv|create resume|home|homepage|view all jobs|view all .+ jobs|overview|locations|pricing|jobs|remote jobs|remote|trust|curated|wellfound|wellfound:ai|why wellfound|previous|next|platform status|privacy & cookies|terms & risks|salaries|for companies|get discovered|hire developers|create profile|recruit pro|try errgo|web3 jobs|tech startups|sign up with google|produktet|publiko konkurs|llogarite pag[eë]n|llogaritja e pages|www\.fb\.com\/kosovajob|fb\.com\/kosovajob)$/i;
+// Albanian privacy titles often continue after "Privatësisë". Avoid `\b` after
+// diacritics — JS word boundaries treat `ë` as non-word, so `\b` fails before space.
+const SITE_UTILITY_ALBANIAN_PRIVACY_TITLE_PATTERN =
+  /^politik[aeë]\s+e\s+privat[eë]sis[eë]/i;
+const SITE_UTILITY_TITLE_PREFIX_PATTERN =
+  /^(sign up with|view all|create profile|get discovered|for companies|hire developers|platform status|privacy|privacy policy|cookie policy|terms|remote jobs|web3 jobs|tech startups|recruit pro|try errgo|why wellfound|publiko|llogarite|llogaritja|www\.fb\.com\/|fb\.com\/)\b/i;
+const SITE_UTILITY_OPEN_POSITIONS_TITLE_PATTERN = /^\d+\s+open positions$/i;
 const TWO_PANE_RESULTS_LIST_CLASS_HINTS = [
   "jobs-search-results",
   "jobs-search-results-list",
@@ -476,9 +533,14 @@ function titlePreferenceMatchPassesThreshold(
     return false;
   }
 
+  const leadingDesiredToken = desiredTokens[0];
+  if (leadingDesiredToken === undefined) {
+    return false;
+  }
+
   if (desiredTokens.length === 1) {
     return candidateTokens.some((candidateToken) =>
-      preferenceTokensEqual(candidateToken, desiredTokens[0]!),
+      preferenceTokensEqual(candidateToken, leadingDesiredToken),
     );
   }
 
@@ -634,8 +696,13 @@ function scoreJobForPreferences(
             return 0;
           }
 
+          const leadingDesiredToken = desiredTokens[0];
+          if (leadingDesiredToken === undefined) {
+            return 0;
+          }
+
           return candidateTokens.some((candidateToken) =>
-            preferenceTokensEqual(candidateToken, desiredTokens[0]!),
+            preferenceTokensEqual(candidateToken, leadingDesiredToken),
           )
             ? 700
             : 0;
@@ -680,9 +747,14 @@ function scoreJobForPreferences(
             return 0;
           }
 
+          const leadingDesiredToken = desiredTokens[0];
+          if (leadingDesiredToken === undefined) {
+            return 0;
+          }
+
           const matchesLeadingSpecificToken = candidateTokens.some(
             (candidateToken) =>
-              preferenceTokensEqual(candidateToken, desiredTokens[0]!),
+              preferenceTokensEqual(candidateToken, leadingDesiredToken),
           );
           const matchesTrailingBroaderToken = desiredTokens
             .slice(1)
@@ -917,10 +989,283 @@ function titleCaseWords(value: string): string {
   );
 }
 
+export function normalizeQueryParamKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export function isJobIdShapedParamKey(key: string): boolean {
+  const normalized = normalizeQueryParamKey(key);
+  return normalized.includes("jobid") || normalized.endsWith("jid");
+}
+
+export function isTrackingShapedParamKey(key: string): boolean {
+  const normalized = normalizeQueryParamKey(key);
+  return normalized.startsWith("utm") || normalized.includes("track");
+}
+
+function safeDecodeUriComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function parseHttpUrl(value: string, baseUrl?: string): URL | null {
+  const normalized = cleanLine(value);
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(normalized, baseUrl);
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const LEARNED_DETAIL_TEMPLATE_PLACEHOLDER = "{sourceJobId}";
+const DETAIL_ROUTE_ID_SEGMENT_PATTERN = /\d{4,}|[0-9a-f]{8,}/i;
+const REWRITABLE_DETAIL_ID_SEGMENT_PATTERN = /^(?:\d{4,}|[0-9a-f]{8,})$/i;
+const EMBEDDED_JOB_ID_VALUE_PATTERN = /^\d{3,}$/;
+
+export function findDetailRouteIdSegment(pathname: string): string | null {
+  const segments = pathname.split("/").filter(Boolean);
+  const lastSegment = segments.at(-1);
+  if (!lastSegment) {
+    return null;
+  }
+
+  const decoded = safeDecodeUriComponent(lastSegment);
+  return DETAIL_ROUTE_ID_SEGMENT_PATTERN.test(decoded) ? decoded : null;
+}
+
+export interface LearnedSearchSurfaceRouteEvidence {
+  readonly sharedSurfaceUrls: ReadonlySet<string>;
+  readonly detailTemplatesByOrigin: ReadonlyMap<string, string>;
+  readonly observedDetailIdsByOrigin: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+interface LearnedDetailRouteObservation {
+  readonly prefixSegments: readonly string[];
+  readonly id: string;
+  readonly endsWithSlash: boolean;
+}
+
+function normalizeRouteIdentityKey(url: URL): string {
+  return `${url.origin}${url.pathname}`;
+}
+
+export function observeLearnedSearchSurfaceRoutes(input: {
+  pageUrl?: string | null;
+  observedUrls: readonly (string | null | undefined)[];
+  detailOnlyUrls?: readonly (string | null | undefined)[];
+}): LearnedSearchSurfaceRouteEvidence {
+  const routeKeyMeta = new Map<
+    string,
+    { count: number; hasIdSegment: boolean }
+  >();
+  const observationsByOrigin = new Map<
+    string,
+    LearnedDetailRouteObservation[]
+  >();
+  const seenObservationKeys = new Set<string>();
+
+  const countRouteKey = (routeKey: string, hasIdSegment: boolean) => {
+    const existing = routeKeyMeta.get(routeKey);
+    routeKeyMeta.set(routeKey, {
+      count: (existing?.count ?? 0) + 1,
+      hasIdSegment: (existing?.hasIdSegment ?? false) || hasIdSegment,
+    });
+  };
+
+  const pageUrl = parseHttpUrl(input.pageUrl ?? "");
+  if (pageUrl) {
+    countRouteKey(
+      normalizeRouteIdentityKey(pageUrl),
+      findDetailRouteIdSegment(pageUrl.pathname) !== null,
+    );
+  }
+
+  const observeDetailRoute = (parsed: URL) => {
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const lastSegment = segments.at(-1);
+    if (!lastSegment) {
+      return;
+    }
+
+    const decodedId = safeDecodeUriComponent(lastSegment);
+    if (!REWRITABLE_DETAIL_ID_SEGMENT_PATTERN.test(decodedId)) {
+      return;
+    }
+
+    const observationKey = `${normalizeRouteIdentityKey(parsed)}#${decodedId}`;
+    if (seenObservationKeys.has(observationKey)) {
+      return;
+    }
+    seenObservationKeys.add(observationKey);
+
+    const bucket = observationsByOrigin.get(parsed.origin) ?? [];
+    bucket.push({
+      prefixSegments: segments
+        .slice(0, -1)
+        .map((segment) => safeDecodeUriComponent(segment)),
+      id: decodedId,
+      endsWithSlash: parsed.pathname.endsWith("/"),
+    });
+    observationsByOrigin.set(parsed.origin, bucket);
+  };
+
+  for (const observedUrl of input.observedUrls) {
+    const parsed = parseHttpUrl(observedUrl ?? "");
+    if (!parsed) {
+      continue;
+    }
+
+    countRouteKey(
+      normalizeRouteIdentityKey(parsed),
+      findDetailRouteIdSegment(parsed.pathname) !== null,
+    );
+    observeDetailRoute(parsed);
+  }
+
+  for (const detailOnlyUrl of input.detailOnlyUrls ?? []) {
+    const parsed = parseHttpUrl(detailOnlyUrl ?? "");
+    if (!parsed) {
+      continue;
+    }
+
+    observeDetailRoute(parsed);
+  }
+
+  const sharedSurfaceUrls = new Set<string>();
+  for (const [routeKey, meta] of routeKeyMeta) {
+    if (meta.count >= 2 && !meta.hasIdSegment) {
+      sharedSurfaceUrls.add(routeKey);
+    }
+  }
+
+  const detailTemplatesByOrigin = new Map<string, string>();
+  const observedDetailIdsByOrigin = new Map<string, Set<string>>();
+  for (const [origin, observations] of observationsByOrigin) {
+    const firstObservation = observations[0];
+    if (!firstObservation) {
+      continue;
+    }
+
+    let commonPrefix = firstObservation.prefixSegments;
+    let allEndsWithSlash = true;
+    for (const observation of observations) {
+      if (!observation.endsWithSlash) {
+        allEndsWithSlash = false;
+      }
+
+      const nextPrefix: string[] = [];
+      const sharedLength = Math.min(
+        commonPrefix.length,
+        observation.prefixSegments.length,
+      );
+      for (
+        let index = 0;
+        index < sharedLength &&
+        commonPrefix[index] === observation.prefixSegments[index];
+        index += 1
+      ) {
+        const segment = commonPrefix[index];
+        if (segment === undefined) break;
+        nextPrefix.push(segment);
+      }
+      commonPrefix = nextPrefix;
+    }
+
+    if (commonPrefix.length === 0) {
+      continue;
+    }
+
+    detailTemplatesByOrigin.set(
+      origin,
+      `/${[...commonPrefix, LEARNED_DETAIL_TEMPLATE_PLACEHOLDER].join("/")}${allEndsWithSlash ? "/" : ""}`,
+    );
+    observedDetailIdsByOrigin.set(
+      origin,
+      new Set(observations.map((observation) => observation.id)),
+    );
+  }
+
+  return {
+    sharedSurfaceUrls,
+    detailTemplatesByOrigin,
+    observedDetailIdsByOrigin,
+  };
+}
+
+export function isSharedLearnedSurfaceUrl(
+  url: string | null | undefined,
+  evidence: LearnedSearchSurfaceRouteEvidence,
+): boolean {
+  const parsed = parseHttpUrl(cleanLine(url));
+  return (
+    parsed !== null &&
+    evidence.sharedSurfaceUrls.has(normalizeRouteIdentityKey(parsed))
+  );
+}
+
+function formatLearnedDetailUrl(
+  origin: string,
+  template: string,
+  jobId: string,
+): string {
+  return `${origin}${template.replace(LEARNED_DETAIL_TEMPLATE_PLACEHOLDER, encodeURIComponent(jobId))}`;
+}
+
+export function buildLearnedDetailUrlFromHint(input: {
+  url: string | null | undefined;
+  pageUrl: string;
+  sourceJobIdHint?: string | null;
+  searchableText?: string | null;
+  evidence: LearnedSearchSurfaceRouteEvidence;
+}): string | null {
+  const parsed =
+    parseHttpUrl(cleanLine(input.url), input.pageUrl) ??
+    parseHttpUrl(input.pageUrl);
+  if (!parsed) {
+    return null;
+  }
+
+  const template = input.evidence.detailTemplatesByOrigin.get(parsed.origin);
+  if (!template) {
+    return null;
+  }
+
+  const hint = canonicalizeNumericJobIdHint(input.sourceJobIdHint);
+  if (hint) {
+    return formatLearnedDetailUrl(parsed.origin, template, hint);
+  }
+
+  const text = cleanLine(input.searchableText).toLowerCase();
+  if (!text) {
+    return null;
+  }
+
+  for (const value of parsed.searchParams.values()) {
+    const paramValue = cleanLine(value);
+    if (
+      EMBEDDED_JOB_ID_VALUE_PATTERN.test(paramValue) &&
+      text.includes(paramValue.toLowerCase())
+    ) {
+      return formatLearnedDetailUrl(parsed.origin, template, paramValue);
+    }
+  }
+
+  return null;
+}
+
 function canonicalizeUrl(
   url: string | null | undefined,
   baseUrl: string,
-  options?: { canonicalizeEmbeddedSearchRoute?: boolean },
 ): string {
   const normalizedUrl = cleanLine(url);
 
@@ -928,52 +1273,29 @@ function canonicalizeUrl(
     return "";
   }
 
-  try {
-    const parsed = new URL(normalizedUrl, baseUrl);
-
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return "";
-    }
-
-    const pathname = parsed.pathname.toLowerCase();
-    const searchSurfaceRule = getSearchSurfaceRouteRuleForUrl(parsed);
-    const embeddedSearchSurfaceJobId = searchSurfaceRule
-      ? readEmbeddedSearchSurfaceJobId(parsed, searchSurfaceRule)
-      : "";
-    if (
-      options?.canonicalizeEmbeddedSearchRoute !== false &&
-      embeddedSearchSurfaceJobId &&
-      /^\d+$/.test(embeddedSearchSurfaceJobId) &&
-      searchSurfaceRule &&
-      isSearchSurfaceResultPath(searchSurfaceRule, pathname)
-    ) {
-      return (
-        buildSearchSurfaceDetailUrl(parsed, embeddedSearchSurfaceJobId) ?? ""
-      );
-    }
-
-    const removableSearchSurfaceParams = new Set(
-      [
-        ...(searchSurfaceRule?.embeddedJobIdParams ?? []),
-        ...(searchSurfaceRule?.trackingParams ?? []),
-      ].map((key) => key.toLowerCase()),
-    );
-
-    for (const key of [...parsed.searchParams.keys()]) {
-      const lowered = key.toLowerCase();
-      if (
-        lowered.startsWith("utm_") ||
-        removableSearchSurfaceParams.has(lowered)
-      ) {
-        parsed.searchParams.delete(key);
-      }
-    }
-
-    parsed.hash = "";
-    return parsed.toString();
-  } catch {
+  const parsed = parseHttpUrl(normalizedUrl, baseUrl);
+  if (!parsed) {
     return "";
   }
+
+  for (const key of [...parsed.searchParams.keys()]) {
+    if (
+      isTrackingShapedParamKey(key) ||
+      isJobIdShapedParamKey(key) ||
+      normalizeQueryParamKey(key).includes("geo")
+    ) {
+      parsed.searchParams.delete(key);
+    }
+  }
+
+  if (findDetailRouteIdSegment(parsed.pathname)) {
+    for (const key of [...parsed.searchParams.keys()]) {
+      parsed.searchParams.delete(key);
+    }
+  }
+
+  parsed.hash = "";
+  return parsed.toString();
 }
 
 function canonicalizeNumericJobIdHint(
@@ -981,29 +1303,6 @@ function canonicalizeNumericJobIdHint(
 ): string | null {
   const normalized = cleanLine(value);
   return /^\d+$/.test(normalized) ? normalized : null;
-}
-
-export function isSearchResultsSurfaceRoute(
-  url: string | null | undefined,
-  baseUrl: string,
-): boolean {
-  const normalizedUrl = cleanLine(url);
-  if (!normalizedUrl) {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(normalizedUrl, baseUrl);
-    const searchSurfaceRule = getSearchSurfaceRouteRuleForUrl(parsed);
-    if (!searchSurfaceRule) {
-      return false;
-    }
-
-    const pathname = parsed.pathname.toLowerCase();
-    return isSearchSurfaceResultPath(searchSurfaceRule, pathname);
-  } catch {
-    return false;
-  }
 }
 
 function buildSearchResultCardFingerprint(
@@ -1026,6 +1325,7 @@ export function buildSearchResultCardMergeKey(input: {
   pageUrl: string;
   candidate: SearchResultCardCandidate;
   canonicalUrl?: string | null;
+  evidence?: LearnedSearchSurfaceRouteEvidence;
 }): string {
   const baseCanonicalUrl = cleanLine(
     input.canonicalUrl ?? input.candidate.canonicalUrl,
@@ -1034,44 +1334,25 @@ export function buildSearchResultCardMergeKey(input: {
     return `card:${buildSearchResultCardFingerprint(input.candidate)}`;
   }
 
+  const resolvedEvidence =
+    input.evidence ??
+    observeLearnedSearchSurfaceRoutes({
+      pageUrl: input.pageUrl,
+      observedUrls: [baseCanonicalUrl],
+    });
+
   if (
-    isSearchResultsSurfaceRoute(input.candidate.canonicalUrl, input.pageUrl) &&
+    isSharedLearnedSurfaceUrl(baseCanonicalUrl, resolvedEvidence) &&
     !shouldCanonicalizeSearchSurfaceDetailRoute({
       candidate: input.candidate,
       pageUrl: input.pageUrl,
+      evidence: resolvedEvidence,
     })
   ) {
     return `${baseCanonicalUrl}::card:${buildSearchResultCardFingerprint(input.candidate)}`;
   }
 
   return baseCanonicalUrl;
-}
-
-function buildCanonicalDetailUrlFromJobHint(input: {
-  candidateUrl: string;
-  pageUrl: string;
-  sourceJobIdHint?: string | null;
-}): string | null {
-  const sourceJobIdHint = canonicalizeNumericJobIdHint(input.sourceJobIdHint);
-  if (!sourceJobIdHint) {
-    return null;
-  }
-
-  const urlCandidates = [input.candidateUrl, input.pageUrl];
-  for (const candidateUrl of urlCandidates) {
-    try {
-      const parsed = new URL(candidateUrl, input.pageUrl);
-      if (!getSearchSurfaceRouteRuleForUrl(parsed)) {
-        continue;
-      }
-
-      return buildSearchSurfaceDetailUrl(parsed, sourceJobIdHint);
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
 }
 
 function buildGenericJobId(url: string): string {
@@ -1178,6 +1459,23 @@ function toIsoDateTimeOrNull(value: string | null | undefined): string | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
+function preferLatestIsoDateTime(
+  current: string | null | undefined,
+  candidate: string | null | undefined,
+): string | null {
+  const currentIso = toIsoDateTimeOrNull(current);
+  const candidateIso = toIsoDateTimeOrNull(candidate);
+  if (!currentIso) {
+    return candidateIso;
+  }
+  if (!candidateIso) {
+    return currentIso;
+  }
+  return Date.parse(candidateIso) > Date.parse(currentIso)
+    ? candidateIso
+    : currentIso;
+}
+
 function trimToNull(value: string | null | undefined): string | null {
   const normalized = cleanLine(value);
   return normalized || null;
@@ -1224,7 +1522,9 @@ function normalizePotentialCompanyCandidate(value: string): string {
     return "";
   }
 
-  const withoutAtPrefix = cleanLine(normalized.replace(/^at\s+/i, ""));
+  const withoutAtPrefix = cleanLine(normalized.replace(/^at\s+/i, ""))
+    .replace(/[\s•·|–—-]+$/u, "")
+    .trim();
   return withoutAtPrefix || normalized;
 }
 
@@ -1520,20 +1820,22 @@ function recoverBetterCardTitleFromLines(input: {
     : null;
 }
 
-function usesSearchSurfaceHeuristics(
-  value: string | null | undefined,
+function cardShowsRecoverableUiNoise(
+  candidate: SearchResultCardCandidate,
 ): boolean {
-  const normalized = cleanLine(value);
-  if (!normalized) {
-    return false;
-  }
-
-  try {
-    const parsed = new URL(normalized, "https://example.invalid");
-    return getSearchSurfaceRouteRuleForUrl(parsed) !== null;
-  } catch {
-    return false;
-  }
+  const textLines = uniqueStrings([
+    candidate.anchorText,
+    candidate.headingText ?? "",
+    ...candidate.lines,
+  ]);
+  const joinedLines = textLines.join(" ");
+  return (
+    EXTRACTION_UI_NOISE_PATTERN.test(joinedLines) ||
+    /\bdismiss\b[\s\S]*\bjob\b/i.test(joinedLines) ||
+    SALARY_PATTERN.test(cleanLine(candidate.headingText)) ||
+    SALARY_PATTERN.test(cleanLine(candidate.anchorText)) ||
+    textLines.some((line) => findRepeatedLeadingPhrase(line) !== null)
+  );
 }
 
 function removeLeadingTitleEcho(value: string, title: string): string {
@@ -1550,7 +1852,7 @@ function removeLeadingTitleEcho(value: string, title: string): string {
   const escapedTitle = normalizedTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return cleanLine(
     normalizedValue.replace(
-      new RegExp(`^(?:${escapedTitle})(?:\\s+${escapedTitle})*\\s*`, "i"),
+      new RegExp(`^(?:${escapedTitle})(?:\\s*${escapedTitle})*\\s*`, "i"),
       "",
     ),
   );
@@ -1660,6 +1962,62 @@ function findRepeatedLeadingPhrase(value: string): string | null {
   }
 
   return null;
+}
+
+function normalizeExtractedJobTitle(input: {
+  value: string | null | undefined;
+  company?: string | null | undefined;
+  location?: string | null | undefined;
+}): string {
+  const normalized = cleanLine(input.value);
+  const workModeQualifiedRepeat = normalized.match(
+    /^(?<title>.+?)\s+(?:\((?:remote|hybrid|on[- ]?site|onsite)\)|[-–—|•·]\s*(?:remote|hybrid|on[- ]?site|onsite))\s+\k<title>$/iu,
+  );
+  const workModeQualifiedTitle = cleanLine(
+    workModeQualifiedRepeat?.groups?.title,
+  );
+  if (
+    workModeQualifiedTitle &&
+    scoreCardTitleCandidate(workModeQualifiedTitle) > 0
+  ) {
+    return workModeQualifiedTitle;
+  }
+
+  const repeatedTitle = findRepeatedLeadingPhrase(normalized);
+  if (!repeatedTitle || scoreCardTitleCandidate(repeatedTitle) <= 0) {
+    return normalized;
+  }
+
+  const escapedTitle = repeatedTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const suffix = cleanLine(
+    normalized
+      .replace(
+        new RegExp(`^(?:${escapedTitle})(?:\\s+${escapedTitle})+\\s*`, "iu"),
+        "",
+      )
+      .replace(/^[\s|•·–—-]+/u, ""),
+  );
+
+  if (!suffix) {
+    return repeatedTitle;
+  }
+
+  const normalizedSuffix = suffix.toLocaleLowerCase();
+  const beginsWithKnownMetadata = [input.company, input.location]
+    .map((value) => cleanLine(value).replace(/^[\s|•·–—-]+/u, ""))
+    .filter(Boolean)
+    .some((value) => {
+      const normalizedValue = value.toLocaleLowerCase();
+      return (
+        normalizedSuffix === normalizedValue ||
+        normalizedSuffix.startsWith(`${normalizedValue} `) ||
+        normalizedSuffix.startsWith(`${normalizedValue} •`) ||
+        normalizedSuffix.startsWith(`${normalizedValue} ·`) ||
+        normalizedSuffix.startsWith(`${normalizedValue} |`)
+      );
+    });
+
+  return beginsWithKnownMetadata ? repeatedTitle : normalized;
 }
 
 function recoverTitleFromMetadataLine(
@@ -1888,9 +2246,7 @@ function selectBestRawCardTitle(candidate: SearchResultCardCandidate): string {
       (left, right) =>
         scoreCardTitleCandidate(right) - scoreCardTitleCandidate(left),
     )[0] ?? null;
-  const metadataRecoveredTitle = usesSearchSurfaceHeuristics(
-    candidate.canonicalUrl,
-  )
+  const metadataRecoveredTitle = cardShowsRecoverableUiNoise(candidate)
     ? (uniqueStrings(candidate.lines)
         .filter((line) =>
           looksLikeRecoveredTitleSource(
@@ -1910,6 +2266,14 @@ function selectBestRawCardTitle(candidate: SearchResultCardCandidate): string {
             scoreCardTitleCandidate(right) - scoreCardTitleCandidate(left),
         )[0] ?? null)
     : null;
+
+  // Search-result dismiss controls carry the clean visible job title even when
+  // the surrounding card's accessibility text repeats the title and appends
+  // verification/company/location metadata. Prefer that explicit label over
+  // all composite text heuristics.
+  if (dismissTitle && scoreCardTitleCandidate(dismissTitle) > 0) {
+    return dismissTitle;
+  }
 
   if (metadataRecoveredTitle) {
     const escapedRecoveredTitle = metadataRecoveredTitle.replace(
@@ -1957,6 +2321,88 @@ function selectBestRawCardTitle(candidate: SearchResultCardCandidate): string {
   }
 
   return headingTitle || cleanLine(candidate.anchorText);
+}
+
+function recoverSearchSurfaceCompositeMetadata(
+  lines: readonly string[],
+  title: string,
+): { company: string; location: string } | null {
+  const knownRemoteRegionPattern =
+    /\b(?:United States|United Kingdom|European Union|North America|Latin America|South America|Middle East|Asia Pacific|EMEA|APAC|Europe|Worldwide|Global|Anywhere|Remote)\s*\((?:Remote|Hybrid|On[- ]?site)\)/i;
+  const isPlausibleCompositeCompany = (value: string) =>
+    Boolean(value) &&
+    value.length <= 80 &&
+    !COMPANY_NOISE_PATTERN.test(value) &&
+    !POSTED_PATTERN.test(value) &&
+    !SALARY_PATTERN.test(value) &&
+    !isRoleLikePhrase(value);
+
+  for (const line of uniqueStrings(lines)) {
+    const cleaned = stripExtractionUiSuffix(line);
+    const withoutTitle = removeLeadingTitleEcho(cleaned, title)
+      .replace(
+        /^(?:with verification|verified job|recommended|promoted|viewed)\b\s*/i,
+        "",
+      )
+      .trim();
+    if (!withoutTitle || withoutTitle === cleaned) {
+      continue;
+    }
+
+    const workModeMatch = withoutTitle.match(
+      /\((?:Remote|Hybrid|On[- ]?site)\)/i,
+    );
+    if (!workModeMatch || workModeMatch.index === undefined) {
+      continue;
+    }
+
+    const throughWorkMode = cleanLine(
+      withoutTitle.slice(0, workModeMatch.index + workModeMatch[0].length),
+    );
+    const knownLocationMatch = knownRemoteRegionPattern.exec(throughWorkMode);
+    if (knownLocationMatch?.index !== undefined) {
+      const company = normalizePotentialCompanyCandidate(
+        throughWorkMode.slice(0, knownLocationMatch.index),
+      );
+      const location = cleanLine(knownLocationMatch[0]);
+      if (isPlausibleCompositeCompany(company)) {
+        return { company: stripCompanySuffix(company), location };
+      }
+    }
+
+    if (throughWorkMode.includes(",")) {
+      const tokens = throughWorkMode.split(/\s+/).filter(Boolean);
+      for (let splitIndex = 1; splitIndex < tokens.length; splitIndex += 1) {
+        const company = normalizePotentialCompanyCandidate(
+          tokens.slice(0, splitIndex).join(" "),
+        );
+        const location = cleanLine(tokens.slice(splitIndex).join(" "));
+        if (isPlausibleCompositeCompany(company) && location.includes(",")) {
+          return { company: stripCompanySuffix(company), location };
+        }
+      }
+      continue;
+    }
+
+    const singleTokenLocationMatch =
+      /\s(?<location>[A-Z][\p{L}.'’-]+\s*\((?:Remote|Hybrid|On[- ]?site)\))$/u.exec(
+        throughWorkMode,
+      );
+    if (
+      singleTokenLocationMatch?.index !== undefined &&
+      singleTokenLocationMatch.groups?.location
+    ) {
+      const company = normalizePotentialCompanyCandidate(
+        throughWorkMode.slice(0, singleTokenLocationMatch.index),
+      );
+      const location = cleanLine(singleTokenLocationMatch.groups.location);
+      if (isPlausibleCompositeCompany(company)) {
+        return { company: stripCompanySuffix(company), location };
+      }
+    }
+  }
+
+  return null;
 }
 
 function isLocationLike(
@@ -2190,6 +2636,16 @@ function narrowVerificationNoiseLocationCandidate(
 
 function inferTrailingCompositeLocation(value: string): string | null {
   const tokens = cleanLine(value).split(/\s+/).filter(Boolean);
+  const tailToken =
+    cleanLine(tokens.at(-1) ?? "")
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+/gu)
+      ?.at(-1) ?? "";
+
+  if (!tailToken || ROLE_TOKEN_PATTERN.test(tailToken)) {
+    return null;
+  }
+
   let bestCandidate: string | null = null;
   let bestScore = Number.NEGATIVE_INFINITY;
 
@@ -2324,7 +2780,103 @@ function inferCompany(
   return null;
 }
 
+/**
+ * Employer name from an explicit employer profile or employer-job href.
+ * Accepts hubs (`/company/{slug}`, `/employer/{slug}`, …) because those
+ * links name the employer on job cards — unlike treating a hub page itself
+ * as a job listing.
+ */
+export function inferEmployerFromCompanyProfileHref(
+  url: string | null | undefined,
+): string | null {
+  const canonicalUrl = cleanLine(url ?? "");
+  if (!canonicalUrl) {
+    return null;
+  }
+
+  const employerProfilePathMarkers = new Set(["company", "employer"]);
+
+  try {
+    const parsed = new URL(canonicalUrl);
+    const pathSegments = parsed.pathname
+      .split("/")
+      .map((segment) => cleanLine(decodeURIComponent(segment)))
+      .filter(Boolean);
+    const profileIndex = pathSegments.findIndex((segment) =>
+      employerProfilePathMarkers.has(segment.toLowerCase()),
+    );
+    if (profileIndex < 0) {
+      return null;
+    }
+
+    const slug = pathSegments[profileIndex + 1];
+    if (
+      !slug ||
+      GENERIC_JOB_PATH_SEGMENTS.has(slug.toLowerCase()) ||
+      SITE_UTILITY_PATH_SEGMENTS.has(slug.toLowerCase()) ||
+      !/[a-z\p{L}]/iu.test(slug)
+    ) {
+      return null;
+    }
+
+    // Some boards append numeric disambiguators to profile slugs.
+    const displaySlug = slug.replace(/-\d+$/u, "");
+    return formatEmployerLabelFromSlug(displaySlug);
+  } catch {
+    return null;
+  }
+}
+
+function inferCompanySlugFromCanonicalUrl(url: string): string | null {
+  const canonicalUrl = cleanLine(url);
+  if (!canonicalUrl) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(canonicalUrl);
+    const pathSegments = parsed.pathname
+      .split("/")
+      .map((segment) => cleanLine(decodeURIComponent(segment)))
+      .filter(Boolean);
+    const companyMarkerIndex = pathSegments.findIndex(
+      (segment) => segment.toLowerCase() === "company",
+    );
+    if (companyMarkerIndex < 0) {
+      return null;
+    }
+
+    const slug = pathSegments[companyMarkerIndex + 1];
+    if (
+      !slug ||
+      GENERIC_JOB_PATH_SEGMENTS.has(slug.toLowerCase()) ||
+      !/[a-z\p{L}]/iu.test(slug)
+    ) {
+      return null;
+    }
+
+    // Job listing URLs must include a role segment after `/company/{slug}`
+    // (or `/company/{slug}/jobs/{id}-…`). Pure hubs stay non-employers here.
+    const rest = pathSegments.slice(companyMarkerIndex + 2);
+    if (
+      rest.length === 0 ||
+      (rest.length === 1 && rest[0]?.toLowerCase() === "jobs")
+    ) {
+      return null;
+    }
+
+    return formatEmployerLabelFromSlug(slug);
+  } catch {
+    return null;
+  }
+}
+
 function inferCompanyFromCanonicalUrl(url: string): string | null {
+  const slugCompany = inferCompanySlugFromCanonicalUrl(url);
+  if (slugCompany) {
+    return slugCompany;
+  }
+
   const canonicalUrl = cleanLine(url);
   if (!canonicalUrl) {
     return null;
@@ -2593,6 +3145,10 @@ function mergeJob(
     salaryText: candidate.salaryText ?? current.salaryText ?? null,
     postedAt: candidate.postedAt ?? current.postedAt ?? null,
     postedAtText: candidate.postedAtText ?? current.postedAtText ?? null,
+    providerUpdatedAt: preferLatestIsoDateTime(
+      current.providerUpdatedAt,
+      candidate.providerUpdatedAt,
+    ),
     workMode: uniqueStrings([
       ...(current.workMode ?? []),
       ...(candidate.workMode ?? []),
@@ -2632,6 +3188,92 @@ function mergeJob(
   };
 }
 
+/**
+ * True for bare job-board index URLs such as `/jobs` that are not concrete
+ * posting detail routes (no id-shaped segment after the jobs marker).
+ */
+export function isLikelyJobListingHubUrl(canonicalUrl: string): boolean {
+  const raw = cleanLine(canonicalUrl);
+  if (!raw) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(raw);
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => cleanLine(decodeURIComponent(segment)).toLowerCase())
+      .filter(Boolean);
+    return segments.length === 1 && segments[0] === "jobs";
+  } catch {
+    return false;
+  }
+}
+
+export function isLikelySiteUtilityJob(input: {
+  canonicalUrl: string;
+  title?: string | null;
+  captureMeta?: SearchResultCardCaptureMeta | null;
+}): boolean {
+  if (input.captureMeta?.inNavigation || input.captureMeta?.inHeader) {
+    return true;
+  }
+
+  const title = cleanLine(input.title ?? "");
+  if (
+    title &&
+    (SITE_UTILITY_TITLE_PATTERN.test(title) ||
+      SITE_UTILITY_ALBANIAN_PRIVACY_TITLE_PATTERN.test(title) ||
+      SITE_UTILITY_TITLE_PREFIX_PATTERN.test(title) ||
+      SITE_UTILITY_OPEN_POSITIONS_TITLE_PATTERN.test(title))
+  ) {
+    return true;
+  }
+
+  if (isLikelyJobListingHubUrl(input.canonicalUrl)) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(input.canonicalUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (
+      host === "fb.com" ||
+      host === "www.fb.com" ||
+      host === "facebook.com" ||
+      host === "www.facebook.com" ||
+      host.endsWith(".facebook.com") ||
+      host.startsWith("help.")
+    ) {
+      return true;
+    }
+
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => cleanLine(decodeURIComponent(segment)).toLowerCase())
+      .filter(Boolean);
+    if (segments.some((segment) => SITE_UTILITY_PATH_SEGMENTS.has(segment))) {
+      return true;
+    }
+
+    const companyIndex = segments.indexOf("company");
+    if (companyIndex >= 0) {
+      const rest = segments.slice(companyIndex + 2);
+      // `/company/{slug}` hubs and `/company/{slug}/jobs` indexes are chrome.
+      if (
+        segments[companyIndex + 1] &&
+        (rest.length === 0 || (rest.length === 1 && rest[0] === "jobs"))
+      ) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
 function isCompleteJob(
   job: ExtractedJobInput | undefined,
 ): job is ExtractedJobInput {
@@ -2642,16 +3284,31 @@ function isCompleteJob(
     job.title &&
     job.company &&
     job.location &&
-    job.description,
+    job.description &&
+    !isLikelySiteUtilityJob({
+      canonicalUrl: job.canonicalUrl,
+      title: job.title,
+    }),
   );
 }
 
 function buildJobFromStructuredData(
   candidate: StructuredDataJobCandidate,
   pageUrl: string,
+  evidence: LearnedSearchSurfaceRouteEvidence,
 ): ExtractedJobInput | null {
-  const canonicalUrl = canonicalizeUrl(candidate.canonicalUrl, pageUrl);
-  const title = cleanLine(candidate.title);
+  const canonicalUrl =
+    buildLearnedDetailUrlFromHint({
+      url: candidate.canonicalUrl,
+      pageUrl,
+      sourceJobIdHint: candidate.sourceJobId ?? null,
+      evidence,
+    }) || canonicalizeUrl(candidate.canonicalUrl, pageUrl);
+  const title = normalizeExtractedJobTitle({
+    value: candidate.title,
+    company: candidate.company,
+    location: candidate.location,
+  });
   const company = cleanLine(candidate.company);
   const workMode = normalizeWorkModes(
     candidate.workMode,
@@ -2660,6 +3317,15 @@ function buildJobFromStructuredData(
   const location = cleanLine(candidate.location) || inferLocation([], workMode);
   const description =
     cleanLine(candidate.description) || cleanLine(candidate.summary);
+
+  if (
+    isLikelySiteUtilityJob({
+      canonicalUrl,
+      title,
+    })
+  ) {
+    return null;
+  }
 
   return {
     sourceJobId:
@@ -2674,6 +3340,7 @@ function buildJobFromStructuredData(
     summary: trimToNull(candidate.summary) ?? description.slice(0, 280),
     postedAt: toIsoDateTimeOrNull(candidate.postedAt),
     postedAtText: trimToNull(candidate.postedAtText),
+    providerUpdatedAt: toIsoDateTimeOrNull(candidate.providerUpdatedAt),
     workMode,
     applyPath: candidate.applyPath ?? "unknown",
     easyApplyEligible: candidate.easyApplyEligible === true,
@@ -2698,32 +3365,54 @@ function buildJobFromStructuredData(
 function buildJobFromCardCandidate(
   candidate: SearchResultCardCandidate,
   pageUrl: string,
+  evidence: LearnedSearchSurfaceRouteEvidence,
 ): ExtractedJobInput | null {
   const shouldCanonicalizeCurrentJobIdRoute =
     shouldCanonicalizeSearchSurfaceDetailRoute({
       candidate,
       pageUrl,
+      evidence,
     });
   const hasUnprovenSearchSurfaceRoute =
-    isSearchResultsSurfaceRoute(candidate.canonicalUrl, pageUrl) &&
-    !shouldCanonicalizeCurrentJobIdRoute;
+    !shouldCanonicalizeCurrentJobIdRoute &&
+    isSharedLearnedSurfaceUrl(candidate.canonicalUrl, evidence);
+  const hintedSourceJobId =
+    shouldCanonicalizeCurrentJobIdRoute || !hasUnprovenSearchSurfaceRoute
+      ? cleanLine(candidate.sourceJobIdHint)
+      : "";
   const canonicalUrl =
-    buildCanonicalDetailUrlFromJobHint({
-      candidateUrl: candidate.canonicalUrl,
+    buildLearnedDetailUrlFromHint({
+      url: candidate.canonicalUrl,
       pageUrl,
       ...(candidate.sourceJobIdHint !== undefined
         ? { sourceJobIdHint: candidate.sourceJobIdHint }
         : {}),
-    }) ??
-    canonicalizeUrl(candidate.canonicalUrl, pageUrl, {
-      canonicalizeEmbeddedSearchRoute: shouldCanonicalizeCurrentJobIdRoute,
-    });
+      searchableText: [
+        candidate.anchorText,
+        candidate.headingText ?? "",
+        ...candidate.lines,
+      ].join(" "),
+      evidence,
+    }) ?? canonicalizeUrl(candidate.canonicalUrl, pageUrl);
+  if (
+    isLikelySiteUtilityJob({
+      canonicalUrl,
+      title: candidate.anchorText ?? candidate.headingText,
+      captureMeta: candidate.captureMeta ?? null,
+    })
+  ) {
+    return null;
+  }
+
   const candidateFingerprint = buildSearchResultCardFingerprint(candidate);
   const lines = uniqueStrings(candidate.lines);
   const rawHeadingOrAnchor = selectBestRawCardTitle(candidate);
-  const isSearchSurfaceCandidate = usesSearchSurfaceHeuristics(
-    candidate.canonicalUrl,
-  );
+  const explicitDismissTitle =
+    collectDismissTitles(candidate).sort(
+      (left, right) =>
+        scoreCardTitleCandidate(right) - scoreCardTitleCandidate(left),
+    )[0] ?? null;
+  const isSearchSurfaceCandidate = cardShowsRecoverableUiNoise(candidate);
   const pollutedTitleCompanySplit = isSearchSurfaceCandidate
     ? splitContaminatedTitleCompanySuffix(rawHeadingOrAnchor)
     : { title: rawHeadingOrAnchor, company: null };
@@ -2736,12 +3425,27 @@ function buildJobFromCardCandidate(
   const rawTitle = sanitizeCardTitle(
     recoveredCardTitle ?? pollutedTitleCompanySplit.title,
   );
-  const compositeTitle = normalizeCompositeCardTitle(
-    stripExtractionUiSuffix(
-      recoveredCardTitle ?? pollutedTitleCompanySplit.title,
-    ),
-  );
-  const title = sanitizeCardTitle(compositeTitle.title) || rawTitle;
+  const compositeTitle = explicitDismissTitle
+    ? {
+        title: trimMalformedTrailingRoleRepeat(
+          stripExtractionUiSuffix(explicitDismissTitle)
+            .replace(/\(verified job\)/gi, " ")
+            .replace(
+              /\s*[|•·]\s*(?:Remote|Hybrid|On[- ]?site|Onsite)\s*$/i,
+              "",
+            ),
+        ),
+        location: null,
+        postedAtText: null,
+      }
+    : normalizeCompositeCardTitle(
+        stripExtractionUiSuffix(
+          recoveredCardTitle ?? pollutedTitleCompanySplit.title,
+        ),
+      );
+  const title = explicitDismissTitle
+    ? cleanLine(compositeTitle.title) || rawTitle
+    : sanitizeCardTitle(compositeTitle.title) || rawTitle;
   const excludedTitleLines = new Set(
     [rawHeadingOrAnchor, rawTitle, title]
       .map((value) => cleanLine(value).toLowerCase())
@@ -2759,14 +3463,27 @@ function buildJobFromCardCandidate(
   const verificationMetadata = isSearchSurfaceCandidate
     ? recoverVerificationMetadata(lines, title)
     : null;
+  const compositeMetadata = isSearchSurfaceCandidate
+    ? recoverSearchSurfaceCompositeMetadata(lines, title)
+    : null;
   const hardLocation =
+    trimToNull(candidate.locationText) ??
+    compositeMetadata?.location ??
     verificationMetadata?.location ??
     inferLocation(metadataLines, workMode, {
       allowSingleTokenGeneric: false,
     }) ??
     compositeTitle.location;
   const urlCompany = inferCompanyFromCanonicalUrl(canonicalUrl);
+  const urlCompanySlug = inferCompanySlugFromCanonicalUrl(canonicalUrl);
+  const companyHrefEmployer = inferEmployerFromCompanyProfileHref(
+    candidate.companyHref,
+  );
   const initialCompany =
+    sanitizeObservedEmployerLabel(trimToNull(candidate.companyText)) ??
+    sanitizeObservedEmployerLabel(compositeMetadata?.company) ??
+    companyHrefEmployer ??
+    urlCompanySlug ??
     inferCompany(
       metadataLines.filter(
         (line) =>
@@ -2790,21 +3507,28 @@ function buildJobFromCardCandidate(
     ) ??
     verificationMetadata?.location;
   const company =
-    initialCompany ??
-    inferCompany(
-      metadataLines.filter(
-        (line) =>
-          cleanLine(line).toLowerCase() !== (location?.toLowerCase() ?? ""),
-      ),
-      title,
-      location ?? null,
-    ) ??
-    pollutedTitleCompanySplit.company ??
-    urlCompany;
+    sanitizeObservedEmployerLabel(
+      initialCompany ??
+        inferCompany(
+          metadataLines.filter(
+            (line) =>
+              cleanLine(line).toLowerCase() !== (location?.toLowerCase() ?? ""),
+          ),
+          title,
+          location ?? null,
+        ) ??
+        pollutedTitleCompanySplit.company ??
+        urlCompany,
+    ) ?? null;
+  const canonicalTitle = normalizeExtractedJobTitle({
+    value: title,
+    company,
+    location,
+  });
 
   const { summary, description } = buildSummaryAndDescription({
     lines,
-    title: title || cleanLine(candidate.anchorText),
+    title: canonicalTitle || cleanLine(candidate.anchorText),
     company: company || "",
     location: location || "",
     excludedLines: [rawTitle],
@@ -2812,7 +3536,7 @@ function buildJobFromCardCandidate(
 
   return {
     sourceJobId:
-      cleanLine(candidate.sourceJobIdHint) ||
+      hintedSourceJobId ||
       (hasUnprovenSearchSurfaceRoute
         ? `${buildGenericJobId(canonicalUrl || pageUrl)}_${candidateFingerprint}`.slice(
             0,
@@ -2820,7 +3544,7 @@ function buildJobFromCardCandidate(
           )
         : buildGenericJobId(canonicalUrl || pageUrl)),
     canonicalUrl,
-    title,
+    title: canonicalTitle,
     company: company || "",
     location: location || "",
     description,
@@ -2859,7 +3583,14 @@ export function scoreSearchResultCardForPreferences(input: {
 
   const job =
     input.prebuiltJob ??
-    buildJobFromCardCandidate(input.candidate, input.pageUrl);
+    buildJobFromCardCandidate(
+      input.candidate,
+      input.pageUrl,
+      observeLearnedSearchSurfaceRoutes({
+        pageUrl: input.pageUrl,
+        observedUrls: [input.candidate.canonicalUrl],
+      }),
+    );
   if (!job) {
     return 0;
   }
@@ -2879,7 +3610,14 @@ export function scoreSearchResultCardTitleForPreferences(input: {
 
   const job =
     input.prebuiltJob ??
-    buildJobFromCardCandidate(input.candidate, input.pageUrl);
+    buildJobFromCardCandidate(
+      input.candidate,
+      input.pageUrl,
+      observeLearnedSearchSurfaceRoutes({
+        pageUrl: input.pageUrl,
+        observedUrls: [input.candidate.canonicalUrl],
+      }),
+    );
   if (!job) {
     return 0;
   }
@@ -2900,17 +3638,30 @@ export function buildStructuredCandidateJobs(input: {
 
   const jobsByKey = new Map<string, ExtractedJobInput>();
   const cardSurfaceScoreByMergeKey = new Map<string, number>();
-  const isSearchSurface = isSearchResultsSurfaceRoute(
-    input.pageUrl,
-    input.pageUrl,
-  );
+  const learnedEvidence = observeLearnedSearchSurfaceRoutes({
+    pageUrl: input.pageUrl,
+    observedUrls: [
+      input.pageUrl,
+      ...(input.cardCandidates ?? []).map(
+        (candidate) => candidate.canonicalUrl,
+      ),
+    ],
+    detailOnlyUrls: (input.structuredDataCandidates ?? []).map(
+      (candidate) => candidate.canonicalUrl,
+    ),
+  });
+  const isSearchSurface = learnedEvidence.sharedSurfaceUrls.size > 0;
   const effectiveMaxJobs = Math.max(1, input.maxJobs);
   const targetCardCandidateBudget = isSearchSurface
     ? Math.max(96, effectiveMaxJobs * 8)
     : Math.max(20, effectiveMaxJobs * 3);
 
   for (const candidate of input.structuredDataCandidates ?? []) {
-    const job = buildJobFromStructuredData(candidate, input.pageUrl);
+    const job = buildJobFromStructuredData(
+      candidate,
+      input.pageUrl,
+      learnedEvidence,
+    );
     if (!job) {
       continue;
     }
@@ -2925,7 +3676,11 @@ export function buildStructuredCandidateJobs(input: {
     0,
     targetCardCandidateBudget,
   )) {
-    const job = buildJobFromCardCandidate(candidate, input.pageUrl);
+    const job = buildJobFromCardCandidate(
+      candidate,
+      input.pageUrl,
+      learnedEvidence,
+    );
     if (!job) {
       continue;
     }
@@ -2934,6 +3689,7 @@ export function buildStructuredCandidateJobs(input: {
       pageUrl: input.pageUrl,
       candidate,
       canonicalUrl: job.canonicalUrl,
+      evidence: learnedEvidence,
     });
 
     jobsByKey.set(mergeKey, mergeJob(jobsByKey.get(mergeKey), job));
@@ -3008,12 +3764,19 @@ export function buildStructuredCandidateJobs(input: {
 export function shouldCanonicalizeSearchSurfaceDetailRoute(input: {
   candidate: SearchResultCardCandidate;
   pageUrl: string;
+  evidence: LearnedSearchSurfaceRouteEvidence;
 }): boolean {
   const sourceJobIdHint = canonicalizeNumericJobIdHint(
     input.candidate.sourceJobIdHint,
   );
   if (sourceJobIdHint) {
-    return true;
+    const parsed =
+      parseHttpUrl(cleanLine(input.candidate.canonicalUrl), input.pageUrl) ??
+      parseHttpUrl(input.pageUrl);
+    return (
+      parsed !== null &&
+      input.evidence.detailTemplatesByOrigin.has(parsed.origin)
+    );
   }
 
   const candidateUrl = cleanLine(input.candidate.canonicalUrl);
@@ -3021,42 +3784,18 @@ export function shouldCanonicalizeSearchSurfaceDetailRoute(input: {
     return false;
   }
 
-  try {
-    const parsed = new URL(candidateUrl, input.pageUrl);
-    const searchSurfaceRule = getSearchSurfaceRouteRuleForUrl(parsed);
-    if (!searchSurfaceRule) {
-      return false;
-    }
-
-    const pathname = parsed.pathname.toLowerCase();
-    if (isSearchSurfaceDetailPath(searchSurfaceRule, pathname)) {
-      return true;
-    }
-
-    if (!isSearchSurfaceResultPath(searchSurfaceRule, pathname)) {
-      return false;
-    }
-
-    const embeddedJobId = readEmbeddedSearchSurfaceJobId(
-      parsed,
-      searchSurfaceRule,
-    );
-    if (!/^\d+$/.test(embeddedJobId)) {
-      return false;
-    }
-
-    const searchableText = cleanLine(
-      [
+  return (
+    buildLearnedDetailUrlFromHint({
+      url: candidateUrl,
+      pageUrl: input.pageUrl,
+      searchableText: [
         input.candidate.anchorText,
         input.candidate.headingText,
         ...input.candidate.lines,
       ]
         .filter((value): value is string => Boolean(value))
         .join(" "),
-    ).toLowerCase();
-
-    return searchableText.includes(embeddedJobId);
-  } catch {
-    return false;
-  }
+      evidence: input.evidence,
+    }) !== null
+  );
 }

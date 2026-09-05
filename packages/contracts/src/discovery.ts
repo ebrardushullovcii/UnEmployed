@@ -6,6 +6,7 @@ import {
   ApplicationStatusSchema,
   ApprovalModeSchema,
   AssetGenerationMethodSchema,
+  AssetGenerationReasonSchema,
   AssetStatusSchema,
   BrowserRunCloseoutSchema,
   BrowserRunWaitReasonSchema,
@@ -25,6 +26,7 @@ import {
   JobSourceAdapterKindSchema,
   JobSourceSchema,
   NonEmptyStringSchema,
+  ResumeApplicationModeSchema,
   SourceIntelligenceProviderKeySchema,
   SourceDebugPhaseCompletionModeSchema,
   SourceInstructionStatusSchema,
@@ -41,17 +43,16 @@ import {
   SourceIntelligenceArtifactSchema,
   SourceInstructionArtifactSchema,
 } from "./source-debug";
-import {
-  SharedAgentCompactionSnapshotSchema,
-} from "./agent-compaction";
-import {
-  ResumeExportFormatSchema,
-} from "./resume";
+import { SharedAgentCompactionSnapshotSchema } from "./agent-compaction";
+import { UserActionRequestKindSchema } from "./user-action";
+import { ResumeExportFormatSchema } from "./resume";
 import {
   BrowserVisualEvidenceSummarySchema,
   BrowserVisualObservationSetSchema,
   ApplyVisualCheckpointSchema,
 } from "./visual";
+import { ApplicationCrmDataSchema } from "./application-crm";
+import { ApplicationListingSignalEvidenceSchema } from "./job-finder-intelligence";
 
 export const JobDiscoveryTargetSchema = z.object({
   id: NonEmptyStringSchema,
@@ -69,15 +70,143 @@ export const JobDiscoveryTargetSchema = z.object({
 });
 export type JobDiscoveryTarget = z.infer<typeof JobDiscoveryTargetSchema>;
 
-export const JobDiscoveryPreferencesSchema = z.object({
+/** Returns true only when a saved source can actually be used for discovery. */
+export function isRunnableJobDiscoveryTarget(
+  target: Pick<JobDiscoveryTarget, "enabled" | "startingUrl">,
+): boolean {
+  if (!target.enabled) {
+    return false;
+  }
+
+  try {
+    const url = new URL(target.startingUrl.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Hard cap for an explicitly configured discovery run budget. The interactive
+ * default stays at the precision budget (100 jobs per run); explicit budgets
+ * exist so scale campaigns can request high-volume runs without weakening fit
+ * scoring or per-source fairness.
+ */
+export const DISCOVERY_RUN_JOB_BUDGET_MAX = 2_000;
+
+const JobDiscoveryPreferencesObjectSchema = z.object({
   targets: z.array(JobDiscoveryTargetSchema).default([]),
   historyLimit: z.number().int().min(1).max(10).default(5),
+  collectOnlyHardCriteriaMatches: z.boolean().default(false),
+  /**
+   * Explicit total valid-job budget for one discovery run across all enabled
+   * targets. `null`/`undefined` keeps the interactive precision default; when
+   * set, the budget is split deterministically across targets and raises the
+   * bounded crawl step/time ceilings proportionally.
+   */
+  runJobBudget: z
+    .number()
+    .int()
+    .min(1)
+    .max(DISCOVERY_RUN_JOB_BUDGET_MAX)
+    .nullish(),
 });
-export type JobDiscoveryPreferences = z.infer<
-  typeof JobDiscoveryPreferencesSchema
+type JobDiscoveryPreferencesInput = z.input<
+  typeof JobDiscoveryPreferencesObjectSchema
+>;
+// Parsing normalizes the hard-criteria flag to its false default, while the
+// public output type keeps it optional so preference literals that omit the
+// flag stay assignable.
+export type JobDiscoveryPreferences = Omit<
+  z.infer<typeof JobDiscoveryPreferencesObjectSchema>,
+  "collectOnlyHardCriteriaMatches"
+> & {
+  collectOnlyHardCriteriaMatches?: boolean | undefined;
+};
+export const JobDiscoveryPreferencesSchema: z.ZodType<
+  JobDiscoveryPreferences,
+  z.ZodTypeDef,
+  JobDiscoveryPreferencesInput
+> = JobDiscoveryPreferencesObjectSchema;
+
+export const compensationIntervalValues = [
+  "hour",
+  "day",
+  "week",
+  "month",
+  "year",
+] as const;
+export const CompensationIntervalSchema = z.enum(compensationIntervalValues);
+export type CompensationInterval = z.infer<typeof CompensationIntervalSchema>;
+
+export const compensationCurrencyStatusValues = [
+  "explicit",
+  "inherited",
+  "needs_clarification",
+] as const;
+export const CompensationCurrencyStatusSchema = z.enum(
+  compensationCurrencyStatusValues,
+);
+export type CompensationCurrencyStatus = z.infer<
+  typeof CompensationCurrencyStatusSchema
 >;
 
-export const JobSearchPreferencesSchema = z.object({
+const CompensationAmountSchema = z.number().int().nonnegative().nullable();
+export const CompensationPreferenceObjectSchema = z.object({
+  minimum: CompensationAmountSchema.default(null),
+  maximum: CompensationAmountSchema.default(null),
+  interval: CompensationIntervalSchema.default("year"),
+  currency: z
+    .string()
+    .trim()
+    .regex(
+      /^[A-Z]{3}$/,
+      "Compensation currency must be a three-letter ISO code.",
+    )
+    .nullable()
+    .default(null),
+  currencyStatus: CompensationCurrencyStatusSchema.default(
+    "needs_clarification",
+  ),
+});
+export const CompensationPreferenceSchema =
+  CompensationPreferenceObjectSchema.superRefine((value, context) => {
+    if (
+      value.minimum !== null &&
+      value.maximum !== null &&
+      value.maximum < value.minimum
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Maximum compensation must be greater than or equal to minimum compensation.",
+        path: ["maximum"],
+      });
+    }
+    if (value.currencyStatus === "explicit" && value.currency === null) {
+      context.addIssue({
+        code: "custom",
+        message: "An explicit compensation currency requires a currency code.",
+        path: ["currency"],
+      });
+    }
+    if (
+      value.currencyStatus === "needs_clarification" &&
+      value.currency !== null
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "A compensation currency awaiting clarification must remain unset.",
+        path: ["currency"],
+      });
+    }
+  });
+export type CompensationPreference = z.infer<
+  typeof CompensationPreferenceSchema
+>;
+
+export const JobSearchPreferencesObjectSchema = z.object({
   targetRoles: z.array(NonEmptyStringSchema).default([]),
   jobFamilies: z.array(NonEmptyStringSchema).default([]),
   locations: z.array(NonEmptyStringSchema).default([]),
@@ -90,20 +219,481 @@ export const JobSearchPreferencesSchema = z.object({
   minimumSalaryUsd: z.number().int().min(0).nullable(),
   targetSalaryUsd: z.number().int().min(0).nullable().default(null),
   salaryCurrency: NonEmptyStringSchema.nullable().default("USD"),
+  compensation: CompensationPreferenceSchema.default({}),
   approvalMode: ApprovalModeSchema,
   tailoringMode: TailoringModeSchema,
   companyBlacklist: z.array(NonEmptyStringSchema).default([]),
   companyWhitelist: z.array(NonEmptyStringSchema).default([]),
   discovery: JobDiscoveryPreferencesSchema.default({}),
 });
+
+const annualMultiplierByInterval: Record<CompensationInterval, number> = {
+  hour: 2_080,
+  day: 260,
+  week: 52,
+  month: 12,
+  year: 1,
+};
+
+export function annualizeCompensationAmount(
+  amount: number,
+  interval: CompensationInterval,
+): number {
+  return Math.round(amount * annualMultiplierByInterval[interval]);
+}
+
+function normalizeCompensationCompatibility(
+  value: z.infer<typeof JobSearchPreferencesObjectSchema>,
+): z.infer<typeof JobSearchPreferencesObjectSchema> {
+  const compensationWasProvided =
+    value.compensation.minimum !== null ||
+    value.compensation.maximum !== null ||
+    value.compensation.currency !== null;
+  const compensation = compensationWasProvided
+    ? value.compensation
+    : value.minimumSalaryUsd !== null || value.targetSalaryUsd !== null
+      ? {
+          minimum: value.minimumSalaryUsd,
+          maximum: value.targetSalaryUsd,
+          interval: "year" as const,
+          currency: value.salaryCurrency,
+          currencyStatus: "inherited" as const,
+        }
+      : value.compensation;
+  const comparableAsUsd =
+    compensation.currency === "USD" &&
+    compensation.currencyStatus !== "needs_clarification";
+
+  return {
+    ...value,
+    minimumSalaryUsd:
+      comparableAsUsd && compensation.minimum !== null
+        ? annualizeCompensationAmount(
+            compensation.minimum,
+            compensation.interval,
+          )
+        : compensationWasProvided
+          ? null
+          : value.minimumSalaryUsd,
+    targetSalaryUsd:
+      comparableAsUsd && compensation.maximum !== null
+        ? annualizeCompensationAmount(
+            compensation.maximum,
+            compensation.interval,
+          )
+        : compensationWasProvided
+          ? null
+          : value.targetSalaryUsd,
+    salaryCurrency: compensationWasProvided
+      ? compensation.currency
+      : (compensation.currency ?? value.salaryCurrency),
+    compensation,
+  };
+}
+
+export const JobSearchPreferencesSchema =
+  JobSearchPreferencesObjectSchema.transform(
+    normalizeCompensationCompatibility,
+  );
 export type JobSearchPreferences = z.infer<typeof JobSearchPreferencesSchema>;
 
+export const jobRequirementCategoryValues = [
+  "skill",
+  "experience",
+  "seniority",
+  "location",
+  "work_mode",
+  "work_authorization",
+  "domain",
+] as const;
+export const JobRequirementCategorySchema = z.enum(
+  jobRequirementCategoryValues,
+);
+export type JobRequirementCategory = z.infer<
+  typeof JobRequirementCategorySchema
+>;
+
+export const jobRequirementImportanceValues = [
+  "required",
+  "preferred",
+  "inferred",
+] as const;
+export const JobRequirementImportanceSchema = z.enum(
+  jobRequirementImportanceValues,
+);
+export type JobRequirementImportance = z.infer<
+  typeof JobRequirementImportanceSchema
+>;
+
+export const jobRequirementEvidenceStatusValues = [
+  "supported",
+  "partial",
+  "missing",
+  "unknown",
+  "conflict",
+] as const;
+export const JobRequirementEvidenceStatusSchema = z.enum(
+  jobRequirementEvidenceStatusValues,
+);
+export type JobRequirementEvidenceStatus = z.infer<
+  typeof JobRequirementEvidenceStatusSchema
+>;
+
+export const resumeEvidenceSourceKindValues = [
+  "profile_skill",
+  "experience",
+  "project",
+  "profile",
+] as const;
+export const ResumeEvidenceSourceKindSchema = z.enum(
+  resumeEvidenceSourceKindValues,
+);
+export type ResumeEvidenceSourceKind = z.infer<
+  typeof ResumeEvidenceSourceKindSchema
+>;
+
+export const ResumeRequirementEvidenceSchema = z.object({
+  sourceKind: ResumeEvidenceSourceKindSchema,
+  sourceId: NonEmptyStringSchema.nullable().default(null),
+  label: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema,
+});
+export type ResumeRequirementEvidence = z.infer<
+  typeof ResumeRequirementEvidenceSchema
+>;
+
+export const JobRequirementAssessmentSchema = z.object({
+  id: NonEmptyStringSchema,
+  category: JobRequirementCategorySchema,
+  label: NonEmptyStringSchema,
+  importance: JobRequirementImportanceSchema,
+  status: JobRequirementEvidenceStatusSchema,
+  jobEvidence: NonEmptyStringSchema,
+  resumeEvidence: z.array(ResumeRequirementEvidenceSchema).default([]),
+  explanation: NonEmptyStringSchema,
+});
+export type JobRequirementAssessment = z.infer<
+  typeof JobRequirementAssessmentSchema
+>;
+
+export const fitRecommendationValues = [
+  "strong_fit",
+  "apply_with_original",
+  "review_before_applying",
+  "skip",
+] as const;
+export const FitRecommendationSchema = z.enum(fitRecommendationValues);
+export type FitRecommendation = z.infer<typeof FitRecommendationSchema>;
+
+export const compensationFitStateValues = [
+  "not_requested",
+  "unknown",
+  "meets_minimum",
+  "below_minimum",
+  "currency_incomparable",
+] as const;
+export const CompensationFitStateSchema = z.enum(compensationFitStateValues);
+export type CompensationFitState = z.infer<typeof CompensationFitStateSchema>;
+
+export const compensationEvidenceConfidenceValues = [
+  "unavailable",
+  "low",
+  "high",
+] as const;
+export const CompensationEvidenceConfidenceSchema = z.enum(
+  compensationEvidenceConfidenceValues,
+);
+export type CompensationEvidenceConfidence = z.infer<
+  typeof CompensationEvidenceConfidenceSchema
+>;
+
+export const CompensationFitAssessmentSchema = z.object({
+  state: CompensationFitStateSchema.default("unknown"),
+  confidence: CompensationEvidenceConfidenceSchema.default("unavailable"),
+  minimumSalaryUsd: z.number().int().nonnegative().nullable().default(null),
+  listingMinimumAnnualUsd: z
+    .number()
+    .int()
+    .nonnegative()
+    .nullable()
+    .default(null),
+  listingCurrency: NonEmptyStringSchema.nullable().default(null),
+  explanation: NonEmptyStringSchema.default(
+    "The listing does not provide comparable compensation evidence.",
+  ),
+});
+export type CompensationFitAssessment = z.infer<
+  typeof CompensationFitAssessmentSchema
+>;
+
+export const matchDimensionEvidenceSourceValues = [
+  "listing",
+  "profile",
+  "preference",
+  "derived",
+] as const;
+export const MatchDimensionEvidenceSourceSchema = z.enum(
+  matchDimensionEvidenceSourceValues,
+);
+export type MatchDimensionEvidenceSource = z.infer<
+  typeof MatchDimensionEvidenceSourceSchema
+>;
+
+export const MatchDimensionEvidenceSchema = z.object({
+  source: MatchDimensionEvidenceSourceSchema,
+  label: NonEmptyStringSchema.max(120),
+  detail: NonEmptyStringSchema.max(240),
+});
+export type MatchDimensionEvidence = z.infer<
+  typeof MatchDimensionEvidenceSchema
+>;
+
+const BoundedMatchDimensionEvidenceSchema = z
+  .array(MatchDimensionEvidenceSchema)
+  .max(4)
+  .default([]);
+
+export const roleSuitabilityStateValues = [
+  "unknown",
+  "exact",
+  "adjacent",
+  "conflict",
+] as const;
+export const RoleSuitabilityStateSchema = z.enum(roleSuitabilityStateValues);
+export type RoleSuitabilityState = z.infer<typeof RoleSuitabilityStateSchema>;
+
+export const RoleSuitabilityAssessmentSchema = z.object({
+  state: RoleSuitabilityStateSchema.default("unknown"),
+  explanation: NonEmptyStringSchema.max(320).default(
+    "Role suitability has not been assessed from saved target roles.",
+  ),
+  evidence: BoundedMatchDimensionEvidenceSchema,
+});
+export type RoleSuitabilityAssessment = z.infer<
+  typeof RoleSuitabilityAssessmentSchema
+>;
+
+export const preferenceAlignmentStateValues = [
+  "unknown",
+  "not_configured",
+  "aligned",
+  "mixed",
+  "conflict",
+] as const;
+export const PreferenceAlignmentStateSchema = z.enum(
+  preferenceAlignmentStateValues,
+);
+export type PreferenceAlignmentState = z.infer<
+  typeof PreferenceAlignmentStateSchema
+>;
+
+export const PreferenceAlignmentAssessmentSchema = z.object({
+  state: PreferenceAlignmentStateSchema.default("unknown"),
+  explanation: NonEmptyStringSchema.max(320).default(
+    "Preference alignment has not been assessed from saved search preferences.",
+  ),
+  evidence: BoundedMatchDimensionEvidenceSchema,
+});
+export type PreferenceAlignmentAssessment = z.infer<
+  typeof PreferenceAlignmentAssessmentSchema
+>;
+
+export const applicationEffortLevelValues = [
+  "unknown",
+  "low",
+  "moderate",
+  "high",
+] as const;
+export const ApplicationEffortLevelSchema = z.enum(
+  applicationEffortLevelValues,
+);
+export type ApplicationEffortLevel = z.infer<
+  typeof ApplicationEffortLevelSchema
+>;
+
+export const ApplicationEffortAssessmentSchema = z.object({
+  level: ApplicationEffortLevelSchema.default("unknown"),
+  explanation: NonEmptyStringSchema.max(320).default(
+    "The listing does not provide enough application-path evidence to estimate effort.",
+  ),
+  evidence: BoundedMatchDimensionEvidenceSchema,
+});
+export type ApplicationEffortAssessment = z.infer<
+  typeof ApplicationEffortAssessmentSchema
+>;
+
+export const evidenceConfidenceLevelValues = [
+  "unavailable",
+  "low",
+  "moderate",
+  "high",
+] as const;
+export const EvidenceConfidenceLevelSchema = z.enum(
+  evidenceConfidenceLevelValues,
+);
+export type EvidenceConfidenceLevel = z.infer<
+  typeof EvidenceConfidenceLevelSchema
+>;
+
+export const EvidenceConfidenceAssessmentSchema = z.object({
+  level: EvidenceConfidenceLevelSchema.default("unavailable"),
+  explanation: NonEmptyStringSchema.max(320).default(
+    "No supportability assessment is available for the extracted evidence.",
+  ),
+  evidence: BoundedMatchDimensionEvidenceSchema,
+  supportedCount: z.number().int().nonnegative().default(0),
+  partialCount: z.number().int().nonnegative().default(0),
+  missingCount: z.number().int().nonnegative().default(0),
+  unknownCount: z.number().int().nonnegative().default(0),
+  conflictCount: z.number().int().nonnegative().default(0),
+});
+export type EvidenceConfidenceAssessment = z.infer<
+  typeof EvidenceConfidenceAssessmentSchema
+>;
+
+export const MatchDimensionsAssessmentSchema = z.object({
+  roleSuitability: RoleSuitabilityAssessmentSchema.default({}),
+  preferenceAlignment: PreferenceAlignmentAssessmentSchema.default({}),
+  applicationEffort: ApplicationEffortAssessmentSchema.default({}),
+  evidenceConfidence: EvidenceConfidenceAssessmentSchema.default({}),
+});
+export type MatchDimensionsAssessment = z.infer<
+  typeof MatchDimensionsAssessmentSchema
+>;
+
 export const MatchAssessmentSchema = z.object({
+  scorerVersion: z.number().int().positive().default(1),
+  contextFingerprint: NonEmptyStringSchema.nullable().default(null),
+  postingFingerprint: NonEmptyStringSchema.nullable().default(null),
   score: z.number().int().min(0).max(100),
+  compensationFit: CompensationFitAssessmentSchema.default({}),
+  dimensions: MatchDimensionsAssessmentSchema.default({}),
   reasons: z.array(NonEmptyStringSchema).default([]),
   gaps: z.array(NonEmptyStringSchema).default([]),
+  recommendation: FitRecommendationSchema.default("review_before_applying"),
+  recommendationRationale: NonEmptyStringSchema.default(
+    "Review the listing and resume evidence before applying.",
+  ),
+  requirements: z.array(JobRequirementAssessmentSchema).default([]),
 });
 export type MatchAssessment = z.infer<typeof MatchAssessmentSchema>;
+
+export const matchAssessmentInputChangeCodeValues = [
+  "scorer_version_changed",
+  "candidate_context_changed",
+  "listing_evidence_changed",
+  "candidate_context_metadata_unknown",
+  "listing_evidence_metadata_unknown",
+] as const;
+export const MatchAssessmentInputChangeCodeSchema = z.enum(
+  matchAssessmentInputChangeCodeValues,
+);
+export type MatchAssessmentInputChangeCode = z.infer<
+  typeof MatchAssessmentInputChangeCodeSchema
+>;
+
+export const matchAssessmentOutputChangeCodeValues = [
+  "score_changed",
+  "recommendation_changed",
+  "compensation_fit_changed",
+  "rank_position_changed",
+  "role_suitability_changed",
+  "preference_alignment_changed",
+  "application_effort_changed",
+  "evidence_confidence_changed",
+  "requirement_added",
+  "requirement_removed",
+  "requirement_importance_changed",
+  "requirement_status_changed",
+  "requirement_evidence_changed",
+  "assessment_explanation_changed",
+] as const;
+export const MatchAssessmentOutputChangeCodeSchema = z.enum(
+  matchAssessmentOutputChangeCodeValues,
+);
+export type MatchAssessmentOutputChangeCode = z.infer<
+  typeof MatchAssessmentOutputChangeCodeSchema
+>;
+
+export const MatchAssessmentInputChangeSchema = z.object({
+  code: MatchAssessmentInputChangeCodeSchema,
+  scope: z.enum(["scorer", "candidate_context", "listing_evidence"]),
+  certainty: z.enum(["known", "unknown"]),
+  title: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema,
+  previousValue: z.union([z.string(), z.number()]).nullable(),
+  currentValue: z.union([z.string(), z.number()]).nullable(),
+});
+export type MatchAssessmentInputChange = z.infer<
+  typeof MatchAssessmentInputChangeSchema
+>;
+
+export const MatchAssessmentOutputChangeSchema = z.object({
+  code: MatchAssessmentOutputChangeCodeSchema,
+  subject: NonEmptyStringSchema,
+  title: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema,
+  previousValue: z.string().nullable(),
+  currentValue: z.string().nullable(),
+});
+export type MatchAssessmentOutputChange = z.infer<
+  typeof MatchAssessmentOutputChangeSchema
+>;
+
+export const matchAssessmentChangeAuditStatusValues = [
+  "unchanged",
+  "metadata_incomplete",
+  "inputs_changed_assessment_stable",
+  "assessment_changed",
+  "assessment_changed_with_unknown_cause",
+] as const;
+export const MatchAssessmentChangeAuditStatusSchema = z.enum(
+  matchAssessmentChangeAuditStatusValues,
+);
+export type MatchAssessmentChangeAuditStatus = z.infer<
+  typeof MatchAssessmentChangeAuditStatusSchema
+>;
+
+export const matchAssessmentChangeCauseConfidenceValues = [
+  "known",
+  "partial",
+  "unknown",
+  "not_applicable",
+] as const;
+export const MatchAssessmentChangeCauseConfidenceSchema = z.enum(
+  matchAssessmentChangeCauseConfidenceValues,
+);
+export type MatchAssessmentChangeCauseConfidence = z.infer<
+  typeof MatchAssessmentChangeCauseConfidenceSchema
+>;
+
+export const MatchAssessmentAuditMetadataSchema = MatchAssessmentSchema.pick({
+  scorerVersion: true,
+  contextFingerprint: true,
+  postingFingerprint: true,
+});
+export type MatchAssessmentAuditMetadata = z.infer<
+  typeof MatchAssessmentAuditMetadataSchema
+>;
+
+export const MatchAssessmentChangeAuditSchema = z.object({
+  version: z.literal(1).default(1),
+  recordedAt: IsoDateTimeSchema.nullable().default(null),
+  status: MatchAssessmentChangeAuditStatusSchema,
+  causeConfidence: MatchAssessmentChangeCauseConfidenceSchema,
+  rankingSignalChanged: z.boolean(),
+  summary: NonEmptyStringSchema,
+  reasons: z.array(NonEmptyStringSchema).default([]),
+  previousMetadata: MatchAssessmentAuditMetadataSchema,
+  currentMetadata: MatchAssessmentAuditMetadataSchema,
+  inputChanges: z.array(MatchAssessmentInputChangeSchema).default([]),
+  previousRank: z.number().int().positive().nullable().default(null),
+  currentRank: z.number().int().positive().nullable().default(null),
+  outputChanges: z.array(MatchAssessmentOutputChangeSchema).default([]),
+});
+export type MatchAssessmentChangeAudit = z.infer<
+  typeof MatchAssessmentChangeAuditSchema
+>;
 
 export const normalizedCompensationIntervalValues = [
   "hour",
@@ -159,40 +749,95 @@ export const consentInterruptKindValues = [
 export const ConsentInterruptKindSchema = z.enum(consentInterruptKindValues);
 export type ConsentInterruptKind = z.infer<typeof ConsentInterruptKindSchema>;
 
-export const JobScreeningHintsSchema = z.object({
-  sponsorshipText: NonEmptyStringSchema.nullable().default(null),
-  requiresSecurityClearance: z.boolean().nullable().default(null),
-  relocationText: NonEmptyStringSchema.nullable().default(null),
-  travelText: NonEmptyStringSchema.nullable().default(null),
-  remoteGeographies: z.array(NonEmptyStringSchema).default([]),
-  requiresConsentInterrupt: z.boolean().nullable().default(null),
-  requiresConsentInterruptKind: ConsentInterruptKindSchema.nullable().default(null),
-}).superRefine((value, ctx) => {
-  if (value.requiresConsentInterrupt === true && value.requiresConsentInterruptKind == null) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "requiresConsentInterruptKind is required when requiresConsentInterrupt is true.",
-      path: ["requiresConsentInterruptKind"],
-    })
-  }
+export const JobScreeningHintsSchema = z
+  .object({
+    sponsorshipText: NonEmptyStringSchema.nullable().default(null),
+    requiresSecurityClearance: z.boolean().nullable().default(null),
+    relocationText: NonEmptyStringSchema.nullable().default(null),
+    travelText: NonEmptyStringSchema.nullable().default(null),
+    remoteGeographies: z.array(NonEmptyStringSchema).default([]),
+    requiresConsentInterrupt: z.boolean().nullable().default(null),
+    requiresConsentInterruptKind:
+      ConsentInterruptKindSchema.nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.requiresConsentInterrupt === true &&
+      value.requiresConsentInterruptKind == null
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "requiresConsentInterruptKind is required when requiresConsentInterrupt is true.",
+        path: ["requiresConsentInterruptKind"],
+      });
+    }
 
-  if (value.requiresConsentInterrupt === false && value.requiresConsentInterruptKind != null) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "requiresConsentInterruptKind must be null when requiresConsentInterrupt is false.",
-      path: ["requiresConsentInterruptKind"],
-    })
-  }
+    if (
+      value.requiresConsentInterrupt === false &&
+      value.requiresConsentInterruptKind != null
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "requiresConsentInterruptKind must be null when requiresConsentInterrupt is false.",
+        path: ["requiresConsentInterruptKind"],
+      });
+    }
 
-  if (value.requiresConsentInterrupt == null && value.requiresConsentInterruptKind != null) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "requiresConsentInterruptKind must be null when requiresConsentInterrupt is null.",
-      path: ["requiresConsentInterruptKind"],
-    })
-  }
-});
+    if (
+      value.requiresConsentInterrupt == null &&
+      value.requiresConsentInterruptKind != null
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "requiresConsentInterruptKind must be null when requiresConsentInterrupt is null.",
+        path: ["requiresConsentInterruptKind"],
+      });
+    }
+  });
 export type JobScreeningHints = z.infer<typeof JobScreeningHintsSchema>;
+
+export const jobPostingDetailQualityValues = [
+  "card_only",
+  "partial_detail",
+  "detail_enriched",
+] as const;
+export const JobPostingDetailQualitySchema = z.enum(
+  jobPostingDetailQualityValues,
+);
+export type JobPostingDetailQuality = z.infer<
+  typeof JobPostingDetailQualitySchema
+>;
+
+/**
+ * The one attempt Job Finder made to read this listing's own page after a
+ * card-only capture. Recorded so the product neither re-reads a page every
+ * time it looks at the job nor hides that it tried and what it found.
+ */
+export const listingDetailFetchOutcomeValues = [
+  "enriched",
+  "partial",
+  "no_detail",
+  "fetch_failed",
+  "blocked",
+  "unsupported_url",
+] as const;
+export const ListingDetailFetchOutcomeSchema = z.enum(
+  listingDetailFetchOutcomeValues,
+);
+export type ListingDetailFetchOutcome = z.infer<
+  typeof ListingDetailFetchOutcomeSchema
+>;
+
+export const ListingDetailFetchSchema = z.object({
+  attemptedAt: IsoDateTimeSchema,
+  outcome: ListingDetailFetchOutcomeSchema,
+  method: z.enum(["json_ld", "page_text"]).nullable().default(null),
+  detail: NonEmptyStringSchema.nullable().default(null),
+});
+export type ListingDetailFetch = z.infer<typeof ListingDetailFetchSchema>;
 
 export const JobPostingSchema = z.object({
   source: JobSourceSchema,
@@ -210,12 +855,15 @@ export const JobPostingSchema = z.object({
   easyApplyEligible: z.boolean(),
   postedAt: IsoDateTimeSchema.nullable().default(null),
   postedAtText: NonEmptyStringSchema.nullable().default(null),
+  providerUpdatedAt: IsoDateTimeSchema.nullable().default(null),
   discoveredAt: IsoDateTimeSchema,
   firstSeenAt: IsoDateTimeSchema.nullable().default(null),
   lastSeenAt: IsoDateTimeSchema.nullable().default(null),
   lastVerifiedActiveAt: IsoDateTimeSchema.nullable().default(null),
   salaryText: NonEmptyStringSchema.nullable(),
   normalizedCompensation: NormalizedCompensationSchema.default({}),
+  detailQuality: JobPostingDetailQualitySchema.default("card_only"),
+  listingDetailFetch: ListingDetailFetchSchema.nullable().default(null),
   summary: NonEmptyStringSchema.nullable().default(null),
   description: NonEmptyStringSchema,
   keySkills: z.array(NonEmptyStringSchema).default([]),
@@ -232,14 +880,171 @@ export const JobPostingSchema = z.object({
   providerKey: SourceIntelligenceProviderKeySchema.nullable().default(null),
   providerBoardToken: NonEmptyStringSchema.nullable().default(null),
   providerIdentifier: NonEmptyStringSchema.nullable().default(null),
-  titleTriageOutcome:
-    DiscoveryTitleTriageOutcomeSchema.default("pass"),
+  titleTriageOutcome: DiscoveryTitleTriageOutcomeSchema.default("pass"),
   sourceIntelligence: SourceIntelligenceArtifactSchema.nullable().default(null),
   screeningHints: JobScreeningHintsSchema.default({}),
   keywordSignals: z.array(JobKeywordSignalSchema).default([]),
   benefits: z.array(NonEmptyStringSchema).default([]),
 });
 export type JobPosting = z.infer<typeof JobPostingSchema>;
+
+// ---------------------------------------------------------------------------
+// Listing evidence depth
+//
+// `detailQuality` is the one shared vocabulary for how much of a listing was
+// actually read. The assessment lives here, beside the enum and the posting
+// schema, because both the browser workflow that collects postings and the
+// orchestration that persists them must classify identical fields the same
+// way. It is pure and source-generic: it reads only posting fields and never
+// a board identity.
+// ---------------------------------------------------------------------------
+
+type JobPostingDetailQualityInput = Pick<
+  JobPosting,
+  | "title"
+  | "company"
+  | "description"
+  | "keySkills"
+  | "responsibilities"
+  | "minimumQualifications"
+  | "preferredQualifications"
+  | "benefits"
+>;
+
+const PARTIAL_DESCRIPTION_WORD_FLOOR = 18;
+const ENRICHED_DESCRIPTION_WORD_FLOOR = 70;
+const ENRICHED_DESCRIPTION_CHARACTER_FLOOR = 500;
+const ENRICHED_WITH_STRUCTURED_DETAIL_WORD_FLOOR = 35;
+const ENRICHED_STRUCTURED_DETAIL_FLOOR = 5;
+const ENRICHED_STRUCTURED_DETAIL_CHARACTER_FLOOR = 180;
+
+function normalizeDetailQualityText(value: string): string {
+  return value.replace(/\s+/gu, " ").trim().toLowerCase();
+}
+
+function countDetailQualityWords(value: string): number {
+  return value.trim().split(/\s+/u).filter(Boolean).length;
+}
+
+function isSyntheticDescription(input: JobPostingDetailQualityInput): boolean {
+  const description = normalizeDetailQualityText(input.description);
+  const title = normalizeDetailQualityText(input.title);
+  const company = normalizeDetailQualityText(input.company);
+
+  return (
+    description === title ||
+    description === `${title} role at ${company}` ||
+    description === `${title} opportunity at ${company}`
+  );
+}
+
+export function assessJobPostingDetailQuality(
+  input: JobPostingDetailQualityInput,
+): JobPostingDetailQuality {
+  const description = input.description.trim();
+  const descriptionWordCount = countDetailQualityWords(description);
+  const structuredDetails = [
+    ...input.responsibilities,
+    ...input.minimumQualifications,
+    ...input.preferredQualifications,
+    ...input.benefits,
+  ]
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const structuredDetailCharacterCount = structuredDetails.reduce(
+    (total, entry) => total + entry.length,
+    0,
+  );
+  const syntheticDescription = isSyntheticDescription(input);
+
+  if (
+    (!syntheticDescription &&
+      (descriptionWordCount >= ENRICHED_DESCRIPTION_WORD_FLOOR ||
+        description.length >= ENRICHED_DESCRIPTION_CHARACTER_FLOOR)) ||
+    (!syntheticDescription &&
+      descriptionWordCount >= ENRICHED_WITH_STRUCTURED_DETAIL_WORD_FLOOR &&
+      structuredDetails.length >= 2) ||
+    (structuredDetails.length >= ENRICHED_STRUCTURED_DETAIL_FLOOR &&
+      structuredDetailCharacterCount >=
+        ENRICHED_STRUCTURED_DETAIL_CHARACTER_FLOOR)
+  ) {
+    return "detail_enriched";
+  }
+
+  if (
+    (!syntheticDescription &&
+      descriptionWordCount >= PARTIAL_DESCRIPTION_WORD_FLOOR) ||
+    structuredDetails.length > 0 ||
+    input.keySkills.length >= 2
+  ) {
+    return "partial_detail";
+  }
+
+  return "card_only";
+}
+
+/**
+ * Run-level warning for a discovery run that retained postings but read no
+ * listing body for any of them. It states only what was and was not read: the
+ * product has no capability to open a listing outside its own managed browser,
+ * so this warning must never suggest one.
+ */
+export function buildDiscoveryCardOnlyEvidenceWarning(
+  sourceLabel: string,
+): string {
+  const label = sourceLabel.trim();
+
+  return `Only listing titles and card details were read from ${label.length > 0 ? label : "this source"}; no job description was captured, so match details for these results are unchecked.`;
+}
+
+/**
+ * Removes the card-only sentence from a run or target warning once it stopped
+ * being true (the listing bodies were read after the scan). Other warnings in
+ * the same string are kept; an emptied string becomes null.
+ */
+export function stripDiscoveryCardOnlyEvidenceWarning(
+  warning: string | null | undefined,
+): string | null {
+  if (!warning) {
+    return null;
+  }
+  const sentinel = "\u0000";
+  const [prefix = "", suffix = ""] =
+    buildDiscoveryCardOnlyEvidenceWarning(sentinel).split(sentinel);
+  if (prefix.length === 0) {
+    return warning;
+  }
+  const start = warning.indexOf(prefix);
+  if (start < 0) {
+    return warning;
+  }
+  const suffixStart = warning.indexOf(suffix, start + prefix.length);
+  if (suffixStart < 0) {
+    return warning;
+  }
+  const stripped = `${warning.slice(0, start)}${warning.slice(
+    suffixStart + suffix.length,
+  )}`
+    .replace(/\s{2,}/gu, " ")
+    .trim();
+  return stripped.length > 0 ? stripped : null;
+}
+
+/**
+ * True when a run retained at least one posting and every retained posting is
+ * `card_only`. A single partly or fully detailed posting makes the run's
+ * evidence mixed, and an empty run has nothing to warn about.
+ */
+export function isCardOnlyDiscoveryEvidence(
+  postings: readonly JobPostingDetailQualityInput[],
+): boolean {
+  return (
+    postings.length > 0 &&
+    postings.every(
+      (posting) => assessJobPostingDetailQuality(posting) === "card_only",
+    )
+  );
+}
 
 export const SavedJobDiscoveryProvenanceSchema = z.object({
   targetId: NonEmptyStringSchema,
@@ -251,12 +1056,66 @@ export const SavedJobDiscoveryProvenanceSchema = z.object({
     JobDiscoveryCollectionMethodSchema.default("fallback_search"),
   providerKey: SourceIntelligenceProviderKeySchema.nullable().default(null),
   providerBoardToken: NonEmptyStringSchema.nullable().default(null),
-  titleTriageOutcome:
-    DiscoveryTitleTriageOutcomeSchema.default("pass"),
+  titleTriageOutcome: DiscoveryTitleTriageOutcomeSchema.default("pass"),
 });
 export type SavedJobDiscoveryProvenance = z.infer<
   typeof SavedJobDiscoveryProvenanceSchema
 >;
+
+export const discoveryFeedbackReasonValues = [
+  "role",
+  "seniority",
+  "location",
+  "work_mode",
+  "compensation",
+  "company",
+  "missing_requirement",
+  "duplicate",
+  "other",
+] as const;
+export const DiscoveryFeedbackReasonSchema = z.enum(
+  discoveryFeedbackReasonValues,
+);
+export type DiscoveryFeedbackReason = z.infer<
+  typeof DiscoveryFeedbackReasonSchema
+>;
+
+export const EmployerExclusionReferenceSchema = z
+  .object({
+    normalizedCompanyName: NonEmptyStringSchema,
+    displayCompanyName: NonEmptyStringSchema,
+    addedByThisFeedback: z.boolean(),
+    campaignId: NonEmptyStringSchema.nullable().default(null),
+  })
+  .strict();
+export type EmployerExclusionReference = z.infer<
+  typeof EmployerExclusionReferenceSchema
+>;
+
+const DiscoveryFeedbackObjectSchema = z.object({
+  version: z.literal(1),
+  revision: z.number().int().positive(),
+  reasons: z.array(DiscoveryFeedbackReasonSchema).min(1).max(9),
+  recordedAt: IsoDateTimeSchema,
+  // Status the job held when it was hidden, so "Show again" can undo the
+  // dismissal exactly instead of downgrading every hidden job to discovered.
+  // Null for pending jobs and feedback recorded before this field existed.
+  priorStatus: ApplicationStatusSchema.nullable().default(null),
+  employerExclusion: EmployerExclusionReferenceSchema.nullable().default(null),
+});
+type DiscoveryFeedbackParsed = z.infer<typeof DiscoveryFeedbackObjectSchema>;
+type DiscoveryFeedbackInput = z.input<typeof DiscoveryFeedbackObjectSchema>;
+export type DiscoveryFeedback = Omit<
+  DiscoveryFeedbackParsed,
+  "employerExclusion"
+> & {
+  employerExclusion?: DiscoveryFeedbackParsed["employerExclusion"];
+};
+export const DiscoveryFeedbackSchema: z.ZodType<
+  DiscoveryFeedback,
+  z.ZodTypeDef,
+  DiscoveryFeedbackInput
+> = DiscoveryFeedbackObjectSchema;
 
 export const discoveryLedgerEntryStatusValues = [
   "seen",
@@ -272,38 +1131,142 @@ export type DiscoveryLedgerEntryStatus = z.infer<
   typeof DiscoveryLedgerEntryStatusSchema
 >;
 
+export const DiscoveryListingFingerprintsSchema = z.object({
+  version: z.literal(1),
+  card: NonEmptyStringSchema,
+  detail: NonEmptyStringSchema.nullable().default(null),
+  material: NonEmptyStringSchema,
+});
+export type DiscoveryListingFingerprints = z.infer<
+  typeof DiscoveryListingFingerprintsSchema
+>;
+
 export const DiscoveryLedgerEntrySchema = z.object({
   id: NonEmptyStringSchema,
   canonicalUrl: UrlStringSchema,
+  applicationUrl: UrlStringSchema.nullable().default(null),
   source: JobSourceSchema,
   sourceJobId: NonEmptyStringSchema.nullable().default(null),
   providerKey: SourceIntelligenceProviderKeySchema.nullable().default(null),
   providerBoardToken: NonEmptyStringSchema.nullable().default(null),
   providerIdentifier: NonEmptyStringSchema.nullable().default(null),
+  providerUpdatedAt: IsoDateTimeSchema.nullable().default(null),
   title: NonEmptyStringSchema,
   company: NonEmptyStringSchema.nullable().default(null),
+  location: NonEmptyStringSchema.nullable().default(null),
+  postedAt: IsoDateTimeSchema.nullable().default(null),
+  postedAtText: NonEmptyStringSchema.nullable().default(null),
   targetId: NonEmptyStringSchema,
   collectionMethod:
     JobDiscoveryCollectionMethodSchema.default("fallback_search"),
+  detailQuality: JobPostingDetailQualitySchema.default("card_only"),
+  fingerprints: DiscoveryListingFingerprintsSchema.nullable().default(null),
   firstSeenAt: IsoDateTimeSchema,
   lastSeenAt: IsoDateTimeSchema,
   lastAppliedAt: IsoDateTimeSchema.nullable().default(null),
   lastEnrichedAt: IsoDateTimeSchema.nullable().default(null),
   inactiveAt: IsoDateTimeSchema.nullable().default(null),
   latestStatus: DiscoveryLedgerEntryStatusSchema.default("seen"),
-  titleTriageOutcome:
-    DiscoveryTitleTriageOutcomeSchema.default("pass"),
+  titleTriageOutcome: DiscoveryTitleTriageOutcomeSchema.default("pass"),
   skipReason: NonEmptyStringSchema.nullable().default(null),
 });
 export type DiscoveryLedgerEntry = z.infer<typeof DiscoveryLedgerEntrySchema>;
 
-export const SavedJobSchema = JobPostingSchema.extend({
-  id: NonEmptyStringSchema,
-  status: ApplicationStatusSchema,
-  matchAssessment: MatchAssessmentSchema,
-  provenance: z.array(SavedJobDiscoveryProvenanceSchema).default([]),
-});
-export type SavedJob = z.infer<typeof SavedJobSchema>;
+export type SavedJob = JobPosting & {
+  id: string;
+  status: z.infer<typeof ApplicationStatusSchema>;
+  matchAssessment: MatchAssessment;
+  provenance: SavedJobDiscoveryProvenance[];
+  discoveryFeedback: DiscoveryFeedback | null;
+  resumeApplicationMode: z.infer<typeof ResumeApplicationModeSchema> | null;
+  latestMatchAssessmentAudit: MatchAssessmentChangeAudit | null;
+};
+type SavedJobInput = z.input<typeof JobPostingSchema> & {
+  id: string;
+  status: z.input<typeof ApplicationStatusSchema>;
+  matchAssessment: z.input<typeof MatchAssessmentSchema>;
+  provenance?: z.input<typeof SavedJobDiscoveryProvenanceSchema>[] | undefined;
+  discoveryFeedback?:
+    | z.input<typeof DiscoveryFeedbackSchema>
+    | null
+    | undefined;
+  resumeApplicationMode?:
+    | z.input<typeof ResumeApplicationModeSchema>
+    | null
+    | undefined;
+  latestMatchAssessmentAudit?:
+    | z.input<typeof MatchAssessmentChangeAuditSchema>
+    | null
+    | undefined;
+};
+
+export const SavedJobSchema: z.ZodType<SavedJob, z.ZodTypeDef, SavedJobInput> =
+  JobPostingSchema.extend({
+    id: NonEmptyStringSchema,
+    status: ApplicationStatusSchema,
+    matchAssessment: MatchAssessmentSchema,
+    provenance: z.array(SavedJobDiscoveryProvenanceSchema).default([]),
+    discoveryFeedback: DiscoveryFeedbackSchema.nullable().default(null),
+    resumeApplicationMode: ResumeApplicationModeSchema.nullable().default(null),
+    latestMatchAssessmentAudit:
+      MatchAssessmentChangeAuditSchema.nullable().default(null),
+  });
+
+export const ListingActivitySchema = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("unknown"),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("active"),
+      observedAt: IsoDateTimeSchema,
+      evidence: z.enum(["last_verified_active_at", "last_seen_at"]),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("inactive"),
+      observedAt: IsoDateTimeSchema,
+      ledgerEntryId: NonEmptyStringSchema,
+      provenance: z.literal("discovery_ledger"),
+      explanation: NonEmptyStringSchema,
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("stale"),
+      observedAt: IsoDateTimeSchema,
+      signalId: NonEmptyStringSchema,
+      provenance: z.enum(["provider", "browser", "user", "system"]),
+      explanation: NonEmptyStringSchema,
+      detail: NonEmptyStringSchema.nullable(),
+      confidence: z.number().min(0).max(1),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("closed"),
+      observedAt: IsoDateTimeSchema,
+      signalId: NonEmptyStringSchema,
+      provenance: z.enum(["provider", "browser", "user", "system"]),
+      explanation: NonEmptyStringSchema,
+      detail: NonEmptyStringSchema.nullable(),
+      confidence: z.number().min(0).max(1),
+    })
+    .strict(),
+]);
+export type ListingActivity = z.infer<typeof ListingActivitySchema>;
+
+export const DiscoveryJobViewSchema = SavedJobSchema.and(
+  z.object({
+    // Snapshot compatibility only. Persisted SavedJob rows deliberately do not
+    // carry this derived projection, while newly built snapshots always set it.
+    listingActivity: ListingActivitySchema.default({ status: "unknown" }),
+  }),
+);
+export type DiscoveryJobView = z.infer<typeof DiscoveryJobViewSchema>;
 
 export const TailoredAssetPreviewSectionSchema = z.object({
   heading: NonEmptyStringSchema,
@@ -328,32 +1291,47 @@ export const TailoredAssetSchema = z.object({
   contentText: NonEmptyStringSchema.nullable().default(null),
   previewSections: z.array(TailoredAssetPreviewSectionSchema).default([]),
   generationMethod: AssetGenerationMethodSchema.default("deterministic"),
+  // Optional so assets saved before the structured reason existed, and the
+  // many typed fixtures built from this shape, stay valid without churn.
+  generationReason: AssetGenerationReasonSchema.nullable().optional(),
+  generationDetail: NonEmptyStringSchema.nullable().optional(),
   notes: z.array(NonEmptyStringSchema).default([]),
+  failureMessage: NonEmptyStringSchema.nullable().default(null),
+  failedAt: IsoDateTimeSchema.nullable().default(null),
 });
 export type TailoredAsset = z.infer<typeof TailoredAssetSchema>;
 
-export const ReviewQueueResumeReviewStateSchema = z.discriminatedUnion("status", [
-  z.object({
-    status: z.literal("not_started"),
-  }),
-  z.object({
-    status: z.literal("draft"),
-  }),
-  z.object({
-    status: z.literal("needs_review"),
-  }),
-  z.object({
-    status: z.literal("stale"),
-    staleReason: NonEmptyStringSchema.nullable().default(null),
-  }),
-  z.object({
-    status: z.literal("approved"),
-    approvedAt: IsoDateTimeSchema,
-    approvedExportId: NonEmptyStringSchema,
-    approvedFormat: ResumeExportFormatSchema,
-    approvedFilePath: NonEmptyStringSchema,
-  }),
-]);
+export const ReviewQueueResumeReviewStateSchema = z.discriminatedUnion(
+  "status",
+  [
+    z.object({
+      status: z.literal("not_started"),
+    }),
+    z.object({
+      status: z.literal("draft"),
+    }),
+    z.object({
+      status: z.literal("needs_review"),
+    }),
+    z.object({
+      status: z.literal("stale"),
+      staleReason: NonEmptyStringSchema.nullable().default(null),
+    }),
+    z.object({
+      status: z.literal("approved"),
+      approvedAt: IsoDateTimeSchema,
+      approvedExportId: NonEmptyStringSchema,
+      approvedFormat: ResumeExportFormatSchema,
+      approvedFilePath: NonEmptyStringSchema,
+    }),
+    z.object({
+      status: z.literal("original_resume"),
+      sourceDocumentId: NonEmptyStringSchema,
+      fileName: NonEmptyStringSchema,
+      filePath: NonEmptyStringSchema,
+    }),
+  ],
+);
 export type ReviewQueueResumeReviewState = z.infer<
   typeof ReviewQueueResumeReviewStateSchema
 >;
@@ -368,6 +1346,8 @@ export const ReviewQueueItemSchema = z.object({
   assetStatus: AssetStatusSchema,
   progressPercent: z.number().int().min(0).max(100).nullable(),
   resumeAssetId: NonEmptyStringSchema.nullable(),
+  resumeApplicationMode:
+    ResumeApplicationModeSchema.default("tailored_per_job"),
   resumeReview: ReviewQueueResumeReviewStateSchema.default({
     status: "not_started",
   }),
@@ -408,6 +1388,21 @@ export type ApplicationQuestionKind = z.infer<
   typeof ApplicationQuestionKindSchema
 >;
 
+export const applicationQuestionControlTypeValues = [
+  "text",
+  "single_choice",
+  "multi_choice",
+  "boolean",
+  "date",
+  "file",
+] as const;
+export const ApplicationQuestionControlTypeSchema = z.enum(
+  applicationQuestionControlTypeValues,
+);
+export type ApplicationQuestionControlType = z.infer<
+  typeof ApplicationQuestionControlTypeSchema
+>;
+
 export const applicationAnswerSourceKindValues = [
   "profile",
   "proof_bank",
@@ -445,6 +1440,9 @@ export const applicationBlockerCodeValues = [
   "missing_consent",
   "external_redirect",
   "site_login_required",
+  // Technical failure raised only at the application goto boundary: the
+  // dedicated browser never opened the employer page, so nothing was prepared.
+  "application_page_unreachable",
   "unknown",
 ] as const;
 export const ApplicationBlockerCodeSchema = z.enum(
@@ -520,10 +1518,13 @@ export const ApplicationAttemptQuestionSchema = z.object({
   id: NonEmptyStringSchema,
   prompt: NonEmptyStringSchema,
   kind: ApplicationQuestionKindSchema.default("other"),
+  answerControlType: ApplicationQuestionControlTypeSchema.optional(),
   isRequired: z.boolean().default(true),
   detectedAt: IsoDateTimeSchema,
   answerOptions: z.array(NonEmptyStringSchema).default([]),
-  suggestedAnswers: z.array(ApplicationAttemptSuggestedAnswerSchema).default([]),
+  suggestedAnswers: z
+    .array(ApplicationAttemptSuggestedAnswerSchema)
+    .default([]),
   submittedAnswer: NonEmptyStringSchema.nullable().default(null),
   status: ApplicationQuestionStatusSchema.default("detected"),
 });
@@ -531,8 +1532,32 @@ export type ApplicationAttemptQuestion = z.infer<
   typeof ApplicationAttemptQuestionSchema
 >;
 
+export const applicationAttemptExternalWriteCategoryValues = [
+  "resume_attachment",
+  "profile_field",
+  "application_answer",
+  "consent_control",
+  "other",
+] as const;
+export const ApplicationAttemptExternalWriteCategorySchema = z.enum(
+  applicationAttemptExternalWriteCategoryValues,
+);
+export type ApplicationAttemptExternalWriteCategory = z.infer<
+  typeof ApplicationAttemptExternalWriteCategorySchema
+>;
+
+export const ApplicationAttemptExternalWriteEvidenceSchema = z.object({
+  category: ApplicationAttemptExternalWriteCategorySchema,
+  fieldLabel: NonEmptyStringSchema,
+  occurredAt: IsoDateTimeSchema,
+  verified: z.boolean().default(false),
+});
+export type ApplicationAttemptExternalWriteEvidence = z.infer<
+  typeof ApplicationAttemptExternalWriteEvidenceSchema
+>;
 export const ApplicationAttemptBlockerSchema = z.object({
   code: ApplicationBlockerCodeSchema.default("unknown"),
+  userActionKind: UserActionRequestKindSchema.nullable().optional(),
   summary: NonEmptyStringSchema,
   detail: NonEmptyStringSchema.nullable().default(null),
   questionIds: z.array(NonEmptyStringSchema).default([]),
@@ -613,9 +1638,42 @@ export type ApplicationAttemptCheckpoint = z.infer<
   typeof ApplicationAttemptCheckpointSchema
 >;
 
+export const applyExecutionStageValues = [
+  "browser_preparation",
+  "form_preparation",
+  "visual_diagnostics",
+  "total",
+] as const;
+export const ApplyExecutionStageSchema = z.enum(applyExecutionStageValues);
+export type ApplyExecutionStage = z.infer<typeof ApplyExecutionStageSchema>;
+
+export const ApplyExecutionTimingSchema = z.object({
+  stage: ApplyExecutionStageSchema,
+  startedAt: IsoDateTimeSchema,
+  completedAt: IsoDateTimeSchema,
+  durationMs: z.number().nonnegative(),
+});
+export type ApplyExecutionTiming = z.infer<typeof ApplyExecutionTimingSchema>;
+
+export const ApplicationUserActionResumptionSchema = z
+  .object({
+    requestId: NonEmptyStringSchema,
+    requestRevision: z.number().int().positive(),
+    verificationEventId: NonEmptyStringSchema,
+    runId: NonEmptyStringSchema,
+    jobId: NonEmptyStringSchema,
+    resultId: NonEmptyStringSchema,
+    replayCheckpointId: NonEmptyStringSchema,
+  })
+  .strict();
+export type ApplicationUserActionResumption = z.infer<
+  typeof ApplicationUserActionResumptionSchema
+>;
+
 export const ApplicationAttemptSchema = z.object({
   id: NonEmptyStringSchema,
   jobId: NonEmptyStringSchema,
+  applicationRecordId: NonEmptyStringSchema.nullable().default(null),
   state: ApplicationAttemptStateSchema,
   summary: NonEmptyStringSchema,
   detail: NonEmptyStringSchema,
@@ -626,12 +1684,18 @@ export const ApplicationAttemptSchema = z.object({
   checkpoints: z.array(ApplicationAttemptCheckpointSchema).default([]),
   questions: z.array(ApplicationAttemptQuestionSchema).default([]),
   blocker: ApplicationAttemptBlockerSchema.nullable().default(null),
-  consentDecisions: z.array(ApplicationAttemptConsentDecisionSchema).default([]),
+  listingSignalEvidence:
+    ApplicationListingSignalEvidenceSchema.nullable().default(null),
+  consentDecisions: z
+    .array(ApplicationAttemptConsentDecisionSchema)
+    .default([]),
   replay: ApplicationAttemptReplaySchema.default({}),
   visualEvidence: z.array(BrowserVisualEvidenceSummarySchema).default([]),
   visualObservationSets: z.array(BrowserVisualObservationSetSchema).default([]),
   visualCheckpoints: z.array(ApplyVisualCheckpointSchema).default([]),
   nextActionLabel: NonEmptyStringSchema.nullable(),
+  executionTimings: z.array(ApplyExecutionTimingSchema).default([]),
+  userActionResumption: ApplicationUserActionResumptionSchema.optional(),
 });
 export type ApplicationAttempt = z.infer<typeof ApplicationAttemptSchema>;
 export type ApplicationAttemptInput = z.input<typeof ApplicationAttemptSchema>;
@@ -645,12 +1709,20 @@ export const ApplyExecutionResultSchema = z.object({
   checkpoints: z.array(ApplicationAttemptCheckpointSchema).default([]),
   questions: z.array(ApplicationAttemptQuestionSchema).default([]),
   blocker: ApplicationAttemptBlockerSchema.nullable().default(null),
-  consentDecisions: z.array(ApplicationAttemptConsentDecisionSchema).default([]),
+  listingSignalEvidence:
+    ApplicationListingSignalEvidenceSchema.nullable().default(null),
+  consentDecisions: z
+    .array(ApplicationAttemptConsentDecisionSchema)
+    .default([]),
   replay: ApplicationAttemptReplaySchema.default({}),
   visualEvidence: z.array(BrowserVisualEvidenceSummarySchema).default([]),
   visualObservationSets: z.array(BrowserVisualObservationSetSchema).default([]),
   visualCheckpoints: z.array(ApplyVisualCheckpointSchema).default([]),
   nextActionLabel: NonEmptyStringSchema.nullable(),
+  executionTimings: z.array(ApplyExecutionTimingSchema).default([]),
+  externalWrites: z
+    .array(ApplicationAttemptExternalWriteEvidenceSchema)
+    .optional(),
 });
 export type ApplyExecutionResult = z.infer<typeof ApplyExecutionResultSchema>;
 
@@ -662,9 +1734,7 @@ export const AgentDebugFindingsSchema = z.object({
   applyTips: z.array(NonEmptyStringSchema).default([]),
   warnings: z.array(NonEmptyStringSchema).default([]),
   visualFindings: z.array(BrowserVisualEvidenceSummarySchema).default([]),
-  visualObservationSets: z
-    .array(BrowserVisualObservationSetSchema)
-    .default([]),
+  visualObservationSets: z.array(BrowserVisualObservationSetSchema).default([]),
 });
 export type AgentDebugFindings = z.infer<typeof AgentDebugFindingsSchema>;
 
@@ -685,12 +1755,23 @@ export type DiscoveryAgentMetadata = z.infer<
   typeof DiscoveryAgentMetadataSchema
 >;
 
+export const DiscoveryInventoryCompletenessSchema = z.enum([
+  "complete",
+  "partial",
+  "unknown",
+]);
+export type DiscoveryInventoryCompleteness = z.infer<
+  typeof DiscoveryInventoryCompletenessSchema
+>;
+
 export const DiscoveryRunResultSchema = z.object({
   source: JobSourceSchema,
   startedAt: IsoDateTimeSchema,
   completedAt: IsoDateTimeSchema,
   querySummary: NonEmptyStringSchema,
   warning: NonEmptyStringSchema.nullable(),
+  inventoryCompleteness:
+    DiscoveryInventoryCompletenessSchema.default("unknown"),
   jobs: z.array(JobPostingSchema).default([]),
   agentMetadata: DiscoveryAgentMetadataSchema.nullable().default(null),
 });
@@ -713,7 +1794,9 @@ export const DiscoveryStageDurationSchema = z.object({
   stage: DiscoveryActivityStageSchema,
   durationMs: z.number().int().nonnegative().default(0),
 });
-export type DiscoveryStageDuration = z.infer<typeof DiscoveryStageDurationSchema>;
+export type DiscoveryStageDuration = z.infer<
+  typeof DiscoveryStageDurationSchema
+>;
 
 export const DiscoveryWaitReasonDurationSchema = z.object({
   waitReason: BrowserRunWaitReasonSchema,
@@ -726,31 +1809,106 @@ export type DiscoveryWaitReasonDuration = z.infer<
 export const DiscoveryTimingSummarySchema = z.object({
   totalDurationMs: z.number().int().nonnegative().default(0),
   firstActivityMs: z.number().int().nonnegative().nullable().default(null),
+  firstCandidateMs: z.number().int().nonnegative().nullable().default(null),
+  firstDistinctUsefulJobMs: z
+    .number()
+    .int()
+    .nonnegative()
+    .nullable()
+    .default(null),
   longestGapMs: z.number().int().nonnegative().default(0),
   eventCount: z.number().int().nonnegative().default(0),
   stageDurations: z.array(DiscoveryStageDurationSchema).default([]),
   waitReasonDurations: z.array(DiscoveryWaitReasonDurationSchema).default([]),
 });
-export type DiscoveryTimingSummary = z.infer<typeof DiscoveryTimingSummarySchema>;
+export type DiscoveryTimingSummary = z.infer<
+  typeof DiscoveryTimingSummarySchema
+>;
+
+export const DiscoveryChangeDigestSchema = z.object({
+  new: z.number().int().nonnegative().default(0),
+  unchanged: z.number().int().nonnegative().default(0),
+  changed: z.number().int().nonnegative().default(0),
+  reactivated: z.number().int().nonnegative().default(0),
+  inactive: z.number().int().nonnegative().default(0),
+  known: z.number().int().nonnegative().default(0),
+  skipped: z.number().int().nonnegative().default(0),
+});
+export type DiscoveryChangeDigest = z.infer<typeof DiscoveryChangeDigestSchema>;
+
+export const DiscoverySourceHealthStateSchema = z.enum([
+  "healthy",
+  "warning",
+  "failed",
+  "cancelled",
+  "skipped",
+  "pending",
+]);
+export type DiscoverySourceHealthState = z.infer<
+  typeof DiscoverySourceHealthStateSchema
+>;
+
+export const DiscoverySourceHealthSummarySchema = z.object({
+  targetId: NonEmptyStringSchema,
+  health: DiscoverySourceHealthStateSchema,
+  durationMs: z.number().int().nonnegative().default(0),
+  warnings: z.array(NonEmptyStringSchema).default([]),
+});
+export type DiscoverySourceHealthSummary = z.infer<
+  typeof DiscoverySourceHealthSummarySchema
+>;
+
+export interface BrowserAgentRunCheckpoint {
+  revision: number;
+  savedAt: string;
+  currentUrl: string;
+  lastStableUrl: string;
+  stepCount: number;
+  collectedJobs: JobPosting[];
+  visitedUrls: string[];
+  phaseEvidence: z.infer<typeof SourceDebugPhaseEvidenceSchema>;
+}
+
+export const BrowserAgentRunCheckpointSchema: z.ZodType<
+  BrowserAgentRunCheckpoint,
+  z.ZodTypeDef,
+  unknown
+> = z.object({
+  revision: z.number().int().nonnegative(),
+  savedAt: IsoDateTimeSchema,
+  currentUrl: z.string(),
+  lastStableUrl: z.string(),
+  stepCount: z.number().int().nonnegative(),
+  collectedJobs: z.array(JobPostingSchema).default([]),
+  visitedUrls: z.array(UrlStringSchema).default([]),
+  phaseEvidence: SourceDebugPhaseEvidenceSchema,
+});
 
 export const DiscoveryTargetExecutionSchema = z.object({
   targetId: NonEmptyStringSchema,
   adapterKind: JobSourceAdapterKindSchema,
   resolvedAdapterKind: JobSourceSchema.nullable().default(null),
-  collectionMethod:
-    JobDiscoveryCollectionMethodSchema.nullable().default(null),
+  collectionMethod: JobDiscoveryCollectionMethodSchema.nullable().default(null),
   sourceIntelligenceProvider:
     SourceIntelligenceProviderKeySchema.nullable().default(null),
   state: DiscoveryTargetExecutionStateSchema,
   startedAt: IsoDateTimeSchema.nullable().default(null),
   completedAt: IsoDateTimeSchema.nullable().default(null),
+  requestedJobBudget: z.number().int().positive().nullable().default(null),
+  jobsReviewed: z.number().int().nonnegative().default(0),
   jobsFound: z.number().int().nonnegative().default(0),
   jobsPersisted: z.number().int().nonnegative().default(0),
   jobsStaged: z.number().int().nonnegative().default(0),
+  jobsSkippedByLedger: z.number().int().nonnegative().default(0),
+  jobsSkippedByTitleTriage: z.number().int().nonnegative().default(0),
+  duplicatesMerged: z.number().int().nonnegative().default(0),
+  invalidSkipped: z.number().int().nonnegative().default(0),
+  changeDigest: DiscoveryChangeDigestSchema.default({}),
   warning: NonEmptyStringSchema.nullable().default(null),
   compactionState: SharedAgentCompactionSnapshotSchema.nullable().default(null),
   compactionUsedFallbackTrigger: z.boolean().default(false),
   timing: DiscoveryTimingSummarySchema.nullable().default(null),
+  agentCheckpoint: BrowserAgentRunCheckpointSchema.nullable().default(null),
 });
 export type DiscoveryTargetExecution = z.infer<
   typeof DiscoveryTargetExecutionSchema
@@ -766,8 +1924,7 @@ export const DiscoveryActivityEventSchema = z.object({
   targetId: NonEmptyStringSchema.nullable().default(null),
   adapterKind: JobSourceAdapterKindSchema.nullable().default(null),
   resolvedAdapterKind: JobSourceSchema.nullable().default(null),
-  collectionMethod:
-    JobDiscoveryCollectionMethodSchema.nullable().default(null),
+  collectionMethod: JobDiscoveryCollectionMethodSchema.nullable().default(null),
   sourceIntelligenceProvider:
     SourceIntelligenceProviderKeySchema.nullable().default(null),
   message: NonEmptyStringSchema,
@@ -783,6 +1940,101 @@ export type DiscoveryActivityEvent = z.infer<
   typeof DiscoveryActivityEventSchema
 >;
 
+/**
+ * The persisted run activity below is the complete, append-only history. The
+ * renderer receives a separate rolling projection while a run is live, so a
+ * chatty source cannot make the UI retain one entry for every progress tick.
+ * Run-level (target-less) activity is limited to this many non-terminal
+ * entries. The projection also keeps the latest event and the latest
+ * terminal/error event for each source, so source truth is not lost when old
+ * progress is compacted.
+ */
+export const DISCOVERY_LIVE_ACTIVITY_EVENT_LIMIT = 256;
+
+function isTerminalOrErrorDiscoveryActivityEvent(
+  event: DiscoveryActivityEvent,
+): boolean {
+  return event.terminalState !== null || event.kind === "error";
+}
+
+function findLastTerminalOrErrorDiscoveryActivityEvent(
+  events: readonly DiscoveryActivityEvent[],
+): DiscoveryActivityEvent | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event && isTerminalOrErrorDiscoveryActivityEvent(event)) {
+      return event;
+    }
+  }
+
+  return undefined;
+}
+
+function getDiscoveryActivitySourceKey(event: DiscoveryActivityEvent): string {
+  return `${event.runId}:${event.targetId ?? "__run__"}`;
+}
+
+/**
+ * Adds an event to the bounded live activity projection.
+ *
+ * This is intentionally different from appending to `DiscoveryRunRecord`
+ * history: the persisted record remains complete for search, timing, and
+ * recovery. For each source, the projection keeps its latest event and, when
+ * distinct, its latest terminal/error event. Target-less progress is a rolling
+ * window capped by `DISCOVERY_LIVE_ACTIVITY_EVENT_LIMIT`; the latest
+ * target-less terminal/error event for each run is retained as well.
+ */
+export function appendDiscoveryLiveActivityEvent(
+  current: readonly DiscoveryActivityEvent[],
+  event: DiscoveryActivityEvent,
+): DiscoveryActivityEvent[] {
+  const sourceKey = getDiscoveryActivitySourceKey(event);
+  const currentRunEvents = current.filter(
+    (candidate) => candidate.runId === event.runId,
+  );
+
+  if (event.targetId !== null) {
+    const sourceEvents = currentRunEvents.filter(
+      (candidate) =>
+        candidate.targetId !== null &&
+        getDiscoveryActivitySourceKey(candidate) === sourceKey,
+    );
+    const previousTerminal =
+      findLastTerminalOrErrorDiscoveryActivityEvent(sourceEvents);
+    const nextSourceEvents = isTerminalOrErrorDiscoveryActivityEvent(event)
+      ? [event]
+      : previousTerminal
+        ? [event, previousTerminal]
+        : [event];
+
+    return [
+      ...currentRunEvents.filter(
+        (candidate) => getDiscoveryActivitySourceKey(candidate) !== sourceKey,
+      ),
+      ...nextSourceEvents,
+    ];
+  }
+
+  const next = [...currentRunEvents, event];
+  const runActivity = next.filter((candidate) => candidate.targetId === null);
+  const latestCriticalRunEvent =
+    findLastTerminalOrErrorDiscoveryActivityEvent(runActivity);
+  const rollingRunEvents = runActivity
+    .filter((candidate) => !isTerminalOrErrorDiscoveryActivityEvent(candidate))
+    .slice(-DISCOVERY_LIVE_ACTIVITY_EVENT_LIMIT);
+  const retainedRunEvents = latestCriticalRunEvent
+    ? [...rollingRunEvents, latestCriticalRunEvent]
+    : rollingRunEvents;
+  const retainedRunEventIds = new Set(
+    retainedRunEvents.map((candidate) => candidate.id),
+  );
+
+  return next.filter(
+    (candidate) =>
+      candidate.targetId !== null || retainedRunEventIds.has(candidate.id),
+  );
+}
+
 export const DiscoveryRunSummarySchema = z.object({
   targetsPlanned: z.number().int().nonnegative().default(0),
   targetsCompleted: z.number().int().nonnegative().default(0),
@@ -793,6 +2045,9 @@ export const DiscoveryRunSummarySchema = z.object({
   jobsSkippedByTitleTriage: z.number().int().nonnegative().default(0),
   duplicatesMerged: z.number().int().nonnegative().default(0),
   invalidSkipped: z.number().int().nonnegative().default(0),
+  changeDigest: DiscoveryChangeDigestSchema.default({}),
+  sourceHealth: z.array(DiscoverySourceHealthSummarySchema).default([]),
+  warnings: z.array(NonEmptyStringSchema).default([]),
   durationMs: z.number().int().nonnegative().default(0),
   outcome: DiscoveryRunStateSchema.default("idle"),
   browserCloseout: BrowserRunCloseoutSchema.nullable().default(null),
@@ -802,6 +2057,7 @@ export type DiscoveryRunSummary = z.infer<typeof DiscoveryRunSummarySchema>;
 
 export const DiscoveryRunRecordSchema = z.object({
   id: NonEmptyStringSchema,
+  campaignId: NonEmptyStringSchema.nullable().default(null),
   state: DiscoveryRunStateSchema,
   scope: DiscoveryRunScopeSchema.default("run_all"),
   startedAt: IsoDateTimeSchema,
@@ -824,12 +2080,327 @@ export const ApplicationRecordSchema = z.object({
   lastUpdatedAt: IsoDateTimeSchema,
   lastAttemptState: ApplicationAttemptStateSchema.nullable().default(null),
   questionSummary: ApplicationAttemptQuestionSummarySchema.default({}),
-  latestBlocker: ApplicationAttemptBlockerSummarySchema.nullable().default(null),
+  latestBlocker:
+    ApplicationAttemptBlockerSummarySchema.nullable().default(null),
   consentSummary: ApplicationAttemptConsentSummarySchema.default({}),
   replaySummary: ApplicationAttemptReplaySummarySchema.default({}),
   events: z.array(ApplicationEventSchema).default([]),
+  crm: ApplicationCrmDataSchema.nullable().default(null),
 });
 export type ApplicationRecord = z.infer<typeof ApplicationRecordSchema>;
+
+export const JobFinderInterviewFollowUpInputSchema = z.object({
+  applicationRecordId: NonEmptyStringSchema,
+  sessionId: NonEmptyStringSchema,
+  action: z.enum(["mark_interviewed", "add_follow_up_note"]),
+  note: NonEmptyStringSchema.optional(),
+});
+export type JobFinderInterviewFollowUpInput = z.infer<
+  typeof JobFinderInterviewFollowUpInputSchema
+>;
+
+// ---------------------------------------------------------------------------
+// Compact-snapshot discovery observations (ADR 0013)
+//
+// Discovery is API-first, deterministic compact-browser observation second,
+// and model-escalated third. A browser adapter returns exactly one
+// schema-validated observation per capture: either a supported observation
+// with bounded page summaries, typed posting candidates, and snapshot-scoped
+// pagination/action references, or an explicit unsupported outcome. These
+// shapes are transient (never persisted), strictly parsed, and deliberately
+// generic: no DOM handles, Playwright types, selectors as policy, raw HTML,
+// or site-specific fields cross this boundary, and nothing here assumes a
+// listing line shape or a minimum content-length readiness gate.
+// ---------------------------------------------------------------------------
+
+/** Conservative character cap for one bounded visible-text sample. */
+export const DISCOVERY_OBSERVATION_TEXT_SAMPLE_MAX = 4_000;
+
+/** Conservative character cap for one bounded accessibility-tree summary. */
+export const DISCOVERY_OBSERVATION_ACCESSIBILITY_SUMMARY_MAX = 16_000;
+
+/** Maximum posting candidates carried by one supported observation. */
+export const DISCOVERY_OBSERVATION_POSTING_CANDIDATES_MAX = 100;
+
+/** Maximum pagination candidates carried by one supported observation. */
+export const DISCOVERY_OBSERVATION_PAGINATION_CANDIDATES_MAX = 32;
+
+/** Maximum action candidates carried by one supported observation. */
+export const DISCOVERY_OBSERVATION_ACTION_CANDIDATES_MAX = 32;
+
+/** Maximum bounded uncertainty notes carried by one supported observation. */
+export const DISCOVERY_OBSERVATION_UNCERTAINTY_NOTES_MAX = 16;
+
+/** Character cap for control labels (accessible names), never selectors. */
+export const DISCOVERY_OBSERVATION_LABEL_MAX = 200;
+
+/** Character cap for free-text details and unsupported-outcome explanations. */
+export const DISCOVERY_OBSERVATION_DETAIL_MAX = 600;
+
+const DiscoveryObservationLabelSchema = NonEmptyStringSchema.max(
+  DISCOVERY_OBSERVATION_LABEL_MAX,
+);
+const DiscoveryObservationDetailSchema = NonEmptyStringSchema.max(
+  DISCOVERY_OBSERVATION_DETAIL_MAX,
+);
+
+/**
+ * Evidence channel summarized by one observation. Values stay source-generic;
+ * the adapter declares what it read instead of embedding site structure.
+ */
+export const discoveryCompactObservationSourceKindValues = [
+  "accessibility_snapshot",
+  "visible_text",
+] as const;
+export const DiscoveryCompactObservationSourceKindSchema = z.enum(
+  discoveryCompactObservationSourceKindValues,
+);
+export type DiscoveryCompactObservationSourceKind = z.infer<
+  typeof DiscoveryCompactObservationSourceKindSchema
+>;
+
+/** Explicit reasons a deterministic observation cannot proceed. */
+export const discoveryCompactObservationUnsupportedReasonValues = [
+  "unsupported_layout",
+  "auth_required",
+  "site_protection",
+  "manual_step_required",
+  "navigation_failed",
+] as const;
+export const DiscoveryCompactObservationUnsupportedReasonSchema = z.enum(
+  discoveryCompactObservationUnsupportedReasonValues,
+);
+export type DiscoveryCompactObservationUnsupportedReason = z.infer<
+  typeof DiscoveryCompactObservationUnsupportedReasonSchema
+>;
+
+/**
+ * Shared observation identity. `observationId` uniquely identifies one
+ * capture; `revision` is the adapter's monotonic per-target sequence starting
+ * at 1. Both travel with every snapshot-scoped reference, so a consumer can
+ * detect a stale reference by comparing it against the current observation
+ * identity alone.
+ */
+const DiscoveryCompactObservationIdentitySchema = z.object({
+  observationId: NonEmptyStringSchema,
+  revision: z.number().int().positive(),
+  targetId: NonEmptyStringSchema,
+  observedAt: IsoDateTimeSchema,
+  pageUrl: UrlStringSchema,
+  pageTitle: DiscoveryObservationLabelSchema.nullable().default(null),
+});
+
+/**
+ * Bounded page summaries. Truncation flags are mandatory honesty signals: an
+ * adapter that clips its samples must set the flags and report omitted rows
+ * instead of letting downstream steps assume completeness.
+ */
+export const DiscoveryCompactObservationContentSchema = z
+  .object({
+    textSample: NonEmptyStringSchema.max(DISCOVERY_OBSERVATION_TEXT_SAMPLE_MAX)
+      .nullable()
+      .default(null),
+    accessibilitySummary: NonEmptyStringSchema.max(
+      DISCOVERY_OBSERVATION_ACCESSIBILITY_SUMMARY_MAX,
+    )
+      .nullable()
+      .default(null),
+    textTruncated: z.boolean().default(false),
+    accessibilitySummaryTruncated: z.boolean().default(false),
+  })
+  .strict();
+export type DiscoveryCompactObservationContent = z.infer<
+  typeof DiscoveryCompactObservationContentSchema
+>;
+
+export const discoveryCompactObservationPaginationKindValues = [
+  "next_page",
+  "previous_page",
+  "numbered_page",
+  "load_more",
+] as const;
+export const DiscoveryCompactObservationPaginationKindSchema = z.enum(
+  discoveryCompactObservationPaginationKindValues,
+);
+export type DiscoveryCompactObservationPaginationKind = z.infer<
+  typeof DiscoveryCompactObservationPaginationKindSchema
+>;
+
+/**
+ * Name-based pagination candidate. `label` is the control's accessible name;
+ * pagination stays name-based because selectors are not policy and never
+ * cross this boundary.
+ */
+export const DiscoveryCompactObservationPaginationCandidateSchema = z
+  .object({
+    refId: NonEmptyStringSchema,
+    kind: DiscoveryCompactObservationPaginationKindSchema,
+    label: DiscoveryObservationLabelSchema,
+    pageNumber: z.number().int().positive().nullable().default(null),
+  })
+  .strict();
+export type DiscoveryCompactObservationPaginationCandidate = z.infer<
+  typeof DiscoveryCompactObservationPaginationCandidateSchema
+>;
+
+/**
+ * Generic action kinds a deterministic handler or a bounded model proposal
+ * may target. Proposing an action grants no authority (ADR 0013): any
+ * execution must recheck observation identity first.
+ */
+export const discoveryCompactObservationActionKindValues = [
+  "open_posting",
+  "close_overlay",
+] as const;
+export const DiscoveryCompactObservationActionKindSchema = z.enum(
+  discoveryCompactObservationActionKindValues,
+);
+export type DiscoveryCompactObservationActionKind = z.infer<
+  typeof DiscoveryCompactObservationActionKindSchema
+>;
+
+export const DiscoveryCompactObservationActionCandidateSchema = z
+  .object({
+    refId: NonEmptyStringSchema,
+    kind: DiscoveryCompactObservationActionKindSchema,
+    label: DiscoveryObservationLabelSchema,
+  })
+  .strict();
+export type DiscoveryCompactObservationActionCandidate = z.infer<
+  typeof DiscoveryCompactObservationActionCandidateSchema
+>;
+
+/**
+ * Detached, snapshot-scoped reference to one pagination/action candidate.
+ * The reference is current only while the live observation has the same
+ * `observationId` and `observationRevision`; any mismatch is stale and must
+ * fail closed instead of being replayed against the page.
+ */
+export const DiscoveryCompactObservationControlRefSchema = z
+  .object({
+    observationId: NonEmptyStringSchema,
+    observationRevision: z.number().int().positive(),
+    refId: NonEmptyStringSchema,
+  })
+  .strict();
+export type DiscoveryCompactObservationControlRef = z.infer<
+  typeof DiscoveryCompactObservationControlRefSchema
+>;
+
+/** Binds a candidate ref id to the observation identity that scoped it. */
+export function getDiscoveryCompactObservationControlRef(
+  observation: Pick<DiscoveryCompactObservation, "observationId" | "revision">,
+  refId: string,
+): DiscoveryCompactObservationControlRef {
+  return {
+    observationId: observation.observationId,
+    observationRevision: observation.revision,
+    refId,
+  };
+}
+
+/** True only when the reference belongs to the exact current observation. */
+export function isCurrentDiscoveryCompactObservationRef(
+  ref: DiscoveryCompactObservationControlRef,
+  observation: Pick<DiscoveryCompactObservation, "observationId" | "revision">,
+): boolean {
+  return (
+    ref.observationId === observation.observationId &&
+    ref.observationRevision === observation.revision
+  );
+}
+
+/**
+ * Supported observation: bounded summaries plus typed candidates. Posting
+ * candidates reuse the existing source-generic `JobPostingSchema` so
+ * canonicalization, merge-key dedupe, and ledger identity downstream stay
+ * unchanged.
+ */
+export const DiscoverySupportedCompactObservationSchema =
+  DiscoveryCompactObservationIdentitySchema.extend({
+    kind: z.literal("supported"),
+    sourceKind: DiscoveryCompactObservationSourceKindSchema,
+    content: DiscoveryCompactObservationContentSchema.default({}),
+    postingCandidates: z
+      .array(JobPostingSchema)
+      .max(DISCOVERY_OBSERVATION_POSTING_CANDIDATES_MAX)
+      .default([]),
+    paginationCandidates: z
+      .array(DiscoveryCompactObservationPaginationCandidateSchema)
+      .max(DISCOVERY_OBSERVATION_PAGINATION_CANDIDATES_MAX)
+      .default([]),
+    actionCandidates: z
+      .array(DiscoveryCompactObservationActionCandidateSchema)
+      .max(DISCOVERY_OBSERVATION_ACTION_CANDIDATES_MAX)
+      .default([]),
+    uncertaintyNotes: z
+      .array(DiscoveryObservationDetailSchema)
+      .max(DISCOVERY_OBSERVATION_UNCERTAINTY_NOTES_MAX)
+      .default([]),
+    /**
+     * Rows the adapter saw but excluded from `postingCandidates` because of
+     * bounds, so consumers know the observed inventory may be incomplete.
+     */
+    omittedPostingCandidateCount: z.number().int().nonnegative().default(0),
+  }).strict();
+export type DiscoverySupportedCompactObservation = z.infer<
+  typeof DiscoverySupportedCompactObservationSchema
+>;
+
+/**
+ * Unsupported observation: an explicit terminal outcome for the deterministic
+ * tier. It keeps the shared identity for logging and may retain bounded
+ * summaries as context for later bounded model escalation.
+ */
+export const DiscoveryUnsupportedCompactObservationSchema =
+  DiscoveryCompactObservationIdentitySchema.extend({
+    kind: z.literal("unsupported"),
+    reason: DiscoveryCompactObservationUnsupportedReasonSchema,
+    detail: DiscoveryObservationDetailSchema.nullable().default(null),
+    content: DiscoveryCompactObservationContentSchema.default({}),
+  }).strict();
+export type DiscoveryUnsupportedCompactObservation = z.infer<
+  typeof DiscoveryUnsupportedCompactObservationSchema
+>;
+
+const DiscoveryCompactObservationUnionSchema = z.discriminatedUnion("kind", [
+  DiscoverySupportedCompactObservationSchema,
+  DiscoveryUnsupportedCompactObservationSchema,
+]);
+
+/**
+ * One schema-validated result of a deterministic compact-snapshot capture.
+ * Reference ids must stay unique within an observation so snapshot-scoped
+ * references remain resolvable; violations fail closed.
+ */
+export const DiscoveryCompactObservationSchema =
+  DiscoveryCompactObservationUnionSchema.superRefine((value, ctx) => {
+    if (value.kind !== "supported") {
+      return;
+    }
+    const seenRefIds = new Set<string>();
+    const candidateGroups = [
+      ["paginationCandidates", value.paginationCandidates],
+      ["actionCandidates", value.actionCandidates],
+    ] as const;
+    for (const [field, candidates] of candidateGroups) {
+      for (const [index, candidate] of candidates.entries()) {
+        if (seenRefIds.has(candidate.refId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              "Snapshot-scoped reference ids must be unique within one observation.",
+            path: [field, index, "refId"],
+          });
+          continue;
+        }
+        seenRefIds.add(candidate.refId);
+      }
+    }
+  });
+export type DiscoveryCompactObservation = z.infer<
+  typeof DiscoveryCompactObservationSchema
+>;
 
 export const SourceDebugPersistenceSchemas = {
   SourceDebugEvidenceRefSchema,

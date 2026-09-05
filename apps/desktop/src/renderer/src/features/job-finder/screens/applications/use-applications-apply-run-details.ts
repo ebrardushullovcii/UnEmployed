@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApplyRunDetails } from "@unemployed/contracts";
 import { pickLatestIsoTimestamp } from "./applications-screen-helpers";
 
 interface UseApplicationsApplyRunDetailsInput {
+  applicationRecordId: string | null;
   jobId: string | null;
-  onGetApplyRunDetails: (
-    runId: string,
-    jobId: string,
-  ) => Promise<ApplyRunDetails>;
+  onGetApplyRunDetails: (input: {
+    runId: string;
+    jobId: string;
+    applicationRecordId: string;
+  }) => Promise<ApplyRunDetails>;
   runId: string | null;
   runUpdatedAt: string | null;
 }
@@ -15,10 +17,17 @@ interface UseApplicationsApplyRunDetailsInput {
 export function useApplicationsApplyRunDetails(
   input: UseApplicationsApplyRunDetailsInput,
 ) {
-  const { jobId, onGetApplyRunDetails, runId, runUpdatedAt } = input;
+  const {
+    applicationRecordId,
+    jobId,
+    onGetApplyRunDetails,
+    runId,
+    runUpdatedAt,
+  } = input;
   const [applyRunDetails, setApplyRunDetails] =
     useState<ApplyRunDetails | null>(null);
   const [applyRunDetailsTarget, setApplyRunDetailsTarget] = useState<{
+    applicationRecordId: string;
     jobId: string;
     runId: string;
     runUpdatedAt: string | null;
@@ -30,6 +39,7 @@ export function useApplicationsApplyRunDetails(
     string | null
   >(null);
   const lastFetchedApplyRunRef = useRef<{
+    applicationRecordId: string;
     jobId: string;
     runId: string;
     updatedAt: string | null;
@@ -45,7 +55,7 @@ export function useApplicationsApplyRunDetails(
   useEffect(() => {
     let cancelled = false;
 
-    if (!jobId || !runId) {
+    if (!applicationRecordId || !jobId || !runId) {
       lastFetchedApplyRunRef.current = null;
       setApplyRunDetails(null);
       setApplyRunDetailsTarget(null);
@@ -62,15 +72,20 @@ export function useApplicationsApplyRunDetails(
     const selectedRunUpdatedAtMs =
       runUpdatedAt == null ? Number.NaN : Date.parse(runUpdatedAt);
     const lastFetchedUpdatedAtMs =
-      lastFetchedUpdatedAt == null ? Number.NaN : Date.parse(lastFetchedUpdatedAt);
+      lastFetchedUpdatedAt == null
+        ? Number.NaN
+        : Date.parse(lastFetchedUpdatedAt);
     const hasValidParsedUpdatedAt =
       !Number.isNaN(selectedRunUpdatedAtMs) &&
       !Number.isNaN(lastFetchedUpdatedAtMs);
 
     if (
       lastFetchedApplyRunRef.current?.jobId === jobId &&
+      lastFetchedApplyRunRef.current?.applicationRecordId ===
+        applicationRecordId &&
       lastFetchedApplyRunRef.current?.runId === runId &&
       currentTarget?.jobId === jobId &&
+      currentTarget?.applicationRecordId === applicationRecordId &&
       currentTarget?.runId === runId &&
       currentTarget?.runUpdatedAt === runUpdatedAt &&
       (runUpdatedAt == null ||
@@ -86,6 +101,7 @@ export function useApplicationsApplyRunDetails(
     if (
       currentStatus === "loading" &&
       currentTarget?.jobId === jobId &&
+      currentTarget?.applicationRecordId === applicationRecordId &&
       currentTarget?.runId === runId &&
       currentTarget?.runUpdatedAt === runUpdatedAt
     ) {
@@ -95,17 +111,23 @@ export function useApplicationsApplyRunDetails(
     }
 
     setApplyRunDetails(null);
-    setApplyRunDetailsTarget({ jobId, runId, runUpdatedAt });
+    setApplyRunDetailsTarget({
+      applicationRecordId,
+      jobId,
+      runId,
+      runUpdatedAt,
+    });
     setApplyRunDetailsStatus("loading");
     setApplyRunDetailsError(null);
 
-    void onGetApplyRunDetails(runId, jobId)
+    void onGetApplyRunDetails({ runId, jobId, applicationRecordId })
       .then((details) => {
         if (cancelled) {
           return;
         }
 
         lastFetchedApplyRunRef.current = {
+          applicationRecordId,
           jobId,
           runId,
           updatedAt: pickLatestIsoTimestamp(
@@ -136,12 +158,40 @@ export function useApplicationsApplyRunDetails(
     return () => {
       cancelled = true;
     };
-  }, [jobId, onGetApplyRunDetails, runId, runUpdatedAt]);
+  }, [applicationRecordId, jobId, onGetApplyRunDetails, runId, runUpdatedAt]);
+
+  const replaceApplyRunDetails = useCallback((details: ApplyRunDetails) => {
+    const nextJobId = details.result?.jobId ?? details.run.jobIds[0] ?? null;
+    const nextApplicationRecordId = details.result?.applicationRecordId ?? null;
+    if (!nextJobId || !nextApplicationRecordId) {
+      return;
+    }
+    const updatedAt = pickLatestIsoTimestamp(
+      details.run.updatedAt,
+      details.result?.updatedAt,
+    );
+    lastFetchedApplyRunRef.current = {
+      applicationRecordId: nextApplicationRecordId,
+      jobId: nextJobId,
+      runId: details.run.id,
+      updatedAt,
+    };
+    setApplyRunDetails(details);
+    setApplyRunDetailsTarget({
+      applicationRecordId: nextApplicationRecordId,
+      jobId: nextJobId,
+      runId: details.run.id,
+      runUpdatedAt: updatedAt,
+    });
+    setApplyRunDetailsStatus("ready");
+    setApplyRunDetailsError(null);
+  }, []);
 
   return {
     applyRunDetails,
     applyRunDetailsError,
     applyRunDetailsStatus,
     applyRunDetailsTarget,
+    replaceApplyRunDetails,
   };
 }

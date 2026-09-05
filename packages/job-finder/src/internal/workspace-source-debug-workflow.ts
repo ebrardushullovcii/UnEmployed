@@ -56,6 +56,8 @@ import {
   buildSourceDebugRunTimingSummary,
   buildSourceDebugTimingSummary,
 } from "./source-debug-timing";
+import { runPublicProviderSourceCheck } from "./workspace-public-provider-source-check";
+import { inferSourceIntelligenceFromTarget } from "./workspace-source-intelligence";
 
 const MAX_PROGRESS_EVENTS = 1000;
 
@@ -109,7 +111,8 @@ function buildSourceDebugVisualArtifacts(input: {
       return [];
     }
 
-    const observationSet = observationSetsById.get(evidence.observationSetId) ?? null;
+    const observationSet =
+      observationSetsById.get(evidence.observationSetId) ?? null;
 
     return [
       SourceDebugEvidenceRefSchema.parse({
@@ -130,7 +133,8 @@ function buildSourceDebugVisualArtifacts(input: {
         visualRetention: {
           retention: evidence.retention,
           redactionLevel: evidence.redactionLevel,
-          reason: "Source-debug visual evidence explains a phase outcome or blocker.",
+          reason:
+            "Source-debug visual evidence explains a phase outcome or blocker.",
         },
         visualObservations: observationSet,
       }),
@@ -244,13 +248,12 @@ export async function runSourceDebugWorkflow(
 
   const clearExistingInstructions =
     options?.clearExistingInstructions !== false;
-  const instructionArtifacts =
-    await ctx.repository
-      .listSourceInstructionArtifacts()
-      .catch((error: unknown) => {
-        clearActiveController();
-        throw error;
-      });
+  const instructionArtifacts = await ctx.repository
+    .listSourceInstructionArtifacts()
+    .catch((error: unknown) => {
+      clearActiveController();
+      throw error;
+    });
   const preservedRouteHintArtifact = resolveActiveSourceInstructionArtifact(
     target,
     instructionArtifacts,
@@ -364,6 +367,7 @@ export async function runSourceDebugWorkflow(
     });
 
   const attempts: SourceDebugWorkerAttempt[] = [];
+  const internalRuntimeFailureAttemptIds = new Set<string>();
   const strategyFingerprints: string[] = [];
   const finalReviewContextsByAttemptId = new Map<
     string,
@@ -383,6 +387,119 @@ export async function runSourceDebugWorkflow(
   let finishedEarlyAfterUsefulDraft = false;
 
   try {
+    const inferredSourceIntelligence = inferSourceIntelligenceFromTarget({
+      target: normalizedTarget,
+      currentArtifact: null,
+    });
+
+    if (inferredSourceIntelligence.provider?.apiAvailability === "available") {
+      run = SourceDebugRunRecordSchema.parse({
+        ...run,
+        phases: ["replay_verification"],
+        activePhase: "replay_verification",
+        updatedAt: new Date().toISOString(),
+      });
+      await ctx.persistSourceDebugRun(run);
+      emitProgress({
+        phase: "replay_verification",
+        waitReason: "extracting_jobs",
+        message: `Checking the public ${inferredSourceIntelligence.provider.label} provider API for reusable source capabilities.`,
+        currentUrl: normalizedTarget.startingUrl,
+      });
+      const publicProviderCheck = await runPublicProviderSourceCheck({
+        target: normalizedTarget,
+        source: adapterKind,
+        runId: run.id,
+        versionInfo: buildSourceInstructionVersionInfo(adapterKind),
+        signal: executionSignal,
+      });
+
+      if (publicProviderCheck) {
+        const attempt = SourceDebugWorkerAttemptSchema.parse({
+          ...publicProviderCheck.attempt,
+          timing: buildSourceDebugTimingSummary(
+            progressEvents.filter(
+              (event) => event.phase === "replay_verification",
+            ),
+            publicProviderCheck.attempt.startedAt,
+            publicProviderCheck.attempt.completedAt ??
+              publicProviderCheck.attempt.startedAt,
+          ),
+        });
+        const phaseSummary = buildSourceDebugPhaseSummary(attempt);
+        const instruction = SourceInstructionArtifactSchema.parse({
+          ...publicProviderCheck.artifact,
+          basedOnAttemptIds: [attempt.id],
+        });
+        const finalizationStartedAtMs = Date.now();
+
+        emitProgress({
+          phase: "replay_verification",
+          waitReason: "finalizing",
+          message: `Saving verified ${inferredSourceIntelligence.provider.label} provider capabilities.`,
+          currentUrl: normalizedTarget.startingUrl,
+          jobsFound: publicProviderCheck.jobCount,
+        });
+        await ctx.repository.upsertSourceDebugEvidenceRefs(
+          publicProviderCheck.evidenceRefs,
+        );
+        await ctx.repository.upsertSourceDebugAttempt(attempt);
+        await ctx.repository.upsertSourceInstructionArtifact(instruction);
+        await ctx.saveDiscoveryTargetUpdate(
+          normalizedTarget.id,
+          (currentTarget) => ({
+            ...currentTarget,
+            instructionStatus:
+              instruction.status === "validated"
+                ? "validated"
+                : currentTarget.validatedInstructionId
+                  ? "validated"
+                  : instruction.status,
+            draftInstructionId:
+              instruction.status === "validated" ? null : instruction.id,
+            validatedInstructionId:
+              instruction.status === "validated"
+                ? instruction.id
+                : currentTarget.validatedInstructionId,
+            lastDebugRunId: run.id,
+            lastVerifiedAt: instruction.verification?.verifiedAt ?? null,
+            staleReason: null,
+          }),
+        );
+        finalizationMs = Date.now() - finalizationStartedAtMs;
+        const completedAt = new Date().toISOString();
+        run = SourceDebugRunRecordSchema.parse({
+          ...run,
+          state: "completed",
+          updatedAt: completedAt,
+          completedAt,
+          activePhase: null,
+          finalSummary: publicProviderCheck.proofSummary,
+          attemptIds: [attempt.id],
+          phaseSummaries: [phaseSummary],
+          instructionArtifactId: instruction.id,
+          timing: buildSourceDebugRunTimingSummary({
+            events: progressEvents,
+            run,
+            completedAt,
+            browserSetupMs: null,
+            finalReviewMs: null,
+            finalizationMs,
+          }),
+        });
+        await ctx.persistSourceDebugRun(run);
+        return ctx.getWorkspaceSnapshot();
+      }
+
+      run = SourceDebugRunRecordSchema.parse({
+        ...run,
+        phases: sourceDebugPhases,
+        activePhase: sourceDebugPhases[0] ?? null,
+        updatedAt: new Date().toISOString(),
+      });
+      await ctx.persistSourceDebugRun(run);
+    }
+
     const browserSetupStartedAtMs = Date.now();
     emitProgress({
       waitReason: "starting_browser",
@@ -499,6 +616,10 @@ export async function runSourceDebugWorkflow(
             },
             targetJobCount: getSourceDebugTargetJobCount(phase),
             maxSteps: phaseMaxSteps,
+            runControl: {
+              timeBudgetMs: Math.max(90_000, phaseMaxSteps * 20_000),
+              noProgressStepLimit: Math.max(5, Math.ceil(phaseMaxSteps / 2)),
+            },
             startingUrls: phaseStartingUrls,
             agentHints: {
               widenReviewBudget: adapter.kind === "target_site",
@@ -544,16 +665,21 @@ export async function runSourceDebugWorkflow(
             },
           },
         );
-
         if (!debugResult) {
           throw new Error(
             "Browser runtime does not support agent discovery for source debugging.",
           );
         }
+        const internalRuntimeFailure = isInternalSourceDebugFailure(
+          debugResult.warning,
+        );
 
         const outcome = classifySourceDebugAttemptOutcome(debugResult, phase);
         const completion = resolveSourceDebugCompletion(debugResult);
         const attemptId = `source_debug_attempt_${phase}_${Date.now()}`;
+        if (internalRuntimeFailure) {
+          internalRuntimeFailureAttemptIds.add(attemptId);
+        }
         const debugFindings = debugResult.agentMetadata?.debugFindings ?? null;
         const visualArtifacts = buildSourceDebugVisualArtifacts({
           attemptId,
@@ -858,7 +984,10 @@ export async function runSourceDebugWorkflow(
           phaseSummaries: [...run.phaseSummaries, phaseSummary],
         });
 
-        if (phase !== "replay_verification") {
+        if (
+          phase !== "replay_verification" &&
+          !internalRuntimeFailureAttemptIds.has(attempt.id)
+        ) {
           const nextSynthesizedInstruction =
             synthesizeSourceInstructionArtifact(
               normalizedTarget,
@@ -901,6 +1030,42 @@ export async function runSourceDebugWorkflow(
 
     const settings = await ctx.repository.getSettings();
     shouldKeepBrowserSessionOpen = settings.keepSessionAlive;
+
+    const onlyInternalRuntimeFailures =
+      attempts.length > 0 &&
+      attempts.every((attempt) => attempt.outcome !== "succeeded") &&
+      attempts.every((attempt) =>
+        internalRuntimeFailureAttemptIds.has(attempt.id),
+      );
+    if (onlyInternalRuntimeFailures) {
+      const completedAt = new Date().toISOString();
+      run = SourceDebugRunRecordSchema.parse({
+        ...run,
+        state: "failed",
+        updatedAt: completedAt,
+        completedAt,
+        activePhase: null,
+        finalSummary:
+          "Source check could not run because the agent service was unavailable. Existing saved guidance was left unchanged; retry this source when the service is available.",
+        timing: buildSourceDebugRunTimingSummary({
+          events: progressEvents,
+          run,
+          completedAt,
+          browserSetupMs,
+          finalReviewMs,
+          finalizationMs,
+        }),
+      });
+      await ctx.persistSourceDebugRun(run);
+      await ctx.saveDiscoveryTargetUpdate(
+        normalizedTarget.id,
+        (currentTarget) => ({
+          ...currentTarget,
+          lastDebugRunId: run.id,
+        }),
+      );
+      return ctx.getWorkspaceSnapshot();
+    }
 
     const verification = SourceInstructionVerificationSchema.parse({
       id: `source_instruction_verification_${run.id}`,

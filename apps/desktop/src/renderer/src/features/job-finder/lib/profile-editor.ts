@@ -6,19 +6,20 @@ import {
   SourceInstructionStatusSchema,
   type CandidateProfile,
   type JobDiscoveryTarget,
-  type JobSearchPreferences
-} from '@unemployed/contracts'
+  type JobSearchPreferences,
+} from "@unemployed/contracts";
 import type {
   DiscoveryTargetEditorValue,
   ProofBankEntryFormEntry,
-  ReusableAnswerFormEntry
-} from './job-finder-types'
+  ReusableAnswerFormEntry,
+} from "./job-finder-types";
 import {
   booleanToSelect,
   buildFullName,
   joinListInput,
   parseListInput,
   parseRequiredNonNegativeInteger,
+  parseTokenListInput,
   selectToBoolean,
   toCertificationFormEntries,
   toEducationFormEntries,
@@ -26,108 +27,194 @@ import {
   toLanguageFormEntries,
   toLinkFormEntries,
   toProjectFormEntries,
-  uniqueList
-} from './job-finder-utils'
+  uniqueList,
+} from "./job-finder-utils";
 import {
   applyReviewCandidates,
   buildComparableValueFingerprint,
   buildEducationFormFingerprint,
   buildExperienceFormFingerprint,
-} from './profile-editor-review-candidates'
-import type { ProfileEditorValues, SearchPreferencesEditorValues } from './profile-editor-types'
+} from "./profile-editor-review-candidates";
+import type {
+  ProfileEditorValues,
+  SearchPreferencesEditorValues,
+} from "./profile-editor-types";
 
-export type { ProfileEditorValues, SearchPreferencesEditorValues } from './profile-editor-types'
+export type {
+  ProfileEditorValues,
+  SearchPreferencesEditorValues,
+} from "./profile-editor-types";
+
+const PROFILE_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
+/**
+ * Profile contact fields are optional, but a value that is present must be a
+ * usable email address. The canonical profile contract intentionally accepts
+ * non-empty text for backwards compatibility, so the editor owns this
+ * user-facing validation before a save request is created.
+ */
+export function getProfileEmailValidationMessage(
+  value: string,
+  label = "Email",
+): string | null {
+  const normalizedValue = value.trim();
+
+  return normalizedValue === "" || PROFILE_EMAIL_PATTERN.test(normalizedValue)
+    ? null
+    : `${label} must be a valid email address.`;
+}
 
 function shouldPersistReviewCandidateEntry(input: {
-  sourceCandidateId?: string | null | undefined
-  sourceCandidateFingerprint?: string | null | undefined
-  currentFingerprint: string
+  sourceCandidateId?: string | null | undefined;
+  sourceCandidateFingerprint?: string | null | undefined;
+  currentFingerprint: string;
 }): boolean {
   if (!input.sourceCandidateId || !input.sourceCandidateFingerprint) {
-    return true
+    return true;
   }
 
-  return input.currentFingerprint !== input.sourceCandidateFingerprint
+  return input.currentFingerprint !== input.sourceCandidateFingerprint;
 }
 
-function dedupeRecordsByFingerprint<TRecord extends Record<string, unknown>>(
-  records: readonly TRecord[],
-): TRecord[] {
-  const seen = new Set<string>()
+function isImportCandidateEntry(entry: {
+  sourceCandidateId?: string | null | undefined;
+}): boolean {
+  return Boolean(entry.sourceCandidateId);
+}
+
+// Duplicate collapse is an import-candidate cleanup only. Records the user
+// typed by hand are never removed here, even when two rows look identical:
+// silently dropping a manual entry loses real user work. Import-candidate rows
+// that repeat a fingerprint the list has already seen (manual or imported) are
+// collapsed.
+function dedupeImportCandidatesByFingerprint<
+  TRecord extends { sourceCandidateId?: string | null | undefined },
+>(records: readonly TRecord[]): TRecord[] {
+  const seen = new Set<string>();
 
   return records.filter((record) => {
-    const fingerprint = buildComparableValueFingerprint(record)
+    const fingerprint = buildComparableValueFingerprint(record);
 
     if (!fingerprint) {
-      return true
+      return true;
     }
 
-    if (seen.has(fingerprint)) {
-      return false
-    }
+    const isDuplicateImportCandidate =
+      isImportCandidateEntry(record) && seen.has(fingerprint);
 
-    seen.add(fingerprint)
-    return true
-  })
+    seen.add(fingerprint);
+
+    return !isDuplicateImportCandidate;
+  });
 }
 
-function toDiscoveryTargetEditorValues(searchPreferences: JobSearchPreferences): DiscoveryTargetEditorValue[] {
+function toDiscoveryTargetEditorValues(
+  searchPreferences: JobSearchPreferences,
+): DiscoveryTargetEditorValue[] {
   return searchPreferences.discovery.targets.map((target) => ({
     id: target.id,
     label: target.label,
     startingUrl: target.startingUrl,
     enabled: target.enabled,
-    adapterKind: 'auto',
-    customInstructions: target.customInstructions ?? '',
+    adapterKind: "auto",
+    customInstructions: target.customInstructions ?? "",
     instructionStatus: target.instructionStatus,
     validatedInstructionId: target.validatedInstructionId,
     draftInstructionId: target.draftInstructionId,
     lastDebugRunId: target.lastDebugRunId,
     lastVerifiedAt: target.lastVerifiedAt,
-    staleReason: target.staleReason
-  }))
+    staleReason: target.staleReason,
+  }));
 }
 
-function toDiscoveryTargets(values: readonly DiscoveryTargetEditorValue[]): JobDiscoveryTarget[] {
+function toDiscoveryTargets(
+  values: readonly DiscoveryTargetEditorValue[],
+  persistedTargets: readonly JobDiscoveryTarget[],
+): JobDiscoveryTarget[] {
+  const persistedTargetById = new Map<string, JobDiscoveryTarget>();
+  for (const persistedTarget of persistedTargets) {
+    // Preserve the previous find() behavior if malformed persisted data contains duplicate IDs.
+    if (!persistedTargetById.has(persistedTarget.id)) {
+      persistedTargetById.set(persistedTarget.id, persistedTarget);
+    }
+  }
+
   return values.map((target) => {
-    const parsedStatus = SourceInstructionStatusSchema.safeParse(target.instructionStatus)
-    const instructionStatus = parsedStatus.success ? parsedStatus.data : 'missing'
+    const parsedStatus = SourceInstructionStatusSchema.safeParse(
+      target.instructionStatus,
+    );
+    const instructionStatus = parsedStatus.success
+      ? parsedStatus.data
+      : "missing";
+    const startingUrl = target.startingUrl.trim();
+    const persistedTarget = persistedTargetById.get(target.id);
+    const startingUrlChanged =
+      persistedTarget !== undefined &&
+      persistedTarget.startingUrl.trim() !== startingUrl;
 
     return {
-      instructionStatus,
+      instructionStatus: startingUrlChanged ? "missing" : instructionStatus,
       id: target.id,
       label: target.label.trim(),
-      startingUrl: target.startingUrl.trim(),
+      startingUrl,
       enabled: target.enabled,
-      adapterKind: 'auto',
+      adapterKind: "auto",
       customInstructions: target.customInstructions.trim() || null,
-      validatedInstructionId: target.validatedInstructionId,
-      draftInstructionId: target.draftInstructionId,
-      lastDebugRunId: target.lastDebugRunId,
-      lastVerifiedAt: target.lastVerifiedAt,
-      staleReason: target.staleReason
-    }
-  })
+      validatedInstructionId: startingUrlChanged
+        ? null
+        : target.validatedInstructionId,
+      draftInstructionId: startingUrlChanged ? null : target.draftInstructionId,
+      lastDebugRunId: startingUrlChanged ? null : target.lastDebugRunId,
+      lastVerifiedAt: startingUrlChanged ? null : target.lastVerifiedAt,
+      staleReason: startingUrlChanged
+        ? "Starting page URL changed. Check this source again before reusing saved guidance."
+        : target.staleReason,
+    };
+  });
 }
 
 function isValidSourceInstructionStatus(value: string): boolean {
-  return SourceInstructionStatusSchema.safeParse(value).success
+  return SourceInstructionStatusSchema.safeParse(value).success;
 }
 
-function toProofBankFormEntries(profile: CandidateProfile): ProofBankEntryFormEntry[] {
+// An "Add source" click materializes a blank draft row immediately. A draft
+// the user never touched has nothing entered to lose, so it stays optional:
+// it neither blocks the save nor persists. That optionality only applies to
+// fresh drafts whose id is absent from the persisted baseline. A saved source
+// cleared back to blank is a material edit: it must remain in validation,
+// keep failing the save with the named completion error, and preserve its
+// metadata until the user deletes it with explicit Remove.
+function isEmptyDiscoveryTargetDraft(
+  target: DiscoveryTargetEditorValue,
+  persistedTargetIds: ReadonlySet<string>,
+): boolean {
+  return (
+    !persistedTargetIds.has(target.id) &&
+    !target.label.trim() &&
+    !target.startingUrl.trim() &&
+    !target.customInstructions.trim() &&
+    !target.enabled
+  );
+}
+
+function toProofBankFormEntries(
+  profile: CandidateProfile,
+): ProofBankEntryFormEntry[] {
   return profile.proofBank.map((entry) => ({
     id: entry.id,
     title: entry.title,
     claim: entry.claim,
-    heroMetric: entry.heroMetric ?? '',
-    supportingContext: entry.supportingContext ?? '',
+    heroMetric: entry.heroMetric ?? "",
+    supportingContext: entry.supportingContext ?? "",
     roleFamilies: joinListInput(entry.roleFamilies),
     projectIds: joinListInput(entry.projectIds),
-    linkIds: joinListInput(entry.linkIds)
-  }))
+    linkIds: joinListInput(entry.linkIds),
+  }));
 }
 
-function toReusableAnswerFormEntries(profile: CandidateProfile): ReusableAnswerFormEntry[] {
+function toReusableAnswerFormEntries(
+  profile: CandidateProfile,
+): ReusableAnswerFormEntry[] {
   return profile.answerBank.customAnswers.map((entry) => ({
     id: entry.id,
     label: entry.label,
@@ -135,73 +222,108 @@ function toReusableAnswerFormEntries(profile: CandidateProfile): ReusableAnswerF
     answer: entry.answer,
     kind: entry.kind,
     roleFamilies: joinListInput(entry.roleFamilies),
-    proofEntryIds: joinListInput(entry.proofEntryIds)
-  }))
+    proofEntryIds: joinListInput(entry.proofEntryIds),
+  }));
+}
+
+// A row the user started but did not finish must block the save with a named
+// message instead of being dropped silently. Fully empty rows stay optional:
+// there is nothing entered in them to lose.
+function findIncompleteRowMessage<TEntry>(
+  entries: readonly TEntry[],
+  listLabel: string,
+  requiredLabel: string,
+  rowTitle: (entry: TEntry) => string,
+  hasRequiredContent: (entry: TEntry) => boolean,
+  hasAnyContent: (entry: TEntry) => boolean,
+): string | null {
+  for (const [index, entry] of entries.entries()) {
+    if (!hasRequiredContent(entry) && hasAnyContent(entry)) {
+      const title = rowTitle(entry).trim();
+
+      return `Finish the incomplete ${listLabel} row "${
+        title || `${requiredLabel} ${index + 1}`
+      }" before saving.`;
+    }
+  }
+
+  return null;
 }
 
 export function createProfileEditorValues(
   profile: CandidateProfile,
-  reviewCandidates: readonly ResumeImportFieldCandidateSummary[] = []
+  reviewCandidates: readonly ResumeImportFieldCandidateSummary[] = [],
 ): ProfileEditorValues {
   const values: ProfileEditorValues = {
     identity: {
-      currentCity: profile.currentCity ?? '',
-      currentCountry: profile.currentCountry ?? '',
-      currentLocation: profile.currentLocation,
-      currentRegion: profile.currentRegion ?? '',
-      email: profile.email ?? '',
-      firstName: profile.firstName,
-      githubUrl: profile.githubUrl ?? '',
-      headline: profile.headline,
-      lastName: profile.lastName,
-      linkedinUrl: profile.linkedinUrl ?? '',
-      middleName: profile.middleName ?? '',
-      personalWebsiteUrl: profile.personalWebsiteUrl ?? '',
-      phone: profile.phone ?? '',
-      portfolioUrl: profile.portfolioUrl ?? '',
-      preferredDisplayName: profile.preferredDisplayName ?? '',
-      resumeText: profile.baseResume.textContent ?? '',
-      secondaryEmail: profile.secondaryEmail ?? '',
-      summary: profile.summary,
-      timeZone: profile.timeZone ?? '',
-      yearsExperience: String(profile.yearsExperience)
+      currentCity: profile.currentCity ?? "",
+      currentCountry: profile.currentCountry ?? "",
+      currentLocation: profile.currentLocation ?? "",
+      currentRegion: profile.currentRegion ?? "",
+      email: profile.email ?? "",
+      firstName: profile.firstName ?? "",
+      githubUrl: profile.githubUrl ?? "",
+      headline: profile.headline ?? "",
+      lastName: profile.lastName ?? "",
+      linkedinUrl: profile.linkedinUrl ?? "",
+      middleName: profile.middleName ?? "",
+      personalWebsiteUrl: profile.personalWebsiteUrl ?? "",
+      phone: profile.phone ?? "",
+      portfolioUrl: profile.portfolioUrl ?? "",
+      preferredDisplayName: profile.preferredDisplayName ?? "",
+      resumeText: profile.baseResume.textContent ?? "",
+      secondaryEmail: profile.secondaryEmail ?? "",
+      summary: profile.summary ?? "",
+      timeZone: profile.timeZone ?? "",
+      yearsExperience: String(profile.yearsExperience),
     },
     eligibility: {
-      authorizedWorkCountries: joinListInput(profile.workEligibility.authorizedWorkCountries),
-      availableStartDate: profile.workEligibility.availableStartDate ?? '',
-      noticePeriodDays: profile.workEligibility.noticePeriodDays?.toString() ?? '',
-      preferredRelocationRegions: joinListInput(profile.workEligibility.preferredRelocationRegions),
+      authorizedWorkCountries: joinListInput(
+        profile.workEligibility.authorizedWorkCountries,
+      ),
+      availableStartDate: profile.workEligibility.availableStartDate ?? "",
+      noticePeriodDays:
+        profile.workEligibility.noticePeriodDays?.toString() ?? "",
+      preferredRelocationRegions: joinListInput(
+        profile.workEligibility.preferredRelocationRegions,
+      ),
       remoteEligible: booleanToSelect(profile.workEligibility.remoteEligible),
-      requiresVisaSponsorship: booleanToSelect(profile.workEligibility.requiresVisaSponsorship),
-      securityClearance: profile.workEligibility.securityClearance ?? '',
-      willingToRelocate: booleanToSelect(profile.workEligibility.willingToRelocate),
-      willingToTravel: booleanToSelect(profile.workEligibility.willingToTravel)
+      requiresVisaSponsorship: booleanToSelect(
+        profile.workEligibility.requiresVisaSponsorship,
+      ),
+      securityClearance: profile.workEligibility.securityClearance ?? "",
+      willingToRelocate: booleanToSelect(
+        profile.workEligibility.willingToRelocate,
+      ),
+      willingToTravel: booleanToSelect(profile.workEligibility.willingToTravel),
     },
     applicationIdentity: {
-      preferredEmail: profile.applicationIdentity.preferredEmail ?? '',
-      preferredLinkIds: joinListInput(profile.applicationIdentity.preferredLinkIds),
-      preferredPhone: profile.applicationIdentity.preferredPhone ?? ''
+      preferredEmail: profile.applicationIdentity.preferredEmail ?? "",
+      preferredLinkIds: joinListInput(
+        profile.applicationIdentity.preferredLinkIds,
+      ),
+      preferredPhone: profile.applicationIdentity.preferredPhone ?? "",
     },
     answerBank: {
-      availability: profile.answerBank.availability ?? '',
-      careerTransition: profile.answerBank.careerTransition ?? '',
+      availability: profile.answerBank.availability ?? "",
+      careerTransition: profile.answerBank.careerTransition ?? "",
       customAnswers: toReusableAnswerFormEntries(profile),
-      noticePeriod: profile.answerBank.noticePeriod ?? '',
-      relocation: profile.answerBank.relocation ?? '',
-      salaryExpectations: profile.answerBank.salaryExpectations ?? '',
-      selfIntroduction: profile.answerBank.selfIntroduction ?? '',
-      travel: profile.answerBank.travel ?? '',
-      visaSponsorship: profile.answerBank.visaSponsorship ?? '',
-      workAuthorization: profile.answerBank.workAuthorization ?? ''
+      noticePeriod: profile.answerBank.noticePeriod ?? "",
+      relocation: profile.answerBank.relocation ?? "",
+      salaryExpectations: profile.answerBank.salaryExpectations ?? "",
+      selfIntroduction: profile.answerBank.selfIntroduction ?? "",
+      travel: profile.answerBank.travel ?? "",
+      visaSponsorship: profile.answerBank.visaSponsorship ?? "",
+      workAuthorization: profile.answerBank.workAuthorization ?? "",
     },
     languages: toLanguageFormEntries(profile),
     links: toLinkFormEntries(profile),
     narrative: {
-      careerTransitionSummary: profile.narrative.careerTransitionSummary ?? '',
+      careerTransitionSummary: profile.narrative.careerTransitionSummary ?? "",
       differentiators: joinListInput(profile.narrative.differentiators),
       motivationThemes: joinListInput(profile.narrative.motivationThemes),
-      nextChapterSummary: profile.narrative.nextChapterSummary ?? '',
-      professionalStory: profile.narrative.professionalStory ?? ''
+      nextChapterSummary: profile.narrative.nextChapterSummary ?? "",
+      professionalStory: profile.narrative.professionalStory ?? "",
     },
     profileSkills: joinListInput(profile.skills),
     proofBank: toProofBankFormEntries(profile),
@@ -209,49 +331,55 @@ export function createProfileEditorValues(
     records: {
       certifications: toCertificationFormEntries(profile),
       education: toEducationFormEntries(profile),
-      experiences: toExperienceFormEntries(profile)
+      experiences: toExperienceFormEntries(profile),
     },
     skillGroups: {
       coreSkills: joinListInput(profile.skillGroups.coreSkills),
       highlightedSkills: joinListInput(profile.skillGroups.highlightedSkills),
-      languagesAndFrameworks: joinListInput(profile.skillGroups.languagesAndFrameworks),
+      languagesAndFrameworks: joinListInput(
+        profile.skillGroups.languagesAndFrameworks,
+      ),
       softSkills: joinListInput(profile.skillGroups.softSkills),
-      tools: joinListInput(profile.skillGroups.tools)
+      tools: joinListInput(profile.skillGroups.tools),
     },
     summary: {
       careerThemes: joinListInput(profile.professionalSummary.careerThemes),
-      domainFocusSummary: profile.professionalSummary.domainFocusSummary ?? '',
-      fullSummary: profile.professionalSummary.fullSummary ?? '',
-      leadershipSummary: profile.professionalSummary.leadershipSummary ?? '',
-      shortValueProposition: profile.professionalSummary.shortValueProposition ?? '',
-      strengths: joinListInput(profile.professionalSummary.strengths)
-    }
-  }
+      domainFocusSummary: profile.professionalSummary.domainFocusSummary ?? "",
+      fullSummary: profile.professionalSummary.fullSummary ?? "",
+      leadershipSummary: profile.professionalSummary.leadershipSummary ?? "",
+      shortValueProposition:
+        profile.professionalSummary.shortValueProposition ?? "",
+      strengths: joinListInput(profile.professionalSummary.strengths),
+    },
+  };
 
-  return applyReviewCandidates(values, profile, reviewCandidates)
+  return applyReviewCandidates(values, profile, reviewCandidates);
 }
 
 export function createSearchPreferencesEditorValues(
-  searchPreferences: JobSearchPreferences
+  searchPreferences: JobSearchPreferences,
 ): SearchPreferencesEditorValues {
   return {
     companyBlacklist: joinListInput(searchPreferences.companyBlacklist),
     companyWhitelist: joinListInput(searchPreferences.companyWhitelist),
+    collectOnlyHardCriteriaMatches:
+      searchPreferences.discovery.collectOnlyHardCriteriaMatches ?? false,
     employmentTypes: joinListInput(searchPreferences.employmentTypes),
     excludedLocations: joinListInput(searchPreferences.excludedLocations),
     jobFamilies: joinListInput(searchPreferences.jobFamilies),
     locations: joinListInput(searchPreferences.locations),
-    minimumSalaryUsd: searchPreferences.minimumSalaryUsd?.toString() ?? '',
-    salaryCurrency: searchPreferences.salaryCurrency ?? 'USD',
+    minimumSalaryUsd: searchPreferences.compensation.minimum?.toString() ?? "",
+    compensationInterval: searchPreferences.compensation.interval,
+    salaryCurrency: searchPreferences.compensation.currency ?? "",
     seniorityLevels: joinListInput(searchPreferences.seniorityLevels),
     tailoringMode: searchPreferences.tailoringMode,
     discoveryTargets: toDiscoveryTargetEditorValues(searchPreferences),
     targetCompanyStages: joinListInput(searchPreferences.targetCompanyStages),
     targetIndustries: joinListInput(searchPreferences.targetIndustries),
     targetRoles: joinListInput(searchPreferences.targetRoles),
-    targetSalaryUsd: searchPreferences.targetSalaryUsd?.toString() ?? '',
-    workModes: searchPreferences.workModes
-  }
+    targetSalaryUsd: searchPreferences.compensation.maximum?.toString() ?? "",
+    workModes: searchPreferences.workModes,
+  };
 }
 
 export function hasProfileDraftChanges(
@@ -259,10 +387,13 @@ export function hasProfileDraftChanges(
   draftProfile: CandidateProfile | undefined,
 ): boolean {
   if (!draftProfile) {
-    return false
+    return false;
   }
 
-  return buildComparableValueFingerprint(profile) !== buildComparableValueFingerprint(draftProfile)
+  return (
+    buildComparableValueFingerprint(profile) !==
+    buildComparableValueFingerprint(draftProfile)
+  );
 }
 
 export function hasSearchPreferencesDraftChanges(
@@ -270,110 +401,253 @@ export function hasSearchPreferencesDraftChanges(
   draftSearchPreferences: JobSearchPreferences | undefined,
 ): boolean {
   if (!draftSearchPreferences) {
-    return false
+    return false;
   }
 
-  return buildComparableValueFingerprint(searchPreferences) !== buildComparableValueFingerprint(draftSearchPreferences)
+  return (
+    buildComparableValueFingerprint(searchPreferences) !==
+    buildComparableValueFingerprint(draftSearchPreferences)
+  );
 }
 
 export function buildProfilePayload(
   profile: CandidateProfile,
-  values: ProfileEditorValues
+  values: ProfileEditorValues,
 ): { payload?: CandidateProfile; validationMessage?: string } {
-  const parsedYearsExperience = parseRequiredNonNegativeInteger(values.identity.yearsExperience)
+  const emailValidationMessage = getProfileEmailValidationMessage(
+    values.identity.email,
+  );
+  if (emailValidationMessage) {
+    return { validationMessage: emailValidationMessage };
+  }
+
+  const secondaryEmailValidationMessage = getProfileEmailValidationMessage(
+    values.identity.secondaryEmail,
+    "Secondary email",
+  );
+  if (secondaryEmailValidationMessage) {
+    return { validationMessage: secondaryEmailValidationMessage };
+  }
+
+  const preferredEmailValidationMessage = getProfileEmailValidationMessage(
+    values.applicationIdentity.preferredEmail,
+    "Preferred application email",
+  );
+  if (preferredEmailValidationMessage) {
+    return { validationMessage: preferredEmailValidationMessage };
+  }
+
+  const incompleteRowMessage =
+    findIncompleteRowMessage(
+      values.projects,
+      "project",
+      "Project",
+      (entry) => entry.name || entry.summary,
+      (entry) => Boolean(entry.name.trim()),
+      (entry) =>
+        [
+          entry.name,
+          entry.projectType,
+          entry.summary,
+          entry.role,
+          entry.skills,
+          entry.outcome,
+          entry.projectUrl,
+          entry.repositoryUrl,
+          entry.caseStudyUrl,
+        ].some((value) => Boolean(value.trim())),
+    ) ??
+    findIncompleteRowMessage(
+      values.languages,
+      "language",
+      "Language",
+      (entry) => entry.language || entry.notes || entry.proficiency,
+      (entry) => Boolean(entry.language.trim()),
+      (entry) =>
+        [entry.language, entry.proficiency, entry.notes].some((value) =>
+          Boolean(value.trim()),
+        ) || entry.interviewPreference,
+    ) ??
+    findIncompleteRowMessage(
+      values.proofBank,
+      "proof bank",
+      "Proof",
+      (entry) => entry.title || entry.claim || entry.heroMetric,
+      (entry) => Boolean(entry.title.trim()) && Boolean(entry.claim.trim()),
+      (entry) =>
+        [
+          entry.title,
+          entry.claim,
+          entry.heroMetric,
+          entry.supportingContext,
+          entry.roleFamilies,
+          entry.projectIds,
+          entry.linkIds,
+        ].some((value) => Boolean(value.trim())),
+    ) ??
+    findIncompleteRowMessage(
+      values.answerBank.customAnswers,
+      "custom answer",
+      "Custom answer",
+      (entry) => entry.label || entry.question || entry.answer,
+      (entry) => Boolean(entry.question.trim()) && Boolean(entry.answer.trim()),
+      (entry) =>
+        [
+          entry.label,
+          entry.question,
+          entry.answer,
+          entry.roleFamilies,
+          entry.proofEntryIds,
+        ].some((value) => Boolean(value.trim())),
+    );
+
+  if (incompleteRowMessage) {
+    return { validationMessage: incompleteRowMessage };
+  }
+
+  const parsedYearsExperience = parseRequiredNonNegativeInteger(
+    values.identity.yearsExperience,
+  );
   if (parsedYearsExperience === null) {
     return {
-      validationMessage: 'Years of experience must be a whole number greater than or equal to 0.'
-    }
+      validationMessage:
+        "Years of experience must be a whole number greater than or equal to 0.",
+    };
   }
 
-  const parsedNoticePeriodDays = parseRequiredNonNegativeInteger(values.eligibility.noticePeriodDays)
-  if (values.eligibility.noticePeriodDays.trim() && parsedNoticePeriodDays === null) {
+  const parsedNoticePeriodDays = parseRequiredNonNegativeInteger(
+    values.eligibility.noticePeriodDays,
+  );
+  if (
+    values.eligibility.noticePeriodDays.trim() &&
+    parsedNoticePeriodDays === null
+  ) {
     return {
-      validationMessage: 'Notice period must be a whole number greater than or equal to 0.'
-    }
+      validationMessage:
+        "Notice period must be a whole number greater than or equal to 0.",
+    };
   }
 
-  const builtLocation =
-    uniqueList([
-      [values.identity.currentCity, values.identity.currentRegion, values.identity.currentCountry]
-        .filter(Boolean)
-        .join(', '),
-      values.identity.currentLocation
-    ])[0] ?? values.identity.currentLocation.trim()
+  // `currentLocation` is a derived line, not an editable field: only city,
+  // region and country are registered inputs. Recomposing it unconditionally
+  // made an untouched profile differ from its own saved record forever
+  // whenever the stored line carried detail the parts do not - an imported
+  // "Cedar Park, TX 78613" recomposed to "Cedar Park, TX, United States" - so
+  // Profile opened permanently dirty, "Unsaved changes on this page." was
+  // always shown and Save was never disabled. The stored line therefore stays
+  // authoritative until the user actually edits one of the parts it is built
+  // from; the moment a part changes, the line is rebuilt exactly as before.
+  const storedCurrentLocation = profile.currentLocation ?? "";
+  const preservesStoredCurrentLocation =
+    values.identity.currentCity.trim() === (profile.currentCity ?? "").trim() &&
+    values.identity.currentRegion.trim() ===
+      (profile.currentRegion ?? "").trim() &&
+    values.identity.currentCountry.trim() ===
+      (profile.currentCountry ?? "").trim() &&
+    values.identity.currentLocation === storedCurrentLocation;
 
-  const mergedSkills = uniqueList([
-    ...parseListInput(values.profileSkills),
-    ...parseListInput(values.skillGroups.coreSkills),
-    ...parseListInput(values.skillGroups.tools),
-    ...parseListInput(values.skillGroups.languagesAndFrameworks),
-    ...parseListInput(values.skillGroups.highlightedSkills)
-  ])
-  const persistedExperiences = dedupeRecordsByFingerprint(
-    values.records.experiences
-      .filter((entry) =>
-        shouldPersistReviewCandidateEntry({
-          sourceCandidateId: entry.sourceCandidateId,
-          sourceCandidateFingerprint: entry.sourceCandidateFingerprint,
-          currentFingerprint: buildExperienceFormFingerprint(entry),
-        }),
-      )
-      .map((entry) => ({
-        id: entry.id,
-        companyName: entry.companyName.trim() || null,
-        companyUrl: entry.companyUrl.trim() || null,
-        title: entry.title.trim() || null,
-        employmentType: entry.employmentType.trim() || null,
-        location: entry.location.trim() || null,
-        workMode: entry.workMode,
-        startDate: entry.startDate.trim() || null,
-        endDate: entry.isCurrent ? null : entry.endDate.trim() || null,
-        isCurrent: entry.isCurrent,
-        isDraft: !entry.companyName.trim() || !entry.title.trim(),
-        summary: entry.summary.trim() || null,
-        achievements: parseListInput(entry.achievements),
-        skills: parseListInput(entry.skills),
-        domainTags: parseListInput(entry.domainTags),
-        peopleManagementScope: entry.peopleManagementScope.trim() || null,
-        ownershipScope: entry.ownershipScope.trim() || null,
-      })),
-  )
-  const persistedEducation = dedupeRecordsByFingerprint(
-    values.records.education
-      .filter((entry) =>
-        shouldPersistReviewCandidateEntry({
-          sourceCandidateId: entry.sourceCandidateId,
-          sourceCandidateFingerprint: entry.sourceCandidateFingerprint,
-          currentFingerprint: buildEducationFormFingerprint(entry),
-        }),
-      )
-      .map((entry) => ({
-        id: entry.id,
-        schoolName: entry.schoolName.trim() || null,
-        degree: entry.degree.trim() || null,
-        fieldOfStudy: entry.fieldOfStudy.trim() || null,
-        location: entry.location.trim() || null,
-        startDate: entry.startDate.trim() || null,
-        endDate: entry.endDate.trim() || null,
-        isDraft: !entry.schoolName.trim(),
-        summary: entry.summary.trim() || null,
-      })),
-  )
+  const builtLocation = preservesStoredCurrentLocation
+    ? storedCurrentLocation
+    : (uniqueList([
+        [
+          values.identity.currentCity,
+          values.identity.currentRegion,
+          values.identity.currentCountry,
+        ]
+          .filter(Boolean)
+          .join(", "),
+        values.identity.currentLocation,
+      ])[0] ?? values.identity.currentLocation.trim());
+  // Main skills stay independently authoritative: the editor must never
+  // resurrect a skill the user deleted from this field just because it also
+  // appears in a skill group. Downstream consumers that need the full skill
+  // pool derive that union themselves from `skills` plus `skillGroups`.
+  const mainSkills = parseListInput(values.profileSkills);
+  const dedupedExperienceEntries = dedupeImportCandidatesByFingerprint(
+    values.records.experiences.filter((entry) =>
+      shouldPersistReviewCandidateEntry({
+        sourceCandidateId: entry.sourceCandidateId,
+        sourceCandidateFingerprint: entry.sourceCandidateFingerprint,
+        currentFingerprint: buildExperienceFormFingerprint(entry),
+      }),
+    ),
+  );
+  const persistedExperiences = dedupedExperienceEntries.map((entry) => ({
+    id: entry.id,
+    companyName: entry.companyName.trim() || null,
+    companyUrl: entry.companyUrl.trim() || null,
+    title: entry.title.trim() || null,
+    employmentType: entry.employmentType.trim() || null,
+    location: entry.location.trim() || null,
+    workMode: entry.workMode,
+    startDate: entry.startDate.trim() || null,
+    endDate: entry.isCurrent ? null : entry.endDate.trim() || null,
+    isCurrent: entry.isCurrent,
+    isDraft: !entry.companyName.trim() || !entry.title.trim(),
+    summary: entry.summary.trim() || null,
+    achievements: parseListInput(entry.achievements),
+    skills: parseListInput(entry.skills),
+    domainTags: parseListInput(entry.domainTags),
+    peopleManagementScope: entry.peopleManagementScope.trim() || null,
+    ownershipScope: entry.ownershipScope.trim() || null,
+  }));
+  const dedupedEducationEntries = dedupeImportCandidatesByFingerprint(
+    values.records.education.filter((entry) =>
+      shouldPersistReviewCandidateEntry({
+        sourceCandidateId: entry.sourceCandidateId,
+        sourceCandidateFingerprint: entry.sourceCandidateFingerprint,
+        currentFingerprint: buildEducationFormFingerprint(entry),
+      }),
+    ),
+  );
+  const persistedEducation = dedupedEducationEntries.map((entry) => ({
+    id: entry.id,
+    schoolName: entry.schoolName.trim() || null,
+    degree: entry.degree.trim() || null,
+    fieldOfStudy: entry.fieldOfStudy.trim() || null,
+    location: entry.location.trim() || null,
+    startDate: entry.startDate.trim() || null,
+    endDate: entry.endDate.trim() || null,
+    isDraft: !entry.schoolName.trim(),
+    summary: entry.summary.trim() || null,
+  }));
+
+  const draftFirstName = values.identity.firstName.trim();
+  const draftMiddleName = values.identity.middleName.trim();
+  const draftLastName = values.identity.lastName.trim();
+  // Legacy workspaces can hold only an assembled full name with empty split
+  // name records. When every split editor input stays blank, an unrelated
+  // save must round-trip that stored full name instead of silently nulling
+  // it, and it must never guess split parts from it. Any meaningfully present
+  // split input assembles a new full name exactly as before, so deliberately
+  // clearing previously stored split names keeps working.
+  const preservesStoredFullName =
+    !(profile.firstName ?? "").trim() &&
+    !(profile.middleName ?? "").trim() &&
+    !(profile.lastName ?? "").trim() &&
+    !draftFirstName &&
+    !draftMiddleName &&
+    !draftLastName;
 
   const payload: CandidateProfile = {
     ...profile,
-    firstName: values.identity.firstName.trim(),
-    middleName: values.identity.middleName.trim() || null,
-    lastName: values.identity.lastName.trim(),
+    firstName: draftFirstName || null,
+    middleName: draftMiddleName || null,
+    lastName: draftLastName || null,
     preferredDisplayName: values.identity.preferredDisplayName.trim() || null,
-    fullName: buildFullName({
-      firstName: values.identity.firstName,
-      middleName: values.identity.middleName,
-      lastName: values.identity.lastName
-    }),
-    headline: values.identity.headline.trim(),
-    summary: values.summary.fullSummary.trim() || values.identity.summary.trim(),
-    currentLocation: builtLocation,
+    fullName: preservesStoredFullName
+      ? profile.fullName
+      : buildFullName({
+          firstName: values.identity.firstName,
+          middleName: values.identity.middleName,
+          lastName: values.identity.lastName,
+        }) || null,
+    headline: values.identity.headline.trim() || null,
+    summary:
+      values.summary.fullSummary.trim() ||
+      values.identity.summary.trim() ||
+      null,
+    currentLocation: builtLocation || null,
     currentCity: values.identity.currentCity.trim() || null,
     currentRegion: values.identity.currentRegion.trim() || null,
     currentCountry: values.identity.currentCountry.trim() || null,
@@ -388,23 +662,31 @@ export function buildProfilePayload(
     personalWebsiteUrl: values.identity.personalWebsiteUrl.trim() || null,
     baseResume: {
       ...profile.baseResume,
-      textContent: values.identity.resumeText.trim() || null
+      textContent: values.identity.resumeText.trim() || null,
     },
     workEligibility: {
-      authorizedWorkCountries: parseListInput(values.eligibility.authorizedWorkCountries),
-      requiresVisaSponsorship: selectToBoolean(values.eligibility.requiresVisaSponsorship),
+      authorizedWorkCountries: parseListInput(
+        values.eligibility.authorizedWorkCountries,
+      ),
+      requiresVisaSponsorship: selectToBoolean(
+        values.eligibility.requiresVisaSponsorship,
+      ),
       willingToRelocate: selectToBoolean(values.eligibility.willingToRelocate),
-      preferredRelocationRegions: parseListInput(values.eligibility.preferredRelocationRegions),
+      preferredRelocationRegions: parseListInput(
+        values.eligibility.preferredRelocationRegions,
+      ),
       willingToTravel: selectToBoolean(values.eligibility.willingToTravel),
       remoteEligible: selectToBoolean(values.eligibility.remoteEligible),
       noticePeriodDays: parsedNoticePeriodDays,
       availableStartDate: values.eligibility.availableStartDate.trim() || null,
-      securityClearance: values.eligibility.securityClearance.trim() || null
+      securityClearance: values.eligibility.securityClearance.trim() || null,
     },
     applicationIdentity: {
       preferredEmail: values.applicationIdentity.preferredEmail.trim() || null,
       preferredPhone: values.applicationIdentity.preferredPhone.trim() || null,
-      preferredLinkIds: parseListInput(values.applicationIdentity.preferredLinkIds)
+      preferredLinkIds: parseListInput(
+        values.applicationIdentity.preferredLinkIds,
+      ),
     },
     answerBank: {
       workAuthorization: values.answerBank.workAuthorization.trim() || null,
@@ -422,28 +704,30 @@ export function buildProfilePayload(
           id: entry.id,
           kind: candidateAnswerKindValues.includes(entry.kind)
             ? entry.kind
-            : 'other',
+            : "other",
           label: entry.label.trim() || entry.question.trim(),
           question: entry.question.trim(),
           answer: entry.answer.trim(),
-          roleFamilies: parseListInput(entry.roleFamilies),
-          proofEntryIds: parseListInput(entry.proofEntryIds)
-        }))
+          roleFamilies: parseTokenListInput(entry.roleFamilies),
+          proofEntryIds: parseListInput(entry.proofEntryIds),
+        })),
     },
     professionalSummary: {
-      shortValueProposition: values.summary.shortValueProposition.trim() || null,
+      shortValueProposition:
+        values.summary.shortValueProposition.trim() || null,
       fullSummary: values.summary.fullSummary.trim() || null,
       careerThemes: parseListInput(values.summary.careerThemes),
       leadershipSummary: values.summary.leadershipSummary.trim() || null,
       domainFocusSummary: values.summary.domainFocusSummary.trim() || null,
-      strengths: parseListInput(values.summary.strengths)
+      strengths: parseListInput(values.summary.strengths),
     },
     narrative: {
       professionalStory: values.narrative.professionalStory.trim() || null,
       nextChapterSummary: values.narrative.nextChapterSummary.trim() || null,
-      careerTransitionSummary: values.narrative.careerTransitionSummary.trim() || null,
+      careerTransitionSummary:
+        values.narrative.careerTransitionSummary.trim() || null,
       differentiators: parseListInput(values.narrative.differentiators),
-      motivationThemes: parseListInput(values.narrative.motivationThemes)
+      motivationThemes: parseListInput(values.narrative.motivationThemes),
     },
     proofBank: values.proofBank
       .filter((entry) => entry.title.trim() && entry.claim.trim())
@@ -453,18 +737,20 @@ export function buildProfilePayload(
         claim: entry.claim.trim(),
         heroMetric: entry.heroMetric.trim() || null,
         supportingContext: entry.supportingContext.trim() || null,
-        roleFamilies: parseListInput(entry.roleFamilies),
+        roleFamilies: parseTokenListInput(entry.roleFamilies),
         projectIds: parseListInput(entry.projectIds),
-        linkIds: parseListInput(entry.linkIds)
+        linkIds: parseListInput(entry.linkIds),
       })),
     skillGroups: {
       coreSkills: parseListInput(values.skillGroups.coreSkills),
       tools: parseListInput(values.skillGroups.tools),
-      languagesAndFrameworks: parseListInput(values.skillGroups.languagesAndFrameworks),
+      languagesAndFrameworks: parseListInput(
+        values.skillGroups.languagesAndFrameworks,
+      ),
       softSkills: parseListInput(values.skillGroups.softSkills),
-      highlightedSkills: parseListInput(values.skillGroups.highlightedSkills)
+      highlightedSkills: parseListInput(values.skillGroups.highlightedSkills),
     },
-    skills: mergedSkills,
+    skills: mainSkills,
     experiences: persistedExperiences,
     education: persistedEducation,
     certifications: values.records.certifications.map((entry) => ({
@@ -474,71 +760,154 @@ export function buildProfilePayload(
       issueDate: entry.issueDate.trim() || null,
       expiryDate: entry.expiryDate.trim() || null,
       credentialUrl: entry.credentialUrl.trim() || null,
-      isDraft: !entry.name.trim()
+      isDraft: !entry.name.trim(),
     })),
     links: values.links.map((entry) => ({
       id: entry.id,
       label: entry.label.trim() || null,
       url: entry.url.trim() || null,
       kind: entry.kind ? entry.kind : null,
-      isDraft: !entry.label.trim() || !entry.url.trim()
+      isDraft: !entry.label.trim() || !entry.url.trim(),
     })),
-    projects: values.projects.filter((entry) => entry.name.trim()).map((entry) => ({
-      id: entry.id,
-      name: entry.name.trim(),
-      projectType: entry.projectType.trim() || null,
-      summary: entry.summary.trim() || null,
-      role: entry.role.trim() || null,
-      skills: parseListInput(entry.skills),
-      outcome: entry.outcome.trim() || null,
-      projectUrl: entry.projectUrl.trim() || null,
-      repositoryUrl: entry.repositoryUrl.trim() || null,
-      caseStudyUrl: entry.caseStudyUrl.trim() || null
-    })),
-    spokenLanguages: values.languages.filter((entry) => entry.language.trim()).map((entry) => ({
-      id: entry.id,
-      language: entry.language.trim(),
-      proficiency: entry.proficiency.trim() || null,
-      interviewPreference: entry.interviewPreference,
-      notes: entry.notes.trim() || null
-    }))
-  }
+    projects: values.projects
+      .filter((entry) => entry.name.trim())
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name.trim(),
+        projectType: entry.projectType.trim() || null,
+        summary: entry.summary.trim() || null,
+        role: entry.role.trim() || null,
+        skills: parseListInput(entry.skills),
+        outcome: entry.outcome.trim() || null,
+        projectUrl: entry.projectUrl.trim() || null,
+        repositoryUrl: entry.repositoryUrl.trim() || null,
+        caseStudyUrl: entry.caseStudyUrl.trim() || null,
+      })),
+    spokenLanguages: values.languages
+      .filter((entry) => entry.language.trim())
+      .map((entry) => ({
+        id: entry.id,
+        language: entry.language.trim(),
+        proficiency: entry.proficiency.trim() || null,
+        interviewPreference: entry.interviewPreference,
+        notes: entry.notes.trim() || null,
+      })),
+  };
 
-  const parsedPayload = CandidateProfileSchema.safeParse(payload)
+  const parsedPayload = CandidateProfileSchema.safeParse(payload);
   if (!parsedPayload.success) {
-    return { validationMessage: parsedPayload.error.issues[0]?.message ?? 'Profile data is invalid.' }
+    return {
+      validationMessage:
+        parsedPayload.error.issues[0]?.message ?? "Profile data is invalid.",
+    };
   }
 
-  return { payload: parsedPayload.data }
+  return { payload: parsedPayload.data };
 }
 
 export function buildSearchPreferencesPayload(
   searchPreferences: JobSearchPreferences,
-  values: SearchPreferencesEditorValues
+  values: SearchPreferencesEditorValues,
 ): { payload?: JobSearchPreferences; validationMessage?: string } {
-  const invalidTargetStatus = values.discoveryTargets.find(
-    (target) => !isValidSourceInstructionStatus(target.instructionStatus)
-  )
+  // Untouched "Add source" drafts are optional and never persist, so every
+  // validation and persistence step below sees only rows the user entered.
+  // Cleared persisted sources stay in validation: omitting them would delete
+  // saved sources (and their guidance metadata) without explicit Remove.
+  const persistedTargetIds = new Set(
+    searchPreferences.discovery.targets.map((target) => target.id),
+  );
+  const meaningfulDiscoveryTargets = values.discoveryTargets.filter(
+    (target) => !isEmptyDiscoveryTargetDraft(target, persistedTargetIds),
+  );
+
+  const incompleteTarget = meaningfulDiscoveryTargets.find((target) => {
+    if (!target.label.trim()) {
+      return true;
+    }
+
+    try {
+      const url = new URL(target.startingUrl.trim());
+      return url.protocol !== "http:" && url.protocol !== "https:";
+    } catch {
+      return true;
+    }
+  });
+
+  if (incompleteTarget) {
+    return {
+      validationMessage: `Complete the name and public http or https URL for "${incompleteTarget.label.trim() || "New source"}" before saving.`,
+    };
+  }
+
+  const invalidTargetStatus = meaningfulDiscoveryTargets.find(
+    (target) => !isValidSourceInstructionStatus(target.instructionStatus),
+  );
 
   if (invalidTargetStatus) {
     return {
-      validationMessage: `Job source "${invalidTargetStatus.label.trim() || invalidTargetStatus.id}" has an invalid setup status.`
-    }
+      validationMessage: `Job source "${invalidTargetStatus.label.trim() || invalidTargetStatus.id}" has an invalid setup status.`,
+    };
   }
 
-  const parsedMinimumSalaryUsd = parseRequiredNonNegativeInteger(values.minimumSalaryUsd)
+  const parsedMinimumSalaryUsd = parseRequiredNonNegativeInteger(
+    values.minimumSalaryUsd,
+  );
   if (values.minimumSalaryUsd.trim() && parsedMinimumSalaryUsd === null) {
     return {
-      validationMessage: 'Minimum salary must be a whole number greater than or equal to 0.'
-    }
+      validationMessage:
+        "Minimum salary must be a whole number greater than or equal to 0.",
+    };
   }
 
-  const parsedTargetSalaryUsd = parseRequiredNonNegativeInteger(values.targetSalaryUsd)
+  const parsedTargetSalaryUsd = parseRequiredNonNegativeInteger(
+    values.targetSalaryUsd,
+  );
   if (values.targetSalaryUsd.trim() && parsedTargetSalaryUsd === null) {
     return {
-      validationMessage: 'Target salary must be a whole number greater than or equal to 0.'
-    }
+      validationMessage:
+        "Target salary must be a whole number greater than or equal to 0.",
+    };
   }
+
+  if (
+    parsedMinimumSalaryUsd !== null &&
+    parsedTargetSalaryUsd !== null &&
+    parsedTargetSalaryUsd < parsedMinimumSalaryUsd
+  ) {
+    return {
+      validationMessage:
+        "Maximum compensation must be greater than or equal to minimum compensation.",
+    };
+  }
+
+  const enteredCurrency = values.salaryCurrency.trim().toUpperCase();
+  if (enteredCurrency && !/^[A-Z]{3}$/.test(enteredCurrency)) {
+    return {
+      validationMessage:
+        "Compensation currency must be a three-letter code such as USD or EUR.",
+    };
+  }
+  // With nothing entered in the compensation section, the user has not
+  // expressed any compensation intent, so carry the canonical baseline
+  // forward instead of erasing its inherited display currency (for example
+  // the first-run USD default that pairs with an unset compensation currency).
+  const preserveBaselineCompensation =
+    !enteredCurrency &&
+    parsedMinimumSalaryUsd === null &&
+    parsedTargetSalaryUsd === null &&
+    searchPreferences.compensation.minimum === null &&
+    searchPreferences.compensation.maximum === null;
+  const compensationCurrency = preserveBaselineCompensation
+    ? (searchPreferences.compensation.currency ??
+      searchPreferences.salaryCurrency)
+    : enteredCurrency || null;
+  const currencyStatus = preserveBaselineCompensation
+    ? searchPreferences.compensation.currencyStatus
+    : compensationCurrency === searchPreferences.compensation.currency
+      ? searchPreferences.compensation.currencyStatus
+      : compensationCurrency
+        ? ("explicit" as const)
+        : ("needs_clarification" as const);
 
   const payload: JobSearchPreferences = {
     ...searchPreferences,
@@ -553,20 +922,42 @@ export function buildSearchPreferencesPayload(
     employmentTypes: parseListInput(values.employmentTypes),
     minimumSalaryUsd: parsedMinimumSalaryUsd,
     targetSalaryUsd: parsedTargetSalaryUsd,
-    salaryCurrency: values.salaryCurrency.trim() || null,
+    salaryCurrency: compensationCurrency,
+    compensation: preserveBaselineCompensation
+      ? values.compensationInterval === searchPreferences.compensation.interval
+        ? searchPreferences.compensation
+        : {
+            ...searchPreferences.compensation,
+            interval: values.compensationInterval,
+          }
+      : {
+          minimum: parsedMinimumSalaryUsd,
+          maximum: parsedTargetSalaryUsd,
+          interval: values.compensationInterval,
+          currency: compensationCurrency,
+          currencyStatus,
+        },
     tailoringMode: values.tailoringMode,
     companyBlacklist: parseListInput(values.companyBlacklist),
     companyWhitelist: parseListInput(values.companyWhitelist),
     discovery: {
       ...searchPreferences.discovery,
-      targets: toDiscoveryTargets(values.discoveryTargets)
-    }
-  }
+      collectOnlyHardCriteriaMatches: values.collectOnlyHardCriteriaMatches,
+      targets: toDiscoveryTargets(
+        meaningfulDiscoveryTargets,
+        searchPreferences.discovery.targets,
+      ),
+    },
+  };
 
-  const parsedPayload = JobSearchPreferencesSchema.safeParse(payload)
+  const parsedPayload = JobSearchPreferencesSchema.safeParse(payload);
   if (!parsedPayload.success) {
-    return { validationMessage: parsedPayload.error.issues[0]?.message ?? 'Search preferences are invalid.' }
+    return {
+      validationMessage:
+        parsedPayload.error.issues[0]?.message ??
+        "Search preferences are invalid.",
+    };
   }
 
-  return { payload: parsedPayload.data }
+  return { payload: parsedPayload.data };
 }

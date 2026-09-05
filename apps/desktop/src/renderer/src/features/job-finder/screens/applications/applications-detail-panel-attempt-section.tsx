@@ -1,20 +1,38 @@
 import type { ApplicationAttempt } from "@unemployed/contracts";
-import { formatStatusLabel, getAttemptLabel, getAttemptTone } from "@renderer/features/job-finder/lib/job-finder-utils";
+import {
+  formatDuration,
+  formatStatusLabel,
+} from "@renderer/features/job-finder/lib/job-finder-utils";
 import { StatusBadge } from "../../components/status-badge";
+import { cn } from "@renderer/lib/utils";
+import { getCustomerFacingApplyText } from "./applications-detail-panel-helpers";
+import { APPLICATION_DETAIL_FACT_LABEL_CLASS } from "./applications-detail-fact-strip";
+
+const executionTimingLabels: Record<
+  ApplicationAttempt["executionTimings"][number]["stage"],
+  string
+> = {
+  browser_preparation: "Browser setup",
+  form_preparation: "Form preparation",
+  visual_diagnostics: "Visual checks",
+  total: "Total",
+};
 
 export function ApplicationsDetailPanelAttemptSection(props: {
   selectedAttempt: ApplicationAttempt | null;
 }) {
   const { selectedAttempt } = props;
-  const attemptSummary = selectedAttempt?.summary?.trim() || null;
-  const attemptDetail = selectedAttempt?.detail?.trim() || null;
+  const attemptSummary = getCustomerFacingApplyText(selectedAttempt?.summary);
+  const attemptDetail = getCustomerFacingApplyText(selectedAttempt?.detail);
 
   if (!selectedAttempt) {
     return (
       <section className="surface-card-tint grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-        <h3 className="label-mono-xs text-primary">Attempt details</h3>
+        <h3 className={cn(APPLICATION_DETAIL_FACT_LABEL_CLASS, "text-primary")}>
+          Preparation details
+        </h3>
         <p className="text-(length:--text-body) leading-7 text-foreground-soft">
-          No apply attempt details were saved for this application yet.
+          No preparation details were saved for this application yet.
         </p>
       </section>
     );
@@ -22,39 +40,56 @@ export function ApplicationsDetailPanelAttemptSection(props: {
 
   return (
     <section className="surface-card-tint grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
-      <h3 className="label-mono-xs text-primary">Attempt details</h3>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {attemptSummary ? <strong>{attemptSummary}</strong> : <strong>No summary available</strong>}
-        <StatusBadge tone={getAttemptTone(selectedAttempt.state)}>
-          {getAttemptLabel(selectedAttempt.state)}
-        </StatusBadge>
-      </div>
+      <h3 className={cn(APPLICATION_DETAIL_FACT_LABEL_CLASS, "text-primary")}>
+        Preparation details
+      </h3>
+      {attemptSummary ? (
+        <strong className="text-(length:--text-body) leading-7 text-foreground">
+          {attemptSummary}
+        </strong>
+      ) : (
+        <strong className="text-(length:--text-body) leading-7 text-foreground">
+          No summary available
+        </strong>
+      )}
       {attemptDetail ? (
         <p className="text-(length:--text-body) leading-7 text-foreground-soft">
           {attemptDetail}
-        </p>
-      ) : null}
-      {selectedAttempt.nextActionLabel ? (
-        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-          Next step: {selectedAttempt.nextActionLabel}
         </p>
       ) : null}
       {selectedAttempt.blocker ? (
         <div className="grid gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
           <strong>{formatStatusLabel(selectedAttempt.blocker.code)}</strong>
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-            {selectedAttempt.blocker.summary}
+            {getCustomerFacingApplyText(selectedAttempt.blocker.summary)}
           </p>
           {selectedAttempt.blocker.detail ? (
             <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-              {selectedAttempt.blocker.detail}
+              {getCustomerFacingApplyText(selectedAttempt.blocker.detail)}
             </p>
           ) : null}
         </div>
       ) : null}
+      {selectedAttempt.executionTimings.length ? (
+        <div className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
+          <p className={cn(APPLICATION_DETAIL_FACT_LABEL_CLASS)}>
+            Preparation timing
+          </p>
+          <div className="flex flex-wrap gap-x-5 gap-y-2 text-(length:--text-small) leading-6 text-foreground-soft">
+            {selectedAttempt.executionTimings.map((timing) => (
+              <span key={timing.stage}>
+                {executionTimingLabels[timing.stage]}:{" "}
+                {formatDuration(timing.durationMs)}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {selectedAttempt.questions.length ? (
         <div className="grid gap-2">
-          <p className="label-mono-xs">Question memory</p>
+          <p className={cn(APPLICATION_DETAIL_FACT_LABEL_CLASS)}>
+            Question memory
+          </p>
           {selectedAttempt.questions.map((question) => (
             <div
               key={question.id}
@@ -64,7 +99,8 @@ export function ApplicationsDetailPanelAttemptSection(props: {
                 <strong>{question.prompt}</strong>
                 <StatusBadge
                   tone={
-                    question.status === "submitted" || question.status === "answered"
+                    question.status === "submitted" ||
+                    question.status === "answered"
                       ? "positive"
                       : "active"
                   }
@@ -78,7 +114,10 @@ export function ApplicationsDetailPanelAttemptSection(props: {
               </p>
               {question.submittedAnswer ? (
                 <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
-                  Submitted: {question.submittedAnswer}
+                  {question.status === "submitted"
+                    ? "Submitted"
+                    : "Prepared answer"}
+                  : {question.submittedAnswer}
                 </p>
               ) : null}
               {question.suggestedAnswers[0] ? (
@@ -92,7 +131,9 @@ export function ApplicationsDetailPanelAttemptSection(props: {
       ) : null}
       {selectedAttempt.consentDecisions.length ? (
         <div className="grid gap-2">
-          <p className="label-mono-xs">Consent history</p>
+          <p className={cn(APPLICATION_DETAIL_FACT_LABEL_CLASS)}>
+            Consent history
+          </p>
           {selectedAttempt.consentDecisions.map((decision) => (
             <div
               key={decision.id}

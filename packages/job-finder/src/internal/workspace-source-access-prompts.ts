@@ -1,4 +1,5 @@
 import {
+  JOB_FINDER_BROWSER_LABEL,
   type JobDiscoveryTarget,
   type JobFinderWorkspaceSnapshot,
   type SourceAccessPrompt,
@@ -6,22 +7,19 @@ import {
   type SourceDebugWorkerAttempt,
   type SourceInstructionArtifact,
 } from "@unemployed/contracts";
-import {
-  warningSuggestsAuthRestriction,
-} from "./source-instruction-evidence";
-import {
-  buildDiscoveryStartingUrls,
-} from "./workspace-source-intelligence";
-import {
-  resolveActiveSourceInstructionArtifact,
-} from "./workspace-helpers";
+import { warningSuggestsAuthRestriction } from "./source-instruction-evidence";
+import { buildDiscoveryStartingUrls } from "./workspace-source-intelligence";
+import { resolveActiveSourceInstructionArtifact } from "./workspace-helpers";
 import { uniqueStrings } from "./shared";
 
 function normalizeText(value: string | null | undefined): string {
   return (value ?? "").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function includesAny(normalized: string, candidates: readonly string[]): boolean {
+function includesAny(
+  normalized: string,
+  candidates: readonly string[],
+): boolean {
   return candidates.some((candidate) => normalized.includes(candidate));
 }
 
@@ -94,9 +92,12 @@ function summarizePrompt(input: {
     };
   }
 
+  // One name for that window everywhere it is mentioned, shared with the
+  // desktop copy that renders this prompt: a review found it called four
+  // different things across four screens.
   return {
-    summary: `Open the browser for ${targetLabel} if you want better search coverage on the next run.`,
-    actionLabel: `Open browser for ${targetLabel}`,
+    summary: `Open the ${JOB_FINDER_BROWSER_LABEL} for ${targetLabel} if you want better search coverage on the next run.`,
+    actionLabel: `Open the ${JOB_FINDER_BROWSER_LABEL} for ${targetLabel}`,
     rerunLabel: "Search again for fuller results",
   };
 }
@@ -131,33 +132,39 @@ export function deriveSourceAccessPrompts(input: {
           ) ?? null)
       : null;
     const targetAttempts = latestRun
-      ? attemptsByRunId.get(latestRun.id) ?? []
+      ? (attemptsByRunId.get(latestRun.id) ?? [])
       : [];
-    const hardLoginSignals = uniqueStrings([
-      ...(latestRun?.state === "paused_manual" && latestRun.manualPrerequisiteSummary
-        ? [latestRun.manualPrerequisiteSummary]
-        : []),
-      ...targetAttempts.flatMap((attempt) =>
-        attempt.outcome === "blocked_auth"
-          ? [attempt.blockerSummary, attempt.resultSummary]
-          : [attempt.blockerSummary],
-      ),
-      ...(activeInstruction?.intelligence.apply.authMarkers ?? []),
-      ...(activeInstruction?.warnings ?? []),
-    ].filter((value): value is string => Boolean(value)));
-    const recommendationSignals = uniqueStrings([
-      ...(latestRun?.finalSummary ? [latestRun.finalSummary] : []),
-      ...targetAttempts.flatMap((attempt) => [
-        attempt.resultSummary,
-        attempt.blockerSummary,
-        ...attempt.confirmedFacts,
-        ...(attempt.phaseEvidence?.warnings ?? []),
-      ]),
-      ...(activeInstruction?.intelligence.apply.authMarkers ?? []),
-      ...(activeInstruction?.warnings ?? []),
-    ].filter((value): value is string => Boolean(value)));
+    const hardLoginSignals = uniqueStrings(
+      [
+        ...(latestRun?.state === "paused_manual" &&
+        latestRun.manualPrerequisiteSummary
+          ? [latestRun.manualPrerequisiteSummary]
+          : []),
+        ...targetAttempts.flatMap((attempt) =>
+          attempt.outcome === "blocked_auth"
+            ? [attempt.blockerSummary, attempt.resultSummary]
+            : [attempt.blockerSummary],
+        ),
+        ...(activeInstruction?.intelligence.apply.authMarkers ?? []),
+        ...(activeInstruction?.warnings ?? []),
+      ].filter((value): value is string => Boolean(value)),
+    );
+    const recommendationSignals = uniqueStrings(
+      [
+        ...(latestRun?.finalSummary ? [latestRun.finalSummary] : []),
+        ...targetAttempts.flatMap((attempt) => [
+          attempt.resultSummary,
+          attempt.blockerSummary,
+          ...attempt.confirmedFacts,
+          ...(attempt.phaseEvidence?.warnings ?? []),
+        ]),
+        ...(activeInstruction?.intelligence.apply.authMarkers ?? []),
+        ...(activeInstruction?.warnings ?? []),
+      ].filter((value): value is string => Boolean(value)),
+    );
 
-    const requiredDetail = hardLoginSignals.find(isHardLoginRequirement) ?? null;
+    const requiredDetail =
+      hardLoginSignals.find(isHardLoginRequirement) ?? null;
     const learnedStartingUrls = buildDiscoveryStartingUrls(
       target,
       activeInstruction,

@@ -1,108 +1,49 @@
 # Testing
 
-## Default Checks
+## Pick the smallest check
 
-- broad repo check: `pnpm verify`
-- fast preflight: `pnpm verify:quick`
-- affected-only check: `pnpm verify:affected`
-- docs/guidance only: `pnpm validate:docs-only`
-- package-local validation: `pnpm validate:package <package-name|alias|path>`
-- source-generic guard: `pnpm source-generic:check`
-- formatting: `pnpm format`, `pnpm format:check`
-- dead-code cleanup: `pnpm knip`
+| Change                                             | Run                                                                                                        |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| package-local code                                 | `pnpm validate:package <alias>` (`desktop`, `job-finder`, `browser-agent`, `browser-runtime`, `contracts`) |
+| contracts or IPC                                   | `pnpm validate:contracts` plus typecheck of affected packages                                              |
+| discovery or source-debug                          | `pnpm source-generic:check` plus focused package tests                                                     |
+| desktop UI                                         | `pnpm validate:desktop` plus the matching `ui:*` harness from `apps/desktop/package.json`                  |
+| broad cross-package behavior                       | `pnpm verify:affected`                                                                                     |
+| release candidate, only when the user declares one | `pnpm verify`, then `pnpm test:evidence` (ADR 0014)                                                        |
 
-## Pick Checks
+Other entry points: `pnpm test:correctness`, `pnpm test:performance` (serial, no coverage, by design), `pnpm test:coverage`, `pnpm format`, `pnpm knip`, `pnpm structure:check`.
 
-| Change | Prefer |
-| --- | --- |
-| docs or agent guidance only | `pnpm validate:docs-only` |
-| package-local code | `pnpm validate:package <alias>` first, then broader checks only if risk warrants |
-| contracts or IPC | `pnpm validate:contracts` plus affected package typecheck |
-| discovery/source-debug | `pnpm source-generic:check` plus focused package tests |
-| desktop UI | `pnpm validate:desktop` plus the matching UI harness |
-| broad cross-package behavior | `pnpm verify:affected` or `pnpm verify` |
+## Stop rules
 
-Common package aliases:
-
-- `pnpm validate:desktop`
-- `pnpm validate:job-finder`
-- `pnpm validate:browser-agent`
-- `pnpm validate:browser-runtime`
-- `pnpm validate:contracts`
-
-## Stop Rules
-
-- Do not run `pnpm verify` for docs-only or guidance-only changes.
+- Never stop a process you did not start. Stop only the Electron instance you launched, through its own handle or PID tree, and report survivors instead of sweeping. Pattern kills (`pkill -f electron`, `killall Electron`) hit the user's own dev instance and every other Electron app.
 - Do not rerun a broad failing command unchanged; isolate the failing package or command first.
-- If a failure is documented as pre-existing and unrelated, report it once and switch to focused validation.
-- Current known unrelated blocker: root `pnpm lint` can fail on `packages/browser-runtime/src/playwright-browser-runtime.test.ts`; use focused package lint plus docs/typecheck checks unless your task touches that file.
-- Rebuild desktop before judging benchmark/source changes because `apps/desktop/scripts/benchmark-job-finder-app.mjs` launches `out/main/index.cjs`.
+- If a failure is pre-existing and unrelated, report it once and switch to focused validation.
+- Builds and full suites heat the laptop. Batch related fixes and build once per batch.
 
-## Guidance Checks
+## Testing the built app
 
-- `pnpm validate:docs-only` after shared guidance, skill, doc, or link changes
+- Build first: `pnpm --filter @unemployed/desktop build`. Scripts that launch `out/main/index.cjs` run whatever was last built.
+- Use a temporary user-data directory and synthetic data (`apps/desktop/test-fixtures/job-finder/resume-import-sample.txt`), never the user's real workspace. `docs/resume-tests/` includes personal resumes; it is not a synthetic fixture source.
+- Serialize isolated Electron launches; audit for leftover processes you own before launching another.
+- Harness commands live in `apps/desktop/package.json` (`ui:*`, `test:job-finder-*`, `test:interview-helper-*`). `:built` variants use the existing build; the others rebuild.
+- For an isolated production import without a native picker: `node apps/desktop/scripts/seed-product-quality-audit.mjs --user-data-dir <dir> --resume <synthetic-resume>`.
 
-## Structure Checks
+## Safety rules
 
-- `pnpm structure:check` for large-file and hotspot warnings
-- `pnpm hotspots` for the biggest files and concentration areas
+- Never run live-site final-submit flows. Every apply harness keeps `submitAuthorized: false` and `accountCreationAuthorized: false` and fails if any attempt, job, or application record reaches `submitted`.
+- Live prepare-only runs use a temporary user-data directory, a fake profile, and an approved deterministic resume. Anonymous Workday must stop at the account gate with a `site_login_required` handoff; never attempt credentials.
+- Interview Helper harnesses default to deterministic providers with AI credentials blanked. Live providers require `UI_INTERVIEW_HELPER_PROVIDER_MODE=configured` (see `docs/AI_PROVIDER_SETUP.md`).
+- Never add personal resumes, live workspaces, credentials, or authenticated browser state to benchmark corpora.
+- Fixtures must not seed approved resume exports through `upsertResumeExportArtifact({ isApproved: true })`; both repositories reject it. Use the repository seed or `approveResumeExport()`. The guard is the invariant under test.
 
-## Source-Generic Discovery Guard
+## Fit calibration gate
 
-- `pnpm source-generic:check` rejects source-branded helper declarations in shared discovery/browser-agent workflow code
-- focused coverage includes `packages/browser-agent/src/agent/search-results-budget.test.ts`
+- `pnpm job-finder:fit-calibration` (also in `pnpm verify`) compares against the single baseline `packages/job-finder/test-fixtures/fit-calibration-baseline-v9.json`. It fails on the quality gates and on any `schemaVersion`, `corpusVersion`, or `scorerVersion` drift between run and baseline.
+- Bumping `MATCH_ASSESSMENT_SCORER_VERSION` is expected to fail the gate until the baseline is regenerated. Read the case diff first, then run `node scripts/run-fit-calibration-benchmark.cjs --output <new-baseline>` and rename the baseline file plus both `package.json` references together so exactly one baseline exists. `--report-only` never fails and is not a gate.
 
-## Desktop Core
+## Benchmarks
 
-- `pnpm desktop:dev`
-- `pnpm --filter @unemployed/desktop build`
-- `pnpm --filter @unemployed/desktop typecheck`
-- `pnpm --filter @unemployed/desktop lint`
-
-## Desktop UI Harnesses
-
-- `pnpm --filter @unemployed/desktop ui:capture`
-- `pnpm --filter @unemployed/desktop ui:resume-import`
-- `pnpm --filter @unemployed/desktop ui:profile-setup`
-- `pnpm --filter @unemployed/desktop ui:profile-baseline`
-- `pnpm --filter @unemployed/desktop ui:profile-copilot-preferences`
-- `pnpm --filter @unemployed/desktop ui:source-sign-in-prompts`
-- `pnpm --filter @unemployed/desktop ui:resume-workspace`
-- `pnpm --filter @unemployed/desktop ui:resume-workspace-dirty`
-- `pnpm --filter @unemployed/desktop ui:applications-copilot-review`
-- `pnpm --filter @unemployed/desktop ui:applications-recovery`
-- `pnpm --filter @unemployed/desktop ui:applications-queue-recovery`
-- `pnpm --filter @unemployed/desktop ui:apply-queue-controls`
-
-## Running Desktop Benchmarks
-
-- Run from the repo root: `pnpm --filter @unemployed/desktop build`
-- Do this before desktop benchmark scripts or benchmark-backed source/debug checks because `apps/desktop/scripts/benchmark-job-finder-app.mjs` launches `out/main/index.cjs`, and stale build output can invalidate results
-- Historical benchmark detail is no longer kept as plan docs; use current benchmark reports under `apps/desktop/test-artifacts/ui/` and git history when old run detail is needed.
-
-## Safety Rules
-
-- do not run live-site submit flows or final-submit QA unless the user explicitly re-authorizes it
-- validate apply work with deterministic contracts, service tests, and desktop harnesses by default
-- capture artifacts under `apps/desktop/test-artifacts/ui/`; they are QA output, not source files
-- validate browser visual evidence changes with contract guard tests, source-generic checks, focused browser-agent/browser-runtime/job-finder tests, and desktop Applications recovery UI evidence when apply surfaces change
-
-Track-specific validation and product-bar requirements live in the handoff layer: `docs/STATUS.md`, `docs/TRACKS.md`, and the active plan under `docs/exec-plans/active/`.
-
-## Resume Import Notes
-
-- when import or parser routing changes, validate at least one plain-text path and one extracted-document path
-- release packaging for the parser sidecar still needs target-OS validation per platform
-
-## Resume-Import Benchmark
-
-- replay with `pnpm --filter @unemployed/desktop benchmark:resume-import`
-- corpus is declared in `apps/desktop/src/main/services/job-finder/resume-import-benchmark.ts`
-
-## Resume-Quality Benchmark
-
-- replay with `pnpm --filter @unemployed/desktop benchmark:resume-quality`
-- canary-only replay: `pnpm --filter @unemployed/desktop benchmark:resume-quality -- --canary-only`
-- corpus is declared in `apps/desktop/src/main/services/job-finder/resume-quality-benchmark.ts`
-- latest report path: `apps/desktop/test-artifacts/ui/resume-quality-benchmark/resume-quality-benchmark-report.json`
-- latest persisted HTML artifacts are written under `apps/desktop/test-artifacts/ui/resume-quality-benchmark/<caseId>/<templateId>/`
+- Resume import: `pnpm --filter @unemployed/desktop benchmark:resume-import`
+- Resume quality: `pnpm --filter @unemployed/desktop benchmark:resume-quality` (`-- --canary-only` for the canary)
+- AI capabilities: `pnpm ai:benchmark plan | full <lane> | canary luna_high | full-report`. Keep each lane serial. Deterministic fallbacks are reported separately and never credited to the model.
+- Live discovery audit: `pnpm --filter @unemployed/desktop audit:job-finder-live` needs network access and must never execute application actions.

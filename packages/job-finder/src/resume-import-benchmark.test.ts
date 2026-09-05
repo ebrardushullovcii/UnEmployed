@@ -1,13 +1,20 @@
 import { describe, expect, test } from "vitest";
 
 import { createResumeImportFixtureBundle } from "@unemployed/ai-providers";
+import {
+  PROFILE_SETUP_PLACEHOLDER_HEADLINE,
+  PROFILE_SETUP_PLACEHOLDER_SUMMARY,
+} from "@unemployed/contracts";
 
 import {
   aggregateBenchmarkMetrics,
   buildCaseResult,
   runResumeImportBenchmark,
 } from "./resume-import-benchmark";
-import { createSeed } from "./workspace-service.test-fixtures";
+import {
+  createFreshStartSeedProfile,
+  createSeed,
+} from "./workspace-service.test-fixtures";
 
 describe("resume import benchmark", () => {
   test("aggregates benchmark metrics across cases", () => {
@@ -23,7 +30,12 @@ describe("resume import benchmark", () => {
           literalFieldPrecision: 1,
           literalFieldRecall: 0.8,
           experienceRecordF1: 0.6,
+          experienceDetailAccuracy: 0.8,
           educationRecordF1: 1,
+          projectRecordF1: 1,
+          certificationRecordF1: 1,
+          languageRecordF1: 1,
+          contradictionFreeRate: 1,
           evidenceCoverage: 0.9,
           autoApplyPrecision: 1,
           unresolvedRate: 0.2,
@@ -40,7 +52,12 @@ describe("resume import benchmark", () => {
           literalFieldPrecision: 0.6,
           literalFieldRecall: 0.4,
           experienceRecordF1: 0.2,
+          experienceDetailAccuracy: 0.4,
           educationRecordF1: 0.8,
+          projectRecordF1: 0.6,
+          certificationRecordF1: 0.8,
+          languageRecordF1: 1,
+          contradictionFreeRate: 0.5,
           evidenceCoverage: 0.7,
           autoApplyPrecision: 0.8,
           unresolvedRate: 0.5,
@@ -51,6 +68,9 @@ describe("resume import benchmark", () => {
     expect(metrics.literalFieldPrecision).toBeCloseTo(0.8);
     expect(metrics.literalFieldRecall).toBeCloseTo(0.6);
     expect(metrics.experienceRecordF1).toBeCloseTo(0.4);
+    expect(metrics.experienceDetailAccuracy).toBeCloseTo(0.6);
+    expect(metrics.projectRecordF1).toBeCloseTo(0.8);
+    expect(metrics.contradictionFreeRate).toBeCloseTo(0.75);
     expect(metrics.unresolvedRate).toBeCloseTo(0.35);
   });
 
@@ -66,7 +86,8 @@ describe("resume import benchmark", () => {
           {
             id: "txt_canary",
             label: "TXT canary",
-            resumePath: "apps/desktop/test-fixtures/job-finder/resume-import-sample.txt",
+            resumePath:
+              "apps/desktop/test-fixtures/job-finder/resume-import-sample.txt",
             canary: true,
             tags: ["txt"],
             expected: {
@@ -265,14 +286,10 @@ describe("resume import benchmark", () => {
 
         return Promise.resolve({
           profile: {
-            ...seed.profile,
-            fullName: "New Candidate",
-            firstName: "New",
-            lastName: "Candidate",
-            headline: "Import your resume to begin",
-            currentLocation: "Set your preferred location",
-            email: null,
-            phone: null,
+            ...createFreshStartSeedProfile(),
+            // Legacy first-run strings the import is expected to replace.
+            headline: PROFILE_SETUP_PLACEHOLDER_HEADLINE,
+            summary: PROFILE_SETUP_PLACEHOLDER_SUMMARY,
             baseResume: {
               ...seed.profile.baseResume,
               id: `resume_${benchmarkCase.id}`,
@@ -301,7 +318,9 @@ describe("resume import benchmark", () => {
     expect(report.aggregate.literalFieldRecall).toBeGreaterThan(0.75);
     expect(report.aggregate.autoApplyPrecision).toBe(1);
     expect(report.parserManifestVersion).toBe("019-plain-text-fixture-v1");
-    expect(report.parserManifestVersions).toEqual(["019-plain-text-fixture-v1"]);
+    expect(report.parserManifestVersions).toEqual([
+      "019-plain-text-fixture-v1",
+    ]);
   });
 
   test("reports mixed parser manifest versions instead of dropping the summary to null", async () => {
@@ -344,7 +363,8 @@ describe("resume import benchmark", () => {
       createHarness(benchmarkCase) {
         const bundle = createResumeImportFixtureBundle({
           id: benchmarkCase.id,
-          parserManifestVersion: benchmarkCase.id === "case_a" ? "parser-a" : "parser-b",
+          parserManifestVersion:
+            benchmarkCase.id === "case_a" ? "parser-a" : "parser-b",
           pageTexts: [["Jamie Rivers"].join("\n")],
           blocks: [
             {
@@ -670,6 +690,62 @@ describe("resume import benchmark", () => {
     expect(result.metrics.experienceRecordF1).toBeCloseTo(2 / 3);
   });
 
+  test("compares equivalent resume date formats and boolean detail values", () => {
+    const seed = createSeed();
+    const result = buildCaseResult({
+      benchmarkCase: {
+        id: "experience_equivalent_dates",
+        label: "Equivalent experience dates",
+        resumePath: "fixture.txt",
+        canary: true,
+        tags: ["test"],
+        expected: {
+          literalFields: {},
+          summaryContains: [],
+          experienceRecords: [
+            {
+              title: "Senior Product Engineer",
+              companyName: "Northstar Labs",
+              startDate: "2022-03",
+              endDate: null,
+              isCurrent: true,
+            },
+          ],
+          educationRecords: [],
+        },
+      },
+      parserStrategy: "fixture+plain_text",
+      profile: {
+        ...seed.profile,
+        experiences: [
+          {
+            id: "experience_1",
+            companyName: "Northstar Labs",
+            companyUrl: null,
+            title: "Senior Product Engineer",
+            employmentType: null,
+            location: null,
+            workMode: [],
+            startDate: "March 2022",
+            endDate: null,
+            isCurrent: true,
+            isDraft: false,
+            summary: null,
+            achievements: [],
+            skills: [],
+            domainTags: [],
+            peopleManagementScope: null,
+            ownershipScope: null,
+          },
+        ],
+      },
+      searchPreferences: seed.searchPreferences,
+      candidates: [],
+    });
+
+    expect(result.metrics.experienceDetailAccuracy).toBe(1);
+  });
+
   test("does not let one fuzzy actual record satisfy multiple expected identities", () => {
     const seed = createSeed();
     const result = buildCaseResult({
@@ -703,7 +779,8 @@ describe("resume import benchmark", () => {
             id: "experience_1",
             companyName: "AUTOMATEDPROS",
             companyUrl: null,
-            title: "Senior Full-Stack Software Engineer / Chief Experience Officer",
+            title:
+              "Senior Full-Stack Software Engineer / Chief Experience Officer",
             employmentType: null,
             location: null,
             workMode: [],
@@ -803,5 +880,165 @@ describe("resume import benchmark", () => {
 
     expect(result.passed).toBe(true);
     expect(result.taxonomy).not.toContain("UNRESOLVED_SHOULD_HAVE_RESOLVED");
+  });
+
+  test("does not count rejected record candidates as extracted output", () => {
+    const seed = createSeed();
+    const result = buildCaseResult({
+      benchmarkCase: {
+        id: "rejected_record_case",
+        label: "Rejected record case",
+        resumePath: "fixture.txt",
+        canary: true,
+        tags: ["test"],
+        expected: {
+          literalFields: {},
+          summaryContains: [],
+          experienceRecords: [
+            { title: "Product Engineer", companyName: "Northstar Labs" },
+          ],
+          educationRecords: [],
+        },
+      },
+      parserStrategy: "fixture+plain_text",
+      profile: { ...seed.profile, experiences: [] },
+      searchPreferences: seed.searchPreferences,
+      candidates: [
+        {
+          id: "candidate_rejected_experience",
+          runId: "run_1",
+          target: {
+            section: "experience",
+            key: "record",
+            recordId: "experience_1",
+          },
+          label: "Product Engineer",
+          sourceKind: "model_experience",
+          value: {
+            title: "Product Engineer",
+            companyName: "Northstar Labs",
+          },
+          normalizedValue: null,
+          valuePreview: "Product Engineer at Northstar Labs",
+          evidenceText: "Product Engineer at Northstar Labs",
+          sourceBlockIds: ["b1"],
+          confidence: 0.4,
+          alternatives: [],
+          notes: [],
+          resolution: "rejected",
+          resolutionReason: "conflicted_with_stronger_candidate",
+          createdAt: "2026-04-11T10:00:00.000Z",
+          resolvedAt: "2026-04-11T10:00:01.000Z",
+        },
+      ],
+    });
+
+    expect(result.metrics.experienceRecordF1).toBe(0);
+  });
+
+  test("penalizes extra records when an optional gold category is explicitly empty", () => {
+    const seed = createSeed();
+    const result = buildCaseResult({
+      benchmarkCase: {
+        id: "explicit_empty_projects",
+        label: "Explicit empty projects",
+        resumePath: "fixture.txt",
+        canary: true,
+        tags: ["test"],
+        expected: {
+          literalFields: {},
+          summaryContains: [],
+          experienceRecords: [],
+          educationRecords: [],
+          projectRecords: [],
+        },
+      },
+      parserStrategy: "fixture+plain_text",
+      profile: {
+        ...seed.profile,
+        projects: [
+          {
+            id: "project_unexpected",
+            name: "Unexpected Project",
+            projectType: null,
+            summary: "This project is not present in the gold resume.",
+            role: null,
+            skills: [],
+            outcome: null,
+            projectUrl: null,
+            repositoryUrl: null,
+            caseStudyUrl: null,
+          },
+        ],
+      },
+      searchPreferences: seed.searchPreferences,
+      candidates: [],
+    });
+
+    expect(result.metrics.projectRecordF1).toBe(0);
+  });
+
+  test("scores auto-apply precision only against comparable gold fields", () => {
+    const seed = createSeed();
+    const result = buildCaseResult({
+      benchmarkCase: {
+        id: "comparable_auto_apply_precision",
+        label: "Comparable auto apply precision",
+        resumePath: "fixture.txt",
+        canary: true,
+        tags: ["test"],
+        expected: {
+          literalFields: { email: "correct@example.com" },
+          summaryContains: [],
+          experienceRecords: [],
+          educationRecords: [],
+        },
+      },
+      parserStrategy: "fixture+plain_text",
+      profile: { ...seed.profile, email: "wrong@example.com" },
+      searchPreferences: seed.searchPreferences,
+      candidates: [
+        {
+          id: "candidate_wrong_email",
+          runId: "run_1",
+          target: { section: "contact", key: "email", recordId: null },
+          label: "Email",
+          sourceKind: "parser_literal",
+          value: "wrong@example.com",
+          normalizedValue: null,
+          valuePreview: "wrong@example.com",
+          evidenceText: "wrong@example.com",
+          sourceBlockIds: ["b1"],
+          confidence: 0.99,
+          alternatives: [],
+          notes: [],
+          resolution: "auto_applied",
+          resolutionReason: "high_confidence_literal_with_direct_evidence",
+          createdAt: "2026-04-11T10:00:00.000Z",
+          resolvedAt: "2026-04-11T10:00:01.000Z",
+        },
+        {
+          id: "candidate_unscored_headline",
+          runId: "run_1",
+          target: { section: "identity", key: "headline", recordId: null },
+          label: "Headline",
+          sourceKind: "parser_literal",
+          value: "Product Engineer",
+          normalizedValue: null,
+          valuePreview: "Product Engineer",
+          evidenceText: "Product Engineer",
+          sourceBlockIds: ["b2"],
+          confidence: 0.99,
+          alternatives: [],
+          notes: [],
+          resolution: "auto_applied",
+          resolutionReason: "high_confidence_literal_with_direct_evidence",
+          createdAt: "2026-04-11T10:00:00.000Z",
+          resolvedAt: "2026-04-11T10:00:01.000Z",
+        },
+      ],
+    });
+
+    expect(result.metrics.autoApplyPrecision).toBe(0);
   });
 });

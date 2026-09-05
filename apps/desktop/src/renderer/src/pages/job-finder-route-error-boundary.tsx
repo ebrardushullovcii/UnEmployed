@@ -22,6 +22,37 @@ interface RecoveryCopy {
   title: string;
 }
 
+const STALE_BUNDLE_ERROR_PATTERN =
+  /failed to fetch dynamically imported module/i;
+
+function getStaleBundleRecoveryCopy(scope: "app" | "route"): RecoveryCopy {
+  const copy: RecoveryCopy = {
+    kicker: "App updated",
+    title: "The app was updated while it was open",
+    description: "Reload to continue with the latest version.",
+  };
+
+  if (scope === "route") {
+    copy.secondaryAction = {
+      label: "Open profile",
+      path: "/job-finder/profile",
+    };
+  }
+
+  return copy;
+}
+
+function isStaleBundleError(error: unknown): boolean {
+  const message =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : null;
+
+  return message !== null && STALE_BUNDLE_ERROR_PATTERN.test(message);
+}
+
 function getRecoveryCopy(
   pathname: string,
   scope: "app" | "route",
@@ -40,9 +71,9 @@ function getRecoveryCopy(
       kicker: "Resume workspace error",
       title: "Resume workspace hit a snag",
       description:
-        "The editor crashed while this draft was rendering. Your saved data is unchanged, and you can jump back to the review queue.",
+        "The editor crashed while this draft was rendering. Your saved data is unchanged, and you can jump back to Shortlisted.",
       secondaryAction: {
-        label: "Back to review queue",
+        label: "Back to Shortlisted",
         path: "/job-finder/review-queue",
       },
     };
@@ -89,7 +120,10 @@ export function JobFinderRouteErrorBoundary({
   const error = useRouteError();
   const location = useLocation();
   const navigate = useNavigate();
-  const copy = getRecoveryCopy(location.pathname, scope);
+  const isStaleBundle = isStaleBundleError(error);
+  const copy = isStaleBundle
+    ? getStaleBundleRecoveryCopy(scope)
+    : getRecoveryCopy(location.pathname, scope);
   const technicalDetails = getTechnicalDetails(error);
   const isInline = scope === "route";
 
@@ -102,7 +136,10 @@ export function JobFinderRouteErrorBoundary({
     >
       <section
         className={cn(
-          "w-full overflow-hidden rounded-(--workspace-state-card-radius) border border-destructive/22 bg-(--workspace-state-card-bg-error) shadow-(--workspace-state-card-shadow)",
+          "w-full overflow-hidden rounded-(--workspace-state-card-radius) border shadow-(--workspace-state-card-shadow)",
+          isStaleBundle
+            ? "border-border/60 bg-(--workspace-state-card-bg-default)"
+            : "border-destructive/22 bg-(--workspace-state-card-bg-error)",
           isInline
             ? "max-w-5xl rounded-(--radius-panel)"
             : "max-w-(--workspace-state-card-max-width)",
@@ -119,8 +156,19 @@ export function JobFinderRouteErrorBoundary({
           )}
         >
           <div className="grid gap-6 p-6 sm:p-8 lg:p-10">
-            <div className="inline-flex w-fit items-center gap-2 rounded-full border border-destructive/25 bg-destructive/10 px-3 py-1 text-(length:--text-count) font-bold uppercase tracking-(--tracking-caps) text-destructive">
-              <AlertTriangle className="size-3.5" />
+            <div
+              className={cn(
+                "inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1 text-(length:--text-count) font-bold uppercase tracking-(--tracking-caps)",
+                isStaleBundle
+                  ? "border-primary/25 bg-primary/10 text-primary"
+                  : "border-destructive/25 bg-destructive/10 text-destructive",
+              )}
+            >
+              {isStaleBundle ? (
+                <RefreshCcw className="size-3.5" />
+              ) : (
+                <AlertTriangle className="size-3.5" />
+              )}
               <span>{copy.kicker}</span>
             </div>
 
@@ -163,9 +211,9 @@ export function JobFinderRouteErrorBoundary({
               ) : null}
             </div>
 
-            {technicalDetails ? (
+            {technicalDetails && !isStaleBundle ? (
               <details className="group rounded-(--radius-field) border border-border/45 bg-background/45 p-4">
-                <summary className="cursor-pointer list-none text-sm font-medium text-foreground transition-colors group-open:text-foreground-soft">
+                <summary className="w-fit cursor-pointer list-none text-sm font-medium text-foreground underline decoration-from-font underline-offset-4 transition-colors group-open:text-foreground-soft">
                   Technical details
                 </summary>
                 <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words border-t border-border/35 pt-3 text-xs leading-6 text-foreground-soft">
@@ -182,15 +230,31 @@ export function JobFinderRouteErrorBoundary({
                   Recovery notes
                 </p>
                 <div className="grid gap-3 text-sm leading-6 text-foreground-soft">
-                  <p>
-                    The exception was isolated to the current route, so you do
-                    not have to restart the whole desktop shell unless reload
-                    fails.
-                  </p>
-                  <p>
-                    Use the fallback action to move back to a stable screen,
-                    then reopen the workflow when you are ready.
-                  </p>
+                  {isStaleBundle ? (
+                    <>
+                      <p>
+                        An app update replaced the files behind this screen
+                        while it was open, so this route cannot load its old
+                        bundle again.
+                      </p>
+                      <p>
+                        Reload to pick up the current version, or use the
+                        fallback action to move back to a stable screen first.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p>
+                        The exception was isolated to the current route, so you
+                        do not have to restart the whole desktop shell unless
+                        reload fails.
+                      </p>
+                      <p>
+                        Use the fallback action to move back to a stable screen,
+                        then reopen the workflow when you are ready.
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

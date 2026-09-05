@@ -1,4 +1,10 @@
-import { app, type BrowserWindow, screen, type Display, type Rectangle } from 'electron'
+import {
+  app,
+  type BrowserWindow,
+  screen,
+  type Display,
+  type Rectangle,
+} from "electron";
 import {
   closeSync,
   fsyncSync,
@@ -7,44 +13,45 @@ import {
   readFileSync,
   renameSync,
   writeFileSync,
-} from 'node:fs'
-import path from 'node:path'
+} from "node:fs";
+import path from "node:path";
+import { resolveDesktopUserDataDirectory } from "./user-data-directory";
 
-export type MainWindowDisplayMode = 'normal' | 'maximized' | 'fullscreen'
+export type MainWindowDisplayMode = "normal" | "maximized" | "fullscreen";
 
 export type MainWindowState = Rectangle & {
-  displayMode: MainWindowDisplayMode
-}
+  displayMode: MainWindowDisplayMode;
+};
 
-export type RestoredMainWindowBounds = Pick<Rectangle, 'width' | 'height'> &
-  Partial<Pick<Rectangle, 'x' | 'y'>>
+export type RestoredMainWindowBounds = Pick<Rectangle, "width" | "height"> &
+  Partial<Pick<Rectangle, "x" | "y">>;
 
-const mainWindowStateFileName = 'main-window-state.json'
+const mainWindowStateFileName = "main-window-state.json";
 
 function getDesktopUserDataDirectory() {
-  const overriddenUserDataDirectory = process.env.UNEMPLOYED_USER_DATA_DIR?.trim()
-
-  return overriddenUserDataDirectory || app.getPath('userData')
+  return resolveDesktopUserDataDirectory(app);
 }
 
 export function getMainWindowStateFilePath() {
-  return path.join(getDesktopUserDataDirectory(), mainWindowStateFileName)
+  return path.join(getDesktopUserDataDirectory(), mainWindowStateFileName);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
+  return typeof value === "object" && value !== null;
 }
 
 function isFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
+  return typeof value === "number" && Number.isFinite(value);
 }
 
-function isMainWindowDisplayMode(value: unknown): value is MainWindowDisplayMode {
-  return value === 'normal' || value === 'maximized' || value === 'fullscreen'
+function isMainWindowDisplayMode(
+  value: unknown,
+): value is MainWindowDisplayMode {
+  return value === "normal" || value === "maximized" || value === "fullscreen";
 }
 
 function isMissingFileError(error: unknown) {
-  return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
+  return (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
 }
 
 function doRectanglesIntersect(first: Rectangle, second: Rectangle) {
@@ -53,15 +60,27 @@ function doRectanglesIntersect(first: Rectangle, second: Rectangle) {
     first.x + first.width > second.x &&
     first.y < second.y + second.height &&
     first.y + first.height > second.y
-  )
+  );
+}
+
+function clampBoundsToArea(bounds: Rectangle, area: Rectangle): Rectangle {
+  const width = Math.min(bounds.width, area.width);
+  const height = Math.min(bounds.height, area.height);
+
+  return {
+    x: Math.min(Math.max(bounds.x, area.x), area.x + area.width - width),
+    y: Math.min(Math.max(bounds.y, area.y), area.y + area.height - height),
+    width,
+    height,
+  };
 }
 
 export function parseMainWindowState(value: unknown): MainWindowState | null {
   if (!isRecord(value)) {
-    return null
+    return null;
   }
 
-  const { x, y, width, height, displayMode } = value
+  const { x, y, width, height, displayMode } = value;
 
   if (
     !isFiniteNumber(x) ||
@@ -72,7 +91,7 @@ export function parseMainWindowState(value: unknown): MainWindowState | null {
     height <= 0 ||
     !isMainWindowDisplayMode(displayMode)
   ) {
-    return null
+    return null;
   }
 
   return {
@@ -81,68 +100,70 @@ export function parseMainWindowState(value: unknown): MainWindowState | null {
     width,
     height,
     displayMode,
-  }
+  };
 }
 
 export function loadMainWindowState() {
   try {
-    const rawState = JSON.parse(readFileSync(getMainWindowStateFilePath(), 'utf8')) as unknown
+    const rawState = JSON.parse(
+      readFileSync(getMainWindowStateFilePath(), "utf8"),
+    ) as unknown;
 
-    return parseMainWindowState(rawState)
+    return parseMainWindowState(rawState);
   } catch (error) {
     if (isMissingFileError(error)) {
-      return null
+      return null;
     }
 
-    console.warn('[Desktop] Failed to read main window state.', error)
-    return null
+    console.warn("[Desktop] Failed to read main window state.", error);
+    return null;
   }
 }
 
 export function saveMainWindowState(state: MainWindowState) {
   try {
-    const filePath = getMainWindowStateFilePath()
-    const tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}`
-    const payload = JSON.stringify(state)
+    const filePath = getMainWindowStateFilePath();
+    const tempPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
+    const payload = JSON.stringify(state);
 
-    mkdirSync(path.dirname(filePath), { recursive: true })
+    mkdirSync(path.dirname(filePath), { recursive: true });
 
-    const tempFileHandle = openSync(tempPath, 'w')
+    const tempFileHandle = openSync(tempPath, "w");
 
     try {
-      writeFileSync(tempFileHandle, payload, 'utf8')
-      fsyncSync(tempFileHandle)
+      writeFileSync(tempFileHandle, payload, "utf8");
+      fsyncSync(tempFileHandle);
     } finally {
-      closeSync(tempFileHandle)
+      closeSync(tempFileHandle);
     }
 
-    renameSync(tempPath, filePath)
+    renameSync(tempPath, filePath);
   } catch (error) {
-    console.warn('[Desktop] Failed to persist main window state.', error)
+    console.warn("[Desktop] Failed to persist main window state.", error);
   }
 }
 
 export function getMainWindowDisplayMode(
-  window: Pick<BrowserWindow, 'isFullScreen' | 'isMaximized'>,
+  window: Pick<BrowserWindow, "isFullScreen" | "isMaximized">,
 ): MainWindowDisplayMode {
   if (window.isFullScreen()) {
-    return 'fullscreen'
+    return "fullscreen";
   }
 
   if (window.isMaximized()) {
-    return 'maximized'
+    return "maximized";
   }
 
-  return 'normal'
+  return "normal";
 }
 
 export function resolveMainWindowBounds(
   savedState: MainWindowState | null,
-  defaultBounds: Pick<Rectangle, 'width' | 'height'>,
-  displays: Array<Pick<Display, 'bounds'>>,
+  defaultBounds: Pick<Rectangle, "width" | "height">,
+  displays: Array<Pick<Display, "bounds"> & Partial<Pick<Display, "workArea">>>,
 ): RestoredMainWindowBounds {
   if (!savedState) {
-    return defaultBounds
+    return defaultBounds;
   }
 
   const savedBounds = {
@@ -150,43 +171,54 @@ export function resolveMainWindowBounds(
     y: savedState.y,
     width: savedState.width,
     height: savedState.height,
-  }
+  };
 
-  if (displays.some((display) => doRectanglesIntersect(savedBounds, display.bounds))) {
-    return savedBounds
+  const matchingDisplay = displays.find((display) =>
+    doRectanglesIntersect(savedBounds, display.bounds),
+  );
+
+  if (matchingDisplay) {
+    return clampBoundsToArea(
+      savedBounds,
+      matchingDisplay.workArea ?? matchingDisplay.bounds,
+    );
   }
 
   return {
     width: savedState.width,
     height: savedState.height,
-  }
+  };
 }
 
 export function restoreMainWindowBounds(
-  defaultBounds: Pick<Rectangle, 'width' | 'height'>,
+  defaultBounds: Pick<Rectangle, "width" | "height">,
   savedState = loadMainWindowState(),
 ) {
-  return resolveMainWindowBounds(savedState, defaultBounds, screen.getAllDisplays())
+  return resolveMainWindowBounds(
+    savedState,
+    defaultBounds,
+    screen.getAllDisplays(),
+  );
 }
 
 export function bindMainWindowStatePersistence(window: BrowserWindow) {
-  let normalBounds = window.getBounds()
+  let normalBounds = window.getBounds();
 
   const updateNormalBounds = () => {
     if (!window.isMaximized() && !window.isFullScreen()) {
-      normalBounds = window.getBounds()
+      normalBounds = window.getBounds();
     }
-  }
+  };
 
   const persistWindowState = () => {
-    updateNormalBounds()
+    updateNormalBounds();
     saveMainWindowState({
       ...normalBounds,
       displayMode: getMainWindowDisplayMode(window),
-    })
-  }
+    });
+  };
 
-  window.on('move', updateNormalBounds)
-  window.on('resize', updateNormalBounds)
-  window.on('close', persistWindowState)
+  window.on("move", updateNormalBounds);
+  window.on("resize", updateNormalBounds);
+  window.on("close", persistWindowState);
 }

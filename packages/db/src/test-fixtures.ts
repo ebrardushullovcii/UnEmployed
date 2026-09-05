@@ -1,4 +1,5 @@
 import type { JobFinderRepositorySeed } from "./index";
+import { JobFinderIntelligenceStateSchema } from "@unemployed/contracts";
 
 export function createSeed(): JobFinderRepositorySeed {
   return {
@@ -111,6 +112,13 @@ export function createSeed(): JobFinderRepositorySeed {
       minimumSalaryUsd: 170000,
       targetSalaryUsd: null,
       salaryCurrency: "USD",
+      compensation: {
+        minimum: 170000,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "inherited",
+      },
       approvalMode: "review_before_submit" as const,
       tailoringMode: "balanced" as const,
       companyBlacklist: [],
@@ -160,8 +168,17 @@ export function createSeed(): JobFinderRepositorySeed {
     applicationArtifactRefs: [],
     applicationReplayCheckpoints: [],
     applicationConsentRequests: [],
+    applicationAnswerSnapshots: [],
+    applicationAuthorityEnvelopes: [],
+    submissionPreflights: [],
+    submissionExecutionGrants: [],
+    submissionIdempotencyRecords: [],
+    submissionArmedMarkers: [],
+    submissionOutcomeRecords: [],
     applicationRecords: [],
     applicationAttempts: [],
+    userActionRequests: [],
+    userActionEvents: [],
     sourceDebugRuns: [],
     sourceDebugAttempts: [],
     sourceInstructionArtifacts: [],
@@ -170,6 +187,7 @@ export function createSeed(): JobFinderRepositorySeed {
     resumeImportDocumentBundles: [],
     resumeImportFieldCandidates: [],
     settings: {
+      resumeApplicationMode: "tailored_per_job" as const,
       resumeFormat: "html" as const,
       resumeTemplateId: "classic_ats" as const,
       fontPreset: "inter_requisite" as const,
@@ -189,5 +207,10 @@ export function createSeed(): JobFinderRepositorySeed {
       discoveryLedger: [],
       pendingDiscoveryJobs: [],
     },
+    campaigns: [],
+    activeCampaignId: null,
+    campaignNotifications: [],
+    activityControl: { paused: false, pausedAt: null, reason: null },
+    intelligence: JobFinderIntelligenceStateSchema.parse({}),
   };
 }

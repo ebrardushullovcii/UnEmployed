@@ -1,0 +1,225 @@
+import { describe, expect, test } from "vitest";
+import type { JobFinderAiClient } from "@unemployed/ai-providers";
+import { createInMemoryJobFinderRepository } from "@unemployed/db";
+
+import { createJobFinderWorkspaceService } from "./index";
+import { createSeed } from "./workspace-service.test-fixtures";
+import {
+  createAiClient,
+  createBrowserRuntime,
+  createDocumentManager,
+  createResearchAdapter,
+} from "./workspace-service.test-runtimes";
+import { createWorkspaceServiceHarness } from "./workspace-service.test-support";
+
+const GENERATION_ERROR =
+  "Provider request failed with api_key=sk-abc123XYZdef456 and status 502\nat provider gateway\nretry later";
+
+function createFailingGenerationAiClient(): JobFinderAiClient {
+  const baseAiClient = createAiClient();
+
+  return {
+    ...baseAiClient,
+    createResumeDraft() {
+      return Promise.reject(new Error(GENERATION_ERROR));
+    },
+  } satisfies JobFinderAiClient;
+}
+
+describe("tailored resume generation failure durability", () => {
+  test("records a sanitized failed asset without losing the original error", async () => {
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      aiClient: createFailingGenerationAiClient(),
+    });
+
+    await expect(workspaceService.generateResume("job_ready")).rejects.toThrow(
+      /Provider request failed/,
+    );
+
+    const failedAsset = (await repository.listTailoredAssets()).find(
+      (asset) => asset.jobId === "job_ready",
+    );
+    expect(failedAsset).toMatchObject({
+      id: "asset_ready",
+      version: "v2",
+      status: "failed",
+      storagePath: "/tmp/job-ready-resume.pdf",
+    });
+    expect(failedAsset?.failureMessage).toContain("Provider request failed");
+    expect(failedAsset?.failureMessage).not.toContain("sk-abc123XYZdef456");
+    expect(failedAsset?.failureMessage).not.toContain("\n");
+    expect(failedAsset?.failedAt).toBeTruthy();
+
+    const queueItem = (
+      await workspaceService.getWorkspaceSnapshot()
+    ).reviewQueue.find((item) => item.jobId === "job_ready");
+    expect(queueItem?.assetStatus).toBe("failed");
+  });
+
+  test("does not record a failed asset when a newer edit superseded the generation", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    const baseAiClient = createAiClient();
+    let supersedeDuringGeneration = false;
+    const workspaceService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime: createBrowserRuntime(),
+      aiClient: {
+        ...baseAiClient,
+        async createResumeDraft(input) {
+          if (supersedeDuringGeneration) {
+            // Simulate a newer edit from another writer winning between the
+            // generation snapshot and its persist attempt.
+            const currentDraft =
+              await repository.getResumeDraftByJobId("job_ready");
+            if (currentDraft) {
+              await repository.upsertResumeDraft({
+                ...currentDraft,
+                identity: {
+                  ...currentDraft.identity!,
+                  headline: "Newer edit wins.",
+                },
+                updatedAt: new Date(
+                  Date.parse(currentDraft.updatedAt) + 60_000,
+                ).toISOString(),
+              });
+            }
+            throw new Error(GENERATION_ERROR);
+          }
+          return baseAiClient.createResumeDraft(input);
+        },
+      },
+      documentManager: createDocumentManager(),
+      exportFileVerifier: { exists: () => Promise.resolve(true) },
+      researchAdapter: createResearchAdapter(),
+    });
+
+    await workspaceService.generateResume("job_ready");
+    supersedeDuringGeneration = true;
+
+    // The stale generation still reports its provider error truthfully...
+    await expect(workspaceService.generateResume("job_ready")).rejects.toThrow(
+      /Provider request failed/,
+    );
+
+    // ...but the newer canonical edit survives untouched and no false failed
+    // asset was persisted over it.
+    const survivingDraft = await repository.getResumeDraftByJobId("job_ready");
+    expect(survivingDraft?.identity?.headline).toBe("Newer edit wins.");
+    const asset = (await repository.listTailoredAssets()).find(
+      (entry) => entry.jobId === "job_ready",
+    );
+    expect(asset).toMatchObject({
+      id: "asset_ready",
+      status: "ready",
+      failureMessage: null,
+      failedAt: null,
+    });
+    const queueItem = (
+      await workspaceService.getWorkspaceSnapshot()
+    ).reviewQueue.find((item) => item.jobId === "job_ready");
+    expect(queueItem?.assetStatus).not.toBe("failed");
+  });
+
+  test("failed state survives a service reload and a successful retry clears it", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    const failingService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime: createBrowserRuntime(),
+      aiClient: createFailingGenerationAiClient(),
+      documentManager: createDocumentManager(),
+      exportFileVerifier: { exists: () => Promise.resolve(true) },
+      researchAdapter: createResearchAdapter(),
+    });
+
+    await expect(failingService.generateResume("job_ready")).rejects.toThrow(
+      /Provider request failed/,
+    );
+
+    // Restart truth: a fresh service over the same repository still reports
+    // the failure instead of falling back to not_started.
+    const reloadedService = createJobFinderWorkspaceService({
+      repository,
+      browserRuntime: createBrowserRuntime(),
+      aiClient: createAiClient(),
+      documentManager: createDocumentManager(),
+      exportFileVerifier: { exists: () => Promise.resolve(true) },
+      researchAdapter: createResearchAdapter(),
+    });
+    const reloadedQueueItem = (
+      await reloadedService.getWorkspaceSnapshot()
+    ).reviewQueue.find((item) => item.jobId === "job_ready");
+    expect(reloadedQueueItem?.assetStatus).toBe("failed");
+
+    await reloadedService.generateResume("job_ready");
+
+    const retriedAsset = (await repository.listTailoredAssets()).find(
+      (asset) => asset.jobId === "job_ready",
+    );
+    expect(retriedAsset).toMatchObject({
+      id: "asset_ready",
+      version: "v3",
+      status: "ready",
+      progressPercent: 100,
+      failureMessage: null,
+      failedAt: null,
+    });
+    const retryQueueItem = (
+      await reloadedService.getWorkspaceSnapshot()
+    ).reviewQueue.find((item) => item.jobId === "job_ready");
+    expect(retryQueueItem?.assetStatus).toBe("ready");
+  });
+
+  test("keeps propagating the generation error when recording the failure fails", async () => {
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    let failFailureUpserts = false;
+    const flakyRepository = {
+      ...repository,
+      upsertTailoredAsset(
+        asset: Parameters<typeof repository.upsertTailoredAsset>[0],
+      ) {
+        if (failFailureUpserts) {
+          return Promise.reject(new Error("disk full"));
+        }
+        return repository.upsertTailoredAsset(asset);
+      },
+    };
+    const workspaceService = createJobFinderWorkspaceService({
+      repository: flakyRepository,
+      browserRuntime: createBrowserRuntime(),
+      aiClient: createFailingGenerationAiClient(),
+      documentManager: createDocumentManager(),
+      exportFileVerifier: { exists: () => Promise.resolve(true) },
+      researchAdapter: createResearchAdapter(),
+    });
+
+    failFailureUpserts = true;
+
+    await expect(workspaceService.generateResume("job_ready")).rejects.toThrow(
+      /Provider request failed/,
+    );
+    const rejection = await workspaceService.generateResume("job_ready").then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(rejection).toBeInstanceOf(Error);
+    expect((rejection as Error).message).toMatch(/Provider request failed/);
+    expect((rejection as Error).message).not.toMatch(/disk full/);
+  });
+
+  test("keeps successful generations free of failure detail", async () => {
+    const { repository, workspaceService } = createWorkspaceServiceHarness();
+
+    await workspaceService.generateResume("job_ready");
+
+    const asset = (await repository.listTailoredAssets()).find(
+      (entry) => entry.jobId === "job_ready",
+    );
+    expect(asset).toMatchObject({
+      id: "asset_ready",
+      version: "v3",
+      status: "ready",
+      failureMessage: null,
+      failedAt: null,
+    });
+  });
+});

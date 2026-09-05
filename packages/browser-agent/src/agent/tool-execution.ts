@@ -6,6 +6,7 @@ import type {
   OnProgressCallback,
   ToolCall,
 } from "../types";
+import { classifyAgentTaskFailure } from "@unemployed/agent-runtime";
 import { isAllowedUrl } from "../allowlist";
 import { getToolExecutor } from "../tools";
 import type { JobExtractor } from "../agent";
@@ -1018,13 +1019,13 @@ export async function executeToolCall(
         !shouldSkipSlowSearchResultsExtraction;
       const extractedJobs = !shouldRunSlowExtraction
         ? []
-          : await jobExtractor.extractJobsFromPage({
-              pageText: extractData.pageText,
-              pageUrl: extractData.pageUrl,
-              pageType: normalizedPageType,
-              maxJobs: remainingSearchResultsBudget,
-              ...(signal ? { signal } : {}),
-            });
+        : await jobExtractor.extractJobsFromPage({
+            pageText: extractData.pageText,
+            pageUrl: extractData.pageUrl,
+            pageType: normalizedPageType,
+            maxJobs: remainingSearchResultsBudget,
+            ...(signal ? { signal } : {}),
+          });
       const addedCount = addExtractedJobsToState(
         extractedJobs,
         state,
@@ -1099,7 +1100,12 @@ export async function executeToolCall(
         }
       }
 
-      if (!shouldRetry || attempt === maxRetries) {
+      const failureKind = classifyAgentTaskFailure(error);
+      const retryableFailure =
+        failureKind === "transient_network" ||
+        failureKind === "transient_provider" ||
+        failureKind === "stale_state";
+      if (!shouldRetry || !retryableFailure || attempt === maxRetries) {
         return {
           success: false,
           error: shouldRetry
@@ -1123,7 +1129,10 @@ export async function executeToolCall(
         targetId: null,
         adapterKind: config.source,
       });
-      await waitForRetryDelay(500 * attempt, signal);
+      await waitForRetryDelay(
+        Math.min(4_000, 300 * 2 ** (attempt - 1)) + (attempt - 1) * 37,
+        signal,
+      );
     }
   }
 

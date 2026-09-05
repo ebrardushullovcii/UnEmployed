@@ -4,14 +4,24 @@ ADRs capture durable decisions and rejected alternatives. Use them to avoid reop
 
 ## Index
 
-| ADR | Status | Decision |
-| --- | --- | --- |
-| [0001](0001-resume-coverage-and-apply-safe-template-catalog.md) | accepted | Resume coverage and apply-safe template catalog |
-| [0002](0002-parallel-vision-resume-import.md) | accepted | Parallel vision resume import |
-| [0004](0004-monorepo-electron-baseline.md) | accepted | Monorepo and Electron baseline |
-| [0005](0005-canonical-agent-documentation-system.md) | accepted | Canonical agent documentation system |
-| [0006](0006-safe-non-submitting-apply-boundary.md) | accepted | Safe non-submitting apply boundary |
-| [0007](0007-source-generic-browser-workflows.md) | accepted | Source-generic browser workflows |
+| ADR                                                                  | Status     | Decision                                               |
+| -------------------------------------------------------------------- | ---------- | ------------------------------------------------------ |
+| [0001](0001-resume-coverage-and-apply-safe-template-catalog.md)      | accepted   | Resume coverage and apply-safe template catalog        |
+| [0002](0002-parallel-vision-resume-import.md)                        | accepted   | Parallel vision resume import                          |
+| [0003](0003-interview-helper-live-session-architecture.md)           | accepted   | Interview Helper live-session architecture             |
+| [0004](0004-monorepo-electron-baseline.md)                           | accepted   | Monorepo and Electron baseline                         |
+| [0005](0005-canonical-agent-documentation-system.md)                 | superseded | Canonical agent documentation system (see 0015)        |
+| [0006](0006-safe-non-submitting-apply-boundary.md)                   | superseded | Safe non-submitting apply boundary                     |
+| [0007](0007-source-generic-browser-workflows.md)                     | accepted   | Source-generic browser workflows                       |
+| [0008](0008-visible-first-interview-helper.md)                       | accepted   | Visible-first Interview Helper                         |
+| [0009](0009-luna-high-default-and-capability-contracts.md)           | accepted   | Luna High default and contract-first AI capabilities   |
+| [0010](0010-opencode-go-mixed-text-and-vision-routing.md)            | accepted   | OpenCode Go mixed text and vision routing              |
+| [0011](0011-campaign-scoped-job-finder-and-local-application-crm.md) | accepted   | Campaign-scoped Job Finder and local application CRM   |
+| [0012](0012-user-scoped-autonomous-application-authority.md)         | accepted   | User-scoped autonomous application authority           |
+| [0013](0013-hybrid-browser-observation-and-policy-execution.md)      | accepted   | Hybrid browser observation and policy execution        |
+| [0014](0014-product-iteration-loop-over-release-ceremony.md)         | accepted   | Product iteration loop over release ceremony           |
+| [0015](0015-minimal-agent-guidance.md)                               | accepted   | Minimal agent guidance                                 |
+| [0016](0016-listing-body-read-over-plain-http.md)                    | accepted   | Listing bodies are read over plain HTTP after the scan |
 
 ## Policy
 

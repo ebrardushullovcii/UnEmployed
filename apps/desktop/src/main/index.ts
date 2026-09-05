@@ -1,64 +1,411 @@
-import { app, BrowserWindow, Menu, ipcMain } from 'electron'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { loadDesktopEnvironment } from './setup/env'
-import { registerDesktopRoutes } from './setup/register-routes'
-import { createMainWindow } from './setup/window-shell'
+import { app, BrowserWindow, Menu, ipcMain, powerMonitor } from "electron";
+import { appendFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { loadDesktopEnvironment } from "./setup/env";
+import { configureInterviewMediaPermissions } from "./setup/interview-media-permissions";
+import { areAdvancedInterviewSurfacesEnabled } from "./setup/interview-surface-mode";
+import { registerCoreDesktopRoutes } from "./setup/register-core-routes";
 import {
-  getJobFinderWorkspaceService,
-  shutdownJobFinderWorkspaceService,
-} from './services/job-finder'
+  configureDesktopUserDataDirectory,
+  getDesktopStartupDiagnosticsPath,
+} from "./setup/user-data-directory";
+import { createMainWindow } from "./setup/window-shell";
+import { runShutdownWithTimeout } from "./setup/shutdown-with-timeout";
+import { createDeferredBackgroundInitController } from "./setup/deferred-background-init";
+import { getMainWindowCloseGuard } from "./setup/main-window-close-guard";
+import type * as InterviewOverlayApi from "./setup/interview-overlay-windows";
+import type * as InterviewSessionControlsApi from "./setup/interview-session-controls";
+import type * as CandidateAssetLibraryApi from "./services/job-finder/candidate-asset-library-instance";
+import type { CampaignScheduler } from "./services/job-finder/campaign-scheduler";
+import type * as CampaignSchedulerApi from "./services/job-finder/campaign-scheduler";
+import type * as JobFinderServicesApi from "./services/job-finder";
+import type * as InterviewHelperApi from "./services/interview-helper";
 
-const currentDir = path.dirname(fileURLToPath(import.meta.url))
-const jobFinderShutdownTimeoutMs = 15_000
+loadDesktopEnvironment();
+configureDesktopUserDataDirectory(app);
 
-loadDesktopEnvironment()
-registerDesktopRoutes(ipcMain)
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+const startupDiagnosticsPath = getDesktopStartupDiagnosticsPath();
 
-void app.whenReady().then(() => {
-  Menu.setApplicationMenu(null)
-  void getJobFinderWorkspaceService()
-  createMainWindow(currentDir)
+function recordStartupDiagnostic(message: string, error?: unknown) {
+  if (!startupDiagnosticsPath || process.env.ELECTRON_ENABLE_LOGGING !== "1") {
+    return;
+  }
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow(currentDir)
+  try {
+    const detail =
+      error instanceof Error
+        ? `${error.name}: ${error.message}\n${error.stack ?? ""}`
+        : "";
+    appendFileSync(
+      startupDiagnosticsPath,
+      `${new Date().toISOString()} ${message} ${detail}\n`,
+      "utf8",
+    );
+  } catch {
+    // Startup diagnostics must never prevent the app from opening.
+  }
+}
+
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const jobFinderShutdownTimeoutMs = 15_000;
+const advancedInterviewSurfacesEnabled = areAdvancedInterviewSurfacesEnabled();
+
+type JobFinderServices = typeof JobFinderServicesApi;
+type CampaignSchedulerModule = typeof CampaignSchedulerApi;
+type CandidateAssetLibraryModule = typeof CandidateAssetLibraryApi;
+type InterviewHelperModule = typeof InterviewHelperApi;
+type InterviewOverlayModule = typeof InterviewOverlayApi;
+type InterviewSessionControlsModule = typeof InterviewSessionControlsApi;
+
+let jobFinderServicesPromise: Promise<JobFinderServices> | null = null;
+let campaignSchedulerModulePromise: Promise<CampaignSchedulerModule> | null = null;
+let candidateAssetLibraryModulePromise: Promise<CandidateAssetLibraryModule> | null = null;
+let interviewHelperModulePromise: Promise<InterviewHelperModule> | null = null;
+let interviewOverlayModulePromise: Promise<InterviewOverlayModule> | null = null;
+let interviewSessionControlsModulePromise: Promise<InterviewSessionControlsModule> | null = null;
+
+function loadJobFinderServices() {
+  jobFinderServicesPromise ??= import("./services/job-finder");
+  return jobFinderServicesPromise;
+}
+
+function loadCampaignSchedulerModule() {
+  campaignSchedulerModulePromise ??= import(
+    "./services/job-finder/campaign-scheduler"
+  );
+  return campaignSchedulerModulePromise;
+}
+
+function loadCandidateAssetLibraryModule() {
+  candidateAssetLibraryModulePromise ??= import(
+    "./services/job-finder/candidate-asset-library-instance"
+  );
+  return candidateAssetLibraryModulePromise;
+}
+
+function loadInterviewHelperModule() {
+  interviewHelperModulePromise ??= import("./services/interview-helper");
+  return interviewHelperModulePromise;
+}
+
+function loadInterviewOverlayModule() {
+  interviewOverlayModulePromise ??= import(
+    "./setup/interview-overlay-windows"
+  );
+  return interviewOverlayModulePromise;
+}
+
+function loadInterviewSessionControlsModule() {
+  interviewSessionControlsModulePromise ??= import(
+    "./setup/interview-session-controls"
+  );
+  return interviewSessionControlsModulePromise;
+}
+
+let closeInterviewOverlayWindows = () => {};
+let disposeInterviewSessionControls = () => {};
+
+// The 500ms deferred service initialization owns the background eager loads.
+// It is gated on quit: `beginQuitTeardown()` latches before any confirmation
+// or shutdown work runs so a late timer can never recreate a service during
+// teardown, and in-flight chains re-check the gate between steps. An
+// explicitly cancelled quit releases the latch (re-arming the still-needed
+// run exactly once, since services were never torn down); once actual
+// shutdown commits, the latch is permanent. Feature routes also lazily load
+// their own services on demand.
+const deferredBackgroundInit = createDeferredBackgroundInitController({
+  advancedInterviewSurfacesEnabled,
+  loadJobFinderServices,
+  loadCampaignSchedulerModule,
+  loadCandidateAssetLibraryModule,
+  loadInterviewHelperModule,
+  loadInterviewOverlayModule,
+  loadInterviewSessionControlsModule,
+  startCampaignScheduler,
+  initializeInterviewSurfaces: (overlay, sessionControls) => {
+    closeInterviewOverlayWindows = overlay.closeInterviewOverlayWindows;
+    disposeInterviewSessionControls =
+      sessionControls.disposeInterviewSessionControls;
+    overlay.initializeInterviewOverlayWindows(currentDir);
+    sessionControls.initializeInterviewSessionControls();
+  },
+  onDiagnostic: recordStartupDiagnostic,
+  onError: (message, error) => console.error(message, error),
+});
+
+function loadJobFinderRoutes(): Promise<void> {
+  return import("./setup/register-job-finder-routes").then(
+    ({ registerJobFinderDesktopRoutes }) => {
+      registerJobFinderDesktopRoutes(ipcMain);
+      recordStartupDiagnostic("Job Finder routes registered");
+    },
+  );
+}
+
+function loadJobFinderBootstrapRoutes(): Promise<void> {
+  return import("./setup/register-job-finder-bootstrap-routes").then(
+    ({ registerJobFinderBootstrapDesktopRoutes }) => {
+      registerJobFinderBootstrapDesktopRoutes(ipcMain);
+      recordStartupDiagnostic("Job Finder bootstrap routes registered");
+    },
+  );
+}
+
+function loadJobFinderAssetRoutes(): Promise<void> {
+  return import("./setup/register-job-finder-asset-routes").then(
+    ({ registerJobFinderAssetDesktopRoutes }) => {
+      registerJobFinderAssetDesktopRoutes(ipcMain);
+      recordStartupDiagnostic("Job Finder asset routes registered");
+    },
+  );
+}
+
+function loadInterviewHelperRoutes(): Promise<void> {
+  return import("./setup/register-interview-helper-routes").then(
+    ({ registerInterviewHelperDesktopRoutes }) => {
+      registerInterviewHelperDesktopRoutes(ipcMain);
+      recordStartupDiagnostic("Interview Helper routes registered");
+    },
+  );
+}
+
+function createMainWindowSafely(): BrowserWindow | null {
+  try {
+    return createMainWindow(currentDir);
+  } catch (error) {
+    recordStartupDiagnostic("main window creation failed", error);
+    console.error("[Desktop] Failed to create the main window.", error);
+    app.quit();
+    return null;
+  }
+}
+
+// Keep the large feature-route graph off Electron's critical path to the first
+// window. The core IPC surface is registered synchronously; the preload bridge
+// waits on the readiness channel before invoking any deferred feature route.
+// Loading begins on the first feature call, after the renderer has had an
+// opportunity to paint its honest loading state, without exposing an IPC race.
+let jobFinderBootstrapRoutesPromise: Promise<void> | null = null;
+let jobFinderRoutesPromise: Promise<void> | null = null;
+let jobFinderAssetRoutesPromise: Promise<void> | null = null;
+let interviewHelperRoutesPromise: Promise<void> | null = null;
+
+function ensureJobFinderBootstrapRoutesReady(): Promise<void> {
+  jobFinderBootstrapRoutesPromise ??= hasSingleInstanceLock
+    ? loadJobFinderBootstrapRoutes()
+    : Promise.resolve();
+  return jobFinderBootstrapRoutesPromise;
+}
+
+function ensureJobFinderRoutesReady(): Promise<void> {
+  jobFinderRoutesPromise ??= hasSingleInstanceLock
+    ? loadJobFinderRoutes()
+    : Promise.resolve();
+  return jobFinderRoutesPromise;
+}
+
+function ensureJobFinderAssetRoutesReady(): Promise<void> {
+  jobFinderAssetRoutesPromise ??= hasSingleInstanceLock
+    ? loadJobFinderAssetRoutes()
+    : Promise.resolve();
+  return jobFinderAssetRoutesPromise;
+}
+
+function ensureInterviewHelperRoutesReady(): Promise<void> {
+  interviewHelperRoutesPromise ??= hasSingleInstanceLock
+    ? loadInterviewHelperRoutes()
+    : Promise.resolve();
+  return interviewHelperRoutesPromise;
+}
+
+if (hasSingleInstanceLock) {
+  registerCoreDesktopRoutes(
+    ipcMain,
+    ensureJobFinderBootstrapRoutesReady,
+    ensureJobFinderRoutesReady,
+    ensureJobFinderAssetRoutesReady,
+    ensureInterviewHelperRoutesReady,
+  );
+}
+
+recordStartupDiagnostic("main module loaded");
+if (!hasSingleInstanceLock) {
+  recordStartupDiagnostic("secondary app instance exiting");
+  app.quit();
+}
+
+app.on("second-instance", () => {
+  const existingWindow = BrowserWindow.getAllWindows()[0];
+  if (!existingWindow) {
+    return;
+  }
+
+  if (existingWindow.isMinimized()) {
+    existingWindow.restore();
+  }
+  existingWindow.show();
+  existingWindow.focus();
+});
+
+void app
+  .whenReady()
+  .then(() => {
+    if (!hasSingleInstanceLock) {
+      return;
     }
-  })
-})
+    recordStartupDiagnostic("app ready");
+    Menu.setApplicationMenu(null);
+    recordStartupDiagnostic("creating main window");
+    const mainWindow = createMainWindowSafely();
+    if (!mainWindow) {
+      return;
+    }
+    recordStartupDiagnostic("main window created");
+    deferredBackgroundInit.schedule();
+    mainWindow.on("closed", () => {
+      deferredBackgroundInit.cancelScheduled();
+      closeInterviewOverlayWindows();
+    });
 
-let jobFinderShutdownInFlight = false
+    configureInterviewMediaPermissions();
 
-app.on('before-quit', (event) => {
-  if (jobFinderShutdownInFlight) {
-    return
-  }
-
-  jobFinderShutdownInFlight = true
-  event.preventDefault()
-  let shutdownTimeoutId: ReturnType<typeof setTimeout> | null = null
-  const shutdownTimeout = new Promise<void>((resolve) => {
-    shutdownTimeoutId = setTimeout(() => {
-      console.warn(
-        `[Desktop] Job Finder workspace service shutdown exceeded ${jobFinderShutdownTimeoutMs}ms; continuing quit.`,
-      )
-      resolve()
-    }, jobFinderShutdownTimeoutMs)
-  })
-  void Promise.race([shutdownJobFinderWorkspaceService(), shutdownTimeout])
-    .catch((error) => {
-      console.warn('[Desktop] Failed to shut down Job Finder workspace service before quit.', error)
-    })
-    .finally(() => {
-      if (shutdownTimeoutId) {
-        clearTimeout(shutdownTimeoutId)
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createMainWindowSafely();
       }
-      app.quit()
-    })
-})
+    });
+  })
+  .catch((error) => {
+    recordStartupDiagnostic("startup failed", error);
+    console.error(
+      "[Desktop] Startup failed before the main window was ready.",
+      error,
+    );
+    app.quit();
+  });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
+let jobFinderShutdownInFlight = false;
+let quitApprovedByCloseGuard = false;
+
+let campaignScheduler: CampaignScheduler | null = null;
+const onPowerSuspend = () => campaignScheduler?.suspend();
+const onPowerResume = () => campaignScheduler?.resume();
+
+function startCampaignScheduler(
+  createScheduler: CampaignSchedulerModule["createCampaignScheduler"],
+): void {
+  if (campaignScheduler) {
+    return;
   }
-})
+  campaignScheduler = createScheduler();
+  powerMonitor.on("suspend", onPowerSuspend);
+  powerMonitor.on("resume", onPowerResume);
+  campaignScheduler.start();
+}
+
+async function stopCampaignScheduler(): Promise<void> {
+  const scheduler = campaignScheduler;
+  campaignScheduler = null;
+  if (!scheduler) {
+    return;
+  }
+  powerMonitor.removeListener("suspend", onPowerSuspend);
+  powerMonitor.removeListener("resume", onPowerResume);
+  await scheduler.stop();
+}
+
+async function shutdownJobFinderServicesIfLoaded(): Promise<void> {
+  if (!jobFinderServicesPromise) {
+    return;
+  }
+
+  const { shutdownJobFinderWorkspaceService } = await jobFinderServicesPromise;
+  await shutdownJobFinderWorkspaceService();
+}
+
+async function shutdownInterviewHelperIfLoaded(): Promise<void> {
+  if (!interviewHelperModulePromise) {
+    return;
+  }
+
+  const { shutdownInterviewHelperService } = await interviewHelperModulePromise;
+  await shutdownInterviewHelperService();
+}
+
+app.on("before-quit", (event) => {
+  if (jobFinderShutdownInFlight) {
+    return;
+  }
+
+  // Quit begins here, before any confirmation or shutdown work: latch the
+  // gate so the 500ms deferred service initialization can never fire (or
+  // continue mid-flight) and recreate a service during teardown.
+  deferredBackgroundInit.beginQuitTeardown();
+
+  // Phase zero of quitting: an app-level quit (macOS Dock quit, OS session
+  // end, internal app.quit() callers) lets the renderer confirm unsaved work
+  // BEFORE any service shutdown starts, so cancelling can never leave the app
+  // running with its services already torn down. A watchdog expiry proceeds
+  // with the quit, so a hung renderer cannot deadlock shutdown; forced
+  // process termination remains uninterceptable and stays owned by local
+  // persistence. Plain window closes are handled independently by the window
+  // close guard bound in createMainWindow.
+  const mainWindowCloseGuard = getMainWindowCloseGuard();
+  if (
+    !quitApprovedByCloseGuard &&
+    mainWindowCloseGuard.needsQuitConfirmation()
+  ) {
+    event.preventDefault();
+    void mainWindowCloseGuard.confirmQuit().then((proceed) => {
+      if (!proceed) {
+        // Explicit user cancel: services were never torn down, so release
+        // the latch and re-arm any still-needed deferred initialization.
+        deferredBackgroundInit.releaseQuitLatch();
+        return;
+      }
+      quitApprovedByCloseGuard = true;
+      app.quit();
+    });
+    return;
+  }
+
+  // Actual service shutdown begins: the deferred-init latch is permanent
+  // from here on, so no cancel or late release can resurrect it mid-teardown.
+  deferredBackgroundInit.commitQuitTeardown();
+  jobFinderShutdownInFlight = true;
+  event.preventDefault();
+  void runShutdownWithTimeout(
+    () =>
+      Promise.all([
+        stopCampaignScheduler().then(shutdownJobFinderServicesIfLoaded),
+        shutdownInterviewHelperIfLoaded(),
+      ]).then(() => undefined),
+    jobFinderShutdownTimeoutMs,
+    () => {
+      console.warn(
+        `[Desktop] Desktop service shutdown exceeded ${jobFinderShutdownTimeoutMs}ms; continuing quit.`,
+      );
+    },
+  ).then((result) => {
+    if (result.status === "failed") {
+      console.warn(
+        "[Desktop] Failed to shut down Job Finder workspace service before quit.",
+        result.error,
+      );
+    }
+    app.quit();
+  });
+});
+
+app.on("window-all-closed", () => {
+  closeInterviewOverlayWindows();
+  if (process.platform !== "darwin") {
+    app.quit();
+  }
+});
+
+app.on("will-quit", () => {
+  disposeInterviewSessionControls();
+});

@@ -1,10 +1,23 @@
-import { TailoredResumeDraftSchema, type TailoredResumeDraft } from "./shared";
+import {
+  TailoredResumeDraftSchema,
+  type TailoredResumeDraft,
+  type TailoredResumeGenerationProvenance,
+} from "./shared";
 import {
   buildDeterministicStructuredResumeDraft,
   composeDeterministicFullText,
   filterGroundedVisibleSkills,
+  orderSkillsByJobRelevance,
   uniqueStrings,
+  VISIBLE_ADDITIONAL_SKILL_LIMIT,
+  VISIBLE_CORE_SKILL_LIMIT,
 } from "./deterministic";
+import {
+  buildResumeGenerationEvidenceCatalog,
+  parseEvidenceLinkedText,
+  selectResumeRewrite,
+  type ResumeGenerationEvidenceItem,
+} from "./resume-generation-grounding";
 
 // Keep this set in sync with the reference-only identifier fields on the
 // structured draft payloads validated through TailoredResumeDraftSchema and the
@@ -99,6 +112,30 @@ function normalizeNullableString(value: unknown): string | null {
 
 type FallbackExperienceEntry = TailoredResumeDraft["experienceEntries"][number];
 
+interface CanonicalExperienceEvidence {
+  summary: string | null;
+  bullets: readonly string[];
+}
+
+interface ResumeGenerationQualityAccumulator {
+  proposedRewriteCount: number;
+  acceptedRewriteCount: number;
+  rejectedRewriteCount: number;
+  acceptedRewriteCharacters: number;
+  acceptedInferredRewriteCount: number;
+}
+
+interface ResumeRewriteContext {
+  evidenceCatalog: readonly ResumeGenerationEvidenceItem[];
+  jobCompany: string;
+  jobSkills: readonly string[];
+  quality: ResumeGenerationQualityAccumulator;
+  allowReasonableInference: boolean;
+  allowExactClaims: boolean;
+  allowParaphrasedClaims: boolean;
+  maxEvidenceRefsPerBullet: number;
+}
+
 function normalizeComparableText(value: string | null | undefined): string {
   return (value ?? "")
     .toLowerCase()
@@ -106,11 +143,9 @@ function normalizeComparableText(value: string | null | undefined): string {
     .trim();
 }
 
-function tokenizeResumeDetail(value: string | null | undefined): string[] {
-  return normalizeComparableText(value).split(/\s+/).filter(Boolean);
-}
-
-function canonicalizeComparableDatePart(value: string | null | undefined): string | null {
+function canonicalizeComparableDatePart(
+  value: string | null | undefined,
+): string | null {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) {
     return null;
@@ -127,7 +162,9 @@ function canonicalizeComparableDatePart(value: string | null | undefined): strin
   const yearMonthMatch = /^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(trimmed);
   if (yearMonthMatch) {
     const month = Number(yearMonthMatch[2]);
-    return month >= 1 && month <= 12 ? `${yearMonthMatch[1]}-${yearMonthMatch[2]}` : null;
+    return month >= 1 && month <= 12
+      ? `${yearMonthMatch[1]}-${yearMonthMatch[2]}`
+      : null;
   }
 
   const monthYearSlashMatch = /^(\d{1,2})\/(\d{4})$/.exec(trimmed);
@@ -175,7 +212,9 @@ function canonicalizeComparableDatePart(value: string | null | undefined): strin
   return normalizeComparableText(trimmed) || null;
 }
 
-function canonicalizeComparableDateRange(value: string | null | undefined): string | null {
+function canonicalizeComparableDateRange(
+  value: string | null | undefined,
+): string | null {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) {
     return null;
@@ -208,98 +247,190 @@ function isPlausibleResumeDateRange(value: string | null | undefined): boolean {
 }
 
 function selectCanonicalDateRange(input: {
-  generated: string | null | undefined;
   fallback: string | null | undefined;
 }): string | null {
   if (input.fallback && isPlausibleResumeDateRange(input.fallback)) {
     return input.fallback;
   }
 
-  return input.generated && isPlausibleResumeDateRange(input.generated)
-    ? input.generated
-    : null;
+  // Employment dates are candidate identity metadata, not prose. A model may
+  // reorder or rewrite supported claims, but it must never fill a missing date
+  // from its own output without a field-level evidence contract.
+  return null;
 }
 
-function isWeakGeneratedSummary(input: {
-  generated: string | null | undefined;
-  title: string | null | undefined;
-  employer: string | null | undefined;
-  location: string | null | undefined;
-  dateRange: string | null | undefined;
-}): boolean {
-  const generated = input.generated?.trim() ?? "";
-  if (!generated) {
-    return true;
+function findCanonicalProse(
+  generated: string | null | undefined,
+  canonicalCandidates: readonly string[],
+): string | null {
+  const normalizedGenerated = normalizeComparableText(generated);
+  if (!normalizedGenerated) {
+    return null;
   }
 
-  if (tokenizeResumeDetail(generated).length < 6) {
-    return true;
-  }
-
-  const metadata = normalizeComparableText([
-    input.title,
-    input.employer,
-    input.location,
-    input.dateRange,
-  ].filter((value): value is string => Boolean(value?.trim())).join(" "));
-
-  return Boolean(metadata && normalizeComparableText(generated) === metadata);
+  return (
+    canonicalCandidates.find((candidate) => {
+      const normalizedCandidate = normalizeComparableText(candidate);
+      return (
+        normalizedCandidate === normalizedGenerated ||
+        normalizedCandidate.startsWith(`${normalizedGenerated} `)
+      );
+    }) ?? null
+  );
 }
 
-function selectSummary(input: {
-  generated: string | null | undefined;
+function selectGroundedResumeText(input: {
+  generated: unknown;
+  companionEvidenceRefs?: unknown;
   fallback: string | null | undefined;
-  title: string | null | undefined;
-  employer: string | null | undefined;
-  location: string | null | undefined;
-  dateRange: string | null | undefined;
+  canonical: string | null | undefined;
+  rewriteContext: ResumeRewriteContext;
+  allowedScope?:
+    | {
+        scope: "experience" | "project";
+        profileRecordId: string;
+      }
+    | undefined;
 }): string | null {
-  const generated = normalizeNullableString(input.generated);
-  const fallback = normalizeNullableString(input.fallback);
-  if (!fallback) {
-    return generated;
+  const candidates = uniqueStrings(
+    [input.fallback, input.canonical].filter((value): value is string =>
+      Boolean(value?.trim()),
+    ),
+  );
+  const parsedGenerated = parseEvidenceLinkedText(
+    input.generated,
+    input.companionEvidenceRefs,
+  );
+  const isCanonical = parsedGenerated
+    ? Boolean(findCanonicalProse(parsedGenerated.text, candidates))
+    : false;
+  const selection = selectResumeRewrite({
+    generated: input.generated,
+    companionEvidenceRefs: input.companionEvidenceRefs,
+    canonicalCandidates: candidates,
+    evidenceCatalog: input.rewriteContext.evidenceCatalog,
+    allowedScope: input.allowedScope,
+    jobCompany: input.rewriteContext.jobCompany,
+    jobSkills: input.rewriteContext.jobSkills,
+    allowReasonableInference: input.rewriteContext.allowReasonableInference,
+    allowExactClaims: input.rewriteContext.allowExactClaims,
+    allowParaphrasedClaims: input.rewriteContext.allowParaphrasedClaims,
+    maxEvidenceRefsPerBullet: input.rewriteContext.maxEvidenceRefsPerBullet,
+  });
+
+  if (parsedGenerated && !isCanonical) {
+    input.rewriteContext.quality.proposedRewriteCount += 1;
+    if (selection?.kind === "grounded_rewrite") {
+      input.rewriteContext.quality.acceptedRewriteCount += 1;
+      input.rewriteContext.quality.acceptedRewriteCharacters +=
+        selection.text.length;
+      if (selection.inferred) {
+        input.rewriteContext.quality.acceptedInferredRewriteCount += 1;
+      }
+    } else {
+      input.rewriteContext.quality.rejectedRewriteCount += 1;
+    }
   }
 
-  return isWeakGeneratedSummary({ ...input, generated }) ? fallback : generated;
+  return (
+    selection?.text ??
+    normalizeNullableString(input.fallback) ??
+    normalizeNullableString(input.canonical)
+  );
 }
 
-function splitResumeDetailLine(value: string): string[] {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return [];
-  }
-
-  if (trimmed.length < 220 && !/[.!?]\s+\S/.test(trimmed)) {
-    return [trimmed];
-  }
-
-  const sentenceParts = trimmed
-    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (sentenceParts.length > 1) {
-    return sentenceParts;
-  }
-
-  if (trimmed.length >= 260 && /;\s+/.test(trimmed)) {
-    return trimmed
-      .split(/;\s+/)
-      .map((part) => part.trim())
-      .filter(Boolean);
-  }
-
-  return [trimmed];
-}
-
-function mergeBullets(
+function selectGroundedResumeBullets(
   generatedBullets: unknown,
+  generatedBulletEvidenceRefs: unknown,
   fallbackBullets: readonly string[],
+  canonicalBullets: readonly string[],
+  rewriteContext: ResumeRewriteContext,
+  allowedScope:
+    | {
+        scope: "experience" | "project";
+        profileRecordId: string;
+      }
+    | undefined,
   maxBullets = 3,
 ): string[] {
-  return uniqueStrings([
-    ...sanitizeStringArray(generatedBullets).flatMap(splitResumeDetailLine),
-    ...fallbackBullets.flatMap(splitResumeDetailLine),
-  ]).slice(0, maxBullets);
+  const canonicalCandidates = uniqueStrings([
+    ...fallbackBullets,
+    ...canonicalBullets,
+  ]);
+  const bulletValues = Array.isArray(generatedBullets) ? generatedBullets : [];
+  const evidenceRefMatrix = Array.isArray(generatedBulletEvidenceRefs)
+    ? generatedBulletEvidenceRefs
+    : [];
+  const replacedCanonicalText = new Set<string>();
+  const selectedBullets = uniqueStrings(
+    bulletValues.flatMap((generatedBullet, index) => {
+      const parsedGenerated = parseEvidenceLinkedText(
+        generatedBullet,
+        evidenceRefMatrix[index],
+      );
+      if (!parsedGenerated) {
+        return [];
+      }
+
+      const isCanonical = Boolean(
+        findCanonicalProse(parsedGenerated.text, canonicalCandidates),
+      );
+      const selection = selectResumeRewrite({
+        generated: generatedBullet,
+        companionEvidenceRefs: evidenceRefMatrix[index],
+        canonicalCandidates,
+        evidenceCatalog: rewriteContext.evidenceCatalog,
+        allowedScope,
+        jobCompany: rewriteContext.jobCompany,
+        jobSkills: rewriteContext.jobSkills,
+        allowReasonableInference: rewriteContext.allowReasonableInference,
+        allowExactClaims: rewriteContext.allowExactClaims,
+        allowParaphrasedClaims: rewriteContext.allowParaphrasedClaims,
+        maxEvidenceRefsPerBullet: rewriteContext.maxEvidenceRefsPerBullet,
+      });
+
+      if (!isCanonical) {
+        rewriteContext.quality.proposedRewriteCount += 1;
+        if (selection?.kind === "grounded_rewrite") {
+          rewriteContext.quality.acceptedRewriteCount += 1;
+          rewriteContext.quality.acceptedRewriteCharacters +=
+            selection.text.length;
+          if (selection.inferred) {
+            rewriteContext.quality.acceptedInferredRewriteCount += 1;
+          }
+          selection.referencedEvidenceText.forEach((text) => {
+            replacedCanonicalText.add(normalizeComparableText(text));
+          });
+        } else {
+          rewriteContext.quality.rejectedRewriteCount += 1;
+        }
+      }
+
+      return selection ? [selection.text] : [];
+    }),
+  );
+  const remainingFallbackBullets = fallbackBullets.filter(
+    (bullet) => !replacedCanonicalText.has(normalizeComparableText(bullet)),
+  );
+
+  return uniqueStrings([...selectedBullets, ...remainingFallbackBullets]).slice(
+    0,
+    maxBullets,
+  );
+}
+
+function selectCanonicalStringList(
+  generatedValues: unknown,
+  fallbackValues: readonly string[],
+): string[] {
+  const selectedValues = uniqueStrings(
+    sanitizeStringArray(generatedValues).flatMap((generatedValue) => {
+      const canonicalValue = findCanonicalProse(generatedValue, fallbackValues);
+      return canonicalValue ? [canonicalValue] : [];
+    }),
+  );
+
+  return selectedValues.length > 0 ? selectedValues : [...fallbackValues];
 }
 
 function entryMatchesFallback(
@@ -315,7 +446,9 @@ function entryMatchesFallback(
   const entryEmployer = normalizeComparableText(entry.employer);
   const fallbackEmployer = normalizeComparableText(fallbackEntry.employer);
   const entryDateRange = canonicalizeComparableDateRange(entry.dateRange);
-  const fallbackDateRange = canonicalizeComparableDateRange(fallbackEntry.dateRange);
+  const fallbackDateRange = canonicalizeComparableDateRange(
+    fallbackEntry.dateRange,
+  );
 
   if (
     entryTitle &&
@@ -364,7 +497,9 @@ function entryConflictsWithFallback(
   }
 
   const entryDateRange = canonicalizeComparableDateRange(entry.dateRange);
-  const fallbackDateRange = canonicalizeComparableDateRange(fallbackEntry.dateRange);
+  const fallbackDateRange = canonicalizeComparableDateRange(
+    fallbackEntry.dateRange,
+  );
   if (
     isPlausibleResumeDateRange(entry.dateRange) &&
     isPlausibleResumeDateRange(fallbackEntry.dateRange) &&
@@ -384,13 +519,17 @@ function normalizeExperienceEntries(
     employer?: string | null;
     location?: string | null;
     dateRange?: string | null;
-    summary?: string | null;
-    bullets?: string[];
+    summary?: unknown;
+    summaryEvidenceRefs?: unknown;
+    bullets?: unknown[];
+    bulletEvidenceRefs?: unknown;
     profileRecordId?: string | null;
   }>,
   fallbackEntries: ReturnType<
     typeof buildDeterministicStructuredResumeDraft
   >["experienceEntries"],
+  canonicalEvidenceByRecordId: ReadonlyMap<string, CanonicalExperienceEvidence>,
+  rewriteContext: ResumeRewriteContext,
 ) {
   const knownFallbackIds = new Set(
     fallbackEntries
@@ -402,7 +541,7 @@ function normalizeExperienceEntries(
       entry.profileRecordId ? [[entry.profileRecordId, entry] as const] : [],
     ),
   );
-  const entriesByFallbackId = new Map<string, typeof entries[number]>();
+  const entriesByFallbackId = new Map<string, (typeof entries)[number]>();
   const usedEntryIndexes = new Set<number>();
 
   entries.forEach((entry, index) => {
@@ -423,7 +562,10 @@ function normalizeExperienceEntries(
   });
 
   fallbackEntries.forEach((fallbackEntry) => {
-    if (!fallbackEntry.profileRecordId || entriesByFallbackId.has(fallbackEntry.profileRecordId)) {
+    if (
+      !fallbackEntry.profileRecordId ||
+      entriesByFallbackId.has(fallbackEntry.profileRecordId)
+    ) {
       return;
     }
 
@@ -441,7 +583,10 @@ function normalizeExperienceEntries(
     });
 
     if (matchedIndex >= 0) {
-      entriesByFallbackId.set(fallbackEntry.profileRecordId, entries[matchedIndex]!);
+      entriesByFallbackId.set(
+        fallbackEntry.profileRecordId,
+        entries[matchedIndex]!,
+      );
       usedEntryIndexes.add(matchedIndex);
     }
   });
@@ -449,17 +594,23 @@ function normalizeExperienceEntries(
   let nextUnusedEntryIndex = 0;
 
   return fallbackEntries.map((fallbackEntry, index) => {
-    let matchedEntry: typeof entries[number] | null;
+    let matchedEntry: (typeof entries)[number] | null;
 
     if (fallbackEntry.profileRecordId) {
-      matchedEntry = entriesByFallbackId.get(fallbackEntry.profileRecordId) ?? null;
+      matchedEntry =
+        entriesByFallbackId.get(fallbackEntry.profileRecordId) ?? null;
     } else {
-      const directMatch = usedEntryIndexes.has(index) ? null : entries[index] ?? null;
+      const directMatch = usedEntryIndexes.has(index)
+        ? null
+        : (entries[index] ?? null);
       if (directMatch) {
         usedEntryIndexes.add(index);
         matchedEntry = directMatch;
       } else {
-        while (nextUnusedEntryIndex < entries.length && usedEntryIndexes.has(nextUnusedEntryIndex)) {
+        while (
+          nextUnusedEntryIndex < entries.length &&
+          usedEntryIndexes.has(nextUnusedEntryIndex)
+        ) {
           nextUnusedEntryIndex += 1;
         }
 
@@ -477,33 +628,126 @@ function normalizeExperienceEntries(
 
     const fallbackDateRange = fallbackEntry.dateRange ?? null;
     const dateRange = selectCanonicalDateRange({
-      generated: matchedEntry.dateRange,
       fallback: fallbackDateRange,
     });
-    const bullets = mergeBullets(matchedEntry.bullets, fallbackEntry.bullets);
+    const canonicalEvidence = fallbackEntry.profileRecordId
+      ? canonicalEvidenceByRecordId.get(fallbackEntry.profileRecordId)
+      : null;
+    const allowedScope = fallbackEntry.profileRecordId
+      ? {
+          scope: "experience" as const,
+          profileRecordId: fallbackEntry.profileRecordId,
+        }
+      : undefined;
+    const bullets = selectGroundedResumeBullets(
+      matchedEntry.bullets,
+      matchedEntry.bulletEvidenceRefs,
+      fallbackEntry.bullets,
+      canonicalEvidence?.bullets ?? [],
+      rewriteContext,
+      allowedScope,
+    );
 
     return {
-      title:
-        normalizeNullableString(matchedEntry.title) ?? fallbackEntry.title ?? null,
-      employer:
-        normalizeNullableString(matchedEntry.employer) ??
-        fallbackEntry.employer ??
-        null,
-      location:
-        normalizeNullableString(matchedEntry.location) ??
-        fallbackEntry.location ??
-        null,
+      // Identity metadata always comes from the canonical candidate profile.
+      // Evidence references currently authorize prose only, so accepting model
+      // title, employer, location, or date values here would create an escape
+      // hatch around the grounding checks below.
+      title: fallbackEntry.title ?? null,
+      employer: fallbackEntry.employer ?? null,
+      location: fallbackEntry.location ?? null,
       dateRange,
-      summary: selectSummary({
+      summary: selectGroundedResumeText({
         generated: matchedEntry.summary,
+        companionEvidenceRefs: matchedEntry.summaryEvidenceRefs,
         fallback: fallbackEntry.summary,
-        title: matchedEntry.title ?? fallbackEntry.title,
-        employer: matchedEntry.employer ?? fallbackEntry.employer,
-        location: matchedEntry.location ?? fallbackEntry.location,
-        dateRange,
+        canonical: canonicalEvidence?.summary,
+        rewriteContext,
+        allowedScope,
       }),
       bullets,
       profileRecordId: fallbackEntry.profileRecordId ?? null,
+    };
+  });
+}
+
+type FallbackProjectEntry = TailoredResumeDraft["projectEntries"][number];
+
+function normalizeProjectEntries(
+  entries: Array<{
+    name?: string | null;
+    role?: string | null;
+    summary?: unknown;
+    summaryEvidenceRefs?: unknown;
+    outcome?: unknown;
+    outcomeEvidenceRefs?: unknown;
+    bullets?: unknown[];
+    bulletEvidenceRefs?: unknown;
+    profileRecordId?: string | null;
+  }>,
+  fallbackEntries: readonly FallbackProjectEntry[],
+  rewriteContext: ResumeRewriteContext,
+): FallbackProjectEntry[] {
+  const entriesByProfileRecordId = new Map(
+    entries.flatMap((entry) => {
+      const profileRecordId = normalizeNullableString(entry.profileRecordId);
+      return profileRecordId ? ([[profileRecordId, entry]] as const) : [];
+    }),
+  );
+
+  return fallbackEntries.map((fallbackEntry) => {
+    if (!fallbackEntry.profileRecordId) {
+      return fallbackEntry;
+    }
+
+    const matchedEntry =
+      entriesByProfileRecordId.get(fallbackEntry.profileRecordId) ??
+      entries.find(
+        (entry) =>
+          normalizeComparableText(entry.name) ===
+            normalizeComparableText(fallbackEntry.name) &&
+          (!entry.role ||
+            normalizeComparableText(entry.role) ===
+              normalizeComparableText(fallbackEntry.role)),
+      );
+    if (!matchedEntry) {
+      return fallbackEntry;
+    }
+
+    const allowedScope = {
+      scope: "project" as const,
+      profileRecordId: fallbackEntry.profileRecordId,
+    };
+    return {
+      ...fallbackEntry,
+      summary: selectGroundedResumeText({
+        generated: matchedEntry.summary,
+        companionEvidenceRefs: matchedEntry.summaryEvidenceRefs,
+        fallback: fallbackEntry.summary,
+        canonical: fallbackEntry.summary,
+        rewriteContext,
+        allowedScope,
+      }),
+      outcome: selectGroundedResumeText({
+        generated: matchedEntry.outcome,
+        companionEvidenceRefs: matchedEntry.outcomeEvidenceRefs,
+        fallback: fallbackEntry.outcome,
+        canonical: fallbackEntry.outcome,
+        rewriteContext,
+        allowedScope,
+      }),
+      bullets: selectGroundedResumeBullets(
+        matchedEntry.bullets,
+        matchedEntry.bulletEvidenceRefs,
+        fallbackEntry.bullets,
+        uniqueStrings(
+          [fallbackEntry.summary, fallbackEntry.outcome].filter(
+            (value): value is string => Boolean(value),
+          ),
+        ),
+        rewriteContext,
+        allowedScope,
+      ),
     };
   });
 }
@@ -517,9 +761,14 @@ export function summarizeError(error: unknown): string {
 }
 
 export function logFallbackError(operation: string, error: unknown): void {
-  console.error(
-    `[AI Provider] ${operation} failed; falling back to deterministic client. ${summarizeError(error)}`,
-  );
+  try {
+    console.error(
+      `[AI Provider] ${operation} failed; falling back to deterministic client. ${summarizeError(error)}`,
+    );
+  } catch {
+    // Logging must never interrupt the deterministic fallback path. This can
+    // happen when a detached desktop process outlives its original stdio pipe.
+  }
 }
 
 export function completeTailoredResumeDraft(
@@ -531,145 +780,170 @@ export function completeTailoredResumeDraft(
     primary && typeof primary === "object" && !Array.isArray(primary)
       ? (primary as Record<string, unknown>)
       : {};
-  const sanitizedExperienceHighlights = sanitizeStringArray(
-    normalizedPrimary.experienceHighlights,
-  );
   const sanitizedCoreSkills = sanitizeStringArray(normalizedPrimary.coreSkills);
-  const sanitizedTargetedKeywords = sanitizeStringArray(
-    normalizedPrimary.targetedKeywords,
-  );
   const sanitizedExperienceEntries = sanitizeStructuredEntries<{
     title?: string | null;
     employer?: string | null;
     location?: string | null;
     dateRange?: string | null;
-    summary?: string | null;
-    bullets?: string[];
+    summary?: unknown;
+    summaryEvidenceRefs?: unknown;
+    bullets?: unknown[];
+    bulletEvidenceRefs?: unknown;
     profileRecordId?: string | null;
   }>(normalizedPrimary.experienceEntries, "bullets");
   const sanitizedProjectEntries = sanitizeStructuredEntries<{
     name?: string | null;
     role?: string | null;
-    summary?: string | null;
-    outcome?: string | null;
-    bullets?: string[];
+    summary?: unknown;
+    summaryEvidenceRefs?: unknown;
+    outcome?: unknown;
+    outcomeEvidenceRefs?: unknown;
+    bullets?: unknown[];
+    bulletEvidenceRefs?: unknown;
     profileRecordId?: string | null;
   }>(normalizedPrimary.projectEntries, "bullets");
-  const sanitizedEducationEntries = sanitizeStructuredEntries<{
-    school?: string | null;
-    degree?: string | null;
-    fieldOfStudy?: string | null;
-    location?: string | null;
-    dateRange?: string | null;
-    summary?: string | null;
-    profileRecordId?: string | null;
-  }>(normalizedPrimary.educationEntries);
-  const sanitizedCertificationEntries = sanitizeStructuredEntries<{
-    name?: string | null;
-    issuer?: string | null;
-    dateRange?: string | null;
-    profileRecordId?: string | null;
-  }>(normalizedPrimary.certificationEntries);
+  const sanitizedTargetedKeywords = sanitizeStringArray(
+    normalizedPrimary.targetedKeywords,
+  );
   const sanitizedAdditionalSkills = sanitizeStringArray(
     normalizedPrimary.additionalSkills,
   );
-  const sanitizedLanguages = sanitizeStringArray(normalizedPrimary.languages);
-  const label =
-    typeof normalizedPrimary.label === "string" &&
-    normalizedPrimary.label.trim().length > 0
-      ? normalizedPrimary.label
-      : fallback.label;
+  const quality: ResumeGenerationQualityAccumulator = {
+    proposedRewriteCount: 0,
+    acceptedRewriteCount: 0,
+    rejectedRewriteCount: 0,
+    acceptedRewriteCharacters: 0,
+    acceptedInferredRewriteCount: 0,
+  };
+  const rewriteContext: ResumeRewriteContext = {
+    evidenceCatalog: buildResumeGenerationEvidenceCatalog(fallbackInput),
+    jobCompany: fallbackInput.job.company,
+    jobSkills: fallbackInput.job.keySkills,
+    quality,
+    allowReasonableInference:
+      (fallbackInput.strategy?.tailoringStrength ??
+        fallbackInput.searchPreferences.tailoringMode) === "aggressive",
+    allowExactClaims:
+      fallbackInput.strategy?.evidenceBoundaries.allowExactClaims ?? true,
+    allowParaphrasedClaims:
+      fallbackInput.strategy?.evidenceBoundaries.allowParaphrasedClaims ?? true,
+    maxEvidenceRefsPerBullet:
+      fallbackInput.strategy?.evidenceBoundaries.maxEvidenceRefsPerBullet ?? 8,
+  };
+  const label = fallback.label;
   const summary =
-    typeof normalizedPrimary.summary === "string" &&
-    normalizedPrimary.summary.trim().length > 0
-      ? normalizedPrimary.summary
-      : fallback.summary;
-  const experienceHighlights =
-    sanitizedExperienceHighlights.length > 0
-      ? sanitizedExperienceHighlights
-      : fallback.experienceHighlights;
+    selectGroundedResumeText({
+      generated: normalizedPrimary.summary,
+      companionEvidenceRefs: normalizedPrimary.summaryEvidenceRefs,
+      fallback: fallback.summary,
+      canonical: fallbackInput.profile.summary,
+      rewriteContext,
+    }) ?? fallback.summary;
+  const experienceHighlights = selectGroundedResumeBullets(
+    normalizedPrimary.experienceHighlights,
+    normalizedPrimary.experienceHighlightEvidenceRefs,
+    fallback.experienceHighlights,
+    fallback.experienceHighlights,
+    rewriteContext,
+    undefined,
+    Math.max(3, fallback.experienceHighlights.length),
+  );
   const coreSkills =
     sanitizedCoreSkills.length > 0 ? sanitizedCoreSkills : fallback.coreSkills;
-  const groundedCoreSkills = filterGroundedVisibleSkills(
-    fallbackInput.profile,
-    coreSkills,
-    8,
-  );
-  const targetedKeywords =
-    sanitizedTargetedKeywords.length > 0
-      ? sanitizedTargetedKeywords
-      : fallback.targetedKeywords;
+  const groundedCoreSkills = fallbackInput.strategy
+    ? coreSkills.filter((skill) =>
+        fallback.coreSkills.some(
+          (allowedSkill) => allowedSkill.toLowerCase() === skill.toLowerCase(),
+        ),
+      )
+    : filterGroundedVisibleSkills(
+        fallbackInput.profile,
+        orderSkillsByJobRelevance(coreSkills, fallbackInput.job),
+        VISIBLE_CORE_SKILL_LIMIT,
+      );
+  const targetedKeywords = fallbackInput.strategy
+    ? selectCanonicalStringList(
+        sanitizedTargetedKeywords.filter((keyword) =>
+          fallback.targetedKeywords.some(
+            (allowedKeyword) =>
+              allowedKeyword.toLowerCase() === keyword.toLowerCase(),
+          ),
+        ),
+        fallback.targetedKeywords,
+      )
+    : selectCanonicalStringList(
+        sanitizedTargetedKeywords,
+        fallback.targetedKeywords,
+      );
   const groundedAdditionalSkills = filterGroundedVisibleSkills(
     fallbackInput.profile,
-    sanitizedAdditionalSkills.length > 0
-      ? sanitizedAdditionalSkills
-      : fallback.additionalSkills,
-    8,
-  ).filter(
-    (skill) =>
-      !groundedCoreSkills.some(
-        (coreSkill) => coreSkill.toLowerCase() === skill.toLowerCase(),
-      ),
-  );
-  const notes = uniqueStrings([
-    ...fallback.notes,
-    ...(Array.isArray(normalizedPrimary.notes)
-      ? normalizedPrimary.notes.filter(
-          (note): note is string =>
-            typeof note === "string" && note.trim().length > 0,
+    fallbackInput.strategy
+      ? sanitizedAdditionalSkills.filter((skill) =>
+          fallback.additionalSkills.some(
+            (allowedSkill) =>
+              allowedSkill.toLowerCase() === skill.toLowerCase(),
+          ),
         )
-      : []),
-  ]);
-  const experienceEntries = sanitizedExperienceEntries.length > 0
-    ? normalizeExperienceEntries(
-        sanitizedExperienceEntries,
-        fallback.experienceEntries,
-      )
-    : fallback.experienceEntries;
+      : sanitizedAdditionalSkills.length > 0
+        ? orderSkillsByJobRelevance(
+            sanitizedAdditionalSkills,
+            fallbackInput.job,
+          )
+        : fallback.additionalSkills,
+    VISIBLE_ADDITIONAL_SKILL_LIMIT + VISIBLE_CORE_SKILL_LIMIT,
+  )
+    .filter(
+      (skill) =>
+        !groundedCoreSkills.some(
+          (coreSkill) => coreSkill.toLowerCase() === skill.toLowerCase(),
+        ),
+    )
+    .slice(0, VISIBLE_ADDITIONAL_SKILL_LIMIT);
+  const notes = [...fallback.notes];
+  const canonicalExperienceEvidenceByRecordId = new Map(
+    fallbackInput.profile.experiences.map((experience) => [
+      experience.id,
+      {
+        summary: experience.summary,
+        bullets: experience.achievements,
+      } satisfies CanonicalExperienceEvidence,
+    ]),
+  );
+  const experienceEntries =
+    sanitizedExperienceEntries.length > 0
+      ? normalizeExperienceEntries(
+          sanitizedExperienceEntries,
+          fallback.experienceEntries,
+          canonicalExperienceEvidenceByRecordId,
+          rewriteContext,
+        )
+      : fallback.experienceEntries;
+  const projectEntries =
+    sanitizedProjectEntries.length > 0
+      ? normalizeProjectEntries(
+          sanitizedProjectEntries,
+          fallback.projectEntries,
+          rewriteContext,
+        )
+      : fallback.projectEntries;
+  if (quality.acceptedInferredRewriteCount > 0) {
+    notes.push(
+      `${quality.acceptedInferredRewriteCount} AI-inferred ${quality.acceptedInferredRewriteCount === 1 ? "line" : "lines"} came from aggressive tailoring. Review and confirm each inferred line before approving the resume.`,
+    );
+  }
+  const generationProvenance = describeModelDraftProvenance(quality, notes);
   const fullText = composeDeterministicFullText({
     label,
     summary,
     experienceHighlights,
     coreSkills: groundedCoreSkills,
     experienceEntries,
-    projectEntries:
-      sanitizedProjectEntries.length > 0
-        ? sanitizedProjectEntries.map((entry) => ({
-            name: typeof entry.name === "string" ? entry.name : null,
-            role: typeof entry.role === "string" ? entry.role : null,
-            summary: typeof entry.summary === "string" ? entry.summary : null,
-            outcome: typeof entry.outcome === "string" ? entry.outcome : null,
-            bullets: sanitizeStringArray(entry.bullets),
-          }))
-        : fallback.projectEntries,
-    educationEntries:
-      sanitizedEducationEntries.length > 0
-        ? sanitizedEducationEntries.map((entry) => ({
-            school: typeof entry.school === "string" ? entry.school : null,
-            degree: typeof entry.degree === "string" ? entry.degree : null,
-            fieldOfStudy:
-              typeof entry.fieldOfStudy === "string"
-                ? entry.fieldOfStudy
-                : null,
-            location:
-              typeof entry.location === "string" ? entry.location : null,
-            dateRange:
-              typeof entry.dateRange === "string" ? entry.dateRange : null,
-            summary: typeof entry.summary === "string" ? entry.summary : null,
-          }))
-        : fallback.educationEntries,
-    certificationEntries:
-      sanitizedCertificationEntries.length > 0
-        ? sanitizedCertificationEntries.map((entry) => ({
-            name: typeof entry.name === "string" ? entry.name : null,
-            issuer: typeof entry.issuer === "string" ? entry.issuer : null,
-            dateRange:
-              typeof entry.dateRange === "string" ? entry.dateRange : null,
-          }))
-        : fallback.certificationEntries,
+    projectEntries,
+    educationEntries: fallback.educationEntries,
+    certificationEntries: fallback.certificationEntries,
     additionalSkills: groundedAdditionalSkills,
-    languages:
-      sanitizedLanguages.length > 0 ? sanitizedLanguages : fallback.languages,
+    languages: fallback.languages,
     targetedKeywords,
     notes,
   });
@@ -682,63 +956,65 @@ export function completeTailoredResumeDraft(
     coreSkills: groundedCoreSkills,
     targetedKeywords,
     coverageMetadata: fallback.coverageMetadata,
-    experienceEntries:
-      experienceEntries,
-    projectEntries:
-      sanitizedProjectEntries.length > 0
-        ? sanitizedProjectEntries.map((entry) => ({
-            name: typeof entry.name === "string" ? entry.name : null,
-            role: typeof entry.role === "string" ? entry.role : null,
-            summary: typeof entry.summary === "string" ? entry.summary : null,
-            outcome: typeof entry.outcome === "string" ? entry.outcome : null,
-            bullets: sanitizeStringArray(entry.bullets),
-            profileRecordId:
-              typeof entry.profileRecordId === "string"
-                ? entry.profileRecordId
-                : null,
-          }))
-        : fallback.projectEntries,
-    educationEntries:
-      sanitizedEducationEntries.length > 0
-        ? sanitizedEducationEntries.map((entry) => ({
-            school: typeof entry.school === "string" ? entry.school : null,
-            degree: typeof entry.degree === "string" ? entry.degree : null,
-            fieldOfStudy:
-              typeof entry.fieldOfStudy === "string"
-                ? entry.fieldOfStudy
-                : null,
-            location:
-              typeof entry.location === "string" ? entry.location : null,
-            dateRange:
-              typeof entry.dateRange === "string" ? entry.dateRange : null,
-            summary: typeof entry.summary === "string" ? entry.summary : null,
-            profileRecordId:
-              typeof entry.profileRecordId === "string"
-                ? entry.profileRecordId
-                : null,
-          }))
-        : fallback.educationEntries,
-    certificationEntries:
-      sanitizedCertificationEntries.length > 0
-        ? sanitizedCertificationEntries.map((entry) => ({
-            name: typeof entry.name === "string" ? entry.name : null,
-            issuer: typeof entry.issuer === "string" ? entry.issuer : null,
-            dateRange:
-              typeof entry.dateRange === "string" ? entry.dateRange : null,
-            profileRecordId:
-              typeof entry.profileRecordId === "string"
-                ? entry.profileRecordId
-                : null,
-          }))
-        : fallback.certificationEntries,
+    experienceEntries,
+    projectEntries,
+    educationEntries: fallback.educationEntries,
+    certificationEntries: fallback.certificationEntries,
     additionalSkills: groundedAdditionalSkills,
-    languages:
-      sanitizedLanguages.length > 0 ? sanitizedLanguages : fallback.languages,
+    languages: fallback.languages,
     fullText,
     compatibilityScore:
       typeof normalizedPrimary.compatibilityScore === "number"
         ? normalizedPrimary.compatibilityScore
         : fallback.compatibilityScore,
+    generationQuality: {
+      strategy:
+        quality.acceptedRewriteCount > 0 ? "evidence_linked" : "deterministic",
+      ...quality,
+    },
+    generationProvenance,
     notes,
   });
+}
+
+const DETERMINISTIC_TAILORER_NOTE =
+  "Used the built-in deterministic resume tailorer.";
+
+/**
+ * The model answered, so the draft is no longer a plain deterministic draft
+ * even when every proposal was rejected. Record what actually happened: an
+ * `ai` draft when at least one rewrite survived evidence verification, or a
+ * deterministic draft with the `provider_output_unverified` reason when the
+ * model's proposals could not be grounded. The note list is rewritten in
+ * place so the human-readable trail matches the structured provenance.
+ */
+function describeModelDraftProvenance(
+  quality: ResumeGenerationQualityAccumulator,
+  notes: string[],
+): TailoredResumeGenerationProvenance {
+  const proposed = quality.proposedRewriteCount;
+  const accepted = quality.acceptedRewriteCount;
+  if (accepted > 0) {
+    const deterministicNoteIndex = notes.indexOf(DETERMINISTIC_TAILORER_NOTE);
+    if (deterministicNoteIndex >= 0) {
+      notes.splice(deterministicNoteIndex, 1);
+    }
+    const detail = `Created with the configured AI model: ${accepted} of ${proposed} proposed ${proposed === 1 ? "rewrite" : "rewrites"} verified against saved evidence; the rest keeps grounded resume wording.`;
+    notes.unshift(detail);
+    return { method: "ai", reason: null, detail };
+  }
+
+  const detail =
+    proposed > 0
+      ? `The configured AI model proposed ${proposed} ${proposed === 1 ? "rewrite" : "rewrites"}, but none could be verified against saved evidence.`
+      : "The configured AI model returned no usable rewrite proposals.";
+  if (!notes.includes(DETERMINISTIC_TAILORER_NOTE)) {
+    notes.unshift(DETERMINISTIC_TAILORER_NOTE);
+  }
+  notes.push(detail);
+  return {
+    method: "deterministic",
+    reason: "provider_output_unverified",
+    detail,
+  };
 }

@@ -1,4 +1,7 @@
-import type { ResumeProfileExtraction, TailoredResumeDraft } from "@unemployed/ai-providers";
+import type {
+  ResumeProfileExtraction,
+  TailoredResumeDraft,
+} from "@unemployed/ai-providers";
 import {
   CandidateProfileSchema,
   JobSearchPreferencesSchema,
@@ -12,6 +15,8 @@ import {
   scoreEducationRecordCompleteness,
   scoreExperienceRecordCompleteness,
 } from "./resume-record-identity";
+import { inferAdministrativeAreaCountry } from "./location-normalization";
+import { partitionStrengthsAndSkills } from "./profile-setup-strengths-partition";
 import { normalizeText, uniqueStrings } from "./shared";
 
 const KNOWN_COUNTRY_LIKE_LOCATION_PARTS = new Set([
@@ -50,7 +55,7 @@ ${section.lines.join("\n")}`,
     )
     .join("\n\n");
 
-  return `${profile.fullName}\n${profile.headline}\n${profile.currentLocation}\n\nTarget Role: ${job.title} at ${job.company}\n\n${sections}\n`;
+  return `${profile.fullName ?? ""}\n${profile.headline ?? ""}\n${profile.currentLocation ?? ""}\n\nTarget Role: ${job.title} at ${job.company}\n\n${sections}\n`;
 }
 
 export function buildPreviewSectionsFromDraft(draft: TailoredResumeDraft) {
@@ -161,7 +166,9 @@ function mergeWorkModes(
   return [...new Set([...(existing ?? []), ...(incoming ?? [])])];
 }
 
-export function toValidUrlOrNull(value: string | null | undefined): string | null {
+export function toValidUrlOrNull(
+  value: string | null | undefined,
+): string | null {
   if (!value) {
     return null;
   }
@@ -171,6 +178,23 @@ export function toValidUrlOrNull(value: string | null | undefined): string | nul
   } catch {
     return null;
   }
+}
+
+const POSTAL_CODE_SUFFIX_PATTERN =
+  /\s+(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d|\d{4,6})$/;
+
+/**
+ * Removes a trailing postal code from an administrative-area token so an
+ * imported line such as "Cedar Park, TX 78613" yields the region "TX" instead
+ * of "TX 78613". The unsplit line stays available as the displayed location.
+ */
+function stripPostalCodeSuffix(part: string | null | undefined): string | null {
+  if (!part) {
+    return part ?? null;
+  }
+
+  const stripped = part.replace(POSTAL_CODE_SUFFIX_PATTERN, "").trim();
+  return stripped.length > 0 ? stripped : part;
 }
 
 export function parseLocationParts(location: string | null | undefined): {
@@ -218,16 +242,18 @@ export function parseLocationParts(location: string | null | undefined): {
       };
     }
 
+    const region = stripPostalCodeSuffix(parts[1]);
+
     return {
       currentCity: parts[0] ?? null,
-      currentRegion: parts[1] ?? null,
-      currentCountry: null,
+      currentRegion: region,
+      currentCountry: inferAdministrativeAreaCountry([region]),
     };
   }
 
   return {
     currentCity: parts[0] ?? null,
-    currentRegion: parts[1] ?? null,
+    currentRegion: stripPostalCodeSuffix(parts[1]),
     currentCountry: parts[parts.length - 1] ?? null,
   };
 }
@@ -236,17 +262,26 @@ export function mergeExperienceRecords(
   existing: CandidateProfile["experiences"],
   extracted: ResumeProfileExtraction["experiences"],
 ): CandidateProfile["experiences"] {
-  const normalizedExisting = [...existing].sort((left, right) =>
-    scoreExperienceRecordCompleteness(right) - scoreExperienceRecordCompleteness(left),
+  const normalizedExisting = [...existing].sort(
+    (left, right) =>
+      scoreExperienceRecordCompleteness(right) -
+      scoreExperienceRecordCompleteness(left),
   );
-  const merged = normalizedExisting.reduce<CandidateProfile["experiences"]>((accumulator, entry) => {
-    if (accumulator.some((existingEntry) => areEquivalentExperienceRecords(existingEntry, entry))) {
-      return accumulator;
-    }
+  const merged = normalizedExisting.reduce<CandidateProfile["experiences"]>(
+    (accumulator, entry) => {
+      if (
+        accumulator.some((existingEntry) =>
+          areEquivalentExperienceRecords(existingEntry, entry),
+        )
+      ) {
+        return accumulator;
+      }
 
-    accumulator.push(entry);
-    return accumulator;
-  }, []);
+      accumulator.push(entry);
+      return accumulator;
+    },
+    [],
+  );
 
   extracted.forEach((entry, index) => {
     const key = normalizeRecordKey([
@@ -262,7 +297,7 @@ export function mergeExperienceRecords(
           existingEntry.startDate,
         ]) === key || areEquivalentExperienceRecords(existingEntry, entry),
     );
-    const match = matchIndex === -1 ? null : merged[matchIndex] ?? null;
+    const match = matchIndex === -1 ? null : (merged[matchIndex] ?? null);
     const nextEntry = {
       id:
         match?.id ??
@@ -280,7 +315,9 @@ export function mergeExperienceRecords(
       startDate: entry.startDate ?? match?.startDate ?? null,
       endDate: entry.endDate ?? match?.endDate ?? null,
       isCurrent: entry.isCurrent,
-      isDraft: !(entry.companyName ?? match?.companyName) && !(entry.title ?? match?.title),
+      isDraft:
+        !(entry.companyName ?? match?.companyName) &&
+        !(entry.title ?? match?.title),
       summary: preferLongerText(match?.summary, entry.summary),
       achievements: uniqueStrings([
         ...safeStringArray(match?.achievements),
@@ -314,17 +351,26 @@ export function mergeEducationRecords(
   existing: CandidateProfile["education"],
   extracted: ResumeProfileExtraction["education"],
 ): CandidateProfile["education"] {
-  const normalizedExisting = [...existing].sort((left, right) =>
-    scoreEducationRecordCompleteness(right) - scoreEducationRecordCompleteness(left),
+  const normalizedExisting = [...existing].sort(
+    (left, right) =>
+      scoreEducationRecordCompleteness(right) -
+      scoreEducationRecordCompleteness(left),
   );
-  const merged = normalizedExisting.reduce<CandidateProfile["education"]>((accumulator, entry) => {
-    if (accumulator.some((existingEntry) => areEquivalentEducationRecords(existingEntry, entry))) {
-      return accumulator;
-    }
+  const merged = normalizedExisting.reduce<CandidateProfile["education"]>(
+    (accumulator, entry) => {
+      if (
+        accumulator.some((existingEntry) =>
+          areEquivalentEducationRecords(existingEntry, entry),
+        )
+      ) {
+        return accumulator;
+      }
 
-    accumulator.push(entry);
-    return accumulator;
-  }, []);
+      accumulator.push(entry);
+      return accumulator;
+    },
+    [],
+  );
 
   extracted.forEach((entry, index) => {
     const key = normalizeRecordKey([
@@ -340,7 +386,7 @@ export function mergeEducationRecords(
           existingEntry.startDate,
         ]) === key || areEquivalentEducationRecords(existingEntry, entry),
     );
-    const match = matchIndex === -1 ? null : merged[matchIndex] ?? null;
+    const match = matchIndex === -1 ? null : (merged[matchIndex] ?? null);
     const nextEntry = {
       id:
         match?.id ??
@@ -544,7 +590,9 @@ export function mergeResumeExtractionIntoWorkspace(
       ? uniqueStrings(extraction.preferredLocations)
       : profile.locations.length > 0
         ? profile.locations
-        : uniqueStrings([locationFallback]);
+        : locationFallback
+          ? uniqueStrings([locationFallback])
+          : [];
   const preferenceLocations =
     extraction.preferredLocations.length > 0
       ? uniqueStrings(extraction.preferredLocations)
@@ -554,7 +602,7 @@ export function mergeResumeExtractionIntoWorkspace(
   const locationParts = parseLocationParts(
     extraction.currentLocation ?? profile.currentLocation,
   );
-  const mergedSkills = uniqueStrings([
+  const extractedSkills = uniqueStrings([
     ...extraction.skills,
     ...extraction.skillGroups.coreSkills,
     ...extraction.skillGroups.tools,
@@ -562,6 +610,25 @@ export function mergeResumeExtractionIntoWorkspace(
     ...extraction.skillGroups.highlightedSkills,
     ...extraction.skillGroups.softSkills,
   ]);
+  const mergedStrengths =
+    extraction.professionalSummary.strengths.length > 0
+      ? uniqueStrings(extraction.professionalSummary.strengths)
+      : profile.professionalSummary.strengths;
+  // Named technologies belong in Skills, which is what the profile tells the
+  // user; relocate them instead of leaving the imported data contradicting
+  // its own helper text.
+  const partitionedSkills = partitionStrengthsAndSkills({
+    skillGroupValues: [
+      ...extraction.skillGroups.coreSkills,
+      ...extraction.skillGroups.tools,
+      ...extraction.skillGroups.languagesAndFrameworks,
+      ...extraction.skillGroups.highlightedSkills,
+      ...profile.skills,
+    ],
+    skills: extractedSkills,
+    strengths: mergedStrengths,
+  });
+  const mergedSkills = partitionedSkills.skills;
 
   return {
     profile: CandidateProfileSchema.parse({
@@ -604,10 +671,7 @@ export function mergeResumeExtractionIntoWorkspace(
         domainFocusSummary:
           extraction.professionalSummary.domainFocusSummary ??
           profile.professionalSummary.domainFocusSummary,
-        strengths:
-          extraction.professionalSummary.strengths.length > 0
-            ? uniqueStrings(extraction.professionalSummary.strengths)
-            : profile.professionalSummary.strengths,
+        strengths: partitionedSkills.strengths,
       },
       skillGroups: {
         coreSkills:

@@ -2,7 +2,7 @@
 
 Status: accepted
 
-Discovery, source-debug, and safe apply should improve through source-generic browser runtime primitives, bounded workflow policy, typed evidence, and learned target instructions instead of hardcoding job-board-specific route builders or rescue logic in shared code. The completed browser substrate evaluation did not justify replacing the current managed browser stack, so future browser work should start from current-stack evidence and change substrate only when a concrete regression or capability gap proves the need.
+Users configure which job sources run; the product does not ship hardcoded board workflows. Discovery, source-debug, and safe apply should improve through source-generic browser runtime primitives, bounded workflow policy, typed evidence, and learned target instructions instead of hardcoding job-board-specific route builders or rescue logic in shared code. The completed browser substrate evaluation did not justify replacing the current managed browser stack, so future browser work should start from current-stack evidence and change substrate only when a concrete regression or capability gap proves the need.
 
 ## Considered Options
 

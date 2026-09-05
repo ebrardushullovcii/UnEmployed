@@ -6,17 +6,44 @@ import {
   createJobFinderAiClientFromEnvironment,
   createDeterministicResumeVisionProvider,
   createResumeVisionProviderFromEnvironment,
-} from '@unemployed/ai-providers'
-import { createBrowserAgentRuntime, createCatalogBrowserSessionRuntime } from '@unemployed/browser-runtime'
-import type { BrowserSessionRuntime, OpenBrowserSessionOptions } from '@unemployed/browser-runtime'
-import type { BrowserSessionState } from '@unemployed/contracts'
-import { createFileJobFinderRepository } from '@unemployed/db'
-import { createJobFinderWorkspaceService } from '@unemployed/job-finder'
-import { createLocalJobFinderDocumentManager } from '../../adapters/job-finder-document-manager'
-import { createLocalResumeExportFileVerifier } from '../../adapters/job-finder-export-file-verifier'
-import { createEmptyJobFinderRepositoryState } from '../../adapters/job-finder-initial-state'
-import { createDesktopResumeResearchAdapter } from '../../adapters/job-finder-research-adapter'
-import { getBrowserAgentProfileDirectory, getGeneratedResumeDocumentsDirectory, getJobFinderWorkspaceFilePath } from './paths'
+} from "@unemployed/ai-providers";
+import { randomUUID } from "node:crypto";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import {
+  createBrowserAgentRuntime,
+  createCatalogBrowserSessionRuntime,
+} from "@unemployed/browser-runtime";
+import type {
+  BrowserSessionRuntime,
+  OpenBrowserSessionOptions,
+} from "@unemployed/browser-runtime";
+import type { BrowserSessionState } from "@unemployed/contracts";
+import { JobFinderStartupDatabaseRecoveryFactSchema } from "@unemployed/contracts";
+import {
+  createFileJobFinderRepository,
+  WorkspaceDatabaseRecoveryRequiredError,
+  type JobFinderRepository,
+  type WorkspaceDatabaseRecoveryRequiredDetails,
+  type WorkspaceDatabaseRestoreTelemetryEvent,
+} from "@unemployed/db";
+import {
+  createDefaultListingHtmlFetcher,
+  createJobFinderWorkspaceService,
+} from "@unemployed/job-finder";
+import { createLocalJobFinderDocumentManager } from "../../adapters/job-finder-document-manager";
+import { createLocalResumeExportFileVerifier } from "../../adapters/job-finder-export-file-verifier";
+import { createEmptyJobFinderRepositoryState } from "../../adapters/job-finder-initial-state";
+import { createDesktopResumeResearchAdapter } from "../../adapters/job-finder-research-adapter";
+import { adoptPristineWorkspaceStarterSources } from "./pristine-starter-source-adoption";
+import {
+  ensureJobFinderUserDataDirectory,
+  getBrowserAgentProfileDirectory,
+  getJobFinderDocumentsDirectory,
+  getGeneratedResumeDocumentsDirectory,
+  getJobFinderUserDataDirectory,
+  getJobFinderWorkspaceFilePath,
+} from "./paths";
 import {
   getResumePreviewTestMode,
   getTestBrowserSessionDetail,
@@ -26,44 +53,263 @@ import {
   isBrowserHeadlessEnabled,
   isDesktopTestApiEnabled,
   isEnabled,
-} from './test-api'
-const deterministicTestTimestamp = '2026-03-20T10:00:00.000Z'
+} from "./test-api";
+import { migrateLegacyResumeSource } from "./migrate-resume-source";
+import { recoverPendingJobFinderWorkspaceReset } from "./reset-workspace";
+import { getCandidateAssetLibrary } from "./candidate-asset-library-instance";
+import type {
+  JobFinderStartupDatabaseRecoveryBlockedFact,
+  JobFinderStartupDatabaseRecoveryFact,
+  JobFinderStartupDatabaseRecoveryRestoredFact,
+} from "../../../shared/job-finder-startup-db-recovery";
 
-function buildCatalogSessionLabel(status: BrowserSessionState['status']): string {
-  switch (status) {
-    case 'ready':
-      return 'Browser session ready'
-    case 'login_required':
-      return 'Browser session needs sign-in'
-    case 'blocked':
-      return 'Browser session blocked'
-    case 'unknown':
-      return 'Browser session not started'
+// The authority manager must use the same repository handle as the workspace
+// service. A weak association keeps this accessor scoped to the live service
+// instance without retaining a shut-down workspace in process memory.
+const repositoryByWorkspaceService = new WeakMap<object, JobFinderRepository>();
+
+export function getJobFinderRepositoryForWorkspaceService(
+  workspaceService: object,
+): JobFinderRepository | null {
+  return repositoryByWorkspaceService.get(workspaceService) ?? null;
+}
+
+const deterministicTestTimestamp = "2026-03-20T10:00:00.000Z";
+
+/**
+ * Database-only recovery snapshots written next to the live workspace
+ * database. Graceful shutdown rotates `<workspace>.backup` (prior generation
+ * preserved as `.backup.prev`); destructive resets snapshot into the
+ * dedicated `<workspace>.reset-backup`, which close rotation can never
+ * overwrite with post-reset state.
+ *
+ * Scope limitation: these snapshots recover the SQLite database only. They
+ * do NOT include generated resume documents, candidate assets, application
+ * documents, or browser profile data, so a full-workspace restore after a
+ * destructive reset is not possible from them alone. Snapshot failures are
+ * non-fatal and never block shutdown or reset.
+ */
+export const DESKTOP_AUTOMATIC_DATABASE_BACKUP_OPTIONS = {
+  onClose: true,
+  beforeReset: true,
+} as const;
+
+const STARTUP_DATABASE_RECOVERY_FACT_VERSION = 1;
+const STARTUP_DATABASE_RECOVERY_FACT_FILE_NAME =
+  "job-finder-startup-db-recovery.json";
+
+/**
+ * Session-scoped disclosure of startup database recovery outcomes. Restored
+ * incidents are mirrored into a small app-owned JSON file next to (never
+ * inside) the recovered database so the notice survives renderer and app
+ * restarts until it is explicitly dismissed. Blocked incidents stay in
+ * memory only: they are re-derived on every launch while the retained
+ * artifacts still prevent the database from opening.
+ */
+let startupDatabaseRecoveryFact: JobFinderStartupDatabaseRecoveryFact = {
+  status: "idle",
+};
+let startupDatabaseRecoveryFactHydrated = false;
+
+function getStartupDatabaseRecoveryFactFilePath(): string {
+  return path.join(
+    getJobFinderUserDataDirectory(),
+    STARTUP_DATABASE_RECOVERY_FACT_FILE_NAME,
+  );
+}
+
+function readPersistedStartupDatabaseRecoveryFact(
+  fileContent: string,
+): JobFinderStartupDatabaseRecoveryFact | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fileContent);
+  } catch {
+    return null;
   }
 
-  const exhaustiveStatus: never = status
-  throw new Error(`Unhandled browser session status: ${String(exhaustiveStatus)}`)
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    (parsed as { version?: unknown }).version !==
+      STARTUP_DATABASE_RECOVERY_FACT_VERSION
+  ) {
+    return null;
+  }
+
+  const fact = (parsed as { fact?: unknown }).fact;
+  const parsedFact = JobFinderStartupDatabaseRecoveryFactSchema.safeParse(fact);
+  return parsedFact.success ? parsedFact.data : null;
+}
+
+async function persistStartupDatabaseRecoveryFact(
+  fact: JobFinderStartupDatabaseRecoveryRestoredFact,
+): Promise<void> {
+  const factPath = getStartupDatabaseRecoveryFactFilePath();
+  const temporaryFactPath = `${factPath}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(
+      temporaryFactPath,
+      `${JSON.stringify({
+        version: STARTUP_DATABASE_RECOVERY_FACT_VERSION,
+        fact,
+      })}\n`,
+      "utf8",
+    );
+    await rename(temporaryFactPath, factPath);
+  } catch (error) {
+    await rm(temporaryFactPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+function recordRestoredStartupDatabaseRecoveryEvent(
+  event: WorkspaceDatabaseRestoreTelemetryEvent,
+): void {
+  const fact: JobFinderStartupDatabaseRecoveryRestoredFact = {
+    status: "restored",
+    incidentId: event.incidentId,
+    restoredFrom: event.restoredFrom,
+    lossWindow: {
+      detectedAtIso: event.lossWindow.detectedAtIso,
+      quarantinedDatabaseModifiedAtIso:
+        event.lossWindow.quarantinedDatabaseModifiedAtIso,
+      restoredSnapshotModifiedAtIso:
+        event.lossWindow.restoredSnapshotModifiedAtIso,
+    },
+    quarantinedArtifactBasenames: [...event.quarantinedArtifactBasenames],
+    restoredAtIso: new Date().toISOString(),
+    dismissedAtIso: null,
+  };
+  startupDatabaseRecoveryFact = fact;
+  startupDatabaseRecoveryFactHydrated = true;
+
+  void persistStartupDatabaseRecoveryFact(fact).catch((error) => {
+    console.warn(
+      "[Desktop] The successful workspace database restore notice could not be persisted; it may not appear after the next app start.",
+      error,
+    );
+  });
+}
+
+function recordBlockedStartupDatabaseRecoveryIncident(
+  details: WorkspaceDatabaseRecoveryRequiredDetails,
+): void {
+  const blockedFact: JobFinderStartupDatabaseRecoveryBlockedFact = {
+    status: "blocked",
+    incidentId: details.incidentId,
+    outcome: details.outcome,
+    candidates: details.candidates.map((candidate) =>
+      candidate.status === "invalid"
+        ? {
+            kind: candidate.kind,
+            status: candidate.status,
+            failedStage: candidate.failedStage,
+          }
+        : { kind: candidate.kind, status: candidate.status, failedStage: null },
+    ),
+    quarantineBasenames: [...details.quarantineBasenames],
+  };
+  startupDatabaseRecoveryFact = blockedFact;
+  startupDatabaseRecoveryFactHydrated = true;
+}
+
+function clearBlockedStartupDatabaseRecoveryIncident(): void {
+  if (startupDatabaseRecoveryFact.status === "blocked") {
+    startupDatabaseRecoveryFact = { status: "idle" };
+  }
+}
+
+export async function getJobFinderStartupDatabaseRecoveryFact(): Promise<JobFinderStartupDatabaseRecoveryFact> {
+  if (startupDatabaseRecoveryFact.status !== "idle") {
+    return startupDatabaseRecoveryFact;
+  }
+
+  if (!startupDatabaseRecoveryFactHydrated) {
+    startupDatabaseRecoveryFactHydrated = true;
+    try {
+      const persistedFact = readPersistedStartupDatabaseRecoveryFact(
+        await readFile(getStartupDatabaseRecoveryFactFilePath(), "utf8"),
+      );
+      if (persistedFact && persistedFact.status !== "idle") {
+        startupDatabaseRecoveryFact = persistedFact;
+      }
+    } catch {
+      // A missing or unreadable disclosure file leaves the fact idle.
+    }
+  }
+
+  return startupDatabaseRecoveryFact;
+}
+
+export async function dismissJobFinderStartupDatabaseRecoveryNotice(): Promise<JobFinderStartupDatabaseRecoveryFact> {
+  const currentFact = await getJobFinderStartupDatabaseRecoveryFact();
+  if (
+    currentFact.status !== "restored" ||
+    currentFact.dismissedAtIso !== null
+  ) {
+    return currentFact;
+  }
+
+  const dismissedFact: JobFinderStartupDatabaseRecoveryRestoredFact = {
+    ...currentFact,
+    dismissedAtIso: new Date().toISOString(),
+  };
+  startupDatabaseRecoveryFact = dismissedFact;
+
+  try {
+    await persistStartupDatabaseRecoveryFact(dismissedFact);
+  } catch (error) {
+    console.warn(
+      "[Desktop] The dismissed workspace database restore notice could not be persisted; it may reappear after the next app start.",
+      error,
+    );
+  }
+
+  return dismissedFact;
+}
+
+function buildCatalogSessionLabel(
+  status: BrowserSessionState["status"],
+): string {
+  switch (status) {
+    case "ready":
+      return "Browser session ready";
+    case "login_required":
+      return "Browser session needs sign-in";
+    case "blocked":
+      return "Browser session blocked";
+    case "unknown":
+      return "Browser session not started";
+  }
+
+  const exhaustiveStatus: never = status;
+  throw new Error(
+    `Unhandled browser session status: ${String(exhaustiveStatus)}`,
+  );
 }
 
 function buildCatalogSessionDetail(
-  status: BrowserSessionState['status'],
+  status: BrowserSessionState["status"],
   desktopTestApiEnabled: boolean,
 ): string {
   switch (status) {
-    case 'ready':
+    case "ready":
       return desktopTestApiEnabled
-        ? 'Deterministic desktop test runtime is ready.'
-        : 'Deterministic catalog runtime is ready.'
-    case 'login_required':
-      return 'A saved source needs sign-in before the next search can continue.'
-    case 'blocked':
-      return 'The shared browser session is blocked until you resolve the current browser issue.'
-    case 'unknown':
-      return 'Open the dedicated browser profile when you want to sign in or prepare a site before the next run.'
+        ? "Deterministic desktop test runtime is ready."
+        : "Deterministic catalog runtime is ready.";
+    case "login_required":
+      return "A saved source needs sign-in before the next search can continue.";
+    case "blocked":
+      return "The shared browser session is blocked until you resolve the current browser issue.";
+    case "unknown":
+      return "Open the dedicated browser profile when you want to sign in or prepare a site before the next run.";
   }
 
-  const exhaustiveStatus: never = status
-  throw new Error(`Unhandled browser session status: ${String(exhaustiveStatus)}`)
+  const exhaustiveStatus: never = status;
+  throw new Error(
+    `Unhandled browser session status: ${String(exhaustiveStatus)}`,
+  );
 }
 
 function buildCatalogSessionSeed(
@@ -71,122 +317,184 @@ function buildCatalogSessionSeed(
   desktopTestApiEnabled: boolean,
 ): BrowserSessionState {
   const status = desktopTestApiEnabled
-    ? (getTestBrowserSessionStatus(env) ?? 'ready')
-    : 'ready'
+    ? (getTestBrowserSessionStatus(env) ?? "ready")
+    : "ready";
   const label = desktopTestApiEnabled
     ? (getTestBrowserSessionLabel(env) ?? buildCatalogSessionLabel(status))
-    : buildCatalogSessionLabel(status)
+    : buildCatalogSessionLabel(status);
   const detail = desktopTestApiEnabled
-    ? (getTestBrowserSessionDetail(env) ?? buildCatalogSessionDetail(status, desktopTestApiEnabled))
-    : buildCatalogSessionDetail(status, desktopTestApiEnabled)
+    ? (getTestBrowserSessionDetail(env) ??
+      buildCatalogSessionDetail(status, desktopTestApiEnabled))
+    : buildCatalogSessionDetail(status, desktopTestApiEnabled);
 
   return {
-    source: 'target_site',
+    source: "target_site",
     status,
-    driver: 'catalog_seed',
+    driver: "catalog_seed",
     label,
     detail,
     lastCheckedAt: desktopTestApiEnabled
       ? deterministicTestTimestamp
-      : new Date().toISOString()
-  }
+      : new Date().toISOString(),
+  };
 }
 
 async function analyzeBrowserVisualSnapshotWithProvider(
   input: BrowserVisualAnalysisInput,
-  provider: ReturnType<typeof createBrowserVisualAnalysisProviderFromEnvironment>,
+  provider: ReturnType<
+    typeof createBrowserVisualAnalysisProviderFromEnvironment
+  >,
 ): Promise<BrowserVisualObservationSet> {
-  return provider.analyzeBrowserVisualSnapshot(input)
+  return provider.analyzeBrowserVisualSnapshot(input);
 }
 
-export function createDesktopJobFinderAiClient(env: NodeJS.ProcessEnv = process.env) {
-  const desktopTestApiEnabled = isDesktopTestApiEnabled(env)
-  const forceLiveAiDuringTestApi = isEnabled(env.UNEMPLOYED_TEST_API_USE_LIVE_AI)
+export function createDesktopJobFinderAiClient(
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const desktopTestApiEnabled = isDesktopTestApiEnabled(env);
+  const forceLiveAiDuringTestApi = isEnabled(
+    env.UNEMPLOYED_TEST_API_USE_LIVE_AI,
+  );
 
   if (desktopTestApiEnabled && !forceLiveAiDuringTestApi) {
     return createDeterministicJobFinderAiClient(
-      'Desktop test API forces deterministic AI runtime so scripted UI flows stay stable even when local model credentials exist.',
-    )
+      "Desktop test API forces deterministic AI runtime so scripted UI flows stay stable even when local model credentials exist.",
+      { generationReason: "forced_deterministic" },
+    );
   }
 
-  const aiClient = createJobFinderAiClientFromEnvironment(env)
+  const aiClient = createJobFinderAiClientFromEnvironment(env);
 
   if (aiClient.analyzeBrowserVisualSnapshot) {
-    return aiClient
+    return aiClient;
   }
 
-  const browserVisualProvider = createBrowserVisualAnalysisProviderFromEnvironment(env)
+  const browserVisualProvider =
+    createBrowserVisualAnalysisProviderFromEnvironment(env);
 
   return {
     ...aiClient,
     analyzeBrowserVisualSnapshot: (input: BrowserVisualAnalysisInput) =>
       analyzeBrowserVisualSnapshotWithProvider(input, browserVisualProvider),
-  }
+  };
 }
 
-export function createDesktopResumeVisionProvider(env: NodeJS.ProcessEnv = process.env) {
-  const desktopTestApiEnabled = isDesktopTestApiEnabled(env)
-  const forceLiveAiDuringTestApi = isEnabled(env.UNEMPLOYED_TEST_API_USE_LIVE_AI)
+export function createDesktopResumeVisionProvider(
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const desktopTestApiEnabled = isDesktopTestApiEnabled(env);
+  const forceLiveAiDuringTestApi = isEnabled(
+    env.UNEMPLOYED_TEST_API_USE_LIVE_AI,
+  );
 
   if (desktopTestApiEnabled && !forceLiveAiDuringTestApi) {
     return createDeterministicResumeVisionProvider(
-      'Desktop test API forces deterministic resume vision runtime so scripted UI flows stay stable even when local vision credentials exist.',
-    )
+      "Desktop test API forces deterministic resume vision runtime so scripted UI flows stay stable even when local vision credentials exist.",
+    );
   }
 
-  return createResumeVisionProviderFromEnvironment(env)
+  return createResumeVisionProviderFromEnvironment(env);
 }
 
-export function createDesktopBrowserRuntime(input: {
-  env?: NodeJS.ProcessEnv
-  aiClient?: ReturnType<typeof createDesktopJobFinderAiClient>
-  desktopTestApiEnabled?: boolean
-} = {}): BrowserSessionRuntime {
-  const env = input.env ?? process.env
-  const desktopTestApiEnabled = input.desktopTestApiEnabled ?? isDesktopTestApiEnabled(env)
+export function createDesktopBrowserRuntime(
+  input: {
+    env?: NodeJS.ProcessEnv;
+    aiClient?: ReturnType<typeof createDesktopJobFinderAiClient>;
+    desktopTestApiEnabled?: boolean;
+  } = {},
+): BrowserSessionRuntime {
+  const env = input.env ?? process.env;
+  const desktopTestApiEnabled =
+    input.desktopTestApiEnabled ?? isDesktopTestApiEnabled(env);
   const rawPort = env.UNEMPLOYED_CHROME_DEBUG_PORT
     ? Number.parseInt(env.UNEMPLOYED_CHROME_DEBUG_PORT, 10)
-    : null
-  const chromeDebugPort = (rawPort !== null && Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65535)
-    ? rawPort
-    : null
+    : null;
+  const chromeDebugPort =
+    rawPort !== null &&
+    Number.isInteger(rawPort) &&
+    rawPort > 0 &&
+    rawPort <= 65535
+      ? rawPort
+      : null;
 
   if (isBrowserAgentEnabled(env)) {
-    const aiClient = input.aiClient ?? createDesktopJobFinderAiClient(env)
-
-    return createBrowserAgentRuntime({
+    const aiClient = input.aiClient ?? createDesktopJobFinderAiClient(env);
+    const runtime = createBrowserAgentRuntime({
       userDataDir: getBrowserAgentProfileDirectory(),
       headless: isBrowserHeadlessEnabled(env),
       ...(env.UNEMPLOYED_CHROME_PATH
         ? { chromeExecutablePath: env.UNEMPLOYED_CHROME_PATH }
         : {}),
       ...(chromeDebugPort !== null ? { debugPort: chromeDebugPort } : {}),
-      jobExtractor: (runtimeInput) => aiClient.extractJobsFromPage(runtimeInput),
+      jobExtractor: (runtimeInput) =>
+        aiClient.extractJobsFromPage(runtimeInput),
       aiClient,
-    })
+    });
+
+    if (
+      desktopTestApiEnabled &&
+      isEnabled(env.UNEMPLOYED_TEST_AUTHORIZE_INTERMEDIATE_ATS_WRITES)
+    ) {
+      return {
+        ...runtime,
+        executeApplicationFlow: (source, executionInput, executionOptions) => {
+          let syntheticOrigin: string | null = null;
+          try {
+            const candidate = new URL(
+              executionInput.job.applicationUrl ??
+                executionInput.job.canonicalUrl,
+            );
+            if (
+              candidate.hostname === "localhost" ||
+              candidate.hostname === "127.0.0.1" ||
+              candidate.hostname === "[::1]"
+            ) {
+              syntheticOrigin = candidate.origin;
+            }
+          } catch {
+            syntheticOrigin = null;
+          }
+          return runtime.executeApplicationFlow(
+            source,
+            syntheticOrigin === null
+              ? executionInput
+              : {
+                  ...executionInput,
+                  intermediateMutationsAuthorized: true,
+                  intermediateMutationAllowedOrigins: [syntheticOrigin],
+                  recheckIntermediateMutationAuthority: (observedOrigin) =>
+                    Promise.resolve(observedOrigin === syntheticOrigin),
+                  accountCreationAuthorized: false,
+                  submitAuthorized: false,
+                },
+            executionOptions,
+          );
+        },
+      };
+    }
+
+    return runtime;
   }
 
   const runtime = createCatalogBrowserSessionRuntime({
-    sessions: [
-      buildCatalogSessionSeed(env, desktopTestApiEnabled)
-    ],
-    catalog: []
-  })
+    sessions: [buildCatalogSessionSeed(env, desktopTestApiEnabled)],
+    catalog: [],
+  });
 
   return {
     ...runtime,
     async openSession(source, options?: OpenBrowserSessionOptions) {
-      const hasTargetId = Boolean(options?.targetId)
+      const hasTargetId = Boolean(options?.targetId);
 
       if (options?.targetUrl || hasTargetId) {
         throw new Error(
-          'Targeted sign-in requires the browser agent runtime, but it is disabled in this desktop build.',
-        )
+          "Targeted sign-in requires the browser agent runtime, but it is disabled in this desktop build.",
+        );
       }
 
-      return runtime.openSession(source, options)
+      return runtime.openSession(source, options);
     },
-  }
+  };
 }
 
 export async function createJobFinderWorkspaceServiceAsync(
@@ -195,37 +503,88 @@ export async function createJobFinderWorkspaceServiceAsync(
   const env = {
     ...process.env,
     ...(envOverrides ?? {}),
+  };
+  const desktopTestApiEnabled = isDesktopTestApiEnabled(env);
+  await ensureJobFinderUserDataDirectory();
+  let jobFinderRepository: JobFinderRepository;
+  try {
+    jobFinderRepository = await createFileJobFinderRepository({
+      filePath: getJobFinderWorkspaceFilePath(),
+      seed: createEmptyJobFinderRepositoryState(),
+      automaticBackup: DESKTOP_AUTOMATIC_DATABASE_BACKUP_OPTIONS,
+      recoveryTelemetry: {
+        onRestored: recordRestoredStartupDatabaseRecoveryEvent,
+      },
+    });
+  } catch (error) {
+    if (error instanceof WorkspaceDatabaseRecoveryRequiredError) {
+      recordBlockedStartupDatabaseRecoveryIncident(error.details);
+    }
+    throw error;
   }
-  const desktopTestApiEnabled = isDesktopTestApiEnabled(env)
-  const jobFinderRepository = await createFileJobFinderRepository({
-    filePath: getJobFinderWorkspaceFilePath(),
-    seed: createEmptyJobFinderRepositoryState()
-  })
-  const aiClient = createDesktopJobFinderAiClient(env)
-  const visionProvider = createDesktopResumeVisionProvider(env)
+  // Reconcile any crash-interrupted authority attempt before constructing or
+  // exposing the workspace service. The repository transition is durable and
+  // idempotent: armed attempts become permanently uncertain, active grants are
+  // revoked, and no browser action or submission capability is opened here.
+  await jobFinderRepository.recoverArmedSubmissionAttempts({
+    now: new Date().toISOString(),
+  });
+  clearBlockedStartupDatabaseRecoveryIncident();
+  await recoverPendingJobFinderWorkspaceReset(jobFinderRepository);
+  await migrateLegacyResumeSource({
+    documentsDirectory: getJobFinderDocumentsDirectory(),
+    repository: jobFinderRepository,
+  });
+  const aiClient = createDesktopJobFinderAiClient(env);
+  const visionProvider = createDesktopResumeVisionProvider(env);
   const browserRuntime = createDesktopBrowserRuntime({
     env,
     aiClient,
     desktopTestApiEnabled,
-  })
+  });
   const documentManager = createLocalJobFinderDocumentManager({
     outputDirectory: getGeneratedResumeDocumentsDirectory(),
     previewTestMode: desktopTestApiEnabled
       ? getResumePreviewTestMode(env)
-      : 'ok',
-  })
-  const exportFileVerifier = createLocalResumeExportFileVerifier()
+      : "ok",
+  });
+  const exportFileVerifier = createLocalResumeExportFileVerifier();
   const researchAdapter = desktopTestApiEnabled
     ? undefined
-    : createDesktopResumeResearchAdapter()
+    : createDesktopResumeResearchAdapter();
 
-  return createJobFinderWorkspaceService({
+  const workspaceService = createJobFinderWorkspaceService({
     aiClient,
     visionProvider,
     documentManager,
     exportFileVerifier,
     repository: jobFinderRepository,
     browserRuntime,
-    ...(researchAdapter ? { researchAdapter } : {})
-  })
+    candidateAssetResolver: getCandidateAssetLibrary(),
+    ...(researchAdapter ? { researchAdapter } : {}),
+    // Listing bodies are read over plain HTTP from the main process; the
+    // package only reads when a host hands it a reader, so tests stay offline.
+    fetchListingHtml: createDefaultListingHtmlFetcher(),
+  });
+  repositoryByWorkspaceService.set(workspaceService, jobFinderRepository);
+
+  // One-time lossless adoption for legacy pristine targetless workspaces.
+  // Runs through the canonical save path; a failure must never block startup,
+  // so it degrades to skipping adoption (the workspace stays as persisted).
+  try {
+    await adoptPristineWorkspaceStarterSources({
+      getCampaignState: () => jobFinderRepository.getCampaignState(),
+      getProfileSetupState: () => jobFinderRepository.getProfileSetupState(),
+      getSearchPreferences: () => jobFinderRepository.getSearchPreferences(),
+      saveSearchPreferences: (next) =>
+        workspaceService.saveSearchPreferences(next),
+    });
+  } catch (error) {
+    console.warn(
+      "Skipping pristine starter source adoption after an error:",
+      error,
+    );
+  }
+
+  return workspaceService;
 }

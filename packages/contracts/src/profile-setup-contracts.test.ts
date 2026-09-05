@@ -5,8 +5,15 @@ import {
   ProfileSetupReviewActionOptionsSchema,
   ProfileSetupStateSchema,
   ProfileReviewItemSchema,
+  CandidateProfileSchema,
+  JobSearchPreferencesSchema,
+  createFreshStartCandidateProfile,
   evaluateProfileSetupReadiness,
   deriveProfileSetupState,
+  getProfileSetupReadinessBlockers,
+  hasProfileSetupPlaceholderValue,
+  normalizeProfileSetupStep,
+  profileSetupVisibleStepValues,
 } from "./index";
 
 const emptyProfessionalSummary = {
@@ -53,6 +60,107 @@ const emptySkillGroups = {
   highlightedSkills: [],
 };
 
+// A materially complete profile/preferences pair; only the work-mode
+// preference is toggled by the canonical-rule tests below.
+const completeProfileFixture = CandidateProfileSchema.parse({
+  id: "candidate_1",
+  firstName: "Alex",
+  lastName: "Vanguard",
+  fullName: "Alex Vanguard",
+  headline: "Senior systems designer",
+  summary: "Builds resilient workflows.",
+  currentLocation: "London, UK",
+  yearsExperience: 10,
+  email: "alex@example.com",
+  phone: "+44 000 0000",
+  baseResume: {
+    id: "resume_1",
+    fileName: "alex.pdf",
+    uploadedAt: "2026-04-11T10:00:00.000Z",
+    textContent: "Alex Vanguard",
+    extractionStatus: "ready",
+  },
+  workEligibility: {
+    authorizedWorkCountries: ["United Kingdom"],
+    requiresVisaSponsorship: false,
+    remoteEligible: true,
+  },
+  targetRoles: ["Principal Designer"],
+  experiences: [
+    {
+      id: "experience_1",
+      companyName: "Signal Systems",
+      title: "Senior Product Designer",
+      startDate: "2022-01",
+      isCurrent: true,
+      summary: "Owned workflow tooling.",
+    },
+  ],
+});
+
+const blankSearchPreferencesFixture = JobSearchPreferencesSchema.parse({
+  targetRoles: [],
+  jobFamilies: [],
+  locations: [],
+  excludedLocations: [],
+  workModes: [],
+  seniorityLevels: [],
+  targetIndustries: [],
+  targetCompanyStages: [],
+  employmentTypes: [],
+  minimumSalaryUsd: null,
+  targetSalaryUsd: null,
+  salaryCurrency: "USD",
+  compensation: {
+    minimum: null,
+    maximum: null,
+    interval: "year",
+    currency: null,
+    currencyStatus: "needs_clarification",
+  },
+  approvalMode: "review_before_submit",
+  tailoringMode: "balanced",
+  companyBlacklist: [],
+  companyWhitelist: [],
+  discovery: { historyLimit: 5, targets: [] },
+});
+
+const completeSearchPreferencesFixture = JobSearchPreferencesSchema.parse({
+  targetRoles: ["Principal Designer"],
+  jobFamilies: [],
+  locations: ["Remote"],
+  excludedLocations: [],
+  workModes: ["remote"],
+  seniorityLevels: [],
+  targetIndustries: [],
+  targetCompanyStages: [],
+  employmentTypes: [],
+  minimumSalaryUsd: null,
+  targetSalaryUsd: null,
+  salaryCurrency: "USD",
+  compensation: {
+    minimum: null,
+    maximum: null,
+    interval: "year",
+    currency: null,
+    currencyStatus: "needs_clarification",
+  },
+  approvalMode: "review_before_submit",
+  tailoringMode: "balanced",
+  companyBlacklist: [],
+  companyWhitelist: [],
+  discovery: {
+    historyLimit: 5,
+    targets: [
+      {
+        id: "source_1",
+        label: "Signal Systems careers",
+        startingUrl: "https://signal.example/careers",
+      },
+    ],
+  },
+});
+
 describe("contracts profile setup schemas", () => {
   test("parses profile setup workflow state", () => {
     const setupState = ProfileSetupStateSchema.parse({
@@ -98,7 +206,8 @@ describe("contracts profile setup schemas", () => {
           recordId: "experience_1",
         },
         label: "Current role",
-        reason: "Experience details should be confirmed before setup is complete.",
+        reason:
+          "Experience details should be confirmed before setup is complete.",
         severity: "critical",
         status: "edited",
         proposedValue: null,
@@ -221,18 +330,97 @@ describe("contracts profile setup schemas", () => {
         minimumSalaryUsd: null,
         targetSalaryUsd: null,
         salaryCurrency: "USD",
+        compensation: {
+          minimum: null,
+          maximum: null,
+          interval: "year",
+          currency: null,
+          currencyStatus: "needs_clarification",
+        },
         approvalMode: "review_before_submit",
         tailoringMode: "balanced",
         companyBlacklist: [],
         companyWhitelist: [],
-        discovery: { historyLimit: 5, targets: [] },
+        discovery: {
+          historyLimit: 5,
+          targets: [
+            {
+              id: "source_1",
+              label: "Signal Systems careers",
+              startingUrl: "https://signal.example/careers",
+              enabled: true,
+              adapterKind: "auto",
+              customInstructions: null,
+              instructionStatus: "missing",
+              validatedInstructionId: null,
+              draftInstructionId: null,
+              lastDebugRunId: null,
+              lastVerifiedAt: null,
+              staleReason: null,
+            },
+          ],
+        },
       },
       { now: "2026-04-11T10:15:00.000Z" },
     );
 
     expect(state.status).toBe("completed");
-    expect(state.currentStep).toBe("ready_check");
+    // Finish lives on Job targets now; there is no summary step to park on.
+    expect(state.currentStep).toBe("targeting");
     expect(state.completedAt).toBe("2026-04-11T10:15:00.000Z");
+  });
+
+  test("migrates retired step ids onto the five visible guided-setup steps", () => {
+    expect(normalizeProfileSetupStep("narrative")).toBe("extras");
+    expect(normalizeProfileSetupStep("answers")).toBe("extras");
+    expect(normalizeProfileSetupStep("ready_check")).toBe("targeting");
+    expect(profileSetupVisibleStepValues).toEqual([
+      "import",
+      "essentials",
+      "background",
+      "targeting",
+      "extras",
+    ]);
+
+    // A stored workspace is migrated at parse time, so nothing downstream has
+    // to know a retired step id ever existed.
+    const parsed = ProfileSetupStateSchema.parse({
+      status: "in_progress",
+      currentStep: "answers",
+      completedAt: null,
+      lastResumedAt: null,
+      reviewItems: [
+        {
+          id: "review_story",
+          step: "narrative",
+          target: {
+            domain: "narrative",
+            key: "professionalStory",
+            recordId: null,
+          },
+          label: "Professional story",
+          reason: "Confirm the imported story.",
+          severity: "optional",
+          status: "pending",
+          createdAt: "2026-04-11T10:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(parsed.currentStep).toBe("extras");
+    expect(parsed.reviewItems[0]?.step).toBe("extras");
+  });
+
+  test("keeps optional narrative and answer details outside core setup readiness", () => {
+    const readiness = evaluateProfileSetupReadiness(
+      completeProfileFixture,
+      completeSearchPreferencesFixture,
+    );
+
+    expect(readiness.materiallyComplete).toBe(true);
+    expect(readiness.hasNarrative).toBe(false);
+    expect(readiness.hasAnswerBank).toBe(false);
+    expect(getProfileSetupReadinessBlockers(readiness)).toEqual([]);
   });
 
   test("keeps setup in progress when pending critical review items remain", () => {
@@ -332,6 +520,13 @@ describe("contracts profile setup schemas", () => {
         minimumSalaryUsd: null,
         targetSalaryUsd: null,
         salaryCurrency: "USD",
+        compensation: {
+          minimum: null,
+          maximum: null,
+          interval: "year",
+          currency: null,
+          currencyStatus: "needs_clarification",
+        },
         approvalMode: "review_before_submit",
         tailoringMode: "balanced",
         companyBlacklist: [],
@@ -472,6 +667,13 @@ describe("contracts profile setup schemas", () => {
         minimumSalaryUsd: null,
         targetSalaryUsd: null,
         salaryCurrency: "USD",
+        compensation: {
+          minimum: null,
+          maximum: null,
+          interval: "year",
+          currency: null,
+          currencyStatus: "needs_clarification",
+        },
         approvalMode: "review_before_submit",
         tailoringMode: "balanced",
         companyBlacklist: [],
@@ -592,6 +794,13 @@ describe("contracts profile setup schemas", () => {
         minimumSalaryUsd: null,
         targetSalaryUsd: null,
         salaryCurrency: "USD",
+        compensation: {
+          minimum: null,
+          maximum: null,
+          interval: "year",
+          currency: null,
+          currencyStatus: "needs_clarification",
+        },
         approvalMode: "review_before_submit",
         tailoringMode: "balanced",
         companyBlacklist: [],
@@ -602,6 +811,7 @@ describe("contracts profile setup schemas", () => {
 
     expect(readiness.freshStart).toBe(true);
     expect(readiness.hasCoreIdentity).toBe(false);
+    expect(readiness.hasDiscoverySource).toBe(false);
     expect(readiness.recommendedStep).toBe("essentials");
   });
 
@@ -702,6 +912,13 @@ describe("contracts profile setup schemas", () => {
         minimumSalaryUsd: null,
         targetSalaryUsd: null,
         salaryCurrency: "USD",
+        compensation: {
+          minimum: null,
+          maximum: null,
+          interval: "year",
+          currency: null,
+          currencyStatus: "needs_clarification",
+        },
         approvalMode: "review_before_submit",
         tailoringMode: "balanced",
         companyBlacklist: [],
@@ -743,5 +960,103 @@ describe("contracts profile setup schemas", () => {
     expect(state.status).toBe("in_progress");
     expect(state.currentStep).toBe("background");
     expect(state.completedAt).toBeNull();
+  });
+
+  test("parses the canonical fresh-start seed with no persisted placeholder facts", () => {
+    const profile = createFreshStartCandidateProfile();
+
+    expect(profile.id).toBe("candidate_fresh_start");
+    expect(profile.firstName).toBeNull();
+    expect(profile.lastName).toBeNull();
+    expect(profile.fullName).toBeNull();
+    expect(profile.headline).toBeNull();
+    expect(profile.summary).toBeNull();
+    expect(profile.currentLocation).toBeNull();
+
+    // Legacy workspaces that already stored the instructional strings still
+    // parse, and the shared detector recognizes them as placeholders.
+    const legacy = CandidateProfileSchema.parse({
+      ...profile,
+      firstName: "New",
+      lastName: "Candidate",
+      fullName: "New Candidate",
+      headline: "Import your resume to begin",
+      summary:
+        "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+      currentLocation: "Set your preferred location",
+    });
+    expect(legacy.fullName).toBe("New Candidate");
+    expect(hasProfileSetupPlaceholderValue("fullName", legacy.fullName)).toBe(
+      true,
+    );
+    expect(hasProfileSetupPlaceholderValue("headline", legacy.headline)).toBe(
+      true,
+    );
+    expect(
+      hasProfileSetupPlaceholderValue(
+        "currentLocation",
+        legacy.currentLocation,
+      ),
+    ).toBe(true);
+    expect(hasProfileSetupPlaceholderValue("summary", legacy.summary)).toBe(
+      true,
+    );
+    expect(hasProfileSetupPlaceholderValue("fullName", "Alex Vanguard")).toBe(
+      false,
+    );
+  });
+
+  test("reports a null-identity fresh start as not started with canonical blockers", () => {
+    const readiness = evaluateProfileSetupReadiness(
+      createFreshStartCandidateProfile(),
+      blankSearchPreferencesFixture,
+    );
+
+    expect(readiness.freshStart).toBe(true);
+    expect(readiness.hasCoreIdentity).toBe(false);
+    expect(readiness.started).toBe(false);
+    expect(readiness.materiallyComplete).toBe(false);
+    expect(readiness.recommendedStep).toBe("import");
+    expect(getProfileSetupReadinessBlockers(readiness)).toEqual([
+      { id: "identity_contact", step: "essentials" },
+      { id: "background", step: "background" },
+      { id: "eligibility_preferences", step: "targeting" },
+      { id: "work_mode_preference", step: "targeting" },
+      { id: "discovery_source", step: "targeting" },
+    ]);
+  });
+
+  test("keeps setup incomplete until the work-mode preference is chosen", () => {
+    const preferencesWithoutWorkMode = {
+      ...completeSearchPreferencesFixture,
+      workModes: [],
+    };
+    const readinessWithoutWorkMode = evaluateProfileSetupReadiness(
+      completeProfileFixture,
+      preferencesWithoutWorkMode,
+    );
+
+    expect(readinessWithoutWorkMode.hasWorkModePreference).toBe(false);
+    expect(readinessWithoutWorkMode.materiallyComplete).toBe(false);
+    expect(
+      getProfileSetupReadinessBlockers(readinessWithoutWorkMode).map(
+        (blocker) => blocker.id,
+      ),
+    ).toEqual(["work_mode_preference"]);
+
+    const stateWithoutWorkMode = deriveProfileSetupState(
+      completeProfileFixture,
+      preferencesWithoutWorkMode,
+      { now: "2026-04-11T10:15:00.000Z" },
+    );
+    expect(stateWithoutWorkMode.status).not.toBe("completed");
+
+    const readinessWithWorkMode = evaluateProfileSetupReadiness(
+      completeProfileFixture,
+      completeSearchPreferencesFixture,
+    );
+    expect(readinessWithWorkMode.hasWorkModePreference).toBe(true);
+    expect(readinessWithWorkMode.materiallyComplete).toBe(true);
+    expect(getProfileSetupReadinessBlockers(readinessWithWorkMode)).toEqual([]);
   });
 });

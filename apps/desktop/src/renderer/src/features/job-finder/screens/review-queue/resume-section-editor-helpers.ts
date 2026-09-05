@@ -1,6 +1,7 @@
 import type {
   ResumeDraftBullet,
   ResumeDraftEntry,
+  ResumeDraftOrigin,
   ResumeDraftPatch,
   ResumeDraftSection,
 } from "@unemployed/contracts";
@@ -86,7 +87,14 @@ export function updateSectionEntry(
   };
 }
 
-type ResumeEntryTextField = "dateRange" | "endDate" | "location" | "startDate" | "subtitle" | "summary" | "title";
+type ResumeEntryTextField =
+  | "dateRange"
+  | "endDate"
+  | "location"
+  | "startDate"
+  | "subtitle"
+  | "summary"
+  | "title";
 
 type ResumeEntryFieldValue = {
   [K in ResumeEntryTextField]: string | null;
@@ -107,7 +115,11 @@ export function updateEntryField<TField extends keyof ResumeEntryFieldValue>(
 }
 
 function parseStructuredEntryDate(entry: ResumeDraftEntry) {
-  if (entry.startDate?.trim() || entry.endDate?.trim() || entry.isCurrent === true) {
+  if (
+    entry.startDate?.trim() ||
+    entry.endDate?.trim() ||
+    entry.isCurrent === true
+  ) {
     return parseEntryDateRange(
       [entry.startDate, entry.isCurrent === true ? "Present" : entry.endDate]
         .filter((value): value is string => Boolean(value?.trim()))
@@ -116,6 +128,45 @@ function parseStructuredEntryDate(entry: ResumeDraftEntry) {
   }
 
   return parseEntryDateRange(entry.dateRange);
+}
+
+/**
+ * Deterministic provenance transition shared by the primary inline text
+ * surfaces (bullet text, entry summary, section text): identical content
+ * preserves the current origin, while any deliberate rewrite of generated
+ * (`ai_generated`, `assistant_edited`, `deterministic_fallback`) or imported
+ * wording becomes `user_edited` so provenance always reflects the visible
+ * text. Already-`user_edited` content stays `user_edited`.
+ */
+function resolveUserEditedOrigin(
+  origin: ResumeDraftOrigin,
+  materiallyChanged: boolean,
+): ResumeDraftOrigin {
+  if (!materiallyChanged) {
+    return origin;
+  }
+
+  return "user_edited";
+}
+
+/**
+ * Applies the shared provenance transition to a single bullet's text edit.
+ * Unchanged text keeps the current object (and origin); IDs, locks, evidence
+ * refs, and timestamps are never touched here.
+ */
+function applyUserBulletText(
+  bullet: ResumeDraftBullet,
+  text: string,
+): ResumeDraftBullet {
+  if (bullet.text === text) {
+    return bullet;
+  }
+
+  return {
+    ...bullet,
+    text,
+    origin: resolveUserEditedOrigin(bullet.origin, true),
+  };
 }
 
 export function updateEntryBulletText(
@@ -127,7 +178,7 @@ export function updateEntryBulletText(
   return updateSectionEntry(section, entryId, (entry) => ({
     ...entry,
     bullets: entry.bullets.map((bullet) =>
-      bullet.id === bulletId ? { ...bullet, text } : bullet,
+      bullet.id === bulletId ? applyUserBulletText(bullet, text) : bullet,
     ),
   }));
 }
@@ -140,8 +191,41 @@ export function updateSectionBulletText(
   return {
     ...section,
     bullets: section.bullets.map((bullet) =>
-      bullet.id === bulletId ? { ...bullet, text } : bullet,
+      bullet.id === bulletId ? applyUserBulletText(bullet, text) : bullet,
     ),
+  };
+}
+
+export function updateEntrySummary(
+  section: ResumeDraftSection,
+  entryId: string,
+  summary: string | null,
+) {
+  return updateSectionEntry(section, entryId, (entry) => {
+    if (entry.summary === summary) {
+      return entry;
+    }
+
+    return {
+      ...entry,
+      summary,
+      origin: resolveUserEditedOrigin(entry.origin, true),
+    };
+  });
+}
+
+export function updateSectionText(
+  section: ResumeDraftSection,
+  text: string | null,
+) {
+  if (section.text === text) {
+    return section;
+  }
+
+  return {
+    ...section,
+    text,
+    origin: resolveUserEditedOrigin(section.origin, true),
   };
 }
 

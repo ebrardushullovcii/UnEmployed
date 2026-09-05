@@ -68,7 +68,8 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
         confirmedFacts: [],
         attemptedActions: [],
         blockerSummary: "Please sign in first.",
-        resultSummary: "Login wall blocks further discovery until the user signs in.",
+        resultSummary:
+          "Login wall blocks further discovery until the user signs in.",
         confidenceScore: 86,
         nextRecommendedStrategies: [],
         avoidStrategyFingerprints: [],
@@ -190,9 +191,7 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
         basedOnRunId: "source_debug_run_login_recommended",
         basedOnAttemptIds: ["attempt_login_recommended"],
         notes: null,
-        navigationGuidance: [
-          "Use the jobs homepage or search route first.",
-        ],
+        navigationGuidance: ["Use the jobs homepage or search route first."],
         searchGuidance: [
           "Guest session reaches jobs, but sign in is needed for broader access.",
         ],
@@ -268,21 +267,24 @@ describe("createJobFinderWorkspaceService source access prompts", () => {
         targetUrl: "https://www.linkedin.com/jobs/collections/recommended/",
         state: "prompt_login_recommended",
         summary:
-          "Open the browser for LinkedIn if you want better search coverage on the next run.",
-        actionLabel: "Open browser for LinkedIn",
+          "Open the Job Finder browser for LinkedIn if you want better search coverage on the next run.",
+        actionLabel: "Open the Job Finder browser for LinkedIn",
       }),
     ]);
   });
 
   test("opens the browser session at the resolved source entry url for a targeted sign-in action", async () => {
-    const openSession = vi.fn((source: string, options?: { targetUrl?: string | null }) => Promise.resolve({
-      source: source as "target_site",
-      status: "ready" as const,
-      driver: "catalog_seed" as const,
-      label: "Browser session ready",
-      detail: options?.targetUrl ?? null,
-      lastCheckedAt: "2026-03-20T10:05:00.000Z",
-    }));
+    const openSession = vi.fn(
+      (source: string, options?: { targetUrl?: string | null }) =>
+        Promise.resolve({
+          source: source as "target_site",
+          status: "ready" as const,
+          driver: "catalog_seed" as const,
+          label: "Browser session ready",
+          detail: options?.targetUrl ?? null,
+          lastCheckedAt: "2026-03-20T10:05:00.000Z",
+        }),
+    );
     const browserRuntime: BrowserSessionRuntime = {
       closeSession: vi.fn(),
       executeApplicationFlow: vi.fn(),

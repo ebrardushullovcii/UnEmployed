@@ -3,6 +3,7 @@ import {
   ProfileSetupStateSchema,
   evaluateProfileSetupReadiness,
   hasProfileSetupPlaceholderValue,
+  isFreshStartCandidateProfile,
   type CandidateProfile,
   type JobSearchPreferences,
   type ProfileReviewItem,
@@ -58,8 +59,9 @@ function getCurrentTargetValue(
       }
 
       return (
-        profile.applicationIdentity as Record<string, unknown>
-      )[target.key] ?? null;
+        (profile.applicationIdentity as Record<string, unknown>)[target.key] ??
+        null
+      );
     case "work_eligibility":
       switch (target.key) {
         case "authorizedWorkCountries":
@@ -82,61 +84,73 @@ function getCurrentTargetValue(
         target.key as keyof CandidateProfile["professionalSummary"]
       ];
     case "search_preferences":
-      return searchPreferences[
-        target.key as keyof JobSearchPreferences
-      ];
+      return searchPreferences[target.key as keyof JobSearchPreferences];
     case "narrative":
-      return profile.narrative[target.key as keyof CandidateProfile["narrative"]];
+      return profile.narrative[
+        target.key as keyof CandidateProfile["narrative"]
+      ];
     case "answer_bank":
-      return profile.answerBank[target.key as keyof CandidateProfile["answerBank"]];
+      return profile.answerBank[
+        target.key as keyof CandidateProfile["answerBank"]
+      ];
     case "experience":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.experiences.find((record) => record.id === target.recordId) ?? null
+        ? (profile.experiences.find(
+            (record) => record.id === target.recordId,
+          ) ?? null)
         : profile.experiences;
     case "education":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.education.find((record) => record.id === target.recordId) ?? null
+        ? (profile.education.find((record) => record.id === target.recordId) ??
+            null)
         : profile.education;
     case "certification":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.certifications.find((record) => record.id === target.recordId) ?? null
+        ? (profile.certifications.find(
+            (record) => record.id === target.recordId,
+          ) ?? null)
         : profile.certifications;
     case "project":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.projects.find((record) => record.id === target.recordId) ?? null
+        ? (profile.projects.find((record) => record.id === target.recordId) ??
+            null)
         : profile.projects;
     case "link":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.links.find((record) => record.id === target.recordId) ?? null
+        ? (profile.links.find((record) => record.id === target.recordId) ??
+            null)
         : profile.links;
     case "language":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.spokenLanguages.find((record) => record.id === target.recordId) ?? null
+        ? (profile.spokenLanguages.find(
+            (record) => record.id === target.recordId,
+          ) ?? null)
         : profile.spokenLanguages;
     case "proof_point":
       if (target.key !== "record") {
         return null;
       }
       return target.recordId
-        ? profile.proofBank.find((record) => record.id === target.recordId) ?? null
+        ? (profile.proofBank.find((record) => record.id === target.recordId) ??
+            null)
         : profile.proofBank;
     default:
       return null;
@@ -172,7 +186,11 @@ function hasCurrentTargetValue(
 
   if (typeof value === "number") {
     if (target.domain === "identity" && target.key === "yearsExperience") {
-      return value > 0;
+      // Zero is a valid, intentional answer for a first-job profile. The
+      // editor rejects empty/invalid values before they reach this canonical
+      // review pipeline, while the profile schema keeps the stored value a
+      // non-negative integer.
+      return value >= 0;
     }
 
     return true;
@@ -205,6 +223,38 @@ function hasCurrentTargetValue(
 
 function normalizeComparableSummary(value: string | null): string | null {
   return value ? normalizeText(value) : null;
+}
+
+function isReviewDraftAlreadySatisfied(input: {
+  draft: DerivedReviewDraft;
+  profile: CandidateProfile;
+  searchPreferences: JobSearchPreferences;
+}): boolean {
+  if (
+    !hasCurrentTargetValue(
+      input.profile,
+      input.searchPreferences,
+      input.draft.target,
+    )
+  ) {
+    return false;
+  }
+
+  const currentSummary = normalizeComparableSummary(
+    summarizeValue(
+      getCurrentTargetValue(
+        input.profile,
+        input.searchPreferences,
+        input.draft.target,
+      ),
+    ),
+  );
+  const proposedSummary = normalizeComparableSummary(
+    input.draft.proposedValue ?? null,
+  );
+  return Boolean(
+    currentSummary && proposedSummary && currentSummary === proposedSummary,
+  );
 }
 
 export function resolvePendingReviewItemsAfterExplicitSave(input: {
@@ -243,17 +293,22 @@ export function resolvePendingReviewItemsAfterExplicitSave(input: {
         return item;
       }
 
-      const previousSummary = normalizeComparableSummary(summarizeValue(previousValue));
+      const previousSummary = normalizeComparableSummary(
+        summarizeValue(previousValue),
+      );
       const nextSummary = normalizeComparableSummary(summarizeValue(nextValue));
 
       if (!nextSummary || previousSummary === nextSummary) {
         return item;
       }
 
-      const proposedSummary = normalizeComparableSummary(item.proposedValue ?? null);
-      const nextStatus = proposedSummary && proposedSummary === nextSummary
-        ? "confirmed"
-        : "edited";
+      const proposedSummary = normalizeComparableSummary(
+        item.proposedValue ?? null,
+      );
+      const nextStatus =
+        proposedSummary && proposedSummary === nextSummary
+          ? "confirmed"
+          : "edited";
 
       return ProfileReviewItemSchema.parse({
         ...item,
@@ -278,9 +333,16 @@ function resolvePendingItemIfSatisfied(input: {
   );
   const currentSummary = summarizeValue(currentValue);
   const proposedSummary = input.draft.proposedValue ?? null;
-  const sourceCandidateId = input.draft.sourceCandidateId ?? input.item.sourceCandidateId;
+  const sourceCandidateId =
+    input.draft.sourceCandidateId ?? input.item.sourceCandidateId;
 
-  if (!hasCurrentTargetValue(input.profile, input.searchPreferences, input.draft.target)) {
+  if (
+    !hasCurrentTargetValue(
+      input.profile,
+      input.searchPreferences,
+      input.draft.target,
+    )
+  ) {
     return ProfileReviewItemSchema.parse({
       ...input.item,
       step: input.draft.step,
@@ -295,7 +357,12 @@ function resolvePendingItemIfSatisfied(input: {
     });
   }
 
-  if (sourceCandidateId) {
+  if (
+    sourceCandidateId &&
+    (!proposedSummary ||
+      !currentSummary ||
+      normalizeText(proposedSummary) !== normalizeText(currentSummary))
+  ) {
     return ProfileReviewItemSchema.parse({
       ...input.item,
       step: input.draft.step,
@@ -335,7 +402,9 @@ function hasMeaningfulText(value: string | null | undefined): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function hasMeaningfulStringList(values: readonly string[] | null | undefined): boolean {
+function hasMeaningfulStringList(
+  values: readonly string[] | null | undefined,
+): boolean {
   return values?.some((value) => hasMeaningfulText(value)) ?? false;
 }
 
@@ -344,8 +413,38 @@ function hasPlaceholderAwareIdentityValue(
   field: "headline" | "currentLocation",
 ): boolean {
   return Boolean(
-    hasMeaningfulText(value) &&
-      !hasProfileSetupPlaceholderValue(field, value),
+    hasMeaningfulText(value) && !hasProfileSetupPlaceholderValue(field, value),
+  );
+}
+
+/**
+ * True when the stored full name is a real fact rather than missing or a
+ * stale first-run placeholder. Split name fields only count as covered when
+ * this real assembled identity exists.
+ */
+function hasPlaceholderAwareFullNameValue(profile: CandidateProfile): boolean {
+  return Boolean(
+    hasMeaningfulText(profile.fullName) &&
+    !hasProfileSetupPlaceholderValue("fullName", profile.fullName),
+  );
+}
+
+/**
+ * A split name field needs its own critical review item when no real assembled
+ * full name already carries identity and this field is either missing or only
+ * feeds the stale first-run placeholder name.
+ */
+function needsSplitIdentityNameDraft(
+  profile: CandidateProfile,
+  partValue: string | null,
+): boolean {
+  if (hasPlaceholderAwareFullNameValue(profile)) {
+    return false;
+  }
+
+  return (
+    !hasMeaningfulText(partValue) ||
+    hasProfileSetupPlaceholderValue("fullName", profile.fullName)
   );
 }
 
@@ -361,12 +460,121 @@ function hasDraftForTarget(
   );
 }
 
+function educationRecordFieldForScalarKey(key: string): string | null {
+  const normalizedKey = normalizeText(key).replace(/\s+/g, "");
+
+  switch (normalizedKey) {
+    case "institution":
+    case "school":
+    case "schoolname":
+      return "schoolName";
+    case "degree":
+      return "degree";
+    case "field":
+    case "fieldofstudy":
+      return "fieldOfStudy";
+    case "location":
+      return "location";
+    case "start":
+    case "startdate":
+      return "startDate";
+    case "end":
+    case "enddate":
+    case "graduationdate":
+      return "endDate";
+    case "summary":
+      return "summary";
+    default:
+      return null;
+  }
+}
+
+function isEducationScalarCoveredByRecord(
+  candidate: ResumeImportFieldCandidate,
+  allCandidates: readonly ResumeImportFieldCandidate[],
+): boolean {
+  if (
+    candidate.target.section !== "education" ||
+    candidate.target.key === "record"
+  ) {
+    return false;
+  }
+
+  const recordField = educationRecordFieldForScalarKey(candidate.target.key);
+  if (!recordField) {
+    return false;
+  }
+
+  return allCandidates.some((recordCandidate) => {
+    if (
+      recordCandidate.runId !== candidate.runId ||
+      recordCandidate.target.section !== "education" ||
+      recordCandidate.target.key !== "record" ||
+      !recordCandidate.value ||
+      typeof recordCandidate.value !== "object" ||
+      Array.isArray(recordCandidate.value)
+    ) {
+      return false;
+    }
+
+    if (
+      candidate.target.recordId &&
+      recordCandidate.target.recordId &&
+      candidate.target.recordId !== recordCandidate.target.recordId
+    ) {
+      return false;
+    }
+
+    const recordValue = recordCandidate.value[recordField];
+    return summarizeValue(recordValue) !== null;
+  });
+}
+
 function buildMissingFieldDrafts(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
   candidateDrafts: readonly DerivedReviewDraft[],
 ): DerivedReviewDraft[] {
   const drafts: DerivedReviewDraft[] = [];
+
+  // Canonical readiness requires a real full name assembled from the split
+  // name fields, so missing first or last names are critical field-targeted
+  // gaps. Separate first and last names let Job Finder prepare profile and
+  // application fields; a preferred display name only controls how the app
+  // may address or show the person.
+  if (
+    !hasDraftForTarget(candidateDrafts, "identity", "fullName") &&
+    !hasDraftForTarget(candidateDrafts, "identity", "firstName") &&
+    needsSplitIdentityNameDraft(profile, profile.firstName)
+  ) {
+    drafts.push({
+      step: "essentials",
+      target: { domain: "identity", key: "firstName", recordId: null },
+      label: "First name",
+      reason:
+        "Add your first name so profile and application fields can be prepared correctly; your preferred display name remains how Job Finder addresses you.",
+      severity: "critical",
+      proposedValue: null,
+      sourceSnippet: null,
+    });
+  }
+
+  if (
+    !hasDraftForTarget(candidateDrafts, "identity", "fullName") &&
+    !hasDraftForTarget(candidateDrafts, "identity", "lastName") &&
+    needsSplitIdentityNameDraft(profile, profile.lastName)
+  ) {
+    drafts.push({
+      step: "essentials",
+      target: { domain: "identity", key: "lastName", recordId: null },
+      label: "Last name",
+      reason:
+        "Add your last name so profile and application fields can be prepared correctly; your preferred display name remains how Job Finder addresses you.",
+      severity: "critical",
+      proposedValue: null,
+      sourceSnippet: null,
+    });
+  }
 
   if (
     !hasPlaceholderAwareIdentityValue(profile.headline, "headline") &&
@@ -385,7 +593,10 @@ function buildMissingFieldDrafts(
   }
 
   if (
-    !hasPlaceholderAwareIdentityValue(profile.currentLocation, "currentLocation") &&
+    !hasPlaceholderAwareIdentityValue(
+      profile.currentLocation,
+      "currentLocation",
+    ) &&
     !hasDraftForTarget(candidateDrafts, "identity", "currentLocation")
   ) {
     drafts.push({
@@ -404,13 +615,17 @@ function buildMissingFieldDrafts(
     profile.yearsExperience <= 0 &&
     !hasDraftForTarget(candidateDrafts, "identity", "yearsExperience")
   ) {
+    // Fresh-start profiles cannot complete setup without a real seniority
+    // signal, so the copy and severity must say that requirement out loud.
+    const freshStart = isFreshStartCandidateProfile(profile);
     drafts.push({
       step: "essentials",
       target: { domain: "identity", key: "yearsExperience", recordId: null },
       label: "Years of experience",
-      reason:
-        "Add your years of experience so setup, search targeting, and resume outputs have a grounded seniority signal.",
-      severity: "recommended",
+      reason: freshStart
+        ? "Add your years of experience so setup, search targeting, and resume outputs have a grounded seniority signal. A fresh-start profile stays blocked until this is added."
+        : "Add your years of experience so setup, search targeting, and resume outputs have a grounded seniority signal.",
+      severity: freshStart ? "critical" : "recommended",
       proposedValue: null,
       sourceSnippet: null,
     });
@@ -437,7 +652,8 @@ function buildMissingFieldDrafts(
   if (
     !profile.experiences.some(
       (experience) =>
-        hasMeaningfulText(experience.companyName) || hasMeaningfulText(experience.title),
+        hasMeaningfulText(experience.companyName) ||
+        hasMeaningfulText(experience.title),
     ) &&
     !hasDraftForTarget(candidateDrafts, "experience", "record")
   ) {
@@ -446,26 +662,7 @@ function buildMissingFieldDrafts(
       target: { domain: "experience", key: "record", recordId: null },
       label: "Work history",
       reason:
-        "Add or confirm at least one meaningful experience record so resumes and fit scoring have grounded background to work from.",
-      severity: "critical",
-      proposedValue: null,
-      sourceSnippet: null,
-    });
-  }
-
-  if (
-    !hasMeaningfulStringList(searchPreferences.targetRoles) &&
-    !hasMeaningfulStringList(searchPreferences.jobFamilies) &&
-    !hasMeaningfulStringList(profile.targetRoles) &&
-    !hasDraftForTarget(candidateDrafts, "search_preferences", "targetRoles") &&
-    !hasDraftForTarget(candidateDrafts, "search_preferences", "jobFamilies")
-  ) {
-    drafts.push({
-      step: "targeting",
-      target: { domain: "search_preferences", key: "targetRoles", recordId: null },
-      label: "Target roles",
-      reason:
-        "Choose target roles or job families so discovery and resume tailoring are not generic.",
+        "Add at least one meaningful work-history role so resumes and fit scoring have grounded background to work from.",
       severity: "critical",
       proposedValue: null,
       sourceSnippet: null,
@@ -493,7 +690,11 @@ function buildMissingFieldDrafts(
   ) {
     drafts.push({
       step: "targeting",
-      target: { domain: "work_eligibility", key: "authorizedWorkCountries", recordId: null },
+      target: {
+        domain: "work_eligibility",
+        key: "authorizedWorkCountries",
+        recordId: null,
+      },
       label: "Work eligibility",
       reason:
         "Capture work eligibility or location preferences so discovery and application defaults reflect real constraints.",
@@ -506,7 +707,9 @@ function buildMissingFieldDrafts(
   return drafts;
 }
 
-function reviewIdentityKey(item: Pick<ProfileReviewItem, "target" | "label">): string {
+function reviewIdentityKey(
+  item: Pick<ProfileReviewItem, "target" | "label">,
+): string {
   return normalizeText(
     `${item.target.domain}|${item.target.key}|${item.target.recordId ?? ""}|${item.label}`,
   );
@@ -545,7 +748,13 @@ function shouldReopenResolvedItem(input: {
   const proposedSummary = input.draft.proposedValue ?? null;
   const previousProposedSummary = input.item.proposedValue ?? null;
 
-  if (!hasCurrentTargetValue(input.profile, input.searchPreferences, input.draft.target)) {
+  if (
+    !hasCurrentTargetValue(
+      input.profile,
+      input.searchPreferences,
+      input.draft.target,
+    )
+  ) {
     return true;
   }
 
@@ -619,11 +828,21 @@ export function buildProfileSetupReviewItems(
   const unresolvedCandidateDrafts = input.candidates
     .filter(
       (candidate) =>
-        (candidate.resolution === "needs_review" || candidate.resolution === "abstained") &&
-        shouldIncludeCandidateInSetupReview(candidate),
+        (candidate.resolution === "needs_review" ||
+          candidate.resolution === "abstained") &&
+        shouldIncludeCandidateInSetupReview(candidate) &&
+        !isEducationScalarCoveredByRecord(candidate, input.candidates),
     )
     .map((candidate) => toReviewDraft(candidate, input.documentBundle))
-    .filter((draft): draft is DerivedReviewDraft => draft !== null);
+    .filter((draft): draft is DerivedReviewDraft => draft !== null)
+    .filter(
+      (draft) =>
+        !isReviewDraftAlreadySatisfied({
+          draft,
+          profile: input.profile,
+          searchPreferences: input.searchPreferences,
+        }),
+    );
   const missingFieldDrafts =
     readiness.started || unresolvedCandidateDrafts.length > 0
       ? buildMissingFieldDrafts(
@@ -641,7 +860,10 @@ export function buildProfileSetupReviewItems(
   const nextItems: ProfileReviewItem[] = [];
 
   for (const draft of nextDrafts) {
-    const identity = reviewIdentityKey({ target: draft.target, label: draft.label });
+    const identity = reviewIdentityKey({
+      target: draft.target,
+      label: draft.label,
+    });
     if (seenIdentities.has(identity)) {
       continue;
     }
@@ -695,11 +917,7 @@ export function buildProfileSetupReviewItems(
     }
 
     if (
-      hasCurrentTargetValue(
-        input.profile,
-        input.searchPreferences,
-        item.target,
-      )
+      hasCurrentTargetValue(input.profile, input.searchPreferences, item.target)
     ) {
       nextItems.push(
         resolvePendingItemIfSatisfied({
@@ -723,5 +941,7 @@ export function buildProfileSetupReviewItems(
     }
   }
 
-  return nextItems.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  return nextItems.sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
 }

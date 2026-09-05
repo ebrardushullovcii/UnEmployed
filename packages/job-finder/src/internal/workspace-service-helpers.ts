@@ -8,8 +8,11 @@ export {
 } from "./workspace-discovery-state-helpers";
 export {
   applyInactiveLedgerMarks,
+  createDiscoveryFreshnessDigest,
+  createDiscoveryLedgerIndex,
   createDiscoveryProvenance,
   findDiscoveryLedgerEntry,
+  formatDiscoveryFreshnessDigest,
   markSavedJobStatusInLedger,
   recordDiscoveredPostingInLedger,
   shouldSkipPostingFromLedger,

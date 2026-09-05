@@ -1,0 +1,768 @@
+{
+  "schemaVersion": 1,
+  "fixedTimestamp": "2026-08-20T14:00:00.000Z",
+  "corpusBindings": {
+    "P01": {
+      "matchJobId": "blind_p01_store_assistant",
+      "weakerJobId": "blind_p01_library_page",
+      "matchCriteria": {
+        "roleKeywords": ["store", "customer service"],
+        "locationKeywords": ["cedar falls", "iowa"],
+        "workModes": ["onsite"]
+      }
+    },
+    "P02": {
+      "matchJobId": "blind_p02_junior_web",
+      "weakerJobId": "blind_p02_qa_automation",
+      "matchCriteria": {
+        "roleKeywords": ["junior web", "developer"],
+        "locationKeywords": ["raleigh", "north carolina"],
+        "workModes": ["hybrid"]
+      }
+    },
+    "P03": {
+      "matchJobId": "blind_p03_frontend",
+      "weakerJobId": "blind_p03_design_system",
+      "matchCriteria": {
+        "roleKeywords": ["frontend", "software engineer"],
+        "locationKeywords": ["portland", "oregon", "remote"],
+        "workModes": ["remote"]
+      }
+    },
+    "P04": {
+      "matchJobId": "blind_p04_logistics_admin",
+      "weakerJobId": "blind_p04_dispatch_admin",
+      "matchCriteria": {
+        "roleKeywords": ["logistics", "administrative"],
+        "locationKeywords": ["tulsa", "oklahoma"],
+        "workModes": ["onsite"]
+      }
+    },
+    "P05": {
+      "matchJobId": "blind_p05_ops_manager",
+      "weakerJobId": "blind_p05_program",
+      "matchCriteria": {
+        "roleKeywords": ["operations", "manager"],
+        "locationKeywords": ["denver", "colorado"],
+        "workModes": ["hybrid"]
+      }
+    },
+    "P06": {
+      "matchJobId": "blind_p06_part_time_admin",
+      "weakerJobId": "blind_p06_remote_scheduler",
+      "matchCriteria": {
+        "roleKeywords": ["administrative", "coordinator", "scheduling"],
+        "locationKeywords": ["madison", "wisconsin"],
+        "workModes": ["hybrid", "remote"]
+      }
+    },
+    "P07": {
+      "matchJobId": "blind_p07_part_time_lead",
+      "weakerJobId": "blind_p07_sales_associate",
+      "matchCriteria": {
+        "roleKeywords": ["store lead", "retail"],
+        "locationKeywords": ["akron", "ohio"],
+        "workModes": ["onsite"]
+      }
+    },
+    "P08": {
+      "matchJobId": "blind_p08_support",
+      "weakerJobId": "blind_p08_bilingual",
+      "matchCriteria": {
+        "roleKeywords": ["customer support", "support"],
+        "locationKeywords": ["san antonio", "texas"],
+        "workModes": ["hybrid", "onsite"]
+      }
+    },
+    "P09": {
+      "matchJobId": "blind_p09_healthcare_admin",
+      "weakerJobId": "blind_p09_records_coordinator",
+      "matchCriteria": {
+        "roleKeywords": ["healthcare administrative", "administrative"],
+        "locationKeywords": ["sacramento", "california"],
+        "workModes": ["hybrid", "remote"]
+      }
+    },
+    "P10": {
+      "matchJobId": "blind_p10_bookkeeping",
+      "weakerJobId": "blind_p10_office_admin",
+      "matchCriteria": {
+        "roleKeywords": ["bookkeeping", "office"],
+        "locationKeywords": ["richmond", "virginia"],
+        "workModes": ["hybrid", "onsite"]
+      }
+    },
+    "P11": {
+      "matchJobId": "blind_p11_remote_qa",
+      "weakerJobId": "blind_p11_remote_support",
+      "matchCriteria": {
+        "roleKeywords": ["qa", "customer support"],
+        "locationKeywords": ["remote", "united states"],
+        "workModes": ["remote"]
+      }
+    },
+    "P12": {
+      "matchJobId": "blind_p12_payroll",
+      "weakerJobId": "blind_p12_office_admin",
+      "matchCriteria": {
+        "roleKeywords": ["payroll", "office administrator"],
+        "locationKeywords": ["cleveland", "ohio"],
+        "workModes": ["hybrid", "onsite"]
+      }
+    }
+  },
+  "corpora": {
+    "P01": [
+      {
+        "id": "blind_p01_store_assistant",
+        "source": "target_site",
+        "sourceJobId": "p01-store-assistant",
+        "canonicalUrl": "https://retail.jobs.example.test/openings/store-assistant",
+        "applicationUrl": "https://retail.jobs.example.test/openings/store-assistant/apply",
+        "title": "Store Assistant",
+        "company": "Juniper Corner Market",
+        "location": "Cedar Falls, Iowa",
+        "workMode": ["onsite"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$15-$17 per hour",
+        "description": "Help customers, stock shelves, and follow opening and closing checklists. Training is provided; no prior paid experience is required.",
+        "keySkills": ["Customer service", "Organization"],
+        "minimumQualifications": ["Reliable attendance"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 86,
+          "reasons": ["First-job friendly"],
+          "gaps": []
+        }
+      },
+      {
+        "id": "blind_p01_library_page",
+        "source": "target_site",
+        "sourceJobId": "p01-library-page",
+        "canonicalUrl": "https://civic.jobs.example.test/openings/library-page",
+        "applicationUrl": "https://civic.jobs.example.test/openings/library-page/apply",
+        "title": "Library Page",
+        "company": "Cedar Valley Library Network",
+        "location": "Cedar Falls, Iowa",
+        "workMode": ["onsite"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$14.50 per hour",
+        "description": "Shelve materials, prepare program rooms, and direct visitor questions. Evening availability is requested.",
+        "keySkills": ["Organization"],
+        "minimumQualifications": ["High school diploma"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 78,
+          "reasons": ["Direct volunteer overlap"],
+          "gaps": [
+            "Not a retail role and evening availability needs confirmation"
+          ]
+        }
+      }
+    ],
+    "P02": [
+      {
+        "id": "blind_p02_junior_web",
+        "source": "target_site",
+        "sourceJobId": "p02-junior-web",
+        "canonicalUrl": "https://software.jobs.example.test/roles/junior-web-developer",
+        "applicationUrl": "https://software.jobs.example.test/roles/junior-web-developer/apply",
+        "title": "Junior Web Developer",
+        "company": "Pinecone Learning Tools",
+        "location": "Raleigh, North Carolina",
+        "workMode": ["hybrid"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$58,000-$68,000",
+        "description": "Build accessible React interfaces and tested Node.js services with support from senior engineers.",
+        "keySkills": ["React", "TypeScript", "Node.js", "Testing"],
+        "minimumQualifications": ["Project or internship experience"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 92,
+          "reasons": ["Strong project skill overlap"],
+          "gaps": []
+        }
+      },
+      {
+        "id": "blind_p02_qa_automation",
+        "source": "target_site",
+        "sourceJobId": "p02-qa-automation",
+        "canonicalUrl": "https://quality.jobs.example.test/roles/associate-qa-engineer",
+        "applicationUrl": "https://quality.jobs.example.test/roles/associate-qa-engineer/apply",
+        "title": "Associate QA Engineer",
+        "company": "Blue Oak Scheduling",
+        "location": "Remote - United States",
+        "workMode": ["remote"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$55,000-$65,000",
+        "description": "Write browser and API tests, reproduce defects, and maintain clear test notes in a remote product team.",
+        "keySkills": ["JavaScript", "Vitest", "Documentation"],
+        "minimumQualifications": ["Basic automated testing experience"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 78,
+          "reasons": ["Testing project evidence"],
+          "gaps": ["No formal QA role"]
+        }
+      }
+    ],
+    "P03": [
+      {
+        "id": "blind_p03_frontend",
+        "source": "target_site",
+        "sourceJobId": "p03-frontend",
+        "canonicalUrl": "https://platform.jobs.example.test/roles/senior-frontend-engineer",
+        "applicationUrl": "https://platform.jobs.example.test/roles/senior-frontend-engineer/apply",
+        "title": "Senior Frontend Engineer",
+        "company": "Maple Route Systems",
+        "location": "Remote - United States",
+        "workMode": ["remote"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$150,000-$180,000",
+        "description": "Lead React platform performance and accessibility work while mentoring frontend engineers.",
+        "keySkills": ["React", "TypeScript", "Accessibility", "Performance"],
+        "minimumQualifications": ["Seven years of frontend experience"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 95,
+          "reasons": ["Direct senior frontend evidence"],
+          "gaps": []
+        }
+      },
+      {
+        "id": "blind_p03_design_system",
+        "source": "target_site",
+        "sourceJobId": "p03-design-system",
+        "canonicalUrl": "https://design.jobs.example.test/roles/staff-ui-platform-engineer",
+        "applicationUrl": "https://design.jobs.example.test/roles/staff-ui-platform-engineer/apply",
+        "title": "Staff UI Platform Engineer",
+        "company": "Copper Finch Finance",
+        "location": "Portland, Oregon",
+        "workMode": ["hybrid"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$165,000-$195,000",
+        "description": "Own a shared component platform, frontend test strategy, and engineering guidance across product teams.",
+        "keySkills": ["Design systems", "Storybook", "Testing"],
+        "minimumQualifications": ["Experience leading shared UI systems"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 89,
+          "reasons": ["Design-system leadership overlap"],
+          "gaps": ["Staff title not previously held"]
+        }
+      }
+    ],
+    "P04": [
+      {
+        "id": "blind_p04_logistics_admin",
+        "source": "target_site",
+        "sourceJobId": "p04-logistics-admin",
+        "canonicalUrl": "https://logistics.jobs.example.test/openings/logistics-administrative-assistant",
+        "applicationUrl": "https://logistics.jobs.example.test/openings/logistics-administrative-assistant/apply",
+        "title": "Logistics Administrative Assistant",
+        "company": "Osage Distribution Cooperative",
+        "location": "Tulsa, Oklahoma",
+        "workMode": ["onsite"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$21-$25 per hour",
+        "description": "Enter delivery records, update inventory spreadsheets, and coordinate route exceptions with drivers and warehouse staff.",
+        "keySkills": ["Delivery records", "Inventory", "Spreadsheets"],
+        "minimumQualifications": [
+          "Accurate data entry",
+          "Delivery or warehouse experience"
+        ],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 88,
+          "reasons": ["Direct route, inventory, and records overlap"],
+          "gaps": []
+        }
+      },
+      {
+        "id": "blind_p04_dispatch_admin",
+        "source": "target_site",
+        "sourceJobId": "p04-dispatch",
+        "canonicalUrl": "https://logistics.jobs.example.test/openings/service-dispatcher",
+        "applicationUrl": "https://logistics.jobs.example.test/openings/service-dispatcher/apply",
+        "title": "Dispatch Administrative Coordinator",
+        "company": "Golden Wrench Services",
+        "location": "Tulsa, Oklahoma",
+        "workMode": ["onsite"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$22-$26 per hour",
+        "description": "Maintain route schedules, update customers, and prepare daily delivery and exception reports.",
+        "keySkills": ["Route planning", "Customer service", "Records"],
+        "minimumQualifications": [
+          "Two years of delivery or logistics experience"
+        ],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 83,
+          "reasons": ["Strong route coordination evidence"],
+          "gaps": ["No prior administrative title"]
+        }
+      }
+    ],
+    "P05": [
+      {
+        "id": "blind_p05_ops_manager",
+        "source": "target_site",
+        "sourceJobId": "p05-ops-manager",
+        "canonicalUrl": "https://operations.jobs.example.test/roles/operations-manager",
+        "applicationUrl": "https://operations.jobs.example.test/roles/operations-manager/apply",
+        "title": "Operations Manager",
+        "company": "Clear Creek Property Care",
+        "location": "Denver, Colorado",
+        "workMode": ["hybrid"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$92,000-$108,000",
+        "description": "Lead service capacity planning, vendor operations, quality review, and manager coaching.",
+        "keySkills": ["People management", "Capacity planning", "Vendors"],
+        "minimumQualifications": ["Five years of operations leadership"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 93,
+          "reasons": ["Direct operations leadership overlap"],
+          "gaps": []
+        }
+      },
+      {
+        "id": "blind_p05_program",
+        "source": "target_site",
+        "sourceJobId": "p05-program",
+        "canonicalUrl": "https://services.jobs.example.test/roles/customer-program-manager",
+        "applicationUrl": "https://services.jobs.example.test/roles/customer-program-manager/apply",
+        "title": "Customer Program Manager",
+        "company": "Mesa Field Network",
+        "location": "Remote - Mountain Time",
+        "workMode": ["remote"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$98,000-$116,000",
+        "description": "Coordinate service programs, incident follow-up, reporting, and cross-functional planning for enterprise customers.",
+        "keySkills": ["Program management", "Reporting", "Incident follow-up"],
+        "minimumQualifications": ["Customer operations leadership"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 82,
+          "reasons": ["Transferable service operations evidence"],
+          "gaps": ["No enterprise program title"]
+        }
+      }
+    ],
+    "P06": [
+      {
+        "id": "blind_p06_part_time_admin",
+        "source": "target_site",
+        "sourceJobId": "p06-part-time-admin",
+        "canonicalUrl": "https://flex.jobs.example.test/openings/part-time-admin-coordinator",
+        "applicationUrl": "https://flex.jobs.example.test/openings/part-time-admin-coordinator/apply",
+        "title": "Part-time Administrative Coordinator",
+        "company": "Badger Family Clinic",
+        "location": "Madison, Wisconsin",
+        "workMode": ["hybrid"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$24-$28 per hour",
+        "description": "Coordinate appointments, invoices, and office records for 24 hours per week with fixed weekday shifts.",
+        "keySkills": ["Scheduling", "Invoices", "Records"],
+        "minimumQualifications": ["Administrative experience"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 94,
+          "reasons": ["Schedule and experience align"],
+          "gaps": []
+        }
+      },
+      {
+        "id": "blind_p06_remote_scheduler",
+        "source": "target_site",
+        "sourceJobId": "p06-remote-scheduler",
+        "canonicalUrl": "https://care.jobs.example.test/openings/remote-scheduling-assistant",
+        "applicationUrl": "https://care.jobs.example.test/openings/remote-scheduling-assistant/apply",
+        "title": "Remote Scheduling Assistant",
+        "company": "North Lake Therapy Group",
+        "location": "Remote - Wisconsin",
+        "workMode": ["remote"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$20-$23 per hour",
+        "description": "Manage appointment requests and customer messages during a predictable 9 a.m. to 2 p.m. weekday shift.",
+        "keySkills": ["Scheduling", "Customer communication"],
+        "minimumQualifications": ["One year of office experience"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 90,
+          "reasons": ["Predictable hours and direct scheduling evidence"],
+          "gaps": [
+            "Remote-only setting uses less of the office-records experience"
+          ]
+        }
+      }
+    ],
+    "P07": [
+      {
+        "id": "blind_p07_part_time_lead",
+        "source": "target_site",
+        "sourceJobId": "p07-part-time-lead",
+        "canonicalUrl": "https://retail.jobs.example.test/openings/part-time-store-lead",
+        "applicationUrl": "https://retail.jobs.example.test/openings/part-time-store-lead/apply",
+        "title": "Part-time Store Lead",
+        "company": "Cuyahoga Garden Market",
+        "location": "Akron, Ohio",
+        "workMode": ["onsite"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$19-$22 per hour",
+        "description": "Support customers, coordinate opening tasks, and maintain cash and stock records for three weekday shifts.",
+        "keySkills": ["Customer service", "Shift coordination", "Cash records"],
+        "minimumQualifications": ["Retail customer service experience"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 96,
+          "reasons": [
+            "Direct retail supervision overlap and part-time schedule"
+          ],
+          "gaps": []
+        }
+      },
+      {
+        "id": "blind_p07_sales_associate",
+        "source": "target_site",
+        "sourceJobId": "p07-sales-associate",
+        "canonicalUrl": "https://community.jobs.example.test/openings/part-time-sales-associate",
+        "applicationUrl": "https://community.jobs.example.test/openings/part-time-sales-associate/apply",
+        "title": "Part-time Sales Associate",
+        "company": "Summit Community Shop",
+        "location": "Akron, Ohio",
+        "workMode": ["onsite"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$18-$21 per hour",
+        "description": "Welcome customers, restock shelves, handle returns, and use a guided checkout system for 20 hours per week.",
+        "keySkills": ["Retail service", "Stock counts", "Returns"],
+        "minimumQualifications": ["Clear customer communication"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 88,
+          "reasons": ["Long retail and customer-service history"],
+          "gaps": [
+            "Individual-contributor role does not use store-lead coordination"
+          ]
+        }
+      }
+    ],
+    "P08": [
+      {
+        "id": "blind_p08_support",
+        "source": "target_site",
+        "sourceJobId": "p08-support",
+        "canonicalUrl": "https://support.jobs.example.test/roles/customer-support-specialist",
+        "applicationUrl": "https://support.jobs.example.test/roles/customer-support-specialist/apply",
+        "title": "Customer Support Specialist",
+        "company": "Lone Star Delivery Desk",
+        "location": "San Antonio, Texas",
+        "workMode": ["hybrid"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$44,000-$50,000",
+        "description": "Answer routine delivery questions using clear templates and escalate complex account issues to senior support staff.",
+        "keySkills": ["Customer service", "Email templates", "Case notes"],
+        "minimumQualifications": [
+          "Hospitality or customer service experience",
+          "B1 English"
+        ],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 95,
+          "reasons": ["Hospitality service and written-note overlap"],
+          "gaps": ["No prior customer support title"]
+        }
+      },
+      {
+        "id": "blind_p08_bilingual",
+        "source": "target_site",
+        "sourceJobId": "p08-bilingual",
+        "canonicalUrl": "https://service.jobs.example.test/roles/bilingual-service-coordinator",
+        "applicationUrl": "https://service.jobs.example.test/roles/bilingual-service-coordinator/apply",
+        "title": "Spanish-speaking Customer Support Trainee",
+        "company": "Mission Trail Services",
+        "location": "San Antonio, Texas",
+        "workMode": ["onsite"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$23-$27 per hour",
+        "description": "Help Spanish-speaking customers with routine service questions, maintain simple case notes, and receive English-language coaching.",
+        "keySkills": ["Spanish", "Case notes", "Guest service"],
+        "minimumQualifications": ["Fluent Spanish", "B1 English"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 86,
+          "reasons": ["Spanish fluency and front desk service align"],
+          "gaps": [
+            "English-language coaching may be needed before independent support work"
+          ]
+        }
+      }
+    ],
+    "P09": [
+      {
+        "id": "blind_p09_healthcare_admin",
+        "source": "target_site",
+        "sourceJobId": "p09-healthcare-admin",
+        "canonicalUrl": "https://healthcare.jobs.example.test/openings/healthcare-administrative-assistant",
+        "applicationUrl": "https://healthcare.jobs.example.test/openings/healthcare-administrative-assistant/apply",
+        "title": "Healthcare Administrative Assistant",
+        "company": "Capitol Family Health Cooperative",
+        "location": "Sacramento, California",
+        "workMode": ["hybrid"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$25-$30 per hour",
+        "description": "Schedule appointments, coordinate records requests, and follow documented healthcare confidentiality procedures.",
+        "keySkills": ["Scheduling", "Records requests", "Confidentiality"],
+        "minimumQualifications": [
+          "Healthcare office administration experience"
+        ],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 93,
+          "reasons": ["Direct healthcare administration evidence"],
+          "gaps": []
+        }
+      },
+      {
+        "id": "blind_p09_records_coordinator",
+        "source": "target_site",
+        "sourceJobId": "p09-records-coordinator",
+        "canonicalUrl": "https://clinic.jobs.example.test/openings/patient-records-coordinator",
+        "applicationUrl": "https://clinic.jobs.example.test/openings/patient-records-coordinator/apply",
+        "title": "Patient Records Coordinator",
+        "company": "Delta Orchard Clinics",
+        "location": "Remote - California",
+        "workMode": ["remote"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$52,000-$59,000",
+        "description": "Track patient records requests and verify release documentation in a privacy-conscious remote team.",
+        "keySkills": ["Records requests", "Documentation", "Confidentiality"],
+        "minimumQualifications": ["Two years of healthcare administration"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 84,
+          "reasons": ["Relevant records and confidentiality evidence"],
+          "gaps": ["No prior records coordinator title"]
+        }
+      }
+    ],
+    "P10": [
+      {
+        "id": "blind_p10_bookkeeping",
+        "source": "target_site",
+        "sourceJobId": "p10-bookkeeping",
+        "canonicalUrl": "https://finance.jobs.example.test/openings/bookkeeping-assistant",
+        "applicationUrl": "https://finance.jobs.example.test/openings/bookkeeping-assistant/apply",
+        "title": "Bookkeeping Assistant",
+        "company": "James River Makers Cooperative",
+        "location": "Richmond, Virginia",
+        "workMode": ["hybrid"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$48,000-$56,000",
+        "description": "Enter invoices, reconcile payment records, and prepare monthly spreadsheets without requiring continuous employment.",
+        "keySkills": ["Invoice entry", "Reconciliations", "Spreadsheets"],
+        "minimumQualifications": [
+          "Two years of bookkeeping or office records experience"
+        ],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 94,
+          "reasons": ["Direct bookkeeping evidence and gap accepted"],
+          "gaps": []
+        }
+      },
+      {
+        "id": "blind_p10_office_admin",
+        "source": "target_site",
+        "sourceJobId": "p10-office-admin",
+        "canonicalUrl": "https://office.jobs.example.test/openings/office-administrative-assistant",
+        "applicationUrl": "https://office.jobs.example.test/openings/office-administrative-assistant/apply",
+        "title": "Office Administrative Assistant",
+        "company": "Cardinal Field Services",
+        "location": "Richmond, Virginia",
+        "workMode": ["onsite"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$22-$26 per hour",
+        "description": "Schedule appointments, maintain office records, and prepare routine spreadsheet reports.",
+        "keySkills": ["Scheduling", "Office records", "Spreadsheets"],
+        "minimumQualifications": ["Accurate office records experience"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 86,
+          "reasons": ["Prior scheduling and office records work"],
+          "gaps": [
+            "Office role does not use the bookkeeping and reconciliation focus"
+          ]
+        }
+      }
+    ],
+    "P11": [
+      {
+        "id": "blind_p11_remote_qa",
+        "source": "target_site",
+        "sourceJobId": "p11-remote-qa",
+        "canonicalUrl": "https://quality.jobs.example.test/openings/remote-qa-support-specialist",
+        "applicationUrl": "https://quality.jobs.example.test/openings/remote-qa-support-specialist/apply",
+        "title": "Remote QA Support Specialist",
+        "company": "Buckeye Scheduling Software",
+        "location": "Remote - United States",
+        "workMode": ["remote"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$46,000-$54,000",
+        "description": "Reproduce reported defects, write clear test notes, and help customers by email in a fully remote product team.",
+        "keySkills": ["Manual QA", "Defect reproduction", "Email support"],
+        "minimumQualifications": ["QA or technical support experience"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 87,
+          "reasons": ["Direct QA and support evidence"],
+          "gaps": []
+        }
+      },
+      {
+        "id": "blind_p11_remote_support",
+        "source": "target_site",
+        "sourceJobId": "p11-remote-support",
+        "canonicalUrl": "https://support.jobs.example.test/openings/remote-customer-support-specialist",
+        "applicationUrl": "https://support.jobs.example.test/openings/remote-customer-support-specialist/apply",
+        "title": "Remote Customer Support Specialist",
+        "company": "Scioto Account Tools",
+        "location": "Remote - United States",
+        "workMode": ["remote"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$21-$24 per hour",
+        "description": "Resolve account questions by email, document troubleshooting, and escalate reproducible software issues.",
+        "keySkills": [
+          "Support tickets",
+          "Written troubleshooting",
+          "Case notes"
+        ],
+        "minimumQualifications": ["Customer support experience"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 82,
+          "reasons": ["Direct written support and troubleshooting evidence"],
+          "gaps": ["Role has no dedicated QA ownership"]
+        }
+      }
+    ],
+    "P12": [
+      {
+        "id": "blind_p12_payroll",
+        "source": "target_site",
+        "sourceJobId": "p12-payroll",
+        "canonicalUrl": "https://payroll.jobs.example.test/roles/payroll-administrator",
+        "applicationUrl": "https://payroll.jobs.example.test/roles/payroll-administrator/apply",
+        "title": "Payroll Administrator",
+        "company": "Lakefront Home Services",
+        "location": "Cleveland, Ohio",
+        "workMode": ["hybrid"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$47,000-$55,000",
+        "description": "Review time records, prepare payroll changes, maintain employee files, and answer routine payroll questions.",
+        "keySkills": ["Payroll records", "Timekeeping", "Employee files"],
+        "minimumQualifications": ["Three years of payroll administration"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 94,
+          "reasons": ["Direct payroll administration overlap"],
+          "gaps": []
+        }
+      },
+      {
+        "id": "blind_p12_office_admin",
+        "source": "target_site",
+        "sourceJobId": "p12-office-admin",
+        "canonicalUrl": "https://office.jobs.example.test/roles/office-administrator",
+        "applicationUrl": "https://office.jobs.example.test/roles/office-administrator/apply",
+        "title": "Office Administrator",
+        "company": "Painted Lake Supply",
+        "location": "Cleveland, Ohio",
+        "workMode": ["onsite"],
+        "applyPath": "external_redirect",
+        "easyApplyEligible": false,
+        "postedAt": "2026-08-20T14:00:00.000Z",
+        "discoveredAt": "2026-08-20T14:00:00.000Z",
+        "salaryText": "$51,000-$61,000",
+        "description": "Maintain office records, enter invoices, schedule meetings, and prepare routine spreadsheet reports.",
+        "keySkills": ["Office records", "Invoice entry", "Spreadsheets"],
+        "minimumQualifications": ["Three years of office administration"],
+        "status": "discovered",
+        "matchAssessment": {
+          "score": 82,
+          "reasons": ["Strong office administration evidence"],
+          "gaps": ["Office role does not include payroll responsibilities"]
+        }
+      }
+    ]
+  }
+}

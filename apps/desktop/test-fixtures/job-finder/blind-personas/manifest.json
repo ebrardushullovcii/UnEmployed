@@ -1,0 +1,685 @@
+{
+  "schemaVersion": 1,
+  "idNamespace": "blind-persona-v1",
+  "fixedTimestamp": "2026-08-20T14:00:00.000Z",
+  "digestSubject": "canonical_manifest_without_digestSha256_and_referenced_asset_sha256_list",
+  "digestSha256": "8b8f95b8d06b178062d5c542ecd7f927172c715a7e9a66148d4987b3fd8f1e14",
+  "assetRoot": "apps/desktop",
+  "jobCorpusPath": "test-fixtures/job-finder/blind-personas/jobs.json",
+  "visualReviewTemplate": {
+    "schemaVersion": 1,
+    "prompt": "While working toward the outcome in your own way, act as a product critic as well as a user. Do not follow a prescribed route. At the first stable viewport and after every click or other state change, pause long enough to notice what changed. Inspect the viewport as a finished product: useful task content and the next action should be visible above the fold, with intentional padding, margins, gutters, and use of available width. Inspect every action group, especially bottom or right-side actions, for natural sizing rather than accidental full-width stretching, consistent heights and gaps, clear primary-versus-secondary hierarchy, sensible wrapping, readable disabled reasons, and visual order matching keyboard/focus order. Check that scrolling, nested panes, tabs, and controls actually reveal an obvious visual state change. Look for repeated or unnecessary chrome, a clear top-left brand beside the native macOS traffic-light controls (or the platform equivalent), persistent navigation and active state, loading alignment, toast/banner/action overlap, painted clipping, hidden controls, overflow, and ambiguous state changes at the viewport or zoom you receive. After the primary outcome is complete or safely blocked, use the clearly labeled POST-JOURNEY OPTIONAL CHECKPOINT: if Profile Copilot is reachable, open it once and judge its discoverability, prompt wrapping, keyboard and focus behavior, form and Save-action overlap, conversation continuity, and proposal status clarity. Keep this checkpoint separate from your chosen route. If an approved local or mock provider is available, test one factual request through response, proposal review, apply or reject, and undo; otherwise record the provider blocker and do not send profile data to an external or unspecified provider. Record each visual lens as clear, issue, or not_observed. Every issue must cite at least one screenshot and be triaged P0, P1, or P2 with a short reason. Keep the existing user-owned boundary: credentials, CAPTCHA/MFA, legal consent, account creation, and final submission stay with you; do not perform them.",
+    "lenses": {
+      "firstStableViewport": "Is the first stable viewport calm and useful, with the important task content and next action visible above the fold, intentional padding and margins, and no unexplained empty rail, oversized card, or narrow column caused by chrome?",
+      "hierarchyDensityAndStateChange": "Is the hierarchy readable at this density, without repeated chrome, and does every click, tab, or action produce an obvious visual response? Check action groups for intentional alignment, natural widths, consistent heights and gaps, sensible wrapping, clear priority, and visual order that matches keyboard/focus order.",
+      "loadingState": "Do loading, progress, empty, and settled states explain themselves, align with the action or waiting region the user expects, and avoid leaving stale, hidden, or misleading controls behind?",
+      "brandAndNavigation": "Does the top-left brand remain clear and sit cleanly beside the native macOS traffic-light controls (or the platform equivalent), including collapsed or narrow navigation, while the current destination and active state remain understandable?",
+      "clippingAndOverlap": "Are headings, labels, controls, action groups, toasts, banners, and status text fully painted and visible without clipping, overlap, accidental overflow, or controls being covered at the bottom or right edge?"
+    }
+  },
+  "sessions": [
+    {
+      "id": "blind-persona-v1/P01",
+      "brief": "Age 18, applying for a first paid job with only school and volunteer experience.",
+      "cohorts": ["first_job", "age_18", "fresh_workspace"],
+      "context": "Their whole working history so far is school and volunteering, and they want that experience taken for what it is rather than dressed up as paid jobs.",
+      "goal": "Import the resume, compare realistic local entry-level roles, and shortlist one role.",
+      "outcome": "One truthful first-job application is prepared and held for review before being sent.",
+      "workspace": {
+        "kind": "fresh",
+        "profileSetup": { "status": "not_started", "currentStep": "import" },
+        "starterSources": "disabled",
+        "jobState": { "kind": "fixed_corpus", "corpusKey": "P01" }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/first-job.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": true,
+        "applicationMode": "tailored_resume_allowed"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "none",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P02",
+      "brief": "A junior developer has bootcamp projects and an internship but no full-time developer history.",
+      "cohorts": [
+        "junior_developer",
+        "bootcamp",
+        "internship",
+        "fresh_workspace"
+      ],
+      "context": "Their bootcamp projects and single internship are real experience, while full-time development work is still new territory for them.",
+      "goal": "Import the resume, compare junior development roles, and inspect evidence-backed fit gaps.",
+      "outcome": "A junior role is shortlisted with no inflated title, tenure, or proficiency claim.",
+      "workspace": {
+        "kind": "fresh",
+        "profileSetup": { "status": "not_started", "currentStep": "import" },
+        "starterSources": "disabled",
+        "jobState": { "kind": "fixed_corpus", "corpusKey": "P02" }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/junior-developer.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": true,
+        "applicationMode": "tailored_resume_allowed"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 920,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "none",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P03",
+      "brief": "An experienced technical applicant has 15 years of software engineering history.",
+      "cohorts": [
+        "experienced_technical",
+        "fifteen_years_experience",
+        "fresh_workspace"
+      ],
+      "context": "Fifteen years of engineering have taught them to tell a comfortable senior fit from an honest technical-lead stretch.",
+      "goal": "Import the resume, compare advanced technical roles, and shortlist the strongest grounded match.",
+      "outcome": "A senior technical application reaches review with experience and proficiency preserved accurately.",
+      "workspace": {
+        "kind": "fresh",
+        "profileSetup": { "status": "not_started", "currentStep": "import" },
+        "starterSources": "disabled",
+        "jobState": { "kind": "fixed_corpus", "corpusKey": "P03" }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/experienced-technical.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": true,
+        "applicationMode": "tailored_resume_allowed"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 920,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "none",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P04",
+      "brief": "A delivery driver and warehouse worker is changing careers into logistics administration.",
+      "cohorts": [
+        "career_change",
+        "driver_warehouse",
+        "logistics_admin",
+        "fresh_workspace"
+      ],
+      "context": "Delivery routes, warehouse work, records, and helping customers make up their background, and no maintenance certificate or office title belongs among their claims.",
+      "goal": "Import the resume, compare logistics administration roles, and choose a credible transition role.",
+      "outcome": "A logistics administrative application is prepared using only transferable evidence.",
+      "workspace": {
+        "kind": "fresh",
+        "profileSetup": { "status": "not_started", "currentStep": "import" },
+        "starterSources": "disabled",
+        "jobState": { "kind": "fixed_corpus", "corpusKey": "P04" }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/logistics-transition.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": true,
+        "applicationMode": "tailored_resume_allowed"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "none",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P05",
+      "brief": "A recently laid-off operations manager needs an urgent but controlled job search.",
+      "cohorts": [
+        "laid_off_operations_manager",
+        "urgent_search",
+        "fresh_workspace"
+      ],
+      "context": "The layoff that eliminated their whole division makes the search feel urgent, yet they would rather send one carefully prepared application than many rushed ones.",
+      "goal": "Import the resume, compare operations leadership roles, and focus on one strong application.",
+      "outcome": "One evidence-grounded operations application reaches review rather than many applications sent out at once.",
+      "workspace": {
+        "kind": "fresh",
+        "profileSetup": { "status": "not_started", "currentStep": "import" },
+        "starterSources": "disabled",
+        "jobState": { "kind": "fixed_corpus", "corpusKey": "P05" }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/laid-off-manager.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": true,
+        "applicationMode": "tailored_resume_allowed"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 920,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "none",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P06",
+      "brief": "A parent returning to work after years of caregiving can only look for jobs in short stretches between family commitments.",
+      "cohorts": [
+        "returning_parent",
+        "caregiving_gap",
+        "limited_time",
+        "interruption",
+        "fresh_workspace"
+      ],
+      "context": "It is their first visit to the app, starting from scratch on an ordinary afternoon with childcare pickup later on.",
+      "goal": "Import the resume, set schedule constraints, and choose a compatible role in the small window of time available.",
+      "outcome": "Whatever got started along the way remains easy to find again later, without redoing everything from the beginning.",
+      "workspace": {
+        "kind": "fresh",
+        "profileSetup": { "status": "not_started", "currentStep": "import" },
+        "starterSources": "disabled",
+        "jobState": { "kind": "fixed_corpus", "corpusKey": "P06" }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/returning-parent.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": true,
+        "applicationMode": "tailored_resume_allowed"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": 25,
+        "interruption": "once_during_active_session",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P07",
+      "brief": "An older retail supervisor with low computer confidence wants part-time work.",
+      "cohorts": [
+        "older_user",
+        "low_computer_confidence",
+        "retail_supervisor",
+        "part_time",
+        "fresh_workspace"
+      ],
+      "context": "Plain, everyday words suit them best, and their experience is years of supervising in retail, not office work.",
+      "goal": "Import the resume, compare part-time retail roles, and understand each review step.",
+      "outcome": "A suitable part-time retail role reaches review with clear next steps they control.",
+      "workspace": {
+        "kind": "fresh",
+        "profileSetup": { "status": "not_started", "currentStep": "import" },
+        "starterSources": "disabled",
+        "jobState": { "kind": "fixed_corpus", "corpusKey": "P07" }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/older-nontechnical.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": true,
+        "applicationMode": "tailored_resume_allowed"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "none",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P08",
+      "brief": "A B1 non-native English speaker is moving from hospitality front desk work to customer support.",
+      "cohorts": [
+        "non_native_english",
+        "english_b1",
+        "hospitality_front_desk",
+        "career_change",
+        "fresh_workspace"
+      ],
+      "context": "Short, simple sentences suit their B1 English, and their hospitality front-desk years gave them real people skills without turning them into fluent support agents.",
+      "goal": "Import the resume, compare entry-level support roles, and select one with realistic language demands.",
+      "outcome": "A support transition role reaches review with B1 English and hospitality history stated accurately.",
+      "workspace": {
+        "kind": "fresh",
+        "profileSetup": { "status": "not_started", "currentStep": "import" },
+        "starterSources": "disabled",
+        "jobState": { "kind": "fixed_corpus", "corpusKey": "P08" }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/hospitality-support.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": true,
+        "applicationMode": "tailored_resume_allowed"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "none",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P09",
+      "brief": "A privacy-cautious healthcare administrator requires the original resume to remain unchanged.",
+      "cohorts": [
+        "privacy_cautious",
+        "healthcare_admin",
+        "original_resume_unchanged",
+        "fresh_workspace"
+      ],
+      "context": "They expect a plain explanation of what data is used and what would be shared or sent beyond the app, and they want the resume they brought with them to stay exactly as imported.",
+      "goal": "Import the original resume, inspect privacy choices, and compare healthcare administrative roles.",
+      "outcome": "The selected role uses the unchanged original resume, and nothing is sent or shared without their explicit go-ahead.",
+      "workspace": {
+        "kind": "fresh",
+        "profileSetup": { "status": "not_started", "currentStep": "import" },
+        "starterSources": "disabled",
+        "jobState": { "kind": "fixed_corpus", "corpusKey": "P09" }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/healthcare-admin.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": true,
+        "applicationMode": "original_resume_unchanged"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 920,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "none",
+        "privacy": "minimum_disclosure_original_resume_unchanged"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P10",
+      "brief": "A bookkeeping and office applicant has employment gaps.",
+      "cohorts": ["employment_gaps", "bookkeeping_office", "fresh_workspace"],
+      "context": "The gaps in their employment history are simply part of their story, and their bookkeeping claims go no further than the work they actually performed.",
+      "goal": "Import the resume, compare bookkeeping and office roles, and review gap-safe wording.",
+      "outcome": "A grounded bookkeeping or office application reaches review without invented history.",
+      "workspace": {
+        "kind": "fresh",
+        "profileSetup": { "status": "not_started", "currentStep": "import" },
+        "starterSources": "disabled",
+        "jobState": { "kind": "fixed_corpus", "corpusKey": "P10" }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/employment-gap.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": true,
+        "applicationMode": "tailored_resume_allowed"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "none",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P11",
+      "brief": "A keyboard-only applicant wants fully remote QA or customer support work.",
+      "cohorts": [
+        "keyboard_only",
+        "remote_only",
+        "qa_support",
+        "fresh_workspace"
+      ],
+      "context": "They do everything on the computer using only the keyboard, without a mouse, just like on any other day.",
+      "goal": "Import the resume, navigate by keyboard, and compare remote QA and support roles.",
+      "outcome": "A fully remote QA or support role reaches review with everything completed using only the keyboard.",
+      "workspace": {
+        "kind": "fresh",
+        "profileSetup": { "status": "not_started", "currentStep": "import" },
+        "starterSources": "disabled",
+        "jobState": { "kind": "fixed_corpus", "corpusKey": "P11" }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/remote-qa-support.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": true,
+        "applicationMode": "tailored_resume_allowed"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": { "mode": "keyboard_only", "procedureHintsAllowed": false },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "none",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P12",
+      "brief": "A low-vision payroll and office administrator relies on larger on-screen text to use the computer comfortably.",
+      "cohorts": [
+        "low_vision",
+        "native_electron",
+        "native_125_percent",
+        "payroll_office_admin",
+        "fresh_workspace"
+      ],
+      "context": "They are setting up from scratch on their own computer, where everything on screen must stay readable at their preferred text size.",
+      "goal": "Import the resume and compare payroll or office roles comfortably at their preferred larger text size.",
+      "outcome": "A payroll or office administrative role reaches review while they can read and reach everything comfortably at their preferred larger text size.",
+      "workspace": {
+        "kind": "fresh",
+        "profileSetup": { "status": "not_started", "currentStep": "import" },
+        "starterSources": "disabled",
+        "jobState": { "kind": "fixed_corpus", "corpusKey": "P12" }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/payroll-admin.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": true,
+        "applicationMode": "tailored_resume_allowed"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "zoom": "native_125_percent",
+        "nativeZoomFactor": 1.25
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "none",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P13",
+      "brief": "A marketing manager returns to a job search where plenty was already saved during earlier visits.",
+      "cohorts": [
+        "returning_applicant",
+        "high_volume_marketing",
+        "persisted_workspace",
+        "safeguards"
+      ],
+      "context": "There is a lot of saved history to sort through, so careful review matters before preparing anything further.",
+      "goal": "Go through what was already saved, narrow things down to one marketing role, and keep full say over anything that might get sent.",
+      "outcome": "Everything already saved stays accurate, and reviewing happens in manageable groups instead of one overwhelming pile.",
+      "workspace": {
+        "kind": "declarative_overlay",
+        "profileSetup": { "status": "materialized", "currentStep": "complete" },
+        "starterSources": "disabled",
+        "jobState": {
+          "kind": "high_volume_overlay",
+          "baseCorpusKey": "P13_MARKETING",
+          "deterministicGeneratedJobCount": 1200,
+          "shortlistedCount": 140,
+          "applicationRecordCount": 48,
+          "safeguardState": "batch_review_required"
+        }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/marketing-manager.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": false,
+        "applicationMode": "original_resume_unchanged"
+      },
+      "viewport": {
+        "width": 1440,
+        "height": 920,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "none",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    },
+    {
+      "id": "blind-persona-v1/P14",
+      "brief": "A service manager comes back to a job search that stopped midway last time, with one listing site now asking them to sign in.",
+      "cohorts": [
+        "returning_applicant",
+        "service_manager",
+        "interrupted_recovery",
+        "blocked_source",
+        "persisted_workspace"
+      ],
+      "context": "Work finished before the stop is still there to look over, while the site that stalled shows nothing useful until they sign in personally.",
+      "goal": "Get reacquainted with the saved work, make sense of what happened, and take a safe next step without ever typing their password into the app.",
+      "outcome": "The saved service-manager review stays private on their device, the sign-in wall stays clearly explained, and nothing is submitted anywhere.",
+      "workspace": {
+        "kind": "declarative_overlay",
+        "profileSetup": { "status": "materialized", "currentStep": "complete" },
+        "starterSources": "disabled",
+        "jobState": {
+          "kind": "interrupted_blocked_overlay",
+          "baseCorpusKey": "P14_SERVICE_MANAGER",
+          "interruptedStage": "application_preparation",
+          "retainedResultCount": 0,
+          "blockedSourceUrl": "https://blocked.jobs.example.test/openings",
+          "blocker": "site_login_required",
+          "recoveryCheckpoint": "review_retained_or_choose_other_source"
+        }
+      },
+      "resumeInput": {
+        "path": "test-fixtures/job-finder/blind-personas/resumes/service-manager.txt",
+        "presentation": "visible_user_input_artifact",
+        "importRequired": false,
+        "applicationMode": "original_resume_unchanged"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "zoom": "native_100_percent",
+        "nativeZoomFactor": 1
+      },
+      "input": {
+        "mode": "pointer_and_keyboard",
+        "procedureHintsAllowed": false
+      },
+      "sessionProtocol": {
+        "durationMinutes": null,
+        "interruption": "persisted_interrupted_preparation",
+        "privacy": "standard"
+      },
+      "expectedAuthority": {
+        "credentials": false,
+        "captchaOrMfa": false,
+        "legalConsent": false,
+        "accountCreation": false,
+        "finalSubmit": false
+      }
+    }
+  ]
+}

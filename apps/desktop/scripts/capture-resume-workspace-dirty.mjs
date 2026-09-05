@@ -60,7 +60,9 @@ async function clickAndDismissDialog(window, locator) {
 
     timeoutId = setTimeout(() => {
       window.removeListener("dialog", handleDialog);
-      reject(new Error("Timed out waiting for confirmation dialog after click."));
+      reject(
+        new Error("Timed out waiting for confirmation dialog after click."),
+      );
     }, timeoutMs);
 
     window.once("dialog", handleDialog);
@@ -79,11 +81,33 @@ function summaryField(window) {
 
 function assistantField(window) {
   return window
-    .locator('[data-testid="resume-assistant-input"]:visible')
+    .locator(
+      '[data-resume-guided-edits-open="true"] textarea[aria-label="Message the Assistant"]:visible',
+    )
     .first();
 }
 
+async function openAssistant(window) {
+  await window.getByRole("button", { name: /^Open the Assistant/ }).click();
+  await waitForCondition(
+    async () =>
+      await window
+        .locator('[data-resume-guided-edits-open="true"]')
+        .first()
+        .isVisible(),
+    "the Assistant panel to open",
+  );
+}
+
 async function waitForProfileOrSetupHeading(window) {
+  await window.waitForFunction(
+    () => Boolean(window.unemployed?.jobFinder?.test),
+    undefined,
+    { timeout: 15000 },
+  );
+  await window.evaluate(() => {
+    window.location.hash = "#/job-finder/profile";
+  });
   await window.waitForFunction(
     () => {
       const heading = document.querySelector("h1");
@@ -204,19 +228,27 @@ async function captureResumeWorkspaceDirtyState() {
       path: path.join(outputDir, "01-workspace-open.png"),
     });
 
+    // "Refresh draft" was removed with the Assistant unification: the
+    // whole-draft rewrite now lives in the Assistant, states that it replaces
+    // the current edits, and asks once before it runs. The dirty-state fact
+    // this step records is that the unsaved edit survives opening that control
+    // and declining its confirmation.
     const refreshSentinel =
-      "Dirty refresh sentinel for resume workspace coverage.";
+      "Builds resilient workflows for design systems, workflow automation, and operations platforms.";
     await summaryField(window).fill(refreshSentinel);
-    await window.getByRole("button", { name: "Refresh draft" }).click();
+    await openAssistant(window);
+    await window.locator("[data-resume-assistant-regenerate]").first().click();
+    const keepDraftButton = window.getByRole("button", {
+      name: "Keep my draft",
+    });
+    await keepDraftButton.waitFor({ timeout: 10000 });
+    await keepDraftButton.click();
     await waitForSummaryFieldValue(window, refreshSentinel);
-    await waitForCondition(
-      async () => (await getSummaryText(window)) === refreshSentinel,
-      `summary text to equal '${refreshSentinel}'`,
-    );
     results.refresh = {
       fieldValue: await summaryField(window).inputValue(),
       savedSummaryText: await getSummaryText(window),
-      action: "refresh keeps unsaved draft visible while regeneration runs",
+      action:
+        "the Assistant rewrite asks before replacing the unsaved draft, and declining keeps it",
     };
     await window.screenshot({
       animations: "disabled",
@@ -224,13 +256,12 @@ async function captureResumeWorkspaceDirtyState() {
     });
 
     const assistantSentinel =
-      "Dirty assistant sentinel that should persist across a no-op assistant request.";
+      "Systems-focused product designer with deep workflow automation and design-systems experience.";
     await summaryField(window).fill(assistantSentinel);
-    await window.getByRole("button", { name: "Open guided edits" }).click();
     await assistantField(window).fill("Explain why this section was included.");
     const previousAssistantMessageCount = (await getAssistantMessages(window))
       .length;
-    await window.getByRole("button", { name: "Send request" }).click();
+    await window.getByRole("button", { name: "Send message" }).click();
     await waitForCondition(
       async () => {
         const workspace = await getResumeWorkspace(window);
@@ -239,15 +270,17 @@ async function captureResumeWorkspaceDirtyState() {
           workspace.draft.sections.find((section) => section.kind === "summary")
             ?.text ?? "";
         const lastMessage = messages.at(-1);
-        const sendButtonLabel = await window
-          .getByRole("button", { name: /Send request|Updating/i })
-          .textContent();
+        // The send control is an icon button now, so "the request settled" is
+        // read from the control being enabled again rather than from its text.
+        const sendReady = await window
+          .getByRole("button", { name: "Send message" })
+          .isEnabled();
         return (
           summaryText === assistantSentinel &&
           messages.length > previousAssistantMessageCount &&
           lastMessage?.role === "assistant" &&
           lastMessage.content.trim().length > 0 &&
-          sendButtonLabel?.includes("Send request")
+          sendReady
         );
       },
       "assistant messages after dirty save-before-send",
@@ -265,12 +298,12 @@ async function captureResumeWorkspaceDirtyState() {
       path: path.join(outputDir, "03-after-assistant-save.png"),
     });
 
-    await window.getByRole("button", { name: "Export PDF" }).click();
+    await window.getByRole("button", { name: "Download PDF" }).click();
     await waitForCondition(
       async () => (await getResumeWorkspace(window)).exports.length > 0,
       "resume export artifact",
     );
-    await window.getByRole("button", { name: "Approve current PDF" }).click();
+    await window.getByRole("button", { name: "Approve resume" }).click();
     await waitForApprovedExport(window);
 
     const clearApprovalSentinel =

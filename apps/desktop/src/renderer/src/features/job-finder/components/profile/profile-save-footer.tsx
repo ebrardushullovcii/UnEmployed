@@ -1,11 +1,13 @@
-import { Button } from '@renderer/components/ui/button'
+import { useId } from "react";
+import { Button } from "@renderer/components/ui/button";
+import { cn } from "@renderer/lib/cn";
 
 interface ProfileSaveFooterProps {
-  actionMessage: string | null
-  hasUnsavedChanges: boolean
-  isSavePending: boolean
-  onSave: () => void
-  validationMessage: string | null
+  actionMessage: string | null;
+  hasUnsavedChanges: boolean;
+  isSavePending: boolean;
+  onSave: () => void;
+  validationMessage: string | null;
 }
 
 export function ProfileSaveFooter({
@@ -13,22 +15,50 @@ export function ProfileSaveFooter({
   hasUnsavedChanges,
   isSavePending,
   onSave,
-  validationMessage
+  validationMessage,
 }: ProfileSaveFooterProps) {
+  const saveStateId = useId();
+
   return (
-    <div className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) px-4 py-4 sm:px-5">
+    <div
+      className="border-t border-(--surface-panel-border) bg-(--surface-fill-soft) px-4 py-2 sm:px-5"
+      data-profile-workspace-actions
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="grid gap-2">
-          <p className="text-(length:--text-description) leading-6 text-foreground-muted">
+        <div className="grid gap-1">
+          {/* Same two states as every guided-setup footer: report what is
+              true, do not instruct. The state is carried by a dot and its
+              own colour as well as the words, so a glance at the footer
+              answers "is my work saved?" without reading a muted sentence -
+              and it is the stated reason the clean Save is disabled. */}
+          <p
+            className={cn(
+              "flex items-center gap-2 text-(length:--text-description) leading-5",
+              hasUnsavedChanges
+                ? "font-medium text-(--warning-text)"
+                : "text-foreground-muted",
+            )}
+            data-profile-save-state={hasUnsavedChanges ? "dirty" : "clean"}
+            id={saveStateId}
+          >
+            <span
+              aria-hidden="true"
+              className={cn(
+                "size-2 shrink-0 rounded-full",
+                hasUnsavedChanges
+                  ? "bg-(--warning-text)"
+                  : "bg-(--disabled-foreground)",
+              )}
+            />
             {hasUnsavedChanges
-              ? 'You have unsaved changes. Save your profile, job preferences, and source setup before leaving this page.'
-              : 'Save your profile, job preferences, and source setup from one place.'}
+              ? "Unsaved changes on this page."
+              : "No unsaved changes."}
           </p>
           {validationMessage ? (
             <p
               aria-atomic="true"
               aria-live="polite"
-              className="text-(length:--text-description) leading-6 text-foreground-muted"
+              className="text-(length:--text-description) leading-5 text-foreground-muted"
               role="status"
             >
               {validationMessage}
@@ -38,7 +68,7 @@ export function ProfileSaveFooter({
             <p
               aria-atomic="true"
               aria-live="polite"
-              className="text-(length:--text-description) leading-6 text-primary"
+              className="text-(length:--text-description) leading-5 text-primary"
               role="status"
             >
               {actionMessage}
@@ -46,10 +76,34 @@ export function ProfileSaveFooter({
           ) : null}
         </div>
 
-        <Button className="w-full sm:w-auto sm:shrink-0" pending={isSavePending} onClick={onSave} type="button" variant="primary">
-          Save changes
-        </Button>
+        {/* The live-region messages (validation, last action) stay out of
+            aria-describedby: they would be announced a second time when
+            focus lands on the control. The plain save-state line is not a
+            live region, so a disabled Save can point at it and always carry
+            a visible, announced reason. The shared Button owns the pending
+            semantics (aria-busy + aria-disabled while isSavePending keeps
+            focus on the control), and the clean state keeps native disabled
+            semantics. */}
+        <div className="flex items-center gap-2 sm:shrink-0">
+          {/* The collapsed Assistant launcher lands here, portalled in by
+              `ProfileCopilotRail`, so it is a sibling of Save rather than a
+              pill floating over the page. Same slot pattern, same button and
+              same label as the Resume Studio header, so the two screens are
+              indistinguishable. Empty span, no box, until the rail mounts. */}
+          <span className="contents" data-profile-assistant-launcher-slot />
+          <Button
+            aria-describedby={hasUnsavedChanges ? undefined : saveStateId}
+            className="w-full sm:w-auto sm:shrink-0"
+            disabled={!hasUnsavedChanges}
+            pending={isSavePending}
+            onClick={onSave}
+            type="button"
+            variant="primary"
+          >
+            Save changes
+          </Button>
+        </div>
       </div>
     </div>
-  )
+  );
 }

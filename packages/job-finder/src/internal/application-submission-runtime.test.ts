@@ -1,0 +1,531 @@
+import { createHash } from "node:crypto";
+
+import {
+  ApplyJobResultSchema,
+  ApplicationAuthorityEnvelopeSchema,
+  ApplicationRecordSchema,
+  serializeApplicationAuthorityDecisionPolicyForDigest,
+  SubmissionExecutionGrantSchema,
+  SubmissionFinalControlIdentitySchema,
+  SubmissionObservationIdentitySchema,
+  type ApplicationAutomationMode,
+} from "@unemployed/contracts";
+import { createInMemoryJobFinderRepository } from "@unemployed/db";
+import type {
+  ApplicationFinalActionResult,
+  ApplicationFinalControl,
+  ApplicationFormObservation,
+  ApplicationSafePageUrl,
+} from "@unemployed/browser-runtime";
+import { describe, expect, test } from "vitest";
+
+import { createSeed } from "../workspace-service.test-fixtures";
+import { buildSubmissionPreflightRecord } from "./application-submission-preflight";
+import {
+  runApplicationSubmissionRuntime,
+  type ApplicationSubmissionBrowserRuntime,
+  type ApplicationSubmissionRuntimeInput,
+} from "./application-submission-runtime";
+
+const NOW = "2026-08-27T10:00:00.000Z";
+const EXPIRES_AT = "2026-08-27T11:00:00.000Z";
+const ORIGIN = "https://boards.example.com";
+const RESUME_BYTES = new TextEncoder().encode("trusted resume bytes");
+const RESUME_SHA256 = createHash("sha256").update(RESUME_BYTES).digest("hex");
+const ANSWER_SHA256 = "b".repeat(64);
+const FORM_SHA256 = "c".repeat(64);
+const CONTROL_SHA256 = "d".repeat(64);
+
+const POLICY_RULES = {
+  version: 1 as const,
+  answerPolicy: {
+    approvedAnswerSnapshot: { revision: 1, digest: ANSWER_SHA256 },
+    unknownRequiredQuestion: "pause_for_user" as const,
+    unknownEligibility: "pause_for_user" as const,
+    unknownLegalRequirement: "pause_for_user" as const,
+  },
+  stopConditions: {
+    unavailableCredentials: "pause_for_user" as const,
+    loginRequired: "pause_for_user" as const,
+    mfaRequired: "pause_for_user" as const,
+    captcha: "pause_for_user" as const,
+    antiBot: "pause_for_user" as const,
+    accountCreation: "pause_for_user" as const,
+    staleObservation: "pause_for_user" as const,
+    ambiguousFinalControl: "pause_for_user" as const,
+    originDrift: "pause_for_user" as const,
+    outcomeUncertain: "stop_no_retry" as const,
+  },
+};
+const POLICY_DIGEST = createHash("sha256")
+  .update(
+    serializeApplicationAuthorityDecisionPolicyForDigest(POLICY_RULES),
+    "utf8",
+  )
+  .digest("hex");
+const POLICY_IDENTITY = {
+  version: POLICY_RULES.version,
+  revision: 1,
+  digest: POLICY_DIGEST,
+};
+
+const PAGE: ApplicationSafePageUrl = {
+  origin: ORIGIN,
+  safePath: "/apply",
+};
+const CONTROL: ApplicationFinalControl = {
+  identity: SubmissionFinalControlIdentitySchema.parse({
+    ref: "final-control-0",
+    signature: CONTROL_SHA256,
+  }),
+  ordinal: 0,
+  kind: "button",
+  label: "Send application",
+  formIndex: 0,
+  action: { ...PAGE, safePath: "/submit" },
+};
+const OBSERVATION: ApplicationFormObservation = {
+  identity: SubmissionObservationIdentitySchema.parse({
+    id: "application-observation-fixture",
+    revision: 1,
+    digest: FORM_SHA256,
+  }),
+  page: PAGE,
+  complete: true,
+  controls: [CONTROL],
+};
+
+function emptyFacts(): ApplicationFinalActionResult["facts"] {
+  return {
+    actionAttempted: false,
+    actionIssued: false,
+    actionCompleted: false,
+    pageBefore: PAGE,
+    pageAfter: PAGE,
+    urlChanged: false,
+    requestsObservedDuringAction: 0,
+  };
+}
+
+function buildBrowserRuntime(
+  input: {
+    onBetweenVetoes?: () => void | Promise<void>;
+    controls?: ApplicationFinalControl[];
+    outcome?: "uncertain" | "not_submitted";
+  } = {},
+): {
+  runtime: ApplicationSubmissionBrowserRuntime;
+  calls: { observe: number; execute: number; action: number };
+} {
+  const calls = { observe: 0, execute: 0, action: 0 };
+  const observation =
+    input.controls === undefined
+      ? OBSERVATION
+      : { ...OBSERVATION, controls: input.controls };
+  const runtime: ApplicationSubmissionBrowserRuntime = {
+    observeApplicationForm: () => {
+      calls.observe += 1;
+      return Promise.resolve(observation);
+    },
+    executeExactlyOneFinalAction: async (_source, actionInput) => {
+      calls.execute += 1;
+      const firstVeto = await actionInput.veto({
+        observation,
+        control: observation.controls[0] ?? CONTROL,
+      });
+      if (!firstVeto) {
+        return {
+          outcome: "not_submitted",
+          reason: "vetoed",
+          observation,
+          control: observation.controls[0] ?? null,
+          facts: emptyFacts(),
+        };
+      }
+      await input.onBetweenVetoes?.();
+      const secondVeto = await actionInput.veto({
+        observation,
+        control: observation.controls[0] ?? CONTROL,
+      });
+      if (!secondVeto) {
+        return {
+          outcome: "not_submitted",
+          reason: "vetoed",
+          observation,
+          control: observation.controls[0] ?? null,
+          facts: emptyFacts(),
+        };
+      }
+      calls.action += 1;
+      if (input.outcome === "not_submitted") {
+        return {
+          outcome: "not_submitted",
+          reason: "action_error",
+          observation,
+          control: observation.controls[0] ?? CONTROL,
+          facts: {
+            ...emptyFacts(),
+            actionAttempted: true,
+          },
+        };
+      }
+      return {
+        outcome: "outcome_uncertain",
+        reason: "action_issued",
+        observation,
+        control: observation.controls[0] ?? CONTROL,
+        facts: {
+          ...emptyFacts(),
+          actionAttempted: true,
+          actionIssued: true,
+          actionCompleted: true,
+        },
+      };
+    },
+  };
+  return { runtime, calls };
+}
+
+async function seedParents(
+  repository: ReturnType<typeof createInMemoryJobFinderRepository>,
+): Promise<void> {
+  await repository.upsertApplicationRecord(
+    ApplicationRecordSchema.parse({
+      id: "application_1",
+      jobId: "job_1",
+      title: "Synthetic application",
+      company: "Synthetic employer",
+      status: "approved",
+      lastActionLabel: "Application prepared",
+      nextActionLabel: "Review the prepared application",
+      lastUpdatedAt: NOW,
+      lastAttemptState: "ready",
+    }),
+  );
+  await repository.upsertApplyJobResult(
+    ApplyJobResultSchema.parse({
+      id: "result_1",
+      runId: "run_1",
+      jobId: "job_1",
+      applicationRecordId: "application_1",
+      state: "submitting",
+      summary: "Synthetic final action is ready.",
+      detail: "The synthetic executor is awaiting a durable outcome.",
+      startedAt: NOW,
+      updatedAt: NOW,
+      privacyReceipt: {
+        generatedAt: NOW,
+        lineage: {
+          runId: "run_1",
+          jobId: "job_1",
+          resultId: "result_1",
+          applicationRecordId: "application_1",
+        },
+        destination: { origin: ORIGIN, safePath: "/apply" },
+        resume: {
+          source: "original_upload",
+          sourceDocumentId: "resume_1",
+          exportArtifactId: null,
+          fileName: "resume.pdf",
+          sha256: RESUME_SHA256,
+        },
+        finalSubmitAuthorized: true,
+        finalSubmitOccurred: false,
+        submissionOutcome: null,
+      },
+    }),
+  );
+}
+
+async function createHarness(input: {
+  mode: ApplicationAutomationMode;
+  runtime?: ApplicationSubmissionBrowserRuntime;
+  calls?: { observe: number; execute: number; action: number };
+  allowedOrigins?: string[];
+}): Promise<{
+  repository: ReturnType<typeof createInMemoryJobFinderRepository>;
+  runtimeInput: ApplicationSubmissionRuntimeInput;
+  authority: ReturnType<typeof ApplicationAuthorityEnvelopeSchema.parse>;
+}> {
+  const repository = createInMemoryJobFinderRepository(createSeed());
+  await seedParents(repository);
+  const authority = ApplicationAuthorityEnvelopeSchema.parse({
+    id: "authority_1",
+    mode: input.mode,
+    status: "active",
+    revision: 1,
+    scope: { campaignId: "campaign_1", jobIds: ["job_1"] },
+    maxApplicationsPerRun: 1,
+    maxApplicationsPerLocalDay: 1,
+    intermediateMutationsAuthorized: false,
+    accountCreationAuthorized: false,
+    allowedResumeSha256: input.mode === "prepare_only" ? [] : [RESUME_SHA256],
+    allowedOrigins: input.allowedOrigins ?? [ORIGIN],
+    createdAt: NOW,
+    expiresAt: input.mode === "prepare_only" ? null : EXPIRES_AT,
+    revokedAt: null,
+    decisionPolicy:
+      input.mode === "prepare_only"
+        ? null
+        : {
+            ...POLICY_RULES,
+            ...POLICY_IDENTITY,
+          },
+  });
+  await repository.commitApplicationAuthorityEnvelope({
+    envelope: authority,
+    expectedRevision: null,
+  });
+  const browser = input.runtime
+    ? {
+        runtime: input.runtime,
+        calls: input.calls ?? { observe: 0, execute: 0, action: 0 },
+      }
+    : buildBrowserRuntime();
+  return {
+    repository,
+    authority,
+    runtimeInput: {
+      repository,
+      browserRuntime: browser.runtime,
+      source: "target_site",
+      savedMode: input.mode,
+      authorityEnvelopeId: authority.id,
+      authorityRevision: authority.revision,
+      preflightId: "preflight_1",
+      idempotencyKey: "idempotency_1",
+      lineage: {
+        runId: "run_1",
+        jobId: "job_1",
+        resultId: "result_1",
+        applicationRecordId: "application_1",
+        campaignId: "campaign_1",
+      },
+      resumeBytes: RESUME_BYTES,
+      answers: { revision: 1, digest: ANSWER_SHA256 },
+      capacity: { remainingRunCapacity: 1, remainingDailyCapacity: 1 },
+      currentPolicyFacts: {
+        policy: input.mode === "prepare_only" ? null : POLICY_IDENTITY,
+        answers: { revision: 1, digest: ANSWER_SHA256 },
+        mandatoryStops: [],
+      },
+      now: NOW,
+    },
+  };
+}
+
+async function commitConfirmGrant(
+  repository: ReturnType<typeof createInMemoryJobFinderRepository>,
+): Promise<void> {
+  const preflight = buildSubmissionPreflightRecord({
+    id: "preflight_1",
+    idempotencyKey: "idempotency_1",
+    lineage: {
+      runId: "run_1",
+      jobId: "job_1",
+      resultId: "result_1",
+      applicationRecordId: "application_1",
+      campaignId: "campaign_1",
+    },
+    authorityEnvelopeId: "authority_1",
+    authorityRevision: 1,
+    decisionPolicy: POLICY_IDENTITY,
+    origin: ORIGIN,
+    formObservation: OBSERVATION.identity,
+    resumeBytes: RESUME_BYTES,
+    answers: { revision: 1, digest: ANSWER_SHA256 },
+    finalControl: CONTROL.identity,
+    capacity: { remainingRunCapacity: 1, remainingDailyCapacity: 1 },
+    createdAt: NOW,
+  });
+  await repository.commitSubmissionPreflight(preflight);
+  await repository.commitSubmissionExecutionGrant(
+    SubmissionExecutionGrantSchema.parse({
+      id: "grant_1",
+      preflightId: preflight.id,
+      idempotencyKey: preflight.idempotencyKey,
+      runId: preflight.runId,
+      jobId: preflight.jobId,
+      resultId: preflight.resultId,
+      applicationRecordId: preflight.applicationRecordId,
+      authorityEnvelopeId: preflight.authorityEnvelopeId,
+      authorityRevision: preflight.authorityRevision,
+      mode: "confirm_before_submit",
+      status: "active",
+      grantedBy: "user",
+      grantedAt: NOW,
+      expiresAt: EXPIRES_AT,
+      revokedAt: null,
+      consumedAt: null,
+    }),
+  );
+}
+
+describe("composed application submission runtime", () => {
+  test("consumes one confirm grant, executes one browser action, and records uncertainty", async () => {
+    const browser = buildBrowserRuntime();
+    const harness = await createHarness({
+      mode: "confirm_before_submit",
+      runtime: browser.runtime,
+      calls: browser.calls,
+    });
+    await commitConfirmGrant(harness.repository);
+
+    const result = await runApplicationSubmissionRuntime({
+      ...harness.runtimeInput,
+      executionGrantId: "grant_1",
+    });
+
+    expect(result.status).toBe("outcome_uncertain");
+    expect(browser.calls).toEqual({ observe: 1, execute: 1, action: 1 });
+    await expect(
+      harness.repository.getSubmissionExecutionGrant("grant_1"),
+    ).resolves.toMatchObject({ status: "consumed" });
+    await expect(
+      harness.repository.getSubmissionOutcomeRecord("outcome_preflight_1"),
+    ).resolves.toMatchObject({ outcome: "outcome_uncertain" });
+  });
+
+  test("runs autonomous mode without a grant and never constructs a submitted outcome", async () => {
+    const browser = buildBrowserRuntime();
+    const harness = await createHarness({
+      mode: "autonomous_submit",
+      runtime: browser.runtime,
+      calls: browser.calls,
+    });
+
+    const result = await runApplicationSubmissionRuntime(harness.runtimeInput);
+
+    expect(result.status).toBe("outcome_uncertain");
+    expect(browser.calls.action).toBe(1);
+    if (result.status === "outcome_uncertain") {
+      expect(result.outcome.outcome).toBe("outcome_uncertain");
+    }
+    await expect(
+      harness.repository.listSubmissionOutcomeRecords(),
+    ).resolves.toHaveLength(1);
+  });
+
+  test("stops prepare-only before observation or browser action", async () => {
+    const browser = buildBrowserRuntime();
+    const harness = await createHarness({
+      mode: "prepare_only",
+      runtime: browser.runtime,
+      calls: browser.calls,
+    });
+
+    const result = await runApplicationSubmissionRuntime(harness.runtimeInput);
+
+    expect(result).toMatchObject({ status: "blocked", reason: "prepare_only" });
+    expect(browser.calls).toEqual({ observe: 0, execute: 0, action: 0 });
+    await expect(
+      harness.repository.listSubmissionPreflightRecords(),
+    ).resolves.toEqual([]);
+  });
+
+  test("re-reads the authority in the final veto and prevents action after revocation", async () => {
+    const repositoryHolder: {
+      current: ReturnType<typeof createInMemoryJobFinderRepository> | null;
+    } = { current: null };
+    const browser = buildBrowserRuntime({
+      onBetweenVetoes: async () => {
+        if (!repositoryHolder.current) {
+          throw new Error("repository fixture was not initialized");
+        }
+        await repositoryHolder.current.revokeApplicationAuthorityEnvelope({
+          id: "authority_1",
+          expectedRevision: 1,
+          revokedAt: NOW,
+        });
+      },
+    });
+    const harness = await createHarness({
+      mode: "confirm_before_submit",
+      runtime: browser.runtime,
+      calls: browser.calls,
+    });
+    repositoryHolder.current = harness.repository;
+    await commitConfirmGrant(harness.repository);
+
+    const result = await runApplicationSubmissionRuntime({
+      ...harness.runtimeInput,
+      executionGrantId: "grant_1",
+    });
+
+    expect(result.status).toBe("recorded_not_submitted");
+    expect(browser.calls).toEqual({ observe: 1, execute: 1, action: 0 });
+    if (result.status === "recorded_not_submitted") {
+      expect(result.outcome.retry).toEqual({
+        eligible: false,
+        blockReason: "authority_no_longer_valid",
+      });
+    }
+  });
+
+  test("does not call the executor for zero or ambiguous controls and blocks a cancelled attempt", async () => {
+    const browser = buildBrowserRuntime({ controls: [] });
+    const harness = await createHarness({
+      mode: "autonomous_submit",
+      runtime: browser.runtime,
+      calls: browser.calls,
+    });
+    const noControl = await runApplicationSubmissionRuntime(
+      harness.runtimeInput,
+    );
+    expect(noControl).toMatchObject({
+      status: "blocked",
+      reason: "ambiguous_final_control",
+    });
+    expect(browser.calls.execute).toBe(0);
+
+    const cancelledBrowser = buildBrowserRuntime();
+    const cancelledHarness = await createHarness({
+      mode: "autonomous_submit",
+      runtime: cancelledBrowser.runtime,
+      calls: cancelledBrowser.calls,
+    });
+    const controller = new AbortController();
+    controller.abort();
+    const cancelled = await runApplicationSubmissionRuntime({
+      ...cancelledHarness.runtimeInput,
+      signal: controller.signal,
+    });
+    expect(cancelled).toMatchObject({
+      status: "blocked",
+      reason: "immediate_recheck_failed",
+    });
+    expect(cancelledBrowser.calls).toEqual({
+      observe: 0,
+      execute: 0,
+      action: 0,
+    });
+  });
+
+  test("persists uncertainty and permanently blocks a second browser attempt for the same key", async () => {
+    const browser = buildBrowserRuntime();
+    const harness = await createHarness({
+      mode: "autonomous_submit",
+      runtime: browser.runtime,
+      calls: browser.calls,
+    });
+
+    const first = await runApplicationSubmissionRuntime(harness.runtimeInput);
+    const second = await runApplicationSubmissionRuntime(harness.runtimeInput);
+
+    expect(first.status).toBe("outcome_uncertain");
+    expect(second).toMatchObject({
+      status: "blocked",
+      reason: "idempotency_outcome_uncertain",
+    });
+    expect(browser.calls.execute).toBe(1);
+    const [projectedResult] = await harness.repository.listApplyJobResults({
+      jobId: "job_1",
+    });
+    const [projectedApplication] =
+      await harness.repository.listApplicationRecords();
+    expect(projectedResult?.privacyReceipt?.submissionOutcome?.outcome).toBe(
+      "outcome_uncertain",
+    );
+    expect(projectedApplication?.lastAttemptState).toBe("paused");
+  });
+});

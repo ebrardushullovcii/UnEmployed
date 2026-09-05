@@ -1,67 +1,189 @@
 // @vitest-environment jsdom
 
-import { act } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ProfileSaveFooter } from './profile-save-footer'
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ProfileSaveFooter } from "./profile-save-footer";
 
-describe('ProfileSaveFooter', () => {
-  let container: HTMLDivElement | null = null
-  let root: Root | null = null
+function renderFooter(overrides?: {
+  actionMessage?: string | null;
+  hasUnsavedChanges?: boolean;
+  isSavePending?: boolean;
+  onSave?: () => void;
+  validationMessage?: string | null;
+}) {
+  return render(
+    <ProfileSaveFooter
+      actionMessage={overrides?.actionMessage ?? null}
+      hasUnsavedChanges={overrides?.hasUnsavedChanges ?? false}
+      isSavePending={overrides?.isSavePending ?? false}
+      onSave={overrides?.onSave ?? vi.fn()}
+      validationMessage={overrides?.validationMessage ?? null}
+    />,
+  );
+}
 
-  ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-
+describe("ProfileSaveFooter", () => {
   afterEach(() => {
-    if (root) {
-      act(() => {
-        root?.unmount()
-      })
-    }
+    cleanup();
+  });
 
-    root = null
-    container?.remove()
-    container = null
-    vi.clearAllMocks()
-  })
+  it("keeps Save changes disabled until the form is dirty", () => {
+    const onSave = vi.fn();
+    const { rerender } = render(
+      <ProfileSaveFooter
+        actionMessage={null}
+        hasUnsavedChanges={false}
+        isSavePending={false}
+        onSave={onSave}
+        validationMessage={null}
+      />,
+    );
 
-  it('renders action feedback alongside validation text', () => {
-    container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
+    const button = screen.getByRole("button", { name: "Save changes" });
+    // A clean form keeps native disabled semantics.
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(button.getAttribute("aria-disabled")).toBeNull();
 
-    act(() => {
-      root?.render(
-        <ProfileSaveFooter
-          actionMessage="Profile saved."
-          hasUnsavedChanges={false}
-          isSavePending={false}
-          onSave={vi.fn()}
-          validationMessage="Search preferences are invalid."
-        />,
-      )
-    })
+    rerender(
+      <ProfileSaveFooter
+        actionMessage={null}
+        hasUnsavedChanges
+        isSavePending={false}
+        onSave={onSave}
+        validationMessage={null}
+      />,
+    );
 
-    expect(container?.textContent).toContain('Profile saved.')
-    expect(container?.textContent).toContain('Search preferences are invalid.')
-  })
+    expect(
+      screen
+        .getByRole("button", { name: "Save changes" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+  });
 
-  it('renders the dirty-import guard message when resume actions are blocked', () => {
-    container = document.createElement('div')
-    document.body.appendChild(container)
-    root = createRoot(container)
+  it("retains focus on Save changes while the save is pending and blocks activation", () => {
+    const onSave = vi.fn();
+    const view = renderFooter({ hasUnsavedChanges: true, onSave });
 
-    act(() => {
-      root?.render(
-        <ProfileSaveFooter
-          actionMessage="Save your current profile or setup draft before importing or refreshing from resume so those unsaved edits do not get overwritten."
-          hasUnsavedChanges={true}
-          isSavePending={false}
-          onSave={vi.fn()}
-          validationMessage={null}
-        />,
-      )
-    })
+    const button = screen.getByRole("button", { name: "Save changes" });
+    button.focus();
+    expect(document.activeElement).toBe(button);
 
-    expect(container?.textContent).toContain('Save your current profile or setup draft before importing or refreshing from resume so those unsaved edits do not get overwritten.')
-  })
-})
+    view.rerender(
+      <ProfileSaveFooter
+        actionMessage={null}
+        hasUnsavedChanges
+        isSavePending
+        onSave={onSave}
+        validationMessage={null}
+      />,
+    );
+
+    // Pending keeps the control exposed but inert without dropping focus.
+    expect(document.activeElement).toBe(button);
+    expect(button.hasAttribute("disabled")).toBe(false);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+
+    fireEvent.click(button);
+    fireEvent.keyDown(button, { key: "Enter" });
+    fireEvent.keyDown(button, { key: " " });
+    fireEvent.click(screen.getByText(/Unsaved changes on this page/));
+    expect(onSave).not.toHaveBeenCalled();
+
+    view.rerender(
+      <ProfileSaveFooter
+        actionMessage={null}
+        hasUnsavedChanges
+        isSavePending={false}
+        onSave={onSave}
+        validationMessage={null}
+      />,
+    );
+
+    // Pending -> ready restores activation under the retained focus.
+    expect(document.activeElement).toBe(button);
+    expect(button.getAttribute("aria-busy")).toBeNull();
+    expect(button.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(button);
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("describes the disabled save with its reason and never with a live region", () => {
+    renderFooter({
+      actionMessage: "Profile saved.",
+      hasUnsavedChanges: false,
+      validationMessage: "Add an email address before saving.",
+    });
+
+    const button = screen.getByRole("button", { name: "Save changes" });
+    const statuses = screen.getAllByRole("status");
+    expect(statuses.map((status) => status.textContent)).toEqual([
+      "Add an email address before saving.",
+      "Profile saved.",
+    ]);
+
+    // The validation and last-action messages already live in role="status"
+    // regions; pointing the button at either would announce it twice. The
+    // save-state line is not a live region, so a greyed Save can carry it as
+    // a visible, announced reason instead of being unexplained.
+    const describedBy = button.getAttribute("aria-describedby");
+    expect(describedBy).not.toBeNull();
+    expect(
+      statuses.some((status) => status.getAttribute("id") === describedBy),
+    ).toBe(false);
+    const reason = document.getElementById(describedBy ?? "");
+    expect(reason?.textContent).toBe("No unsaved changes.");
+    expect(reason?.getAttribute("data-profile-save-state")).toBe("clean");
+  });
+
+  it("turns Save off when the page is clean and on when it is dirty", () => {
+    const { rerender } = renderFooter({ hasUnsavedChanges: false });
+
+    const cleanButton = screen.getByRole("button", { name: "Save changes" });
+    expect((cleanButton as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      document
+        .querySelector("[data-profile-save-state]")
+        ?.getAttribute("data-profile-save-state"),
+    ).toBe("clean");
+
+    rerender(
+      <ProfileSaveFooter
+        actionMessage={null}
+        hasUnsavedChanges
+        isSavePending={false}
+        onSave={() => {}}
+        validationMessage={null}
+      />,
+    );
+
+    const dirtyButton = screen.getByRole("button", { name: "Save changes" });
+    expect((dirtyButton as HTMLButtonElement).disabled).toBe(false);
+    expect(dirtyButton.getAttribute("aria-describedby")).toBeNull();
+    const dirtyState = document.querySelector("[data-profile-save-state]");
+    expect(dirtyState?.getAttribute("data-profile-save-state")).toBe("dirty");
+    expect(dirtyState?.textContent).toBe("Unsaved changes on this page.");
+  });
+
+  it("offers the Assistant launcher slot as a sibling of Save", () => {
+    // Pinned by attribute name on purpose. `ProfileCopilotRail` resolves this
+    // slot first and falls back to `[data-profile-workspace-actions]` (the
+    // footer root) for guided-setup footers, which have no slot. That fallback
+    // is deliberate — and it is exactly why a rename here would otherwise be
+    // silent: the launcher would quietly go back to rendering below the Save
+    // row instead of beside it.
+    renderFooter({ hasUnsavedChanges: true });
+
+    const slot = document.querySelector<HTMLElement>(
+      "[data-profile-assistant-launcher-slot]",
+    );
+    const save = screen.getByRole("button", { name: "Save changes" });
+
+    expect(slot).not.toBeNull();
+    expect(slot?.parentElement).toBe(save.parentElement);
+    // `display: contents` so the docked launcher lays out as Save's sibling
+    // rather than inside a wrapper box of its own.
+    expect(slot?.className).toContain("contents");
+  });
+});

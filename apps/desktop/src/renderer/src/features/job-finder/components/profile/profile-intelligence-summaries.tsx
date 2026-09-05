@@ -1,13 +1,13 @@
-import { useId, type ReactNode } from 'react'
-import type { LearnedInstructionIntelligenceSummary } from '../../lib/source-intelligence-utils'
+import { useId, type ReactNode } from "react";
+import type { LearnedInstructionIntelligenceSummary } from "../../lib/source-intelligence-utils";
 
 interface ProfileIntelligenceSummariesProps {
-  className: string
-  emptyState?: ReactNode
-  intelligenceSummaries: readonly LearnedInstructionIntelligenceSummary[]
-  listClassName: string
-  sectionClassName: string
-  titleClassName: string
+  className: string;
+  emptyState?: ReactNode;
+  intelligenceSummaries: readonly LearnedInstructionIntelligenceSummary[];
+  listClassName: string;
+  sectionClassName: string;
+  titleClassName: string;
 }
 
 export function ProfileIntelligenceSummaries({
@@ -19,7 +19,7 @@ export function ProfileIntelligenceSummaries({
   titleClassName,
 }: ProfileIntelligenceSummariesProps) {
   if (intelligenceSummaries.length === 0) {
-    return <>{emptyState}</>
+    return <>{emptyState}</>;
   }
 
   return (
@@ -34,7 +34,7 @@ export function ProfileIntelligenceSummaries({
         />
       ))}
     </div>
-  )
+  );
 }
 
 function ProfileIntelligenceSummarySection({
@@ -43,24 +43,29 @@ function ProfileIntelligenceSummarySection({
   summary,
   titleClassName,
 }: {
-  listClassName: string
-  sectionClassName: string
-  summary: LearnedInstructionIntelligenceSummary
-  titleClassName: string
+  listClassName: string;
+  sectionClassName: string;
+  summary: LearnedInstructionIntelligenceSummary;
+  titleClassName: string;
 }) {
-  const headingId = useId()
+  const headingId = useId();
 
   return (
     <section aria-labelledby={headingId} className={sectionClassName}>
-      <h3 className={titleClassName} id={headingId}>{summary.title}</h3>
+      <h3 className={titleClassName} id={headingId}>
+        {summary.title}
+      </h3>
       <dl className={listClassName}>
         {summary.items.map((item, itemIndex) => (
-          <div className="grid gap-0.5" key={`${summary.title}_${item.label}_${itemIndex}`}>
+          <div
+            className="grid gap-0.5"
+            key={`${summary.title}_${item.label}_${itemIndex}`}
+          >
             <dt className="font-medium text-foreground">{item.label}</dt>
             <dd className="break-words">{item.value}</dd>
           </div>
         ))}
       </dl>
     </section>
-  )
+  );
 }

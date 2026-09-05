@@ -42,3 +42,9 @@ export {
 export {
   createSystemPrompt
 } from './prompts'
+
+export {
+  captureCompactDiscoveryObservation,
+  type CaptureCompactDiscoveryObservationInput,
+  type CompactDiscoveryObserverOptions,
+} from './compact-discovery-observer'

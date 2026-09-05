@@ -1,0 +1,622 @@
+import { useDeferredValue, useId, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import type {
+  DiscoveryRunRecord,
+  EditableSourceInstructionArtifact,
+  SourceAccessPrompt,
+  SourceDebugRunDetails,
+  SourceDebugRunRecord,
+  SourceInstructionArtifact,
+} from "@unemployed/contracts";
+import { Badge } from "@renderer/components/ui/badge";
+import { Button } from "@renderer/components/ui/button";
+import { Checkbox } from "@renderer/components/ui/checkbox";
+import { FieldLabel } from "@renderer/components/ui/field";
+import type { UseFormReturn } from "react-hook-form";
+import {
+  deriveSourceHealthSignals,
+  describeEnabledSourceHealth,
+  isEnabledSourceNeedingAttention,
+  type SourceRuntimeSignals,
+} from "@unemployed/job-finder/source-health";
+import type { SearchPreferencesEditorValues } from "../../lib/profile-editor";
+import { PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES } from "./profile-deep-link-focus";
+import { ProfileDiscoveryTargetRow } from "./profile-discovery-target-row";
+import { ProfileInput } from "./profile-form-primitives";
+import { ProfileSectionHeader } from "./profile-section-header";
+
+type DiscoveryTarget =
+  SearchPreferencesEditorValues["discoveryTargets"][number];
+
+type SourceFilter = "all" | "disabled" | "enabled" | "needs_attention";
+
+export const JOB_SOURCES_PAGE_SIZE = 25;
+
+const sourceFilterOptions: ReadonlyArray<{
+  id: SourceFilter;
+  label: string;
+}> = [
+  { id: "all", label: "All" },
+  { id: "enabled", label: "Enabled" },
+  { id: "disabled", label: "Disabled" },
+  { id: "needs_attention", label: "Needs attention" },
+];
+
+function getSourceHost(startingUrl: string): string {
+  try {
+    return new URL(startingUrl).hostname.replace(/^www\./, "");
+  } catch {
+    return startingUrl.trim() || "URL not set";
+  }
+}
+
+/**
+ * Status line for a source row. A never-checked source returns `null`: the
+ * app's internal learning state is not a fact the user can act on, and the
+ * Enabled/Disabled badge already carries the actionable part.
+ */
+function getInstructionStatusLabel(target: DiscoveryTarget): string | null {
+  switch (target.instructionStatus) {
+    case "validated":
+      return "Guidance ready";
+    case "draft":
+      return "Draft guidance";
+    case "stale":
+      return "Guidance needs review";
+    case "unsupported":
+      return "Check unsupported";
+    default:
+      return null;
+  }
+}
+
+export function filterJobSources(
+  targets: readonly DiscoveryTarget[],
+  query: string,
+  filter: SourceFilter,
+  signals: SourceRuntimeSignals,
+): Array<{ index: number; target: DiscoveryTarget }> {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+
+  return targets.flatMap((target, index) => {
+    const matchesQuery =
+      normalizedQuery.length === 0 ||
+      target.label.toLocaleLowerCase().includes(normalizedQuery) ||
+      target.startingUrl.toLocaleLowerCase().includes(normalizedQuery);
+    // Same shared interpretation as the Home source-health badge: attention
+    // is scoped to enabled sources so disabled entries never inflate active
+    // health counts.
+    const matchesFilter =
+      filter === "all" ||
+      (filter === "enabled" && target.enabled) ||
+      (filter === "disabled" && !target.enabled) ||
+      (filter === "needs_attention" &&
+        isEnabledSourceNeedingAttention(target, signals));
+
+    return matchesQuery && matchesFilter ? [{ index, target }] : [];
+  });
+}
+
+interface SourcePagerProps {
+  "aria-label": string;
+  children: ReactNode;
+  className: string;
+  currentPage: number;
+  moveToPage: (nextPage: number) => void;
+  nextAriaLabel?: string;
+  pageCount: number;
+  previousAriaLabel?: string;
+}
+
+function SourcePager(props: SourcePagerProps) {
+  return (
+    <nav aria-label={props["aria-label"]} className={props.className}>
+      <Button
+        {...(props.previousAriaLabel
+          ? { "aria-label": props.previousAriaLabel }
+          : {})}
+        disabled={props.currentPage === 0}
+        onClick={() => props.moveToPage(Math.max(0, props.currentPage - 1))}
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        Previous
+      </Button>
+      {props.children}
+      <Button
+        {...(props.nextAriaLabel ? { "aria-label": props.nextAriaLabel } : {})}
+        disabled={props.currentPage >= props.pageCount - 1}
+        onClick={() =>
+          props.moveToPage(Math.min(props.pageCount - 1, props.currentPage + 1))
+        }
+        size="sm"
+        type="button"
+        variant="outline"
+      >
+        Next
+      </Button>
+    </nav>
+  );
+}
+
+interface ProfileJobSourcesTabProps {
+  isBrowserSessionPending: (targetId: string) => boolean;
+  isSourceDebugPending: (targetId: string) => boolean;
+  isSourceInstructionPending: (targetId: string) => boolean;
+  isSourceInstructionVerifyPending: (instructionId: string) => boolean;
+  isTargetDiscoveryPending: (targetId: string) => boolean;
+  onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
+  onOpenBrowserSessionForTarget: (targetId: string) => void;
+  onRunDiscoveryForTarget?: (targetId: string) => void;
+  onRunSourceDebug: (targetId: string) => void;
+  onSaveSourceInstructionArtifact: (
+    targetId: string,
+    artifact: EditableSourceInstructionArtifact,
+  ) => void;
+  onVerifySourceInstructions: (targetId: string, instructionId: string) => void;
+  preferencesForm: UseFormReturn<SearchPreferencesEditorValues>;
+  /**
+   * The workspace discovery runs behind source health. Passing the same facts
+   * Home uses keeps both screens on one classification: a source whose latest
+   * run completed is healthy even when guidance was never verified, and a
+   * source with an in-flight execution reads as running, not as a problem.
+   */
+  activeDiscoveryRun?: DiscoveryRunRecord | null;
+  discoveryRuns?: readonly DiscoveryRunRecord[];
+  recentSourceDebugRuns: readonly SourceDebugRunRecord[];
+  sourceAccessPrompts: readonly SourceAccessPrompt[];
+  sourceInstructionArtifacts: readonly SourceInstructionArtifact[];
+}
+
+export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
+  const searchInputId = useId();
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const [filter, setFilter] = useState<SourceFilter>("all");
+  const [page, setPage] = useState(0);
+  const [expandedTargetId, setExpandedTargetId] = useState<string | null>(null);
+  const discoveryTargets = props.preferencesForm.watch("discoveryTargets");
+  const listFieldOptions = {
+    shouldDirty: true,
+    shouldTouch: true,
+    shouldValidate: true,
+  } as const;
+  const accessPromptByTargetId = useMemo(
+    () =>
+      new Map(
+        props.sourceAccessPrompts.map((prompt) => [prompt.targetId, prompt]),
+      ),
+    [props.sourceAccessPrompts],
+  );
+  // One shared classification for Home and Profile: same login prompts, same
+  // running executions, same completed-run evidence.
+  const sourceHealthSignals = useMemo(
+    () =>
+      deriveSourceHealthSignals({
+        activeRun: props.activeDiscoveryRun ?? null,
+        recentRuns: props.discoveryRuns ?? [],
+        sourceAccessPrompts: props.sourceAccessPrompts,
+      }),
+    [props.activeDiscoveryRun, props.discoveryRuns, props.sourceAccessPrompts],
+  );
+  const instructionArtifactById = useMemo(
+    () =>
+      new Map(
+        props.sourceInstructionArtifacts.map((artifact) => [
+          artifact.id,
+          artifact,
+        ]),
+      ),
+    [props.sourceInstructionArtifacts],
+  );
+  const filteredSources = useMemo(
+    () =>
+      filterJobSources(
+        discoveryTargets,
+        deferredQuery,
+        filter,
+        sourceHealthSignals,
+      ),
+    [deferredQuery, discoveryTargets, filter, sourceHealthSignals],
+  );
+  const pageCount = Math.max(
+    1,
+    Math.ceil(filteredSources.length / JOB_SOURCES_PAGE_SIZE),
+  );
+  const currentPage = Math.min(page, pageCount - 1);
+  const visibleSources = filteredSources.slice(
+    currentPage * JOB_SOURCES_PAGE_SIZE,
+    (currentPage + 1) * JOB_SOURCES_PAGE_SIZE,
+  );
+  const firstVisibleSourceNumber =
+    filteredSources.length === 0 ? 0 : currentPage * JOB_SOURCES_PAGE_SIZE + 1;
+  const lastVisibleSourceNumber = Math.min(
+    filteredSources.length,
+    firstVisibleSourceNumber + visibleSources.length - 1,
+  );
+  const updateDiscoveryTargets = (
+    nextTargets: SearchPreferencesEditorValues["discoveryTargets"],
+  ) => {
+    props.preferencesForm.setValue(
+      "discoveryTargets",
+      nextTargets,
+      listFieldOptions,
+    );
+  };
+
+  const setLibraryView = (nextFilter: SourceFilter, nextQuery = query) => {
+    setFilter(nextFilter);
+    setQuery(nextQuery);
+    setPage(0);
+    setExpandedTargetId(null);
+  };
+
+  const createDiscoveryTargetId = () => {
+    if (typeof globalThis.crypto?.randomUUID === "function") {
+      return `target_${globalThis.crypto.randomUUID()}`;
+    }
+
+    return `target_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  };
+
+  const addDiscoveryTarget = () => {
+    const targetId = createDiscoveryTargetId();
+    updateDiscoveryTargets([
+      ...discoveryTargets,
+      {
+        id: targetId,
+        label: "",
+        startingUrl: "",
+        enabled: false,
+        adapterKind: "auto",
+        customInstructions: "",
+        instructionStatus: "missing",
+        validatedInstructionId: null,
+        draftInstructionId: null,
+        lastDebugRunId: null,
+        lastVerifiedAt: null,
+        staleReason: null,
+      },
+    ]);
+    setFilter("all");
+    setQuery("");
+    setPage(Math.floor(discoveryTargets.length / JOB_SOURCES_PAGE_SIZE));
+    setExpandedTargetId(targetId);
+  };
+
+  const toggleTarget = (targetId: string, enabled: boolean) => {
+    updateDiscoveryTargets(
+      discoveryTargets.map((target) =>
+        target.id === targetId ? { ...target, enabled } : target,
+      ),
+    );
+  };
+
+  const moveToPage = (nextPage: number) => {
+    setPage(nextPage);
+    setExpandedTargetId(null);
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById("profile-job-sources-list-heading")
+        ?.scrollIntoView({ behavior: "auto", block: "start" });
+    });
+  };
+
+  return (
+    <section
+      className={`grid content-start gap-(--gap-card) ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.base} ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.fixedHeader} ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.internalScroller}`}
+      data-job-sources-library
+      id="profile-job-sources"
+    >
+      <ProfileSectionHeader
+        action={
+          <Button
+            onClick={addDiscoveryTarget}
+            type="button"
+            variant="secondary"
+          >
+            Add source
+          </Button>
+        }
+        description="Manage every public careers page or job board Job Finder can check. Sources stay off until you enable them, and only enabled sources run during a search."
+        eyebrow="Discovery library"
+        headingId="profile-job-sources-heading"
+        title="Job sources"
+      />
+
+      <article className="surface-card-tint grid gap-4 rounded-(--radius-panel) border border-(--surface-panel-border) p-4">
+        <div className="grid gap-3 lg:grid-cols-[minmax(16rem,1fr)_auto] lg:items-end">
+          <div className="grid gap-(--gap-field)">
+            <FieldLabel htmlFor={searchInputId}>Find a source</FieldLabel>
+            <ProfileInput
+              autoComplete="off"
+              id={searchInputId}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(0);
+                setExpandedTargetId(null);
+              }}
+              placeholder="Search by company, board, or URL"
+              type="search"
+              value={query}
+            />
+          </div>
+          <div
+            aria-label="Filter job sources"
+            className="flex flex-wrap gap-2"
+            role="group"
+          >
+            {sourceFilterOptions.map((option) => (
+              <Button
+                aria-pressed={filter === option.id}
+                key={option.id}
+                onClick={() => setLibraryView(option.id)}
+                size="sm"
+                type="button"
+                variant={filter === option.id ? "primary" : "outline"}
+              >
+                {option.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-(--surface-panel-border) pt-3">
+          <h3
+            className={`${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.base} text-[0.98rem] font-semibold text-(--text-headline) outline-none ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.fixedHeader} ${PROFILE_DEEP_LINK_SCROLL_MARGIN_CLASSES.internalScroller}`}
+            id="profile-job-sources-list-heading"
+            tabIndex={-1}
+          >
+            Source library
+          </h3>
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-2">
+            {pageCount > 1 ? (
+              <SourcePager
+                aria-label="Job source pages (top of list)"
+                className="flex flex-wrap items-center gap-2"
+                currentPage={currentPage}
+                moveToPage={moveToPage}
+                nextAriaLabel="Next source page (top of list)"
+                pageCount={pageCount}
+                previousAriaLabel="Previous source page (top of list)"
+              >
+                <span className="text-(length:--text-small) text-foreground-muted">
+                  Page {currentPage + 1} of {pageCount}
+                </span>
+              </SourcePager>
+            ) : null}
+            <p
+              aria-atomic="true"
+              aria-live="polite"
+              className="text-(length:--text-small) text-foreground-muted"
+              role="status"
+            >
+              {filteredSources.length === discoveryTargets.length
+                ? `${discoveryTargets.length} sources`
+                : `${filteredSources.length} of ${discoveryTargets.length} sources`}
+            </p>
+          </div>
+        </div>
+
+        {discoveryTargets.length === 0 ? (
+          <div className="rounded-(--radius-field) border border-(--info-border) bg-(--info-surface) px-4 py-3 text-[0.9rem] leading-6 text-(--info-text)">
+            <p className="font-medium">Add your first public job source</p>
+            <p className="mt-1">
+              Add the careers page or job board you would normally browse. Save
+              it, check it, then enable it when you want it included in
+              searches.
+            </p>
+          </div>
+        ) : null}
+
+        {discoveryTargets.length > 0 && filteredSources.length === 0 ? (
+          <div className="rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-5 text-center">
+            <p className="font-medium text-(--text-headline)">
+              No sources match this view
+            </p>
+            <p className="mt-1 text-sm text-foreground-muted">
+              Clear the search or choose All to return to the complete library.
+            </p>
+            {deferredQuery.trim().length > 0 ? (
+              <p
+                aria-live="polite"
+                className="text-sm text-foreground-muted"
+                role="status"
+              >
+                {`No sources match "${deferredQuery.trim()}"`}
+              </p>
+            ) : null}
+            <Button
+              className="mt-3"
+              onClick={() => setLibraryView("all", "")}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Show all sources
+            </Button>
+          </div>
+        ) : null}
+
+        {visibleSources.length > 0 ? (
+          <ul
+            aria-label="Configured job sources"
+            className="m-0 grid list-none gap-2 p-0"
+          >
+            {visibleSources.map(({ index, target }) => {
+              const instructionArtifactId =
+                target.draftInstructionId ?? target.validatedInstructionId;
+              const isExpanded = expandedTargetId === target.id;
+              const displayName =
+                target.label.trim() || `New source ${index + 1}`;
+              const accessPrompt =
+                accessPromptByTargetId.get(target.id) ?? null;
+              const health = describeEnabledSourceHealth(
+                target,
+                sourceHealthSignals,
+              );
+              const needsAttention =
+                target.enabled && health.state === "needs_attention";
+
+              return (
+                <li className="min-w-0" key={target.id}>
+                  {isExpanded ? (
+                    <div
+                      className="grid gap-2"
+                      data-expanded-source-id={target.id}
+                    >
+                      <div className="flex justify-end">
+                        <Button
+                          aria-label={`Collapse editor for ${displayName}`}
+                          onClick={() => setExpandedTargetId(null)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Collapse editor
+                        </Button>
+                      </div>
+                      <ProfileDiscoveryTargetRow
+                        discoveryTargets={discoveryTargets}
+                        index={index}
+                        instructionArtifact={
+                          instructionArtifactId
+                            ? (instructionArtifactById.get(
+                                instructionArtifactId,
+                              ) ?? null)
+                            : null
+                        }
+                        isBrowserSessionPending={props.isBrowserSessionPending}
+                        isSourceDebugPending={props.isSourceDebugPending}
+                        isSourceInstructionPending={
+                          props.isSourceInstructionPending
+                        }
+                        isSourceInstructionVerifyPending={
+                          props.isSourceInstructionVerifyPending
+                        }
+                        isTargetDiscoveryPending={
+                          props.isTargetDiscoveryPending
+                        }
+                        onGetSourceDebugRunDetails={
+                          props.onGetSourceDebugRunDetails
+                        }
+                        onOpenBrowserSessionForTarget={
+                          props.onOpenBrowserSessionForTarget
+                        }
+                        {...(props.onRunDiscoveryForTarget
+                          ? {
+                              onRunDiscoveryForTarget:
+                                props.onRunDiscoveryForTarget,
+                            }
+                          : {})}
+                        onRunSourceDebug={props.onRunSourceDebug}
+                        onSaveSourceInstructionArtifact={
+                          props.onSaveSourceInstructionArtifact
+                        }
+                        onVerifySourceInstructions={
+                          props.onVerifySourceInstructions
+                        }
+                        recentSourceDebugRuns={props.recentSourceDebugRuns}
+                        sourceAccessPrompt={accessPrompt}
+                        target={target}
+                        updateDiscoveryTargets={updateDiscoveryTargets}
+                      />
+                    </div>
+                  ) : (
+                    <article
+                      className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-fill-subtle) px-4 py-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center"
+                      data-compact-source-id={target.id}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4
+                            className="min-w-0 max-w-full truncate font-semibold text-(--text-headline)"
+                            title={displayName}
+                          >
+                            {displayName}
+                          </h4>
+                          {/* No Enabled/Disabled badge: the "Include in
+                              search" checkbox on this row states it. */}
+                          {needsAttention ? (
+                            <Badge title={health.reason} variant="destructive">
+                              Needs attention
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <p
+                          className="mt-1 truncate text-sm text-foreground-muted"
+                          title={target.startingUrl}
+                        >
+                          {getSourceHost(target.startingUrl)}
+                        </p>
+                        {needsAttention ? (
+                          <p className="mt-1 text-xs text-foreground-soft">
+                            {health.reason}
+                          </p>
+                        ) : getInstructionStatusLabel(target) ? (
+                          <p className="mt-1 text-xs text-foreground-muted">
+                            {getInstructionStatusLabel(target)}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                        {/* F78: this toggle was wrapped in a bordered pill at
+                            the same height and border weight as the real
+                            `Edit source` button beside it, so a checkbox and a
+                            navigation read as two identical controls. The
+                            toggle is now a plain checkbox+label with no button
+                            chrome, and it reports its committed state in words
+                            rather than leaving the tick as the only feedback. */}
+                        <label className="flex min-h-9 items-center gap-2 text-sm text-foreground-soft">
+                          <Checkbox
+                            aria-label={`Include ${displayName} in searches`}
+                            checked={target.enabled}
+                            onCheckedChange={(checked) =>
+                              toggleTarget(target.id, checked === true)
+                            }
+                          />
+                          <span>
+                            Include in search
+                            <span className="ml-1.5 text-(length:--text-tiny) uppercase tracking-(--tracking-mono) text-foreground-muted">
+                              {target.enabled ? "On" : "Off"}
+                            </span>
+                          </span>
+                        </label>
+                        <Button
+                          aria-expanded={false}
+                          aria-label={`Edit ${displayName}`}
+                          onClick={() => setExpandedTargetId(target.id)}
+                          size="sm"
+                          type="button"
+                          variant="secondary"
+                        >
+                          Edit source
+                        </Button>
+                      </div>
+                    </article>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+
+        {pageCount > 1 ? (
+          <SourcePager
+            aria-label="Job source pages"
+            className="flex flex-wrap items-center justify-between gap-3 border-t border-(--surface-panel-border) pt-3"
+            currentPage={currentPage}
+            moveToPage={moveToPage}
+            pageCount={pageCount}
+          >
+            <span className="text-center text-(length:--text-small) text-foreground-muted">
+              {firstVisibleSourceNumber}–{lastVisibleSourceNumber} of{" "}
+              {filteredSources.length}
+            </span>
+          </SourcePager>
+        ) : null}
+      </article>
+    </section>
+  );
+}

@@ -1,0 +1,258 @@
+// @vitest-environment jsdom
+
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import {
+  ApplicationDocumentRevisionSchema,
+  ApplicationRecordSchema,
+} from "@unemployed/contracts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApplicationsApplicationDocuments } from "./applications-application-documents";
+
+const applicationRecord = ApplicationRecordSchema.parse({
+  id: "application_1",
+  jobId: "job_1",
+  title: "Platform Engineer",
+  company: "Acme",
+  status: "drafting",
+  lastActionLabel: "Prepared application",
+  nextActionLabel: "Review",
+  lastUpdatedAt: "2026-08-10T10:00:00.000Z",
+});
+
+const proposed = ApplicationDocumentRevisionSchema.parse({
+  id: "document_1",
+  revision: 1,
+  kind: "cover_letter",
+  status: "proposed",
+  createdAt: "2026-08-10T10:00:00.000Z",
+  updatedAt: "2026-08-10T10:00:00.000Z",
+  job: {
+    jobId: "job_1",
+    applicationRecordId: "application_1",
+    sourceJobId: "source_job_1",
+    canonicalUrl: "https://example.com/jobs/1",
+    title: "Platform Engineer",
+    company: "Acme",
+    jobDigest: "a".repeat(64),
+  },
+  question: null,
+  content: "Dear Hiring Team,\n\nApproved profile evidence.",
+  evidence: [
+    {
+      id: "profile.summary",
+      source: "profile_summary",
+      label: "Approved profile summary",
+      text: "Approved profile evidence.",
+    },
+  ],
+  evidenceDigest: "b".repeat(64),
+  approvedAt: null,
+  outputAsset: null,
+  lastExportedAt: null,
+});
+
+describe("ApplicationsApplicationDocuments", () => {
+  let root: Root | null = null;
+
+  (
+    globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true;
+
+  afterEach(() => {
+    if (root) act(() => root?.unmount());
+    document.body.replaceChildren();
+    root = null;
+    vi.restoreAllMocks();
+  });
+
+  it("saves a manual edit as a new revision before exact approval", async () => {
+    let currentDocument: typeof proposed | null = null;
+    const listApplicationDocuments = vi.fn(() =>
+      Promise.resolve({
+        documents: currentDocument ? [currentDocument] : [],
+      }),
+    );
+    const proposeApplicationDocument = vi.fn(() => {
+      currentDocument = proposed;
+      return Promise.resolve(proposed);
+    });
+    const edited = ApplicationDocumentRevisionSchema.parse({
+      ...proposed,
+      revision: 2,
+      content: "User-authored revision.",
+      authorship: "user_edited",
+      requiresGroundingReview: true,
+    });
+    const editApplicationDocument = vi.fn(() => {
+      currentDocument = edited;
+      return Promise.resolve(edited);
+    });
+    const approveApplicationDocument = vi.fn(() => {
+      currentDocument = ApplicationDocumentRevisionSchema.parse({
+        ...edited,
+        status: "approved",
+        approvedAt: "2026-08-10T10:05:00.000Z",
+        outputAsset: {
+          id: "asset_1",
+          kind: "cover_letter",
+          originalName: "document_1-r2.txt",
+          mime: "text/plain",
+          byteSize: 42,
+          sha256: "c".repeat(64),
+          createdAt: "2026-08-10T10:05:00.000Z",
+          sensitivity: "sensitive",
+          consentScope: "job_application_attachment",
+          retention: "until_deleted",
+          deletedAt: null,
+          extractedText: null,
+        },
+      });
+      return Promise.resolve(currentDocument);
+    });
+    Object.defineProperty(window, "unemployed", {
+      configurable: true,
+      value: {
+        jobFinder: {
+          listApplicationDocuments,
+          proposeApplicationDocument,
+          editApplicationDocument,
+          approveApplicationDocument,
+          exportApplicationDocument: vi.fn(),
+        },
+      },
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <ApplicationsApplicationDocuments
+          applicationRecord={applicationRecord}
+          applyRunDetails={null}
+        />,
+      );
+      await Promise.resolve();
+    });
+    const generate = [...document.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Draft a cover letter"),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      generate.click();
+      await Promise.resolve();
+    });
+
+    expect(proposeApplicationDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        jobId: "job_1",
+        applicationRecordId: "application_1",
+        question: null,
+      }),
+    );
+    expect(document.body.textContent).toContain("Approved profile evidence.");
+    expect(document.body.textContent).toContain(
+      "Exact job: Platform Engineer at Acme",
+    );
+
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+    await act(async () => {
+      // React tracks textarea values through the instance setter; use the native
+      // setter to exercise the real onChange path in jsdom.
+      // eslint-disable-next-line @typescript-eslint/unbound-method
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        "value",
+      )?.set;
+      if (valueSetter) {
+        Reflect.apply(valueSetter, textarea, ["User-authored revision."]);
+      }
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
+    const saveEdit = [...document.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Save edit as new revision"),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      saveEdit.click();
+      await Promise.resolve();
+    });
+    expect(editApplicationDocument).toHaveBeenCalledWith({
+      documentId: "document_1",
+      expectedRevision: 1,
+      content: "User-authored revision.",
+    });
+    expect(document.body.textContent).toContain("User-authored revision");
+
+    const approve = [...document.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Approve exact revision"),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      approve.click();
+      await Promise.resolve();
+    });
+    expect(approveApplicationDocument).toHaveBeenCalledWith({
+      documentId: "document_1",
+      expectedRevision: 2,
+    });
+  });
+
+  it("renders every native field with canonical tokens, focus hierarchy, and preserved geometry", async () => {
+    const listApplicationDocuments = vi.fn(() =>
+      Promise.resolve({ documents: [proposed] }),
+    );
+    Object.defineProperty(window, "unemployed", {
+      configurable: true,
+      value: {
+        jobFinder: {
+          listApplicationDocuments,
+          proposeApplicationDocument: vi.fn(),
+          editApplicationDocument: vi.fn(),
+          approveApplicationDocument: vi.fn(),
+          exportApplicationDocument: vi.fn(),
+        },
+      },
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <ApplicationsApplicationDocuments
+          applicationRecord={applicationRecord}
+          applyRunDetails={null}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    const selects = [...container.querySelectorAll("select")];
+    const textareas = [...container.querySelectorAll("textarea")];
+    // Document type + Exact attachment question; the saved-document select only
+    // appears with more than one revision.
+    expect(selects).toHaveLength(2);
+    expect(textareas).toHaveLength(1);
+
+    for (const control of [...selects, ...textareas]) {
+      expect(control.className).toContain("border-(--field-border)");
+      expect(control.className).toContain("bg-(--field)");
+      expect(control.className).toContain("outline-none");
+      expect(control.className).toContain(
+        "focus-visible:border-(--field-focus-border)",
+      );
+      expect(control.className).toContain("focus-visible:bg-(--field-strong)");
+      expect(control.className).toContain(
+        "focus-visible:shadow-[var(--field-focus-shadow)]",
+      );
+      expect(control.className).not.toContain("border-input");
+      expect(control.className).not.toContain("focus-visible:ring");
+    }
+    for (const select of selects) {
+      expect(select.className).toContain("h-10");
+      expect(select.className).toContain("rounded-(--radius-field)");
+    }
+    expect(textareas[0]?.className).toContain("min-h-64");
+    expect(textareas[0]?.className).toContain("resize-y");
+  });
+});

@@ -32,6 +32,7 @@ async function waitForCondition(check, description, timeoutMs = 15000, intervalM
 }
 
 async function waitForProfileOrSetupHeading(window) {
+  await window.evaluate(() => { window.location.hash = '#/job-finder/profile' })
   await window.waitForFunction(() => {
     const heading = document.querySelector('h1')
     return heading?.textContent?.includes('Your profile') || heading?.textContent?.includes('Guided setup')
@@ -132,9 +133,9 @@ async function selectApplicationByJobId(window, jobId) {
 
   const buttons = await debugVisibleApplicationTitles(window)
   const matchingButton = window
-    .locator('button')
-    .filter({ has: window.getByText(record.title, { exact: true }) })
-    .filter({ has: window.getByText(record.company, { exact: true }) })
+    .getByRole('button', {
+      name: `View details for ${record.title} at ${record.company}`,
+    })
     .first()
 
   try {

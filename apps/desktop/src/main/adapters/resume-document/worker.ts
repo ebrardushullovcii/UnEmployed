@@ -3,6 +3,7 @@ import path from 'node:path'
 import {
   ResumeParserWorkerRequestSchema,
   ResumeParserWorkerResponseSchema,
+  type ResumeDocumentBlock,
   type ResumeDocumentFileKind,
   type ResumeDocumentParserKind,
   type ResumeParserWorkerRequest,
@@ -12,12 +13,7 @@ import { extractDocxTextWithTextutil } from '../resume-document-macos'
 import { buildBundleFromText, buildDocumentQualitySignal, normalizeExtractedText } from '../resume-document-utils'
 import { runResumeParserSidecar } from '../resume-document-sidecar'
 import { extractMacOsPdfDocumentBundle, extractPdfDocumentBundleWithPdfJs } from './pdf'
-import {
-  bundleToWorkerResponse,
-  createEmbeddedParserManifest,
-  createFailureResponse,
-  uniqueWarnings,
-} from './shared'
+import { bundleToWorkerResponse, createEmbeddedParserManifest, createFailureResponse, uniqueWarnings } from './shared'
 import type { ExtractResumeDocumentInput } from './types'
 
 export function detectResumeDocumentFileKind(filePath: string): ResumeDocumentFileKind {
@@ -42,9 +38,7 @@ export function detectResumeDocumentFileKind(filePath: string): ResumeDocumentFi
   return 'unknown'
 }
 
-export function defaultPreferredRoute(
-  fileKind: ResumeDocumentFileKind,
-): ResumeParserWorkerRequest['preferredRoute'] {
+export function defaultPreferredRoute(fileKind: ResumeDocumentFileKind): ResumeParserWorkerRequest['preferredRoute'] {
   switch (fileKind) {
     case 'plain_text':
     case 'markdown':
@@ -64,9 +58,7 @@ function preferredExecutorsForFileKind(fileKind: ResumeDocumentFileKind): Resume
     case 'markdown':
       return ['plain_text']
     case 'docx':
-      return process.platform === 'darwin'
-        ? ['local_docx', 'textutil_docx', 'mammoth']
-        : ['local_docx', 'mammoth']
+      return process.platform === 'darwin' ? ['local_docx', 'textutil_docx', 'mammoth'] : ['local_docx', 'mammoth']
     case 'pdf':
       return process.platform === 'darwin'
         ? ['local_pdf_layout', 'macos_pdfkit_text', 'macos_vision_ocr', 'pdfjs_text']
@@ -124,6 +116,175 @@ function countWordLikeTokens(value: string | null | undefined): number {
     .filter(Boolean).length
 }
 
+function normalizeComparableDocxLine(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9@+./]+/g, ' ')
+    .trim()
+}
+
+function isDocxContactLine(value: string): boolean {
+  return (
+    /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/i.test(value) ||
+    /\b(?:https?:\/\/|www\.|linkedin\.com\/|github\.com\/)/i.test(value) ||
+    /(?:^|\s)\+?\d[\d\s().-]{7,}\d(?:\s|$)/.test(value)
+  )
+}
+
+function collectSidecarDocxIdentityLines(input: {
+  sidecarText: string | null | undefined
+  embeddedText: string | null | undefined
+}): string[] {
+  const sidecarLines = (input.sidecarText ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 12)
+  const firstContactIndex = sidecarLines.findIndex(isDocxContactLine)
+  const lastContactIndex = sidecarLines.reduce(
+    (lastIndex, line, index) => (isDocxContactLine(line) ? index : lastIndex),
+    -1,
+  )
+
+  const identityWindow = sidecarLines.slice(0, lastContactIndex + 1)
+  const containsBodySectionHeading = identityWindow.some((line) =>
+    /^(?:professional\s+)?(?:experience|employment|work history|education|skills|projects|certifications?|achievements?)$/i.test(
+      line,
+    ),
+  )
+
+  if (firstContactIndex < 0 || firstContactIndex > 7 || containsBodySectionHeading) {
+    return []
+  }
+
+  const embeddedLines = new Set(
+    (input.embeddedText ?? '').split(/\r?\n/).map(normalizeComparableDocxLine).filter(Boolean),
+  )
+
+  return identityWindow
+    .filter((line) => !embeddedLines.has(normalizeComparableDocxLine(line)))
+}
+
+export function mergeDocxFallbackIdentityEvidence(input: {
+  sidecarResponse: ResumeParserWorkerResponse
+  embeddedResponse: ResumeParserWorkerResponse
+}): ResumeParserWorkerResponse {
+  const identityLines = collectSidecarDocxIdentityLines({
+    sidecarText: input.sidecarResponse.fullText,
+    embeddedText: input.embeddedResponse.fullText,
+  })
+
+  if (identityLines.length === 0) {
+    return input.embeddedResponse
+  }
+
+  const firstPage = input.embeddedResponse.pages[0]
+  const firstPageNumber = firstPage?.pageNumber ?? 1
+  const mergedFirstPageText = [identityLines.join('\n'), firstPage?.text ?? input.embeddedResponse.fullText ?? '']
+    .filter(Boolean)
+    .join('\n')
+  const parserKinds = Array.from(new Set([...input.embeddedResponse.parserKinds, ...input.sidecarResponse.parserKinds]))
+  const sidecarBlocksByText = new Map(
+    input.sidecarResponse.blocks.map((block) => [normalizeComparableDocxLine(block.text), block]),
+  )
+  const identityBlocks: ResumeDocumentBlock[] = identityLines.map((text, index) => {
+    const sourceBlock = sidecarBlocksByText.get(normalizeComparableDocxLine(text))
+    return {
+      id: `docx_identity_merge_${index + 1}`,
+      pageNumber: firstPageNumber,
+      readingOrder: index,
+      text,
+      kind: sourceBlock?.kind ?? (isDocxContactLine(text) ? 'contact' : 'heading'),
+      sectionHint: sourceBlock?.sectionHint ?? (isDocxContactLine(text) ? 'contact' : 'identity'),
+      bbox: sourceBlock?.bbox ?? null,
+      sourceParserKinds: sourceBlock?.sourceParserKinds ?? input.sidecarResponse.parserKinds,
+      sourceConfidence: sourceBlock?.sourceConfidence ?? 0.9,
+      lineIds: sourceBlock?.lineIds ?? [`docx_identity_merge_line_${index + 1}`],
+      parserLineage: sourceBlock?.parserLineage ?? input.sidecarResponse.parserKinds,
+      readingOrderConfidence: sourceBlock?.readingOrderConfidence ?? 0.9,
+      textSpan: null,
+    }
+  })
+  const shiftedBlocks = input.embeddedResponse.blocks.map((block) => ({
+    ...block,
+    readingOrder: block.readingOrder + identityBlocks.length,
+  }))
+  const blocks = [...identityBlocks, ...shiftedBlocks]
+  const pages = firstPage
+    ? input.embeddedResponse.pages.map((page, index) =>
+        index === 0
+          ? {
+              ...page,
+              text: mergedFirstPageText,
+              charCount: mergedFirstPageText.length,
+            }
+          : page,
+      )
+    : [
+        {
+          pageNumber: firstPageNumber,
+          text: mergedFirstPageText,
+          charCount: mergedFirstPageText.length,
+          tokenCount: countWordLikeTokens(mergedFirstPageText),
+          quality: buildDocumentQualitySignal({
+            fullText: mergedFirstPageText,
+            pages: [],
+            blocks: identityBlocks,
+          }),
+          qualityWarnings: [],
+          usedOcr: false,
+          width: null,
+          height: null,
+        },
+      ]
+  const fullText = pages
+    .map((page) => page.text)
+    .filter(Boolean)
+    .join('\n\n')
+  const qualityPages = pages.map((page) => ({
+    pageNumber: page.pageNumber,
+    text: page.text,
+    charCount: page.charCount,
+    parserKinds,
+    usedOcr: page.usedOcr,
+    width: page.width,
+    height: page.height,
+    routeKind: 'docx_native' as const,
+    quality: page.quality,
+    qualityWarnings: page.qualityWarnings,
+  }))
+  const route = input.embeddedResponse.route
+    ? {
+        ...input.embeddedResponse.route,
+        triageReasons: uniqueWarnings([...input.embeddedResponse.route.triageReasons, 'docx_identity_evidence_merged']),
+        usedExecutors: Array.from(
+          new Set([
+            ...input.embeddedResponse.route.usedExecutors,
+            ...(input.sidecarResponse.route?.usedExecutors ?? []),
+          ]),
+        ),
+      }
+    : input.embeddedResponse.route
+
+  return ResumeParserWorkerResponseSchema.parse({
+    ...input.embeddedResponse,
+    parserKinds,
+    route,
+    pages,
+    blocks,
+    fullText,
+    quality: buildDocumentQualitySignal({
+      fullText,
+      pages: qualityPages,
+      blocks,
+      readingOrderConfidence: input.embeddedResponse.quality.readingOrderConfidence,
+      nativeTextCoverage: input.embeddedResponse.quality.nativeTextCoverage,
+      imageCoverageRatio: input.embeddedResponse.quality.imageCoverageRatio,
+      invalidUnicodeRatio: input.embeddedResponse.quality.invalidUnicodeRatio,
+    }),
+  })
+}
+
 export function shouldFallbackToEmbeddedDocxResponse(input: {
   sidecarResponse: ResumeParserWorkerResponse
   embeddedResponse: ResumeParserWorkerResponse
@@ -151,11 +312,11 @@ export function shouldFallbackToEmbeddedDocxResponse(input: {
   const tokenGap = embeddedTokenCount - sidecarTokenCount
 
   return (
-    embeddedTextLength >= 200
-    && embeddedTokenCount >= 40
-    && lengthGap >= 120
-    && tokenGap >= 20
-    && embeddedTextLength >= Math.ceil(sidecarTextLength * 1.5)
+    embeddedTextLength >= 200 &&
+    embeddedTokenCount >= 40 &&
+    lengthGap >= 120 &&
+    tokenGap >= 20 &&
+    embeddedTextLength >= Math.ceil(sidecarTextLength * 1.5)
   )
 }
 
@@ -171,16 +332,15 @@ function mergeSidecarFallbackWarnings(
   } else if (sidecarResponse.errorMessage) {
     sidecarWarnings.push(`Python resume parser sidecar fallback: ${sidecarResponse.errorMessage}`)
   } else {
-    sidecarWarnings.push('Python resume parser sidecar returned no usable parse, so the desktop importer used the embedded parser.')
+    sidecarWarnings.push(
+      'Python resume parser sidecar returned no usable parse, so the desktop importer used the embedded parser.',
+    )
   }
 
   const route = embeddedResponse.route
     ? {
         ...embeddedResponse.route,
-        triageReasons: uniqueWarnings([
-          ...embeddedResponse.route.triageReasons,
-          'python_sidecar_fallback',
-        ]),
+        triageReasons: uniqueWarnings([...embeddedResponse.route.triageReasons, 'python_sidecar_fallback']),
       }
     : embeddedResponse.route
 
@@ -255,9 +415,10 @@ async function executePdfParser(
   input: ExtractResumeDocumentInput,
   request: ResumeParserWorkerRequest,
 ): Promise<ResumeParserWorkerResponse> {
-  const bundle = process.platform === 'darwin'
-    ? await extractMacOsPdfDocumentBundle(filePath, input, request)
-    : await extractPdfDocumentBundleWithPdfJs(filePath, input, request)
+  const bundle =
+    process.platform === 'darwin'
+      ? await extractMacOsPdfDocumentBundle(filePath, input, request)
+      : await extractPdfDocumentBundleWithPdfJs(filePath, input, request)
 
   return bundleToWorkerResponse(request.requestId, bundle)
 }
@@ -336,13 +497,21 @@ export async function executeResumeParserWorker(
   if (!shouldFallbackFromSidecarResponse(sidecarResponse) && request.fileKind === 'docx') {
     const embeddedDocxResponse = await executeEmbeddedParserWorker(request, input)
 
-    if (shouldFallbackToEmbeddedDocxResponse({ sidecarResponse, embeddedResponse: embeddedDocxResponse })) {
+    if (
+      shouldFallbackToEmbeddedDocxResponse({
+        sidecarResponse,
+        embeddedResponse: embeddedDocxResponse,
+      })
+    ) {
       console.warn(
         `[ResumeImport] Sidecar DOCX parse looked incomplete, so the embedded parser was preferred: sidecarTokens=${countWordLikeTokens(sidecarResponse.fullText)} embeddedTokens=${countWordLikeTokens(embeddedDocxResponse.fullText)}`,
       )
       return mergeSidecarFallbackWarnings(
         sidecarResponse,
-        embeddedDocxResponse,
+        mergeDocxFallbackIdentityEvidence({
+          sidecarResponse,
+          embeddedResponse: embeddedDocxResponse,
+        }),
         'Python resume parser sidecar returned a partial DOCX parse, so the desktop importer used the embedded parser.',
       )
     }

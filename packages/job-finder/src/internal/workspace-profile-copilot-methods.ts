@@ -15,6 +15,10 @@ import {
 
 import { resolvePendingReviewItemsAfterExplicitSave } from "./profile-setup-review-items";
 import { deriveAndPersistProfileSetupState } from "./profile-workspace-state";
+import {
+  commitProfileCopilotStateWithStaleRetry,
+  type CommitProfileCopilotStateInput,
+} from "./profile-commit-stale-conflict";
 import { hasResumeAffectingProfileChange } from "./resume-workspace-staleness";
 import { createUniqueId } from "./shared";
 import { normalizeSearchPreferences } from "./workspace-helpers";
@@ -33,13 +37,78 @@ function isSearchPreferencesPatchSafeForAutoApply(
     "targetSalaryUsd",
   ]);
 
-  return Object.keys(value).every((key) => safeScalarFields.has(key));
+  const currencyIsValid =
+    value.salaryCurrency === undefined ||
+    value.salaryCurrency === null ||
+    /^[A-Z]{3}$/.test(value.salaryCurrency.trim().toUpperCase());
+  const salaryValuesAreValid = [value.minimumSalaryUsd, value.targetSalaryUsd]
+    .filter((entry): entry is number => entry !== undefined && entry !== null)
+    .every((entry) => Number.isInteger(entry) && entry >= 0);
+
+  return (
+    currencyIsValid &&
+    salaryValuesAreValid &&
+    Object.keys(value).every((key) => safeScalarFields.has(key))
+  );
 }
 
-function isPatchGroupSafeForAutoApply(patchGroup: ProfileCopilotPatchGroup): boolean {
+function isCompensationPatchSafeForAutoApply(
+  value: Extract<
+    ProfileCopilotPatchGroup["operations"][number],
+    { operation: "replace_compensation_preferences_fields" }
+  >["value"],
+): boolean {
+  const amountsAreValid = [value.minimum, value.maximum]
+    .filter((entry): entry is number => entry !== undefined && entry !== null)
+    .every((entry) => Number.isInteger(entry) && entry >= 0);
+  const currencyIsComparable =
+    value.currencyStatus !== "needs_clarification" &&
+    value.currency !== null &&
+    value.currency !== undefined &&
+    /^[A-Z]{3}$/.test(value.currency);
+
+  return amountsAreValid && currencyIsComparable;
+}
+
+function hasValidPatchValues(patchGroup: ProfileCopilotPatchGroup): boolean {
+  return patchGroup.operations.every((operation) => {
+    if (operation.operation !== "replace_search_preferences_fields") {
+      if (operation.operation !== "replace_compensation_preferences_fields") {
+        return true;
+      }
+
+      return [operation.value.minimum, operation.value.maximum]
+        .filter(
+          (entry): entry is number => entry !== undefined && entry !== null,
+        )
+        .every((entry) => Number.isInteger(entry) && entry >= 0);
+    }
+
+    const currencyIsValid =
+      operation.value.salaryCurrency === undefined ||
+      operation.value.salaryCurrency === null ||
+      /^[A-Z]{3}$/.test(operation.value.salaryCurrency.trim().toUpperCase());
+    const salaryValuesAreValid = [
+      operation.value.minimumSalaryUsd,
+      operation.value.targetSalaryUsd,
+    ]
+      .filter((entry): entry is number => entry !== undefined && entry !== null)
+      .every((entry) => Number.isInteger(entry) && entry >= 0);
+
+    return currencyIsValid && salaryValuesAreValid;
+  });
+}
+
+function isPatchGroupSafeForAutoApply(
+  patchGroup: ProfileCopilotPatchGroup,
+): boolean {
   return patchGroup.operations.every((operation) => {
     if (operation.operation === "replace_search_preferences_fields") {
       return isSearchPreferencesPatchSafeForAutoApply(operation.value);
+    }
+
+    if (operation.operation === "replace_compensation_preferences_fields") {
+      return isCompensationPatchSafeForAutoApply(operation.value);
     }
 
     return (
@@ -68,8 +137,12 @@ function describeCopilotContext(context: ProfileCopilotContext): string {
   return "profile";
 }
 
-function formatPatchGroupSummaryList(patchGroups: readonly ProfileCopilotPatchGroup[]): string {
-  const summaries = patchGroups.slice(0, 2).map((patchGroup) => patchGroup.summary);
+function formatPatchGroupSummaryList(
+  patchGroups: readonly ProfileCopilotPatchGroup[],
+): string {
+  const summaries = patchGroups
+    .slice(0, 2)
+    .map((patchGroup) => patchGroup.summary);
 
   if (summaries.length === 0) {
     return "";
@@ -82,16 +155,56 @@ function formatPatchGroupSummaryList(patchGroups: readonly ProfileCopilotPatchGr
   return summaries.join(" and ");
 }
 
+function findUniqueProfileCopilotPatchGroup(
+  messages: readonly ProfileCopilotMessage[],
+  patchGroupId: string,
+): {
+  message: ProfileCopilotMessage;
+  patchGroup: ProfileCopilotPatchGroup;
+} | null {
+  let match: {
+    message: ProfileCopilotMessage;
+    patchGroup: ProfileCopilotPatchGroup;
+  } | null = null;
+
+  for (const message of messages) {
+    for (const patchGroup of message.patchGroups) {
+      if (patchGroup.id !== patchGroupId) {
+        continue;
+      }
+
+      if (match) {
+        // Legacy provider IDs may have been persisted more than once. A
+        // caller that has only the group ID must never silently apply the
+        // oldest matching proposal.
+        return null;
+      }
+
+      match = { message, patchGroup };
+    }
+  }
+
+  return match;
+}
+
 function normalizeAssistantPatchGroups(input: {
   patchGroups: readonly ProfileCopilotPatchGroup[];
   context: ProfileCopilotContext;
   content: string;
+  assistantMessageId: string;
 }): {
   patchGroups: ProfileCopilotPatchGroup[];
   content: string;
 } {
-  const normalizedPatchGroups = input.patchGroups.map((patchGroup) => {
-    const normalizedPatchGroup = ProfileCopilotPatchGroupSchema.parse(patchGroup);
+  const normalizedPatchGroups = input.patchGroups.map((patchGroup, index) => {
+    const parsedPatchGroup = ProfileCopilotPatchGroupSchema.parse(patchGroup);
+    const normalizedPatchGroup = ProfileCopilotPatchGroupSchema.parse({
+      ...parsedPatchGroup,
+      // Provider-generated IDs are only proposal-local and may repeat on a
+      // later response. Persist an identity owned by this assistant message
+      // so the renderer can safely carry it across apply/reject/undo flows.
+      id: `${input.assistantMessageId}_patch_${index + 1}`,
+    });
 
     if (
       normalizedPatchGroup.applyMode === "applied" &&
@@ -106,10 +219,15 @@ function normalizeAssistantPatchGroups(input: {
     return normalizedPatchGroup;
   });
 
-  const downgradedPatchGroups = normalizedPatchGroups.filter((patchGroup, index) => {
-    const originalPatchGroup = input.patchGroups[index];
-    return originalPatchGroup?.applyMode === "applied" && patchGroup.applyMode === "needs_review";
-  });
+  const downgradedPatchGroups = normalizedPatchGroups.filter(
+    (patchGroup, index) => {
+      const originalPatchGroup = input.patchGroups[index];
+      return (
+        originalPatchGroup?.applyMode === "applied" &&
+        patchGroup.applyMode === "needs_review"
+      );
+    },
+  );
 
   if (downgradedPatchGroups.length === 0) {
     return {
@@ -121,7 +239,9 @@ function normalizeAssistantPatchGroups(input: {
   const contextLabel = describeCopilotContext(input.context);
   const downgradedSummary = formatPatchGroupSummaryList(downgradedPatchGroups);
   const downgradedSuffix = downgradedSummary ? `: ${downgradedSummary}.` : ".";
-  const appliedCount = normalizedPatchGroups.filter((patchGroup) => patchGroup.applyMode === "applied").length;
+  const appliedCount = normalizedPatchGroups.filter(
+    (patchGroup) => patchGroup.applyMode === "applied",
+  ).length;
 
   return {
     patchGroups: normalizedPatchGroups,
@@ -135,7 +255,9 @@ function normalizeAssistantPatchGroups(input: {
 function getStoredPatchGroupApplyMode(
   patchGroup: ProfileCopilotPatchGroup,
 ): ProfileCopilotPatchGroup["applyMode"] {
-  return patchGroup.applyMode === "applied" ? "needs_review" : patchGroup.applyMode;
+  return patchGroup.applyMode === "applied"
+    ? "needs_review"
+    : patchGroup.applyMode;
 }
 
 function setPatchGroupApplyMode(
@@ -145,21 +267,6 @@ function setPatchGroupApplyMode(
   return {
     ...patchGroup,
     applyMode,
-  };
-}
-
-function replacePatchGroupInMessage(input: {
-  message: ProfileCopilotMessage;
-  patchGroupId: string;
-  applyMode: ProfileCopilotPatchGroup["applyMode"];
-}): ProfileCopilotMessage {
-  return {
-    ...input.message,
-    patchGroups: input.message.patchGroups.map((group) =>
-      group.id === input.patchGroupId
-        ? setPatchGroupApplyMode(group, input.applyMode)
-        : group,
-    ),
   };
 }
 
@@ -177,20 +284,34 @@ function isBasicsSectionItem(item: ProfileCopilotRelevantReviewItem): boolean {
   );
 }
 
-function isExperienceSectionItem(item: ProfileCopilotRelevantReviewItem): boolean {
+function isExperienceSectionItem(
+  item: ProfileCopilotRelevantReviewItem,
+): boolean {
   return item.target.domain === "experience";
 }
 
-function isBackgroundSectionItem(item: ProfileCopilotRelevantReviewItem): boolean {
-  return ["education", "certification", "project", "link", "language", "proof_point"].includes(
-    item.target.domain,
-  );
+function isBackgroundSectionItem(
+  item: ProfileCopilotRelevantReviewItem,
+): boolean {
+  return [
+    "education",
+    "certification",
+    "project",
+    "link",
+    "language",
+    "proof_point",
+  ].includes(item.target.domain);
 }
 
-function isPreferencesSectionItem(item: ProfileCopilotRelevantReviewItem): boolean {
-  return ["search_preferences", "work_eligibility", "answer_bank", "application_identity"].includes(
-    item.target.domain,
-  );
+function isPreferencesSectionItem(
+  item: ProfileCopilotRelevantReviewItem,
+): boolean {
+  return [
+    "search_preferences",
+    "work_eligibility",
+    "answer_bank",
+    "application_identity",
+  ].includes(item.target.domain);
 }
 
 function filterRelevantReviewItemsForContext(input: {
@@ -221,24 +342,37 @@ function filterRelevantReviewItemsForContext(input: {
 
 function buildConversationFacts(input: {
   profile: CandidateProfile;
+  searchPreferences: JobSearchPreferences;
   relevantReviewItems: readonly ProfileCopilotRelevantReviewItem[];
 }): string[] {
   const facts: string[] = [];
 
-  if (input.profile.headline.trim()) {
+  if (input.profile.headline?.trim()) {
     facts.push(`Headline: ${input.profile.headline.trim()}`);
   }
 
-  if (input.profile.currentLocation.trim()) {
+  if (input.profile.currentLocation?.trim()) {
     facts.push(`Location: ${input.profile.currentLocation.trim()}`);
+  }
+
+  const compensation = input.searchPreferences.compensation;
+  if (compensation.minimum !== null || compensation.maximum !== null) {
+    facts.push(
+      `Compensation preference: ${compensation.minimum ?? "unset"} to ${compensation.maximum ?? "unset"} per ${compensation.interval} | currency: ${compensation.currency ?? "unset"} | currency status: ${compensation.currencyStatus}`,
+    );
   }
 
   input.profile.experiences.slice(0, 6).forEach((experience) => {
     const company = experience.companyName ?? "Unknown company";
     const title = experience.title ?? "Unknown title";
     const startDate = experience.startDate ?? "unknown start";
-    const endDate = experience.isCurrent ? "present" : experience.endDate ?? "unknown end";
-    const workMode = experience.workMode.length > 0 ? experience.workMode.map(formatCopilotFactLabel).join(", ") : "not set";
+    const endDate = experience.isCurrent
+      ? "present"
+      : (experience.endDate ?? "unknown end");
+    const workMode =
+      experience.workMode.length > 0
+        ? experience.workMode.map(formatCopilotFactLabel).join(", ")
+        : "not set";
     facts.push(
       `Experience: ${title} at ${company} (${startDate} to ${endDate}) | work mode: ${workMode}`,
     );
@@ -272,8 +406,12 @@ function buildProfileRevision(input: {
     patchGroupId: input.patchGroupId ?? null,
     restoredFromRevisionId: input.restoredFromRevisionId ?? null,
     snapshotProfile: CandidateProfileSchema.parse(input.profile),
-    snapshotSearchPreferences: JobSearchPreferencesSchema.parse(input.searchPreferences),
-    snapshotProfileSetupState: ProfileSetupStateSchema.parse(input.profileSetupState),
+    snapshotSearchPreferences: JobSearchPreferencesSchema.parse(
+      input.searchPreferences,
+    ),
+    snapshotProfileSetupState: ProfileSetupStateSchema.parse(
+      input.profileSetupState,
+    ),
   };
 }
 
@@ -305,20 +443,30 @@ export function createWorkspaceProfileCopilotMethods(input: {
     profile: CandidateProfile;
     searchPreferences: JobSearchPreferences;
     profileSetupState: ProfileSetupState;
-    latestResumeImportRun: Awaited<ReturnType<WorkspaceServiceContext["repository"]["getLatestResumeImportRun"]>>;
+    latestResumeImportRun: Awaited<
+      ReturnType<
+        WorkspaceServiceContext["repository"]["getLatestResumeImportRun"]
+      >
+    >;
     latestResumeImportAllCandidates: Awaited<
-      ReturnType<WorkspaceServiceContext["repository"]["listResumeImportFieldCandidates"]>
+      ReturnType<
+        WorkspaceServiceContext["repository"]["listResumeImportFieldCandidates"]
+      >
     >;
   }>;
-  getWorkspaceSnapshot: () => Promise<Awaited<ReturnType<WorkspaceServiceContext["getWorkspaceSnapshot"]>>>;
+  getWorkspaceSnapshot: () => Promise<
+    Awaited<ReturnType<WorkspaceServiceContext["getWorkspaceSnapshot"]>>
+  >;
 }) {
   const { ctx, getCurrentSetupStateContext, getWorkspaceSnapshot } = input;
 
-  async function sendProfileCopilotMessage(
+  async function persistProfileCopilotMessage(
     content: string,
-    context: ProfileCopilotContext = { surface: "general" },
+    context: ProfileCopilotContext,
+    autoApplySafeGroups: boolean,
   ) {
-    const { profile, searchPreferences, profileSetupState } = await getCurrentSetupStateContext();
+    const { profile, searchPreferences, profileSetupState } =
+      await getCurrentSetupStateContext();
     const userMessage: ProfileCopilotMessage = {
       id: createUniqueId("profile_copilot_user_message"),
       role: "user",
@@ -339,22 +487,36 @@ export function createWorkspaceProfileCopilotMethods(input: {
       request: content,
       conversationFacts: buildConversationFacts({
         profile,
+        searchPreferences,
         relevantReviewItems,
       }),
     });
+    const assistantMessageId = createUniqueId(
+      "profile_copilot_assistant_message",
+    );
     const normalizedAssistantReply = normalizeAssistantPatchGroups({
       patchGroups: assistantReply.patchGroups,
       context,
       content: assistantReply.content,
+      assistantMessageId,
     });
+    const assistantContent =
+      !autoApplySafeGroups && normalizedAssistantReply.patchGroups.length > 0
+        ? `I prepared ${normalizedAssistantReply.patchGroups.length === 1 ? "this change" : `${normalizedAssistantReply.patchGroups.length} changes`} for your review: ${normalizedAssistantReply.patchGroups.map((patchGroup) => patchGroup.summary).join("; ")}. Nothing changed yet.`
+        : normalizedAssistantReply.content;
     const assistantMessage: ProfileCopilotMessage = {
-      id: createUniqueId("profile_copilot_assistant_message"),
+      id: assistantMessageId,
       role: "assistant",
-      content: normalizedAssistantReply.content,
+      content: assistantContent,
       context,
-      patchGroups: normalizedAssistantReply.patchGroups.map((patchGroup) =>
-        setPatchGroupApplyMode(patchGroup, getStoredPatchGroupApplyMode(patchGroup)),
-      ),
+      patchGroups: normalizedAssistantReply.patchGroups.map((patchGroup) => {
+        const storedMode = getStoredPatchGroupApplyMode(patchGroup);
+        return setPatchGroupApplyMode(
+          patchGroup,
+          autoApplySafeGroups ? storedMode : "needs_review",
+        );
+      }),
+      executionAttribution: assistantReply.executionReceipt ?? null,
       createdAt: new Date().toISOString(),
     };
 
@@ -362,7 +524,7 @@ export function createWorkspaceProfileCopilotMethods(input: {
     await ctx.repository.upsertProfileCopilotMessage(assistantMessage);
 
     for (const patchGroup of normalizedAssistantReply.patchGroups) {
-      if (patchGroup.applyMode === "applied") {
+      if (autoApplySafeGroups && patchGroup.applyMode === "applied") {
         await applyProfileCopilotPatchGroupInternal(patchGroup.id, {
           messageId: assistantMessage.id,
           patchGroup,
@@ -373,48 +535,36 @@ export function createWorkspaceProfileCopilotMethods(input: {
     return getWorkspaceSnapshot();
   }
 
-  async function applyProfileCopilotPatchGroupInternal(
-    patchGroupId: string,
-    options?: {
-      messageId?: string | null;
-      patchGroup?: ProfileCopilotPatchGroup;
-    },
+  function sendProfileCopilotMessage(
+    content: string,
+    context: ProfileCopilotContext = { surface: "general" },
   ) {
-    const [messages, currentSetupContext] = await Promise.all([
-      ctx.repository.listProfileCopilotMessages(),
-      getCurrentSetupStateContext(),
-    ]);
-    const now = new Date().toISOString();
-    const patchGroup =
-      options?.patchGroup ??
-      messages
-        .flatMap((message) => message.patchGroups)
-        .find((group) => group.id === patchGroupId);
+    return persistProfileCopilotMessage(content, context, true);
+  }
 
-    if (!patchGroup) {
-      throw new Error(`Unknown profile copilot patch group '${patchGroupId}'.`);
-    }
+  function proposeProfileCopilotChange(
+    content: string,
+    context: ProfileCopilotContext = { surface: "general" },
+  ) {
+    return persistProfileCopilotMessage(content, context, false);
+  }
 
-    let nextProfile = currentSetupContext.profile;
-    let nextSearchPreferences = currentSetupContext.searchPreferences;
-    let nextProfileSetupState = currentSetupContext.profileSetupState;
-    const latestResumeImportCandidates = currentSetupContext.latestResumeImportAllCandidates;
-    const sourceMessage =
-      messages.find((message) => message.patchGroups.some((group) => group.id === patchGroupId)) ??
-      null;
-
-    const revision = buildProfileRevision({
-      trigger: "assistant_patch",
-      profile: currentSetupContext.profile,
-      searchPreferences: currentSetupContext.searchPreferences,
-      profileSetupState: currentSetupContext.profileSetupState,
-      reason: `Assistant patch: ${patchGroup.summary}`,
-      messageId:
-        options?.messageId ??
-        sourceMessage?.id ??
-        null,
-      patchGroupId,
-    });
+  function applyPatchGroupOperationsToWorkspace(
+    workspace: {
+      profile: CandidateProfile;
+      searchPreferences: JobSearchPreferences;
+      profileSetupState: ProfileSetupState;
+    },
+    patchGroup: ProfileCopilotPatchGroup,
+    now: string,
+  ): {
+    profile: CandidateProfile;
+    searchPreferences: JobSearchPreferences;
+    profileSetupState: ProfileSetupState;
+  } {
+    let nextProfile = workspace.profile;
+    let nextSearchPreferences = workspace.searchPreferences;
+    let nextProfileSetupState = workspace.profileSetupState;
 
     for (const operation of patchGroup.operations) {
       switch (operation.operation) {
@@ -484,11 +634,56 @@ export function createWorkspaceProfileCopilotMethods(input: {
             },
           });
           break;
-        case "replace_search_preferences_fields":
+        case "replace_search_preferences_fields": {
+          const hasLegacyCompensationAmount =
+            operation.value.minimumSalaryUsd !== undefined ||
+            operation.value.targetSalaryUsd !== undefined;
+          const hasLegacyCurrency =
+            operation.value.salaryCurrency !== undefined;
+          const requestedCurrency = hasLegacyCurrency
+            ? (operation.value.salaryCurrency?.trim().toUpperCase() ?? null)
+            : hasLegacyCompensationAmount
+              ? "USD"
+              : nextSearchPreferences.compensation.currency;
+
           nextSearchPreferences = normalizeSearchPreferences(
             JobSearchPreferencesSchema.parse({
               ...nextSearchPreferences,
               ...operation.value,
+              compensation:
+                hasLegacyCompensationAmount || hasLegacyCurrency
+                  ? {
+                      ...nextSearchPreferences.compensation,
+                      ...(operation.value.minimumSalaryUsd !== undefined
+                        ? { minimum: operation.value.minimumSalaryUsd }
+                        : {}),
+                      ...(operation.value.targetSalaryUsd !== undefined
+                        ? { maximum: operation.value.targetSalaryUsd }
+                        : {}),
+                      ...(hasLegacyCompensationAmount
+                        ? { interval: "year" }
+                        : {}),
+                      currency: requestedCurrency,
+                      currencyStatus:
+                        requestedCurrency === null
+                          ? "needs_clarification"
+                          : hasLegacyCurrency
+                            ? "explicit"
+                            : "inherited",
+                    }
+                  : nextSearchPreferences.compensation,
+            }),
+          );
+          break;
+        }
+        case "replace_compensation_preferences_fields":
+          nextSearchPreferences = normalizeSearchPreferences(
+            JobSearchPreferencesSchema.parse({
+              ...nextSearchPreferences,
+              compensation: {
+                ...nextSearchPreferences.compensation,
+                ...operation.value,
+              },
             }),
           );
           break;
@@ -504,7 +699,10 @@ export function createWorkspaceProfileCopilotMethods(input: {
         case "remove_experience_record":
           nextProfile = CandidateProfileSchema.parse({
             ...nextProfile,
-            experiences: removeRecord(nextProfile.experiences, operation.recordId),
+            experiences: removeRecord(
+              nextProfile.experiences,
+              operation.recordId,
+            ),
           });
           break;
         case "upsert_education_record":
@@ -534,7 +732,10 @@ export function createWorkspaceProfileCopilotMethods(input: {
         case "remove_certification_record":
           nextProfile = CandidateProfileSchema.parse({
             ...nextProfile,
-            certifications: removeRecord(nextProfile.certifications, operation.recordId),
+            certifications: removeRecord(
+              nextProfile.certifications,
+              operation.recordId,
+            ),
           });
           break;
         case "upsert_project_record":
@@ -570,16 +771,22 @@ export function createWorkspaceProfileCopilotMethods(input: {
         case "upsert_language_record":
           nextProfile = CandidateProfileSchema.parse({
             ...nextProfile,
-            spokenLanguages: replaceOrInsertRecord(nextProfile.spokenLanguages, {
-              ...operation.record,
-              id: operation.record.id ?? createUniqueId("language"),
-            }),
+            spokenLanguages: replaceOrInsertRecord(
+              nextProfile.spokenLanguages,
+              {
+                ...operation.record,
+                id: operation.record.id ?? createUniqueId("language"),
+              },
+            ),
           });
           break;
         case "remove_language_record":
           nextProfile = CandidateProfileSchema.parse({
             ...nextProfile,
-            spokenLanguages: removeRecord(nextProfile.spokenLanguages, operation.recordId),
+            spokenLanguages: removeRecord(
+              nextProfile.spokenLanguages,
+              operation.recordId,
+            ),
           });
           break;
         case "upsert_proof_point":
@@ -602,10 +809,13 @@ export function createWorkspaceProfileCopilotMethods(input: {
             ...nextProfile,
             answerBank: {
               ...nextProfile.answerBank,
-              customAnswers: replaceOrInsertRecord(nextProfile.answerBank.customAnswers, {
-                ...operation.record,
-                id: operation.record.id ?? createUniqueId("answer"),
-              }),
+              customAnswers: replaceOrInsertRecord(
+                nextProfile.answerBank.customAnswers,
+                {
+                  ...operation.record,
+                  id: operation.record.id ?? createUniqueId("answer"),
+                },
+              ),
             },
           });
           break;
@@ -614,7 +824,10 @@ export function createWorkspaceProfileCopilotMethods(input: {
             ...nextProfile,
             answerBank: {
               ...nextProfile.answerBank,
-              customAnswers: removeRecord(nextProfile.answerBank.customAnswers, operation.recordId),
+              customAnswers: removeRecord(
+                nextProfile.answerBank.customAnswers,
+                operation.recordId,
+              ),
             },
           });
           break;
@@ -635,50 +848,142 @@ export function createWorkspaceProfileCopilotMethods(input: {
       }
     }
 
-    nextProfileSetupState = resolvePendingReviewItemsAfterExplicitSave({
-      currentProfile: currentSetupContext.profile,
-      currentSearchPreferences: currentSetupContext.searchPreferences,
-      nextProfile,
-      nextSearchPreferences,
+    return {
+      profile: nextProfile,
+      searchPreferences: nextSearchPreferences,
       profileSetupState: nextProfileSetupState,
-      now,
-    });
+    };
+  }
 
-    if (hasResumeAffectingProfileChange(currentSetupContext.profile, nextProfile)) {
-      await ctx.staleApprovedResumeDrafts(
-        "Profile details changed after approval and the resume needs a fresh review.",
-      );
-    }
+  async function applyProfileCopilotPatchGroupInternal(
+    patchGroupId: string,
+    options?: {
+      messageId?: string | null;
+      patchGroup?: ProfileCopilotPatchGroup;
+    },
+  ) {
+    const prepareAttempt =
+      async (): Promise<CommitProfileCopilotStateInput> => {
+        const [messages, currentSetupContext] = await Promise.all([
+          ctx.repository.listProfileCopilotMessages(),
+          getCurrentSetupStateContext(),
+        ]);
+        const captured = await ctx.repository.getProfileWithRevision();
+        const now = new Date().toISOString();
+        const persistedMatch = findUniqueProfileCopilotPatchGroup(
+          messages,
+          patchGroupId,
+        );
+        const patchGroup = options?.patchGroup ?? persistedMatch?.patchGroup;
 
-    const refreshedLatestResumeImportReviewCandidates = latestResumeImportCandidates.filter(
-      (candidate) => candidate.resolution === "needs_review" || candidate.resolution === "abstained",
+        if (!patchGroup) {
+          throw new Error(
+            `Unknown profile copilot patch group '${patchGroupId}'.`,
+          );
+        }
+
+        if (!hasValidPatchValues(patchGroup)) {
+          throw new Error(
+            "Profile Copilot returned a malformed field value. Rewrite the request with the field and value stated directly.",
+          );
+        }
+
+        const sourceMessage =
+          (options?.messageId
+            ? (messages.find(
+                (message) =>
+                  message.id === options.messageId &&
+                  message.patchGroups.some(
+                    (group) => group.id === patchGroupId,
+                  ),
+              ) ?? null)
+            : null) ??
+          persistedMatch?.message ??
+          null;
+
+        const patched = applyPatchGroupOperationsToWorkspace(
+          {
+            profile: captured.profile,
+            searchPreferences: currentSetupContext.searchPreferences,
+            profileSetupState: currentSetupContext.profileSetupState,
+          },
+          patchGroup,
+          now,
+        );
+
+        const nextProfileSetupState =
+          resolvePendingReviewItemsAfterExplicitSave({
+            currentProfile: captured.profile,
+            currentSearchPreferences: currentSetupContext.searchPreferences,
+            nextProfile: patched.profile,
+            nextSearchPreferences: patched.searchPreferences,
+            profileSetupState: patched.profileSetupState,
+            now,
+          });
+
+        if (
+          hasResumeAffectingProfileChange(captured.profile, patched.profile)
+        ) {
+          await ctx.staleApprovedResumeDrafts(
+            "Profile details changed after approval and the resume needs a fresh review.",
+          );
+        }
+
+        const refreshedLatestResumeImportReviewCandidates =
+          currentSetupContext.latestResumeImportAllCandidates.filter(
+            (candidate) =>
+              candidate.resolution === "needs_review" ||
+              candidate.resolution === "abstained",
+          );
+        const derivedProfileSetupState =
+          await deriveAndPersistProfileSetupState(ctx, {
+            persistedState: nextProfileSetupState,
+            profile: patched.profile,
+            searchPreferences: patched.searchPreferences,
+            latestResumeImportRunId:
+              currentSetupContext.latestResumeImportRun?.id ?? null,
+            latestResumeImportReviewCandidates:
+              refreshedLatestResumeImportReviewCandidates,
+            persist: false,
+          });
+
+        return {
+          profile: patched.profile,
+          searchPreferences: patched.searchPreferences,
+          profileSetupState: derivedProfileSetupState,
+          // A flag delta instead of a whole-message snapshot: sibling groups
+          // keep their transaction-current apply/reject status even if they
+          // change between this capture and the commit.
+          ...(sourceMessage
+            ? {
+                messagePatchFlags: [
+                  {
+                    messageId: sourceMessage.id,
+                    patchGroupId,
+                    applyMode: "applied",
+                  },
+                ],
+              }
+            : {}),
+          revisions: [
+            buildProfileRevision({
+              trigger: "assistant_patch",
+              profile: captured.profile,
+              searchPreferences: currentSetupContext.searchPreferences,
+              profileSetupState: currentSetupContext.profileSetupState,
+              reason: `Assistant patch: ${patchGroup.summary}`,
+              messageId: options?.messageId ?? sourceMessage?.id ?? null,
+              patchGroupId,
+            }),
+          ],
+          expectedProfileRevision: captured.revision,
+        };
+      };
+
+    await commitProfileCopilotStateWithStaleRetry(
+      ctx.repository,
+      prepareAttempt,
     );
-    const derivedProfileSetupState = await deriveAndPersistProfileSetupState(ctx, {
-      persistedState: nextProfileSetupState,
-      profile: nextProfile,
-      searchPreferences: nextSearchPreferences,
-      latestResumeImportRunId: currentSetupContext.latestResumeImportRun?.id ?? null,
-      latestResumeImportReviewCandidates: refreshedLatestResumeImportReviewCandidates,
-      persist: false,
-    });
-
-    await ctx.repository.commitProfileCopilotState({
-      profile: nextProfile,
-      searchPreferences: nextSearchPreferences,
-      profileSetupState: derivedProfileSetupState,
-      ...(sourceMessage
-        ? {
-            messages: [
-              replacePatchGroupInMessage({
-                message: sourceMessage,
-                patchGroupId,
-                applyMode: "applied",
-              }),
-            ],
-          }
-        : {}),
-      revisions: [revision],
-    });
   }
 
   async function applyProfileCopilotPatchGroup(patchGroupId: string) {
@@ -688,20 +993,23 @@ export function createWorkspaceProfileCopilotMethods(input: {
 
   async function rejectProfileCopilotPatchGroup(patchGroupId: string) {
     const messages = await ctx.repository.listProfileCopilotMessages();
-    const message = messages.find((entry) => entry.patchGroups.some((group) => group.id === patchGroupId));
+    const match = findUniqueProfileCopilotPatchGroup(messages, patchGroupId);
 
-    if (!message) {
+    if (!match) {
       throw new Error(`Unknown profile copilot patch group '${patchGroupId}'.`);
     }
 
-    await ctx.repository.upsertProfileCopilotMessage({
-      ...message,
-      patchGroups: message.patchGroups.map((group) =>
-        group.id === patchGroupId
-          ? { ...group, applyMode: "rejected" }
-          : group,
-      ),
+    // The flag flip resolves against transaction-current persisted state, so
+    // a sibling group applied or rejected while this call was in flight keeps
+    // its status instead of being reverted by a stale whole-message write.
+    const didUpdate = await ctx.repository.commitProfileCopilotPatchFlagUpdate({
+      patchGroupId,
+      applyMode: "rejected",
     });
+
+    if (!didUpdate) {
+      throw new Error(`Unknown profile copilot patch group '${patchGroupId}'.`);
+    }
 
     return getWorkspaceSnapshot();
   }
@@ -709,7 +1017,9 @@ export function createWorkspaceProfileCopilotMethods(input: {
   async function undoProfileRevision(revisionId: string) {
     const currentSetupContext = await getCurrentSetupStateContext();
     const revisions = await ctx.repository.listProfileRevisions();
-    const targetRevision = revisions.find((revision) => revision.id === revisionId);
+    const targetRevision = revisions.find(
+      (revision) => revision.id === revisionId,
+    );
 
     if (!targetRevision) {
       throw new Error(`Unknown profile revision '${revisionId}'.`);
@@ -720,20 +1030,34 @@ export function createWorkspaceProfileCopilotMethods(input: {
       profile: targetRevision.snapshotProfile,
       searchPreferences: targetRevision.snapshotSearchPreferences,
       profileSetupState: targetRevision.snapshotProfileSetupState,
-      reason: targetRevision.reason ? `Undo: ${targetRevision.reason}` : "Undo profile revision",
+      reason: targetRevision.reason
+        ? `Undo: ${targetRevision.reason}`
+        : "Undo profile revision",
       restoredFromRevisionId: targetRevision.id,
     });
 
-    if (hasResumeAffectingProfileChange(currentSetupContext.profile, targetRevision.snapshotProfile)) {
+    if (
+      hasResumeAffectingProfileChange(
+        currentSetupContext.profile,
+        targetRevision.snapshotProfile,
+      )
+    ) {
       await ctx.staleApprovedResumeDrafts(
         "Profile details changed after approval and the resume needs a fresh review.",
       );
     }
-    await ctx.repository.commitProfileCopilotState({
-      profile: targetRevision.snapshotProfile,
-      searchPreferences: normalizeSearchPreferences(targetRevision.snapshotSearchPreferences),
-      profileSetupState: targetRevision.snapshotProfileSetupState,
-      revisions: [undoRevision],
+
+    await commitProfileCopilotStateWithStaleRetry(ctx.repository, async () => {
+      const captured = await ctx.repository.getProfileWithRevision();
+      return {
+        profile: targetRevision.snapshotProfile,
+        searchPreferences: normalizeSearchPreferences(
+          targetRevision.snapshotSearchPreferences,
+        ),
+        profileSetupState: targetRevision.snapshotProfileSetupState,
+        revisions: [undoRevision],
+        expectedProfileRevision: captured.revision,
+      };
     });
 
     return getWorkspaceSnapshot();
@@ -741,6 +1065,7 @@ export function createWorkspaceProfileCopilotMethods(input: {
 
   return {
     sendProfileCopilotMessage,
+    proposeProfileCopilotChange,
     applyProfileCopilotPatchGroup,
     rejectProfileCopilotPatchGroup,
     undoProfileRevision,

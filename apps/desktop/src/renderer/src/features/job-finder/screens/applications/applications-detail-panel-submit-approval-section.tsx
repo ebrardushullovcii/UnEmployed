@@ -1,4 +1,10 @@
-import type { ApplyRunDetails } from "@unemployed/contracts";
+import type {
+  ApplyRunDetails,
+  JobFinderApplyRunActionInput,
+  JobFinderExactApplicationTarget,
+} from "@unemployed/contracts";
+import { cn } from "@renderer/lib/cn";
+import { APPLICATION_DETAIL_FACT_LABEL_CLASS } from "./applications-detail-fact-strip";
 import { Button } from "@renderer/components/ui";
 import {
   formatTimestamp,
@@ -8,19 +14,23 @@ import { StatusBadge } from "../../components/status-badge";
 import { getApprovalTone } from "./applications-detail-panel-helpers";
 
 export function ApplicationsDetailPanelSubmitApprovalSection(props: {
+  approvalScopeEntries: readonly { jobId: string; label: string }[];
   isApplyRunPending: (runId: string) => boolean;
   isSelectedRunPending: boolean;
-  onApproveApplyRun: (runId: string) => void;
-  onCancelApplyRun: (runId: string) => void;
-  onRevokeApplyRunApproval: (runId: string) => void;
+  onApproveApplyRun: (input: JobFinderApplyRunActionInput) => void;
+  onCancelApplyRun: (input: JobFinderApplyRunActionInput) => void;
+  onRevokeApplyRunApproval: (input: JobFinderApplyRunActionInput) => void;
+  selectedApplicationTarget: JobFinderExactApplicationTarget;
   selectedApplyRunDetails: ApplyRunDetails | null;
 }) {
   const {
+    approvalScopeEntries,
     isApplyRunPending,
     isSelectedRunPending,
     onApproveApplyRun,
     onCancelApplyRun,
     onRevokeApplyRunApproval,
+    selectedApplicationTarget,
     selectedApplyRunDetails,
   } = props;
 
@@ -34,10 +44,15 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
     <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="grid gap-1">
-          <h3 className="label-mono-xs text-primary">Submit approval</h3>
+          <h3
+            className={cn(APPLICATION_DETAIL_FACT_LABEL_CLASS, "text-primary")}
+          >
+            Preparation approval
+          </h3>
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
-            This run records explicit approval for later submit-enabled execution,
-            but the current safe build still stops before any final submit click.
+            Approve preparation for this exact run and its already approved
+            resume choices. This does not authorize account creation or a final
+            application submission.
           </p>
         </div>
         <StatusBadge tone={getApprovalTone(submitApproval.status)}>
@@ -54,6 +69,13 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
           <p className="mt-2 text-(length:--text-small) leading-6 text-foreground-soft">
             Run mode: {formatStatusLabel(submitApproval.mode)}
           </p>
+          {approvalScopeEntries.length > 0 ? (
+            <ul className="mt-3 grid gap-1 text-(length:--text-small) leading-6 text-foreground-soft">
+              {approvalScopeEntries.map((entry) => (
+                <li key={entry.jobId}>{entry.label}</li>
+              ))}
+            </ul>
+          ) : null}
         </div>
         <div className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
           <p className="label-mono-xs">Recorded</p>
@@ -77,17 +99,31 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
           {submitApproval.detail}
         </p>
       ) : null}
+      <div className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-3 text-(length:--text-small) leading-6 text-foreground-soft">
+        Preparation approval applies only to these jobs and their current
+        approved resume artifacts. Changing a job or resume requires fresh
+        approval. You can revoke or cancel at any time. Job Finder cannot create
+        accounts or submit applications. Review and submit on each employer site
+        yourself.
+      </div>
       <div className="flex flex-wrap gap-2">
         {submitApproval.status === "pending" &&
         selectedApplyRunDetails.run.state === "awaiting_submit_approval" ? (
           <Button
-            onClick={() => onApproveApplyRun(submitApproval.runId)}
+            onClick={() =>
+              onApproveApplyRun({
+                ...selectedApplicationTarget,
+                runId: submitApproval.runId,
+              })
+            }
             pending={isApplyRunPending(submitApproval.runId)}
             type="button"
             variant="secondary"
             disabled={isApplyRunPending(submitApproval.runId)}
           >
-            Record submit approval
+            {submitApproval.jobIds.length === 1
+              ? "Approve safe preparation"
+              : `Approve safe preparation for ${submitApproval.jobIds.length} jobs`}
           </Button>
         ) : null}
         {submitApproval.status === "approved" &&
@@ -95,7 +131,12 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
         selectedApplyRunDetails.run.state !== "cancelled" &&
         selectedApplyRunDetails.run.state !== "failed" ? (
           <Button
-            onClick={() => onRevokeApplyRunApproval(submitApproval.runId)}
+            onClick={() =>
+              onRevokeApplyRunApproval({
+                ...selectedApplicationTarget,
+                runId: submitApproval.runId,
+              })
+            }
             pending={isApplyRunPending(submitApproval.runId)}
             type="button"
             variant="ghost"
@@ -108,7 +149,12 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
         selectedApplyRunDetails.run.state !== "cancelled" &&
         selectedApplyRunDetails.run.state !== "failed" ? (
           <Button
-            onClick={() => onCancelApplyRun(selectedApplyRunDetails.run.id)}
+            onClick={() =>
+              onCancelApplyRun({
+                ...selectedApplicationTarget,
+                runId: selectedApplyRunDetails.run.id,
+              })
+            }
             pending={isSelectedRunPending}
             type="button"
             variant="ghost"

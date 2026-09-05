@@ -2,154 +2,226 @@ import type {
   DiscoveryActivityEvent,
   DiscoveryRunRecord,
   DiscoveryTargetExecution,
-  JobSearchPreferences
-} from '@unemployed/contracts'
+  JobSearchPreferences,
+} from "@unemployed/contracts";
 
-export type DiscoveryTargetConfig = JobSearchPreferences['discovery']['targets'][number]
+export type DiscoveryTargetConfig =
+  JobSearchPreferences["discovery"]["targets"][number];
 
-export function formatOutcomeLabel(value: DiscoveryRunRecord['summary']['outcome']): string {
-  return value === 'running'
-    ? 'Running now'
-    : value.charAt(0).toUpperCase() + value.slice(1)
+function createEmptyChangeDigest(): DiscoveryTargetExecution["changeDigest"] {
+  return {
+    new: 0,
+    unchanged: 0,
+    changed: 0,
+    reactivated: 0,
+    inactive: 0,
+    known: 0,
+    skipped: 0,
+  };
 }
 
-function createPlannedExecution(target: DiscoveryTargetConfig): DiscoveryTargetExecution {
+export function formatOutcomeLabel(
+  value: DiscoveryRunRecord["summary"]["outcome"],
+): string {
+  return value === "running"
+    ? "Running now"
+    : value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function createPlannedExecution(
+  target: DiscoveryTargetConfig,
+): DiscoveryTargetExecution {
   return {
     targetId: target.id,
     adapterKind: target.adapterKind,
     resolvedAdapterKind: null,
     collectionMethod: null,
     sourceIntelligenceProvider: null,
-    state: 'planned',
+    state: "planned",
     startedAt: null,
     completedAt: null,
+    requestedJobBudget: null,
+    jobsReviewed: 0,
     jobsFound: 0,
     jobsPersisted: 0,
     jobsStaged: 0,
+    jobsSkippedByLedger: 0,
+    jobsSkippedByTitleTriage: 0,
+    duplicatesMerged: 0,
+    invalidSkipped: 0,
+    changeDigest: createEmptyChangeDigest(),
     warning: null,
     compactionState: null,
     compactionUsedFallbackTrigger: false,
-    timing: null
-  }
+    timing: null,
+    agentCheckpoint: null,
+  };
 }
 
-function createSyntheticExecution(event: DiscoveryActivityEvent): DiscoveryTargetExecution {
+function createSyntheticExecution(
+  event: DiscoveryActivityEvent,
+): DiscoveryTargetExecution {
   return {
-    targetId: event.targetId ?? 'unknown_target',
-    adapterKind: event.adapterKind ?? 'auto',
+    targetId: event.targetId ?? "unknown_target",
+    adapterKind: event.adapterKind ?? "auto",
     resolvedAdapterKind: event.resolvedAdapterKind,
     collectionMethod: null,
     sourceIntelligenceProvider: null,
-    state: 'planned',
+    state: "planned",
     startedAt: null,
     completedAt: null,
+    requestedJobBudget: null,
+    jobsReviewed: 0,
     jobsFound: 0,
     jobsPersisted: 0,
     jobsStaged: 0,
+    jobsSkippedByLedger: 0,
+    jobsSkippedByTitleTriage: 0,
+    duplicatesMerged: 0,
+    invalidSkipped: 0,
+    changeDigest: createEmptyChangeDigest(),
     warning: null,
     compactionState: null,
     compactionUsedFallbackTrigger: false,
-    timing: null
-  }
+    timing: null,
+    agentCheckpoint: null,
+  };
 }
 
-function getTerminalExecutionState(event: DiscoveryActivityEvent): DiscoveryTargetExecution['state'] | null {
+function getTerminalExecutionState(
+  event: DiscoveryActivityEvent,
+): DiscoveryTargetExecution["state"] | null {
   if (event.terminalState) {
-    return event.terminalState
+    return event.terminalState;
   }
 
-  if (event.stage !== 'target') {
-    return event.stage === 'persistence' ? 'completed' : null
+  if (event.stage !== "target") {
+    return event.stage === "persistence" ? "completed" : null;
   }
 
-  if (event.kind === 'error' || event.message.includes(' failed: ')) {
-    return 'failed'
+  if (event.kind === "error" || event.message.includes(" failed: ")) {
+    return "failed";
   }
 
-  if (event.message.includes('cancelled before completion')) {
-    return 'cancelled'
+  if (event.message.includes("cancelled before completion")) {
+    return "cancelled";
   }
 
-  if (event.message.includes('was skipped')) {
-    return 'skipped'
+  if (event.message.includes("was skipped")) {
+    return "skipped";
   }
 
-  if (event.message.includes('session is not ready')) {
-    return 'failed'
+  if (event.message.includes("session is not ready")) {
+    return "failed";
   }
 
-  return null
+  return null;
 }
 
 export function buildLiveRunRecord(
   liveEvents: readonly DiscoveryActivityEvent[],
-  targets: readonly DiscoveryTargetConfig[]
+  targets: readonly DiscoveryTargetConfig[],
 ): DiscoveryRunRecord | null {
-  const firstEvent = liveEvents[0]
+  const firstEvent = liveEvents[0];
 
   if (!firstEvent) {
-    return null
+    return null;
   }
 
-  const runId = firstEvent.runId
-  const runEvents = liveEvents.filter((event) => event.runId === runId)
-  const enabledTargets = targets.filter((target) => target.enabled)
-  const executions = new Map(enabledTargets.map((target) => [target.id, createPlannedExecution(target)]))
+  const runId = firstEvent.runId;
+  const runEvents = liveEvents.filter((event) => event.runId === runId);
+  const enabledTargets = targets.filter((target) => target.enabled);
+  const executions = new Map(
+    enabledTargets.map((target) => [target.id, createPlannedExecution(target)]),
+  );
 
   for (const event of runEvents) {
     if (!event.targetId) {
-      continue
+      continue;
     }
 
-    let currentExecution = executions.get(event.targetId)
+    let currentExecution = executions.get(event.targetId);
 
     if (!currentExecution) {
-      currentExecution = createSyntheticExecution(event)
-      executions.set(event.targetId, currentExecution)
+      currentExecution = createSyntheticExecution(event);
+      executions.set(event.targetId, currentExecution);
     }
 
     const nextExecution: DiscoveryTargetExecution = {
       ...currentExecution,
       adapterKind: event.adapterKind ?? currentExecution.adapterKind,
-      resolvedAdapterKind: event.resolvedAdapterKind ?? currentExecution.resolvedAdapterKind,
+      resolvedAdapterKind:
+        event.resolvedAdapterKind ?? currentExecution.resolvedAdapterKind,
       jobsFound: event.jobsFound ?? currentExecution.jobsFound,
       jobsPersisted: event.jobsPersisted ?? currentExecution.jobsPersisted,
       jobsStaged: event.jobsStaged ?? currentExecution.jobsStaged,
-      collectionMethod: event.collectionMethod ?? currentExecution.collectionMethod,
-      sourceIntelligenceProvider: event.sourceIntelligenceProvider ?? currentExecution.sourceIntelligenceProvider,
+      collectionMethod:
+        event.collectionMethod ?? currentExecution.collectionMethod,
+      sourceIntelligenceProvider:
+        event.sourceIntelligenceProvider ??
+        currentExecution.sourceIntelligenceProvider,
+    };
+
+    if (
+      event.stage === "target" &&
+      event.message.startsWith("Starting target")
+    ) {
+      nextExecution.state = "running";
+      nextExecution.startedAt = nextExecution.startedAt ?? event.timestamp;
     }
 
-    if (event.stage === 'target' && event.message.startsWith('Starting target')) {
-      nextExecution.state = 'running'
-      nextExecution.startedAt = nextExecution.startedAt ?? event.timestamp
-    }
-
-    const terminalState = getTerminalExecutionState(event)
+    const terminalState = getTerminalExecutionState(event);
     if (terminalState) {
-      nextExecution.state = terminalState
-      nextExecution.startedAt = nextExecution.startedAt ?? event.timestamp
-      nextExecution.completedAt = event.timestamp
-      nextExecution.warning = event.kind === 'warning' || event.kind === 'error' ? event.message : currentExecution.warning
+      nextExecution.state = terminalState;
+      nextExecution.startedAt = nextExecution.startedAt ?? event.timestamp;
+      nextExecution.completedAt = event.timestamp;
+      nextExecution.warning =
+        event.kind === "warning" || event.kind === "error"
+          ? event.message
+          : currentExecution.warning;
     }
 
-    if (event.stage !== 'target' && nextExecution.state === 'planned') {
-      nextExecution.state = 'running'
-      nextExecution.startedAt = nextExecution.startedAt ?? event.timestamp
+    if (event.stage !== "target" && nextExecution.state === "planned") {
+      nextExecution.state = "running";
+      nextExecution.startedAt = nextExecution.startedAt ?? event.timestamp;
     }
 
-    executions.set(event.targetId, nextExecution)
+    executions.set(event.targetId, nextExecution);
   }
 
-  const targetExecutions = [...executions.values()]
-  const targetsCompleted = targetExecutions.filter((execution) => execution.state !== 'planned' && execution.state !== 'running').length
+  const targetExecutions = [...executions.values()];
+  const targetsCompleted = targetExecutions.filter(
+    (execution) =>
+      execution.state !== "planned" && execution.state !== "running",
+  ).length;
+  const sourceHealth = targetExecutions.map((execution) => ({
+    targetId: execution.targetId,
+    health:
+      execution.state === "completed"
+        ? execution.warning
+          ? ("warning" as const)
+          : ("healthy" as const)
+        : execution.state === "failed"
+          ? ("failed" as const)
+          : execution.state === "cancelled"
+            ? ("cancelled" as const)
+            : execution.state === "skipped"
+              ? ("skipped" as const)
+              : ("pending" as const),
+    durationMs: execution.timing?.totalDurationMs ?? 0,
+    warnings: execution.warning ? [execution.warning] : [],
+  }));
   const isSingleTargetRun =
     enabledTargets.length === 1 ||
-    runEvents.some((event) => event.message.toLowerCase().includes('planning discovery for'))
+    runEvents.some((event) =>
+      event.message.toLowerCase().includes("planning discovery for"),
+    );
 
   return {
     id: runId,
-    state: 'running',
-    scope: isSingleTargetRun ? 'single_target' : 'run_all',
+    campaignId: null,
+    state: "running",
+    scope: isSingleTargetRun ? "single_target" : "run_all",
     startedAt: firstEvent.timestamp,
     completedAt: null,
     targetIds: enabledTargets.map((target) => target.id),
@@ -158,35 +230,52 @@ export function buildLiveRunRecord(
     summary: {
       targetsPlanned: enabledTargets.length,
       targetsCompleted,
-      validJobsFound: targetExecutions.reduce((total, execution) => total + execution.jobsFound, 0),
-      jobsPersisted: targetExecutions.reduce((total, execution) => total + execution.jobsPersisted, 0),
-      jobsStaged: targetExecutions.reduce((total, execution) => total + execution.jobsStaged, 0),
+      validJobsFound: targetExecutions.reduce(
+        (total, execution) => total + execution.jobsFound,
+        0,
+      ),
+      jobsPersisted: targetExecutions.reduce(
+        (total, execution) => total + execution.jobsPersisted,
+        0,
+      ),
+      jobsStaged: targetExecutions.reduce(
+        (total, execution) => total + execution.jobsStaged,
+        0,
+      ),
       jobsSkippedByLedger: 0,
       jobsSkippedByTitleTriage: 0,
       duplicatesMerged: 0,
       invalidSkipped: 0,
-      durationMs: Math.max(0, new Date().getTime() - new Date(firstEvent.timestamp).getTime()),
-      outcome: 'running',
+      changeDigest: createEmptyChangeDigest(),
+      sourceHealth,
+      warnings: sourceHealth.flatMap((source) => source.warnings),
+      durationMs: Math.max(
+        0,
+        new Date().getTime() - new Date(firstEvent.timestamp).getTime(),
+      ),
+      outcome: "running",
       browserCloseout: null,
-      timing: null
-    }
-  }
+      timing: null,
+    },
+  };
 }
 
 export function getRunOptions(
   liveRun: DiscoveryRunRecord | null,
   activeRun: DiscoveryRunRecord | null,
-  recentRuns: readonly DiscoveryRunRecord[]
+  recentRuns: readonly DiscoveryRunRecord[],
 ): DiscoveryRunRecord[] {
-  const runs = [liveRun, activeRun, ...recentRuns].filter((run): run is DiscoveryRunRecord => Boolean(run))
-  const seen = new Set<string>()
+  const runs = [liveRun, activeRun, ...recentRuns].filter(
+    (run): run is DiscoveryRunRecord => Boolean(run),
+  );
+  const seen = new Set<string>();
 
   return runs.filter((run) => {
     if (seen.has(run.id)) {
-      return false
+      return false;
     }
 
-    seen.add(run.id)
-    return true
-  })
+    seen.add(run.id);
+    return true;
+  });
 }

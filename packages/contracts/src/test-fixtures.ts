@@ -1,4 +1,8 @@
-import { ApplyRunSchema, type ApplicationAttempt, type ApplyRun } from "./index";
+import {
+  ApplyRunSchema,
+  type ApplicationAttempt,
+  type ApplyRun,
+} from "./index";
 
 export const sourceDebugVersionInfo = {
   promptProfileVersion: "source-debug-v1",
@@ -11,6 +15,7 @@ export function createSubmittedAttempt(): ApplicationAttempt {
   return {
     id: "attempt_1",
     jobId: "job_1",
+    applicationRecordId: null,
     state: "submitted" as const,
     summary: "Easy Apply submitted",
     detail: "Submitted successfully.",
@@ -20,6 +25,7 @@ export function createSubmittedAttempt(): ApplicationAttempt {
     outcome: "submitted" as const,
     questions: [],
     blocker: null,
+    listingSignalEvidence: null,
     consentDecisions: [],
     replay: {
       sourceInstructionArtifactId: null,
@@ -31,6 +37,7 @@ export function createSubmittedAttempt(): ApplicationAttempt {
     visualObservationSets: [],
     visualCheckpoints: [],
     nextActionLabel: "Monitor inbox",
+    executionTimings: [],
     checkpoints: [
       {
         id: "checkpoint_1",

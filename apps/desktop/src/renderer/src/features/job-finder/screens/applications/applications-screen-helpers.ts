@@ -1,15 +1,104 @@
-import type { ApplicationAttempt, ApplicationRecord } from "@unemployed/contracts";
+import type {
+  ApplicationAttempt,
+  ApplicationRecord,
+  GlobalDailyApplicationPreparationCapacity,
+} from "@unemployed/contracts";
+import {
+  formatDailyPreparationCapacityReachedText,
+  isDailyPreparationCapacityExhausted,
+} from "../../lib/job-finder-daily-capacity";
 import type { ApplicationsViewFilter } from "./applications-filters";
+
+/**
+ * Resolves the one route-owned action status Applications presents. Retry,
+ * queue, and copilot refusals and backend errors must stay visible here, but
+ * a refusal that repeats the fixed daily-limit text is already owned by the
+ * Recovery section's dedicated reached alert, so the route surface suppresses
+ * exactly that duplicate instead of announcing the same sentence twice.
+ */
+export function resolveVisibleRouteActionMessage(input: {
+  actionMessage: string | null | undefined;
+  dailyPreparationCapacity: GlobalDailyApplicationPreparationCapacity | null;
+}): string | null {
+  const { actionMessage, dailyPreparationCapacity } = input;
+
+  if (!actionMessage) {
+    return null;
+  }
+
+  if (
+    dailyPreparationCapacity &&
+    isDailyPreparationCapacityExhausted(dailyPreparationCapacity) &&
+    actionMessage ===
+      formatDailyPreparationCapacityReachedText(dailyPreparationCapacity)
+  ) {
+    return null;
+  }
+
+  // The detail already confirms this exact click inline, directly under the
+  // button that made it ("Opened in the Job Finder browser. Switch to that
+  // window…"). A route-wide banner saying the same thing put two
+  // confirmations of one click on screen, one of them far from the control.
+  if (BROWSER_HANDOFF_CONFIRMATION_PATTERN.test(actionMessage)) {
+    return null;
+  }
+
+  return actionMessage;
+}
+
+const BROWSER_HANDOFF_CONFIRMATION_PATTERN =
+  /^Opened (?:the page|this application) in the Job Finder browser\b/i;
+
+export function resolveUnambiguousApplicationRecordIdByJobId(
+  records: readonly ApplicationRecord[],
+): Map<string, string> {
+  const recordIdsByJobId = new Map<string, string[]>();
+  for (const record of records) {
+    const ids = recordIdsByJobId.get(record.jobId);
+    if (ids) {
+      ids.push(record.id);
+    } else {
+      recordIdsByJobId.set(record.jobId, [record.id]);
+    }
+  }
+
+  const unambiguousRecordIdByJobId = new Map<string, string>();
+  for (const [jobId, ids] of recordIdsByJobId) {
+    if (ids.length === 1) {
+      unambiguousRecordIdByJobId.set(jobId, ids[0]!);
+    }
+  }
+  return unambiguousRecordIdByJobId;
+}
+
+function attemptBelongsToRecord(
+  attempt: ApplicationAttempt,
+  record: ApplicationRecord,
+  unambiguousRecordIdByJobId: Map<string, string> | null,
+) {
+  // Exact lineage is authoritative when the attempt declares it.
+  if (attempt.applicationRecordId !== null) {
+    return attempt.applicationRecordId === record.id;
+  }
+
+  // Legacy attempts predate application records and can only attach when a
+  // single scoped record owns the job; otherwise ownership stays ambiguous.
+  return unambiguousRecordIdByJobId?.get(attempt.jobId) === record.id;
+}
 
 export function getLatestApplicationAttemptForRecord(
   record: ApplicationRecord,
   applicationAttempts: readonly ApplicationAttempt[],
+  applicationRecords?: readonly ApplicationRecord[],
 ) {
   let latestAttempt: ApplicationAttempt | null = null;
   let latestUpdatedAt = Number.NEGATIVE_INFINITY;
+  const unambiguousRecordIdByJobId = applicationRecords
+    ? resolveUnambiguousApplicationRecordIdByJobId(applicationRecords)
+    : null;
 
   for (const attempt of applicationAttempts) {
-    if (attempt.jobId !== record.jobId) {
+    if (!attemptBelongsToRecord(attempt, record, unambiguousRecordIdByJobId)) {
       continue;
     }
 
@@ -33,17 +122,35 @@ function isTerminalApplicationStatus(status: ApplicationRecord["status"]) {
   );
 }
 
-export function matchesApplicationsFilter(
-  record: ApplicationRecord,
-  filter: ApplicationsViewFilter,
-) {
-  const needsAction =
+/**
+ * The one selector for "this application is waiting on the user".
+ *
+ * It is deliberately a superset of the row-level `Needs you` stage badge: a
+ * failed attempt ("Needs recovery"), a site that cannot be prepared
+ * automatically ("Manual apply only") and a saved next step all wait on the
+ * user without being the single unresolved browser step the badge marks and
+ * the global Needs you destination counts. Those two populations used to
+ * share one name in front of the user — the filter chip said "Needs you 2"
+ * beside a header that said "Needs you: 1 unresolved" — so this predicate is
+ * the single owner of the chip's count and the filter names its own
+ * population ("Waiting on you") instead of borrowing the badge's.
+ */
+export function applicationRecordNeedsUser(record: ApplicationRecord): boolean {
+  return (
     record.lastAttemptState === "paused" ||
     record.lastAttemptState === "failed" ||
     record.lastAttemptState === "unsupported" ||
     (Boolean(record.nextActionLabel) &&
       !isTerminalApplicationStatus(record.status) &&
-      record.lastAttemptState !== "in_progress");
+      record.lastAttemptState !== "in_progress")
+  );
+}
+
+export function matchesApplicationsFilter(
+  record: ApplicationRecord,
+  filter: ApplicationsViewFilter,
+) {
+  const needsAction = applicationRecordNeedsUser(record);
   const submitted = record.status === "submitted";
   const manualOnly = record.lastAttemptState === "unsupported";
   const inProgress =

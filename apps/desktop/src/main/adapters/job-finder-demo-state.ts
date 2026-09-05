@@ -2,7 +2,38 @@ import {
   JobFinderRepositoryStateSchema,
   type JobFinderRepositoryState,
 } from "@unemployed/contracts";
+import {
+  JOB_FINDER_DEMO_CONSENT_RESUME_PATH,
+  JOB_FINDER_DEMO_EXPORT_RESUME_SHA256,
+  JOB_FINDER_DEMO_READY_RESUME_PATH,
+  JOB_FINDER_DEMO_RESUME_FORMAT,
+  JOB_FINDER_DEMO_SOURCE_RESUME_PATH,
+  JOB_FINDER_DEMO_SOURCE_RESUME_SHA256,
+} from "./job-finder-demo-resume-files";
 import { createEmptyJobFinderRepositoryState } from "./job-finder-initial-state";
+
+const demoDiscoveryTarget = {
+  id: "target_linkedin_default",
+  label: "Primary target",
+  startingUrl: "https://www.linkedin.com/jobs/search/",
+  enabled: true,
+  adapterKind: "auto",
+  customInstructions: null,
+  instructionStatus: "missing",
+  validatedInstructionId: null,
+  draftInstructionId: null,
+  lastDebugRunId: null,
+  lastVerifiedAt: null,
+  staleReason: null,
+} as const;
+
+const demoSeedProvenance = {
+  targetId: demoDiscoveryTarget.id,
+  adapterKind: demoDiscoveryTarget.adapterKind,
+  resolvedAdapterKind: "target_site",
+  startingUrl: demoDiscoveryTarget.startingUrl,
+  collectionMethod: "fallback_search",
+} as const;
 
 const demoResumeDraftSections = [
   {
@@ -35,7 +66,8 @@ const demoResumeDraftSections = [
         subtitle: "CoreLedger",
         location: "Prishtina, Kosovo",
         dateRange: "Aug 2019 - Jan 2022",
-        summary: "Built workflow applications and maintained production services.",
+        summary:
+          "Built workflow applications and maintained production services.",
         bullets: [
           {
             id: "bullet_coreledger_recent",
@@ -125,7 +157,9 @@ const orderedDemoResumeDraftSections = demoResumeDraftSections.map((section) =>
   section.id === "section_experience"
     ? {
         ...section,
-        entries: [...section.entries].sort((left, right) => left.sortOrder - right.sortOrder),
+        entries: [...section.entries].sort(
+          (left, right) => left.sortOrder - right.sortOrder,
+        ),
       }
     : section,
 );
@@ -142,7 +176,8 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
       lastName: "Vanguard",
       fullName: "Alex Vanguard",
       headline: "Senior systems designer",
-      summary: "Builds resilient workflows for design systems, workflow automation, and operations platforms.",
+      summary:
+        "Builds resilient workflows for design systems, workflow automation, and operations platforms.",
       currentLocation: "London, UK",
       yearsExperience: 10,
       email: "alex@example.com",
@@ -160,14 +195,20 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
           "Turns ambiguous workflow pain into durable design systems",
           "Pairs product strategy with hands-on systems execution",
         ],
-        motivationThemes: ["workflow automation", "design systems", "platform quality"],
+        motivationThemes: [
+          "workflow automation",
+          "design systems",
+          "platform quality",
+        ],
       },
       proofBank: [
         {
           id: "proof_1",
           title: "Design-system rollout",
-          claim: "Led a design-system rollout across core workflow surfaces used by design and operations teams.",
-          heroMetric: "Adoption reached 80% of core product surfaces within two quarters.",
+          claim:
+            "Led a design-system rollout across core workflow surfaces used by design and operations teams.",
+          heroMetric:
+            "Adoption reached 80% of core product surfaces within two quarters.",
           supportingContext:
             "Worked across product, engineering, and operations to standardize interaction and content patterns.",
           roleFamilies: ["product design", "design systems", "platform"],
@@ -176,13 +217,18 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
         },
       ],
       answerBank: {
-        workAuthorization: "Authorized to work in the United Kingdom and open to remote roles across Europe.",
-        visaSponsorship: "Do not currently require visa sponsorship for UK-based roles.",
-        relocation: "Open to relocation for the right platform or systems role.",
-        travel: "Open to occasional travel for planning, workshops, and launch support.",
+        workAuthorization:
+          "Authorized to work in the United Kingdom and open to remote roles across Europe.",
+        visaSponsorship:
+          "Do not currently require visa sponsorship for UK-based roles.",
+        relocation:
+          "Open to relocation for the right platform or systems role.",
+        travel:
+          "Open to occasional travel for planning, workshops, and launch support.",
         noticePeriod: "Currently able to start after a 30-day notice period.",
         availability: "Available to interview now and start within 30 days.",
-        salaryExpectations: "Targeting senior remote roles in the 180k-220k USD range depending on scope and package.",
+        salaryExpectations:
+          "Targeting senior remote roles in the 180k-220k USD range depending on scope and package.",
         selfIntroduction:
           "I am a systems-focused product designer with 10 years of experience building workflow tools, design systems, and cross-functional operating rhythms.",
         careerTransition:
@@ -199,7 +245,8 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
         id: "resume_1",
         fileName: "alex-vanguard.pdf",
         uploadedAt: "2026-03-20T10:00:00.000Z",
-        storagePath: "/tmp/alex-vanguard.pdf",
+        storagePath: JOB_FINDER_DEMO_SOURCE_RESUME_PATH,
+        sha256: JOB_FINDER_DEMO_SOURCE_RESUME_SHA256,
         textContent:
           "Alex Vanguard\nSenior systems designer\nLondon, UK\nalex@example.com\n+44 7700 900123\nhttps://alex.example.com\nhttps://www.linkedin.com/in/alex-vanguard\n\n10 years of experience building resilient workflow tools with Figma, React, and design systems.",
         textUpdatedAt: "2026-03-20T10:00:00.000Z",
@@ -224,7 +271,9 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
           isCurrent: true,
           isDraft: false,
           summary: "Builds resilient workflow tools.",
-          achievements: ["Led design-system rollout across core workflow surfaces."],
+          achievements: [
+            "Led design-system rollout across core workflow surfaces.",
+          ],
           skills: ["Figma", "Design Systems"],
           domainTags: [],
           peopleManagementScope: null,
@@ -242,8 +291,11 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
           endDate: "2022-01",
           isCurrent: false,
           isDraft: false,
-          summary: "Built workflow applications and maintained production services.",
-          achievements: ["Authored quick fixes that restored business-critical services while preserving release reliability."],
+          summary:
+            "Built workflow applications and maintained production services.",
+          achievements: [
+            "Authored quick fixes that restored business-critical services while preserving release reliability.",
+          ],
           skills: [".NET", "C#", "SQL"],
           domainTags: ["web applications"],
           peopleManagementScope: null,
@@ -262,7 +314,9 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
           isCurrent: false,
           isDraft: false,
           summary: "Maintained earlier .NET applications.",
-          achievements: ["Maintained legacy .NET services and supported incident recovery."],
+          achievements: [
+            "Maintained legacy .NET services and supported incident recovery.",
+          ],
           skills: [".NET", "C#"],
           domainTags: ["web applications"],
           peopleManagementScope: null,
@@ -307,22 +361,7 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
       companyWhitelist: ["Signal Systems"],
       discovery: {
         historyLimit: 5,
-        targets: [
-          {
-            id: "target_linkedin_default",
-            label: "Primary target",
-            startingUrl: "https://www.linkedin.com/jobs/search/",
-            enabled: true,
-            adapterKind: "auto",
-            customInstructions: null,
-            instructionStatus: "missing",
-            validatedInstructionId: null,
-            draftInstructionId: null,
-            lastDebugRunId: null,
-            lastVerifiedAt: null,
-            staleReason: null,
-          },
-        ],
+        targets: [demoDiscoveryTarget],
       },
     },
     savedJobs: [
@@ -331,8 +370,10 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
         source: "target_site",
         sourceJobId: "linkedin_signal_ready",
         discoveryMethod: "catalog_seed",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
-        applicationUrl: "https://www.linkedin.com/jobs/view/linkedin_signal_ready/apply",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_signal_ready",
+        applicationUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_signal_ready/apply",
         title: "Senior Product Designer",
         company: "Signal Systems",
         location: "Remote",
@@ -395,14 +436,20 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
           reasons: ["Strong design-systems overlap"],
           gaps: [],
         },
-        provenance: [],
+        provenance: [
+          {
+            ...demoSeedProvenance,
+            discoveredAt: "2026-03-20T09:05:00.000Z",
+          },
+        ],
       },
       {
         id: "job_generating",
         source: "target_site",
         sourceJobId: "linkedin_northwind_generating",
         discoveryMethod: "catalog_seed",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_northwind_generating",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_northwind_generating",
         applicationUrl: null,
         title: "Principal UX Engineer",
         company: "Northwind Labs",
@@ -467,7 +514,12 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
           reasons: ["Strong platform overlap"],
           gaps: ["Accessibility leadership"],
         },
-        provenance: [],
+        provenance: [
+          {
+            ...demoSeedProvenance,
+            discoveredAt: "2026-03-20T08:05:00.000Z",
+          },
+        ],
       },
     ],
     tailoredAssets: [],
@@ -509,15 +561,342 @@ export function createResumeWorkspaceDemoState(): JobFinderRepositoryState {
   });
 }
 
+/**
+ * Prepare-only apply lineage for the demo queue.
+ *
+ * The loader used to reset the workspace with zero rows in every apply table,
+ * so Applications could only ever render its empty state and the browser
+ * hand-off — the one place that names "the Job Finder browser" and offers
+ * "Check whether this step is done" — was unreachable without actually running
+ * a preparation against a live employer page. These rows are plainly synthetic
+ * (`demo_` identifiers, example.com-shaped LinkedIn demo URLs) and describe two
+ * *paused* outcomes only: one where the user must finish a conflicting field in
+ * the open application, and one where the site blocked automatic preparation.
+ *
+ * Nothing here ever claims a submission: every result stays `awaiting_review`,
+ * every attempt stays `paused` with a null outcome, `submittedJobs` is 0, and
+ * both privacy receipts keep `finalSubmitAuthorized`, `finalSubmitOccurred`,
+ * and `accountCreationAuthorized` false with no external writes.
+ */
+const DEMO_APPLY_RUN_ID = "apply_run_demo_apply_queue";
+const DEMO_READY_RESULT_ID = "apply_result_demo_job_ready";
+const DEMO_READY_RECORD_ID = "application_record_demo_job_ready";
+const DEMO_BLOCKED_RESULT_ID = "apply_result_demo_job_consent_queue";
+const DEMO_BLOCKED_RECORD_ID = "application_record_demo_job_consent_queue";
+const DEMO_APPLY_ORIGIN = "https://www.linkedin.com/";
+
+function createDemoPrivacyReceipt(input: {
+  jobId: string;
+  resultId: string;
+  applicationRecordId: string;
+  safePath: string;
+  exportArtifactId: string;
+  fileName: string;
+}) {
+  return {
+    schemaVersion: 1,
+    generatedAt: "2026-03-20T10:12:00.000Z",
+    lineage: {
+      runId: DEMO_APPLY_RUN_ID,
+      jobId: input.jobId,
+      resultId: input.resultId,
+      applicationRecordId: input.applicationRecordId,
+    },
+    destination: {
+      origin: DEMO_APPLY_ORIGIN,
+      safePath: input.safePath,
+    },
+    resume: {
+      source: "tailored_export",
+      sourceDocumentId: null,
+      exportArtifactId: input.exportArtifactId,
+      fileName: input.fileName,
+      sha256: JOB_FINDER_DEMO_EXPORT_RESUME_SHA256,
+    },
+    stayedLocal: [],
+    modelUse: [],
+    externalWrites: [],
+    accountCreationAuthorized: false,
+    finalSubmitAuthorized: false,
+    finalSubmitOccurred: false,
+    submissionOutcome: null,
+  };
+}
+
+const demoApplyRun = {
+  id: DEMO_APPLY_RUN_ID,
+  campaignId: null,
+  mode: "copilot",
+  state: "paused_for_user_review",
+  jobIds: ["job_ready", "job_consent_queue"],
+  currentJobId: "job_ready",
+  submitApprovalId: null,
+  visualCheckpointsEnabled: false,
+  createdAt: "2026-03-20T10:10:00.000Z",
+  updatedAt: "2026-03-20T10:12:00.000Z",
+  completedAt: null,
+  summary: "Preparation paused for your review",
+  detail:
+    "Job Finder prepared both applications and stopped before the employer's submit control.",
+  totalJobs: 2,
+  pendingJobs: 2,
+  submittedJobs: 0,
+  skippedJobs: 0,
+  blockedJobs: 0,
+  failedJobs: 0,
+};
+
+const demoApplyJobResults = [
+  {
+    id: DEMO_READY_RESULT_ID,
+    runId: DEMO_APPLY_RUN_ID,
+    jobId: "job_ready",
+    applicationRecordId: DEMO_READY_RECORD_ID,
+    queuePosition: 0,
+    state: "awaiting_review",
+    summary: "Finish this application step yourself",
+    // Matches the manual-field-finish classification, which is what puts the
+    // "Open the Job Finder browser" / "Check whether this step is done" pair
+    // on Applications.
+    detail:
+      "Two prefilled application values need manual review because they conflict with your saved profile. Review the conflicting answers and finish this application step yourself in the open application.",
+    startedAt: "2026-03-20T10:10:00.000Z",
+    updatedAt: "2026-03-20T10:12:00.000Z",
+    completedAt: null,
+    applicationPreparationStartedAt: "2026-03-20T10:10:00.000Z",
+    applicationPreparationStartedLocalDate: "2026-03-20",
+    blockerReason: "required_human_input",
+    blockerSummary:
+      "Job Finder could not safely save this prepared step without your review.",
+    listingSignalEvidence: null,
+    visualObservationSets: [],
+    visualCheckpoints: [],
+    latestQuestionCount: 6,
+    latestAnswerCount: 4,
+    pendingConsentRequestCount: 0,
+    artifactCount: 1,
+    latestCheckpointId: null,
+    privacyReceipt: createDemoPrivacyReceipt({
+      jobId: "job_ready",
+      resultId: DEMO_READY_RESULT_ID,
+      applicationRecordId: DEMO_READY_RECORD_ID,
+      safePath: "/jobs/view/linkedin_signal_ready/apply",
+      exportArtifactId: "resume_export_job_ready",
+      fileName: "job-ready-resume.pdf",
+    }),
+  },
+  {
+    id: DEMO_BLOCKED_RESULT_ID,
+    runId: DEMO_APPLY_RUN_ID,
+    jobId: "job_consent_queue",
+    applicationRecordId: DEMO_BLOCKED_RECORD_ID,
+    queuePosition: 1,
+    state: "blocked",
+    summary: "The job site blocked automatic preparation",
+    detail:
+      "The job site's service worker blocked automatic preparation. Reset the browser in Safeguards, then finish on the site.",
+    startedAt: "2026-03-20T10:11:00.000Z",
+    updatedAt: "2026-03-20T10:12:00.000Z",
+    completedAt: null,
+    applicationPreparationStartedAt: "2026-03-20T10:11:00.000Z",
+    applicationPreparationStartedLocalDate: "2026-03-20",
+    blockerReason: "site_protection",
+    blockerSummary:
+      "A site service worker stopped the prepared step before it could be saved.",
+    listingSignalEvidence: null,
+    visualObservationSets: [],
+    visualCheckpoints: [],
+    latestQuestionCount: 3,
+    latestAnswerCount: 3,
+    pendingConsentRequestCount: 0,
+    artifactCount: 1,
+    latestCheckpointId: null,
+    privacyReceipt: createDemoPrivacyReceipt({
+      jobId: "job_consent_queue",
+      resultId: DEMO_BLOCKED_RESULT_ID,
+      applicationRecordId: DEMO_BLOCKED_RECORD_ID,
+      safePath: "/jobs/view/linkedin_consent_queue/apply",
+      exportArtifactId: "resume_export_job_consent_queue",
+      fileName: "job-consent-queue-resume.pdf",
+    }),
+  },
+];
+
+const demoApplicationRecords = [
+  {
+    id: DEMO_READY_RECORD_ID,
+    jobId: "job_ready",
+    title: "Senior Product Designer",
+    company: "Signal Systems",
+    status: "ready_for_review",
+    lastActionLabel: "Preparation paused for your review",
+    nextActionLabel:
+      "Finish the conflicting step in the open application, then check whether it is done.",
+    lastUpdatedAt: "2026-03-20T10:12:00.000Z",
+    lastAttemptState: "paused",
+    questionSummary: {
+      total: 6,
+      required: 5,
+      answered: 4,
+      unansweredRequired: 1,
+    },
+    latestBlocker: {
+      code: "requires_manual_review",
+      summary:
+        "Two prefilled application values conflict with your saved profile.",
+    },
+    events: [
+      {
+        id: "application_event_demo_job_ready_paused",
+        at: "2026-03-20T10:12:00.000Z",
+        title: "Preparation paused",
+        detail:
+          "Job Finder stopped before the employer's submit control and left the step for you.",
+        emphasis: "warning",
+      },
+    ],
+  },
+  {
+    id: DEMO_BLOCKED_RECORD_ID,
+    jobId: "job_consent_queue",
+    title: "Staff Product Designer",
+    company: "Consent Labs",
+    status: "ready_for_review",
+    lastActionLabel: "Automatic prep paused",
+    nextActionLabel:
+      "Open Safeguards to reset the Job Finder browser, then finish on the site.",
+    lastUpdatedAt: "2026-03-20T10:12:00.000Z",
+    lastAttemptState: "paused",
+    questionSummary: {
+      total: 3,
+      required: 3,
+      answered: 3,
+      unansweredRequired: 0,
+    },
+    latestBlocker: {
+      code: "requires_manual_review",
+      summary: "The job site blocked automatic preparation.",
+    },
+    events: [
+      {
+        id: "application_event_demo_job_consent_queue_blocked",
+        at: "2026-03-20T10:12:00.000Z",
+        title: "Automatic prep paused",
+        detail:
+          "The job site blocked automatic preparation before anything was submitted.",
+        emphasis: "warning",
+      },
+    ],
+  },
+];
+
+const demoApplicationAttempts = [
+  {
+    id: "application_attempt_demo_job_ready",
+    jobId: "job_ready",
+    applicationRecordId: DEMO_READY_RECORD_ID,
+    state: "paused",
+    summary: "Paused for your review",
+    detail:
+      "Job Finder prepared the application and stopped before the employer's submit control.",
+    startedAt: "2026-03-20T10:10:00.000Z",
+    updatedAt: "2026-03-20T10:12:00.000Z",
+    completedAt: null,
+    outcome: null,
+    blocker: {
+      code: "requires_manual_review",
+      summary:
+        "Two prefilled application values conflict with your saved profile.",
+      detail:
+        "Finish the affected step yourself in the open application, then check whether it is done.",
+      url: "https://www.linkedin.com/jobs/view/linkedin_signal_ready/apply",
+    },
+    nextActionLabel:
+      "Finish the conflicting step in the open application, then check whether it is done.",
+  },
+  {
+    id: "application_attempt_demo_job_consent_queue",
+    jobId: "job_consent_queue",
+    applicationRecordId: DEMO_BLOCKED_RECORD_ID,
+    state: "paused",
+    summary: "Automatic prep paused",
+    detail:
+      "The job site blocked automatic preparation before anything was submitted.",
+    startedAt: "2026-03-20T10:11:00.000Z",
+    updatedAt: "2026-03-20T10:12:00.000Z",
+    completedAt: null,
+    outcome: null,
+    blocker: {
+      code: "requires_manual_review",
+      summary: "The job site blocked automatic preparation.",
+      detail:
+        "Reset the browser in Safeguards, then finish on the site yourself.",
+      url: "https://www.linkedin.com/jobs/view/linkedin_consent_queue/apply",
+    },
+    nextActionLabel:
+      "Open Safeguards to reset the Job Finder browser, then finish on the site.",
+  },
+];
+
+/**
+ * The pending browser step Applications reads to enable "Check whether this
+ * step is done". Credentials stay browser-only and both submit and
+ * account-creation authority stay false, exactly as the schema requires.
+ */
+const demoBrowserStepUserActionRequest = {
+  schemaVersion: 1,
+  id: "user_action_demo_job_ready_browser_step",
+  dedupeKey: "user_action_demo_job_ready_browser_step",
+  revision: 1,
+  kind: "manual_answer",
+  state: "awaiting_user",
+  requirement: "required",
+  scope: {
+    type: "application",
+    runId: DEMO_APPLY_RUN_ID,
+    jobId: "job_ready",
+    applicationRecordId: DEMO_READY_RECORD_ID,
+    resultId: DEMO_READY_RESULT_ID,
+    replayCheckpointId: null,
+    source: "target_site",
+  },
+  verification: {
+    type: "form_control_state",
+    controlFingerprint: "demo_apply_queue_conflicting_field",
+    expectedState: "answered",
+    expectedPageFingerprint: null,
+  },
+  title: "Finish the conflicting application step",
+  summary:
+    "Two prefilled values conflict with your saved profile. Finish that step in the open application, then check whether it is done.",
+  instructions: [],
+  actionUrl: "https://www.linkedin.com/jobs/view/linkedin_signal_ready/apply",
+  displayOrigin: DEMO_APPLY_ORIGIN,
+  credentialsPolicy: "browser_only",
+  submitAuthorized: false,
+  accountCreationAuthorized: false,
+  attemptCount: 0,
+  maxAttempts: 3,
+  createdAt: "2026-03-20T10:12:00.000Z",
+  updatedAt: "2026-03-20T10:12:00.000Z",
+  openedAt: null,
+  resolvedAt: null,
+  expiresAt: null,
+};
+
 export function createApplyQueueDemoState(): JobFinderRepositoryState {
   const resumeDemoState = createResumeWorkspaceDemoState();
-  const readySavedJob = resumeDemoState.savedJobs.find((job) => job.id === "job_ready");
+  const readySavedJob = resumeDemoState.savedJobs.find(
+    (job) => job.id === "job_ready",
+  );
   const generatingSavedJob = resumeDemoState.savedJobs.find(
     (job) => job.id === "job_generating",
   );
 
   if (!readySavedJob || !generatingSavedJob) {
-    throw new Error("Resume workspace demo state is missing required saved jobs.");
+    throw new Error(
+      "Resume workspace demo state is missing required saved jobs.",
+    );
   }
 
   return JobFinderRepositoryStateSchema.parse({
@@ -528,12 +907,16 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
         ...readySavedJob,
         id: "job_consent_queue",
         sourceJobId: "linkedin_consent_queue",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_consent_queue",
         applicationUrl:
           "https://www.linkedin.com/jobs/view/linkedin_consent_queue/apply",
         title: "Staff Product Designer",
         company: "Consent Labs",
-        summary: "Guide a workflow platform that pauses on account-consent questions.",
+        employerWebsiteUrl: "https://consentlabs.example.com",
+        employerDomain: "consentlabs.example.com",
+        summary:
+          "Guide a workflow platform that pauses on account-consent questions.",
         description:
           "Guide a workflow platform that asks whether you already have an account before continuing the application.",
         keywordSignals: [
@@ -560,7 +943,8 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
         ...generatingSavedJob,
         id: "job_not_ready_queue",
         sourceJobId: "linkedin_not_ready_queue",
-        canonicalUrl: "https://www.linkedin.com/jobs/view/linkedin_not_ready_queue",
+        canonicalUrl:
+          "https://www.linkedin.com/jobs/view/linkedin_not_ready_queue",
         applicationUrl:
           "https://www.linkedin.com/jobs/view/linkedin_not_ready_queue/apply",
         title: "Lead UX Strategist",
@@ -580,7 +964,7 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
         compatibilityScore: 96,
         progressPercent: 100,
         updatedAt: "2026-03-20T10:04:00.000Z",
-        storagePath: "/tmp/job-ready-resume.pdf",
+        storagePath: JOB_FINDER_DEMO_READY_RESUME_PATH,
         contentText: "Ready tailored resume for job_ready",
         previewSections: [],
         generationMethod: "deterministic",
@@ -597,7 +981,7 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
         compatibilityScore: 95,
         progressPercent: 100,
         updatedAt: "2026-03-20T10:04:00.000Z",
-        storagePath: "/tmp/job-consent-queue-resume.pdf",
+        storagePath: JOB_FINDER_DEMO_CONSENT_RESUME_PATH,
         contentText: "Ready tailored resume for job_consent_queue",
         previewSections: [],
         generationMethod: "deterministic",
@@ -639,9 +1023,10 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
         id: "resume_export_job_ready",
         draftId: "resume_draft_job_ready",
         jobId: "job_ready",
-        format: "pdf",
-        filePath: "/tmp/job-ready-resume.pdf",
-        pageCount: 2,
+        format: JOB_FINDER_DEMO_RESUME_FORMAT,
+        filePath: JOB_FINDER_DEMO_READY_RESUME_PATH,
+        sha256: JOB_FINDER_DEMO_EXPORT_RESUME_SHA256,
+        pageCount: 1,
         templateId: "classic_ats",
         exportedAt: "2026-03-20T10:04:00.000Z",
         isApproved: true,
@@ -650,13 +1035,19 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
         id: "resume_export_job_consent_queue",
         draftId: "resume_draft_job_consent_queue",
         jobId: "job_consent_queue",
-        format: "pdf",
-        filePath: "/tmp/job-consent-queue-resume.pdf",
-        pageCount: 2,
+        format: JOB_FINDER_DEMO_RESUME_FORMAT,
+        filePath: JOB_FINDER_DEMO_CONSENT_RESUME_PATH,
+        sha256: JOB_FINDER_DEMO_EXPORT_RESUME_SHA256,
+        pageCount: 1,
         templateId: "classic_ats",
         exportedAt: "2026-03-20T10:04:00.000Z",
         isApproved: true,
       },
     ],
+    applyRuns: [demoApplyRun],
+    applyJobResults: demoApplyJobResults,
+    applicationRecords: demoApplicationRecords,
+    applicationAttempts: demoApplicationAttempts,
+    userActionRequests: [demoBrowserStepUserActionRequest],
   });
 }

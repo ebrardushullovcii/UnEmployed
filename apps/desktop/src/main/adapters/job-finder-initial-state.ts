@@ -1,59 +1,18 @@
 import {
-  CandidateProfileSchema,
+  JobFinderIntelligenceStateSchema,
   JobFinderSettingsSchema,
   JobSearchPreferencesSchema,
   ProfileSetupStateSchema,
-  type JobFinderRepositoryState
-} from '@unemployed/contracts'
+  createFreshStartCandidateProfile,
+  createStarterJobDiscoveryTargets,
+  type JobFinderRepositoryState,
+} from "@unemployed/contracts";
 
 export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState {
   return {
-    profile: CandidateProfileSchema.parse({
-      id: 'candidate_fresh_start',
-      firstName: 'New',
-      lastName: 'Candidate',
-      middleName: null,
-      fullName: 'New Candidate',
-      preferredDisplayName: null,
-      headline: 'Import your resume to begin',
-      summary: 'Import a resume or paste resume text to build your profile, targeting, and tailored documents.',
-      currentLocation: 'Set your preferred location',
-      currentCity: null,
-      currentRegion: null,
-      currentCountry: null,
-      timeZone: null,
-      yearsExperience: 0,
-      email: null,
-      secondaryEmail: null,
-      phone: null,
-      portfolioUrl: null,
-      linkedinUrl: null,
-      githubUrl: null,
-      personalWebsiteUrl: null,
-      baseResume: {
-        id: 'resume_fresh_start',
-        fileName: 'No resume imported yet',
-        uploadedAt: new Date(0).toISOString(),
-        storagePath: null,
-        textContent: null,
-        textUpdatedAt: null,
-        extractionStatus: 'needs_text',
-        lastAnalyzedAt: null,
-        analysisWarnings: []
-      },
-      workEligibility: {},
-      professionalSummary: {},
-      skillGroups: {},
-      targetRoles: [],
-      locations: [],
-      skills: [],
-      experiences: [],
-      education: [],
-      certifications: [],
-      links: [],
-      projects: [],
-      spokenLanguages: []
-    }),
+    // Canonical first-run seed: identity facts stay null until a real value
+    // exists, so no instructional placeholder is persisted as a fact.
+    profile: createFreshStartCandidateProfile(),
     searchPreferences: JobSearchPreferencesSchema.parse({
       targetRoles: [],
       jobFamilies: [],
@@ -63,25 +22,28 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       seniorityLevels: [],
       minimumSalaryUsd: null,
       targetSalaryUsd: null,
-      salaryCurrency: 'USD',
+      salaryCurrency: "USD",
       targetIndustries: [],
       targetCompanyStages: [],
       employmentTypes: [],
-      approvalMode: 'review_before_submit',
-      tailoringMode: 'balanced',
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
       companyBlacklist: [],
       companyWhitelist: [],
       discovery: {
         historyLimit: 5,
-        targets: []
-      }
+        // Starter sources give a first-run user understandable choices without
+        // requiring URL knowledge. They seed disabled and never enable
+        // themselves; setup readiness still requires one explicit enable.
+        targets: createStarterJobDiscoveryTargets(),
+      },
     }),
     profileSetupState: ProfileSetupStateSchema.parse({
-      status: 'not_started',
-      currentStep: 'import',
+      status: "not_started",
+      currentStep: "import",
       completedAt: null,
       reviewItems: [],
-      lastResumedAt: null
+      lastResumedAt: null,
     }),
     savedJobs: [],
     tailoredAssets: [],
@@ -96,6 +58,12 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
     applyRuns: [],
     applyJobResults: [],
     applySubmitApprovals: [],
+    applicationAuthorityEnvelopes: [],
+    submissionPreflights: [],
+    submissionExecutionGrants: [],
+    submissionIdempotencyRecords: [],
+    submissionArmedMarkers: [],
+    submissionOutcomeRecords: [],
     applicationQuestionRecords: [],
     applicationAnswerRecords: [],
     applicationArtifactRefs: [],
@@ -103,6 +71,8 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
     applicationConsentRequests: [],
     applicationRecords: [],
     applicationAttempts: [],
+    userActionRequests: [],
+    userActionEvents: [],
     sourceDebugRuns: [],
     sourceDebugAttempts: [],
     sourceInstructionArtifacts: [],
@@ -111,24 +81,29 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
     resumeImportDocumentBundles: [],
     resumeImportFieldCandidates: [],
     settings: JobFinderSettingsSchema.parse({
-      resumeTemplateId: 'classic_ats',
-      resumeFormat: 'pdf',
-      fontPreset: 'inter_requisite',
-      appearanceTheme: 'system',
+      resumeTemplateId: "classic_ats",
+      resumeFormat: "pdf",
+      fontPreset: "inter_requisite",
+      appearanceTheme: "system",
       humanReviewRequired: true,
       keepSessionAlive: false,
       allowAutoSubmitOverride: false,
-      discoveryOnly: false
+      discoveryOnly: false,
     }),
     discovery: {
       sessions: [],
-      runState: 'idle',
+      runState: "idle",
       activeRun: null,
       recentRuns: [],
       activeSourceDebugRun: null,
       recentSourceDebugRuns: [],
       discoveryLedger: [],
-      pendingDiscoveryJobs: []
-    }
-  }
+      pendingDiscoveryJobs: [],
+    },
+    campaigns: [],
+    activeCampaignId: null,
+    campaignNotifications: [],
+    activityControl: { paused: false, pausedAt: null, reason: null },
+    intelligence: JobFinderIntelligenceStateSchema.parse({}),
+  };
 }

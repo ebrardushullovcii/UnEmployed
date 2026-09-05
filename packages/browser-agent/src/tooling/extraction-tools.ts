@@ -2,13 +2,14 @@ import type { ToolDefinition } from "../types";
 import { z } from "zod";
 import { ExtractJobsSchema } from "./shared";
 import {
-  isSearchResultsSurfaceRoute,
+  isSharedLearnedSurfaceUrl,
+  observeLearnedSearchSurfaceRoutes,
   scoreSearchResultCardForPreferences,
   scoreSearchResultCardTitleForPreferences,
   shouldCanonicalizeSearchSurfaceDetailRoute,
+  type LearnedSearchSurfaceRouteEvidence,
   type ExtractionSearchPreferences,
 } from "../agent/job-extraction";
-import { SEARCH_SURFACE_ROUTE_RULES } from "../agent/search-surface-routes";
 
 interface StructuredDataJobCandidate {
   canonicalUrl?: string | null;
@@ -20,6 +21,7 @@ interface StructuredDataJobCandidate {
   summary?: string | null;
   postedAt?: string | null;
   postedAtText?: string | null;
+  providerUpdatedAt?: string | null;
   salaryText?: string | null;
   workMode?: string[] | null;
   applyPath?: "easy_apply" | "external_redirect" | "unknown" | null;
@@ -42,6 +44,9 @@ interface SearchResultCardCandidate {
   anchorText: string;
   headingText: string | null;
   lines: string[];
+  companyText?: string | null;
+  companyHref?: string | null;
+  locationText?: string | null;
   sourceJobIdHint?: string | null;
   captureMeta?: SearchResultCardCaptureMeta | null;
 }
@@ -78,6 +83,7 @@ const StructuredDataCandidateSchema = z.object({
   summary: z.string().optional().nullable(),
   postedAt: z.string().optional().nullable(),
   postedAtText: z.string().optional().nullable(),
+  providerUpdatedAt: z.string().optional().nullable(),
   salaryText: z.string().optional().nullable(),
   workMode: z.array(z.string()).optional().nullable(),
   applyPath: z
@@ -122,6 +128,9 @@ const RawSearchResultCardCandidateSchema = z.object({
   anchorText: z.string(),
   headingText: z.string().nullable(),
   lines: z.array(z.string()),
+  companyText: z.string().optional().nullable(),
+  companyHref: z.string().optional().nullable(),
+  locationText: z.string().optional().nullable(),
   sourceJobIdHint: z.string().optional().nullable(),
   captureMeta: CardCaptureMetaSchema.optional().nullable(),
 });
@@ -270,15 +279,27 @@ function buildExtractedCardFingerprint(
 export function buildExtractedCardCandidateMergeKey(
   pageUrl: string,
   candidate: SearchResultCardCandidate,
+  evidence?: LearnedSearchSurfaceRouteEvidence,
 ): string {
   const canonicalUrl = cleanCardText(candidate.canonicalUrl);
   if (!canonicalUrl) {
     return buildExtractedCardFingerprint(candidate);
   }
 
+  const resolvedEvidence =
+    evidence ??
+    observeLearnedSearchSurfaceRoutes({
+      pageUrl,
+      observedUrls: [canonicalUrl],
+    });
+
   if (
-    isSearchResultsSurfaceRoute(canonicalUrl, pageUrl) &&
-    !shouldCanonicalizeSearchSurfaceDetailRoute({ pageUrl, candidate })
+    isSharedLearnedSurfaceUrl(canonicalUrl, resolvedEvidence) &&
+    !shouldCanonicalizeSearchSurfaceDetailRoute({
+      pageUrl,
+      candidate,
+      evidence: resolvedEvidence,
+    })
   ) {
     return `${canonicalUrl}::card:${buildExtractedCardFingerprint(candidate)}`;
   }
@@ -431,6 +452,12 @@ function mergeRawCardCandidate(
     headingText:
       selectLongerCardText(current.headingText, next.headingText) ?? null,
     lines: uniqueCardStrings([...current.lines, ...next.lines]).slice(0, 12),
+    companyText:
+      selectLongerCardText(current.companyText, next.companyText) ?? null,
+    companyHref:
+      selectLongerCardText(current.companyHref, next.companyHref) ?? null,
+    locationText:
+      selectLongerCardText(current.locationText, next.locationText) ?? null,
     ...(sourceJobIdHint !== undefined ? { sourceJobIdHint } : {}),
     ...(preferredCaptureMeta !== undefined
       ? { captureMeta: preferredCaptureMeta }
@@ -446,11 +473,22 @@ function mergeRawCardCandidate(
 export function dedupeExtractedCardCandidates(
   pageUrl: string,
   candidates: readonly RawSearchResultCardCandidate[],
+  evidence?: LearnedSearchSurfaceRouteEvidence,
 ): RawSearchResultCardCandidate[] {
+  const resolvedEvidence =
+    evidence ??
+    observeLearnedSearchSurfaceRoutes({
+      pageUrl,
+      observedUrls: candidates.map((candidate) => candidate.canonicalUrl),
+    });
   const candidatesByKey = new Map<string, RawSearchResultCardCandidate>();
 
   for (const candidate of candidates) {
-    const mergeKey = buildExtractedCardCandidateMergeKey(pageUrl, candidate);
+    const mergeKey = buildExtractedCardCandidateMergeKey(
+      pageUrl,
+      candidate,
+      resolvedEvidence,
+    );
     candidatesByKey.set(
       mergeKey,
       mergeRawCardCandidate(candidatesByKey.get(mergeKey), candidate),
@@ -458,12 +496,6 @@ export function dedupeExtractedCardCandidates(
   }
 
   return [...candidatesByKey.values()];
-}
-
-export function shouldUseSearchSurfaceJobViewCardCapture(
-  pageUrl: string,
-): boolean {
-  return isSearchResultsSurfaceRoute(pageUrl, pageUrl);
 }
 
 function includesClassHint(
@@ -497,11 +529,19 @@ export function prioritizeExtractedCardCandidates(
   candidates: readonly SearchResultCardCandidate[],
   searchPreferences?: ExtractionSearchPreferences,
 ): SearchResultCardCandidate[] {
-  const dedupedCandidates = dedupeExtractedCardCandidates(pageUrl, candidates);
+  const learnedEvidence = observeLearnedSearchSurfaceRoutes({
+    pageUrl,
+    observedUrls: candidates.map((candidate) => candidate.canonicalUrl),
+  });
+  const dedupedCandidates = dedupeExtractedCardCandidates(
+    pageUrl,
+    candidates,
+    learnedEvidence,
+  );
   const preferenceScoreCache = new Map<string, number>();
   const titleScoreCache = new Map<string, number>();
   const getCandidateKey = (candidate: SearchResultCardCandidate): string =>
-    buildExtractedCardCandidateMergeKey(pageUrl, candidate);
+    buildExtractedCardCandidateMergeKey(pageUrl, candidate, learnedEvidence);
   const getPreferenceScore = (candidate: SearchResultCardCandidate): number => {
     const cacheKey = getCandidateKey(candidate);
     const cached = preferenceScoreCache.get(cacheKey);
@@ -533,7 +573,7 @@ export function prioritizeExtractedCardCandidates(
     return nextScore;
   };
 
-  if (!shouldUseSearchSurfaceJobViewCardCapture(pageUrl)) {
+  if (learnedEvidence.sharedSurfaceUrls.size === 0) {
     return [...dedupedCandidates]
       .sort(
         (left, right) =>
@@ -793,21 +833,14 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               allowedHostnames: string[];
               relevantUrlSubstrings: string[];
               allowSubdomains: boolean;
-              preferSearchSurfaceJobViewCardCapture: boolean;
               maxInPageCardCandidates: number;
-              searchSurfaceRouteRules: Array<{
-                hostSuffixes: string[];
-                resultExactPaths: string[];
-                resultPathPrefixes: string[];
-                detailPathPrefix: string;
-                detailPathTemplate: string;
-                embeddedJobIdParams: string[];
-              }>;
             }) => {
               const toText = (value: unknown): string =>
                 typeof value === "string"
                   ? value.replace(/\s+/g, " ").trim()
                   : "";
+              const isUnknownArray = (value: unknown): value is unknown[] =>
+                Array.isArray(value);
               const uniqueStrings = (values: readonly string[]): string[] => {
                 const seen = new Set<string>();
                 return values.flatMap((value) => {
@@ -823,73 +856,189 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   return [normalized];
                 });
               };
-              const findSearchSurfaceRouteRuleForHostname = (
-                hostname: string,
-              ) =>
-                input.searchSurfaceRouteRules.find((rule) => {
-                  const normalizedHostname = hostname.toLowerCase();
-                  return rule.hostSuffixes.some(
-                    (hostSuffix) =>
-                      normalizedHostname === hostSuffix ||
-                      normalizedHostname.endsWith(`.${hostSuffix}`),
-                  );
-                }) ?? null;
-              const findSearchSurfaceRouteRuleForUrl = (value: string) => {
+              const LEARNED_DETAIL_TEMPLATE_PLACEHOLDER = "{sourceJobId}";
+              const DETAIL_ROUTE_ID_SEGMENT_PATTERN = /\d{4,}|[0-9a-f]{8,}/i;
+              const REWRITABLE_DETAIL_ID_SEGMENT_PATTERN =
+                /^(?:\d{4,}|[0-9a-f]{8,})$/i;
+              const normalizeParamKeyLocal = (key: string): string =>
+                key.toLowerCase().replace(/[^a-z0-9]/g, "");
+              const isJobIdShapedParamKeyLocal = (key: string): boolean => {
+                const normalized = normalizeParamKeyLocal(key);
+                return (
+                  normalized.includes("jobid") || normalized.endsWith("jid")
+                );
+              };
+              const safeDecodeUriComponentLocal = (value: string): string => {
                 try {
-                  const parsed = new URL(value, window.location.href);
-                  return findSearchSurfaceRouteRuleForHostname(parsed.hostname);
+                  return decodeURIComponent(value);
+                } catch {
+                  return value;
+                }
+              };
+              const findDetailIdSegment = (pathname: string): string | null => {
+                const segments = pathname.split("/").filter(Boolean);
+                const lastSegment = segments.at(-1);
+                if (!lastSegment) {
+                  return null;
+                }
+
+                const decoded = safeDecodeUriComponentLocal(lastSegment);
+                return DETAIL_ROUTE_ID_SEGMENT_PATTERN.test(decoded)
+                  ? decoded
+                  : null;
+              };
+              const parseAbsoluteUrl = (
+                value: string | null | undefined,
+              ): URL | null => {
+                const normalized = toText(value);
+                if (!normalized) {
+                  return null;
+                }
+
+                try {
+                  const parsed = new URL(normalized, window.location.href);
+                  return parsed.protocol === "http:" ||
+                    parsed.protocol === "https:"
+                    ? parsed
+                    : null;
                 } catch {
                   return null;
                 }
               };
-              const isSearchSurfaceResultPath = (
-                rule: NonNullable<
-                  ReturnType<typeof findSearchSurfaceRouteRuleForHostname>
-                >,
-                pathname: string,
-              ): boolean =>
-                rule.resultExactPaths.includes(pathname) ||
-                rule.resultPathPrefixes.some((prefix) =>
-                  pathname.startsWith(prefix),
-                );
-              const readEmbeddedSearchSurfaceJobId = (
+              const readFirstEmbeddedNumericParamValue = (
                 url: URL,
-                rule: NonNullable<
-                  ReturnType<typeof findSearchSurfaceRouteRuleForHostname>
-                >,
-              ): string =>
-                toText(
-                  rule.embeddedJobIdParams
-                    .map((paramName) => url.searchParams.get(paramName))
-                    .find((value) => toText(value)) ?? null,
-                );
-              const buildSearchSurfaceDetailUrl = (
-                rule: NonNullable<
-                  ReturnType<typeof findSearchSurfaceRouteRuleForHostname>
-                >,
-                sourceJobId: string,
-              ): string =>
-                `${window.location.origin}${rule.detailPathTemplate.replace("{sourceJobId}", sourceJobId)}`;
-              const buildSearchSurfaceAnchorSelector = (): string =>
-                uniqueStrings(
-                  input.searchSurfaceRouteRules.flatMap((rule) => [
-                    `a[href*="${rule.detailPathPrefix}"]`,
-                    ...rule.embeddedJobIdParams.map(
-                      (paramName) => `a[href*="${paramName}="]`,
-                    ),
-                  ]),
-                ).join(", ");
+              ): string | null => {
+                for (const value of url.searchParams.values()) {
+                  const normalizedValue = toText(value);
+                  if (/^\d{3,}$/.test(normalizedValue)) {
+                    return normalizedValue;
+                  }
+                }
+                return null;
+              };
+              const looksLikeJobLinkUrl = (url: URL): boolean =>
+                findDetailIdSegment(url.pathname) !== null ||
+                [...url.searchParams.keys()].some(isJobIdShapedParamKeyLocal);
+
+              interface ObservedDetailRoute {
+                prefixSegments: string[];
+                id: string;
+                endsWithSlash: boolean;
+              }
+
+              const observedDetailRoutesByOrigin = new Map<
+                string,
+                ObservedDetailRoute[]
+              >();
+              const seenObservedDetailRoutes = new Set<string>();
+              const observeDetailRoute = (value: string | null) => {
+                const parsed = parseAbsoluteUrl(value);
+                if (!parsed) {
+                  return;
+                }
+
+                const segments = parsed.pathname.split("/").filter(Boolean);
+                const lastSegment = segments.at(-1);
+                if (!lastSegment) {
+                  return;
+                }
+
+                const decodedId = safeDecodeUriComponentLocal(lastSegment);
+                if (!REWRITABLE_DETAIL_ID_SEGMENT_PATTERN.test(decodedId)) {
+                  return;
+                }
+
+                const routeKey = `${parsed.origin}${parsed.pathname}#${decodedId}`;
+                if (seenObservedDetailRoutes.has(routeKey)) {
+                  return;
+                }
+                seenObservedDetailRoutes.add(routeKey);
+
+                const bucket =
+                  observedDetailRoutesByOrigin.get(parsed.origin) ?? [];
+                bucket.push({
+                  prefixSegments: segments
+                    .slice(0, -1)
+                    .map(safeDecodeUriComponentLocal),
+                  id: decodedId,
+                  endsWithSlash: parsed.pathname.endsWith("/"),
+                });
+                observedDetailRoutesByOrigin.set(parsed.origin, bucket);
+              };
+
+              for (const anchor of Array.from(
+                document.querySelectorAll<HTMLAnchorElement>("a[href]"),
+              )) {
+                observeDetailRoute(anchor.getAttribute("href"));
+              }
+              observeDetailRoute(window.location.href);
+
+              const learnedDetailTemplatesByOrigin = new Map<
+                string,
+                { template: string; jobIds: Set<string> }
+              >();
+              for (const [
+                origin,
+                observations,
+              ] of observedDetailRoutesByOrigin) {
+                const firstObservation = observations[0];
+                if (!firstObservation) {
+                  continue;
+                }
+
+                let commonPrefix = firstObservation.prefixSegments;
+                let allEndsWithSlash = true;
+                for (const observation of observations) {
+                  if (!observation.endsWithSlash) {
+                    allEndsWithSlash = false;
+                  }
+
+                  const nextPrefix: string[] = [];
+                  const sharedLength = Math.min(
+                    commonPrefix.length,
+                    observation.prefixSegments.length,
+                  );
+                  for (
+                    let index = 0;
+                    index < sharedLength &&
+                    commonPrefix[index] === observation.prefixSegments[index];
+                    index += 1
+                  ) {
+                    const segment = commonPrefix[index];
+                    if (segment === undefined) break;
+                    nextPrefix.push(segment);
+                  }
+                  commonPrefix = nextPrefix;
+                }
+
+                if (commonPrefix.length === 0) {
+                  continue;
+                }
+
+                learnedDetailTemplatesByOrigin.set(origin, {
+                  template: `/${[
+                    ...commonPrefix,
+                    LEARNED_DETAIL_TEMPLATE_PLACEHOLDER,
+                  ].join("/")}${allEndsWithSlash ? "/" : ""}`,
+                  jobIds: new Set(
+                    observations.map((observation) => observation.id),
+                  ),
+                });
+              }
+              const buildLearnedDetailUrl = (
+                origin: string,
+                jobId: string,
+              ): string | null => {
+                const learned = learnedDetailTemplatesByOrigin.get(origin);
+                if (!learned) {
+                  return null;
+                }
+
+                return `${origin}${learned.template.replace(LEARNED_DETAIL_TEMPLATE_PLACEHOLDER, encodeURIComponent(jobId))}`;
+              };
               const collectAccessibleCardLabels = (
                 element: HTMLElement,
               ): string[] => {
-                if (
-                  !findSearchSurfaceRouteRuleForHostname(
-                    window.location.hostname,
-                  )
-                ) {
-                  return [];
-                }
-
                 const candidates = [
                   element,
                   ...Array.from(
@@ -950,11 +1099,10 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   }
 
                   for (const key of [...absolute.searchParams.keys()]) {
-                    const lowered = key.toLowerCase();
+                    const normalizedParamKey = normalizeParamKeyLocal(key);
                     if (
-                      lowered.startsWith("utm_") ||
-                      lowered === "trk" ||
-                      lowered === "trackingid"
+                      normalizedParamKey.startsWith("utm") ||
+                      normalizedParamKey.includes("track")
                     ) {
                       absolute.searchParams.delete(key);
                     }
@@ -1054,6 +1202,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   summary: toText(candidate.responsibilities) || null,
                   postedAt: toText(candidate.datePosted) || null,
                   postedAtText: toText(candidate.datePosted) || null,
+                  providerUpdatedAt: toText(candidate.dateModified) || null,
                   salaryText:
                     toText(candidate.baseSalary) ||
                     toText(candidate.salaryCurrency) ||
@@ -1082,22 +1231,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               };
 
               const cardCandidates: RawSearchResultCardCandidate[] = [];
-              const isSearchSurfaceRoute = (value: string): boolean => {
-                try {
-                  const parsed = new URL(value, window.location.href);
-                  const routeRule = findSearchSurfaceRouteRuleForHostname(
-                    parsed.hostname,
-                  );
-                  if (!routeRule) {
-                    return false;
-                  }
 
-                  const pathname = parsed.pathname.toLowerCase();
-                  return isSearchSurfaceResultPath(routeRule, pathname);
-                } catch {
-                  return false;
-                }
-              };
               const looksLikeSearchSurfaceResultCard = (
                 element: HTMLElement,
               ): boolean => {
@@ -1117,28 +1251,56 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   return true;
                 }
 
+                if (
+                  element.matches('button, [role="button"]') &&
+                  /\bdismiss\b[\s\S]*\bjob\b/i.test(
+                    `${toText(element.getAttribute("aria-label"))} ${toText(element.innerText)}`,
+                  )
+                ) {
+                  return true;
+                }
+
                 return collectAccessibleCardLabels(element).length > 0;
               };
               const addCardCandidate = (
                 element: HTMLElement,
                 anchor: HTMLAnchorElement | null,
               ) => {
-                const searchSurfaceRouteRule =
-                  findSearchSurfaceRouteRuleForHostname(
-                    window.location.hostname,
-                  );
-                const readJobIdHint = (candidate: HTMLElement | null): string =>
-                  toText(
+                const readJobIdHint = (
+                  candidate: HTMLElement | null,
+                ): string => {
+                  const rawValue = toText(
                     candidate?.getAttribute("data-job-id") ??
                       candidate?.getAttribute("data-jobid") ??
                       candidate?.getAttribute("data-occludable-job-id") ??
+                      candidate?.getAttribute("data-entity-urn") ??
+                      candidate?.getAttribute("data-entity-id") ??
                       null,
                   );
+                  return rawValue.match(/\d{5,}/)?.[0] ?? rawValue;
+                };
                 const findScopedJobIdHint = (): string | null => {
                   const directHint =
                     readJobIdHint(element) || readJobIdHint(anchor);
                   if (directHint) {
                     return directHint;
+                  }
+
+                  const descendantWithJobId =
+                    element.querySelector<HTMLElement>(
+                      '[data-job-id], [data-jobid], [data-occludable-job-id], [data-entity-urn*="job" i], [data-entity-id*="job" i]',
+                    );
+                  const descendantHint = readJobIdHint(descendantWithJobId);
+                  if (descendantHint) {
+                    return descendantHint;
+                  }
+
+                  const closestCardWithJobId = element.closest<HTMLElement>(
+                    '[data-job-id], [data-jobid], [data-occludable-job-id], [data-entity-urn*="job" i], [data-entity-id*="job" i]',
+                  );
+                  const closestCardHint = readJobIdHint(closestCardWithJobId);
+                  if (closestCardHint) {
+                    return closestCardHint;
                   }
 
                   let current = anchor?.parentElement ?? null;
@@ -1156,9 +1318,10 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 const sourceJobIdHint = findScopedJobIdHint();
                 const scopedSearchSurfaceJobViewUrl =
                   /^(?:\d+)$/.test(sourceJobIdHint ?? "") &&
-                  searchSurfaceRouteRule
-                    ? buildSearchSurfaceDetailUrl(
-                        searchSurfaceRouteRule,
+                  Boolean(sourceJobIdHint)
+                    ? buildLearnedDetailUrl(
+                        parseAbsoluteUrl(anchor?.getAttribute("href"))
+                          ?.origin ?? window.location.origin,
                         sourceJobIdHint ?? "",
                       )
                     : null;
@@ -1168,10 +1331,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 const anchorLabel = getSearchSurfaceAnchorLabel(anchor);
                 const shouldPreferScopedSearchSurfaceJobViewUrl = (() => {
                   if (!scopedSearchSurfaceJobViewUrl || !anchorCanonicalUrl) {
-                    return (
-                      Boolean(scopedSearchSurfaceJobViewUrl) &&
-                      !anchorCanonicalUrl
-                    );
+                    return false;
                   }
 
                   try {
@@ -1179,25 +1339,9 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                       anchorCanonicalUrl,
                       window.location.href,
                     );
-                    const anchorRouteRule =
-                      findSearchSurfaceRouteRuleForHostname(
-                        parsedAnchorUrl.hostname,
-                      );
-                    if (!anchorRouteRule) {
-                      return false;
-                    }
-
-                    const pathname = parsedAnchorUrl.pathname.toLowerCase();
-                    const detailPathPattern = new RegExp(
-                      `^${anchorRouteRule.detailPathPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\d+)(?:[/?#]|$)`,
+                    const anchorJobViewId = findDetailIdSegment(
+                      parsedAnchorUrl.pathname,
                     );
-                    const anchorJobViewId =
-                      pathname.match(detailPathPattern)?.[1] ?? null;
-                    const anchorCurrentJobId = readEmbeddedSearchSurfaceJobId(
-                      parsedAnchorUrl,
-                      anchorRouteRule,
-                    );
-
                     if (
                       anchorJobViewId &&
                       anchorJobViewId === sourceJobIdHint
@@ -1205,20 +1349,15 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                       return false;
                     }
 
-                    if (isSearchSurfaceResultPath(anchorRouteRule, pathname)) {
+                    if (!anchorJobViewId) {
                       return true;
                     }
 
+                    const anchorEmbeddedJobId =
+                      readFirstEmbeddedNumericParamValue(parsedAnchorUrl);
                     if (
-                      anchorJobViewId &&
-                      anchorJobViewId !== sourceJobIdHint
-                    ) {
-                      return true;
-                    }
-
-                    if (
-                      anchorCurrentJobId &&
-                      anchorCurrentJobId !== sourceJobIdHint
+                      anchorEmbeddedJobId &&
+                      anchorEmbeddedJobId !== sourceJobIdHint
                     ) {
                       return true;
                     }
@@ -1242,6 +1381,132 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                       ?.textContent ?? null,
                   ) || null;
                 const anchorText = anchorLabel || headingText || lines[0] || "";
+                const readScopedCardText = (
+                  selectors: string,
+                ): string | null => {
+                  const value = toText(
+                    element.querySelector<HTMLElement>(selectors)?.innerText ??
+                      null,
+                  );
+                  return value && value.length <= 120 ? value : null;
+                };
+                const companyTextFromScoped = readScopedCardText(
+                  '[data-company], [itemprop="hiringOrganization"], .job-card-container__primary-description, .artdeco-entity-lockup__subtitle, [class*="company-name"], [class*="employer-name"]',
+                );
+                const EMPLOYER_PROFILE_PATH_MARKERS = new Set([
+                  "company",
+                  "employer",
+                ]);
+                const isCompanyProfileAnchor = (
+                  descendantAnchor: HTMLAnchorElement,
+                ): boolean => {
+                  const parsedHref = parseAbsoluteUrl(
+                    descendantAnchor.getAttribute("href"),
+                  );
+                  if (!parsedHref) {
+                    return false;
+                  }
+                  try {
+                    const segments = new URL(parsedHref).pathname
+                      .split("/")
+                      .map((segment) => segment.trim())
+                      .filter(Boolean);
+                    const profileIndex = segments.findIndex((segment) =>
+                      EMPLOYER_PROFILE_PATH_MARKERS.has(segment.toLowerCase()),
+                    );
+                    return (
+                      profileIndex >= 0 &&
+                      Boolean(segments[profileIndex + 1]) &&
+                      !/^(jobs|job|careers|career|search|apply)$/i.test(
+                        segments[profileIndex + 1] ?? "",
+                      )
+                    );
+                  } catch {
+                    return false;
+                  }
+                };
+                // Boards that nest multiple jobs under one employer card often
+                // place several job titles under a single employer container.
+                // Accept an ancestor only when it scopes exactly one employer
+                // profile (multi-job same-employer OK; results-list with many
+                // employers is not).
+                const findUniqueCompanyProfileAnchor = (
+                  root: Element,
+                ): HTMLAnchorElement | null => {
+                  const anchors = Array.from(
+                    root.querySelectorAll<HTMLAnchorElement>("a[href]"),
+                  ).filter(isCompanyProfileAnchor);
+                  const seenSlugs = new Set<string>();
+                  let unique: HTMLAnchorElement | null = null;
+                  for (const anchor of anchors) {
+                    const parsedHref = parseAbsoluteUrl(
+                      anchor.getAttribute("href"),
+                    );
+                    if (!parsedHref) {
+                      continue;
+                    }
+                    try {
+                      const segments = new URL(parsedHref).pathname
+                        .split("/")
+                        .map((segment) => segment.trim())
+                        .filter(Boolean);
+                      const profileIndex = segments.findIndex((segment) =>
+                        EMPLOYER_PROFILE_PATH_MARKERS.has(
+                          segment.toLowerCase(),
+                        ),
+                      );
+                      const slug =
+                        profileIndex >= 0
+                          ? (segments[profileIndex + 1] ?? "").toLowerCase()
+                          : "";
+                      if (!slug || seenSlugs.has(slug)) {
+                        continue;
+                      }
+                      seenSlugs.add(slug);
+                      if (seenSlugs.size > 1) {
+                        return null;
+                      }
+                      unique = anchor;
+                    } catch {
+                      // Ignore malformed employer profile hrefs.
+                    }
+                  }
+                  return unique;
+                };
+                let companyAnchor = findUniqueCompanyProfileAnchor(element);
+                if (!companyAnchor) {
+                  let ancestor: Element | null = element.parentElement;
+                  for (let depth = 0; depth < 8 && ancestor; depth += 1) {
+                    companyAnchor = findUniqueCompanyProfileAnchor(ancestor);
+                    if (companyAnchor) {
+                      break;
+                    }
+                    ancestor = ancestor.parentElement;
+                  }
+                }
+                const companyHrefParsed = companyAnchor
+                  ? parseAbsoluteUrl(companyAnchor.getAttribute("href"))
+                  : null;
+                const companyHref = companyHrefParsed
+                  ? companyHrefParsed.toString()
+                  : null;
+                const companyLinkText = toText(
+                  companyAnchor?.innerText ??
+                    companyAnchor?.textContent ??
+                    null,
+                );
+                const companyText =
+                  companyTextFromScoped ||
+                  (companyLinkText &&
+                  companyLinkText.length <= 120 &&
+                  !/^(view|see|about|company|profile|jobs?|careers?)\b/i.test(
+                    companyLinkText,
+                  )
+                    ? companyLinkText
+                    : null);
+                const locationText = readScopedCardText(
+                  '[data-location], [itemprop="jobLocation"], .job-card-container__metadata-item, .artdeco-entity-lockup__caption, [class*="job-location"], [class*="location-name"]',
+                );
                 const hasDismissLabel = lines.some((line) =>
                   /\bdismiss\b.*\bjob\b/i.test(line),
                 );
@@ -1284,8 +1549,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                     : null) ??
                   anchorCanonicalUrl ??
                   scopedSearchSurfaceJobViewUrl ??
-                  (searchSurfaceRouteRule &&
-                  looksLikeSearchSurfaceResultCard(element) &&
+                  (looksLikeSearchSurfaceResultCard(element) &&
                   (hasDismissLabel || lines.length >= 3)
                     ? isAllowedInScopeUrl(window.location.href)
                     : null);
@@ -1297,11 +1561,14 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 }
 
                 const rootClassName = toText(element.getAttribute("class"));
-                const searchSurfaceAnchorSelector =
-                  buildSearchSurfaceAnchorSelector();
-                const jobLinkCount = searchSurfaceAnchorSelector
-                  ? element.querySelectorAll(searchSurfaceAnchorSelector).length
-                  : 0;
+                const jobLinkCount = Array.from(
+                  element.querySelectorAll<HTMLAnchorElement>("a[href]"),
+                ).filter((descendantAnchor) => {
+                  const parsedHref = parseAbsoluteUrl(
+                    descendantAnchor.getAttribute("href"),
+                  );
+                  return parsedHref !== null && looksLikeJobLinkUrl(parsedHref);
+                }).length;
                 const anchorElement = anchor;
 
                 const nextCandidate = {
@@ -1309,6 +1576,9 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                   anchorText,
                   headingText,
                   lines,
+                  companyText,
+                  companyHref,
+                  locationText,
                   sourceJobIdHint,
                   captureMeta: {
                     domOrder: cardCandidates.length,
@@ -1358,7 +1628,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                 cardCandidates.push(nextCandidate);
               };
 
-              if (input.preferSearchSurfaceJobViewCardCapture) {
+              if (learnedDetailTemplatesByOrigin.size > 0) {
                 const scannedRoots = new WeakSet<HTMLElement>();
                 const selectPreferredSearchSurfaceCardRoot = (
                   anchor: HTMLAnchorElement,
@@ -1389,22 +1659,13 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
                   try {
                     const parsedHref = new URL(href, window.location.href);
-                    const routeRule = findSearchSurfaceRouteRuleForHostname(
-                      parsedHref.hostname,
-                    );
-                    if (
-                      routeRule &&
-                      parsedHref.pathname
-                        .toLowerCase()
-                        .startsWith(routeRule.detailPathPrefix)
-                    ) {
+                    if (findDetailIdSegment(parsedHref.pathname)) {
                       score += 40;
                     }
 
                     if (
-                      routeRule &&
-                      routeRule.embeddedJobIdParams.some((paramName) =>
-                        parsedHref.searchParams.has(paramName),
+                      [...parsedHref.searchParams.keys()].some(
+                        isJobIdShapedParamKeyLocal,
                       )
                     ) {
                       score += 20;
@@ -1484,15 +1745,14 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
                   return bestScore > 0 ? bestAnchor : null;
                 };
-                const searchSurfaceAnchorSelector =
-                  buildSearchSurfaceAnchorSelector();
-                const jobAnchors = searchSurfaceAnchorSelector
-                  ? Array.from(
-                      document.querySelectorAll<HTMLAnchorElement>(
-                        searchSurfaceAnchorSelector,
-                      ),
-                    )
-                  : [];
+                const jobAnchors = Array.from(
+                  document.querySelectorAll<HTMLAnchorElement>("a[href]"),
+                ).filter((anchor) => {
+                  const parsedHref = parseAbsoluteUrl(
+                    anchor.getAttribute("href"),
+                  );
+                  return parsedHref !== null && looksLikeJobLinkUrl(parsedHref);
+                });
                 const preferredAnchorByRoot = new Map<
                   HTMLElement,
                   { anchor: HTMLAnchorElement; score: number }
@@ -1518,29 +1778,45 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
 
                 const supplementalRoots = Array.from(
                   document.querySelectorAll<HTMLElement>(
-                    '.jobs-search-results__list-item, .job-card-container, [role="listitem"], li, article, [data-job-id], [data-jobid], [data-occludable-job-id]',
+                    '.jobs-search-results__list-item, .job-card-container, [role="listitem"], li, article, [data-job-id], [data-jobid], [data-occludable-job-id], button, [role="button"]',
                   ),
                 );
 
                 for (const root of supplementalRoots) {
+                  const rootAccessibleText = `${collectAccessibleCardLabels(root).join(" ")} ${toText(root.innerText)}`;
+                  const isDismissJobControl =
+                    root.matches('button, [role="button"]') &&
+                    /\bdismiss\b[\s\S]*\bjob\b/i.test(rootAccessibleText);
+                  const candidateRoot = isDismissJobControl
+                    ? (root.closest<HTMLElement>(
+                        '[data-job-id], [data-jobid], [data-occludable-job-id], [data-entity-urn*="job" i], [data-entity-id*="job" i], [role="listitem"], li, article',
+                      ) ?? root)
+                    : root;
                   if (
                     cardCandidates.length >= input.maxInPageCardCandidates ||
-                    scannedRoots.has(root) ||
-                    !looksLikeSearchSurfaceResultCard(root)
+                    scannedRoots.has(candidateRoot) ||
+                    (!looksLikeSearchSurfaceResultCard(candidateRoot) &&
+                      !isDismissJobControl)
                   ) {
                     continue;
                   }
 
-                  const anchor = selectSupplementalSearchSurfaceAnchor(root);
+                  const anchor =
+                    selectSupplementalSearchSurfaceAnchor(candidateRoot);
                   if (
                     !anchor &&
-                    !root.querySelector('h1, h2, h3, h4, [role="heading"]')
+                    !candidateRoot.querySelector(
+                      'h1, h2, h3, h4, [role="heading"]',
+                    ) &&
+                    !/\bdismiss\b[\s\S]*\bjob\b/i.test(
+                      `${collectAccessibleCardLabels(candidateRoot).join(" ")} ${toText(candidateRoot.innerText)}`,
+                    )
                   ) {
                     continue;
                   }
 
-                  scannedRoots.add(root);
-                  addCardCandidate(root, anchor);
+                  scannedRoots.add(candidateRoot);
+                  addCardCandidate(candidateRoot, anchor);
                 }
               }
 
@@ -1584,7 +1860,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               ).flatMap((scriptText) => {
                 try {
                   const payload = JSON.parse(scriptText) as unknown;
-                  const queue = Array.isArray(payload)
+                  const queue = isUnknownArray(payload)
                     ? [...payload]
                     : [payload];
                   const jobs: StructuredDataJobCandidate[] = [];
@@ -1594,7 +1870,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                       continue;
                     }
 
-                    if (Array.isArray(current)) {
+                    if (isUnknownArray(current)) {
                       queue.push(...current);
                       continue;
                     }
@@ -1606,7 +1882,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
                     }
 
                     const graphValues = record["@graph"];
-                    if (Array.isArray(graphValues)) {
+                    if (isUnknownArray(graphValues)) {
                       queue.push(...graphValues);
                     }
                   }
@@ -1629,19 +1905,7 @@ Returns the extracted jobs and advises whether you should scroll for more or nav
               relevantUrlSubstrings,
               allowSubdomains:
                 context.config.navigationPolicy.allowSubdomains === true,
-              preferSearchSurfaceJobViewCardCapture:
-                shouldUseSearchSurfaceJobViewCardCapture(pageUrl),
               maxInPageCardCandidates: MAX_IN_PAGE_CARD_CANDIDATES,
-              searchSurfaceRouteRules: SEARCH_SURFACE_ROUTE_RULES.map(
-                (rule) => ({
-                  hostSuffixes: [...rule.hostSuffixes],
-                  resultExactPaths: [...rule.resultExactPaths],
-                  resultPathPrefixes: [...rule.resultPathPrefixes],
-                  detailPathPrefix: rule.detailPathPrefix,
-                  detailPathTemplate: rule.detailPathTemplate,
-                  embeddedJobIdParams: [...rule.embeddedJobIdParams],
-                }),
-              ),
             },
           ),
         );

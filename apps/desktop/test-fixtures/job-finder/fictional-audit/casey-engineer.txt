@@ -1,0 +1,25 @@
+CASEY ROWAN
+Senior Frontend Engineer
+casey.rowan@example.test | +1 555 010 2401 | Portland, Oregon
+
+SUMMARY
+Frontend engineer with eight years of experience building accessible web applications and design systems for logistics and financial-services teams. Strong in React, TypeScript, testing, performance, and mentoring.
+
+EXPERIENCE
+Senior Frontend Engineer — Northstar Parcel Software
+March 2021–Present | Portland, Oregon
+- Led a React and TypeScript shipment-tracking redesign used by 18 internal operations teams.
+- Reduced median page-load time from 4.2 seconds to 1.9 seconds by splitting bundles and removing duplicate requests.
+- Built an accessible component library with Storybook and automated axe checks.
+- Mentored four engineers and introduced Vitest integration tests for critical workflows.
+
+Frontend Engineer — Cedar Ledger
+June 2018–February 2021 | Remote
+- Built account-management workflows with React, GraphQL, and Node.js.
+- Partnered with product designers to improve form completion and error recovery.
+
+EDUCATION
+Bachelor of Science in Computer Science — Oregon State University, 2018
+
+SKILLS
+React, TypeScript, JavaScript, HTML, CSS, GraphQL, Node.js, Vitest, Playwright, Storybook, accessibility, performance optimization

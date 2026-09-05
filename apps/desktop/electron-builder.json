@@ -1,0 +1,45 @@
+{
+  "appId": "com.unemployed.desktop",
+  "productName": "UnEmployed",
+  "artifactName": "${productName}-${version}-${arch}.${ext}",
+  "publish": null,
+  "directories": {
+    "output": "release"
+  },
+  "files": ["out/**/*", "assets/**/*", "node_modules/**/*", "package.json"],
+  "extraResources": [
+    {
+      "from": "dist/resume-parser-sidecar",
+      "to": "resume-parser-sidecar",
+      "filter": [
+        "bin/**/*",
+        "python/**/*",
+        "!python/**/__pycache__/**",
+        "!python/**/*.pyc",
+        "manifest.json"
+      ]
+    }
+  ],
+  "win": {
+    "executableName": "UnEmployed",
+    "icon": "build/icon.ico",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "runAfterFinish": false
+  }
+}

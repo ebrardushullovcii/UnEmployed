@@ -1,7 +1,15 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  rename,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
-import type { Browser, BrowserContext, Page } from "playwright";
+import type { Browser, BrowserContext, CDPSession, Page } from "playwright";
 import {
   ApplyExecutionResultSchema,
   ApplyVisualCheckpointSchema,
@@ -11,6 +19,8 @@ import {
   BrowserSessionStateSchema,
   DiscoveryRunResultSchema,
   type ApplyExecutionResult,
+  type ApplyExecutionStage,
+  type ApplyExecutionTiming,
   type BrowserSessionState,
   type BrowserVisualSnapshotRequest,
   type DiscoveryRunResult,
@@ -30,8 +40,29 @@ import type {
   ExecuteApplicationFlowInput,
   ExecuteEasyApplyInput,
 } from "./runtime-types";
+import { ApplicationNavigationError } from "./application-navigation-error";
+import {
+  buildPreparationResult,
+  createApplicationRunServiceWorkerSentinel,
+  installServiceWorkerRegisterGuardInPage,
+  runGenericApplicationPreparation,
+  type ServiceWorkerSafetyFinding,
+} from "./playwright-application-flow";
+import {
+  executeExactlyOneFinalAction as executeExactlyOneFinalActionOnPage,
+  observeApplicationForm as observeApplicationFormOnPage,
+} from "./application-submission-browser-hands";
+import type {
+  ExecuteExactlyOneFinalActionInput,
+  ObserveApplicationFormOptions,
+} from "./application-submission-browser-hands";
+import {
+  createInconclusiveSourceAccessProbeResult,
+  inspectSourceAccessPage,
+} from "./source-access-probe";
 import {
   areStructurallyEquivalentHttpUrls,
+  bringPageToFrontBestEffort,
   buildChromeExecutableCandidates,
   buildQuerySummary,
   findRunningChromeDebugPortForUserDataDir,
@@ -56,12 +87,253 @@ export type JobPageExtractor = (
   input: JobPageExtractionInput,
 ) => Promise<JobPosting[]>;
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// connectOverCDP attaches the persistent default context without accepting
+// Playwright's serviceWorkers:"block" context option, so the same hardened
+// registration guard Playwright would install for that option is applied
+// explicitly before managed flows navigate. The installer hardens both the
+// ServiceWorkerContainer prototype and instance non-configurably before site
+// scripts run in every document and frame.
+const SERVICE_WORKER_BLOCK_INIT_SCRIPT =
+  installServiceWorkerRegisterGuardInPage;
+
+const serviceWorkerBlockedContexts = new WeakSet<BrowserContext>();
+
+async function blockServiceWorkersOnManagedContext(
+  context: BrowserContext,
+): Promise<void> {
+  if (serviceWorkerBlockedContexts.has(context)) {
+    return;
+  }
+
+  serviceWorkerBlockedContexts.add(context);
+
+  // Hosts that do not expose init scripts cannot carry the block; installation
+  // failures on capable hosts remain fatal.
+  if (typeof context.addInitScript !== "function") {
+    return;
+  }
+
+  try {
+    await context.addInitScript(SERVICE_WORKER_BLOCK_INIT_SCRIPT);
+  } catch (error) {
+    serviceWorkerBlockedContexts.delete(context);
+    throw error;
+  }
+}
+
+export type ActiveServiceWorkerBlockReason =
+  | "active_service_worker_controlling_application_origin"
+  | "service_worker_origin_unresolved"
+  | "service_worker_inspection_unavailable";
+
+export class ActiveServiceWorkerBlockError extends Error {
+  readonly code = "active_service_worker_block" as const;
+  readonly reason: ActiveServiceWorkerBlockReason;
+  readonly targetUrl: string;
+  readonly serviceWorkerUrls: string[];
+
+  constructor(input: {
+    reason: ActiveServiceWorkerBlockReason;
+    targetUrl: string;
+    detail: string;
+    serviceWorkerUrls?: string[];
+  }) {
+    super(input.detail);
+    this.name = "ActiveServiceWorkerBlockError";
+    this.reason = input.reason;
+    this.targetUrl = input.targetUrl;
+    this.serviceWorkerUrls = input.serviceWorkerUrls ?? [];
+  }
+}
+
+function parseHttpOrigin(urlString: string): string | null {
+  try {
+    const url = new URL(urlString);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.origin
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function assertNoActiveServiceWorkerControlsApplicationOrigin(input: {
+  context: BrowserContext;
+  targetUrl: string;
+}): void {
+  if (typeof input.context.serviceWorkers !== "function") {
+    throw new ActiveServiceWorkerBlockError({
+      reason: "service_worker_inspection_unavailable",
+      targetUrl: input.targetUrl,
+      detail: `Active service workers could not be inspected on the managed browser context before opening ${input.targetUrl}. Reset the dedicated browser profile from Safeguards, then finish this application manually.`,
+    });
+  }
+
+  let activeWorkers;
+  try {
+    activeWorkers = input.context.serviceWorkers();
+  } catch (error) {
+    throw new ActiveServiceWorkerBlockError({
+      reason: "service_worker_inspection_unavailable",
+      targetUrl: input.targetUrl,
+      detail: `Active service workers could not be inspected on the managed browser context before opening ${input.targetUrl}: ${
+        error instanceof Error ? error.message : "unknown inspection error"
+      }. Reset the dedicated browser profile from Safeguards, then finish this application manually.`,
+    });
+  }
+
+  const targetOrigin = parseHttpOrigin(input.targetUrl);
+  if (!targetOrigin) {
+    throw new ActiveServiceWorkerBlockError({
+      reason: "service_worker_origin_unresolved",
+      targetUrl: input.targetUrl,
+      detail: `The application origin for ${input.targetUrl} could not be safely determined while active browser service workers exist. Reset the dedicated browser profile from Safeguards, then finish this application manually.`,
+    });
+  }
+
+  const controllingWorkerUrls: string[] = [];
+  const unresolvedWorkerUrls: string[] = [];
+  for (const worker of activeWorkers) {
+    const workerUrl = worker.url();
+    const workerOrigin = parseHttpOrigin(workerUrl);
+    if (!workerOrigin) {
+      unresolvedWorkerUrls.push(workerUrl);
+    } else if (workerOrigin === targetOrigin) {
+      controllingWorkerUrls.push(workerUrl);
+    }
+  }
+
+  if (controllingWorkerUrls.length > 0) {
+    throw new ActiveServiceWorkerBlockError({
+      reason: "active_service_worker_controlling_application_origin",
+      targetUrl: input.targetUrl,
+      detail: `An active service worker (${controllingWorkerUrls.join(", ")}) can control the application origin ${targetOrigin}. Close or reset the dedicated browser profile so the worker stops, then finish this application manually; automated preparation stays stopped.`,
+      serviceWorkerUrls: controllingWorkerUrls,
+    });
+  }
+
+  if (unresolvedWorkerUrls.length > 0) {
+    throw new ActiveServiceWorkerBlockError({
+      reason: "service_worker_origin_unresolved",
+      targetUrl: input.targetUrl,
+      detail: `An active service worker (${unresolvedWorkerUrls.join(", ")}) has an origin that cannot be safely determined relative to ${targetOrigin}. Reset the dedicated browser profile from Safeguards, then finish this application manually.`,
+      serviceWorkerUrls: unresolvedWorkerUrls,
+    });
+  }
+}
+
+function buildServiceWorkerSafetyStopResult(input: {
+  executionInput: ExecuteApplicationFlowInput;
+  finding: ServiceWorkerSafetyFinding;
+}): ApplyExecutionResult {
+  const targetUrl =
+    input.executionInput.job.applicationUrl ??
+    input.executionInput.job.canonicalUrl;
+  const detail = `${input.finding.detail} The runtime stopped before any further field or click action and left every service-worker registration untouched. Reset the dedicated browser profile from Safeguards, then finish this application manually.`;
+  return buildPreparationResult({
+    executionInput: input.executionInput,
+    summary: "A service worker can influence this application origin",
+    detail,
+    questions: [],
+    blocker: {
+      code: "requires_manual_review",
+      summary: "A service worker can influence this application origin.",
+      detail,
+      questionIds: [],
+      sourceDebugEvidenceRefIds: [],
+      url: isHttpUrlLike(targetUrl) ? targetUrl : null,
+    },
+    checkpoints: [],
+    checkpointLabel: "Paused for an application-origin service worker",
+    checkpointDetail: detail,
+    checkpointUrls: isHttpUrlLike(targetUrl) ? [targetUrl] : [],
+    lastUrl: isHttpUrlLike(targetUrl) ? targetUrl : null,
+    now: new Date().toISOString(),
+    nextActionLabel:
+      "Reset the browser profile, then finish this application manually",
+  });
+}
+
+async function markManagedChromeProfileExitedCleanly(
+  userDataDir: string,
+): Promise<void> {
+  const preferencesPath = join(userDataDir, "Default", "Preferences");
+  let preferencesText: string;
+
+  try {
+    preferencesText = await readFile(preferencesPath, "utf8");
+  } catch {
+    return;
+  }
+
+  try {
+    const preferences: unknown = JSON.parse(preferencesText);
+    if (!isJsonRecord(preferences)) {
+      return;
+    }
+
+    const existingProfile = isJsonRecord(preferences.profile)
+      ? preferences.profile
+      : {};
+    if (
+      existingProfile.exit_type === "Normal" &&
+      existingProfile.exited_cleanly === true
+    ) {
+      return;
+    }
+
+    const temporaryPath = `${preferencesPath}.unemployed-clean-exit-${process.pid}`;
+    await writeFile(
+      temporaryPath,
+      JSON.stringify({
+        ...preferences,
+        profile: {
+          ...existingProfile,
+          exit_type: "Normal",
+          exited_cleanly: true,
+        },
+      }),
+      "utf8",
+    );
+    try {
+      await rename(temporaryPath, preferencesPath);
+    } finally {
+      await rm(temporaryPath, { force: true }).catch(() => undefined);
+    }
+  } catch {
+    // A malformed or temporarily locked Preferences file must not block the browser.
+  }
+}
+
 export function createAgentChatWithToolsBridge(
   chatWithTools: NonNullable<JobFinderAiClient["chatWithTools"]>,
 ): LLMClient {
   return {
     chatWithTools,
   };
+}
+
+/**
+ * ADR 0013 compact-first discovery can finish without model tools. When the
+ * configured client lacks `chatWithTools`, keep a rejecting stub so escalation
+ * fails with the same honest warning instead of skipping the page scan.
+ */
+export function resolveAgentDiscoveryChatWithTools(
+  chatWithTools: JobFinderAiClient["chatWithTools"] | undefined,
+): NonNullable<JobFinderAiClient["chatWithTools"]> {
+  return (
+    chatWithTools ??
+    (() =>
+      Promise.reject(
+        new Error(
+          "AI client does not support tool calling. Cannot run agent discovery.",
+        ),
+      ))
+  );
 }
 
 function buildUnsupportedApplyResult(input: {
@@ -131,7 +403,9 @@ async function buildApplyVisualDiagnostics(input: {
   analyzeVisualSnapshot?: ExecuteApplicationFlowInput["analyzeVisualSnapshot"];
 }): Promise<{
   visualEvidence: NonNullable<ApplyExecutionResult["visualEvidence"]>;
-  visualObservationSets: NonNullable<ApplyExecutionResult["visualObservationSets"]>;
+  visualObservationSets: NonNullable<
+    ApplyExecutionResult["visualObservationSets"]
+  >;
   visualCheckpoints: NonNullable<ApplyExecutionResult["visualCheckpoints"]>;
 }> {
   if (!input.captureVisualSnapshot || !input.analyzeVisualSnapshot) {
@@ -247,6 +521,14 @@ export interface BrowserAgentRuntimeOptions {
   aiClient?: JobFinderAiClient;
 }
 
+interface ManagedBrowserWindowBounds {
+  height: number;
+  width: number;
+  x?: number;
+  y?: number;
+  windowState?: "normal" | "minimized" | "maximized" | "fullscreen";
+}
+
 async function resolveChromeExecutable(explicitPath?: string): Promise<string> {
   for (const candidate of buildChromeExecutableCandidates(explicitPath)) {
     if (await pathExists(candidate)) {
@@ -257,6 +539,29 @@ async function resolveChromeExecutable(explicitPath?: string): Promise<string> {
   throw new Error(
     "A Chrome executable was not found for the dedicated browser agent. Set UNEMPLOYED_CHROME_PATH to a local Chrome installation.",
   );
+}
+
+async function getDebuggerWebSocketUrl(
+  debugPort: number,
+): Promise<string | null> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${debugPort}/json/version`, {
+      signal: AbortSignal.timeout(1_000),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as Record<string, unknown>;
+    const webSocketDebuggerUrl = payload.webSocketDebuggerUrl;
+    return typeof webSocketDebuggerUrl === "string" &&
+      /^wss?:\/\//iu.test(webSocketDebuggerUrl)
+      ? webSocketDebuggerUrl
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 async function isDebuggerEndpointReady(debugPort: number): Promise<boolean> {
@@ -355,7 +660,9 @@ async function cleanupExpiredVisualSnapshots(input: {
     });
 
     await Promise.all(
-      [...pathsToDelete].map((path) => rm(path, { force: true }).catch(() => {})),
+      [...pathsToDelete].map((path) =>
+        rm(path, { force: true }).catch(() => {}),
+      ),
     );
   } catch {
     // Retention cleanup is best-effort and must never block browser work.
@@ -485,16 +792,30 @@ async function waitForDebuggerEndpoint(
   timeoutMs = 20_000,
 ): Promise<void> {
   const startedAt = Date.now();
+  let windowsLauncherExitedAt: number | null = null;
 
   while (Date.now() - startedAt < timeoutMs) {
     if (await isDebuggerEndpointReady(debugPort)) {
       return;
     }
 
-    if (chromeProcess && chromeProcess.exitCode !== null) {
+    if (
+      chromeProcess &&
+      chromeProcess.exitCode !== null &&
+      process.platform !== "win32"
+    ) {
       throw new Error(
         `Chrome exited before the remote debugging endpoint on port ${debugPort} became ready.`,
       );
+    }
+
+    if (chromeProcess?.exitCode !== null && process.platform === "win32") {
+      windowsLauncherExitedAt ??= Date.now();
+      if (Date.now() - windowsLauncherExitedAt >= 5_000) {
+        throw new Error(
+          `Chrome exited before the remote debugging endpoint on port ${debugPort} became ready.`,
+        );
+      }
     }
 
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -538,14 +859,20 @@ async function resolveLivePageForContext(
   const page = liveHttpPage ?? (await getPrimaryPage(context));
 
   if (bringToFront) {
-    await page.bringToFront().catch(() => undefined);
+    await bringPageToFrontBestEffort(page);
   }
   return page;
 }
 
 async function resolveAutomationPageForContext(
   context: BrowserContext,
-  options: { targetUrl?: string | null; bringToFront?: boolean } = {},
+  options: {
+    targetUrl?: string | null;
+    bringToFront?: boolean;
+    closeOtherPages?: boolean;
+    reuseExistingPage?: boolean;
+    onPageResolved?: (page: Page) => void;
+  } = {},
 ): Promise<Page> {
   const normalizedTargetUrl =
     typeof options.targetUrl === "string" ? options.targetUrl.trim() : "";
@@ -556,11 +883,28 @@ async function resolveAutomationPageForContext(
         areStructurallyEquivalentHttpUrls(page.url(), normalizedTargetUrl),
       )
     : null;
-  const blankPage = openPages.find((page) => !isHttpUrlLike(page.url())) ?? null;
-  const page = exactTargetPage ?? blankPage ?? (await context.newPage());
+  const blankPage =
+    openPages.find((page) => !isHttpUrlLike(page.url())) ?? null;
+  const reusableLivePage = selectLiveHttpPage(openPages);
+  const page =
+    options.reuseExistingPage === false
+      ? await context.newPage()
+      : (exactTargetPage ??
+        blankPage ??
+        reusableLivePage ??
+        (await context.newPage()));
+  options.onPageResolved?.(page);
+
+  if (options.closeOtherPages && options.reuseExistingPage !== false) {
+    await Promise.allSettled(
+      openPages
+        .filter((candidate) => candidate !== page)
+        .map(async (candidate) => candidate.close()),
+    );
+  }
 
   if (options.bringToFront !== false) {
-    await page.bringToFront().catch(() => undefined);
+    await bringPageToFrontBestEffort(page);
   }
 
   return page;
@@ -572,16 +916,33 @@ async function prepareAutomationPageForTarget(
     targetUrl: string;
     setBlockedState: (detail: string) => void;
     bringToFront?: boolean;
+    navigationTimeoutMs?: number;
+    acceptTargetOriginAfterTimeout?: boolean;
+    closeOtherPages?: boolean;
+    reuseExistingPage?: boolean;
+    signal?: AbortSignal;
+    onPageResolved?: (page: Page) => void;
   },
 ): Promise<{
   page: Page;
   alreadyAtTarget: boolean;
   navigatedToTarget: boolean;
 }> {
+  options.signal?.throwIfAborted();
   const page = await resolveAutomationPageForContext(context, {
     targetUrl: options.targetUrl,
     bringToFront: false,
+    ...(options.reuseExistingPage !== undefined
+      ? { reuseExistingPage: options.reuseExistingPage }
+      : {}),
+    ...(options.closeOtherPages !== undefined
+      ? { closeOtherPages: options.closeOtherPages }
+      : {}),
+    ...(options.onPageResolved
+      ? { onPageResolved: options.onPageResolved }
+      : {}),
   });
+  options.signal?.throwIfAborted();
   const alreadyAtTarget = areStructurallyEquivalentHttpUrls(
     page.url(),
     options.targetUrl,
@@ -593,19 +954,49 @@ async function prepareAutomationPageForTarget(
       navigatedToTarget = await navigatePageToTarget({
         page,
         targetUrl: options.targetUrl,
+        ...(options.navigationTimeoutMs
+          ? { timeout: options.navigationTimeoutMs }
+          : {}),
       });
+      options.signal?.throwIfAborted();
     } catch (error) {
-      const detail =
-        error instanceof Error
-          ? error.message
-          : `The dedicated browser profile could not open ${options.targetUrl}.`;
-      options.setBlockedState(detail);
-      throw error;
+      const timeoutReached =
+        error instanceof Error && error.name === "TimeoutError";
+      const targetOriginReached = (() => {
+        try {
+          return (
+            new URL(page.url()).origin === new URL(options.targetUrl).origin
+          );
+        } catch {
+          return false;
+        }
+      })();
+
+      if (
+        timeoutReached &&
+        options.acceptTargetOriginAfterTimeout === true &&
+        targetOriginReached
+      ) {
+        navigatedToTarget = true;
+      } else {
+        const detail =
+          error instanceof Error
+            ? error.message
+            : `The dedicated browser profile could not open ${options.targetUrl}.`;
+        options.setBlockedState(detail);
+        // Classify once at the goto boundary so consumers can separate
+        // "the employer page never opened" from every other failure mode.
+        throw new ApplicationNavigationError({
+          targetUrl: options.targetUrl,
+          diagnosticDetail: detail,
+          ...(error instanceof Error ? { cause: error } : {}),
+        });
+      }
     }
   }
 
   if (options.bringToFront !== false || navigatedToTarget) {
-    await page.bringToFront().catch(() => undefined);
+    await bringPageToFrontBestEffort(page);
   }
 
   return {
@@ -631,6 +1022,104 @@ export function createBrowserAgentRuntime(
   let browserPromise: Promise<Browser> | null = null;
   let launchedChromeProcess: ChildProcess | null = null;
   let ownsChromeProcess = false;
+  let applicationExecutionTail: Promise<void> = Promise.resolve();
+  const windowBoundsPath = join(
+    options.userDataDir,
+    "unemployed-browser-window-bounds.json",
+  );
+
+  function parseManagedBrowserWindowBounds(
+    value: unknown,
+  ): ManagedBrowserWindowBounds | null {
+    if (!isJsonRecord(value)) return null;
+    const width = value.width;
+    const height = value.height;
+    if (
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width < 640 ||
+      height < 480
+    ) {
+      return null;
+    }
+    return {
+      width: Math.round(width),
+      height: Math.round(height),
+      ...(typeof value.x === "number" && Number.isFinite(value.x)
+        ? { x: Math.round(value.x) }
+        : {}),
+      ...(typeof value.y === "number" && Number.isFinite(value.y)
+        ? { y: Math.round(value.y) }
+        : {}),
+      ...(value.windowState === "normal" ||
+      value.windowState === "minimized" ||
+      value.windowState === "maximized" ||
+      value.windowState === "fullscreen"
+        ? { windowState: value.windowState }
+        : {}),
+    };
+  }
+
+  async function getBrowserWindowSession(browser: Browser): Promise<{
+    session: CDPSession;
+    windowId: number;
+    bounds: ManagedBrowserWindowBounds;
+  } | null> {
+    const page = browser.contexts().flatMap((context) => context.pages())[0];
+    if (!page) return null;
+    const session = await page.context().newCDPSession(page);
+    try {
+      const info = await session.send("Browser.getWindowForTarget");
+      const bounds = parseManagedBrowserWindowBounds(info.bounds);
+      if (!bounds) {
+        await session.detach().catch(() => undefined);
+        return null;
+      }
+      return {
+        session,
+        windowId: info.windowId,
+        bounds,
+      };
+    } catch (error) {
+      await session.detach().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async function restoreBrowserWindowBounds(browser: Browser): Promise<void> {
+    if (options.headless) return;
+    const saved = await readFile(windowBoundsPath, "utf8")
+      .then((content) => parseManagedBrowserWindowBounds(JSON.parse(content)))
+      .catch(() => null);
+    const connection = await getBrowserWindowSession(browser).catch(() => null);
+    if (!connection) return;
+    try {
+      await connection.session.send("Browser.setWindowBounds", {
+        windowId: connection.windowId,
+        bounds: saved ?? { width: 1280, height: 820, windowState: "normal" },
+      });
+    } finally {
+      await connection.session.detach().catch(() => undefined);
+    }
+  }
+
+  async function persistBrowserWindowBounds(browser: Browser): Promise<void> {
+    if (options.headless) return;
+    const connection = await getBrowserWindowSession(browser).catch(() => null);
+    if (!connection) return;
+    try {
+      const parsed = parseManagedBrowserWindowBounds(connection.bounds);
+      if (!parsed) return;
+      await mkdir(options.userDataDir, { recursive: true });
+      const temporaryPath = `${windowBoundsPath}.tmp`;
+      await writeFile(temporaryPath, JSON.stringify(parsed), "utf8");
+      await rename(temporaryPath, windowBoundsPath);
+    } finally {
+      await connection.session.detach().catch(() => undefined);
+    }
+  }
   let currentSessionState = BrowserSessionStateSchema.parse({
     source: "target_site",
     status: "unknown",
@@ -715,7 +1204,11 @@ export function createBrowserAgentRuntime(
     chromeProcess: ChildProcess | null,
     shouldTerminate: boolean,
   ): Promise<void> {
-    if (!shouldTerminate || !chromeProcess?.pid) {
+    if (
+      !shouldTerminate ||
+      !chromeProcess?.pid ||
+      chromeProcess.exitCode !== null
+    ) {
       return;
     }
 
@@ -776,17 +1269,24 @@ export function createBrowserAgentRuntime(
 
   async function connectBrowser(): Promise<Browser> {
     const { chromium } = await import("playwright");
+    const cdpEndpoint =
+      (await getDebuggerWebSocketUrl(activeDebugPort)) ??
+      `http://127.0.0.1:${activeDebugPort}`;
     let lastError: unknown = null;
 
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        return attachBrowserLifecycle(
-          await chromium.connectOverCDP(`http://127.0.0.1:${activeDebugPort}`),
+        const browser = attachBrowserLifecycle(
+          await chromium.connectOverCDP(cdpEndpoint, {
+            timeout: 5_000,
+          }),
         );
+        await restoreBrowserWindowBounds(browser).catch(() => undefined);
+        return browser;
       } catch (error) {
         lastError = error;
 
-        if (attempt === 4) {
+        if (attempt === 2) {
           break;
         }
 
@@ -830,12 +1330,25 @@ export function createBrowserAgentRuntime(
         );
 
         await mkdir(options.userDataDir, { recursive: true });
+        await markManagedChromeProfileExitedCleanly(options.userDataDir);
 
         const launchArgs = [
           `--remote-debugging-port=${activeDebugPort}`,
           `--user-data-dir=${options.userDataDir}`,
           "--no-first-run",
           "--no-default-browser-check",
+          "--disable-session-crashed-bubble",
+          "--hide-crash-restore-bubble",
+          // Extension service workers can observe or mutate application pages
+          // outside the typed runtime boundary. Keep the managed profile's
+          // ordinary cookies/session state, but never activate installed
+          // extensions in an automation-owned Chrome process.
+          "--disable-extensions",
+          // Chrome can still start bundled component-extension background
+          // workers when ordinary extensions are disabled. Those workers are
+          // unrelated to an ATS page but must not make the fail-closed active
+          // worker gate reject every fresh managed profile.
+          "--disable-component-extensions-with-background-pages",
           "--new-window",
           "about:blank",
         ];
@@ -851,7 +1364,12 @@ export function createBrowserAgentRuntime(
         });
         ownsChromeProcess = true;
         launchedChromeProcess.once("exit", () => {
-          resetBrowserConnection();
+          // Chrome on Windows can hand off from the short-lived process returned
+          // by spawn to a continuing browser process. The CDP connection owns the
+          // authoritative lifecycle after that handoff.
+          if (process.platform !== "win32") {
+            resetBrowserConnection();
+          }
         });
         launchedChromeProcess.unref();
 
@@ -882,6 +1400,8 @@ export function createBrowserAgentRuntime(
         "Chrome opened but did not expose a default browsing context for automation.",
       );
     }
+
+    await blockServiceWorkersOnManagedContext(context);
 
     return context;
   }
@@ -915,6 +1435,7 @@ export function createBrowserAgentRuntime(
     const prepared = await prepareAutomationPageForTarget(context, {
       targetUrl: navigationTarget,
       bringToFront: currentSessionState.status !== "ready",
+      closeOtherPages: true,
       setBlockedState: (detail) => {
         setSessionState(source, "blocked", "Browser navigation failed", detail);
       },
@@ -930,23 +1451,30 @@ export function createBrowserAgentRuntime(
 
   async function openSessionAtTarget(input: {
     source: JobSource;
+    reuseExistingPage?: boolean;
     targetUrl?: string | null;
   }): Promise<BrowserSessionState> {
     const normalizedTargetUrl =
       typeof input.targetUrl === "string" ? input.targetUrl.trim() : "";
     if (isHttpUrlLike(normalizedTargetUrl)) {
       await prepareAutomationPageForTarget(await getContext(), {
-          targetUrl: normalizedTargetUrl,
-          bringToFront: true,
-          setBlockedState: (detail) => {
-            setSessionState(
-              input.source,
-              "blocked",
-              "Browser navigation failed",
-              detail,
-            );
-          },
-        });
+        targetUrl: normalizedTargetUrl,
+        ...(input.reuseExistingPage !== undefined
+          ? { reuseExistingPage: input.reuseExistingPage }
+          : {}),
+        bringToFront: true,
+        closeOtherPages: true,
+        navigationTimeoutMs: 8_000,
+        acceptTargetOriginAfterTimeout: true,
+        setBlockedState: (detail) => {
+          setSessionState(
+            input.source,
+            "blocked",
+            "Browser navigation failed",
+            detail,
+          );
+        },
+      });
     } else {
       await getReadyPage(input.source);
     }
@@ -1063,6 +1591,38 @@ export function createBrowserAgentRuntime(
     return captureVisualSnapshotForPage(await getReadyPage(source), request);
   }
 
+  async function observeApplicationFormForSource(
+    source: JobSource,
+    observeOptions?: ObserveApplicationFormOptions,
+  ) {
+    return observeApplicationFormOnPage(
+      await getReadyPage(source),
+      observeOptions,
+    );
+  }
+
+  async function executeExactlyOneFinalActionForSource(
+    source: JobSource,
+    actionInput: ExecuteExactlyOneFinalActionInput,
+  ) {
+    actionInput.signal?.throwIfAborted();
+    return executeExactlyOneFinalActionOnPage(
+      await getReadyPage(source),
+      actionInput,
+    );
+  }
+
+  function withApplicationExecutionLock<TResult>(
+    operation: () => Promise<TResult>,
+  ): Promise<TResult> {
+    const run = applicationExecutionTail.then(operation, operation);
+    applicationExecutionTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   return {
     getSessionState(source) {
       return Promise.resolve(
@@ -1076,6 +1636,9 @@ export function createBrowserAgentRuntime(
       return openSessionAtTarget({
         source,
         targetUrl: options?.targetUrl ?? null,
+        ...(options?.reuseExistingPage !== undefined
+          ? { reuseExistingPage: options.reuseExistingPage }
+          : {}),
       });
     },
     async closeSession(source) {
@@ -1088,7 +1651,14 @@ export function createBrowserAgentRuntime(
         if (browserPromise) {
           const browser = await browserPromise;
           if (shouldTerminateChromeProcess) {
-            await browser.close().catch(() => {});
+            await persistBrowserWindowBounds(browser).catch(() => undefined);
+            const browserClosedGracefully = await browser.close().then(
+              () => true,
+              () => false,
+            );
+            if (browserClosedGracefully && chromeProcess) {
+              await waitForChromeProcessExit(chromeProcess, 5_000);
+            }
           }
         }
       } catch {
@@ -1108,6 +1678,25 @@ export function createBrowserAgentRuntime(
         "The dedicated browser profile is closed. It will reopen automatically when the next run starts.",
       );
     },
+    async inspectSourceAccess(source, input) {
+      void source;
+      if (!browserPromise) {
+        return createInconclusiveSourceAccessProbeResult(input);
+      }
+
+      const browser = await browserPromise.catch(() => null);
+      if (!browser || !browser.isConnected()) {
+        return createInconclusiveSourceAccessProbeResult(input);
+      }
+
+      const pages = browser.contexts().flatMap((context) => context.pages());
+      const page = selectLiveHttpPage(pages);
+      return page
+        ? inspectSourceAccessPage(page, input)
+        : createInconclusiveSourceAccessProbeResult(input);
+    },
+    observeApplicationForm: observeApplicationFormForSource,
+    executeExactlyOneFinalAction: executeExactlyOneFinalActionForSource,
     runDiscovery(source, searchPreferences) {
       const timestamp = new Date().toISOString();
 
@@ -1122,6 +1711,7 @@ export function createBrowserAgentRuntime(
           ),
           warning:
             "Direct live discovery is not available for generic target flows. Use the agent discovery path instead.",
+          inventoryCompleteness: "unknown",
           jobs: [],
         }),
       );
@@ -1143,36 +1733,295 @@ export function createBrowserAgentRuntime(
     executeApplicationFlow(
       source,
       input: ExecuteApplicationFlowInput,
+      options,
     ): Promise<ApplyExecutionResult> {
-      const startedAt = new Date().toISOString();
-      const targetUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
+      return withApplicationExecutionLock(async () => {
+        const executionStartedAtMs = Date.now();
+        const startedAt = new Date(executionStartedAtMs).toISOString();
+        const executionTimings: ApplyExecutionTiming[] = [];
+        const recordExecutionTiming = (
+          stage: ApplyExecutionStage,
+          stageStartedAtMs: number,
+        ): void => {
+          const completedAtMs = Date.now();
+          executionTimings.push({
+            stage,
+            startedAt: new Date(stageStartedAtMs).toISOString(),
+            completedAt: new Date(completedAtMs).toISOString(),
+            durationMs: Math.max(0, completedAtMs - stageStartedAtMs),
+          });
+        };
+        const targetUrl = input.job.applicationUrl ?? input.job.canonicalUrl;
+        const resumeFilePath = input.resumeArtifact.filePath.trim();
+        const approvedResumeFileExists = resumeFilePath
+          ? await pathExists(resumeFilePath)
+          : false;
+        let executionResult: ApplyExecutionResult;
+        let applicationPageOpened = false;
 
-      return buildApplyVisualDiagnostics({
-        job: input.job,
-        mode: input.mode,
-        targetUrl,
-        ...(input.captureVisualSnapshot
-          ? { captureVisualSnapshot: input.captureVisualSnapshot }
-          : {}),
-        ...(input.analyzeVisualSnapshot
-          ? { analyzeVisualSnapshot: input.analyzeVisualSnapshot }
-          : {}),
-      }).then((visualDiagnostics) =>
-        buildUnsupportedApplyResult({
-          job: input.job,
-          startedAt,
-          mode: input.mode,
-          targetUrl,
+        if (
+          input.resumeArtifact.jobId !== input.job.id ||
+          !approvedResumeFileExists
+        ) {
+          const detail =
+            "The production runtime refused to open the application because the approved application resume is missing or does not belong to this job.";
+          executionResult = buildPreparationResult({
+            executionInput: input,
+            state: "failed",
+            summary: "Approved resume export is missing",
+            detail,
+            questions: [],
+            blocker: {
+              code: "missing_resume",
+              summary: "A current approved resume export is required.",
+              detail,
+              questionIds: [],
+              sourceDebugEvidenceRefIds: [],
+              url: isHttpUrlLike(targetUrl) ? targetUrl : null,
+            },
+            checkpoints: [],
+            checkpointLabel: "Stopped before opening the application",
+            checkpointDetail: detail,
+            checkpointUrls: isHttpUrlLike(targetUrl) ? [targetUrl] : [],
+            lastUrl: isHttpUrlLike(targetUrl) ? targetUrl : null,
+            now: startedAt,
+            nextActionLabel: "Export and approve the tailored resume",
+          });
+        } else if (!isHttpUrlLike(targetUrl)) {
+          executionResult = buildUnsupportedApplyResult({
+            job: input.job,
+            startedAt,
+            mode: input.mode,
+            targetUrl: null,
+          });
+        } else {
+          const browserPreparationStartedAtMs = Date.now();
+          let formPreparationStartedAtMs: number | null = null;
+          let workingPage: Page | null = null;
+          const closeWorkingPageOnAbort = () => {
+            if (workingPage) {
+              void workingPage.close().catch(() => undefined);
+            }
+          };
+          options?.signal?.addEventListener("abort", closeWorkingPageOnAbort, {
+            once: true,
+          });
+          try {
+            const context = await getContext();
+            assertNoActiveServiceWorkerControlsApplicationOrigin({
+              context,
+              targetUrl,
+            });
+            const runSentinel = createApplicationRunServiceWorkerSentinel({
+              context,
+              targetUrl,
+            });
+            try {
+              const preNavigationFinding = await runSentinel.check(
+                "browser_preparation",
+              );
+              if (preNavigationFinding) {
+                executionResult = buildServiceWorkerSafetyStopResult({
+                  executionInput: input,
+                  finding: preNavigationFinding,
+                });
+              } else {
+                const prepared = await prepareAutomationPageForTarget(context, {
+                  targetUrl,
+                  bringToFront: true,
+                  closeOtherPages: true,
+                  ...(options?.signal ? { signal: options.signal } : {}),
+                  onPageResolved: (page) => {
+                    workingPage = page;
+                    runSentinel.attachPage(page);
+                    if (options?.signal?.aborted) {
+                      closeWorkingPageOnAbort();
+                    }
+                  },
+                  setBlockedState: (detail) => {
+                    setSessionState(
+                      source,
+                      "blocked",
+                      "Application navigation failed",
+                      detail,
+                    );
+                  },
+                });
+                options?.signal?.throwIfAborted();
+                const postNavigationFinding =
+                  await runSentinel.check("post_navigation");
+                if (postNavigationFinding) {
+                  applicationPageOpened = true;
+                  recordExecutionTiming(
+                    "browser_preparation",
+                    browserPreparationStartedAtMs,
+                  );
+                  executionResult = buildServiceWorkerSafetyStopResult({
+                    executionInput: input,
+                    finding: postNavigationFinding,
+                  });
+                } else {
+                  applicationPageOpened = true;
+                  recordExecutionTiming(
+                    "browser_preparation",
+                    browserPreparationStartedAtMs,
+                  );
+                  setSessionState(
+                    source,
+                    "ready",
+                    "Application preparation paused safely",
+                    "The dedicated browser profile is open at the current application checkpoint. Final submission remains disabled.",
+                  );
+                  formPreparationStartedAtMs = Date.now();
+                  executionResult = await runGenericApplicationPreparation({
+                    context,
+                    page: prepared.page,
+                    executionInput: input,
+                    startedAt,
+                    ...(options?.signal ? { signal: options.signal } : {}),
+                    sentinel: runSentinel,
+                  });
+                  options?.signal?.throwIfAborted();
+                  recordExecutionTiming(
+                    "form_preparation",
+                    formPreparationStartedAtMs,
+                  );
+                }
+              }
+            } finally {
+              runSentinel.detach();
+            }
+          } catch (error) {
+            if (options?.signal?.aborted) {
+              throw error;
+            }
+            if (!applicationPageOpened) {
+              recordExecutionTiming(
+                "browser_preparation",
+                browserPreparationStartedAtMs,
+              );
+            } else if (formPreparationStartedAtMs !== null) {
+              recordExecutionTiming(
+                "form_preparation",
+                formPreparationStartedAtMs,
+              );
+            }
+            const errorDetail =
+              error instanceof Error
+                ? error.message
+                : "The application page could not be inspected safely.";
+            if (error instanceof ApplicationNavigationError) {
+              // The employer page never opened, so this is a technical failure,
+              // not a Needs-you step: report it failed with causal-free copy.
+              // Raw transport detail stays in session diagnostics only.
+              const unreachableDetail = `${error.userDetail}`;
+              executionResult = buildPreparationResult({
+                executionInput: input,
+                state: "failed",
+                summary: error.userSummary,
+                detail: unreachableDetail,
+                questions: [],
+                blocker: {
+                  code: "application_page_unreachable",
+                  summary: `${error.userSummary}.`,
+                  detail: unreachableDetail,
+                  questionIds: [],
+                  sourceDebugEvidenceRefIds: [],
+                  url: isHttpUrlLike(targetUrl) ? targetUrl : null,
+                },
+                checkpoints: [],
+                checkpointLabel: "Failed before the application page opened",
+                checkpointDetail: unreachableDetail,
+                checkpointUrls: isHttpUrlLike(targetUrl) ? [targetUrl] : [],
+                lastUrl: isHttpUrlLike(targetUrl) ? targetUrl : null,
+                now: new Date().toISOString(),
+                nextActionLabel: "Retry preparation",
+              });
+            } else {
+              const detail = `The runtime stopped without submitting after browser preparation failed: ${errorDetail}`;
+              executionResult = buildPreparationResult({
+                executionInput: input,
+                summary: "Application preparation stopped safely",
+                detail,
+                questions: [],
+                blocker: {
+                  code: "requires_manual_review",
+                  summary: "The live application page needs manual review.",
+                  detail,
+                  questionIds: [],
+                  sourceDebugEvidenceRefIds: [],
+                  url: targetUrl,
+                },
+                checkpoints: [],
+                checkpointLabel: "Stopped after a safe browser failure",
+                checkpointDetail: detail,
+                checkpointUrls: [targetUrl],
+                lastUrl: targetUrl,
+                now: new Date().toISOString(),
+                nextActionLabel: "Inspect the application page manually",
+              });
+            }
+          } finally {
+            options?.signal?.removeEventListener(
+              "abort",
+              closeWorkingPageOnAbort,
+            );
+            const pageToClose = workingPage as Page | null;
+            if (
+              options?.signal?.aborted &&
+              pageToClose &&
+              !pageToClose.isClosed()
+            ) {
+              await pageToClose.close().catch(() => undefined);
+            }
+          }
+        }
+
+        const visualDiagnosticsStartedAtMs = Date.now();
+        const visualDiagnostics = applicationPageOpened
+          ? await buildApplyVisualDiagnostics({
+              job: input.job,
+              mode: input.mode,
+              targetUrl: executionResult.replay.lastUrl ?? targetUrl,
+              ...(input.captureVisualSnapshot
+                ? { captureVisualSnapshot: input.captureVisualSnapshot }
+                : {}),
+              ...(input.analyzeVisualSnapshot
+                ? { analyzeVisualSnapshot: input.analyzeVisualSnapshot }
+                : {}),
+            })
+          : {
+              visualEvidence: [],
+              visualObservationSets: [],
+              visualCheckpoints: [],
+            };
+        if (applicationPageOpened) {
+          recordExecutionTiming(
+            "visual_diagnostics",
+            visualDiagnosticsStartedAtMs,
+          );
+        }
+        recordExecutionTiming("total", executionStartedAtMs);
+        const lastCheckpointIndex = executionResult.checkpoints.length - 1;
+
+        return ApplyExecutionResultSchema.parse({
+          ...executionResult,
+          checkpoints: executionResult.checkpoints.map((checkpoint, index) =>
+            index === lastCheckpointIndex
+              ? {
+                  ...checkpoint,
+                  visualEvidence: visualDiagnostics.visualEvidence,
+                }
+              : checkpoint,
+          ),
           visualEvidence: visualDiagnostics.visualEvidence,
           visualObservationSets: visualDiagnostics.visualObservationSets,
           visualCheckpoints: visualDiagnostics.visualCheckpoints,
-        }),
-      );
+          executionTimings,
+        });
+      });
     },
-    async captureVisualSnapshot(
-      source,
-      request: BrowserVisualSnapshotRequest,
-    ) {
+    async captureVisualSnapshot(source, request: BrowserVisualSnapshotRequest) {
       return captureVisualSnapshotForSource(source, request);
     },
     async runAgentDiscovery(
@@ -1181,22 +2030,6 @@ export function createBrowserAgentRuntime(
     ): Promise<DiscoveryRunResult> {
       const startedAt = new Date().toISOString();
       const aiClient = agentOptions.aiClient ?? runtimeAiClient;
-
-      if (!aiClient?.chatWithTools) {
-        return DiscoveryRunResultSchema.parse({
-          source,
-          startedAt,
-          completedAt: new Date().toISOString(),
-          querySummary: buildQuerySummary(
-            agentOptions.searchPreferences.targetRoles,
-            agentOptions.searchPreferences.locations,
-            agentOptions.siteLabel,
-          ),
-          warning:
-            "AI client does not support tool calling. Cannot run agent discovery.",
-          jobs: [],
-        });
-      }
 
       if (!jobExtractor) {
         return DiscoveryRunResultSchema.parse({
@@ -1209,11 +2042,18 @@ export function createBrowserAgentRuntime(
             agentOptions.siteLabel,
           ),
           warning: "No job extractor configured. Cannot run agent discovery.",
+          inventoryCompleteness: "unknown",
           jobs: [],
         });
       }
 
-      const ensuredAiClient = aiClient;
+      // ADR 0013: compact-first observation can finish without any model.
+      // Missing or tool-less AI must therefore reach the page scan. Escalation
+      // alone uses the rejecting stub below and preserves the honest warning
+      // when deterministic observation cannot finish the requested inventory.
+      const chatWithTools = resolveAgentDiscoveryChatWithTools(
+        aiClient?.chatWithTools,
+      );
 
       let page: Page | null = null;
 
@@ -1238,11 +2078,21 @@ export function createBrowserAgentRuntime(
         const agentConfig: AgentConfig = {
           source,
           maxSteps: agentOptions.maxSteps,
+          ...(agentOptions.runControl
+            ? { runControl: agentOptions.runControl }
+            : {}),
+          ...(agentOptions.resumeCheckpoint
+            ? { resumeCheckpoint: agentOptions.resumeCheckpoint }
+            : {}),
+          ...(agentOptions.onCheckpoint
+            ? { onCheckpoint: agentOptions.onCheckpoint }
+            : {}),
           targetJobCount: agentOptions.targetJobCount,
           userProfile: agentOptions.userProfile,
           searchPreferences: {
             targetRoles: agentOptions.searchPreferences.targetRoles,
             locations: agentOptions.searchPreferences.locations,
+            workModes: agentOptions.searchPreferences.workModes ?? [],
           },
           startingUrls: agentOptions.startingUrls,
           ...(agentOptions.agentHints?.widenReviewBudget
@@ -1276,10 +2126,13 @@ export function createBrowserAgentRuntime(
                 visualAnalysis: {
                   enabled: true,
                   captureSnapshot: (request, snapshotPage) =>
-                    captureVisualSnapshotForPage(snapshotPage ?? page!, request),
+                    captureVisualSnapshotForPage(
+                      snapshotPage ?? page!,
+                      request,
+                    ),
                   analyzeSnapshot: ({ snapshot, context }) =>
-                    ensuredAiClient.analyzeBrowserVisualSnapshot
-                      ? ensuredAiClient.analyzeBrowserVisualSnapshot({
+                    aiClient?.analyzeBrowserVisualSnapshot
+                      ? aiClient.analyzeBrowserVisualSnapshot({
                           snapshot,
                           context,
                         })
@@ -1325,7 +2178,7 @@ export function createBrowserAgentRuntime(
             },
             modelContextWindowTokens:
               agentOptions.modelContextWindowTokens ??
-              ensuredAiClient.getStatus().modelContextWindowTokens ??
+              aiClient?.getStatus().modelContextWindowTokens ??
               null,
             compactionWorkflowKey:
               agentOptions.compactionHints?.workflowKey ??
@@ -1345,7 +2198,7 @@ export function createBrowserAgentRuntime(
         const result = await runAgentDiscovery(
           page,
           agentConfig,
-          createAgentChatWithToolsBridge(ensuredAiClient.chatWithTools!),
+          createAgentChatWithToolsBridge(chatWithTools),
           {
             extractJobsFromPage: async (input: {
               pageText: string;
@@ -1379,6 +2232,7 @@ export function createBrowserAgentRuntime(
                 summary: job.summary,
                 postedAt: job.postedAt,
                 postedAtText: job.postedAtText,
+                providerUpdatedAt: job.providerUpdatedAt,
                 salaryText: job.salaryText,
                 workMode: job.workMode,
                 applyPath: job.applyPath,
@@ -1415,12 +2269,14 @@ export function createBrowserAgentRuntime(
               result.incomplete
                 ? `Agent discovery stopped after ${result.steps} steps. Found ${result.jobs.length} jobs.`
                 : null,
+              result.warning ?? null,
               result.error
                 ? `Discovery encountered an error: ${result.error}`
                 : null,
             ]
               .filter(Boolean)
               .join(" ") || null,
+          inventoryCompleteness: "partial",
           jobs: result.jobs,
           agentMetadata: {
             steps: result.steps,
@@ -1459,6 +2315,7 @@ export function createBrowserAgentRuntime(
             agentOptions.siteLabel,
           ),
           warning: `Agent discovery failed: ${detail}`,
+          inventoryCompleteness: "unknown",
           jobs: [],
           agentMetadata: null,
         });

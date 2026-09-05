@@ -13,6 +13,7 @@ export { getPdfPageCount } from './resume-document/pdf'
 export {
   createResumeParserWorkerRequest,
   detectResumeDocumentFileKind,
+  mergeDocxFallbackIdentityEvidence,
   shouldFallbackToEmbeddedDocxResponse,
 } from './resume-document/worker'
 

@@ -37,9 +37,7 @@ export type AgentDebugFindingsInput = Omit<
   AgentDebugFindings,
   "visualFindings" | "visualObservationSets"
 > &
-  Partial<
-    Pick<AgentDebugFindings, "visualFindings" | "visualObservationSets">
-  >;
+  Partial<Pick<AgentDebugFindings, "visualFindings" | "visualObservationSets">>;
 
 export type SourceDebugPhaseEvidenceInput = Omit<
   SourceDebugPhaseEvidence,
@@ -201,7 +199,8 @@ export function toEditableSourceInstructionArtifactInput(artifact: {
     detailGuidance: [...artifact.detailGuidance],
     applyGuidance: [...artifact.applyGuidance],
     warnings: [...artifact.warnings],
-    intelligence: artifact.intelligence ?? SourceIntelligenceArtifactSchema.parse({}),
+    intelligence:
+      artifact.intelligence ?? SourceIntelligenceArtifactSchema.parse({}),
   };
 }
 
@@ -224,7 +223,7 @@ export function createAgentBrowserRuntime(
       {
         source: "target_site",
         status: runtimeOptions?.sessionStatus ?? "ready",
-        driver: "catalog_seed",
+        driver: "chrome_profile_agent",
         label: "Browser session ready",
         detail: runtimeOptions?.sessionDetail ?? "Validated recently.",
         lastCheckedAt: "2026-03-20T10:04:00.000Z",
@@ -304,6 +303,7 @@ export function createAgentBrowserRuntime(
         completedAt: "2026-03-20T10:01:00.000Z",
         querySummary: "Agent discovery test run",
         warning: null,
+        inventoryCompleteness: "complete",
         jobs: catalog.map((job) => normalizeTestJobPosting(job)),
         agentMetadata: {
           steps: 2,
@@ -356,11 +356,13 @@ export function createExtractionAiClient(
     return [];
   }
 
-  function groundCandidatesToBundle<TCandidate extends {
-    value?: unknown;
-    evidenceText?: string | null;
-    sourceBlockIds: string[];
-  }>(
+  function groundCandidatesToBundle<
+    TCandidate extends {
+      value?: unknown;
+      evidenceText?: string | null;
+      sourceBlockIds: string[];
+    },
+  >(
     documentBundle: ResumeDocumentBundle,
     candidates: readonly TCandidate[],
   ): TCandidate[] {
@@ -392,7 +394,9 @@ export function createExtractionAiClient(
   }
 
   function buildStageCandidates(
-    stage: Parameters<JobFinderAiClient["extractResumeImportStage"]>[0]["stage"],
+    stage: Parameters<
+      JobFinderAiClient["extractResumeImportStage"]
+    >[0]["stage"],
     documentBundle: ResumeDocumentBundle,
   ): ResumeImportFieldCandidateDraft[] {
     type StageCandidates = ResumeImportFieldCandidateDraft[];
@@ -402,7 +406,11 @@ export function createExtractionAiClient(
 
       if (extraction.fullName) {
         candidates.push({
-          target: { section: "identity" as const, key: "fullName", recordId: null },
+          target: {
+            section: "identity" as const,
+            key: "fullName",
+            recordId: null,
+          },
           label: "Full name",
           value: extraction.fullName,
           normalizedValue: extraction.fullName,
@@ -417,7 +425,11 @@ export function createExtractionAiClient(
 
       if (extraction.headline) {
         candidates.push({
-          target: { section: "identity" as const, key: "headline", recordId: null },
+          target: {
+            section: "identity" as const,
+            key: "headline",
+            recordId: null,
+          },
           label: "Headline",
           value: extraction.headline,
           normalizedValue: extraction.headline,
@@ -432,7 +444,11 @@ export function createExtractionAiClient(
 
       if (extraction.summary) {
         candidates.push({
-          target: { section: "identity" as const, key: "summary", recordId: null },
+          target: {
+            section: "identity" as const,
+            key: "summary",
+            recordId: null,
+          },
           label: "Summary",
           value: extraction.summary,
           normalizedValue: extraction.summary,
@@ -447,7 +463,11 @@ export function createExtractionAiClient(
 
       if (extraction.currentLocation) {
         candidates.push({
-          target: { section: "location" as const, key: "currentLocation", recordId: null },
+          target: {
+            section: "location" as const,
+            key: "currentLocation",
+            recordId: null,
+          },
           label: "Current location",
           value: extraction.currentLocation,
           normalizedValue: extraction.currentLocation,
@@ -513,18 +533,24 @@ export function createExtractionAiClient(
     }
 
     if (stage === "experience") {
-      const candidates: StageCandidates = extraction.experiences.map((entry, index) => ({
-        target: { section: "experience" as const, key: "record", recordId: `experience_${index + 1}` },
-        label: entry.title ?? `Experience ${index + 1}`,
-        value: entry,
-        normalizedValue: entry,
-        valuePreview: entry.title ?? entry.companyName ?? null,
-        evidenceText: entry.summary,
-        sourceBlockIds: [],
-        confidence: 0.85,
-        notes: [],
-        alternatives: [],
-      }));
+      const candidates: StageCandidates = extraction.experiences.map(
+        (entry, index) => ({
+          target: {
+            section: "experience" as const,
+            key: "record",
+            recordId: `experience_${index + 1}`,
+          },
+          label: entry.title ?? `Experience ${index + 1}`,
+          value: entry,
+          normalizedValue: entry,
+          valuePreview: entry.title ?? entry.companyName ?? null,
+          evidenceText: entry.summary,
+          sourceBlockIds: [],
+          confidence: 0.85,
+          notes: [],
+          alternatives: [],
+        }),
+      );
 
       return groundCandidatesToBundle(documentBundle, candidates);
     }
@@ -532,7 +558,11 @@ export function createExtractionAiClient(
     if (stage === "background") {
       const candidates: StageCandidates = [
         ...extraction.links.map((entry, index) => ({
-          target: { section: "link" as const, key: "record", recordId: `link_${index + 1}` },
+          target: {
+            section: "link" as const,
+            key: "record",
+            recordId: `link_${index + 1}`,
+          },
           label: entry.label ?? `Link ${index + 1}`,
           value: entry,
           normalizedValue: entry,
@@ -544,7 +574,11 @@ export function createExtractionAiClient(
           alternatives: [],
         })),
         ...extraction.projects.map((entry, index) => ({
-          target: { section: "project" as const, key: "record", recordId: `project_${index + 1}` },
+          target: {
+            section: "project" as const,
+            key: "record",
+            recordId: `project_${index + 1}`,
+          },
           label: entry.name ?? `Project ${index + 1}`,
           value: entry,
           normalizedValue: entry,
@@ -556,7 +590,11 @@ export function createExtractionAiClient(
           alternatives: [],
         })),
         ...extraction.spokenLanguages.map((entry, index) => ({
-          target: { section: "language" as const, key: "record", recordId: `language_${index + 1}` },
+          target: {
+            section: "language" as const,
+            key: "record",
+            recordId: `language_${index + 1}`,
+          },
           label: entry.language ?? `Language ${index + 1}`,
           value: entry,
           normalizedValue: entry,
@@ -578,13 +616,14 @@ export function createExtractionAiClient(
   return {
     ...fallbackClient,
     extractProfileFromResume: () => Promise.resolve(extraction),
-    extractResumeImportStage: (input) => Promise.resolve({
-      stage: input.stage,
-      analysisProviderKind: extraction.analysisProviderKind,
-      analysisProviderLabel: extraction.analysisProviderLabel,
-      candidates: buildStageCandidates(input.stage, input.documentBundle),
-      notes: extraction.notes,
-    }),
+    extractResumeImportStage: (input) =>
+      Promise.resolve({
+        stage: input.stage,
+        analysisProviderKind: extraction.analysisProviderKind,
+        analysisProviderLabel: extraction.analysisProviderLabel,
+        candidates: buildStageCandidates(input.stage, input.documentBundle),
+        notes: extraction.notes,
+      }),
   };
 }
 
@@ -638,7 +677,11 @@ export function createDocumentManager() {
           approvalEligible: true,
           description:
             "Same calm backbone with a stronger header band and summary callout for polished but still ATS-safe exports.",
-          bestFor: ["Product roles", "Design-adjacent teams", "Startup hiring loops"],
+          bestFor: [
+            "Product roles",
+            "Design-adjacent teams",
+            "Startup hiring loops",
+          ],
           visualTags: ["Accent header", "Summary callout", "Balanced"],
           density: "balanced" as const,
           sortOrder: 30,
@@ -672,7 +715,11 @@ export function createDocumentManager() {
           approvalEligible: true,
           description:
             "Project-forward single-column layout for candidates whose proof lands best through shipped work.",
-          bestFor: ["Portfolio-heavy candidates", "Career changers", "Product builders"],
+          bestFor: [
+            "Portfolio-heavy candidates",
+            "Career changers",
+            "Product builders",
+          ],
           visualTags: ["Projects first", "Proof led", "Comfortable"],
           density: "comfortable" as const,
           sortOrder: 50,
@@ -689,7 +736,11 @@ export function createDocumentManager() {
           approvalEligible: true,
           description:
             "Formal-proof single-column layout that surfaces certifications and education earlier without leaving ATS-safe structure.",
-          bestFor: ["Regulated industries", "Certification-heavy roles", "Academic backgrounds"],
+          bestFor: [
+            "Regulated industries",
+            "Certification-heavy roles",
+            "Academic backgrounds",
+          ],
           visualTags: ["Formal proof first", "Centered header", "Balanced"],
           density: "balanced" as const,
           sortOrder: 60,
@@ -743,19 +794,21 @@ export function createDocumentManager() {
               ...(entry.summary ? [entry.summary] : []),
               ...entry.bullets.map((bullet) => bullet.text),
             ]),
-          ]
+          ];
 
-          return `<section data-resume-section-id="${section.id}">${lines.join(' ')}</section>`
+          return `<section data-resume-section-id="${section.id}">${lines.join(" ")}</section>`;
         })
-        .join('')
+        .join("");
 
       return Promise.resolve({
         html: `<!doctype html><html><body><article data-template-id="${input.templateId}"><h1>${input.renderDocument.fullName}</h1>${previewBody}</article></body></html>`,
         warnings: [],
-      })
+      });
     },
-    renderResumeArtifact(input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0]) {
-      const fileStem = `generated-${input.templateId}`
+    renderResumeArtifact(
+      input: Parameters<JobFinderDocumentManager["renderResumeArtifact"]>[0],
+    ) {
+      const fileStem = `generated-${input.templateId}`;
       return Promise.resolve({
         fileName: `${fileStem}.pdf`,
         storagePath: `/tmp/${fileStem}.pdf`,

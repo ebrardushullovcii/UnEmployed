@@ -1,234 +1,389 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { X } from 'lucide-react'
-import type { DiscoveryActivityEvent, DiscoveryRunRecord } from '@unemployed/contracts'
-import { Button } from '@renderer/components/ui/button'
-import { formatDuration } from '@renderer/features/job-finder/lib/job-finder-utils'
+import {
+  useDeferredValue,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { RotateCcw, X } from "lucide-react";
+import type {
+  DiscoveryActivityEvent,
+  DiscoveryRunRecord,
+} from "@unemployed/contracts";
+import { Button } from "@renderer/components/ui/button";
+import {
+  BoundedFloatingSurfaceScrollHint,
+  useBoundedFloatingSurfaceScrollState,
+} from "../../components/bounded-floating-surface";
+import {
+  CollectionNoMatches,
+  CollectionSearchToolbar,
+  matchesCollectionSearch,
+} from "../../components/collection-search-toolbar";
+import { isImeComposingEvent } from "../../lib/job-finder-shortcuts";
+import { useJobFinderOverlayOwnership } from "../../lib/job-finder-overlay-ownership";
+import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
+import { formatDuration } from "@renderer/features/job-finder/lib/job-finder-utils";
+import { formatDiscoveryRunCountLabel } from "../../lib/discovery-run-count-label";
 import {
   buildLiveRunRecord,
   formatOutcomeLabel,
   getRunOptions,
-  type DiscoveryTargetConfig
-} from './discovery-history-utils'
+  type DiscoveryTargetConfig,
+} from "./discovery-history-utils";
 
 function formatTimestamp(value: string): string {
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return new Date(value).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function formatRunLabel(value: string): string {
-  const date = new Date(value)
+  const date = new Date(value);
 
   return date.toLocaleString([], {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-function formatStageLabel(stage: DiscoveryActivityEvent['stage']): string {
+function formatStageLabel(stage: DiscoveryActivityEvent["stage"]): string {
   switch (stage) {
-    case 'planning':
-      return 'Setup'
-    case 'target':
-      return 'Source'
-    case 'navigation':
-      return 'Navigation'
-    case 'extraction':
-      return 'Review jobs'
-    case 'scoring':
-      return 'Score jobs'
-    case 'persistence':
-      return 'Save jobs'
+    case "planning":
+      return "Setup";
+    case "target":
+      return "Source";
+    case "navigation":
+      return "Navigation";
+    case "extraction":
+      return "Review jobs";
+    case "scoring":
+      return "Score jobs";
+    case "persistence":
+      return "Save jobs";
     default:
-      return 'Run'
+      return "Run";
   }
 }
 
-function formatScopeLabel(scope: DiscoveryRunRecord['scope']): string {
-  return scope === 'single_target' ? 'Single source' : 'Run all'
+function formatScopeLabel(scope: DiscoveryRunRecord["scope"]): string {
+  return scope === "single_target" ? "Single source" : "Run all";
 }
 
-function ActivityEventCard(props: { event: DiscoveryActivityEvent; targetLabel: string | null }) {
-  const { event, targetLabel } = props
+function ActivityEventCard(props: {
+  event: DiscoveryActivityEvent;
+  targetLabel: string | null;
+}) {
+  const { event, targetLabel } = props;
 
   return (
     <article className="surface-card-tint grid gap-2 rounded-(--radius-panel) border border-(--surface-panel-border) px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-[0.78rem] text-foreground-muted">
-        <span className="min-w-0 break-words">{targetLabel ?? formatStageLabel(event.stage)}</span>
+        <span className="min-w-0 break-words">
+          {targetLabel ?? formatStageLabel(event.stage)}
+        </span>
         <span className="shrink-0">{formatTimestamp(event.timestamp)}</span>
       </div>
-      <p className="text-[0.95rem] leading-6 text-(--text-headline)">{event.message}</p>
-      {event.jobsFound !== null || event.jobsPersisted !== null || event.jobsStaged !== null ? (
+      <p className="text-[0.95rem] leading-6 text-(--text-headline)">
+        {event.message}
+      </p>
+      {event.jobsFound !== null ||
+      event.jobsPersisted !== null ||
+      event.jobsStaged !== null ? (
         <div className="flex flex-wrap gap-2 text-[0.76rem] text-foreground-muted">
-          {event.jobsFound !== null ? <span>Found {event.jobsFound}</span> : null}
-          {event.jobsPersisted !== null ? <span>Saved {event.jobsPersisted}</span> : null}
-          {event.jobsStaged !== null ? <span>Held for review {event.jobsStaged}</span> : null}
+          {event.jobsFound !== null ? (
+            <span>Found {event.jobsFound}</span>
+          ) : null}
+          {event.jobsPersisted !== null ? (
+            <span>Saved {event.jobsPersisted}</span>
+          ) : null}
+          {event.jobsStaged !== null ? (
+            <span>Held for review {event.jobsStaged}</span>
+          ) : null}
         </div>
       ) : null}
     </article>
-  )
+  );
 }
 
 export function DiscoveryHistoryModal(props: {
-  activeRun: DiscoveryRunRecord | null
-  liveEvents: readonly DiscoveryActivityEvent[]
-  onClose: () => void
-  open: boolean
-  recentRuns: readonly DiscoveryRunRecord[]
-  targets: readonly DiscoveryTargetConfig[]
+  activeRun: DiscoveryRunRecord | null;
+  isDiscoveryPending: boolean;
+  isTargetPending: (targetId: string) => boolean;
+  liveEvents: readonly DiscoveryActivityEvent[];
+  onClose: () => void;
+  onRetrySource?: (targetId: string) => void;
+  open: boolean;
+  recentRuns: readonly DiscoveryRunRecord[];
+  targets: readonly DiscoveryTargetConfig[];
 }) {
-  const dialogTitleId = useId()
-  const dialogRef = useRef<HTMLDivElement | null>(null)
-  const eventStreamRef = useRef<HTMLDivElement | null>(null)
-  const eventStreamEndRef = useRef<HTMLDivElement | null>(null)
-  const previousFocusRef = useRef<HTMLElement | null>(null)
-  const wasOpenRef = useRef(false)
-  const liveRun = useMemo(() => buildLiveRunRecord(props.liveEvents, props.targets), [props.liveEvents, props.targets])
+  const dialogTitleId = useId();
+  const dialogDescriptionId = useId();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  // The activity dialog joins the app-wide LIFO overlay stack so stacked
+  // surfaces close one per Escape and shell aliases stay blocked while open.
+  const { isTopmost: isDialogTopmost } = useJobFinderOverlayOwnership({
+    active: props.open,
+    close: () => props.onClose(),
+  });
+  const eventStreamRef = useRef<HTMLDivElement | null>(null);
+  const eventStreamEndRef = useRef<HTMLDivElement | null>(null);
+  const wasOpenRef = useRef(false);
+  const liveRun = useMemo(
+    () => buildLiveRunRecord(props.liveEvents, props.targets),
+    [props.liveEvents, props.targets],
+  );
   const runOptions = useMemo(
     () => getRunOptions(liveRun, props.activeRun, props.recentRuns),
-    [liveRun, props.activeRun, props.recentRuns]
-  )
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(runOptions[0]?.id ?? null)
-  const [followLiveEvents, setFollowLiveEvents] = useState(true)
-  const fallbackRunId = runOptions[0]?.id ?? null
-  const hasSelectedRun = selectedRunId !== null && runOptions.some((run) => run.id === selectedRunId)
+    [liveRun, props.activeRun, props.recentRuns],
+  );
+  const historyView = usePersistedCollectionView(
+    "search-history",
+    "comfortable",
+  );
+  const deferredHistoryQuery = useDeferredValue(historyView.query);
+  const visibleRunOptions = useMemo(
+    () =>
+      runOptions.filter((run) => {
+        const targetText = run.targetExecutions
+          .map(
+            (execution) =>
+              props.targets.find((target) => target.id === execution.targetId)
+                ?.label,
+          )
+          .filter(Boolean)
+          .join(" ");
+        return matchesCollectionSearch(deferredHistoryQuery, [
+          formatOutcomeLabel(run.summary.outcome),
+          formatScopeLabel(run.scope),
+          targetText,
+          ...run.summary.warnings,
+          ...run.activity.map((event) => event.message),
+        ]);
+      }),
+    [deferredHistoryQuery, props.targets, runOptions],
+  );
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(
+    runOptions[0]?.id ?? null,
+  );
+  const [followLiveEvents, setFollowLiveEvents] = useState(true);
+  const followLiveEventsRef = useRef(true);
+  const eventStreamScrollState = useBoundedFloatingSurfaceScrollState(
+    eventStreamRef,
+    props.open,
+    selectedRunId,
+  );
+  const fallbackRunId = runOptions[0]?.id ?? null;
+  const hasSelectedRun =
+    selectedRunId !== null &&
+    runOptions.some((run) => run.id === selectedRunId);
 
   useEffect(() => {
     if (!props.open) {
-      wasOpenRef.current = false
-      return
+      wasOpenRef.current = false;
+      return;
     }
 
-    const openedNow = !wasOpenRef.current
-    wasOpenRef.current = true
+    const openedNow = !wasOpenRef.current;
+    wasOpenRef.current = true;
 
     if (!openedNow && hasSelectedRun) {
-      return
+      return;
     }
 
     if (liveRun) {
-      setSelectedRunId(liveRun.id)
-      return
+      setSelectedRunId(liveRun.id);
+      return;
     }
 
-    if (props.activeRun?.state === 'running') {
-      setSelectedRunId(props.activeRun.id)
-      return
+    if (props.activeRun?.state === "running") {
+      setSelectedRunId(props.activeRun.id);
+      return;
     }
 
-    setSelectedRunId(fallbackRunId)
-  }, [props.open, hasSelectedRun, fallbackRunId, liveRun?.id, props.activeRun?.id, props.activeRun?.state])
+    setSelectedRunId(fallbackRunId);
+  }, [
+    props.open,
+    hasSelectedRun,
+    fallbackRunId,
+    liveRun?.id,
+    props.activeRun?.id,
+    props.activeRun?.state,
+  ]);
 
   useEffect(() => {
     if (!props.open) {
-      return
+      return;
     }
 
-    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    dialogRef.current?.focus()
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    dialogRef.current?.focus();
 
     return () => {
-      previousFocusRef.current?.focus()
-    }
-  }, [props.open])
+      previousFocusRef.current?.focus();
+    };
+  }, [props.open]);
 
   useEffect(() => {
     if (!props.open) {
-      return
+      return;
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        props.onClose()
-        return
+      // Overlays opened above this dialog keep first claim on Escape.
+      if (event.defaultPrevented || isImeComposingEvent(event)) {
+        return;
+      }
+      if (event.key === "Escape") {
+        if (!isDialogTopmost()) {
+          return;
+        }
+        event.preventDefault();
+        props.onClose();
+        return;
       }
 
-      if (event.key !== 'Tab' || !dialogRef.current) {
-        return
+      if (event.key !== "Tab" || !dialogRef.current) {
+        return;
       }
 
-      const focusableElements = [...dialogRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [role="button"], [tabindex]:not([tabindex="-1"])'
-      )].filter((element) => !element.hasAttribute('aria-hidden'))
+      const focusableElements = [
+        ...dialogRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [role="button"], [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter((element) => !element.hasAttribute("aria-hidden"));
 
       if (focusableElements.length === 0) {
-        event.preventDefault()
-        return
+        event.preventDefault();
+        return;
       }
 
-      const firstElement = focusableElements[0]
-      const lastElement = focusableElements[focusableElements.length - 1]
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
 
       if (event.shiftKey && document.activeElement === firstElement) {
-        event.preventDefault()
-        lastElement?.focus()
-        return
+        event.preventDefault();
+        lastElement?.focus();
+        return;
       }
 
       if (!event.shiftKey && document.activeElement === lastElement) {
-        event.preventDefault()
-        firstElement?.focus()
+        event.preventDefault();
+        firstElement?.focus();
       }
-    }
+    };
 
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [props.open, props.onClose])
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isDialogTopmost, props.open, props.onClose]);
 
-  const selectedRun = runOptions.find((run) => run.id === selectedRunId) ?? runOptions[0] ?? null
-  const displayedEvents = selectedRun?.activity ?? []
-  const selectedRunIsLive = Boolean(liveRun && selectedRun?.id === liveRun.id)
+  const selectedRun =
+    runOptions.find((run) => run.id === selectedRunId) ?? runOptions[0] ?? null;
+  const displayedEvents = selectedRun?.activity ?? [];
+  const selectedRunIsLive = Boolean(liveRun && selectedRun?.id === liveRun.id);
   const targetLabels = useMemo(
     () => new Map(props.targets.map((target) => [target.id, target.label])),
-    [props.targets]
-  )
+    [props.targets],
+  );
+  const sourceHealth = useMemo(() => {
+    if (!selectedRun) {
+      return [];
+    }
+
+    if (selectedRun.summary.sourceHealth.length > 0) {
+      return selectedRun.summary.sourceHealth;
+    }
+
+    return selectedRun.targetExecutions.map((execution) => ({
+      targetId: execution.targetId,
+      health:
+        execution.state === "completed"
+          ? execution.warning
+            ? ("warning" as const)
+            : ("healthy" as const)
+          : execution.state === "failed"
+            ? ("failed" as const)
+            : execution.state === "cancelled"
+              ? ("cancelled" as const)
+              : execution.state === "skipped"
+                ? ("skipped" as const)
+                : ("pending" as const),
+      durationMs: execution.timing?.totalDurationMs ?? 0,
+      warnings: execution.warning ? [execution.warning] : [],
+    }));
+  }, [selectedRun]);
 
   useEffect(() => {
     if (!props.open) {
-      return
+      return;
     }
 
-    setFollowLiveEvents(selectedRunIsLive)
-  }, [props.open, selectedRun?.id, selectedRunIsLive])
+    followLiveEventsRef.current = selectedRunIsLive;
+    setFollowLiveEvents(selectedRunIsLive);
+  }, [props.open, selectedRun?.id, selectedRunIsLive]);
 
   useEffect(() => {
     if (!props.open || !selectedRunIsLive || !followLiveEvents) {
-      return
+      return;
     }
 
     const frame = window.requestAnimationFrame(() => {
-      eventStreamEndRef.current?.scrollIntoView({ block: 'end' })
-    })
+      eventStreamEndRef.current?.scrollIntoView({ block: "end" });
+    });
 
-    return () => window.cancelAnimationFrame(frame)
-  }, [displayedEvents.length, followLiveEvents, props.open, selectedRunIsLive])
+    return () => window.cancelAnimationFrame(frame);
+  }, [displayedEvents.length, followLiveEvents, props.open, selectedRunIsLive]);
 
   if (!props.open) {
-    return null
+    return null;
   }
 
   const handleEventStreamScroll = () => {
-    const container = eventStreamRef.current
+    const container = eventStreamRef.current;
 
     if (!container || !selectedRunIsLive) {
-      return
+      return;
     }
 
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
-    setFollowLiveEvents(distanceFromBottom < 48)
-  }
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    const nextFollowLiveEvents = distanceFromBottom < 48;
+
+    // Scroll fires continuously; only the edge transition is observable, so a
+    // scroll that does not cross the threshold performs no state update at all
+    // rather than relying on React's equality bail-out.
+    if (nextFollowLiveEvents === followLiveEventsRef.current) {
+      return;
+    }
+
+    followLiveEventsRef.current = nextFollowLiveEvents;
+    setFollowLiveEvents(nextFollowLiveEvents);
+  };
 
   const resumeLiveFollow = () => {
-    setFollowLiveEvents(true)
-    eventStreamEndRef.current?.scrollIntoView({ block: 'end' })
-  }
+    followLiveEventsRef.current = true;
+    setFollowLiveEvents(true);
+    eventStreamEndRef.current?.scrollIntoView({ block: "end" });
+  };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-(--modal-scrim) px-4 py-6 backdrop-blur-sm" onClick={props.onClose}>
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-(--modal-scrim) p-6 backdrop-blur-sm sm:p-10 backdrop-blur-sm"
+      onClick={props.onClose}
+    >
       <div
+        aria-describedby={dialogDescriptionId}
         aria-labelledby={dialogTitleId}
         aria-modal="true"
-        className="mx-auto flex min-h-0 max-h-(--discovery-history-max-height) w-full max-w-6xl flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) shadow-(--modal-shadow)"
+        className="mx-auto flex min-h-0 max-h-(--discovery-history-max-height) w-full max-w-5xl flex-col overflow-hidden rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) shadow-(--modal-shadow)"
         onClick={(event) => event.stopPropagation()}
         ref={dialogRef}
         role="dialog"
@@ -236,102 +391,192 @@ export function DiscoveryHistoryModal(props: {
       >
         <div className="flex shrink-0 flex-wrap items-start justify-between gap-4 border-b border-(--surface-panel-border) px-5 py-4">
           <div className="grid gap-1">
-            <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">Recent searches</p>
-            <h2 className="text-[1.3rem] font-semibold tracking-[-0.02em] text-(--text-headline)" id={dialogTitleId}>Search history</h2>
-            <p className="text-[0.9rem] leading-6 text-foreground-soft">
+            <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
+              Recent searches
+            </p>
+            <h2
+              className="text-[1.3rem] font-semibold tracking-[-0.02em] text-(--text-headline)"
+              id={dialogTitleId}
+            >
+              Search history
+            </h2>
+            <p
+              className="text-[0.9rem] leading-6 text-foreground-soft"
+              id={dialogDescriptionId}
+            >
               {selectedRunIsLive
-                ? 'Follow the current search here while new activity arrives.'
-                : 'Review what happened during earlier searches without leaving this screen.'}
+                ? "Follow the current search here while new activity arrives."
+                : "See what happened in each earlier search."}
             </p>
           </div>
-          <Button aria-label="Close" className="size-10" onClick={props.onClose} size="icon" type="button" variant="ghost">
+          <Button
+            aria-label="Close"
+            className="size-10"
+            onClick={props.onClose}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
             <X className="size-4" />
           </Button>
         </div>
 
         <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[18rem_minmax(0,1fr)]">
           <aside className="grid min-h-0 content-start gap-3 overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r">
-            <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Searches</p>
+            <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+              Searches
+            </p>
+            {runOptions.length > 0 ? (
+              <CollectionSearchToolbar
+                className="px-0"
+                label="Find a search"
+                onQueryChange={historyView.setQuery}
+                placeholder="Search outcome, source, or activity"
+                query={historyView.query}
+                totalCount={runOptions.length}
+                visibleCount={visibleRunOptions.length}
+              />
+            ) : null}
             <div className="grid gap-2 pb-1">
-              {runOptions.length > 0 ? runOptions.map((run) => {
-                const isSelected = run.id === selectedRun?.id
-                const isLive = liveRun?.id === run.id
-                const durationSummary = run.summary.durationMs > 0
-                  ? ` · ${formatDuration(run.summary.durationMs)}`
-                  : ''
+              {visibleRunOptions.length > 0 ? (
+                visibleRunOptions.map((run) => {
+                  const isSelected = run.id === selectedRun?.id;
+                  const isLive = liveRun?.id === run.id;
+                  const durationSummary =
+                    run.summary.durationMs > 0
+                      ? ` · ${formatDuration(run.summary.durationMs)}`
+                      : "";
 
-                return (
-                  <button
-                    aria-pressed={isSelected}
-                    className={[
-                      'grid gap-1 rounded-(--radius-panel) border px-3 py-3 text-left transition-colors',
-                      isSelected
-                        ? 'border-primary/40 bg-primary/10 text-foreground'
-                        : 'border-(--surface-panel-border) bg-(--surface-panel-raised) text-foreground-soft hover:bg-secondary'
-                    ].join(' ')}
-                    key={run.id}
-                    onClick={() => setSelectedRunId(run.id)}
-                    type="button"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[0.94rem] font-semibold text-(--text-headline)">{formatOutcomeLabel(run.summary.outcome)}</span>
-                      {isLive ? (
-                        <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-(--tracking-label) text-primary">
-                          Live
+                  return (
+                    <button
+                      aria-pressed={isSelected}
+                      className={[
+                        "grid gap-1 rounded-(--radius-panel) border px-3 py-3 text-left transition-colors",
+                        isSelected
+                          ? "border-primary/40 bg-primary/10 text-foreground"
+                          : "border-(--surface-panel-border) bg-(--surface-panel-raised) text-foreground-soft hover:bg-secondary",
+                      ].join(" ")}
+                      key={run.id}
+                      onClick={() => setSelectedRunId(run.id)}
+                      type="button"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[0.94rem] font-semibold text-(--text-headline)">
+                          {formatOutcomeLabel(run.summary.outcome)}
                         </span>
-                      ) : null}
-                    </div>
-                    <span className="text-[0.8rem] text-foreground-muted">{formatRunLabel(run.startedAt)}</span>
-                    <span className="text-[0.8rem] text-foreground-muted">
-                      {`${run.summary.targetsCompleted}/${run.summary.targetsPlanned} sources completed · ${run.summary.validJobsFound} jobs found${durationSummary}`}
-                    </span>
-                  </button>
-                )
-              }) : (
-                <p className="text-[0.9rem] leading-6 text-foreground-soft">No searches yet. Your recent runs will appear here.</p>
+                        {isLive ? (
+                          <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-(--tracking-label) text-primary">
+                            Live
+                          </span>
+                        ) : null}
+                      </div>
+                      <span className="text-[0.8rem] text-foreground-muted">
+                        {formatRunLabel(run.startedAt)}
+                      </span>
+                      <span className="text-[0.8rem] text-foreground-muted">
+                        {`${run.summary.targetsCompleted}/${run.summary.targetsPlanned} sources completed · ${formatDiscoveryRunCountLabel(
+                          {
+                            distinctJobsRetained:
+                              run.summary.validJobsFound ?? 0,
+                            duplicatesMerged: run.summary.duplicatesMerged ?? 0,
+                          },
+                        )}${durationSummary}`}
+                      </span>
+                    </button>
+                  );
+                })
+              ) : runOptions.length > 0 ? (
+                <CollectionNoMatches
+                  noun="searches"
+                  onClear={() => historyView.setQuery("")}
+                  query={historyView.query}
+                />
+              ) : (
+                <p className="text-[0.9rem] leading-6 text-foreground-soft">
+                  No searches yet. Your recent runs will appear here.
+                </p>
               )}
             </div>
           </aside>
 
-          <div className="grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4 overflow-hidden px-4 py-4">
+          <div className="grid min-h-0 grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-4 overflow-hidden px-4 py-4">
             {selectedRun ? (
               <div className="grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-4 sm:grid-cols-4">
                 <div>
-                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Started</p>
-                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatRunLabel(selectedRun.startedAt)}</p>
+                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                    Started
+                  </p>
+                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                    {formatRunLabel(selectedRun.startedAt)}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Outcome</p>
-                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatOutcomeLabel(selectedRun.summary.outcome)}</p>
+                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                    Outcome
+                  </p>
+                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                    {formatOutcomeLabel(selectedRun.summary.outcome)}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Scope</p>
-                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatScopeLabel(selectedRun.scope)}</p>
+                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                    Scope
+                  </p>
+                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                    {formatScopeLabel(selectedRun.scope)}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Found</p>
-                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{selectedRun.summary.validJobsFound}</p>
+                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                    Found
+                  </p>
+                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                    {selectedRun.summary.validJobsFound}
+                    {selectedRun.summary.duplicatesMerged > 0 ? (
+                      <span className="ml-2 text-[0.78rem] font-normal text-foreground-muted">
+                        {`${selectedRun.summary.duplicatesMerged} already known`}
+                      </span>
+                    ) : null}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Saved / held for review</p>
-                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{selectedRun.summary.jobsPersisted} / {selectedRun.summary.jobsStaged}</p>
+                  <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                    Saved / held for review
+                  </p>
+                  <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                    {selectedRun.summary.jobsPersisted} /{" "}
+                    {selectedRun.summary.jobsStaged}
+                  </p>
                 </div>
                 {selectedRun.summary.durationMs > 0 ? (
                   <div>
-                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Duration</p>
-                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatDuration(selectedRun.summary.durationMs)}</p>
+                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                      Duration
+                    </p>
+                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                      {formatDuration(selectedRun.summary.durationMs)}
+                    </p>
                   </div>
                 ) : null}
-                {selectedRun.summary.timing?.longestGapMs != null && selectedRun.summary.timing.longestGapMs > 10000 ? (
+                {selectedRun.summary.timing?.longestGapMs != null &&
+                selectedRun.summary.timing.longestGapMs > 10000 ? (
                   <div>
-                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Longest quiet gap</p>
-                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{formatDuration(selectedRun.summary.timing.longestGapMs)}</p>
+                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                      Longest quiet gap
+                    </p>
+                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                      {formatDuration(selectedRun.summary.timing.longestGapMs)}
+                    </p>
                   </div>
                 ) : null}
                 {selectedRun.summary.browserCloseout ? (
                   <div className="sm:col-span-2">
-                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">Browser closeout</p>
-                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">{selectedRun.summary.browserCloseout.label}</p>
+                    <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
+                      Browser closeout
+                    </p>
+                    <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
+                      {selectedRun.summary.browserCloseout.label}
+                    </p>
                     {selectedRun.summary.browserCloseout.detail ? (
                       <p className="mt-1 text-[0.84rem] leading-6 text-foreground-soft">
                         {selectedRun.summary.browserCloseout.detail}
@@ -342,9 +587,147 @@ export function DiscoveryHistoryModal(props: {
               </div>
             ) : null}
 
+            {selectedRun ? (
+              <div className="grid max-h-60 gap-4 overflow-y-auto pr-1">
+                <section
+                  aria-labelledby={`${dialogTitleId}-changes`}
+                  className="grid gap-2"
+                >
+                  <h3
+                    className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted"
+                    id={`${dialogTitleId}-changes`}
+                  >
+                    Changes since earlier searches
+                  </h3>
+                  {(() => {
+                    const changeCounts: ReadonlyArray<[string, number]> = [
+                      ["New", selectedRun.summary.changeDigest.new],
+                      ["Unchanged", selectedRun.summary.changeDigest.unchanged],
+                      ["Changed", selectedRun.summary.changeDigest.changed],
+                      [
+                        "Reactivated",
+                        selectedRun.summary.changeDigest.reactivated,
+                      ],
+                      ["Inactive", selectedRun.summary.changeDigest.inactive],
+                      ["Known", selectedRun.summary.changeDigest.known],
+                      ["Skipped", selectedRun.summary.changeDigest.skipped],
+                    ];
+                    // A row of zeros is not evidence. Only the states this run
+                    // actually observed get a card; when none did, one sentence
+                    // says so instead of seven empty boxes.
+                    const observed = changeCounts.filter(
+                      ([, value]) => value > 0,
+                    );
+
+                    if (observed.length === 0) {
+                      return (
+                        <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                          This search found no changes against earlier searches.
+                        </p>
+                      );
+                    }
+
+                    return (
+                      <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+                        {observed.map(([label, value]) => (
+                          <div
+                            className="rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-3 py-2"
+                            key={label}
+                          >
+                            <dt className="text-(length:--text-label) uppercase tracking-(--tracking-label) text-foreground-muted">
+                              {label}
+                            </dt>
+                            <dd className="mt-1 text-(length:--text-heading-3) font-semibold text-(--text-headline)">
+                              {value}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    );
+                  })()}
+                </section>
+
+                {sourceHealth.length > 0 ? (
+                  <section
+                    aria-labelledby={`${dialogTitleId}-sources`}
+                    className="grid gap-2"
+                  >
+                    <h3
+                      className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted"
+                      id={`${dialogTitleId}-sources`}
+                    >
+                      Source health
+                    </h3>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {sourceHealth.map((source) => {
+                        const sourceLabel =
+                          targetLabels.get(source.targetId) ??
+                          "Configured source";
+                        const isRetrying = props.isTargetPending(
+                          source.targetId,
+                        );
+                        const canRetry =
+                          source.health === "failed" &&
+                          Boolean(props.onRetrySource);
+
+                        return (
+                          <article
+                            className="grid gap-2 rounded-(--radius-panel) border border-(--surface-panel-border) bg-(--surface-panel-raised) px-3 py-3"
+                            key={source.targetId}
+                          >
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="break-words text-[0.9rem] font-semibold text-(--text-headline)">
+                                  {sourceLabel}
+                                </p>
+                                <p className="mt-1 text-[0.76rem] capitalize text-foreground-muted">
+                                  {source.health}
+                                  {source.durationMs > 0
+                                    ? ` · ${formatDuration(source.durationMs)}`
+                                    : ""}
+                                </p>
+                              </div>
+                              {canRetry ? (
+                                <Button
+                                  aria-label={`Retry failed source ${sourceLabel}`}
+                                  disabled={
+                                    props.isDiscoveryPending || isRetrying
+                                  }
+                                  onClick={() =>
+                                    props.onRetrySource?.(source.targetId)
+                                  }
+                                  size="sm"
+                                  type="button"
+                                  variant="secondary"
+                                >
+                                  <RotateCcw
+                                    aria-hidden="true"
+                                    className="size-3.5"
+                                  />
+                                  {isRetrying ? "Retrying" : "Retry source"}
+                                </Button>
+                              ) : null}
+                            </div>
+                            {source.warnings.map((warning) => (
+                              <p
+                                className="text-[0.82rem] leading-5 text-foreground-soft"
+                                key={warning}
+                              >
+                                {warning}
+                              </p>
+                            ))}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
               <p className="text-[0.78rem] uppercase tracking-(--tracking-label) text-foreground-muted">
-                {selectedRunIsLive ? 'Current search' : 'What happened'}
+                {selectedRunIsLive ? "Current search" : "What happened"}
               </p>
               {selectedRunIsLive ? (
                 followLiveEvents ? (
@@ -352,28 +735,75 @@ export function DiscoveryHistoryModal(props: {
                     Live
                   </span>
                 ) : (
-                  <Button onClick={resumeLiveFollow} size="sm" type="button" variant="secondary">
+                  <Button
+                    onClick={resumeLiveFollow}
+                    size="sm"
+                    type="button"
+                    variant="secondary"
+                  >
                     Jump to latest
                   </Button>
                 )
               ) : null}
             </div>
 
-            <div className="grid min-h-0 gap-3 overflow-y-auto pr-2 pb-1" onScroll={handleEventStreamScroll} ref={eventStreamRef}>
-              {displayedEvents.length > 0 ? displayedEvents.map((event) => (
-                <ActivityEventCard
-                  event={event}
-                  key={event.id}
-                  targetLabel={event.targetId ? (targetLabels.get(event.targetId) ?? 'Configured source') : null}
-                />
-              )) : (
-                <p className="text-[0.9rem] leading-6 text-foreground-soft">No activity was recorded for this run.</p>
-              )}
-              <div aria-hidden="true" ref={eventStreamEndRef} />
+            {/* The activity log clips its last row against the dialog edge,
+                so it carries the same edge affordance the shared bounded
+                floating surfaces use instead of cutting a line mid-glyph with
+                nothing to say there is more. */}
+            <div className="relative grid min-h-0">
+              <BoundedFloatingSurfaceScrollHint
+                edge="start"
+                visible={
+                  eventStreamScrollState.hasOverflow &&
+                  !eventStreamScrollState.atStart
+                }
+              />
+              <BoundedFloatingSurfaceScrollHint
+                edge="end"
+                visible={
+                  eventStreamScrollState.hasOverflow &&
+                  !eventStreamScrollState.atEnd
+                }
+              />
+              <div
+                aria-atomic="false"
+                aria-label={
+                  selectedRunIsLive
+                    ? "Current search activity"
+                    : "Search activity"
+                }
+                aria-live="polite"
+                aria-relevant="additions"
+                className="grid min-h-0 gap-3 overflow-y-auto pr-2 pb-6"
+                onScroll={handleEventStreamScroll}
+                ref={eventStreamRef}
+                role="log"
+              >
+                {displayedEvents.length > 0 ? (
+                  displayedEvents.map((event) => (
+                    <ActivityEventCard
+                      event={event}
+                      key={event.id}
+                      targetLabel={
+                        event.targetId
+                          ? (targetLabels.get(event.targetId) ??
+                            "Configured source")
+                          : null
+                      }
+                    />
+                  ))
+                ) : (
+                  <p className="text-[0.9rem] leading-6 text-foreground-soft">
+                    No activity was recorded for this run.
+                  </p>
+                )}
+                <div aria-hidden="true" ref={eventStreamEndRef} />
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

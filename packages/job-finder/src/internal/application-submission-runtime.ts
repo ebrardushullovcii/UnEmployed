@@ -1,0 +1,383 @@
+import type {
+  ApplicationAutomationMode,
+  JobSource,
+  SubmissionAnswerSnapshotIdentity,
+  SubmissionFinalControlIdentity,
+  SubmissionOutcomeRetryEligibility,
+  SubmissionPreflightRecord,
+} from "@unemployed/contracts";
+import {
+  isActiveApplicationAuthorityEnvelope,
+  SubmissionFinalControlIdentitySchema,
+  SubmissionObservationIdentitySchema,
+} from "@unemployed/contracts";
+import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
+import type {
+  ApplicationFinalActionResult,
+  ApplicationFormObservation,
+  ExecuteExactlyOneFinalActionInput,
+} from "@unemployed/browser-runtime";
+
+import {
+  buildSubmissionPreflightRecord,
+  type SubmissionPreflightCapacityFacts,
+  type SubmissionPreflightLineageFacts,
+} from "./application-submission-preflight";
+import {
+  runSyntheticApplicationSubmission,
+  type SyntheticSubmissionAuthorityRepository,
+  type SyntheticSubmissionExecutorResult,
+  type SyntheticSubmissionOrchestrationResult,
+} from "./application-submission-orchestrator";
+import type { CurrentApplicationSubmissionPolicyFacts } from "./application-submission-policy";
+
+/**
+ * The browser capability required by this composition seam. It is deliberately
+ * structural and keeps Playwright's Page type inside browser-runtime.
+ */
+export type ApplicationSubmissionBrowserRuntime = {
+  observeApplicationForm: NonNullable<
+    BrowserSessionRuntime["observeApplicationForm"]
+  >;
+  executeExactlyOneFinalAction: NonNullable<
+    BrowserSessionRuntime["executeExactlyOneFinalAction"]
+  >;
+};
+
+/**
+ * Main-process-only input for one authority-bound application attempt.
+ *
+ * `resumeBytes` must come from the trusted resume/export adapter. The
+ * composition derives the preflight resume digest itself and never accepts a
+ * caller-declared digest. Policy facts contain identities and finite stop
+ * codes only; raw answers and page content do not cross this boundary.
+ */
+export interface ApplicationSubmissionRuntimeInput {
+  readonly repository: SyntheticSubmissionAuthorityRepository;
+  readonly browserRuntime: ApplicationSubmissionBrowserRuntime;
+  readonly source: JobSource;
+  readonly savedMode: ApplicationAutomationMode;
+  readonly authorityEnvelopeId: SubmissionPreflightRecord["authorityEnvelopeId"];
+  readonly authorityRevision: SubmissionPreflightRecord["authorityRevision"];
+  readonly preflightId: SubmissionPreflightRecord["id"];
+  readonly idempotencyKey: SubmissionPreflightRecord["idempotencyKey"];
+  readonly lineage: SubmissionPreflightLineageFacts;
+  readonly resumeBytes: Uint8Array;
+  readonly answers: SubmissionAnswerSnapshotIdentity;
+  readonly capacity: SubmissionPreflightCapacityFacts;
+  readonly currentPolicyFacts: CurrentApplicationSubmissionPolicyFacts;
+  readonly now: SubmissionPreflightRecord["createdAt"];
+  readonly executionGrantId?: string | null;
+  readonly signal?: AbortSignal;
+}
+
+export type ApplicationSubmissionRuntimeResult =
+  SyntheticSubmissionOrchestrationResult;
+
+function blockedResult(
+  reason: Extract<
+    SyntheticSubmissionOrchestrationResult,
+    { status: "blocked" }
+  >["reason"],
+  detail: string,
+): Extract<SyntheticSubmissionOrchestrationResult, { status: "blocked" }> {
+  return {
+    status: "blocked",
+    reason,
+    detail,
+    decision: null,
+    preflight: null,
+    idempotency: null,
+    executionGrant: null,
+  };
+}
+
+function samePolicyIdentity(
+  left: CurrentApplicationSubmissionPolicyFacts["policy"],
+  right: CurrentApplicationSubmissionPolicyFacts["policy"],
+): boolean {
+  return (
+    left?.version === right?.version &&
+    left?.revision === right?.revision &&
+    left?.digest === right?.digest
+  );
+}
+
+function mapNotSubmittedRetry(input: {
+  authorityVetoed: boolean;
+}): SubmissionOutcomeRetryEligibility {
+  return input.authorityVetoed
+    ? { eligible: false, blockReason: "authority_no_longer_valid" }
+    : { eligible: false, blockReason: "policy_decision" };
+}
+
+function mapBrowserActionResult(input: {
+  result: ApplicationFinalActionResult;
+  authorityVetoed: boolean;
+}): SyntheticSubmissionExecutorResult {
+  if (input.result.outcome === "not_submitted") {
+    return {
+      outcome: "not_submitted",
+      evidence: [],
+      retry: mapNotSubmittedRetry({
+        authorityVetoed: input.authorityVetoed,
+      }),
+    };
+  }
+
+  // Browser-local click, URL, and request facts never establish a submitted
+  // outcome. The synthetic orchestrator accepts only these two safe values.
+  return { outcome: "outcome_uncertain", evidence: [] };
+}
+
+function hasExactOneFinalControl(
+  observation: ApplicationFormObservation,
+): boolean {
+  return observation.complete && observation.controls.length === 1;
+}
+
+/**
+ * Compose the generic browser hands with Job Finder's durable authority
+ * orchestrator for one local attempt. This is intentionally an internal seam:
+ * it has no renderer/IPC caller and is not used by the legacy prepare-only
+ * application flow.
+ *
+ * The sequence is observe -> exact-one preflight -> durable authority
+ * orchestrator -> one browser hand. The veto callback rereads the envelope on
+ * every browser-hands last-instant check, so revocation or revision drift
+ * prevents the action from crossing the browser boundary.
+ */
+export async function runApplicationSubmissionRuntime(
+  input: ApplicationSubmissionRuntimeInput,
+): Promise<ApplicationSubmissionRuntimeResult> {
+  if (input.signal?.aborted) {
+    return blockedResult(
+      "immediate_recheck_failed",
+      "The application submission was cancelled before browser observation; no action was attempted.",
+    );
+  }
+
+  // Prepare-only is a hard boundary. Do not even observe a final control or
+  // persist a preflight when the saved mode cannot authorize final action.
+  if (input.savedMode === "prepare_only") {
+    return blockedResult(
+      "prepare_only",
+      "Prepare-only automation never authorizes a final browser action.",
+    );
+  }
+
+  let initialEnvelope: Awaited<
+    ReturnType<
+      SyntheticSubmissionAuthorityRepository["getApplicationAuthorityEnvelope"]
+    >
+  >;
+  try {
+    initialEnvelope = await input.repository.getApplicationAuthorityEnvelope(
+      input.authorityEnvelopeId,
+    );
+  } catch {
+    return blockedResult(
+      "authority_missing",
+      "The current authority envelope could not be read; no browser action was attempted.",
+    );
+  }
+  if (initialEnvelope === null) {
+    return blockedResult(
+      "authority_missing",
+      "The current authority envelope is missing; no browser action was attempted.",
+    );
+  }
+  if (
+    initialEnvelope.id !== input.authorityEnvelopeId ||
+    initialEnvelope.revision !== input.authorityRevision ||
+    initialEnvelope.mode !== input.savedMode ||
+    !isActiveApplicationAuthorityEnvelope(initialEnvelope, input.now) ||
+    !samePolicyIdentity(
+      initialEnvelope.decisionPolicy,
+      input.currentPolicyFacts.policy,
+    )
+  ) {
+    return blockedResult(
+      "preflight_authority_mismatch",
+      "The current authority mode, revision, policy, or lifecycle no longer matches this attempt; no browser observation or action was attempted.",
+    );
+  }
+
+  if (
+    typeof input.browserRuntime.observeApplicationForm !== "function" ||
+    typeof input.browserRuntime.executeExactlyOneFinalAction !== "function"
+  ) {
+    return blockedResult(
+      "immediate_recheck_failed",
+      "The configured browser runtime does not expose the main-process application hands; no action was attempted.",
+    );
+  }
+
+  let observation: ApplicationFormObservation;
+  try {
+    observation = await input.browserRuntime.observeApplicationForm(
+      input.source,
+    );
+  } catch {
+    return blockedResult(
+      "immediate_recheck_failed",
+      "The current application form could not be observed safely; no action was attempted.",
+    );
+  }
+
+  if (!hasExactOneFinalControl(observation)) {
+    return blockedResult(
+      "ambiguous_final_control",
+      "The current application page did not expose exactly one complete final control; no action was attempted.",
+    );
+  }
+
+  const pageOrigin = observation.page.origin;
+  const control = observation.controls[0];
+  if (!pageOrigin || !control) {
+    return blockedResult(
+      "origin_not_allowed",
+      "The current application form has no safe HTTP(S) origin or final control; no action was attempted.",
+    );
+  }
+
+  let formObservation: ReturnType<
+    typeof SubmissionObservationIdentitySchema.parse
+  >;
+  let finalControl: SubmissionFinalControlIdentity;
+  let preflight: SubmissionPreflightRecord;
+  try {
+    formObservation = SubmissionObservationIdentitySchema.parse(
+      observation.identity,
+    );
+    finalControl = SubmissionFinalControlIdentitySchema.parse(control.identity);
+    preflight = buildSubmissionPreflightRecord({
+      id: input.preflightId,
+      idempotencyKey: input.idempotencyKey,
+      lineage: input.lineage,
+      authorityEnvelopeId: input.authorityEnvelopeId,
+      authorityRevision: input.authorityRevision,
+      decisionPolicy: input.currentPolicyFacts.policy,
+      origin: pageOrigin,
+      formObservation,
+      resumeBytes: input.resumeBytes,
+      answers: input.answers,
+      finalControl,
+      capacity: input.capacity,
+      createdAt: input.now,
+    });
+  } catch {
+    return blockedResult(
+      "preflight_missing",
+      "The exact application preflight could not be constructed safely; no action was attempted.",
+    );
+  }
+
+  if (preflight.origin === null) {
+    return blockedResult(
+      "origin_not_allowed",
+      "The exact application origin could not be canonicalized; no action was attempted.",
+    );
+  }
+  const preflightOrigin = preflight.origin;
+
+  let authorityVetoed = false;
+  const veto = async (): Promise<boolean> => {
+    if (input.signal?.aborted) {
+      return false;
+    }
+
+    let currentEnvelope: NonNullable<typeof initialEnvelope> | null;
+    try {
+      currentEnvelope = await input.repository.getApplicationAuthorityEnvelope(
+        preflight.authorityEnvelopeId,
+      );
+    } catch {
+      authorityVetoed = true;
+      return false;
+    }
+
+    const authorityStillMatches = Boolean(
+      currentEnvelope &&
+      currentEnvelope.id === preflight.authorityEnvelopeId &&
+      currentEnvelope.revision === preflight.authorityRevision &&
+      currentEnvelope.mode === input.savedMode &&
+      isActiveApplicationAuthorityEnvelope(currentEnvelope, input.now) &&
+      samePolicyIdentity(
+        currentEnvelope.decisionPolicy,
+        input.currentPolicyFacts.policy,
+      ),
+    );
+    if (!authorityStillMatches) {
+      authorityVetoed = true;
+    }
+    return authorityStillMatches;
+  };
+
+  const execute = async (executorInput: {
+    preflight: SubmissionPreflightRecord;
+  }): Promise<SyntheticSubmissionExecutorResult> => {
+    if (input.signal?.aborted) {
+      return {
+        outcome: "not_submitted",
+        evidence: [],
+        retry: mapNotSubmittedRetry({ authorityVetoed: false }),
+      };
+    }
+
+    const actionInput: ExecuteExactlyOneFinalActionInput = {
+      expectedObservation: executorInput.preflight.formObservation,
+      expectedControl: executorInput.preflight.finalControl,
+      expectedPageOrigin: preflightOrigin,
+      allowedOrigins: initialEnvelope.allowedOrigins,
+      veto,
+      ...(input.signal ? { signal: input.signal } : {}),
+    };
+
+    try {
+      const browserResult =
+        await input.browserRuntime.executeExactlyOneFinalAction(
+          input.source,
+          actionInput,
+        );
+      return mapBrowserActionResult({
+        result: browserResult,
+        authorityVetoed,
+      });
+    } catch {
+      // Once the durable marker is armed, a browser hand failure is always
+      // uncertain. The orchestrator records that state and permanently blocks
+      // an automatic retry for this idempotency key.
+      return { outcome: "outcome_uncertain", evidence: [] };
+    }
+  };
+
+  return runSyntheticApplicationSubmission({
+    repository: input.repository,
+    preflight,
+    savedMode: input.savedMode,
+    jobId: input.lineage.jobId,
+    campaignId: input.lineage.campaignId,
+    observation: {
+      origin: preflight.origin,
+      formObservation: preflight.formObservation,
+      resumeSha256: preflight.resumeSha256,
+      answers: preflight.answers,
+      finalControl: preflight.finalControl,
+      remainingRunCapacity: preflight.remainingRunCapacityBefore,
+      remainingDailyCapacity: preflight.remainingDailyCapacityBefore,
+      currentPolicyFacts: input.currentPolicyFacts,
+    },
+    now: input.now,
+    ...(input.executionGrantId !== undefined
+      ? { executionGrantId: input.executionGrantId }
+      : {}),
+    executor: {
+      execute: async () => execute({ preflight }),
+    },
+  });
+}
+
+/** Alias that emphasizes this module's composition role for local callers. */
+export const composeApplicationSubmissionRuntime =
+  runApplicationSubmissionRuntime;

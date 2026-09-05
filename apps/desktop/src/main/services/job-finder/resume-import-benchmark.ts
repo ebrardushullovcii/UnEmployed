@@ -29,6 +29,75 @@ import { generateResumeVisionImages } from "../../adapters/resume-vision-images"
 
 const defaultBenchmarkCases = [
   {
+    id: "resume_import_comprehensive_txt",
+    label: "Comprehensive structured text canary",
+    resumePath:
+      "apps/desktop/test-fixtures/job-finder/resume-import-comprehensive-sample.txt",
+    canary: true,
+    tags: ["txt", "canary", "dates", "projects", "certifications", "languages"],
+    expected: {
+      literalFields: {
+        fullName: "Morgan Lee",
+        currentLocation: "Amsterdam, Netherlands",
+        email: "morgan.lee@example.test",
+        phone: "+31 20 555 0199",
+      },
+      summaryContains: ["reliable workflow software"],
+      experienceRecords: [
+        {
+          title: "Senior Product Engineer",
+          companyName: "Northstar Labs",
+          location: "Amsterdam, Netherlands",
+          startDate: "2022-03",
+          endDate: null,
+          isCurrent: true,
+          achievements: [
+            "Reduced manual review time by 28% through a guided validation queue.",
+            "Led an accessibility remediation that reached WCAG 2.2 AA on core flows.",
+          ],
+        },
+        {
+          title: "Frontend Engineer",
+          companyName: "Harbor Studio",
+          location: "Rotterdam, Netherlands",
+          startDate: "2019-01",
+          endDate: "2022-02",
+          isCurrent: false,
+          achievements: [
+            "Shipped a reusable component library across four products.",
+          ],
+        },
+      ],
+      educationRecords: [
+        {
+          schoolName: "Delft University of Technology",
+          degree: "BSc Computer Science",
+        },
+      ],
+      projectRecords: [
+        {
+          name: "Queue Insight",
+          role: "Lead Developer",
+        },
+      ],
+      certificationRecords: [
+        {
+          name: "AWS Certified Developer - Associate",
+          issuer: "Amazon Web Services",
+        },
+      ],
+      languageRecords: [
+        { language: "English", proficiency: "Professional working proficiency" },
+        { language: "Dutch", proficiency: "Native" },
+      ],
+      forbiddenProfileText: [
+        "PhD",
+        "Spanish - Native",
+        "managed 50 engineers",
+      ],
+    },
+  },
+  {
     id: "resume_import_sample_txt",
     label: "Deterministic text canary",
     resumePath: "apps/desktop/test-fixtures/job-finder/resume-import-sample.txt",

@@ -1,0 +1,190 @@
+import type { CampaignNotification } from "@unemployed/contracts";
+import { Button } from "@renderer/components/ui/button";
+
+const kindLabels: Record<CampaignNotification["kind"], string> = {
+  digest_ready: "Digest ready",
+  strong_match: "Strong match",
+  blocked_work: "Blocked work",
+  schedule_paused: "Schedule paused",
+  rule_effect_update: "Rule update",
+};
+
+function compareNewestFirst(
+  left: CampaignNotification,
+  right: CampaignNotification,
+): number {
+  const leftMs = Date.parse(left.createdAt);
+  const rightMs = Date.parse(right.createdAt);
+  if (leftMs !== rightMs) {
+    if (Number.isNaN(leftMs)) return 1;
+    if (Number.isNaN(rightMs)) return -1;
+    return rightMs - leftMs;
+  }
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
+
+function formatCreatedAt(createdAt: string): string {
+  const parsed = Date.parse(createdAt);
+  if (Number.isNaN(parsed)) return createdAt;
+  return new Date(parsed).toLocaleString();
+}
+
+export function CampaignNotificationCenter(props: {
+  errorMessage?: string | null;
+  loading?: boolean;
+  notifications: readonly CampaignNotification[];
+  /**
+   * Work the rest of the app is already reporting (the sidebar badges).
+   * Notifications must never claim nothing has happened while these exist.
+   */
+  outstandingWork?: readonly {
+    id: string;
+    label: string;
+    /**
+     * What the button opens. A bare "Open" beside three different rows told
+     * the reader nothing about where any of them went.
+     */
+    openLabel: string;
+    onOpen: () => void;
+  }[];
+  pendingMarkAll: boolean;
+  pendingNotificationId: (notificationId: string) => boolean;
+  onMarkAllRead: () => void;
+  onMarkRead: (notificationId: string) => void;
+}) {
+  const notifications = [...props.notifications].sort(compareNewestFirst);
+  const unreadCount = props.notifications.filter(
+    (notification) => notification.unread,
+  ).length;
+  const hasUnread = unreadCount > 0;
+  const hasNotifications = props.notifications.length > 0;
+  const outstandingWork = props.outstandingWork ?? [];
+
+  return (
+    <section
+      aria-label="Notifications"
+      className="surface-panel-shell grid gap-3 rounded-(--radius-panel) border border-(--surface-panel-border) p-5"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="font-semibold text-(--text-headline)">
+            Notifications
+          </h2>
+          {/* Same breathing room between title and description as the other
+              sections on this page. */}
+          {/* The empty state below already explains what lands here. */}
+          {hasNotifications ? (
+            <p className="mt-3 text-xs text-foreground-muted">
+              {`${props.notifications.length} total · ${unreadCount} unread`}
+            </p>
+          ) : null}
+        </div>
+        {hasUnread ? (
+          <Button
+            disabled={props.pendingMarkAll}
+            onClick={props.onMarkAllRead}
+            pending={props.pendingMarkAll}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            Mark all read
+          </Button>
+        ) : null}
+      </div>
+
+      {props.loading ? (
+        <p
+          aria-live="polite"
+          className="rounded-(--radius-field) border border-border-subtle p-4 text-sm text-foreground-soft"
+        >
+          Loading notifications…
+        </p>
+      ) : props.errorMessage ? (
+        <p
+          aria-live="assertive"
+          className="rounded-(--radius-field) border border-critical/35 p-4 text-sm text-foreground-soft"
+          role="alert"
+        >
+          {props.errorMessage}
+        </p>
+      ) : !hasNotifications && outstandingWork.length > 0 ? (
+        <ul className="grid gap-2" data-testid="notifications-outstanding-work">
+          {outstandingWork.map((entry) => (
+            <li
+              className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-accent/40 bg-accent/5 p-3"
+              key={entry.id}
+            >
+              <span className="min-w-0 break-words text-sm text-foreground-soft">
+                {entry.label}
+              </span>
+              <Button
+                onClick={entry.onOpen}
+                size="xs"
+                type="button"
+                variant="outline"
+              >
+                {entry.openLabel}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : !hasNotifications ? (
+        <p className="rounded-(--radius-field) border border-border-subtle p-4 text-sm text-foreground-soft">
+          Nothing here yet. After a search finishes, strong new matches and work
+          that needs you show up here.
+        </p>
+      ) : (
+        <ul className="grid max-h-80 gap-2 overflow-y-auto pr-1">
+          {notifications.map((notification) => {
+            const pending = props.pendingNotificationId(notification.id);
+            return (
+              <li
+                className={`grid gap-1.5 rounded-(--radius-field) border p-3 ${notification.unread ? "border-accent/40 bg-accent/5" : "border-border-subtle"}`}
+                key={notification.id}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-(--text-headline)">
+                      {notification.title}
+                    </p>
+                    <p className="mt-0.5 text-xs text-foreground-muted">
+                      {kindLabels[notification.kind]} ·{" "}
+                      {formatCreatedAt(notification.createdAt)}
+                      {notification.unread ? (
+                        <span className="ml-2 rounded-full border border-accent/45 px-1.5 py-0.5 text-accent">
+                          Unread
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
+                  {notification.unread ? (
+                    <Button
+                      disabled={pending}
+                      onClick={() => props.onMarkRead(notification.id)}
+                      pending={pending}
+                      size="xs"
+                      type="button"
+                      variant="ghost"
+                    >
+                      Mark read
+                    </Button>
+                  ) : (
+                    <span className="rounded-full border border-border-subtle px-2 py-0.5 text-xs text-foreground-muted">
+                      Read
+                    </span>
+                  )}
+                </div>
+                {notification.body ? (
+                  <p className="text-sm text-foreground-soft">
+                    {notification.body}
+                  </p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}

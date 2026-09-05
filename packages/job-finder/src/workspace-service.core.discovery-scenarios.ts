@@ -1,6 +1,4 @@
-import type {
-  BrowserSessionRuntime,
-} from "@unemployed/browser-runtime";
+import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   JobPostingSchema,
   SavedJobSchema,
@@ -43,6 +41,119 @@ function createDiscoveryOnlySeed() {
 }
 
 describe("createJobFinderWorkspaceService", () => {
+  test("refreshes saved-job match evidence even when discovery does not rediscover that posting", async () => {
+    const seed = createSeed();
+    seed.profile.workEligibility = {
+      ...seed.profile.workEligibility,
+      remoteEligible: null,
+    };
+    seed.searchPreferences.workModes = ["remote"];
+    const existingJob = seed.savedJobs[0]!;
+    seed.savedJobs[0] = SavedJobSchema.parse({
+      ...existingJob,
+      location: "Remote",
+      workMode: ["remote"],
+      matchAssessment: {
+        ...existingJob.matchAssessment,
+        reasons: ["stale assessment sentinel"],
+      },
+    });
+
+    const { workspaceService } = createWorkspaceServiceHarness({ seed });
+    const snapshot = await workspaceService.runDiscovery();
+    const refreshed = snapshot.discoveryJobs.find(
+      (job) => job.id === existingJob.id,
+    );
+    const workMode = refreshed?.matchAssessment.requirements.find(
+      (requirement) => requirement.category === "work_mode",
+    );
+
+    expect(refreshed?.matchAssessment.reasons).not.toContain(
+      "stale assessment sentinel",
+    );
+    expect(workMode).toMatchObject({
+      status: "unknown",
+      jobEvidence: "Remote",
+    });
+  });
+
+  test("starts independent public provider inventories concurrently", async () => {
+    const seed = createDiscoveryOnlySeed();
+    seed.searchPreferences.targetRoles = ["Software Engineer"];
+    seed.searchPreferences.locations = [];
+    seed.searchPreferences.workModes = [];
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_public_one",
+        label: "Remote Greenhouse",
+        startingUrl: "https://job-boards.greenhouse.io/remote",
+      },
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_public_two",
+        label: "Aircall Lever",
+        startingUrl: "https://jobs.lever.co/aircall",
+      },
+    ];
+
+    const responses: Array<(response: Response) => void> = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          responses.push(resolve);
+        }),
+    );
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: createAgentBrowserRuntime([]),
+      aiClient: createAiClient(),
+    });
+
+    try {
+      const runPromise = workspaceService.runAgentDiscovery(
+        () => {},
+        new AbortController().signal,
+      );
+
+      await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+      responses[0]!({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jobs: [
+              {
+                id: "greenhouse_concurrent",
+                title: "Software Engineer",
+                absolute_url:
+                  "https://job-boards.greenhouse.io/remote/jobs/greenhouse_concurrent",
+                location: { name: "Remote" },
+                content: "Build reliable software products.",
+              },
+            ],
+          }),
+      } as Response);
+      responses[1]!({
+        ok: true,
+        json: () =>
+          Promise.resolve([
+            {
+              id: "lever_concurrent",
+              text: "Software Engineer",
+              hostedUrl: "https://jobs.lever.co/aircall/lever_concurrent",
+              descriptionPlain: "Build reliable software products.",
+              categories: { location: "Remote" },
+            },
+          ]),
+      } as Response);
+
+      const snapshot = await runPromise;
+      expect(snapshot.discoveryJobs).toHaveLength(2);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   test("runs discovery and upserts saved jobs from the adapter", async () => {
     const { workspaceService } = createWorkspaceServiceHarness({
       seed: {
@@ -63,10 +174,14 @@ describe("createJobFinderWorkspaceService", () => {
     const snapshot = await workspaceService.runDiscovery();
 
     expect(snapshot.discoveryJobs).toHaveLength(2);
-    expect(snapshot.discoveryJobs[0]?.canonicalUrl).toContain(
-      "linkedin_signal_ready",
-    );
-    expect(snapshot.discoveryJobs[0]?.matchAssessment.reasons.length).toBeGreaterThan(0);
+    expect(
+      snapshot.discoveryJobs.some((job) =>
+        job.canonicalUrl.includes("linkedin_signal_ready"),
+      ),
+    ).toBe(true);
+    expect(
+      snapshot.discoveryJobs[0]?.matchAssessment.reasons.length,
+    ).toBeGreaterThan(0);
   });
 
   test("runDiscovery uses the non-agent browser runtime path even when agent discovery is available", async () => {
@@ -81,6 +196,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Standard discovery run",
+          inventoryCompleteness: "complete",
           warning: null,
           jobs: [
             JobPostingSchema.parse({
@@ -123,6 +239,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Agent discovery run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [],
           agentMetadata: {
@@ -185,74 +302,86 @@ describe("createJobFinderWorkspaceService", () => {
 
   test("removeJobFromReview moves a shortlisted review job back to Find jobs", async () => {
     const seed = createSeed();
-    seed.savedJobs.push(SavedJobSchema.parse({
-      source: "target_site",
-      sourceJobId: "review_return_job",
-      discoveryMethod: "catalog_seed",
-      collectionMethod: "fallback_search",
-      canonicalUrl: "https://example.com/jobs/review-return-job",
-      applicationUrl: null,
-      id: "job_review_return",
-      title: "Staff Product Designer",
-      company: "Signal Systems",
-      location: "Remote",
-      workMode: ["remote"],
-      applyPath: "easy_apply",
-      easyApplyEligible: true,
-      postedAt: "2026-03-20T09:30:00.000Z",
-      postedAtText: null,
-      discoveredAt: "2026-03-20T10:04:00.000Z",
-      firstSeenAt: null,
-      lastSeenAt: null,
-      lastVerifiedActiveAt: null,
-      salaryText: "$185k - $210k",
-      normalizedCompensation: {},
-      summary: "Lead systems design work.",
-      description: "Lead systems design work.",
-      keySkills: ["Figma", "Systems Design"],
-      responsibilities: [],
-      minimumQualifications: [],
-      preferredQualifications: [],
-      seniority: "Staff",
-      employmentType: "Full-time",
-      department: null,
-      team: null,
-      employerWebsiteUrl: null,
-      employerDomain: null,
-      atsProvider: null,
-      providerKey: null,
-      providerBoardToken: null,
-      providerIdentifier: null,
-      titleTriageOutcome: "pass",
-      sourceIntelligence: null,
-      screeningHints: {},
-      keywordSignals: [],
-      benefits: [],
-      status: "ready_for_review",
-      matchAssessment: {
-        score: 91,
-        reasons: ["Strong systems match"],
-        gaps: [],
-      },
-      provenance: [],
-    }));
+    seed.savedJobs.push(
+      SavedJobSchema.parse({
+        source: "target_site",
+        sourceJobId: "review_return_job",
+        discoveryMethod: "catalog_seed",
+        collectionMethod: "fallback_search",
+        canonicalUrl: "https://example.com/jobs/review-return-job",
+        applicationUrl: null,
+        id: "job_review_return",
+        title: "Staff Product Designer",
+        company: "Signal Systems",
+        location: "Remote",
+        workMode: ["remote"],
+        applyPath: "easy_apply",
+        easyApplyEligible: true,
+        postedAt: "2026-03-20T09:30:00.000Z",
+        postedAtText: null,
+        discoveredAt: "2026-03-20T10:04:00.000Z",
+        firstSeenAt: null,
+        lastSeenAt: null,
+        lastVerifiedActiveAt: null,
+        salaryText: "$185k - $210k",
+        normalizedCompensation: {},
+        summary: "Lead systems design work.",
+        description: "Lead systems design work.",
+        keySkills: ["Figma", "Systems Design"],
+        responsibilities: [],
+        minimumQualifications: [],
+        preferredQualifications: [],
+        seniority: "Staff",
+        employmentType: "Full-time",
+        department: null,
+        team: null,
+        employerWebsiteUrl: null,
+        employerDomain: null,
+        atsProvider: null,
+        providerKey: null,
+        providerBoardToken: null,
+        providerIdentifier: null,
+        titleTriageOutcome: "pass",
+        sourceIntelligence: null,
+        screeningHints: {},
+        keywordSignals: [],
+        benefits: [],
+        status: "ready_for_review",
+        matchAssessment: {
+          score: 91,
+          reasons: ["Strong systems match"],
+          gaps: [],
+        },
+        provenance: [],
+      }),
+    );
 
-    const { repository, workspaceService } = createWorkspaceServiceHarness({ seed });
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed,
+    });
 
-    const snapshot = await workspaceService.removeJobFromReview("job_review_return");
+    const snapshot =
+      await workspaceService.removeJobFromReview("job_review_return");
     const savedJobs = await repository.listSavedJobs();
 
-    expect(snapshot.reviewQueue.some((item) => item.jobId === "job_review_return")).toBe(false);
-    expect(snapshot.discoveryJobs.some((job) => job.id === "job_review_return")).toBe(true);
-    expect(savedJobs.find((job) => job.id === "job_review_return")?.status).toBe("shortlisted");
+    expect(
+      snapshot.reviewQueue.some((item) => item.jobId === "job_review_return"),
+    ).toBe(false);
+    expect(
+      snapshot.discoveryJobs.some((job) => job.id === "job_review_return"),
+    ).toBe(true);
+    expect(
+      savedJobs.find((job) => job.id === "job_review_return")?.status,
+    ).toBe("shortlisted");
   });
 
   test("agent discovery streams activity and keeps discovery-only jobs pending", async () => {
     const seed = createDiscoveryOnlySeed();
-    const catalog = await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
-      "target_site",
-      createSeed().searchPreferences,
-    );
+    const catalog =
+      await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
+        "target_site",
+        createSeed().searchPreferences,
+      );
     const baseAgentRuntime = createAgentBrowserRuntime(catalog.jobs);
     let openSessionCalls = 0;
     let closeSessionCalls = 0;
@@ -274,19 +403,18 @@ describe("createJobFinderWorkspaceService", () => {
     });
     const streamedEvents: DiscoveryActivityEvent[] = [];
 
-    const snapshot = await workspaceService.runAgentDiscovery(
-      (event) => {
-        streamedEvents.push(event);
-      },
-      new AbortController().signal,
-    );
+    const snapshot = await workspaceService.runAgentDiscovery((event) => {
+      streamedEvents.push(event);
+    }, new AbortController().signal);
 
     expect(streamedEvents.length).toBeGreaterThan(0);
-    expect(streamedEvents.some((event) => event.kind === "progress")).toBe(true);
-    expect(snapshot.discoveryJobs).toHaveLength(2);
-    expect(snapshot.discoveryJobs.every((job) => job.status === "discovered")).toBe(
+    expect(streamedEvents.some((event) => event.kind === "progress")).toBe(
       true,
     );
+    expect(snapshot.discoveryJobs).toHaveLength(2);
+    expect(
+      snapshot.discoveryJobs.every((job) => job.status === "discovered"),
+    ).toBe(true);
     expect(snapshot.reviewQueue).toHaveLength(0);
     await expect(repository.listSavedJobs()).resolves.toHaveLength(0);
     expect(snapshot.applicationRecords).toHaveLength(0);
@@ -296,8 +424,12 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.recentDiscoveryRuns[0]?.summary.browserCloseout?.mode).toBe(
       "kept_alive",
     );
-    expect(snapshot.recentDiscoveryRuns[0]?.summary.timing?.eventCount).toBeGreaterThan(0);
-    expect(snapshot.recentDiscoveryRuns[0]?.summary.timing?.firstActivityMs).not.toBeNull();
+    expect(
+      snapshot.recentDiscoveryRuns[0]?.summary.timing?.eventCount,
+    ).toBeGreaterThan(0);
+    expect(
+      snapshot.recentDiscoveryRuns[0]?.summary.timing?.firstActivityMs,
+    ).not.toBeNull();
     expect(
       snapshot.recentDiscoveryRuns[0]?.targetExecutions[0]?.timing?.eventCount,
     ).toBeGreaterThan(0);
@@ -316,6 +448,10 @@ describe("createJobFinderWorkspaceService", () => {
         ...createDiscoveryOnlySeed().searchPreferences,
         targetRoles: ["Senior Full-Stack Software Engineer"],
         locations: ["Prishtina, Kosovo"],
+        discovery: {
+          ...createDiscoveryOnlySeed().searchPreferences.discovery,
+          collectOnlyHardCriteriaMatches: true,
+        },
       },
     };
     const browserRuntime: BrowserSessionRuntime = {
@@ -326,6 +462,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "LinkedIn discovery triage sample run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [
             JobPostingSchema.parse({
@@ -411,30 +548,37 @@ describe("createJobFinderWorkspaceService", () => {
     });
     const streamedEvents: DiscoveryActivityEvent[] = [];
 
-    await workspaceService.runAgentDiscovery(
-      (event) => {
-        streamedEvents.push(event);
-      },
-      new AbortController().signal,
-    );
+    await workspaceService.runAgentDiscovery((event) => {
+      streamedEvents.push(event);
+    }, new AbortController().signal);
 
     const collectionEvent = streamedEvents.find(
-      (event) => event.stage === "extraction" && event.message.includes("Collected 2 candidate jobs"),
+      (event) =>
+        event.stage === "extraction" &&
+        event.message.includes("Collected 2 candidate jobs"),
     );
     const scoringEvent = streamedEvents.find(
       (event) =>
         event.stage === "scoring" &&
-        event.message.includes('"Software Engineer - AI products at Quik Hire Staffing"'),
+        event.message.includes(
+          '"Software Engineer - AI products at Quik Hire Staffing"',
+        ),
     );
 
     expect(scoringEvent).toBeDefined();
-    expect(collectionEvent?.message).toContain('"Senior Frontend Engineer at Fresha"');
-    expect(collectionEvent?.message).toContain('"Software Engineer - AI products at Quik Hire Staffing"');
+    expect(collectionEvent?.message).toContain(
+      '"Senior Frontend Engineer at Fresha"',
+    );
+    expect(collectionEvent?.message).toContain(
+      '"Software Engineer - AI products at Quik Hire Staffing"',
+    );
     expect(scoringEvent!.message).toContain("Reviewing 1 promising jobs");
     expect(scoringEvent!.message).toContain(
       '"Software Engineer - AI products at Quik Hire Staffing"',
     );
-    expect(scoringEvent!.message).not.toContain('"Senior Frontend Engineer at Fresha"');
+    expect(scoringEvent!.message).not.toContain(
+      '"Senior Frontend Engineer at Fresha"',
+    );
   });
 
   test("agent discovery persists lightweight compaction metadata without persisting raw transcripts on target executions", async () => {
@@ -447,6 +591,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Compaction metadata discovery run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [],
           agentMetadata: {
@@ -489,7 +634,8 @@ describe("createJobFinderWorkspaceService", () => {
       new AbortController().signal,
     );
 
-    const targetExecution = snapshot.recentDiscoveryRuns[0]?.targetExecutions[0];
+    const targetExecution =
+      snapshot.recentDiscoveryRuns[0]?.targetExecutions[0];
     expect(targetExecution?.compactionState?.compactionCount).toBe(1);
     expect(targetExecution?.compactionState?.triggerKind).toBe("token_budget");
     expect(targetExecution?.compactionUsedFallbackTrigger).toBe(false);
@@ -499,10 +645,11 @@ describe("createJobFinderWorkspaceService", () => {
   });
 
   test("agent discovery abort keeps streamed activity and avoids persistence", async () => {
-    const discoveryResult = await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
-      "target_site",
-      createSeed().searchPreferences,
-    );
+    const discoveryResult =
+      await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
+        "target_site",
+        createSeed().searchPreferences,
+      );
     const { repository, workspaceService } = createWorkspaceServiceHarness({
       seed: createDiscoveryOnlySeed(),
       browserRuntime: createAgentBrowserRuntime(discoveryResult.jobs),
@@ -511,17 +658,16 @@ describe("createJobFinderWorkspaceService", () => {
     const streamedEvents: DiscoveryActivityEvent[] = [];
     const controller = new AbortController();
 
-    const snapshot = await workspaceService.runAgentDiscovery(
-      (event) => {
-        streamedEvents.push(event);
-        if (event.kind === "progress") {
-          controller.abort();
-        }
-      },
-      controller.signal,
-    );
+    const snapshot = await workspaceService.runAgentDiscovery((event) => {
+      streamedEvents.push(event);
+      if (event.kind === "progress") {
+        controller.abort();
+      }
+    }, controller.signal);
 
-    expect(streamedEvents.some((event) => event.kind === "progress")).toBe(true);
+    expect(streamedEvents.some((event) => event.kind === "progress")).toBe(
+      true,
+    );
     expect(snapshot.discoveryJobs).toHaveLength(0);
     expect(snapshot.reviewQueue).toHaveLength(0);
     await expect(repository.listSavedJobs()).resolves.toHaveLength(0);
@@ -571,14 +717,14 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.recentDiscoveryRuns[0]?.state).toBe("cancelled");
     expect(discoveryState.activeRun).toBeNull();
     expect(discoveryState.recentRuns[0]?.state).toBe("cancelled");
-
   });
 
-  test("agent discovery does not throw when the configured AI client lacks tool calling", async () => {
-    const discoveryResult = await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
-      "target_site",
-      createSeed().searchPreferences,
-    );
+  test("agent discovery fails honestly when the configured AI client lacks tool calling", async () => {
+    const discoveryResult =
+      await createWorkspaceServiceHarness().browserRuntime.runDiscovery(
+        "target_site",
+        createSeed().searchPreferences,
+      );
     const baseAgentRuntime = createAgentBrowserRuntime(discoveryResult.jobs);
     const browserRuntime: BrowserSessionRuntime = {
       ...baseAgentRuntime,
@@ -588,6 +734,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Agent discovery test run",
+          inventoryCompleteness: "partial",
           warning: options.aiClient?.chatWithTools
             ? null
             : "AI client does not support tool calling. Cannot run agent discovery.",
@@ -596,19 +743,24 @@ describe("createJobFinderWorkspaceService", () => {
         });
       },
     };
-    const { workspaceService } = createWorkspaceServiceHarness({
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
       seed: createDiscoveryOnlySeed(),
       browserRuntime,
       aiClient: createAiClient(),
     });
 
-    const snapshot = await workspaceService.runAgentDiscovery(
-      () => {},
-      new AbortController().signal,
+    await expect(
+      workspaceService.runAgentDiscovery(
+        () => {},
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(
+      "AI client does not support tool calling. Cannot run agent discovery.",
     );
 
-    expect(snapshot.discoveryJobs).toHaveLength(0);
-    expect(snapshot.recentDiscoveryRuns[0]?.targetExecutions[0]?.warning).toBe(
+    const discoveryState = await repository.getDiscoveryState();
+    expect(discoveryState.recentRuns[0]?.state).toBe("failed");
+    expect(discoveryState.recentRuns[0]?.targetExecutions[0]?.warning).toBe(
       "AI client does not support tool calling. Cannot run agent discovery.",
     );
   });
@@ -636,7 +788,8 @@ describe("createJobFinderWorkspaceService", () => {
       },
     ];
 
-    const capturedBudgets: Array<{ targetJobCount: number; maxSteps: number }> = [];
+    const capturedBudgets: Array<{ targetJobCount: number; maxSteps: number }> =
+      [];
     const browserRuntime: BrowserSessionRuntime = {
       ...createAgentBrowserRuntime([]),
       runAgentDiscovery(source, options) {
@@ -650,6 +803,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Budgeted discovery test run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: Array.from({ length: options.targetJobCount }, (_, index) =>
             JobPostingSchema.parse({
@@ -710,15 +864,182 @@ describe("createJobFinderWorkspaceService", () => {
     );
 
     expect(capturedBudgets).toEqual([
-      { targetJobCount: 7, maxSteps: 42 },
-      { targetJobCount: 7, maxSteps: 42 },
-      { targetJobCount: 6, maxSteps: 20 },
+      { targetJobCount: 34, maxSteps: 60 },
+      { targetJobCount: 33, maxSteps: 60 },
+      { targetJobCount: 33, maxSteps: 36 },
     ]);
-    expect(snapshot.recentDiscoveryRuns[0]?.summary.validJobsFound).toBe(20);
+    expect(snapshot.recentDiscoveryRuns[0]?.summary.validJobsFound).toBe(100);
   });
 
-  test("single-target agent discovery uses a tighter product budget", async () => {
-    const capturedBudgets: Array<{ targetJobCount: number; maxSteps: number }> = [];
+  test("budgets later sources from distinct retained jobs and reports staged deltas", async () => {
+    const seed = createDiscoveryOnlySeed();
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_duplicate_heavy",
+        label: "Duplicate-heavy source",
+        startingUrl: "https://example.com/jobs/duplicates",
+      },
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_later_new",
+        label: "Later new source",
+        startingUrl: "https://example.com/jobs/later-new",
+      },
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_final_new",
+        label: "Final new source",
+        startingUrl: "https://example.com/jobs/final-new",
+      },
+    ];
+
+    const capturedBudgets: number[] = [];
+    let targetCall = 0;
+    const browserRuntime: BrowserSessionRuntime = {
+      ...createAgentBrowserRuntime([]),
+      runAgentDiscovery(source, options) {
+        targetCall += 1;
+        capturedBudgets.push(options.targetJobCount);
+        const jobs = Array.from(
+          { length: options.targetJobCount },
+          (_, index) => {
+            const duplicateIdentity = targetCall === 1;
+            const identity = duplicateIdentity
+              ? "same-provider-identity"
+              : `new-${targetCall}-${index}`;
+            return JobPostingSchema.parse({
+              source: "target_site",
+              sourceJobId: identity,
+              discoveryMethod: "browser_agent",
+              canonicalUrl: `https://example.com/job/${identity}`,
+              title: `Principal Designer ${targetCall}-${index}`,
+              company: "Acme",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: "unknown",
+              easyApplyEligible: false,
+              postedAt: null,
+              postedAtText: null,
+              discoveredAt: "2026-03-20T10:00:00.000Z",
+              salaryText: null,
+              summary: "Grounded summary",
+              description: "Lead product design and design systems work.",
+              keySkills: ["Figma", "Design Systems"],
+              responsibilities: [],
+              minimumQualifications: [],
+              preferredQualifications: [],
+              seniority: null,
+              employmentType: null,
+              department: null,
+              team: null,
+              employerWebsiteUrl: null,
+              employerDomain: null,
+              benefits: [],
+            });
+          },
+        );
+
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "Distinct-retained discovery budget regression",
+          inventoryCompleteness: "partial",
+          warning: null,
+          jobs,
+          agentMetadata: {
+            steps: 2,
+            incomplete: false,
+            transcriptMessageCount: 4,
+            reviewTranscript: [],
+            compactionState: null,
+            compactionUsedFallbackTrigger: false,
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: null,
+          },
+        });
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime,
+      aiClient: createAiClient(),
+    });
+
+    const snapshot = await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+    );
+    const run = snapshot.recentDiscoveryRuns[0];
+
+    expect(capturedBudgets).toEqual([34, 33, 33]);
+    expect(
+      run?.targetExecutions.map((target) => ({
+        requestedJobBudget: target.requestedJobBudget,
+        jobsReviewed: target.jobsReviewed,
+        jobsFound: target.jobsFound,
+        jobsStaged: target.jobsStaged,
+        jobsSkippedByLedger: target.jobsSkippedByLedger,
+        jobsSkippedByTitleTriage: target.jobsSkippedByTitleTriage,
+        duplicatesMerged: target.duplicatesMerged,
+        invalidSkipped: target.invalidSkipped,
+      })),
+    ).toEqual([
+      {
+        requestedJobBudget: 34,
+        // jobsReviewed counts every scored/merged observation of the one
+        // duplicate identity; jobsFound stays at the distinct retained job.
+        jobsReviewed: 34,
+        jobsFound: 1,
+        jobsStaged: 1,
+        jobsSkippedByLedger: 0,
+        jobsSkippedByTitleTriage: 0,
+        duplicatesMerged: 33,
+        invalidSkipped: 0,
+      },
+      {
+        requestedJobBudget: 33,
+        jobsReviewed: 33,
+        jobsFound: 33,
+        jobsStaged: 33,
+        jobsSkippedByLedger: 0,
+        jobsSkippedByTitleTriage: 0,
+        duplicatesMerged: 0,
+        invalidSkipped: 0,
+      },
+      {
+        requestedJobBudget: 33,
+        jobsReviewed: 33,
+        jobsFound: 33,
+        jobsStaged: 33,
+        jobsSkippedByLedger: 0,
+        jobsSkippedByTitleTriage: 0,
+        duplicatesMerged: 0,
+        invalidSkipped: 0,
+      },
+    ]);
+    expect(
+      run?.targetExecutions.map(
+        (target) =>
+          target.jobsStaged +
+          target.jobsPersisted +
+          target.duplicatesMerged +
+          target.invalidSkipped,
+      ),
+    ).toEqual(run?.targetExecutions.map((target) => target.jobsReviewed));
+    expect(run?.summary).toMatchObject({
+      validJobsFound: 67,
+      jobsStaged: 67,
+      duplicatesMerged: 33,
+    });
+    expect(snapshot.discoveryJobs).toHaveLength(67);
+  });
+  test("single-target agent discovery requests a useful batch of jobs", async () => {
+    const capturedBudgets: Array<{ targetJobCount: number; maxSteps: number }> =
+      [];
     const browserRuntime: BrowserSessionRuntime = {
       ...createAgentBrowserRuntime([]),
       runAgentDiscovery(source, options) {
@@ -732,6 +1053,7 @@ describe("createJobFinderWorkspaceService", () => {
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Single-target budgeted discovery test run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [],
           agentMetadata: {
@@ -762,10 +1084,10 @@ describe("createJobFinderWorkspaceService", () => {
       "target_linkedin_default",
     );
 
-    expect(capturedBudgets).toEqual([{ targetJobCount: 8, maxSteps: 24 }]);
+    expect(capturedBudgets).toEqual([{ targetJobCount: 50, maxSteps: 36 }]);
   });
 
-  test("single-target agent discovery passes the provider-aware LinkedIn query-first starting url", async () => {
+  test("single-target agent discovery passes the configured starting url without synthesizing a query route", async () => {
     const capturedStartingUrls: string[][] = [];
     const browserRuntime: BrowserSessionRuntime = {
       ...createAgentBrowserRuntime([]),
@@ -776,7 +1098,8 @@ describe("createJobFinderWorkspaceService", () => {
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
-          querySummary: "Query-first discovery test run",
+          querySummary: "Configured starting url discovery test run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [],
           agentMetadata: {
@@ -794,9 +1117,22 @@ describe("createJobFinderWorkspaceService", () => {
         });
       },
     };
+    const seed = createDiscoveryOnlySeed();
+    const defaultTarget = seed.searchPreferences.discovery.targets[0];
+    if (!defaultTarget) {
+      throw new Error("Expected a default discovery target in the test seed.");
+    }
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...defaultTarget,
+        id: "target_configured_route",
+        label: "Configured Board",
+        startingUrl: "https://example.com/jobs/search/",
+      },
+    ];
 
     const { workspaceService } = createWorkspaceServiceHarness({
-      seed: createDiscoveryOnlySeed(),
+      seed,
       browserRuntime,
       aiClient: createAiClient(),
     });
@@ -804,12 +1140,12 @@ describe("createJobFinderWorkspaceService", () => {
     await workspaceService.runAgentDiscovery(
       () => {},
       new AbortController().signal,
-      "target_linkedin_default",
+      "target_configured_route",
     );
 
-    expect(capturedStartingUrls).toEqual([[
-      "https://www.linkedin.com/jobs/search/",
-    ]]);
+    expect(capturedStartingUrls).toEqual([
+      ["https://example.com/jobs/search/"],
+    ]);
   });
 
   test("agent discovery merge uses deterministic fit scoring without model fit calls", async () => {
@@ -867,10 +1203,12 @@ describe("createJobFinderWorkspaceService", () => {
     );
 
     expect(assessJobFitCalls).toBe(0);
-    expect(snapshot.discoveryJobs[0]?.matchAssessment.score).toBeGreaterThan(12);
+    expect(snapshot.discoveryJobs[0]?.matchAssessment.score).toBeGreaterThan(
+      12,
+    );
   });
 
-  test("agent discovery skips remaining targets once the run already has enough jobs", async () => {
+  test("agent discovery limits an over-producing source to its fair share and still runs later targets", async () => {
     const seed = createDiscoveryOnlySeed();
     seed.searchPreferences.discovery.targets = [
       {
@@ -898,20 +1236,22 @@ describe("createJobFinderWorkspaceService", () => {
       ...createAgentBrowserRuntime([]),
       runAgentDiscovery(source) {
         runAgentDiscoveryCalls += 1;
+        const callNumber = runAgentDiscoveryCalls;
 
         return Promise.resolve({
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Early-stop discovery test run",
+          inventoryCompleteness: "partial",
           warning: null,
-          jobs: Array.from({ length: 20 }, (_, index) =>
+          jobs: Array.from({ length: 200 }, (_, index) =>
             JobPostingSchema.parse({
               source: "target_site",
-              sourceJobId: `job_${index}`,
+              sourceJobId: `job_${callNumber}_${index}`,
               discoveryMethod: "browser_agent",
-              canonicalUrl: `https://example.com/job/${index}`,
-              title: `Principal Designer ${index}`,
+              canonicalUrl: `https://example.com/job/${callNumber}/${index}`,
+              title: `Principal Designer ${callNumber}-${index}`,
               company: "Acme",
               location: "Remote",
               workMode: ["remote"],
@@ -963,12 +1303,301 @@ describe("createJobFinderWorkspaceService", () => {
       new AbortController().signal,
     );
 
-    expect(runAgentDiscoveryCalls).toBe(1);
-    expect(snapshot.recentDiscoveryRuns[0]?.targetExecutions.map((entry) => entry.state)).toEqual([
+    expect(runAgentDiscoveryCalls).toBe(3);
+    expect(
+      snapshot.recentDiscoveryRuns[0]?.targetExecutions.map(
+        (entry) => entry.state,
+      ),
+    ).toEqual(["completed", "completed", "completed"]);
+    expect(
+      snapshot.recentDiscoveryRuns[0]?.targetExecutions.map(
+        (entry) => entry.jobsFound,
+      ),
+    ).toEqual([34, 33, 33]);
+    expect(snapshot.recentDiscoveryRuns[0]?.summary.validJobsFound).toBe(100);
+  });
+
+  test("applies source budgets after title triage so relevant jobs later in a provider inventory survive", async () => {
+    const seed = createDiscoveryOnlySeed();
+    seed.searchPreferences.discovery.collectOnlyHardCriteriaMatches = true;
+    const browserRuntime: BrowserSessionRuntime = {
+      ...createAgentBrowserRuntime([]),
+      runAgentDiscovery(source) {
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "Provider inventory ordering regression",
+          inventoryCompleteness: "partial",
+          warning: null,
+          jobs: Array.from({ length: 12 }, (_, index) =>
+            JobPostingSchema.parse({
+              source: "target_site",
+              sourceJobId: `ordered_job_${index}`,
+              discoveryMethod: "browser_agent",
+              canonicalUrl: `https://example.com/job/ordered/${index}`,
+              title:
+                index < 8
+                  ? `Account Executive ${index}`
+                  : `Principal Designer ${index - 8}`,
+              company: "Acme",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: "unknown",
+              easyApplyEligible: false,
+              postedAt: null,
+              postedAtText: null,
+              discoveredAt: "2026-03-20T10:00:00.000Z",
+              salaryText: null,
+              summary: "Grounded summary",
+              description:
+                index < 8
+                  ? "Sell workflow software to engineering teams."
+                  : "Lead product design and design systems work.",
+              keySkills: index < 8 ? [] : ["Figma", "Design Systems"],
+              responsibilities: [],
+              minimumQualifications: [],
+              preferredQualifications: [],
+              seniority: null,
+              employmentType: null,
+              department: null,
+              team: null,
+              employerWebsiteUrl: null,
+              employerDomain: null,
+              benefits: [],
+            }),
+          ),
+          agentMetadata: {
+            steps: 2,
+            incomplete: false,
+            transcriptMessageCount: 4,
+            reviewTranscript: [],
+            compactionState: null,
+            compactionUsedFallbackTrigger: false,
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: null,
+          },
+        });
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime,
+      aiClient: createAiClient(),
+    });
+
+    const snapshot = await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+    );
+
+    expect(snapshot.discoveryJobs).toHaveLength(4);
+    expect(
+      snapshot.discoveryJobs.every((job) =>
+        job.title.startsWith("Principal Designer"),
+      ),
+    ).toBe(true);
+  });
+
+  test("run-all discovery isolates a source exception and continues with the next target", async () => {
+    const seed = createDiscoveryOnlySeed();
+    seed.searchPreferences.discovery.targets = [
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_failing",
+        label: "Failing Target",
+        startingUrl: "https://failing.example.com/jobs",
+      },
+      {
+        ...seed.searchPreferences.discovery.targets[0]!,
+        id: "target_healthy",
+        label: "Healthy Target",
+        startingUrl: "https://healthy.example.com/jobs",
+      },
+    ];
+
+    let runAgentDiscoveryCalls = 0;
+    const browserRuntime: BrowserSessionRuntime = {
+      ...createAgentBrowserRuntime([]),
+      runAgentDiscovery(source) {
+        runAgentDiscoveryCalls += 1;
+        if (runAgentDiscoveryCalls === 1) {
+          throw new Error("source navigation failed");
+        }
+
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "Healthy source discovery test run",
+          inventoryCompleteness: "partial",
+          warning: null,
+          jobs: [
+            JobPostingSchema.parse({
+              source: "target_site",
+              sourceJobId: "healthy_job_1",
+              discoveryMethod: "browser_agent",
+              canonicalUrl: "https://healthy.example.com/jobs/healthy-job-1",
+              title: "Principal Designer",
+              company: "Healthy Co",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: "unknown",
+              easyApplyEligible: false,
+              discoveredAt: "2026-03-20T10:00:00.000Z",
+              salaryText: null,
+              summary: "Lead product design for a collaborative platform team.",
+              description:
+                "Lead product design for a collaborative platform team and work closely with engineering and product partners.",
+              keySkills: ["Product Design", "Research"],
+            }),
+          ],
+          agentMetadata: null,
+        });
+      },
+    };
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime,
+      aiClient: createAiClient(),
+    });
+
+    const snapshot = await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+    );
+    const run = snapshot.recentDiscoveryRuns[0];
+
+    expect(runAgentDiscoveryCalls).toBe(2);
+    expect(run?.state).toBe("completed");
+    expect(run?.targetExecutions.map((entry) => entry.state)).toEqual([
+      "failed",
       "completed",
-      "skipped",
-      "skipped",
     ]);
+    expect(run?.targetExecutions[0]?.warning).toContain(
+      "source navigation failed",
+    );
+    expect(run?.targetExecutions[0]).toMatchObject({
+      requestedJobBudget: 50,
+      jobsReviewed: 0,
+      jobsFound: 0,
+      jobsPersisted: 0,
+      jobsStaged: 0,
+      jobsSkippedByLedger: 0,
+      jobsSkippedByTitleTriage: 0,
+      duplicatesMerged: 0,
+      invalidSkipped: 0,
+    });
+    expect(
+      run?.activity.some(
+        (event) =>
+          event.targetId === "target_failing" &&
+          event.terminalState === "failed" &&
+          event.kind === "error",
+      ),
+    ).toBe(true);
+    expect(snapshot.discoveryJobs).toHaveLength(1);
+  });
+
+  test("discovery records card-only and detail-enriched jobs without overstating thin extraction", async () => {
+    const browserRuntime: BrowserSessionRuntime = {
+      ...createAgentBrowserRuntime([]),
+      runAgentDiscovery(source) {
+        return Promise.resolve({
+          source,
+          startedAt: "2026-03-20T10:00:00.000Z",
+          completedAt: "2026-03-20T10:00:05.000Z",
+          querySummary: "Detail quality discovery test run",
+          inventoryCompleteness: "partial",
+          warning: null,
+          jobs: [
+            JobPostingSchema.parse({
+              source: "target_site",
+              sourceJobId: "card_only_job",
+              discoveryMethod: "browser_agent",
+              canonicalUrl: "https://example.com/jobs/card-only-job",
+              title: "Principal Designer",
+              company: "Card Co",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: "unknown",
+              easyApplyEligible: false,
+              discoveredAt: "2026-03-20T10:00:00.000Z",
+              salaryText: null,
+              summary: "Principal Designer role at Card Co",
+              description: "Principal Designer role at Card Co",
+              keySkills: [],
+            }),
+            JobPostingSchema.parse({
+              source: "target_site",
+              sourceJobId: "detail_enriched_job",
+              discoveryMethod: "browser_agent",
+              canonicalUrl: "https://example.com/jobs/detail-enriched-job",
+              title: "Principal Product Designer",
+              company: "Detail Co",
+              location: "Remote",
+              workMode: ["remote"],
+              applyPath: "external_redirect",
+              easyApplyEligible: false,
+              discoveredAt: "2026-03-20T10:00:00.000Z",
+              salaryText: null,
+              summary:
+                "Own product design from discovery through measured delivery.",
+              description:
+                "Own product design from discovery through measured delivery, partnering with product managers and engineers to define customer problems, evaluate alternatives, document interaction decisions, test prototypes, and improve shipped workflows using qualitative and quantitative evidence from real users.",
+              keySkills: ["Product Design", "Research"],
+              responsibilities: [
+                "Lead discovery, prototyping, validation, and detailed interaction design for customer-facing workflows.",
+                "Partner with engineering and product to scope delivery and measure outcomes after release.",
+              ],
+            }),
+          ],
+          agentMetadata: null,
+        });
+      },
+    };
+    const { repository, workspaceService } = createWorkspaceServiceHarness({
+      seed: createDiscoveryOnlySeed(),
+      browserRuntime,
+      aiClient: createAiClient(),
+    });
+
+    const snapshot = await workspaceService.runAgentDiscovery(
+      () => {},
+      new AbortController().signal,
+    );
+    const discoveryState = await repository.getDiscoveryState();
+    const cardOnlyJob = snapshot.discoveryJobs.find(
+      (job) => job.sourceJobId === "card_only_job",
+    );
+    const detailEnrichedJob = snapshot.discoveryJobs.find(
+      (job) => job.sourceJobId === "detail_enriched_job",
+    );
+    const cardOnlyLedgerEntry = discoveryState.discoveryLedger.find(
+      (entry) => entry.sourceJobId === "card_only_job",
+    );
+    const detailEnrichedLedgerEntry = discoveryState.discoveryLedger.find(
+      (entry) => entry.sourceJobId === "detail_enriched_job",
+    );
+
+    expect(cardOnlyJob?.detailQuality).toBe("card_only");
+    expect(cardOnlyLedgerEntry).toEqual(
+      expect.objectContaining({
+        detailQuality: "card_only",
+        latestStatus: "seen",
+        lastEnrichedAt: null,
+      }),
+    );
+    expect(detailEnrichedJob?.detailQuality).toBe("detail_enriched");
+    expect(detailEnrichedLedgerEntry).toEqual(
+      expect.objectContaining({
+        detailQuality: "detail_enriched",
+        latestStatus: "enriched",
+        lastEnrichedAt: expect.any(String) as string,
+      }),
+    );
   });
 
   test("agent discovery prioritizes API-backed and better-seeded targets before weaker browser targets", async () => {
@@ -1005,7 +1634,8 @@ describe("createJobFinderWorkspaceService", () => {
         acceptedAt: "2026-03-20T10:06:00.000Z",
         basedOnRunId: "debug_run_browser_validated",
         basedOnAttemptIds: ["debug_attempt_browser_validated"],
-        notes: "Use the learned jobs search route before the generic landing page.",
+        notes:
+          "Use the learned jobs search route before the generic landing page.",
         navigationGuidance: [],
         searchGuidance: [],
         detailGuidance: [],
@@ -1094,7 +1724,8 @@ describe("createJobFinderWorkspaceService", () => {
             {
               id: 4622190,
               title: "API-first role",
-              absolute_url: "https://job-boards.greenhouse.io/remote/jobs/4622190",
+              absolute_url:
+                "https://job-boards.greenhouse.io/remote/jobs/4622190",
               location: { name: "Remote" },
               updated_at: "2026-03-20T10:00:00.000Z",
               content: "<p>Collect this through the provider API.</p>",
@@ -1150,16 +1781,36 @@ describe("createJobFinderWorkspaceService", () => {
     ];
 
     const requestedLabels: string[] = [];
+    const resumedRevisions: Array<number | null> = [];
     const browserRuntime: BrowserSessionRuntime = {
       ...createAgentBrowserRuntime([]),
-      runAgentDiscovery(source, options) {
+      async runAgentDiscovery(source, options) {
         requestedLabels.push(options.siteLabel);
+        resumedRevisions.push(options.resumeCheckpoint?.revision ?? null);
+        await options.onCheckpoint?.({
+          revision: 1,
+          savedAt: "2026-03-20T10:00:03.000Z",
+          currentUrl: "https://example.com/jobs/two?page=2",
+          lastStableUrl: "https://example.com/jobs/two?page=2",
+          stepCount: 3,
+          collectedJobs: [],
+          visitedUrls: ["https://example.com/jobs/two?page=2"],
+          phaseEvidence: {
+            warnings: [],
+            visibleControls: [],
+            successfulInteractions: [],
+            routeSignals: [],
+            attemptedControls: [],
+            visualFindings: [],
+          },
+        });
 
-        return Promise.resolve({
+        return {
           source,
           startedAt: "2026-03-20T10:00:00.000Z",
           completedAt: "2026-03-20T10:00:05.000Z",
           querySummary: "Single-target discovery test run",
+          inventoryCompleteness: "partial",
           warning: null,
           jobs: [
             JobPostingSchema.parse({
@@ -1193,7 +1844,7 @@ describe("createJobFinderWorkspaceService", () => {
             }),
           ],
           agentMetadata: null,
-        });
+        };
       },
     };
 
@@ -1213,7 +1864,22 @@ describe("createJobFinderWorkspaceService", () => {
     expect(snapshot.recentDiscoveryRuns[0]?.scope).toBe("single_target");
     expect(snapshot.recentDiscoveryRuns[0]?.targetIds).toEqual(["target_two"]);
     expect(snapshot.discoveryJobs).toHaveLength(1);
-    expect(snapshot.discoveryJobs[0]?.provenance[0]?.targetId).toBe("target_two");
-  });
+    expect(snapshot.discoveryJobs[0]?.provenance[0]?.targetId).toBe(
+      "target_two",
+    );
+    expect(
+      snapshot.recentDiscoveryRuns[0]?.targetExecutions[0]?.agentCheckpoint,
+    ).toMatchObject({ revision: 1, stepCount: 3 });
 
+    await workspaceService.runDiscoveryForTarget(
+      "target_two",
+      () => {},
+      new AbortController().signal,
+    );
+    // The checkpoint stays recorded on the completed execution for durability,
+    // but a completed run never seeds process progress into a fresh run: the
+    // second single-target run starts exploring fresh instead of replaying
+    // finished loop progress against a new budget.
+    expect(resumedRevisions).toEqual([null, null]);
+  });
 });

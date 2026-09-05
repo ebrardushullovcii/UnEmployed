@@ -1,10 +1,16 @@
-import type { JobFinderAiClient, ResumeVisionProvider } from "@unemployed/ai-providers";
+import type {
+  JobFinderAiClient,
+  ResumeVisionProvider,
+} from "@unemployed/ai-providers";
 import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   createInMemoryJobFinderRepository,
   type JobFinderRepositorySeed,
 } from "@unemployed/db";
-import { createJobFinderWorkspaceService } from "./index";
+import {
+  createJobFinderWorkspaceService,
+  type ListingHtmlFetcher,
+} from "./index";
 import { createSeed } from "./workspace-service.test-fixtures";
 import {
   createAiClient,
@@ -20,8 +26,12 @@ export function createWorkspaceServiceHarness(
     aiClient?: JobFinderAiClient;
     visionProvider?: ResumeVisionProvider;
     documentManager?: ReturnType<typeof createDocumentManager>;
-    exportFileVerifier?: { exists(filePath: string): Promise<boolean> };
+    exportFileVerifier?: {
+      exists(filePath: string): Promise<boolean>;
+      sha256?(filePath: string): Promise<string>;
+    };
     researchAdapter?: ReturnType<typeof createResearchAdapter>;
+    fetchListingHtml?: ListingHtmlFetcher;
   } = {},
 ) {
   const repository = createInMemoryJobFinderRepository(
@@ -30,19 +40,23 @@ export function createWorkspaceServiceHarness(
   const browserRuntime = options.browserRuntime ?? createBrowserRuntime();
   const aiClient = options.aiClient ?? createAiClient();
   const documentManager = options.documentManager ?? createDocumentManager();
-  const exportFileVerifier =
-    options.exportFileVerifier ?? {
-      exists: () => Promise.resolve(true),
-    };
+  const exportFileVerifier = options.exportFileVerifier ?? {
+    exists: () => Promise.resolve(true),
+  };
   const researchAdapter = options.researchAdapter ?? createResearchAdapter();
   const workspaceService = createJobFinderWorkspaceService({
     repository,
     browserRuntime,
     aiClient,
-    ...(options.visionProvider ? { visionProvider: options.visionProvider } : {}),
+    ...(options.visionProvider
+      ? { visionProvider: options.visionProvider }
+      : {}),
     documentManager,
     exportFileVerifier,
     researchAdapter,
+    ...(options.fetchListingHtml
+      ? { fetchListingHtml: options.fetchListingHtml }
+      : {}),
   });
 
   return {

@@ -10,14 +10,19 @@ import {
 } from "./profile-copilot-field-updates-shared";
 import { requestLooksLikeLocationListEdit } from "./profile-copilot-helpers";
 
-export const preferenceFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>> = [
+export const preferenceFieldDescriptors = [
   {
-    aliases: ["authorized work countries", "work countries", "countries i can work in"],
+    aliases: [
+      "authorized work countries",
+      "work countries",
+      "countries i can work in",
+    ],
     applyMode: "needs_review",
     key: "authorizedWorkCountries",
     operation: "replace_work_eligibility_fields",
     parseValue: parseNullableList,
-    readCurrentValue: (input) => input.profile.workEligibility.authorizedWorkCountries,
+    readCurrentValue: (input) =>
+      input.profile.workEligibility.authorizedWorkCountries,
     reviewDomain: "work_eligibility",
     title: "authorized work countries",
   },
@@ -27,17 +32,23 @@ export const preferenceFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>>
     key: "willingToRelocate",
     operation: "replace_work_eligibility_fields",
     parseValue: parseNullableBoolean,
-    readCurrentValue: (input) => input.profile.workEligibility.willingToRelocate,
+    readCurrentValue: (input) =>
+      input.profile.workEligibility.willingToRelocate,
     reviewDomain: "work_eligibility",
     title: "relocation preference",
   },
   {
-    aliases: ["preferred relocation regions", "relocation regions", "relocation locations"],
+    aliases: [
+      "preferred relocation regions",
+      "relocation regions",
+      "relocation locations",
+    ],
     applyMode: "needs_review",
     key: "preferredRelocationRegions",
     operation: "replace_work_eligibility_fields",
     parseValue: parseNullableList,
-    readCurrentValue: (input) => input.profile.workEligibility.preferredRelocationRegions,
+    readCurrentValue: (input) =>
+      input.profile.workEligibility.preferredRelocationRegions,
     reviewDomain: "work_eligibility",
     title: "preferred relocation regions",
   },
@@ -57,7 +68,8 @@ export const preferenceFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>>
     key: "availableStartDate",
     operation: "replace_work_eligibility_fields",
     parseValue: parseNullableText,
-    readCurrentValue: (input) => input.profile.workEligibility.availableStartDate,
+    readCurrentValue: (input) =>
+      input.profile.workEligibility.availableStartDate,
     reviewDomain: "work_eligibility",
     title: "available start date",
   },
@@ -77,7 +89,8 @@ export const preferenceFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>>
     key: "securityClearance",
     operation: "replace_work_eligibility_fields",
     parseValue: parseNullableText,
-    readCurrentValue: (input) => input.profile.workEligibility.securityClearance,
+    readCurrentValue: (input) =>
+      input.profile.workEligibility.securityClearance,
     reviewDomain: "work_eligibility",
     title: "security clearance",
   },
@@ -90,7 +103,8 @@ export const preferenceFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>>
       /preferred email/.test(normalizedRequest),
     operation: "replace_application_identity_fields",
     parseValue: parseNullableText,
-    readCurrentValue: (input) => input.profile.applicationIdentity.preferredEmail,
+    readCurrentValue: (input) =>
+      input.profile.applicationIdentity.preferredEmail,
     reviewDomain: null,
     title: "preferred application email",
   },
@@ -103,7 +117,8 @@ export const preferenceFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>>
       /preferred phone/.test(normalizedRequest),
     operation: "replace_application_identity_fields",
     parseValue: parseNullableText,
-    readCurrentValue: (input) => input.profile.applicationIdentity.preferredPhone,
+    readCurrentValue: (input) =>
+      input.profile.applicationIdentity.preferredPhone,
     reviewDomain: null,
     title: "preferred application phone",
   },
@@ -113,7 +128,8 @@ export const preferenceFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>>
     key: "preferredLinkIds",
     operation: "replace_application_identity_fields",
     parseValue: parseNullableList,
-    readCurrentValue: (input) => input.profile.applicationIdentity.preferredLinkIds,
+    readCurrentValue: (input) =>
+      input.profile.applicationIdentity.preferredLinkIds,
     reviewDomain: null,
     title: "preferred public link IDs",
   },
@@ -133,7 +149,8 @@ export const preferenceFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>>
     key: "languagesAndFrameworks",
     operation: "replace_skill_group_fields",
     parseValue: parseNullableList,
-    readCurrentValue: (input) => input.profile.skillGroups.languagesAndFrameworks,
+    readCurrentValue: (input) =>
+      input.profile.skillGroups.languagesAndFrameworks,
     reviewDomain: null,
     title: "languages and frameworks",
   },
@@ -151,7 +168,8 @@ export const preferenceFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>>
     aliases: ["core skills"],
     applyMode: "applied",
     key: "coreSkills",
-    matchesRequest: (normalizedRequest) => /core skills/.test(normalizedRequest),
+    matchesRequest: (normalizedRequest) =>
+      /core skills/.test(normalizedRequest),
     operation: "replace_skill_group_fields",
     parseValue: parseNullableList,
     readCurrentValue: (input) => input.profile.skillGroups.coreSkills,
@@ -172,7 +190,12 @@ export const preferenceFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>>
     aliases: ["preferred locations", "locations to search", "target locations"],
     applyMode: "needs_review",
     key: "locations",
-    matchesRequest: requestLooksLikeLocationListEdit,
+    matchesRequest: (normalizedRequest) =>
+      // "excluded locations" is its own descriptor; without this exclusion the
+      // longer-shared phrase list would let the preferred-locations field
+      // absorb excluded-location commands.
+      requestLooksLikeLocationListEdit(normalizedRequest) &&
+      !/excluded locations/.test(normalizedRequest),
     operation: "replace_search_preferences_fields",
     parseValue: parseNullableList,
     readCurrentValue: (input) => input.searchPreferences.locations,
@@ -239,16 +262,9 @@ export const preferenceFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>>
     reviewDomain: "search_preferences",
     title: "employment types",
   },
-  {
-    aliases: ["minimum salary"],
-    applyMode: "applied",
-    key: "minimumSalaryUsd",
-    operation: "replace_search_preferences_fields",
-    parseValue: parseNullableInteger,
-    readCurrentValue: (input) => input.searchPreferences.minimumSalaryUsd,
-    reviewDomain: "search_preferences",
-    title: "minimum salary",
-  },
+  // Minimum/expected salary amounts are owned by the unified typed salary
+  // command parser (profile-copilot-salary.ts), which stages compensation
+  // operations without the legacy minimumSalaryUsd/year-USD assumptions.
   {
     aliases: ["salary currency", "currency"],
     applyMode: "applied",
@@ -299,4 +315,4 @@ export const preferenceFieldDescriptors: ReadonlyArray<FieldDescriptor<unknown>>
     reviewDomain: "search_preferences",
     title: "company whitelist",
   },
-];
+] as const satisfies ReadonlyArray<FieldDescriptor<unknown>>;

@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
 @theme inline {
@@ -39,12 +38,26 @@
   --color-active-foreground: var(--active-foreground);
   --color-critical: var(--critical);
   --color-critical-foreground: var(--critical-foreground);
+  /* F44: attention states had no badge tone of their own, so the existing
+     --warning-* family was only ever reachable as raw custom properties on
+     plain elements. Mapping it here gives StatusBadge a real `warning` tone.
+     Measured against card / canvas / secondary / surface, the boundary is
+     5.91-6.83:1 (dark) and 3.80-4.28:1 (light) at the /75 alpha every tinted
+     badge now uses; the text on its own chip fill is 6.08-9.78:1. The /65
+     alpha it replaced was measured for the warning family only and inherited
+     untested by the others, where it fell to 2.86:1 (light --primary) and
+     2.96:1 (dark --destructive) against each chip's own tint. Re-measured per
+     tone and pinned by styles/globals.test.ts. */
+  --color-warning: var(--warning-text);
+  --color-warning-surface: var(--warning-surface);
 }
 
 :root {
-  --font-body: "Inter", sans-serif;
-  --font-headline: "Space Grotesk", sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
+  --font-body:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-headline:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  --font-mono: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
 
   --discovery-history-max-height: min(90vh, 56rem);
   --workspace-state-card-max-width: 34rem;
@@ -56,8 +69,8 @@
   --resume-sidebar-columns: minmax(0, 0.95fr) minmax(0, 1.2fr) minmax(0, 0.85fr);
   --resume-sidebar-padding: 0.875rem;
 
-  --job-finder-side-width: 15.5rem;
-  --job-finder-side-width-sm: 18.5rem;
+  --job-finder-side-width: 17rem;
+  --job-finder-side-width-sm: 17rem;
   --size-resume-workspace-panel: 28rem;
 
   background: var(--background);
@@ -65,47 +78,87 @@
 }
 
 :root,
-:root[data-theme='dark'] {
+:root[data-theme="dark"] {
   color-scheme: dark;
 
-  --background: #0e0e0e;
-  --foreground: #e7e5e5;
-  --card: #131313;
-  --card-foreground: #e7e5e5;
-  --popover: #161616;
-  --popover-foreground: #e7e5e5;
-  --primary: #c6c6c7;
-  --primary-foreground: #3f4041;
-  --secondary: #151515;
-  --secondary-foreground: #e7e5e5;
-  --muted: #141414;
-  --muted-foreground: #7a7771;
-  --accent: #1a1a1a;
-  --accent-foreground: #e7e5e5;
+  --background: #111315;
+  --foreground: #f1f2f3;
+  --card: #1b1e21;
+  --card-foreground: #f1f2f3;
+  --popover: #202429;
+  --popover-foreground: #f1f2f3;
+  /* Filled primary CTAs (Approve resume, Prepare application, Finish in the
+     open application) previously sat only ~4.5:1 above the panels they
+     render on, so the dark-theme "primary" read as a disabled chip barely
+     distinguishable from --secondary beside it. The steel family is kept
+     (no neon); the fill is lifted until it clears 4.5:1 as a fill against
+     card/panel/secondary surfaces and its own foreground text clears AA by
+     a wide margin. Pinned by styles/globals.test.ts. */
+  --primary: #8fa6c6;
+  --primary-foreground: #0e1116;
+  --secondary: #22262b;
+  --secondary-foreground: #e7e9eb;
+  --muted: #202429;
+  --muted-foreground: #a4abb3;
+  --accent: #29313a;
+  --accent-foreground: #f1f2f3;
+  /* Selected shell destination. The generic --accent fill sat within ~1.4:1 of
+     the sidebar rail (--shell-header-bg), so "which page am I on" rested on a
+     2px bar alone. These stay >=3:1 non-text against the rail in both themes
+     and carry AA label text; globals.test.ts pins both. */
+  --nav-active-surface: #5a6878;
+  --nav-active-foreground: #f5f7f9;
+  --nav-active-bar: #c8d6ea;
+  /* Selected list row (SelectableRow: Find jobs, Shortlisted, Applications).
+     Split from --nav-active-bar because that token is drawn on the dark
+     --nav-active-surface fill, while this one is drawn on --surface-strong.
+     One value cannot clear 3:1 on both in the light theme, and reusing the
+     nav token left the light selected row with no channel above 1.78:1.
+     Pinned by styles/globals.test.ts. */
+  --row-selected-bar: #c8d6ea;
   --destructive: #ee7d77;
   --destructive-foreground: #490106;
-  --border: rgba(255, 255, 255, 0.14);
-  --input: #19191a;
-  --ring: rgba(198, 198, 199, 0.48);
+  --border: #464e56;
+  --input: #202429;
+  --ring: #7d91ad;
 
-  --surface: #0e0e0e;
-  --surface-raised: #141414;
-  --surface-strong: #191919;
-  --surface-muted: #101010;
-  --surface-panel: #0a0a0b;
-  --surface-panel-raised: #0d0d0e;
-  --surface-panel-border: rgba(255, 255, 255, 0.12);
-  --surface-panel-border-active: rgba(85, 184, 120, 0.48);
-  --surface-panel-border-active-soft: rgba(85, 184, 120, 0.4);
-  --surface-panel-border-warm: rgba(227, 202, 127, 0.18);
-  --surface-panel-border-warm-strong: rgba(227, 202, 127, 0.7);
-  --surface-panel-border-warm-hover: rgba(227, 202, 127, 0.28);
-  --surface-tab-hover: rgba(255, 255, 255, 0.025);
-  --surface-panel-shell: linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(0, 0, 0, 0.04));
-  --surface-panel-shell-border: rgba(227, 202, 127, 0.18);
-  --surface-panel-shell-highlight: rgba(227, 202, 127, 0.7);
-  --surface-card-tint: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.012));
-  --surface-card-tint-border: rgba(227, 202, 127, 0.14);
+  --surface: #151719;
+  --surface-raised: #1b1e21;
+  --surface-strong: #242a31;
+  --surface-muted: #171a1d;
+  /* Read-only detail/disclosure wells. Split from the field family so inert
+     content keeps its praised quiet boundary while editable controls can
+     carry a stronger one. */
+  --surface-well: #171a1d;
+  --surface-well-border: #3a4148;
+  --surface-panel: #1b1e21;
+  --surface-panel-solid: #1b1e21;
+  --surface-panel-raised: #202429;
+  /* Panel/card/disclosure boundary: INERT CHROME, deliberately not a 3:1
+     control boundary. WCAG 2.2 1.4.11 governs boundaries needed to identify a
+     component or its state - fields, checkboxes, buttons, toggles, selected
+     and focus indicators - and those live on --control-border,
+     --field-border and --row-selected-bar, which do clear 3:1. A panel
+     outline, a row divider and a card edge are structure, not state.
+     Raising this token to 3:1 turned 78 single-edge divider consumers into
+     rules: light Find jobs read as a ruled table, four to five parallel
+     greys competing in one column. It sits in a band instead - visible
+     (>=2:1) but strictly quieter than --field-border, so the ladder
+     panel < field < control stays monotonic. Both ends of that band are
+     pinned by styles/globals.test.ts; the ceiling is what stops this being
+     raised into a rule again. */
+  --surface-panel-border: #565e68;
+  --surface-panel-border-active: rgba(125, 145, 173, 0.72);
+  --surface-panel-border-active-soft: rgba(125, 145, 173, 0.45);
+  --surface-panel-border-warm: #343a40;
+  --surface-panel-border-warm-strong: rgba(125, 145, 173, 0.72);
+  --surface-panel-border-warm-hover: rgba(125, 145, 173, 0.5);
+  --surface-tab-hover: rgba(125, 145, 173, 0.08);
+  --surface-panel-shell: var(--surface-panel);
+  --surface-panel-shell-border: var(--surface-panel-border);
+  --surface-panel-shell-highlight: transparent;
+  --surface-card-tint: transparent;
+  --surface-card-tint-border: var(--border-subtle);
   --surface-fill-subtle: rgba(255, 255, 255, 0.01);
   --surface-fill-soft: rgba(255, 255, 255, 0.03);
   --surface-fill-chip: rgba(255, 255, 255, 0.04);
@@ -119,69 +172,119 @@
   --surface-progress-track: rgba(0, 0, 0, 0.4);
   --button-pending-rail: rgba(255, 255, 255, 0.85);
   --button-pending-rail-track: rgba(255, 255, 255, 0.1);
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.22);
-  --foreground-soft: #b7b2ab;
-  --field: #0d0d0e;
-  --field-strong: #141414;
-  --field-border: rgba(255, 255, 255, 0.15);
-  --field-focus-border: rgba(235, 233, 225, 0.35);
-  --field-focus-shadow: 0 0 0 1px rgba(235, 233, 225, 0.16);
-  --panel-surface-muted: rgba(17, 17, 17, 0.9);
-  --shell-header-bg: rgba(12, 12, 12, 0.92);
+  --border-subtle: #434a51;
+  /* Control chrome. Secondary/outline buttons, interactive cards and
+     disclosures carry no fill difference from the surface they sit on, so
+     this border is their only boundary and must clear the WCAG 2.4.11 3:1
+     non-text floor against every interior surface (card, canvas, secondary,
+     popover, surface-strong). Pinned by styles/globals.test.ts. */
+  --border-strong: #727d89;
+  --control-border: var(--border-strong);
+  --control-border-hover: #8b96a2;
+  /* Disabled treatment. A disabled control loses its fill entirely instead
+     of being marked only by a label colour step to the ordinary secondary
+     text colour, which was indistinguishable from an enabled control.
+     Because the fill is dropped, --disabled-border is the control's ENTIRE
+     shape, so it carries the 3:1 non-text floor like any other boundary: at
+     #3a4148 it measured 1.40-1.80:1 against card / canvas / popover /
+     secondary and simply was not a boundary. It stays strictly quieter than
+     --border-strong so a disabled control never outranks an enabled one.
+     --disabled-foreground was pinned only on card / canvas / popover; it
+     fell to 4.36:1 on --surface-strong, which is where studio next-step and
+     selected-row controls actually render. Pinned by styles/globals.test.ts. */
+  --disabled-surface: transparent;
+  --disabled-border: #67717c;
+  --disabled-foreground: #8b939b;
+  /* Text-only navigation. Hue is never the sole carrier - links stay
+     underlined - but the hue still has to separate from body text. */
+  --link: #a8bcda;
+  --link-hover: #c6d4ea;
+  --foreground-soft: #b8bdc3;
+  --field: #171a1d;
+  --field-strong: #242a31;
+  --field-border: #677480;
+  --field-focus-border: #8aa0bf;
+  --field-focus-shadow: 0 0 0 2px rgba(138, 160, 191, 0.34);
+  --panel-surface-muted: #1b1e21;
+  --shell-header-bg: rgba(21, 23, 25, 0.97);
   --focus-inset-highlight: rgba(255, 255, 255, 0.08);
   --surface-inset-highlight: rgba(255, 255, 255, 0.02);
   --modal-scrim: rgba(0, 0, 0, 0.7);
   --modal-shadow: 0 32px 120px rgba(0, 0, 0, 0.55);
   --select-shadow: 0 14px 40px rgba(0, 0, 0, 0.34);
-  --progress-active-glow: 0 0 8px rgba(198, 198, 199, 0.3);
-  --selection-background: rgba(235, 233, 225, 0.22);
-  --scrollbar-thumb: rgba(255, 255, 255, 0.16);
-  --surface-grid-top: rgba(255, 255, 255, 0.02);
-  --surface-grid-line: rgba(255, 255, 255, 0.015);
-  --resume-preview-frame: radial-gradient(circle at top, rgba(255, 255, 255, 0.08), var(--surface-overlay-strong));
+  --progress-active-glow: none;
+  --selection-background: rgba(125, 145, 173, 0.32);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.4);
+  --surface-grid-top: transparent;
+  --surface-grid-line: transparent;
+  --resume-preview-frame: radial-gradient(
+    circle at top,
+    rgba(255, 255, 255, 0.08),
+    var(--surface-overlay-strong)
+  );
   --resume-preview-shell-shadow: 0 18px 60px var(--surface-overlay-heavy);
 
-  --positive: #d0ecff;
-  --positive-foreground: #2b4655;
-  --progress-active-start: rgba(100, 214, 136, 0.95);
-  --progress-active-end: rgba(180, 244, 199, 0.72);
-  --progress-warm-start: rgba(227, 202, 127, 0.92);
-  --progress-warm-end: rgba(255, 255, 255, 0.58);
-  --active: #c6c6c7;
-  --active-foreground: #3e4040;
+  /* Ready/positive shares the success sage family; primary/active keep
+     selected-state styling separate. */
+  --positive: #96c4a0;
+  --positive-foreground: #12171d;
+  --progress-active-start: #6f86a5;
+  --progress-active-end: #9eb0c8;
+  --progress-warm-start: #9b835f;
+  --progress-warm-end: #bba784;
+  --active: #7d91ad;
+  --active-foreground: #111315;
   --critical: #ff9993;
   --critical-foreground: #490106;
 
   /* Component tokens - Radius */
-  --radius-field: 0.42rem;
-  --radius-panel: 0.55rem;
-  --radius-badge: 0.32rem;
-  --radius-button: 0.8rem;
-  --radius-chip: 0.22rem;
-  --radius-small: 0.24rem;
+  --radius-field: 0.34rem;
+  --radius-panel: 0.42rem;
+  --radius-badge: 0.24rem;
+  --radius-button: 0.34rem;
+  --radius-chip: 0.2rem;
+  --radius-small: 0.22rem;
 
-  /* Component tokens - Typography */
-  --text-field: 0.92rem;
-  --text-eyebrow: 0.625rem;
-  --text-field-label: 0.625rem;
-  --text-section-title: 1.15rem;
-  --text-body: 0.95rem;
+  --empty-state-min-height: 18rem;
+
+  /* Component tokens - Typography
+   *
+   * One published scale, keyed by role, documented in the design-scale note
+   * that the screen groups read. Headings are h1 24 / h2 19 / h3 16 / h4 14,
+   * all at weight 600 and strictly monotonic; field content renders at body
+   * size; every uppercase or tracked label style sits on an 11px floor.
+   * Pinned by styles/globals.test.ts ("published type scale").
+   */
+  --text-heading-1: 1.5rem;
+  --text-heading-2: 1.1875rem;
+  --text-heading-3: 1rem;
+  --text-heading-4: 0.875rem;
+  --text-body: 0.92rem;
+  /* Field content must match body size. Un-classed inputs previously took
+     their size from `font: inherit` and rendered at 17-19px against 11px
+     labels, which was a direct driver of short-window overflow. */
+  --text-field: var(--text-body);
+  --text-section-title: var(--text-heading-2);
+  --text-eyebrow: 0.6875rem;
+  --text-field-label: 0.6875rem;
   --text-description: 0.84rem;
   --text-small: 0.78rem;
-  --text-tiny: 0.68rem;
-  --text-label: 0.58rem;
-  --text-label-mono-xs: 10px;
-  --text-card-heading-sm: 9px;
-  --text-page-title: clamp(3rem, 5vw, 4.25rem);
-  --text-page-title-compact: clamp(2rem, 3.1vw, 2.7rem);
+  --text-tiny: 0.6875rem;
+  --text-label: 0.6875rem;
+  --text-label-mono-xs: 11px;
+  --text-card-heading-sm: 11px;
+  --text-page-title: clamp(2.15rem, 3.4vw, 3.25rem);
+  /* Fixed, not viewport-derived: the clamp made the page title land on a
+     different size per route (24 vs 24.5), so titles visibly shifted while
+     navigating. */
+  --text-page-title-compact: var(--text-heading-1);
   --text-page-description: 0.98rem;
-  --text-page-description-compact: 0.88rem;
+  --text-page-description-compact: 0.8rem;
   --text-count: 0.72rem;
   --text-item: 0.9rem;
   --text-icon-small: 0.8rem;
   --leading-page-description: 1.75rem;
-  --leading-page-description-compact: 1.25rem;
+  --leading-page-description-compact: 1.05rem;
   --type-headline-responsive: clamp(2.25rem, 4vw, 3.4rem);
   --type-body-lg: 1.05rem;
   --type-body-md: 0.98rem;
@@ -204,6 +307,10 @@
   --gap-card: 1.2rem;
   --gap-section: 1.65rem;
 
+  /* Component tokens - Page header stack */
+  --gap-page-header-aux: 0.5rem;
+  --gap-page-header-body: 0.75rem;
+
   /* Component tokens - Textarea heights */
   --textarea-compact: 5.6rem;
   --textarea-default: 6.8rem;
@@ -211,20 +318,29 @@
   --height-action-message: 14px;
 
   /* Component tokens - Colors */
-  --headline-primary: #fbfaf6;
-  --headline-secondary: #f8f7f3;
-  --text-headline: #f6f2e8;
-  --text-badge: #f4efe4;
+  --headline-primary: #f1f2f3;
+  --headline-secondary: #e7e9eb;
+  --text-headline: #f1f2f3;
+  --text-badge: #e7e9eb;
   --button-close-hover: #8a1f17;
+  /*
+   * Semantic status families stay hue-separated in both themes: success and
+   * the ready/positive accent share one restrained sage family (never neon),
+   * info keeps the steel-blue accent family, warning stays amber, and danger
+   * stays red. Callout text must clear WCAG 2.2 AA (>= 4.5:1) on every
+   * shared interior surface, including each family's own tinted fill
+   * composited over it. Pinned by styles/globals.test.ts ("semantic status
+   * token separation").
+   */
   --warning-border: rgba(227, 202, 127, 0.24);
   --warning-surface: rgba(227, 202, 127, 0.08);
   --warning-text: #e6c86f;
-  --success-border: rgba(86, 184, 120, 0.24);
-  --success-surface: rgba(86, 184, 120, 0.08);
-  --success-text: #8fdfab;
-  --info-border: rgba(86, 164, 255, 0.24);
-  --info-surface: rgba(86, 164, 255, 0.08);
-  --info-text: #74b7ff;
+  --success-border: rgba(150, 196, 160, 0.4);
+  --success-surface: rgba(150, 196, 160, 0.12);
+  --success-text: #96c4a0;
+  --info-border: rgba(125, 145, 173, 0.4);
+  --info-surface: rgba(125, 145, 173, 0.12);
+  --info-text: #a6b9d1;
   --surface-panel-tint: rgba(255, 255, 255, 0.02);
   --surface-gradient-start: rgba(16, 22, 35, 0.02);
   --surface-gradient-end: rgba(16, 22, 35, 0.1);
@@ -237,47 +353,70 @@
   --workspace-state-card-shadow: 0 30px 80px rgba(0, 0, 0, 0.32);
 }
 
-:root[data-theme='light'] {
+:root[data-theme="light"] {
   color-scheme: light;
 
-  --background: #f5f5f2;
-  --foreground: #171717;
-  --card: #ffffff;
-  --card-foreground: #171717;
-  --popover: #ffffff;
-  --popover-foreground: #171717;
-  --primary: #202325;
-  --primary-foreground: #fbfbfa;
-  --secondary: #eceae3;
-  --secondary-foreground: #222426;
-  --muted: #efede8;
-  --muted-foreground: #5f625d;
-  --accent: #e7e4dc;
-  --accent-foreground: #1a1c1e;
-  --destructive: #d25f58;
+  /* The light theme is layered rather than flat grey-on-grey: panels, cards,
+     popovers, and fields sit near white on a slightly darker page canvas, so
+     an owned surface is visible without a heavier border. Pinned by
+     styles/globals.test.ts. */
+  --background: #e6e8eb;
+  --foreground: #20252a;
+  --card: #f6f7f8;
+  --card-foreground: #20252a;
+  --popover: #fbfbfc;
+  --popover-foreground: #20252a;
+  /* Light-theme accent fills darken the dark-theme steel family so white
+     foreground text clears WCAG AA (>= 4.5:1) on every interior surface. */
+  --primary: #3a5274;
+  --primary-foreground: #f5f7f9;
+  --secondary: #e2e5e9;
+  --secondary-foreground: #20252a;
+  --muted: #e8eaed;
+  --muted-foreground: #4c545d;
+  --accent: #d3dde9;
+  --nav-active-surface: #3a5274;
+  --nav-active-foreground: #f5f7f9;
+  --nav-active-bar: #a8bde0;
+  /* Light polarity of the selected-row accent: a pale bar on a near-white
+     list is invisible (1.78:1 against the unselected row), so the light row
+     bar is the dark accent, matching the active Profile section tab. */
+  --row-selected-bar: #3a5274;
+  --accent-foreground: #20252a;
+  --destructive: #922f2a;
   --destructive-foreground: #fff8f7;
-  --border: rgba(24, 24, 22, 0.14);
-  --input: #f1efea;
-  --ring: rgba(32, 35, 37, 0.22);
+  --border: #a8b0b8;
+  --input: #f0f2f4;
+  --ring: #455673;
 
-  --surface: #f5f5f2;
-  --surface-raised: #f0eee8;
-  --surface-strong: #e6e2d8;
-  --surface-muted: #ebe8e0;
-  --surface-panel: #ffffff;
-  --surface-panel-raised: #f5f3ee;
-  --surface-panel-border: rgba(24, 24, 22, 0.1);
-  --surface-panel-border-active: rgba(48, 136, 84, 0.42);
-  --surface-panel-border-active-soft: rgba(48, 136, 84, 0.24);
-  --surface-panel-border-warm: rgba(173, 129, 40, 0.22);
-  --surface-panel-border-warm-strong: rgba(148, 109, 32, 0.55);
-  --surface-panel-border-warm-hover: rgba(173, 129, 40, 0.3);
-  --surface-tab-hover: rgba(24, 24, 22, 0.045);
-  --surface-panel-shell: linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(186, 161, 108, 0.08));
-  --surface-panel-shell-border: rgba(173, 129, 40, 0.2);
-  --surface-panel-shell-highlight: rgba(148, 109, 32, 0.42);
-  --surface-card-tint: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(173, 129, 40, 0.055));
-  --surface-card-tint-border: rgba(173, 129, 40, 0.14);
+  --surface: #dfe2e6;
+  --surface-raised: #eceef1;
+  --surface-strong: #d3dde9;
+  --surface-muted: #edeff2;
+  /* Read-only detail/disclosure wells. Split from the field family so inert
+     content keeps its praised quiet boundary while editable controls can
+     carry a stronger one. */
+  --surface-well: #eef0f2;
+  --surface-well-border: #b1b8bf;
+  --surface-panel: #f6f7f8;
+  --surface-panel-solid: #f6f7f8;
+  --surface-panel-raised: #eceef1;
+  /* Inert chrome; see the dark-theme note for why this is deliberately not a
+     3:1 control boundary. Light carries the same band, one step stronger
+     than the 1.75:1 it started at so a panel edge still reads, and well
+     under --field-border so it never competes with an editable control. */
+  --surface-panel-border: #929aa3;
+  --surface-panel-border-active: rgba(95, 120, 153, 0.72);
+  --surface-panel-border-active-soft: rgba(95, 120, 153, 0.42);
+  --surface-panel-border-warm: #b9c0c7;
+  --surface-panel-border-warm-strong: rgba(95, 120, 153, 0.72);
+  --surface-panel-border-warm-hover: rgba(95, 120, 153, 0.5);
+  --surface-tab-hover: rgba(95, 120, 153, 0.08);
+  --surface-panel-shell: var(--surface-panel);
+  --surface-panel-shell-border: var(--surface-panel-border);
+  --surface-panel-shell-highlight: transparent;
+  --surface-card-tint: transparent;
+  --surface-card-tint-border: var(--border-subtle);
   --surface-fill-subtle: rgba(24, 24, 22, 0.028);
   --surface-fill-soft: rgba(24, 24, 22, 0.05);
   --surface-fill-chip: rgba(24, 24, 22, 0.06);
@@ -291,54 +430,76 @@
   --surface-overlay-heavy: rgba(24, 24, 22, 0.12);
   --surface-overlay-track: rgba(24, 24, 22, 0.12);
   --surface-progress-track: rgba(24, 24, 22, 0.12);
-  --border-subtle: rgba(24, 24, 22, 0.08);
-  --border-strong: rgba(24, 24, 22, 0.16);
-  --foreground-soft: #50524e;
-  --field: #f6f4ef;
-  --field-strong: #ece9e2;
-  --field-border: rgba(24, 24, 22, 0.14);
-  --field-focus-border: rgba(32, 35, 37, 0.28);
-  --field-focus-shadow: 0 0 0 1px rgba(32, 35, 37, 0.08);
-  --panel-surface-muted: rgba(255, 255, 255, 0.94);
-  --shell-header-bg: rgba(248, 247, 243, 0.92);
-  --focus-inset-highlight: rgba(255, 255, 255, 0.46);
-  --surface-inset-highlight: rgba(255, 255, 255, 0.36);
+  --border-subtle: #b5bcc3;
+  --border-strong: #767d85;
+  --control-border: var(--border-strong);
+  --control-border-hover: #5d646c;
+  /* Light polarity of the disabled treatment; see the dark-theme note. The
+     light window is narrow because --border-strong itself only reaches
+     3.30:1 on --secondary, so this value sits just inside it: 3.03-3.71:1
+     across card / canvas / popover / secondary, every one below the matching
+     --border-strong ratio. */
+  --disabled-surface: transparent;
+  --disabled-border: #7c838b;
+  --disabled-foreground: #596067;
+  --link: #2f4a70;
+  --link-hover: #23344a;
+  --foreground-soft: #4f575f;
+  --field: #fcfcfd;
+  --field-strong: #ffffff;
+  /* The field fill is within 1.05:1 of the card, so this border is the only
+     thing that identifies an editable control. At #8a939c it measured
+     2.91:1 on the card and 2.54:1 on the canvas - below the 3:1 non-text
+     floor with no fill fallback. Dark already cleared it at 3.50/3.89. */
+  --field-border: #7a828b;
+  --field-focus-border: #3a5274;
+  --field-focus-shadow: 0 0 0 2px rgba(58, 82, 116, 0.3);
+  --panel-surface-muted: #f6f7f8;
+  --shell-header-bg: rgba(230, 232, 235, 0.97);
+  --focus-inset-highlight: rgba(255, 255, 255, 0.28);
+  --surface-inset-highlight: rgba(255, 255, 255, 0.2);
   --modal-scrim: rgba(31, 33, 36, 0.2);
   --modal-shadow: 0 24px 72px rgba(31, 33, 36, 0.16);
   --select-shadow: 0 12px 34px rgba(31, 33, 36, 0.12);
-  --progress-active-glow: 0 0 0 1px rgba(48, 136, 84, 0.12);
-  --selection-background: rgba(32, 35, 37, 0.14);
-  --scrollbar-thumb: rgba(24, 24, 22, 0.18);
-  --surface-grid-top: rgba(255, 255, 255, 0.5);
-  --surface-grid-line: rgba(24, 24, 22, 0.035);
-  --resume-preview-frame: radial-gradient(circle at top, var(--surface-overlay-subtle), var(--surface-panel-raised));
+  --progress-active-glow: none;
+  --selection-background: rgba(95, 120, 153, 0.24);
+  --scrollbar-thumb: rgba(24, 24, 22, 0.52);
+  --surface-grid-top: transparent;
+  --surface-grid-line: transparent;
+  --resume-preview-frame: radial-gradient(
+    circle at top,
+    var(--surface-overlay-subtle),
+    var(--surface-panel-raised)
+  );
   --resume-preview-shell-shadow: 0 18px 60px rgba(24, 24, 22, 0.14);
 
-  --positive: #0f6ea8;
-  --positive-foreground: #eef7ff;
-  --progress-active-start: rgba(48, 136, 84, 0.92);
-  --progress-active-end: rgba(106, 183, 133, 0.7);
-  --progress-warm-start: rgba(177, 132, 36, 0.88);
-  --progress-warm-end: rgba(214, 185, 117, 0.7);
-  --active: #1f2225;
-  --active-foreground: #faf9f6;
-  --critical: #bd4f49;
+  /* Ready/positive shares the success sage family; primary/active keep
+     selected-state styling separate. */
+  --positive: #28563a;
+  --positive-foreground: #f5f7f9;
+  --progress-active-start: #5f7899;
+  --progress-active-end: #8096b2;
+  --progress-warm-start: #8d7654;
+  --progress-warm-end: #aa9778;
+  --active: #3a5274;
+  --active-foreground: #f5f7f9;
+  --critical: #8c2d27;
   --critical-foreground: #fff9f8;
 
-  --headline-primary: #161718;
-  --headline-secondary: #252729;
-  --text-headline: #202224;
-  --text-badge: #fcfbf8;
+  --headline-primary: #20252a;
+  --headline-secondary: #2b3137;
+  --text-headline: #20252a;
+  --text-badge: #f5f7f9;
   --button-close-hover: #cb5f58;
   --warning-border: rgba(173, 129, 40, 0.26);
   --warning-surface: rgba(173, 129, 40, 0.09);
-  --warning-text: #8d6417;
-  --success-border: rgba(48, 136, 84, 0.22);
-  --success-surface: rgba(48, 136, 84, 0.08);
-  --success-text: #2b7c50;
-  --info-border: rgba(48, 118, 193, 0.2);
-  --info-surface: rgba(48, 118, 193, 0.08);
-  --info-text: #2567a5;
+  --warning-text: #66460c;
+  --success-border: rgba(40, 86, 58, 0.34);
+  --success-surface: rgba(40, 86, 58, 0.1);
+  --success-text: #28563a;
+  --info-border: rgba(95, 120, 153, 0.34);
+  --info-surface: rgba(95, 120, 153, 0.1);
+  --info-text: #35506e;
   --surface-panel-tint: rgba(24, 24, 22, 0.035);
   --surface-gradient-start: rgba(24, 24, 22, 0.02);
   --surface-gradient-end: rgba(24, 24, 22, 0.08);
@@ -346,89 +507,200 @@
   --guided-edits-panel-border: rgba(24, 24, 22, 0.14);
   --guided-edits-panel-shadow: 0 24px 72px rgba(31, 33, 36, 0.16);
   --guided-edits-bubble-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
-  --workspace-state-card-bg-default: rgba(255, 255, 255, 0.96);
-  --workspace-state-card-bg-error: rgba(255, 244, 242, 0.96);
+  --workspace-state-card-bg-default: rgba(246, 247, 248, 0.98);
+  --workspace-state-card-bg-error: rgba(229, 213, 212, 0.98);
   --workspace-state-card-shadow: 0 20px 56px rgba(31, 33, 36, 0.12);
 }
 
-* {
-  box-sizing: border-box;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
+/*
+ * Interview overlay scope.
+ *
+ * The Interview Helper answer/transcript popups fork the palette outside this
+ * file, so their surfaces, boundaries and disabled states are unreachable from
+ * the token contract every other surface is measured against. This scope is
+ * the seam that ends that fork: the overlay package redeclares the same token
+ * names here, so an overlay stays theme-aware and testable instead of shipping
+ * literal colours in component source.
+ *
+ * Deliberately empty. It declares nothing today and therefore changes no
+ * rendering; it is filled by the overlay package, not by this one.
+ */
+:root[data-overlay="interview"] {
+  /* intentionally empty - see the note above */
 }
 
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+/*
+ * Element defaults belong in the base layer.
+ *
+ * An unlayered rule beats every layered rule regardless of specificity, so a
+ * bare `h1 { font-size: … }` written outside a layer outranked the
+ * `text-(length:--text-page-title-compact)` utility on the same element. Page
+ * titles therefore rendered at the full display clamp everywhere and the one
+ * screen that noticed patched itself with `!` important modifiers. Keeping
+ * these defaults inside `@layer base` restores the intended order: base
+ * defaults lose to component-chosen utilities. Pinned by
+ * styles/globals.test.ts.
+ */
+@layer base {
+  * {
+    box-sizing: border-box;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    overflow: hidden;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-body);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button {
+    font: inherit;
+  }
+
+  /*
+   * `font: inherit` on a field takes the *parent's* size, so any input,
+   * select or textarea rendered inside a heading-sized or eyebrow-sized
+   * container rendered at that container's size (measured 17-19px against
+   * 11px labels). Family, weight, tracking and line-height still inherit;
+   * only the size is pinned to the published field token, which is itself
+   * an alias of the body size.
+   */
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+    font-size: var(--text-field);
+    font-weight: inherit;
+    letter-spacing: inherit;
+    line-height: inherit;
+  }
+
+  button,
+  [role="button"],
+  a[href],
+  summary {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  [role="button"]:disabled,
+  summary:disabled {
+    cursor: not-allowed;
+  }
 }
 
-*::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
+/*
+ * Keyboard focus indicators must never render the ring token diluted.
+ * Tailwind compiles ring-ring/30 and ring-ring/40 to a color-mix at that
+ * opacity inside the utilities layer, which composites to ~1.5-1.9:1
+ * against the interior surfaces in both themes — below the WCAG 2.4.11
+ * 3:1 non-text floor. This unlayered rule beats the layered utility and
+ * re-asserts the established token at its full strength at focus time,
+ * which the contrast tests pin above 3:1. Ring width/inset/offset stay
+ * component-chosen and the primary/destructive ring families keep their
+ * own colors. Pinned by styles/globals.test.ts.
+ */
+:where([class*="ring-ring"]):is(:focus-visible, :focus-within) {
+  --tw-ring-color: var(--ring);
 }
 
-*::-webkit-scrollbar-track {
-  background: transparent;
+/*
+ * The published type scale.
+ *
+ * These are element defaults, not overrides: they live in `@layer base` so a
+ * component that deliberately chooses a different role still wins with a
+ * `text-(length:--text-*)` utility. Before this block existed, only h1 and h2
+ * carried a size, so h3-h6 fell through to Tailwind preflight's
+ * `font-size: inherit` and rendered at whatever their container happened to
+ * be - producing an H3 at 9.3px inside a chip, an H3 at 16px/400 beside an
+ * H2 at 19.5px/400, and level inversions on six screens. Sizes are strictly
+ * monotonic h1 > h2 > h3 > h4 and every level carries its weight explicitly,
+ * because preflight also resets `font-weight` to inherit.
+ * Pinned by styles/globals.test.ts ("published type scale").
+ */
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p {
+    margin: 0;
+  }
+
+  h1 {
+    font-family: var(--font-headline);
+    font-size: var(--text-heading-1);
+    font-weight: 600;
+    line-height: 1.15;
+    letter-spacing: -0.022em;
+    color: var(--headline-primary);
+  }
+
+  h3 {
+    font-family: var(--font-headline);
+    font-size: var(--text-heading-3);
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--headline-secondary);
+  }
+
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-headline);
+    font-size: var(--text-heading-4);
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--headline-secondary);
+  }
+
+  p {
+    font-size: var(--text-body);
+    line-height: 1.5;
+  }
 }
 
-html,
-body,
-#root {
-  height: 100%;
-}
-
-body {
-  margin: 0;
-  min-height: 100vh;
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, var(--surface-grid-top), transparent 18%),
-    linear-gradient(90deg, var(--surface-grid-line) 1px, transparent 1px),
-    linear-gradient(var(--surface-grid-line) 1px, transparent 1px),
-    var(--background);
-  background-size: auto, 32px 32px, 32px 32px, auto;
-  color: var(--foreground);
-  font-family: var(--font-body);
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-}
-
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-
-button,
-[role='button'],
-a[href],
-summary {
-  cursor: pointer;
-}
-
-button:disabled,
-[role='button'][aria-disabled='true'],
-[role='button']:disabled,
-summary:disabled {
-  cursor: not-allowed;
-}
-
-h1,
-h2,
-h3,
-h4,
-h5,
-h6,
-p {
-  margin: 0;
-}
-
-h1 {
-  font-family: var(--font-headline);
-  font-size: clamp(2.05rem, 3.35vw, 3.3rem);
-  line-height: 0.97;
-  letter-spacing: -0.028em;
-  color: var(--headline-primary);
+/*
+ * The opening/loading workspace state keeps its display title. Its heading
+ * carries no size utility and used to rely on the old display-clamp default
+ * for h1; the size it actually wants already exists as a token, so bind it
+ * here rather than leaving it dependent on an element default.
+ */
+@layer components {
+  [data-workspace-state-title] {
+    font-family: var(--font-headline);
+    font-size: var(--workspace-state-title-size);
+    line-height: 1.02;
+    letter-spacing: var(--workspace-state-title-tracking);
+  }
 }
 
 .surface-panel-shell {
@@ -436,19 +708,58 @@ h1 {
   border-color: var(--surface-panel-shell-border);
 }
 
-.surface-panel-shell::before {
-  content: '';
-  position: absolute;
-  inset-inline: 0;
-  top: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--surface-panel-shell-highlight), transparent);
-  pointer-events: none;
+.surface-popover-solid {
+  background: var(--card);
+  border-color: var(--surface-panel-shell-border);
 }
 
 .surface-card-tint {
   background: var(--surface-card-tint);
   border-color: var(--surface-card-tint-border);
+}
+
+/*
+ * The application uses three levels of ownership: canvas, workspace panel,
+ * and lightweight section. Nested sections stay flat so information remains
+ * grouped without recreating the old card-inside-card visual noise.
+ */
+.surface-panel-shell .surface-card-tint,
+[data-slot="card"] .surface-card-tint {
+  border-inline-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.surface-card-tint .surface-card-tint {
+  background: transparent;
+  border-color: var(--border-subtle);
+  border-inline-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+[data-job-finder-shell] :is(.shadow-xl, .shadow-2xl),
+[data-interview-helper-shell] :is(.shadow-xl, .shadow-2xl) {
+  box-shadow: var(--select-shadow);
+}
+
+[data-interview-helper-shell] .surface-card-tint {
+  box-shadow: none;
+}
+
+[data-job-fact-grid] > .surface-card-tint {
+  border-width: 0 0 1px;
+  border-color: var(--surface-panel-border);
+  border-radius: 0;
+  padding: 0.9rem 0;
+}
+
+@media (min-width: 640px) {
+  [data-job-fact-grid]
+    > .surface-card-tint:not(.sm\:col-span-2):nth-child(even) {
+    border-left: 1px solid var(--surface-panel-border);
+    padding-left: 1rem;
+  }
 }
 
 .h-action-message {
@@ -459,41 +770,51 @@ h1 {
   width: var(--progress-width);
 }
 
-.label-mono-xs {
-  font-family: var(--font-mono);
-  font-size: var(--text-label-mono-xs);
-  font-weight: 700;
-  letter-spacing: var(--tracking-badge);
-  text-transform: uppercase;
-  color: var(--muted-foreground);
+/*
+ * Typography helper classes belong in a layer too: an unlayered class rule
+ * also outranks every Tailwind utility, so a screen could not re-size one of
+ * these without an important modifier.
+ */
+@layer components {
+  .label-mono-xs {
+    font-family: var(--font-mono);
+    font-size: var(--text-label-mono-xs);
+    font-weight: 700;
+    letter-spacing: var(--tracking-badge);
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
+  .card-heading-sm {
+    font-family: var(--font-mono);
+    font-size: var(--text-card-heading-sm);
+    letter-spacing: var(--tracking-heading);
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
 }
 
-.card-heading-sm {
-  font-family: var(--font-mono);
-  font-size: var(--text-card-heading-sm);
-  letter-spacing: var(--tracking-heading);
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
+@layer base {
+  h2 {
+    font-family: var(--font-headline);
+    font-size: var(--text-heading-2);
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--headline-secondary);
+  }
 
-h2 {
-  font-family: var(--font-headline);
-  font-size: clamp(1.22rem, 1.12vw, 1.58rem);
-  line-height: 1.1;
-  color: var(--headline-secondary);
-}
+  strong {
+    font-weight: 600;
+  }
 
-strong {
-  font-weight: 600;
-}
-
-::selection {
-  background: var(--selection-background);
-  color: var(--foreground);
+  ::selection {
+    background: var(--selection-background);
+    color: var(--foreground);
+  }
 }
 
 .job-finder-shell-grid {
-  grid-template-columns: var(--job-finder-side-width) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 @keyframes button-pending-rail-slide {
@@ -510,15 +831,60 @@ strong {
   animation: button-pending-rail-slide 1.05s linear infinite;
 }
 
+/* The Resume Studio Assistant folds into, and unfolds out of, its own
+   bottom-right corner so minimizing reads as collapsing into the launcher pill
+   rather than the thread jumping somewhere else. The reduced-motion block
+   below already zeroes this animation. */
+@keyframes guided-edits-panel-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.guided-edits-panel-enter {
+  animation: guided-edits-panel-enter 140ms ease-out;
+  transform-origin: bottom right;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
   .button-pending-rail {
     animation: none;
     transform: translateX(180%);
   }
 }
 
-@media (min-width: 640px) {
+/* Wide shell layout starts exactly where the sidebar becomes visible: these
+   bounds must stay aligned with the shell component's min-[1440px] variants
+   (pinned by styles/globals.test.ts). */
+@media (min-width: 1440px) {
   .job-finder-shell-grid {
     grid-template-columns: var(--job-finder-side-width-sm) minmax(0, 1fr) auto;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1439px) {
+  .job-finder-shell-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .job-finder-shell-grid > nav[data-desktop-module-navigation],
+  .job-finder-shell-grid > nav[aria-label="Job Finder sections"],
+  .job-finder-shell-grid > div[aria-label="Notifications and actions"] {
+    grid-column: 1 / -1;
   }
 }

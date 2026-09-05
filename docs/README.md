@@ -1,49 +1,17 @@
 # Documentation
 
-Start here, then read only the docs needed for the task.
+Read only what the task needs. Code shows current behavior; ADRs record deliberate decisions. Investigate a mismatch before treating either the implementation or the decision as wrong.
 
-## Task Routing
+| Need                                         | Read                                                                                |
+| -------------------------------------------- | ----------------------------------------------------------------------------------- |
+| why something is the way it is               | `docs/adr/README.md`, then the ADR                                                  |
+| product scope and module behavior            | `docs/PRODUCT.md`, `docs/modules/JOB_FINDER.md`, `docs/modules/INTERVIEW_HELPER.md` |
+| durable product direction                    | `docs/GOALS.md`                                                                     |
+| package ownership, data flow, boundary rules | `docs/ARCHITECTURE.md`                                                              |
+| cross-package contract invariants            | `docs/CONTRACTS.md` (field detail lives in `packages/contracts`)                    |
+| which check to run, stop rules, safety rules | `docs/TESTING.md`                                                                   |
+| AI model and provider setup                  | `docs/AI_PROVIDER_SETUP.md`                                                         |
+| domain vocabulary                            | `CONTEXT.md`                                                                        |
+| UI design references                         | `docs/Design/README.md`                                                             |
 
-| Task | Read |
-| --- | --- |
-| typo, small local fix, or command output | nearest package `AGENTS.md` if editing there |
-| active feature work or unclear state | `docs/STATUS.md`, `docs/TRACKS.md`, relevant active or queued exec plan |
-| handoff/status update | `docs/STATUS.md`, `docs/TRACKS.md`, relevant active or queued exec plan |
-| durable product direction | `docs/GOALS.md`, `docs/PRODUCT.md` |
-| product behavior | `docs/PRODUCT.md` |
-| architecture, package ownership, discovery/source-debug | `docs/ARCHITECTURE.md` |
-| contracts, schemas, preload APIs, IPC | `docs/CONTRACTS.md` |
-| tests, harnesses, validation choice | `docs/TESTING.md` |
-| decisions and rationale | `docs/adr/README.md`, then the linked ADR |
-| domain language | `CONTEXT.md` |
-| repo guidance, adapters, project skills, package guide policy | `docs/AGENT_CONTEXT.md`, `.agents/registry.yaml` |
-| module-level behavior | `docs/modules/JOB_FINDER.md` or `docs/modules/INTERVIEW_HELPER.md` |
-
-Read `docs/ARCHITECTURE.md` before changing discovery or source-debug behavior.
-
-## Current Work
-
-- `docs/STATUS.md`: current truth, only when current state matters
-- `docs/TRACKS.md`: active work and ready follow-ups
-- `docs/exec-plans/active/`: detailed active plans
-- `docs/exec-plans/queued/`: detailed ready plans
-
-Current active plan:
-
-- none
-
-## Durable Docs
-
-- `docs/GOALS.md`: durable product direction
-- `docs/PRODUCT.md`: product scope and module behavior
-- `docs/ARCHITECTURE.md`: package boundaries and data flow
-- `docs/CONTRACTS.md`: schema, DTO, preload, and IPC semantics
-- `docs/TESTING.md`: validation and harness choices
-- `CONTEXT.md`: project vocabulary
-- `docs/HISTORY.md`: compact completed milestones
-- `docs/adr/`: decisions and rejected alternatives
-
-## Module Docs
-
-- `docs/modules/JOB_FINDER.md`
-- `docs/modules/INTERVIEW_HELPER.md`
+Historical audit reports and evidence manifests live in `docs/audits/`. They are records of past runs that the release-evidence scripts fingerprint, not guidance; do not read them for current state.

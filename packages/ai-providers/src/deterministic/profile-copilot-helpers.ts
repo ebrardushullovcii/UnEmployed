@@ -1,5 +1,6 @@
 import {
   ProfileCopilotReplySchema,
+  STARTER_JOB_SOURCES,
   type ProfileCopilotContext,
   type ProfileCopilotPatchGroup,
   type ProfileCopilotRelevantReviewItem,
@@ -16,7 +17,9 @@ export function createUniqueId(prefix: string): string {
   return `${prefix}_${suffix}`;
 }
 
-export function trimNonEmptyString(value: string | null | undefined): string | null {
+export function trimNonEmptyString(
+  value: string | null | undefined,
+): string | null {
   if (typeof value !== "string") {
     return null;
   }
@@ -25,7 +28,9 @@ export function trimNonEmptyString(value: string | null | undefined): string | n
   return trimmed.length > 0 ? trimmed : null;
 }
 
-export function normalizeFactText(value: string | number | boolean | null | undefined): string {
+export function normalizeFactText(
+  value: string | number | boolean | null | undefined,
+): string {
   if (typeof value === "string") {
     return value.trim().replace(/\s+/g, " ").toLowerCase();
   }
@@ -50,7 +55,33 @@ export function normalizeCompanyName(value: string | null | undefined): string {
   return normalizeFactText(value).replace(/[^a-z0-9]/g, "");
 }
 
-export function parseIsoLikeMonth(value: string | null | undefined): number | null {
+function escapeRegExpLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Matches a compacted name (see normalizeCompanyName) inside free text with
+ * whole-word boundaries on both ends. Internal separators stay flexible so
+ * "AutomatedPros" matches "automated pros" and "Meta, Inc." matches "meta inc",
+ * but a short name can never match as a substring of a longer word: "Meta"
+ * does not match "metadata" because there is no word boundary inside it.
+ */
+function compactNameMatchesText(text: string, compactName: string): boolean {
+  if (!text || !compactName) {
+    return false;
+  }
+
+  const pattern = new RegExp(
+    `\\b${[...compactName].map((char) => escapeRegExpLiteral(char)).join("[^a-z0-9]*")}\\b`,
+    "i",
+  );
+
+  return pattern.test(text);
+}
+
+export function parseIsoLikeMonth(
+  value: string | null | undefined,
+): number | null {
   const normalized = normalizeFactText(value);
 
   if (!normalized) {
@@ -71,7 +102,9 @@ export function parseIsoLikeMonth(value: string | null | undefined): number | nu
     }
   }
 
-  const monthYearMatch = normalized.match(/^(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(\d{4})$/);
+  const monthYearMatch = normalized.match(
+    /^(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(\d{4})$/,
+  );
   if (!monthYearMatch) {
     return null;
   }
@@ -139,20 +172,23 @@ export function buildDateRangeLabel(
   isCurrent: boolean,
 ): string {
   const startLabel = trimNonEmptyString(startDate) ?? "an unknown start";
-  const endLabel = isCurrent ? "present" : trimNonEmptyString(endDate) ?? "an unknown end";
+  const endLabel = isCurrent
+    ? "present"
+    : (trimNonEmptyString(endDate) ?? "an unknown end");
   return `${startLabel} to ${endLabel}`;
 }
 
 export function findMentionedExperience(input: ReviseCandidateProfileInput) {
-  const normalizedRequest = normalizeCompanyName(input.request);
-  return input.profile.experiences.find((experience) => {
-    const company = normalizeCompanyName(experience.companyName);
-    const title = normalizeCompanyName(experience.title);
-    return Boolean(
-      (company && normalizedRequest.includes(company)) ||
-        (title && normalizedRequest.includes(title)),
-    );
-  }) ?? null;
+  return (
+    input.profile.experiences.find((experience) => {
+      const company = normalizeCompanyName(experience.companyName);
+      const title = normalizeCompanyName(experience.title);
+      return Boolean(
+        (company && compactNameMatchesText(input.request, company)) ||
+        (title && compactNameMatchesText(input.request, title)),
+      );
+    }) ?? null
+  );
 }
 
 export function describeContext(context: ProfileCopilotContext): string {
@@ -167,17 +203,22 @@ export function describeContext(context: ProfileCopilotContext): string {
   return "profile";
 }
 
-export function buildReviewSummary(input: ReviseCandidateProfileInput): string | null {
-  const pending = input.relevantReviewItems.filter((item) => item.status === "pending");
+export function buildReviewSummary(
+  input: ReviseCandidateProfileInput,
+): string | null {
+  const pending = input.relevantReviewItems.filter(
+    (item) => item.status === "pending",
+  );
 
   if (pending.length === 0) {
     return null;
   }
 
   const topLabels = pending.slice(0, 2).map((item) => item.label);
-  const suffix = pending.length > topLabels.length
-    ? ` and ${pending.length - topLabels.length} more`
-    : "";
+  const suffix =
+    pending.length > topLabels.length
+      ? ` and ${pending.length - topLabels.length} more`
+      : "";
 
   return `${topLabels.join(" and ")}${suffix}`;
 }
@@ -187,6 +228,40 @@ export function buildNoChangeReply(input: ReviseCandidateProfileInput) {
   const reviewSummary = buildReviewSummary(input);
   const request = input.request.trim();
   const quotedRequest = request.length > 0 ? `“${request}”` : "that request";
+  const isQuestion =
+    request.endsWith("?") ||
+    /^(what|which|who|where|when|why|how|should|could|can|do|does|is|are|would)\b/i.test(
+      request,
+    );
+
+  if (isQuestion) {
+    const asksAboutRoles = /\b(role|roles|job|jobs|career|search)\b/i.test(
+      request,
+    );
+    const groundedRoles = Array.from(
+      new Set(
+        [
+          ...input.searchPreferences.targetRoles,
+          ...input.searchPreferences.jobFamilies,
+          ...input.profile.targetRoles,
+          ...input.profile.experiences.map((experience) => experience.title),
+        ]
+          .map((value) => value?.trim() ?? "")
+          .filter(Boolean),
+      ),
+    ).slice(0, 4);
+
+    return ProfileCopilotReplySchema.parse({
+      content: asksAboutRoles
+        ? groundedRoles.length > 0
+          ? `Based on your saved profile, I would start with ${groundedRoles.join(", ")}. You do not have to save a target title: Find jobs can infer a starting search from your experience, and explicit roles are only useful when you want to narrow it.`
+          : "You do not need to choose a target title before searching. Find jobs can use your saved experience as the starting point; add a role only when you want to narrow the search."
+        : reviewSummary
+          ? `Based on the saved ${contextLabel} context, the clearest next items are ${reviewSummary}. I can answer questions here without changing your profile, or propose a structured edit when you ask for one.`
+          : `I can answer questions about the saved ${contextLabel} context without changing your profile. I do not have enough grounded evidence to answer that specific question yet; add the missing detail or ask me to review a particular saved section.`,
+      patchGroups: [],
+    });
+  }
 
   return ProfileCopilotReplySchema.parse({
     content: reviewSummary
@@ -206,9 +281,11 @@ export function findPendingRelevantReviewItem(
   input: ReviseCandidateProfileInput,
   predicate: (item: ProfileCopilotRelevantReviewItem) => boolean,
 ): ProfileCopilotRelevantReviewItem | null {
-  return input.relevantReviewItems.find(
-    (item) => item.status === "pending" && predicate(item),
-  ) ?? null;
+  return (
+    input.relevantReviewItems.find(
+      (item) => item.status === "pending" && predicate(item),
+    ) ?? null
+  );
 }
 
 export function findPendingRelevantReviewItems(
@@ -240,7 +317,9 @@ export function detectRequestedWorkMode(
   return null;
 }
 
-export function detectRequestedVisaSponsorship(request: string): boolean | null {
+export function detectRequestedVisaSponsorship(
+  request: string,
+): boolean | null {
   const normalized = normalizeFactText(request);
 
   if (!/\b(visa|sponsorship|sponsor)\b/.test(normalized)) {
@@ -274,7 +353,9 @@ export function detectRequestedVisaSponsorship(request: string): boolean | null 
   return null;
 }
 
-export function detectRequestedRemoteEligibility(request: string): boolean | null {
+export function detectRequestedRemoteEligibility(
+  request: string,
+): boolean | null {
   const normalized = normalizeFactText(request);
 
   if (!/\bremote\b/.test(normalized)) {
@@ -330,7 +411,11 @@ export function inferIdentityUrlField(
     return "linkedinUrl";
   }
 
-  if (/(behance\.net|dribbble\.com|artstation\.com|adobe\.com\/portfolio)/i.test(url)) {
+  if (
+    /(behance\.net|dribbble\.com|artstation\.com|adobe\.com\/portfolio)/i.test(
+      url,
+    )
+  ) {
     return "portfolioUrl";
   }
 
@@ -338,7 +423,11 @@ export function inferIdentityUrlField(
     return "portfolioUrl";
   }
 
-  if (/\b(personal website|website|site|homepage|personal page)\b/.test(normalized)) {
+  if (
+    /\b(personal website|website|site|homepage|personal page)\b/.test(
+      normalized,
+    )
+  ) {
     return "personalWebsiteUrl";
   }
 
@@ -346,7 +435,11 @@ export function inferIdentityUrlField(
 }
 
 export function formatIdentityFieldLabel(
-  field: IdentityUrlField | "timeZone" | "requiresVisaSponsorship" | "remoteEligible",
+  field:
+    | IdentityUrlField
+    | "timeZone"
+    | "requiresVisaSponsorship"
+    | "remoteEligible",
 ): string {
   switch (field) {
     case "githubUrl":
@@ -387,14 +480,20 @@ export function looksLikeExplicitAnswer(request: string): boolean {
   );
 }
 
-export function sanitizeDerivedDetail(value: string | null | undefined): string | null {
+export function sanitizeDerivedDetail(
+  value: string | null | undefined,
+): string | null {
   return trimNonEmptyString(value);
 }
 
 export function detectRequestedYearsExperience(request: string): number | null {
   const normalized = request.toLowerCase();
 
-  if (!/\b(years?\s+of\s+experience|years?\s+experience|yoe|experience)\b/.test(normalized)) {
+  if (
+    !/\b(years?\s+of\s+experience|years?\s+experience|yoe|experience)\b/.test(
+      normalized,
+    )
+  ) {
     return null;
   }
 
@@ -425,7 +524,9 @@ export function detectRequestedYearsExperience(request: string): number | null {
 }
 
 export function normalizeSourceLabel(value: string): string {
-  return normalizeFactText(value).replace(/[^a-z0-9]+/g, " ").trim();
+  return normalizeFactText(value)
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 export function normalizeSourceStartingUrl(value: string): string {
@@ -475,45 +576,40 @@ export function formatPatchGroupSummaryList(
   return `${summaries.slice(0, -1).join(", ")}, and ${summaries[summaries.length - 1]}`;
 }
 
-const jobSourcePresets = [
-  {
-    aliases: ["linkedin", "linkedin jobs"],
-    label: "LinkedIn Jobs",
-    startingUrl: "https://www.linkedin.com/jobs/search/",
-  },
-  {
-    aliases: ["wellfound", "angellist", "angel list"],
-    label: "Wellfound",
-    startingUrl: "https://wellfound.com/jobs",
-  },
-  {
-    aliases: ["kosovajob", "kosova job"],
-    label: "KosovaJob",
-    startingUrl: "https://kosovajob.com/",
-  },
-] as const;
-
 export function inferRequestedJobSources(request: string) {
   const normalized = normalizeSourceLabel(request);
-  const mentionsKnownSource = jobSourcePresets.some((preset) =>
-    preset.aliases.some((alias) => normalized.includes(normalizeSourceLabel(alias))),
+  const mentionsKnownSource = STARTER_JOB_SOURCES.some((preset) =>
+    preset.aliases.some((alias) =>
+      normalized.includes(normalizeSourceLabel(alias)),
+    ),
   );
   const hasSourceEditVerb =
-    /\b(add|include|save|use|track|watch|follow|enable|reactivate)\b/.test(normalized) ||
+    /\b(add|include|save|use|track|watch|follow|enable|reactivate)\b/.test(
+      normalized,
+    ) ||
     /\bre\s*enable\b/.test(normalized) ||
     /\bturn\s+(?:.+\s+)?(?:back\s+)?on\b/.test(normalized);
   const soundsLikeSourceEdit =
-    /job source|job sources|source|sources|search site|search sites|job board|job boards/.test(normalized) ||
+    /job source|job sources|source|sources|search site|search sites|job board|job boards/.test(
+      normalized,
+    ) ||
     (mentionsKnownSource && hasSourceEditVerb);
 
   if (!soundsLikeSourceEdit) {
     return [] as Array<{ label: string; startingUrl: string }>;
   }
 
-  const requestedSources = new Map<string, { label: string; startingUrl: string }>();
+  const requestedSources = new Map<
+    string,
+    { label: string; startingUrl: string }
+  >();
 
-  for (const preset of jobSourcePresets) {
-    if (preset.aliases.some((alias) => normalized.includes(normalizeSourceLabel(alias)))) {
+  for (const preset of STARTER_JOB_SOURCES) {
+    if (
+      preset.aliases.some((alias) =>
+        normalized.includes(normalizeSourceLabel(alias)),
+      )
+    ) {
       requestedSources.set(preset.label, {
         label: preset.label,
         startingUrl: preset.startingUrl,
@@ -524,10 +620,16 @@ export function inferRequestedJobSources(request: string) {
   return [...requestedSources.values()];
 }
 
-export function requestLooksLikeWorkModePreferenceEdit(request: string): boolean {
+export function requestLooksLikeWorkModePreferenceEdit(
+  request: string,
+): boolean {
   const normalized = normalizeFactText(request);
 
-  if (/preferred locations|locations to search|target locations|excluded locations/.test(normalized)) {
+  if (
+    /preferred locations|locations to search|target locations|excluded locations/.test(
+      normalized,
+    )
+  ) {
     return false;
   }
 
@@ -539,31 +641,9 @@ export function requestLooksLikeWorkModePreferenceEdit(request: string): boolean
 export function requestLooksLikeLocationListEdit(request: string): boolean {
   const normalized = normalizeFactText(request);
 
-  return /preferred locations|locations to search|target locations|excluded locations/.test(normalized);
-}
-
-export function detectRequestedTargetSalary(request: string): number | null {
-  const normalized = normalizeFactText(request);
-
-  if (!/\b(expected salary|target salary|salary expectation|salary expectations|salary)\b/.test(normalized)) {
-    return null;
-  }
-
-  const patterns = [
-    /\b(?:expected|target)?\s*salary(?:\s+expectations?)?(?:\s+(?:to\s+be|should\s+be|to|at|as|be|is))?\s*\$?([\d,]+)(?:\b|$)/i,
-    /\bsalary(?:\s+(?:to\s+be|should\s+be|to|at|as|be|is))?\s*\$?([\d,]+)(?:\b|$)/i,
-  ] as const;
-
-  for (const pattern of patterns) {
-    const match = request.match(pattern);
-    const value = Number.parseInt((match?.[1] ?? "").replaceAll(",", ""), 10);
-
-    if (Number.isInteger(value) && value >= 0) {
-      return value;
-    }
-  }
-
-  return null;
+  return /preferred locations|locations to search|target locations|excluded locations/.test(
+    normalized,
+  );
 }
 
 export function deriveRequestedDetail(request: string): string | null {

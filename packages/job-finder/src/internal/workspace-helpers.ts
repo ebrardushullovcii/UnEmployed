@@ -47,14 +47,28 @@ export function enrichSearchPreferencesFromProfile(
   const targetRoles = [...searchPreferences.targetRoles];
 
   if (targetRoles.length === 0) {
-    if (profile.headline && profile.headline !== PROFILE_PLACEHOLDER_HEADLINE) {
-      targetRoles.push(profile.headline);
-    }
-
     for (const role of profile.targetRoles) {
       if (targetRoles.length < DEFAULT_MAX_TARGET_ROLES) {
         targetRoles.push(role);
       }
+    }
+
+    for (const experience of profile.experiences) {
+      const experienceTitle = experience.title?.trim() ?? "";
+      if (
+        targetRoles.length < DEFAULT_MAX_TARGET_ROLES &&
+        experienceTitle.length > 0
+      ) {
+        targetRoles.push(experienceTitle);
+      }
+    }
+
+    if (
+      targetRoles.length < DEFAULT_MAX_TARGET_ROLES &&
+      profile.headline &&
+      profile.headline !== PROFILE_PLACEHOLDER_HEADLINE
+    ) {
+      targetRoles.push(profile.headline);
     }
   }
 
@@ -62,6 +76,7 @@ export function enrichSearchPreferencesFromProfile(
 
   if (
     locations.length === 0 &&
+    !searchPreferences.workModes.includes("remote") &&
     profile.currentLocation &&
     profile.currentLocation !== PROFILE_PLACEHOLDER_LOCATION
   ) {
@@ -113,6 +128,44 @@ export function normalizeSearchPreferences(
   });
 }
 
+export function invalidateChangedSourceGuidance(
+  currentSearchPreferences: JobSearchPreferences,
+  nextSearchPreferences: JobSearchPreferences,
+): JobSearchPreferences {
+  const currentTargetsById = new Map(
+    currentSearchPreferences.discovery.targets.map((target) => [
+      target.id,
+      target,
+    ]),
+  );
+
+  return JobSearchPreferencesSchema.parse({
+    ...nextSearchPreferences,
+    discovery: {
+      ...nextSearchPreferences.discovery,
+      targets: nextSearchPreferences.discovery.targets.map((target) => {
+        const currentTarget = currentTargetsById.get(target.id);
+        if (
+          !currentTarget ||
+          currentTarget.startingUrl.trim() === target.startingUrl.trim()
+        ) {
+          return target;
+        }
+
+        return {
+          ...target,
+          instructionStatus: "missing",
+          validatedInstructionId: null,
+          draftInstructionId: null,
+          lastDebugRunId: null,
+          lastVerifiedAt: null,
+          staleReason:
+            "Starting page URL changed. Check this source again before reusing saved guidance.",
+        };
+      }),
+    },
+  });
+}
 export function normalizeJobFinderSettings(
   settings: JobFinderSettings,
   availableResumeTemplates: readonly ResumeTemplateDefinition[],
@@ -120,17 +173,19 @@ export function normalizeJobFinderSettings(
   const isApplySafeTemplate = (template: ResumeTemplateDefinition) =>
     getResumeTemplateDeliveryLane(template) === "apply_safe" &&
     isResumeTemplateApplyEligible(template);
-  const defaultApplySafeTemplate = availableResumeTemplates.find(
-    (template) =>
-      isApplySafeTemplate(template),
+  const defaultApplySafeTemplate = availableResumeTemplates.find((template) =>
+    isApplySafeTemplate(template),
   );
   const fallbackTemplateId = defaultApplySafeTemplate?.id ?? "classic_ats";
   const selectedTemplateAvailable = availableResumeTemplates.some(
-    (template) => template.id === settings.resumeTemplateId && isApplySafeTemplate(template),
+    (template) =>
+      template.id === settings.resumeTemplateId &&
+      isApplySafeTemplate(template),
   );
 
   return JobFinderSettingsSchema.parse({
     ...settings,
+    resumeApplicationMode: settings.resumeApplicationMode ?? "tailored_per_job",
     resumeFormat: "pdf",
     resumeTemplateId: selectedTemplateAvailable
       ? settings.resumeTemplateId
@@ -145,7 +200,9 @@ export function wasResumeDraftApproved(
     | undefined,
 ): boolean {
   return Boolean(
-    draft?.status === "approved" || draft?.approvedAt || draft?.approvedExportId,
+    draft?.status === "approved" ||
+    draft?.approvedAt ||
+    draft?.approvedExportId,
   );
 }
 
@@ -214,6 +271,14 @@ export function nextAssetVersion(
   return `v${numericPortion + 1}`;
 }
 
+// Per-application event history is capped at the newest 100 entries so
+// repeated apply/retry cycles cannot grow workspace snapshots and DB rows
+// without bound. This mirrors the newest-100 history retention already used
+// for campaign dashboards and resume revision diffs. Dedupe still replaces
+// same-ID events before the cap is applied, so retried checkpoints never
+// consume extra history slots.
+export const MAX_APPLICATION_EVENT_HISTORY = 100;
+
 export function mergeEvents(
   existingEvents: readonly ApplicationEvent[],
   additionalEvents: readonly ApplicationEvent[],
@@ -224,9 +289,12 @@ export function mergeEvents(
     merged.set(event.id, event);
   }
 
-  return [...merged.values()].sort(
-    (left, right) => new Date(right.at).getTime() - new Date(left.at).getTime(),
-  );
+  return [...merged.values()]
+    .sort(
+      (left, right) =>
+        new Date(right.at).getTime() - new Date(left.at).getTime(),
+    )
+    .slice(0, MAX_APPLICATION_EVENT_HISTORY);
 }
 
 export function toApplicationEvents(

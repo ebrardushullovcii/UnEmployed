@@ -2,14 +2,81 @@ import { dateRangePattern, experienceSectionAliases } from "./constants";
 import {
   cleanLine,
   findSectionBodyLinesByAliases,
+  isBulletLine,
   normalizeLocationLabel,
+  splitInlineBulletLine,
   splitLines,
+  stripBulletPrefix,
   uniqueStrings,
 } from "./utils";
 import { inferSkills } from "./resume-parser-skills";
 
+/**
+ * Upper bound for achievements retained per role. Real resumes routinely list
+ * eight to ten bullets on the most recent role; truncating at six silently
+ * dropped evidence the tailoring step could have used.
+ */
+const MAX_EXPERIENCE_ACHIEVEMENTS = 10;
+
 const roleTitlePattern =
-  /\b(engineer|developer|designer|manager|director|analyst|consultant|specialist|architect|officer|lead|support|administrator|scientist|qa|agent)\b/i;
+  /\b(engineer|developer|designer|manager|director|analyst|consultant|specialist|architect|officer|lead|support|administrator|scientist|qa|agent|intern|internship)\b/i;
+
+type ResumeExperienceWorkMode = "remote" | "hybrid" | "onsite" | "flexible";
+
+const experienceSkillEvidencePatterns: ReadonlyArray<{
+  skill: string;
+  pattern: RegExp;
+}> = [
+  {
+    skill: "Performance Optimization",
+    pattern:
+      /\b(?:page[- ]load|load time|bundle(?:s| size)?|core web vitals|render(?:ing)? time|latency)\b/i,
+  },
+  {
+    skill: "Accessibility",
+    pattern: /\baccessib(?:le|ility)\b|\baxe\b/i,
+  },
+];
+
+function inferWorkModesFromText(value: string): ResumeExperienceWorkMode[] {
+  const modes: ResumeExperienceWorkMode[] = [];
+
+  if (/\bremote\b/i.test(value)) {
+    modes.push("remote");
+  }
+
+  if (/\bhybrid\b/i.test(value)) {
+    modes.push("hybrid");
+  }
+
+  if (/\b(?:on[- ]?site|in[- ]?office)\b/i.test(value)) {
+    modes.push("onsite");
+  }
+
+  if (/\bflexible\b/i.test(value)) {
+    modes.push("flexible");
+  }
+
+  return modes;
+}
+
+function inferExperienceSkills(
+  experienceText: string,
+  resumeText: string,
+): string[] {
+  const directSkills = inferSkills(experienceText, []);
+  const declaredResumeSkills = inferSkills(resumeText, []);
+  const evidenceBackedDeclaredSkills = experienceSkillEvidencePatterns.flatMap(
+    ({ skill, pattern }) =>
+      declaredResumeSkills.some(
+        (declaredSkill) => declaredSkill.toLowerCase() === skill.toLowerCase(),
+      ) && pattern.test(experienceText)
+        ? [skill]
+        : [],
+  );
+
+  return uniqueStrings([...directSkills, ...evidenceBackedDeclaredSkills]);
+}
 
 function looksLikeRoleTitle(value: string): boolean {
   const cleaned = cleanLine(
@@ -56,7 +123,10 @@ function parseCompanyAndLocation(segment: string): {
 
 function cleanCompanyName(value: string | null | undefined): string {
   return cleanLine(value ?? "")
-    .replace(/\s+[–—-]\s*(?:\d{1,2}\/\d{4}|\d{4}(?:-\d{2}(?:-\d{2})?)?)\s*$/i, "")
+    .replace(
+      /\s+[–—-]\s*(?:\d{1,2}\/\d{4}|\d{4}(?:-\d{2}(?:-\d{2})?)?)\s*$/i,
+      "",
+    )
     .replace(/\s+[–—-]\s*(?=\d)/g, " ")
     .replace(/\s+[–—-]\s*$/g, "")
     .trim();
@@ -238,7 +308,9 @@ function splitEmbeddedExperienceLine(line: string): string[] {
 }
 
 function normalizeExperienceSectionLines(lines: readonly string[]): string[] {
-  return lines.flatMap((line) => splitEmbeddedExperienceLine(line));
+  return lines
+    .flatMap((line) => splitInlineBulletLine(line))
+    .flatMap((line) => splitEmbeddedExperienceLine(line));
 }
 
 function parseDateRange(line: string) {
@@ -370,6 +442,7 @@ function parseExperienceHeader(
 ) {
   const dateRange = parseDateRange(dateSourceLine || line);
   const inlineDateMatch = line.match(dateRangePattern);
+  const dateSourceMatch = dateSourceLine.match(dateRangePattern);
   const beforeDate = cleanLine(
     inlineDateMatch?.index !== undefined
       ? line.slice(0, inlineDateMatch.index).replace(/[|,()–—-]+\s*$/g, "")
@@ -379,8 +452,12 @@ function parseExperienceHeader(
     inlineDateMatch?.index !== undefined
       ? line
           .slice(inlineDateMatch.index + inlineDateMatch[0].length)
-          .replace(/^[|,()–—-]+\s*/g, "")
-      : "",
+          .replace(/^\s*[|,()–—-]+\s*/g, "")
+      : dateSourceMatch?.index !== undefined
+        ? dateSourceLine
+            .slice(dateSourceMatch.index + dateSourceMatch[0].length)
+            .replace(/^\s*[|,()–—-]+\s*/g, "")
+        : "",
   );
   const trailingLocationMatch = line.match(
     /[|,–—-]+\s*([A-Z][A-Z\s.'-]+,\s*[A-Z][A-Z\s.'-]+)\s*$/i,
@@ -389,9 +466,13 @@ function parseExperienceHeader(
     (looksLikeInlineLocation(afterDate)
       ? normalizeLocationLabel(afterDate)
       : null) ??
+    (/^remote$/i.test(afterDate) ? normalizeLocationLabel(afterDate) : null) ??
     normalizeLocationLabel(trailingLocationMatch?.[1] ?? null) ??
     companyContext?.location ??
     null;
+  const workMode = inferWorkModesFromText(
+    [line, dateSourceLine, inferredLocation ?? ""].join(" "),
+  );
   const beforeParts = beforeDate
     .split(/\s+[–—-]\s+/)
     .map((part) => cleanLine(part))
@@ -411,6 +492,7 @@ function parseExperienceHeader(
 
       return {
         dateRange,
+        workMode,
         companyName:
           companyAndLocation.companyName ?? companyContext?.companyName ?? null,
         location:
@@ -434,6 +516,7 @@ function parseExperienceHeader(
 
       return {
         dateRange,
+        workMode,
         companyName:
           companyAndLocation.companyName ?? companyContext?.companyName ?? null,
         location:
@@ -451,6 +534,7 @@ function parseExperienceHeader(
 
       return {
         dateRange,
+        workMode,
         companyName:
           companyAndLocation.companyName ?? companyContext?.companyName ?? null,
         location: companyAndLocation.location ?? inferredLocation,
@@ -467,6 +551,7 @@ function parseExperienceHeader(
 
     return {
       dateRange,
+      workMode,
       companyName,
       location: repairedTitle?.location ?? inferredLocation,
       title:
@@ -481,6 +566,7 @@ function parseExperienceHeader(
 
     return {
       dateRange,
+      workMode,
       companyName: companyContext.companyName,
       location: repairedTitle?.location ?? companyContext.location,
       title:
@@ -493,6 +579,7 @@ function parseExperienceHeader(
 
   return {
     dateRange,
+    workMode,
     companyName: null,
     location: repairedTitle?.location ?? inferredLocation,
     title:
@@ -505,13 +592,13 @@ function mergeWrappedDetailLines(lines: readonly string[]): string[] {
   const merged: string[] = [];
 
   for (const line of lines) {
-    const cleaned = cleanLine(line.replace(/^[•*-]\s*/, ""));
+    const cleaned = cleanLine(stripBulletPrefix(line));
 
     if (!cleaned) {
       continue;
     }
 
-    const isBullet = /^[•*-]\s*/.test(line);
+    const isBullet = isBulletLine(line);
 
     if (isBullet || merged.length === 0) {
       merged.push(cleaned);
@@ -526,74 +613,142 @@ function mergeWrappedDetailLines(lines: readonly string[]): string[] {
   return merged;
 }
 
-function splitExperienceBlocks(lines: readonly string[]): string[][] {
-  const blocks: string[][] = [];
-  let currentBlock: string[] = [];
-  let pendingHeaderLines: string[] = [];
+function looksLikeStandaloneLocationHeader(value: string): boolean {
+  const cleaned = cleanLine(value.replace(/^[-|,]+\s*/, ""));
 
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-
-    if (line.length === 0 || /^experience$/i.test(line)) {
-      pendingHeaderLines = [];
-      continue;
-    }
-
-    const startsNewBlock = dateRangePattern.test(line);
-
-    if (startsNewBlock) {
-      if (currentBlock.length > 0) {
-        blocks.push(currentBlock);
-      }
-
-      currentBlock = [...pendingHeaderLines.slice(-2), line];
-      pendingHeaderLines = [];
-      continue;
-    }
-
-    if (currentBlock.length > 0) {
-      const nextLine = lines[index + 1] ?? "";
-      const looksLikeUpcomingHeader =
-        !/^[•*-]\s*/.test(line) &&
-        line.length > 0 &&
-        (isCompanyMarkerLine(line) ||
-          /\s+[–—-]\s+/.test(line) ||
-          looksLikeRoleTitle(line)) &&
-        dateRangePattern.test(nextLine);
-
-      if (looksLikeUpcomingHeader) {
-        blocks.push(currentBlock);
-        currentBlock = [];
-        pendingHeaderLines = [...pendingHeaderLines.slice(-2), line];
-        continue;
-      }
-
-      currentBlock.push(line);
-      continue;
-    }
-
-    if (!/^[•*-]\s*/.test(line)) {
-      pendingHeaderLines = [...pendingHeaderLines.slice(-2), line];
-    }
-  }
-
-  if (currentBlock.length > 0) {
-    blocks.push(currentBlock);
-  }
-
-  return blocks.filter((block) =>
-    block.some((line) => dateRangePattern.test(line)),
+  return (
+    /^(?:remote|hybrid|onsite|on-site)$/i.test(cleaned) ||
+    looksLikeInlineLocation(cleaned)
   );
 }
 
-function inferUndatedExperienceEntries(lines: readonly string[]) {
+function findExperienceHeaderStart(
+  lines: readonly string[],
+  dateLineIndex: number,
+): number {
+  const dateLine = cleanLine(lines[dateLineIndex] ?? "");
+  const dateMatch = dateLine.match(dateRangePattern);
+  const inlinePrefix = cleanLine(
+    dateMatch?.index === undefined ? "" : dateLine.slice(0, dateMatch.index),
+  ).replace(/[|,()–—-]+\s*$/g, "");
+
+  if (inlinePrefix) {
+    const previous = cleanLine(lines[dateLineIndex - 1] ?? "");
+    return isCompanyMarkerLine(previous) ? dateLineIndex - 1 : dateLineIndex;
+  }
+
+  const previous = cleanLine(lines[dateLineIndex - 1] ?? "");
+  const twoBack = cleanLine(lines[dateLineIndex - 2] ?? "");
+  const threeBack = cleanLine(lines[dateLineIndex - 3] ?? "");
+
+  if (
+    looksLikeStandaloneLocationHeader(previous) &&
+    ((looksLikeRoleTitle(twoBack) && looksLikeCompanyHeader(threeBack)) ||
+      (looksLikeCompanyHeader(twoBack) && looksLikeRoleTitle(threeBack)))
+  ) {
+    return dateLineIndex - 3;
+  }
+
+  if (
+    looksLikeRoleTitle(previous) &&
+    (isCompanyMarkerLine(twoBack) || looksLikeCompanyHeader(twoBack))
+  ) {
+    return dateLineIndex - 2;
+  }
+
+  if (looksLikeCompanyHeader(previous) && looksLikeRoleTitle(twoBack)) {
+    return dateLineIndex - 2;
+  }
+
+  if (
+    previous &&
+    (looksLikeRoleTitle(previous) ||
+      isCompanyMarkerLine(previous) ||
+      /\s+[–—-]\s+/.test(previous))
+  ) {
+    return dateLineIndex - 1;
+  }
+
+  return dateLineIndex;
+}
+
+function splitExperienceBlocks(lines: readonly string[]): string[][] {
+  const dateLineIndexes = lines.flatMap((line, index) =>
+    dateRangePattern.test(line) ? [index] : [],
+  );
+  const headerStarts = dateLineIndexes.map((dateLineIndex) =>
+    Math.max(0, findExperienceHeaderStart(lines, dateLineIndex)),
+  );
+
+  return dateLineIndexes.map((dateLineIndex, index) => {
+    const startIndex = headerStarts[index] ?? dateLineIndex;
+    const endIndex = headerStarts[index + 1] ?? lines.length;
+    return lines.slice(startIndex, endIndex);
+  });
+}
+
+function parseStackedExperienceHeader(
+  headerLines: readonly string[],
+  dateLine: string,
+) {
+  const normalizedHeaderLines = headerLines.map(cleanLine).filter(Boolean);
+  const trailingLocation = looksLikeStandaloneLocationHeader(
+    normalizedHeaderLines.at(-1) ?? "",
+  )
+    ? normalizeLocationLabel(normalizedHeaderLines.at(-1) ?? null)
+    : null;
+  const identityLines = trailingLocation
+    ? normalizedHeaderLines.slice(0, -1)
+    : normalizedHeaderLines;
+
+  if (identityLines.length < 2) {
+    return null;
+  }
+
+  let roleIndex = identityLines.findIndex(isStandaloneTitle);
+  if (roleIndex === -1) {
+    roleIndex = identityLines.findIndex(looksLikeRoleTitle);
+  }
+
+  if (roleIndex === -1) {
+    return null;
+  }
+
+  const companyIndex = identityLines.findIndex(
+    (line, index) =>
+      index !== roleIndex &&
+      (isCompanyMarkerLine(line) || looksLikeCompanyHeader(line)),
+  );
+
+  if (companyIndex === -1) {
+    return null;
+  }
+
+  const companyLine = identityLines[companyIndex] ?? "";
+  const companyContext = isCompanyMarkerLine(companyLine)
+    ? parseCompanyMarker(companyLine)
+    : {
+        companyName: cleanCompanyName(companyLine) || null,
+        location: trailingLocation,
+      };
+
+  return parseExperienceHeader(identityLines[roleIndex] ?? dateLine, dateLine, {
+    companyName: companyContext.companyName,
+    location: trailingLocation ?? companyContext.location,
+  });
+}
+
+function inferUndatedExperienceEntries(
+  lines: readonly string[],
+  resumeText: string,
+) {
   const entries: Array<{
     companyName: string | null;
     companyUrl: null;
     title: string | null;
     employmentType: null;
     location: string | null;
-    workMode: null;
+    workMode: ResumeExperienceWorkMode[];
     startDate: null;
     endDate: null;
     isCurrent: false;
@@ -614,8 +769,8 @@ function inferUndatedExperienceEntries(lines: readonly string[]) {
     }
 
     if (
-      /^[•*-]\s*/.test(companyLine) ||
-      /^[•*-]\s*/.test(titleLine) ||
+      isBulletLine(companyLine) ||
+      isBulletLine(titleLine) ||
       looksLikeRoleTitle(companyLine) ||
       !looksLikeRoleTitle(titleLine)
     ) {
@@ -652,7 +807,9 @@ function inferUndatedExperienceEntries(lines: readonly string[]) {
       title: normalizeHeadlineText(titleLine) || null,
       employmentType: null,
       location: null,
-      workMode: null,
+      workMode: inferWorkModesFromText(
+        [companyLine, titleLine, ...detailLines].join("\n"),
+      ),
       startDate: null,
       endDate: null,
       isCurrent: false,
@@ -661,11 +818,11 @@ function inferUndatedExperienceEntries(lines: readonly string[]) {
         detailLines
           .slice(1)
           .filter((line) => line.length >= 24)
-          .slice(0, 6),
+          .slice(0, MAX_EXPERIENCE_ACHIEVEMENTS),
       ),
-      skills: inferSkills(
+      skills: inferExperienceSkills(
         [companyLine, titleLine, ...detailLines].join("\n"),
-        [],
+        resumeText,
       ),
       domainTags: [],
       peopleManagementScope: null,
@@ -685,6 +842,10 @@ export function inferExperienceEntries(resumeText: string) {
       experienceSectionAliases,
     ),
   );
+  let previousCompanyContext: {
+    companyName: string | null;
+    location: string | null;
+  } | null = null;
   const datedEntries = splitExperienceBlocks(sectionLines)
     .map((block) => {
       const companyContext = isCompanyMarkerLine(block[0] ?? "")
@@ -712,13 +873,26 @@ export function inferExperienceEntries(resumeText: string) {
           .find((line) => !isCompanyMarkerLine(line)) ?? null;
       const headerLine = companyContext
         ? (nonMarkerHeaderLine ?? dateLine)
-        : (cleanLine(headerContextLines.join(" - ")) ||
-          (normalizedBlock[0] ?? ""));
-      const header = parseExperienceHeader(
-        headerLine,
-        dateLine,
-        companyContext,
-      );
+        : cleanLine(headerContextLines.join(" - ")) ||
+          (normalizedBlock[0] ?? "");
+      const parsedHeader =
+        parseStackedExperienceHeader(headerContextLines, dateLine) ??
+        parseExperienceHeader(headerLine, dateLine, companyContext);
+      const header = {
+        ...parsedHeader,
+        companyName:
+          parsedHeader.companyName ??
+          previousCompanyContext?.companyName ??
+          null,
+        location:
+          parsedHeader.location ?? previousCompanyContext?.location ?? null,
+      };
+      if (header.companyName) {
+        previousCompanyContext = {
+          companyName: header.companyName,
+          location: header.location,
+        };
+      }
       const rawDetailLines = block
         .slice(
           Math.max(
@@ -728,7 +902,7 @@ export function inferExperienceEntries(resumeText: string) {
         )
         .filter((line) => line.length > 0 && !isCompanyMarkerLine(line));
       const detailLines = mergeWrappedDetailLines(rawDetailLines);
-      const firstDetailIsBullet = /^[•*-]\s*/.test(rawDetailLines[0] ?? "");
+      const firstDetailIsBullet = isBulletLine(rawDetailLines[0] ?? "");
       const summaryLine = !firstDetailIsBullet
         ? (detailLines[0] ?? null)
         : null;
@@ -740,15 +914,17 @@ export function inferExperienceEntries(resumeText: string) {
         title: header.title,
         employmentType: null,
         location: header.location,
-        workMode: null,
+        workMode: header.workMode,
         startDate: header.dateRange.startDate,
         endDate: header.dateRange.endDate,
         isCurrent: header.dateRange.isCurrent,
         summary: summaryLine,
         achievements: uniqueStrings(
-          achievementLines.filter((line) => line.length >= 24).slice(0, 6),
+          achievementLines
+            .filter((line) => line.length >= 24)
+            .slice(0, MAX_EXPERIENCE_ACHIEVEMENTS),
         ),
-        skills: inferSkills(block.join("\n"), []),
+        skills: inferExperienceSkills(block.join("\n"), resumeText),
         domainTags: [],
         peopleManagementScope: null,
         ownershipScope: null,
@@ -760,7 +936,7 @@ export function inferExperienceEntries(resumeText: string) {
     return datedEntries;
   }
 
-  return inferUndatedExperienceEntries(sectionLines).filter(
+  return inferUndatedExperienceEntries(sectionLines, resumeText).filter(
     (entry) => entry.title || entry.companyName || entry.summary,
   );
 }

@@ -1,0 +1,842 @@
+// @vitest-environment jsdom
+
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
+import type { ApplicationRecord } from "@unemployed/contracts";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApplicationsRecordsPanel } from "./applications-records-panel";
+import {
+  APPLICATION_FILTERS,
+  type ApplicationsViewFilter,
+} from "./applications-filters";
+import { matchesApplicationsFilter } from "./applications-screen-helpers";
+import {
+  jobFinderListRowBadgeSlotClassName,
+  jobFinderListRowLinesClassName,
+  jobFinderListRowTitleLineClassName,
+} from "../../components/list-row";
+
+afterEach(cleanup);
+
+describe("ApplicationsRecordsPanel", () => {
+  it("titles the preparation workspace after its own view instead of the tracker", () => {
+    render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[]}
+          filterCounts={{
+            all: 0,
+            needs_action: 0,
+            in_progress: 0,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications={false}
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={null}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("heading", { name: "Preparation" })).toBeTruthy();
+    expect(screen.queryByText("Application tracker")).toBeNull();
+    expect(screen.getByText("No application started yet")).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Shortlisting a job or tailoring its resume does not create an application record.*choose Prepare application/i,
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("group", { name: "Application filters" }),
+    ).toBeNull();
+  });
+
+  it("shows stage filters only when there are applications to filter", () => {
+    const record: ApplicationRecord = {
+      id: "application_1",
+      jobId: "job_1",
+      title: "Product Engineer",
+      company: "Acme",
+      status: "ready_for_review",
+      lastActionLabel: "Resume approved",
+      nextActionLabel: "Prepare application",
+      lastUpdatedAt: "2026-08-09T08:00:00.000Z",
+      lastAttemptState: "paused",
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+    };
+
+    render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          filterCounts={{
+            all: 1,
+            needs_action: 0,
+            in_progress: 1,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={null}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByRole("group", { name: "Application filters" }),
+    ).toBeTruthy();
+  });
+
+  it("gives each row one clear whole-row details action", () => {
+    const onSelectRecord = vi.fn();
+    const applicationRecords: ApplicationRecord[] = ["1", "2", "3"].map(
+      (suffix) =>
+        ({
+          id: `application_${suffix}`,
+          jobId: `job_${suffix}`,
+          title: `Product Engineer ${suffix}`,
+          company: "Acme",
+          status: "ready_for_review",
+          lastActionLabel: "Resume approved",
+          nextActionLabel: "Prepare application",
+          lastUpdatedAt: "2026-08-09T08:00:00.000Z",
+          lastAttemptState: "paused",
+          questionSummary: {
+            total: 0,
+            required: 0,
+            answered: 0,
+            unansweredRequired: 0,
+          },
+          latestBlocker: null,
+          consentSummary: { status: "none", pendingCount: 0 },
+          replaySummary: {
+            sourceInstructionArtifactId: null,
+            lastUrl: null,
+            checkpointCount: 0,
+            evidenceCount: 0,
+          },
+          events: [],
+          crm: null,
+        }) as ApplicationRecord,
+    );
+
+    render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={applicationRecords}
+          filterCounts={{
+            all: applicationRecords.length,
+            needs_action: 0,
+            in_progress: applicationRecords.length,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={onSelectRecord}
+          selectedRecord={null}
+        />
+      </MemoryRouter>,
+    );
+
+    const firstRowAction = screen.getByRole("button", {
+      name: "View details for Product Engineer 1 at Acme",
+    });
+    // The row IS the action now (the shared SelectableRow primitive), rather
+    // than an absolutely positioned overlay button on top of the content.
+    expect(firstRowAction.getAttribute("data-slot")).toBe("selectable-row");
+    expect(firstRowAction.className).toContain("w-full");
+    expect(firstRowAction.className).not.toContain("absolute");
+    fireEvent.click(firstRowAction);
+    expect(onSelectRecord).toHaveBeenCalledWith("application_1");
+
+    // Needs you already covers paused prep — do not also announce the
+    // redundant "Needs follow-up" attempt badge.
+    const stateDescriptionId = firstRowAction.getAttribute("aria-describedby");
+    expect(stateDescriptionId).toBeTruthy();
+    expect(document.getElementById(stateDescriptionId!)?.textContent).toBe(
+      "Stage Needs you.",
+    );
+    expect(screen.queryByText("Needs follow-up")).toBeNull();
+    expect(firstRowAction.getAttribute("aria-keyshortcuts")).toBe(
+      "ArrowUp ArrowDown Home End",
+    );
+
+    fireEvent.keyDown(firstRowAction, { key: "ArrowDown" });
+    expect(onSelectRecord).toHaveBeenLastCalledWith("application_2");
+
+    const secondRowAction = screen.getByRole("button", {
+      name: "View details for Product Engineer 2 at Acme",
+    });
+    expect(secondRowAction.getAttribute("data-collection-item-id")).toBe(
+      "application_2",
+    );
+    fireEvent.keyDown(secondRowAction, { key: "End" });
+    expect(onSelectRecord).toHaveBeenLastCalledWith("application_3");
+    fireEvent.keyDown(secondRowAction, { key: "Home" });
+    expect(onSelectRecord).toHaveBeenLastCalledWith("application_1");
+    expect(onSelectRecord).toHaveBeenCalledTimes(4);
+  });
+
+  it("uses a labeled responsive summary instead of a horizontally scrolling table", () => {
+    const record: ApplicationRecord = {
+      id: "application_1",
+      jobId: "job_1",
+      title: "Senior Product Engineer for Developer Experience",
+      company: "Acme International Technology Group",
+      status: "ready_for_review",
+      lastActionLabel: "A detailed resume was approved for this application",
+      nextActionLabel: "Prepare application",
+      lastUpdatedAt: "2026-08-09T08:00:00.000Z",
+      lastAttemptState: "paused",
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+    };
+
+    render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          filterCounts={{
+            all: 1,
+            needs_action: 0,
+            in_progress: 1,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={record}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole("table")).toBeNull();
+    const applications = screen.getByRole("list", { name: "Applications" });
+    expect(applications.className).toContain("overflow-x-hidden");
+
+    const application = within(applications).getByRole("listitem");
+    expect(application.textContent).toContain(record.title);
+    expect(application.textContent).toContain(record.company);
+    expect(application.textContent).toContain(record.nextActionLabel);
+    expect(
+      within(application)
+        .getByRole("button", {
+          name: `View details for ${record.title} at ${record.company}`,
+        })
+        .getAttribute("aria-current"),
+    ).toBe("true");
+
+    const rowAction = application.querySelector('[data-slot="selectable-row"]');
+    // Padding is owned by the primitive so it cannot vary with selection.
+    expect(rowAction?.className).toContain("px-4 py-3");
+    expect(rowAction?.className).not.toContain("py-4");
+    // One shared list treatment across Find jobs, Shortlisted and
+    // Applications: a title line with the status badge trailing it, not this
+    // list's own two-column grid. `list-row.test.tsx` pins that the three
+    // panels agree; this pins what the Applications row itself renders.
+    const rowLines = rowAction?.firstElementChild;
+    expect(rowLines?.className).toBe(jobFinderListRowLinesClassName);
+    const rowTitleLine = rowLines?.firstElementChild;
+    expect(rowTitleLine?.className).toBe(jobFinderListRowTitleLineClassName);
+    const rowBadgeSlot = rowTitleLine?.lastElementChild;
+    expect(rowBadgeSlot?.className).toBe(jobFinderListRowBadgeSlotClassName);
+    expect(rowBadgeSlot?.textContent).toContain("Needs you");
+    expect(within(application).queryByText("Job")).toBeNull();
+    expect(within(application).queryByText("Latest activity")).toBeNull();
+    // The stage is announced exactly once, through the row description, so
+    // "Stage" is not read twice beside its own badge.
+    expect(within(application).queryByText("Stage")).toBeNull();
+    expect((application.textContent ?? "").split("Stage").length - 1).toBe(1);
+    // Needs you already covers paused prep — no second "Needs follow-up" badge.
+    expect(within(application).queryByText("Apply attempt")).toBeNull();
+    expect(within(application).queryByText("Needs follow-up")).toBeNull();
+    // Employer plus exactly one status line: the paused next step is not
+    // repeated as a latest-activity subtitle above "Next:".
+    const rowText = application.textContent ?? "";
+    expect(rowText.split(record.nextActionLabel ?? "").length - 1).toBe(1);
+    expect(rowText).not.toContain(record.lastActionLabel);
+    expect(rowText).not.toContain(" • ");
+  });
+
+  it("keeps the preparation header compact with one reachable filter row", () => {
+    const onFilterChange = vi.fn();
+    const record: ApplicationRecord = {
+      id: "application_1",
+      jobId: "job_1",
+      title: "Product Engineer",
+      company: "Acme",
+      status: "ready_for_review",
+      lastActionLabel: "Resume approved",
+      nextActionLabel: "Prepare application",
+      lastUpdatedAt: "2026-08-09T08:00:00.000Z",
+      lastAttemptState: "paused",
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+    };
+
+    const { container } = render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          filterCounts={{
+            all: 1,
+            needs_action: 0,
+            in_progress: 1,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={onFilterChange}
+          onSelectRecord={vi.fn()}
+          selectedRecord={null}
+        />
+      </MemoryRouter>,
+    );
+
+    const headerBar = container.querySelector(":scope > section > div");
+    expect(headerBar?.className).toContain("px-5");
+    expect(headerBar?.className).toContain("py-3");
+
+    const filterGroup = screen.getByRole("group", {
+      name: "Application filters",
+    });
+    expect(filterGroup.className).toContain("flex-wrap");
+    expect(filterGroup.className).toContain("w-full");
+
+    const filterButtons = within(filterGroup).getAllByRole("button");
+    expect(filterButtons.length).toBeGreaterThan(1);
+    for (const filterButton of filterButtons) {
+      expect(filterButton.className).toContain("shrink-0");
+    }
+
+    // Zero-count views are hidden so a single record cannot wrap the filter
+    // row; All and the waiting-on-you view always stay reachable.
+    expect(screen.queryByRole("button", { name: /submitted/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /manual only/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^All/ })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /waiting on you/i }),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /in progress/i }));
+    expect(onFilterChange).toHaveBeenCalledWith("in_progress");
+  });
+
+  it("names the waiting-applications filter apart from the Needs you step badge", () => {
+    // One application paused on a browser step the user must finish — the row
+    // the "Needs you" badge marks — plus one failed application that is also
+    // waiting on the user but is not that step. The filter chip counts the
+    // superset (2) and must not also be called "Needs you"; the badge keeps
+    // that name for the one paused row. (The header's own unresolved-step
+    // count lives in the shell and is not rendered here.)
+    const baseRecord = {
+      company: "Acme",
+      lastActionLabel: "Resume approved",
+      lastUpdatedAt: "2026-08-09T08:00:00.000Z",
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+    } as const;
+    const pausedOnBrowserStep = {
+      ...baseRecord,
+      id: "application_paused",
+      jobId: "job_paused",
+      title: "Product Engineer",
+      status: "ready_for_review",
+      nextActionLabel: "Finish the open application yourself",
+      lastAttemptState: "paused",
+    } as unknown as ApplicationRecord;
+    const failedAttempt = {
+      ...baseRecord,
+      id: "application_failed",
+      jobId: "job_failed",
+      title: "Platform Engineer",
+      status: "ready_for_review",
+      nextActionLabel: "Retry preparation later",
+      lastAttemptState: "failed",
+    } as unknown as ApplicationRecord;
+    const applicationRecords = [pausedOnBrowserStep, failedAttempt];
+    // One shared selector owns the count, exactly as the screen derives it.
+    const filterCounts = Object.fromEntries(
+      APPLICATION_FILTERS.map((filter) => [
+        filter,
+        applicationRecords.filter((record) =>
+          matchesApplicationsFilter(record, filter),
+        ).length,
+      ]),
+    ) as Record<ApplicationsViewFilter, number>;
+    expect(filterCounts.needs_action).toBe(2);
+
+    render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={applicationRecords}
+          filterCounts={filterCounts}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={null}
+        />
+      </MemoryRouter>,
+    );
+
+    const filterGroup = screen.getByRole("group", {
+      name: "Application filters",
+    });
+    // The superset view names its own population and its unit, so its "2"
+    // cannot be read against the header's "Needs you: 1 unresolved".
+    const waitingFilter = within(filterGroup).getByRole("button", {
+      name: "Waiting on you: 2 applications",
+    });
+    expect(waitingFilter.textContent).toContain("Waiting on you");
+    expect(waitingFilter.textContent).toContain("2");
+    expect(
+      within(filterGroup).queryByRole("button", { name: /needs you/i }),
+    ).toBeNull();
+    for (const filterButton of within(filterGroup).getAllByRole("button")) {
+      expect(filterButton.textContent).not.toContain("Needs you");
+    }
+
+    // Exactly one row carries the "Needs you" step badge: the paused one.
+    const rows = within(
+      screen.getByRole("list", { name: "Applications" }),
+    ).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]!).getByText("Needs you")).toBeTruthy();
+    expect(within(rows[1]!).queryByText("Needs you")).toBeNull();
+    expect(within(rows[1]!).getByText("Needs recovery")).toBeTruthy();
+  });
+
+  it("keeps a large application list bounded to one page", () => {
+    const applicationRecords = Array.from(
+      { length: 226 },
+      (_, index) =>
+        ({
+          id: `application_${index}`,
+          jobId: `job_${index}`,
+          title: `Product Engineer ${index}`,
+          company: "Acme",
+          status: "ready_for_review",
+          lastActionLabel: "Resume approved",
+          nextActionLabel: "Prepare application",
+          lastUpdatedAt: "2026-08-09T08:00:00.000Z",
+          lastAttemptState: "paused",
+          questionSummary: {
+            total: 0,
+            required: 0,
+            answered: 0,
+            unansweredRequired: 0,
+          },
+          latestBlocker: null,
+          consentSummary: { status: "none", pendingCount: 0 },
+          replaySummary: {
+            sourceInstructionArtifactId: null,
+            lastUrl: null,
+            checkpointCount: 0,
+            evidenceCount: 0,
+          },
+          events: [],
+          crm: null,
+        }) as ApplicationRecord,
+    );
+
+    render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={applicationRecords}
+          filterCounts={{
+            all: 226,
+            needs_action: 0,
+            in_progress: 226,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={null}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getAllByRole("listitem")).toHaveLength(40);
+    expect(
+      screen.getByRole("navigation", { name: "applications pagination" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.getAllByRole("listitem")).toHaveLength(40);
+    expect(screen.getByText("Product Engineer 40")).toBeTruthy();
+  });
+
+  it("marks the records list as the locked pane scroll region", () => {
+    const record: ApplicationRecord = {
+      id: "application_scroll_region",
+      jobId: "job_scroll_region",
+      title: "Product Engineer",
+      company: "Acme",
+      status: "ready_for_review",
+      lastActionLabel: "Resume approved",
+      nextActionLabel: "Prepare application",
+      lastUpdatedAt: "2026-08-09T08:00:00.000Z",
+      lastAttemptState: "paused",
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+    };
+
+    const { container } = render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          filterCounts={{
+            all: 1,
+            needs_action: 0,
+            in_progress: 1,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={null}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(
+      container.querySelectorAll("[data-locked-pane-scroll-region]"),
+    ).toHaveLength(1);
+    const region = container.querySelector<HTMLElement>(
+      "[data-locked-pane-scroll-region]",
+    );
+    expect(region?.tagName).toBe("UL");
+    expect(region?.getAttribute("aria-label")).toBe("Applications");
+    expect(region?.className).toContain("overflow-y-auto");
+  });
+
+  it("announces an interrupted attempt as failed and never as in progress", () => {
+    const record: ApplicationRecord = {
+      id: "application_interrupted",
+      jobId: "job_1",
+      title: "Staff Product Designer",
+      company: "Consent Labs",
+      status: "approved",
+      lastActionLabel: "Preparation stopped when the app closed.",
+      nextActionLabel: "Retry preparation when you are ready.",
+      lastUpdatedAt: "2026-08-25T23:45:00.000Z",
+      lastAttemptState: "failed",
+      questionSummary: {
+        total: 2,
+        required: 2,
+        answered: 1,
+        unansweredRequired: 1,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+    };
+
+    render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          filterCounts={{
+            all: 1,
+            needs_action: 1,
+            in_progress: 0,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={null}
+        />
+      </MemoryRouter>,
+    );
+
+    // The filter chip label legitimately says "In progress" (with a zero
+    // count); the row surfaces themselves must never claim it.
+    const rowRegion = document.querySelector(
+      "[data-locked-pane-scroll-region]",
+    );
+    expect(rowRegion?.textContent ?? "").not.toMatch(/In progress/);
+    expect(screen.getByText("Needs recovery")).not.toBeNull();
+    // "Needs recovery" already says the attempt failed; the row carries one
+    // badge, and the failure detail lives in the panel.
+    expect(screen.queryByText("Attempt failed")).toBeNull();
+
+    const rowAction = screen.getByRole("button", {
+      name: "View details for Staff Product Designer at Consent Labs",
+    });
+    const stateDescriptionId = rowAction.getAttribute("aria-describedby");
+    expect(stateDescriptionId).toBeTruthy();
+    expect(document.getElementById(stateDescriptionId!)?.textContent).toBe(
+      "Stage Needs recovery. Preparation attempt Attempt failed.",
+    );
+  });
+
+  it("omits Employer not stated and infers Wellfound listing origin", () => {
+    const record: ApplicationRecord = {
+      id: "application_wellfound",
+      jobId: "job_wellfound",
+      title: "AI Product Engineer",
+      company: "Employer not stated",
+      status: "ready_for_review",
+      lastActionLabel: "Saved from Find jobs.",
+      nextActionLabel: "Prepare this application.",
+      lastUpdatedAt: "2026-08-26T10:00:00.000Z",
+      lastAttemptState: null,
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+    };
+
+    const { rerender } = render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          discoveryJobs={[
+            {
+              id: "job_wellfound",
+              canonicalUrl:
+                "https://wellfound.com/jobs/4634158-ai-product-engineer",
+            },
+          ]}
+          filterCounts={{
+            all: 1,
+            needs_action: 1,
+            in_progress: 0,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={record}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Employer not stated")).toBeNull();
+    expect(screen.getByText(/Listing · wellfound.com/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "View details for AI Product Engineer at Listing · wellfound.com",
+      }),
+    ).toBeTruthy();
+
+    rerender(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          discoveryJobs={[
+            {
+              id: "job_wellfound",
+              canonicalUrl:
+                "https://wellfound.com/company/signal-systems/jobs/123-role",
+            },
+          ]}
+          filterCounts={{
+            all: 1,
+            needs_action: 1,
+            in_progress: 0,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={record}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Employer not stated")).toBeNull();
+    expect(screen.getByText(/Signal Systems/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "View details for AI Product Engineer at Signal Systems",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("shows employer recovered at extraction for /jobs/{id} listings", () => {
+    // End-to-end display contract: discovery stored company from an observed
+    // `/company/{slug}` href even though the listing URL is `/jobs/{id}-…`.
+    const record: ApplicationRecord = {
+      id: "application_wellfound_extracted",
+      jobId: "job_wellfound_extracted",
+      title: "Software Engineer II",
+      company: "Signal Systems",
+      status: "ready_for_review",
+      lastActionLabel: "Saved from Find jobs.",
+      nextActionLabel: "Prepare this application.",
+      lastUpdatedAt: "2026-08-27T10:00:00.000Z",
+      lastAttemptState: null,
+      questionSummary: {
+        total: 0,
+        required: 0,
+        answered: 0,
+        unansweredRequired: 0,
+      },
+      latestBlocker: null,
+      consentSummary: { status: "none", pendingCount: 0 },
+      replaySummary: {
+        sourceInstructionArtifactId: null,
+        lastUrl: null,
+        checkpointCount: 0,
+        evidenceCount: 0,
+      },
+      events: [],
+      crm: null,
+    };
+
+    render(
+      <MemoryRouter>
+        <ApplicationsRecordsPanel
+          activeFilter="all"
+          applicationRecords={[record]}
+          discoveryJobs={[
+            {
+              id: "job_wellfound_extracted",
+              canonicalUrl:
+                "https://wellfound.com/jobs/4634158-software-engineer-ii",
+            },
+          ]}
+          filterCounts={{
+            all: 1,
+            needs_action: 1,
+            in_progress: 0,
+            submitted: 0,
+            manual_only: 0,
+          }}
+          hasAnyApplications
+          onFilterChange={vi.fn()}
+          onSelectRecord={vi.fn()}
+          selectedRecord={record}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Employer not stated")).toBeNull();
+    expect(screen.queryByText(/Listing ·/)).toBeNull();
+    expect(screen.getByText(/Signal Systems/)).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "View details for Software Engineer II at Signal Systems",
+      }),
+    ).toBeTruthy();
+  });
+});

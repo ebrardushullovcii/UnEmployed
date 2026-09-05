@@ -2,9 +2,7 @@ import type {
   ResumeTemplateDefinition,
   ResumeTemplateId,
 } from "@unemployed/contracts";
-import {
-  getResumeTemplateVariantLabel,
-} from "@unemployed/contracts";
+import { getResumeTemplateVariantLabel } from "@unemployed/contracts";
 
 export interface ResumeThemePickerRecommendationContext {
   jobTitle: string | null;
@@ -176,7 +174,11 @@ export function buildResumeThemePickerRecommendations(input: {
         }
         break;
       case "career_pivot":
-        if (context.hasProjects && (isTechnicalRole || isProductOrDesignRole) && !hasLongHistorySignal) {
+        if (
+          context.hasProjects &&
+          (isTechnicalRole || isProductOrDesignRole) &&
+          !hasLongHistorySignal
+        ) {
           score = 4;
           reason =
             "The draft has bridgeable project proof, so the hybrid pivot layout connects transferable experience to the target role early.";

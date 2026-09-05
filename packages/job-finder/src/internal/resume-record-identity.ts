@@ -29,10 +29,19 @@ function normalizeRecordDate(value: unknown): string {
 
   const slashFullDateMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (slashFullDateMatch) {
-    const first = Number.parseInt(slashFullDateMatch[1] ?? "", 10);
-    const second = Number.parseInt(slashFullDateMatch[2] ?? "", 10);
+    const firstToken = slashFullDateMatch[1] ?? "";
+    const secondToken = slashFullDateMatch[2] ?? "";
+    const first = Number.parseInt(firstToken, 10);
+    const second = Number.parseInt(secondToken, 10);
     const year = slashFullDateMatch[3] ?? "";
-    const month = first >= 1 && first <= 12 ? first : second;
+    const month =
+      first > 12
+        ? second
+        : second > 12
+          ? first
+          : firstToken.length === 2 && secondToken.length === 2
+            ? second
+            : first;
 
     if (Number.isInteger(month) && month >= 1 && month <= 12 && year) {
       return `${year}-${String(month).padStart(2, "0")}`;
@@ -212,7 +221,10 @@ export function areEquivalentEducationRecords(
   return (
     (strongSchool && strongDegree && (strongStart || strongEnd || fieldCompatible)) ||
     (strongSchool && strongStart && degreeCompatible && fieldCompatible) ||
-    (strongSchool && degreeCompatible && fieldCompatible && (strongDegree || strongField))
+    (strongSchool &&
+      degreeCompatible &&
+      fieldCompatible &&
+      (strongDegree || strongField || strongStart || strongEnd))
   );
 }
 

@@ -20,34 +20,32 @@ const missingDateQualitySectionKinds = new Set<ResumeDraftSection["kind"]>([
 ]);
 
 const currentEndTokens = new Set(["present", "current", "now", "ongoing"]);
-const monthNumbers: Map<string, number> = new Map(
-  [
-    ["jan", 0],
-    ["january", 0],
-    ["feb", 1],
-    ["february", 1],
-    ["mar", 2],
-    ["march", 2],
-    ["apr", 3],
-    ["april", 3],
-    ["may", 4],
-    ["jun", 5],
-    ["june", 5],
-    ["jul", 6],
-    ["july", 6],
-    ["aug", 7],
-    ["august", 7],
-    ["sep", 8],
-    ["sept", 8],
-    ["september", 8],
-    ["oct", 9],
-    ["october", 9],
-    ["nov", 10],
-    ["november", 10],
-    ["dec", 11],
-    ["december", 11],
-  ] as const,
-);
+const monthNumbers: Map<string, number> = new Map([
+  ["jan", 0],
+  ["january", 0],
+  ["feb", 1],
+  ["february", 1],
+  ["mar", 2],
+  ["march", 2],
+  ["apr", 3],
+  ["april", 3],
+  ["may", 4],
+  ["jun", 5],
+  ["june", 5],
+  ["jul", 6],
+  ["july", 6],
+  ["aug", 7],
+  ["august", 7],
+  ["sep", 8],
+  ["sept", 8],
+  ["september", 8],
+  ["oct", 9],
+  ["october", 9],
+  ["nov", 10],
+  ["november", 10],
+  ["dec", 11],
+  ["december", 11],
+] as const);
 
 export interface ParsedResumeEntryDateRange {
   endBeforeStart: boolean;
@@ -110,7 +108,8 @@ function splitDateRange(value: string): { end: string | null; start: string } {
     };
   }
 
-  const compactPresentMatch = /^(?<start>.+?)\s*-\s*(?<end>present|current|now|ongoing)$/i.exec(trimmed);
+  const compactPresentMatch =
+    /^(?<start>.+?)\s*-\s*(?<end>present|current|now|ongoing)$/i.exec(trimmed);
   if (compactPresentMatch?.groups?.start && compactPresentMatch.groups.end) {
     return {
       start: compactPresentMatch.groups.start,
@@ -118,8 +117,14 @@ function splitDateRange(value: string): { end: string | null; start: string } {
     };
   }
 
-  const compactMonthRangeMatch = /^(?<start>(?:\d{1,2}\/\d{1,2}\/\d{4}|[A-Za-z]{3,9}\.?\s+\d{4}|\d{1,2}\/\d{4}|\d{4}))\s*-\s*(?<end>(?:\d{1,2}\/\d{1,2}\/\d{4}|[A-Za-z]{3,9}\.?\s+\d{4}|\d{1,2}\/\d{4}|\d{4}))$/i.exec(trimmed);
-  if (compactMonthRangeMatch?.groups?.start && compactMonthRangeMatch.groups.end) {
+  const compactMonthRangeMatch =
+    /^(?<start>(?:\d{1,2}\/\d{1,2}\/\d{4}|[A-Za-z]{3,9}\.?\s+\d{4}|\d{1,2}\/\d{4}|\d{4}))\s*-\s*(?<end>(?:\d{1,2}\/\d{1,2}\/\d{4}|[A-Za-z]{3,9}\.?\s+\d{4}|\d{1,2}\/\d{4}|\d{4}))$/i.exec(
+      trimmed,
+    );
+  if (
+    compactMonthRangeMatch?.groups?.start &&
+    compactMonthRangeMatch.groups.end
+  ) {
     return {
       start: compactMonthRangeMatch.groups.start,
       end: compactMonthRangeMatch.groups.end,
@@ -142,12 +147,18 @@ function parseDateSegment(
     return { isCurrent: true, month: null, unparseable: false };
   }
 
-  const isoDate = /^(?<year>\d{4})-(?<month>\d{1,2})-(?<day>\d{1,2})$/.exec(normalized);
+  const isoDate = /^(?<year>\d{4})-(?<month>\d{1,2})-(?<day>\d{1,2})$/.exec(
+    normalized,
+  );
   if (isoDate?.groups?.year && isoDate.groups.month) {
     const year = Number(isoDate.groups.year);
     const month = Number(isoDate.groups.month) - 1;
     return month >= 0 && month <= 11
-      ? { isCurrent: false, month: toMonthIndex(year, month), unparseable: false }
+      ? {
+          isCurrent: false,
+          month: toMonthIndex(year, month),
+          unparseable: false,
+        }
       : { isCurrent: false, month: null, unparseable: true };
   }
 
@@ -156,7 +167,11 @@ function parseDateSegment(
     const year = Number(isoMonth.groups.year);
     const month = Number(isoMonth.groups.month) - 1;
     return month >= 0 && month <= 11
-      ? { isCurrent: false, month: toMonthIndex(year, month), unparseable: false }
+      ? {
+          isCurrent: false,
+          month: toMonthIndex(year, month),
+          unparseable: false,
+        }
       : { isCurrent: false, month: null, unparseable: true };
   }
 
@@ -165,22 +180,34 @@ function parseDateSegment(
     const year = Number(slashMonth.groups.year);
     const month = Number(slashMonth.groups.month) - 1;
     return month >= 0 && month <= 11
-      ? { isCurrent: false, month: toMonthIndex(year, month), unparseable: false }
+      ? {
+          isCurrent: false,
+          month: toMonthIndex(year, month),
+          unparseable: false,
+        }
       : { isCurrent: false, month: null, unparseable: true };
   }
 
-  const slashDayMonthYear = /^(?<day>\d{1,2})\/(?<month>\d{1,2})\/(?<year>\d{4})$/.exec(normalized);
+  const slashDayMonthYear =
+    /^(?<day>\d{1,2})\/(?<month>\d{1,2})\/(?<year>\d{4})$/.exec(normalized);
   if (slashDayMonthYear?.groups?.year && slashDayMonthYear.groups.month) {
     const year = Number(slashDayMonthYear.groups.year);
     const month = Number(slashDayMonthYear.groups.month) - 1;
     return month >= 0 && month <= 11
-      ? { isCurrent: false, month: toMonthIndex(year, month), unparseable: false }
+      ? {
+          isCurrent: false,
+          month: toMonthIndex(year, month),
+          unparseable: false,
+        }
       : { isCurrent: false, month: null, unparseable: true };
   }
 
-  const monthYear = /^(?<month>[A-Za-z]{3,9})\s+(?<year>\d{4})$/.exec(normalized);
+  const monthYear = /^(?<month>[A-Za-z]{3,9})\s+(?<year>\d{4})$/.exec(
+    normalized,
+  );
   if (monthYear?.groups?.month && monthYear.groups.year) {
-    const month = monthNumbers.get(monthYear.groups.month.toLowerCase()) ?? null;
+    const month =
+      monthNumbers.get(monthYear.groups.month.toLowerCase()) ?? null;
     return month !== null
       ? {
           isCurrent: false,
@@ -204,24 +231,33 @@ function parseDateSegment(
 }
 
 export function parseResumeEntryDateRange(
-  valueOrEntry: string | Pick<ResumeDraftEntry, "dateRange" | "endDate" | "isCurrent" | "startDate"> | null | undefined,
+  valueOrEntry:
+    | string
+    | Pick<
+        ResumeDraftEntry,
+        "dateRange" | "endDate" | "isCurrent" | "startDate"
+      >
+    | null
+    | undefined,
   now = new Date(),
 ): ParsedResumeEntryDateRange {
-  const structuredEntry = typeof valueOrEntry === "object" && valueOrEntry !== null
-    ? valueOrEntry
-    : null;
+  const structuredEntry =
+    typeof valueOrEntry === "object" && valueOrEntry !== null
+      ? valueOrEntry
+      : null;
   const structuredHasAnyDate = Boolean(
-    structuredEntry?.startDate?.trim() ||
-      structuredEntry?.endDate?.trim(),
+    structuredEntry?.startDate?.trim() || structuredEntry?.endDate?.trim(),
   );
   const trimmed = structuredHasAnyDate
     ? [
         structuredEntry?.startDate,
         structuredEntry?.isCurrent ? "Present" : structuredEntry?.endDate,
-      ].filter((value): value is string => Boolean(value?.trim())).join(" – ")
+      ]
+        .filter((value): value is string => Boolean(value?.trim()))
+        .join(" – ")
     : typeof valueOrEntry === "string"
       ? valueOrEntry.trim()
-      : structuredEntry?.dateRange?.trim() ?? "";
+      : (structuredEntry?.dateRange?.trim() ?? "");
   if (!trimmed) {
     return {
       endBeforeStart: false,
@@ -236,13 +272,22 @@ export function parseResumeEntryDateRange(
   }
 
   const range = splitDateRange(trimmed);
-  const startSegment = parseDateSegment(range.start, range.end ? "start" : "single");
-  const endSegment = range.end ? parseDateSegment(range.end, "end") : startSegment;
+  const startSegment = parseDateSegment(
+    range.start,
+    range.end ? "start" : "single",
+  );
+  const endSegment = range.end
+    ? parseDateSegment(range.end, "end")
+    : startSegment;
   const isCurrent = Boolean(endSegment.isCurrent);
   const startMonth = startSegment.month;
   const endMonth = isCurrent ? null : endSegment.month;
-  const hasParseableDate = Boolean(isCurrent || startMonth !== null || endMonth !== null);
-  const hasUnparseableDateRange = Boolean(startSegment.unparseable || endSegment.unparseable);
+  const hasParseableDate = Boolean(
+    isCurrent || startMonth !== null || endMonth !== null,
+  );
+  const hasUnparseableDateRange = Boolean(
+    startSegment.unparseable || endSegment.unparseable,
+  );
   const currentMonth = getCurrentMonthIndex(now);
   const futureMonths = [startMonth, endMonth].filter(
     (month): month is number => month !== null && month > currentMonth,
@@ -270,7 +315,9 @@ export function sectionSupportsDeterministicEntryOrdering(
 
 function getEntryTieBreaker(entry: ResumeDraftEntry): string {
   return normalizeText(
-    [entry.title, entry.subtitle, entry.location, entry.id].filter(Boolean).join(" "),
+    [entry.title, entry.subtitle, entry.location, entry.id]
+      .filter(Boolean)
+      .join(" "),
   );
 }
 
@@ -280,8 +327,10 @@ function compareEntriesNewestFirst(
 ): number {
   const leftDate = parseResumeEntryDateRange(left.entry);
   const rightDate = parseResumeEntryDateRange(right.entry);
-  const leftConfident = leftDate.hasParseableDate && !leftDate.hasUnparseableDateRange;
-  const rightConfident = rightDate.hasParseableDate && !rightDate.hasUnparseableDateRange;
+  const leftConfident =
+    leftDate.hasParseableDate && !leftDate.hasUnparseableDateRange;
+  const rightConfident =
+    rightDate.hasParseableDate && !rightDate.hasUnparseableDateRange;
 
   if (leftConfident !== rightConfident) {
     return leftConfident ? -1 : 1;
@@ -293,10 +342,10 @@ function compareEntriesNewestFirst(
 
   const leftEnd = leftDate.isCurrent
     ? Number.MAX_SAFE_INTEGER
-    : leftDate.endMonth ?? leftDate.startMonth ?? Number.MIN_SAFE_INTEGER;
+    : (leftDate.endMonth ?? leftDate.startMonth ?? Number.MIN_SAFE_INTEGER);
   const rightEnd = rightDate.isCurrent
     ? Number.MAX_SAFE_INTEGER
-    : rightDate.endMonth ?? rightDate.startMonth ?? Number.MIN_SAFE_INTEGER;
+    : (rightDate.endMonth ?? rightDate.startMonth ?? Number.MIN_SAFE_INTEGER);
 
   if (leftEnd !== rightEnd) {
     return rightEnd - leftEnd;
@@ -361,7 +410,8 @@ function orderEntriesByManualSortOrder(
     entries
       .map((entry, index) => ({ entry, index }))
       .sort((left, right) => {
-        const sortOrderDifference = left.entry.sortOrder - right.entry.sortOrder;
+        const sortOrderDifference =
+          left.entry.sortOrder - right.entry.sortOrder;
         return sortOrderDifference !== 0
           ? sortOrderDifference
           : left.index - right.index;
@@ -377,10 +427,12 @@ export function normalizeResumeDraftSectionEntryOrdering(
     return section;
   }
 
-  const entryOrderMode = section.entryOrderMode === "manual" ? "manual" : "chronology";
-  const entries = entryOrderMode === "manual"
-    ? orderEntriesByManualSortOrder(section.entries)
-    : orderEntriesNewestFirst(section.entries);
+  const entryOrderMode =
+    section.entryOrderMode === "manual" ? "manual" : "chronology";
+  const entries =
+    entryOrderMode === "manual"
+      ? orderEntriesByManualSortOrder(section.entries)
+      : orderEntriesNewestFirst(section.entries);
 
   return {
     ...section,
@@ -389,7 +441,9 @@ export function normalizeResumeDraftSectionEntryOrdering(
   };
 }
 
-export function normalizeResumeDraftEntryOrdering(draft: ResumeDraft): ResumeDraft {
+export function normalizeResumeDraftEntryOrdering(
+  draft: ResumeDraft,
+): ResumeDraft {
   return {
     ...draft,
     sections: draft.sections.map((section) =>
@@ -421,10 +475,13 @@ export function moveSectionEntry(input: {
 }): ResumeDraftSection {
   const normalizedSection = normalizeResumeDraftSectionEntryOrdering({
     ...input.section,
-    entryOrderMode: input.section.entryOrderMode === "manual" ? "manual" : "chronology",
+    entryOrderMode:
+      input.section.entryOrderMode === "manual" ? "manual" : "chronology",
   });
   const entries = [...normalizedSection.entries];
-  const currentIndex = entries.findIndex((entry) => entry.id === input.targetEntryId);
+  const currentIndex = entries.findIndex(
+    (entry) => entry.id === input.targetEntryId,
+  );
 
   if (currentIndex < 0) {
     throw new Error(`Unable to find entry '${input.targetEntryId}'.`);
@@ -438,16 +495,23 @@ export function moveSectionEntry(input: {
   if (!input.anchorEntryId) {
     entries.push(movingEntry);
   } else {
-    const anchorIndex = entries.findIndex((entry) => entry.id === input.anchorEntryId);
+    const anchorIndex = entries.findIndex(
+      (entry) => entry.id === input.anchorEntryId,
+    );
     if (anchorIndex < 0) {
       throw new Error(`Unable to find anchor entry '${input.anchorEntryId}'.`);
     }
 
-    const destinationIndex = input.position === "before" ? anchorIndex : anchorIndex + 1;
+    const destinationIndex =
+      input.position === "before" ? anchorIndex : anchorIndex + 1;
     entries.splice(destinationIndex, 0, movingEntry);
   }
 
-  const nextEntries = renumberEntries(entries, input.targetEntryId, input.updatedAt);
+  const nextEntries = renumberEntries(
+    entries,
+    input.targetEntryId,
+    input.updatedAt,
+  );
   const orderChanged = nextEntries.some(
     (entry, index) => normalizedSection.entries[index]?.id !== entry.id,
   );
@@ -470,20 +534,46 @@ function getEffectiveDateSpan(
   const start = parsed.startMonth ?? parsed.endMonth;
   const end = parsed.isCurrent
     ? getCurrentMonthIndex(now)
-    : parsed.endMonth ?? parsed.startMonth;
+    : (parsed.endMonth ?? parsed.startMonth);
 
-  if (start === null || start === undefined || end === null || end === undefined) {
+  if (
+    start === null ||
+    start === undefined ||
+    end === null ||
+    end === undefined
+  ) {
     return null;
   }
 
   return { start: Math.min(start, end), end: Math.max(start, end) };
 }
 
-function spansOverlap(
+/**
+ * Adjacent roles routinely share their boundary month ("Nov 2019 - Dec 2021"
+ * followed by "Dec 2021 - Feb 2026"), and a year-only range resolves to whole
+ * months, so a one-month intersection is ordinary handover, not a chronology
+ * problem. Only a genuinely concurrent stretch is worth a review note.
+ */
+const RESUME_ENTRY_OVERLAP_TOLERANCE_MONTHS = 1;
+
+/** Inclusive count of months shared by two spans; 0 when they do not touch. */
+function getSpanOverlapMonths(
+  left: { end: number; start: number },
+  right: { end: number; start: number },
+): number {
+  const overlapStart = Math.max(left.start, right.start);
+  const overlapEnd = Math.min(left.end, right.end);
+
+  return overlapEnd < overlapStart ? 0 : overlapEnd - overlapStart + 1;
+}
+
+function spansOverlapBeyondTolerance(
   left: { end: number; start: number },
   right: { end: number; start: number },
 ): boolean {
-  return left.start <= right.end && right.start <= left.end;
+  return (
+    getSpanOverlapMonths(left, right) > RESUME_ENTRY_OVERLAP_TOLERANCE_MONTHS
+  );
 }
 
 export function buildResumeEntryDateQualityIssues(
@@ -503,7 +593,10 @@ export function buildResumeEntryDateQualityIssues(
     }));
 
     for (const { entry, parsed } of parsedEntries) {
-      if (parsed.hasMissingDateRange && missingDateQualitySectionKinds.has(section.kind)) {
+      if (
+        parsed.hasMissingDateRange &&
+        missingDateQualitySectionKinds.has(section.kind)
+      ) {
         issues.push({
           id: `issue_date_missing_${entry.id}`,
           severity: "info",
@@ -517,7 +610,11 @@ export function buildResumeEntryDateQualityIssues(
       } else if (
         parsed.hasUnparseableDateRange ||
         (!parsed.hasParseableDate &&
-          Boolean(entry.dateRange?.trim() || entry.startDate?.trim() || entry.endDate?.trim()))
+          Boolean(
+            entry.dateRange?.trim() ||
+            entry.startDate?.trim() ||
+            entry.endDate?.trim(),
+          ))
       ) {
         issues.push({
           id: `issue_date_ambiguous_${entry.id}`,
@@ -558,7 +655,9 @@ export function buildResumeEntryDateQualityIssues(
       }
     }
 
-    const currentEntries = parsedEntries.filter(({ parsed }) => parsed.isCurrent);
+    const currentEntries = parsedEntries.filter(
+      ({ parsed }) => parsed.isCurrent,
+    );
     if (currentEntries.length > 1) {
       for (const { entry } of currentEntries) {
         issues.push({
@@ -585,13 +684,17 @@ export function buildResumeEntryDateQualityIssues(
         continue;
       }
 
-      for (let rightIndex = leftIndex + 1; rightIndex < parsedEntries.length; rightIndex += 1) {
+      for (
+        let rightIndex = leftIndex + 1;
+        rightIndex < parsedEntries.length;
+        rightIndex += 1
+      ) {
         const right = parsedEntries[rightIndex];
         if (!right) {
           continue;
         }
         const rightSpan = getEffectiveDateSpan(right.parsed, now);
-        if (rightSpan && spansOverlap(leftSpan, rightSpan)) {
+        if (rightSpan && spansOverlapBeyondTolerance(leftSpan, rightSpan)) {
           overlapEntryIds.add(left.entry.id);
           overlapEntryIds.add(right.entry.id);
         }

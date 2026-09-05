@@ -1,0 +1,207 @@
+import {
+  DiscoveryLedgerEntrySchema,
+  ListingSignalRecordSchema,
+  type DiscoveryLedgerEntry,
+  type ListingSignalRecord,
+  type SavedJob,
+} from "@unemployed/contracts";
+import { describe, expect, test } from "vitest";
+
+import { createSeed } from "../workspace-service.test-support";
+import { projectDiscoveryJobViews } from "./listing-activity";
+
+const hour = (value: number) =>
+  `2026-08-23T${String(value).padStart(2, "0")}:00:00.000Z`;
+
+function job(overrides: Partial<SavedJob> = {}): SavedJob {
+  return {
+    ...createSeed().savedJobs[0]!,
+    id: "job-activity",
+    sourceJobId: "activity-1",
+    canonicalUrl: "https://jobs.example.com/activity-1",
+    applicationUrl: null,
+    lastSeenAt: null,
+    lastVerifiedActiveAt: null,
+    ...overrides,
+  };
+}
+
+function ledger(
+  target: SavedJob,
+  overrides: Partial<DiscoveryLedgerEntry> = {},
+): DiscoveryLedgerEntry {
+  return DiscoveryLedgerEntrySchema.parse({
+    id: "ledger-activity",
+    canonicalUrl: target.canonicalUrl,
+    applicationUrl: target.applicationUrl,
+    source: target.source,
+    sourceJobId: target.sourceJobId,
+    providerKey: target.providerKey,
+    providerBoardToken: target.providerBoardToken,
+    providerIdentifier: target.providerIdentifier,
+    title: target.title,
+    company: target.company,
+    location: target.location,
+    postedAt: target.postedAt,
+    postedAtText: target.postedAtText,
+    targetId: "target-1",
+    firstSeenAt: hour(8),
+    lastSeenAt: hour(9),
+    inactiveAt: hour(10),
+    latestStatus: "inactive",
+    ...overrides,
+  });
+}
+
+function signal(
+  target: SavedJob,
+  kind: "stale" | "closed" | "suspicious",
+  overrides: Partial<ListingSignalRecord> = {},
+): ListingSignalRecord {
+  return ListingSignalRecordSchema.parse({
+    id: `signal-${kind}`,
+    jobId: target.id,
+    signal: kind,
+    detail: `${kind} detail`,
+    detectedAt: hour(11),
+    confidence: 0.9,
+    provenance: "browser",
+    explanation: `Explicit ${kind} evidence.`,
+    recoveryGuidance: "Review the listing.",
+    ...overrides,
+  });
+}
+
+function activity(input: {
+  job: SavedJob;
+  ledger?: DiscoveryLedgerEntry[];
+  signals?: ListingSignalRecord[];
+}) {
+  return projectDiscoveryJobViews({
+    jobs: [input.job],
+    discoveryLedger: input.ledger ?? [],
+    listingSignals: input.signals ?? [],
+  })[0]!.listingActivity;
+}
+
+describe("listing activity projection", () => {
+  test("returns unknown without an activity observation", () => {
+    expect(activity({ job: job() })).toEqual({ status: "unknown" });
+  });
+
+  test("uses the newest saved active observation", () => {
+    expect(
+      activity({
+        job: job({
+          lastSeenAt: hour(9),
+          lastVerifiedActiveAt: hour(10),
+        }),
+      }),
+    ).toEqual({
+      status: "active",
+      observedAt: hour(10),
+      evidence: "last_verified_active_at",
+    });
+  });
+
+  test("uses only an exact inactive ledger fact and ignores workflow statuses", () => {
+    const target = job();
+    expect(activity({ job: target, ledger: [ledger(target)] })).toMatchObject({
+      status: "inactive",
+      observedAt: hour(10),
+      ledgerEntryId: "ledger-activity",
+      provenance: "discovery_ledger",
+    });
+
+    for (const latestStatus of ["applied", "skipped", "seen"] as const) {
+      expect(
+        activity({
+          job: target,
+          ledger: [ledger(target, { latestStatus })],
+        }),
+      ).toEqual({ status: "unknown" });
+    }
+    expect(
+      activity({
+        job: target,
+        ledger: [ledger(target, { inactiveAt: null })],
+      }),
+    ).toEqual({ status: "unknown" });
+  });
+
+  test.each(["stale", "closed"] as const)(
+    "retains explicit %s signal provenance and explanation",
+    (kind) => {
+      const target = job();
+      expect(
+        activity({ job: target, signals: [signal(target, kind)] }),
+      ).toEqual({
+        status: kind,
+        observedAt: hour(11),
+        signalId: `signal-${kind}`,
+        provenance: "browser",
+        explanation: `Explicit ${kind} evidence.`,
+        detail: `${kind} detail`,
+        confidence: 0.9,
+      });
+    },
+  );
+
+  test("ignores suspicious signals", () => {
+    const target = job();
+    expect(
+      activity({ job: target, signals: [signal(target, "suspicious")] }),
+    ).toEqual({ status: "unknown" });
+  });
+
+  test("newer observations reactivate old signals and ties use closed, stale, inactive, active precedence", () => {
+    const reactivated = job({ lastSeenAt: hour(12) });
+    expect(
+      activity({
+        job: reactivated,
+        signals: [signal(reactivated, "closed", { detectedAt: hour(11) })],
+      }),
+    ).toMatchObject({ status: "active", observedAt: hour(12) });
+
+    const target = job({ lastSeenAt: hour(10) });
+    expect(
+      activity({
+        job: target,
+        ledger: [ledger(target, { inactiveAt: hour(10) })],
+        signals: [
+          signal(target, "stale", { detectedAt: hour(10) }),
+          signal(target, "closed", { detectedAt: hour(10) }),
+        ],
+      }),
+    ).toMatchObject({ status: "closed", observedAt: hour(10) });
+
+    expect(
+      activity({
+        job: target,
+        ledger: [ledger(target, { inactiveAt: hour(10) })],
+        signals: [signal(target, "stale", { detectedAt: hour(10) })],
+      }),
+    ).toMatchObject({ status: "stale" });
+  });
+
+  test("does not apply a ledger fact when strong identity aliases collide", () => {
+    const first = job({ id: "first", sourceJobId: "shared-id" });
+    const second = job({
+      id: "second",
+      sourceJobId: "other-id",
+      canonicalUrl: "https://jobs.example.com/second",
+    });
+    const conflictingLedger = ledger(first, {
+      canonicalUrl: second.canonicalUrl,
+      applicationUrl: second.applicationUrl,
+    });
+
+    expect(
+      projectDiscoveryJobViews({
+        jobs: [first, second],
+        discoveryLedger: [conflictingLedger],
+        listingSignals: [],
+      }).map((view) => view.listingActivity.status),
+    ).toEqual(["unknown", "unknown"]);
+  });
+});

@@ -135,7 +135,9 @@ function tokenizeForCoverage(value: string | null | undefined): string[] {
     .filter((token) => token.length >= 2 && !STOP_WORDS.has(token));
 }
 
-function uniqueTokens(values: readonly (string | null | undefined)[]): string[] {
+function uniqueTokens(
+  values: readonly (string | null | undefined)[],
+): string[] {
   return [...new Set(values.flatMap((value) => tokenizeForCoverage(value)))];
 }
 
@@ -143,17 +145,24 @@ function normalizePhrase(value: string): string {
   return tokenizeForCoverage(value).join(" ");
 }
 
-function countOverlap(left: readonly string[], right: ReadonlySet<string>): number {
+function countOverlap(
+  left: readonly string[],
+  right: ReadonlySet<string>,
+): number {
   return left.filter((token) => right.has(token)).length;
 }
 
 function detectTargetFamilies(tokens: ReadonlySet<string>): string[] {
   const detected = Object.entries(FAMILY_TERMS).flatMap(([family, terms]) => {
-    const hits = terms.filter((term) => tokens.has(normalizePhrase(term))).length;
+    const hits = terms.filter((term) =>
+      tokens.has(normalizePhrase(term)),
+    ).length;
     return hits > 0 ? [family] : [];
   });
 
-  return detected.length > 0 ? detected : ["software", "data", "design", "product"];
+  return detected.length > 0
+    ? detected
+    : ["software", "data", "design", "product"];
 }
 
 function parseMonthIndex(value: string | null | undefined): number | null {
@@ -230,7 +239,7 @@ function getRange(
   const startMonth = parseMonthIndex(experience.startDate);
   const endMonth = experience.isCurrent
     ? Number.MAX_SAFE_INTEGER
-    : parseMonthIndex(experience.endDate) ?? startMonth;
+    : (parseMonthIndex(experience.endDate) ?? startMonth);
 
   return {
     startMonth,
@@ -255,6 +264,12 @@ function buildExperienceText(
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+function hasUsableWorkHistory(
+  experience: CandidateProfile["experiences"][number],
+): boolean {
+  return Boolean(experience.title?.trim() && experience.companyName?.trim());
 }
 
 function hasSkillPhraseOverlap(input: {
@@ -288,13 +303,21 @@ function classifyCareerFamilyFit(input: {
   });
   const familyHits = input.targetFamilies.reduce((count, family) => {
     const terms = FAMILY_TERMS[family] ?? [];
-    return count + terms.filter((term) => roleTokenSet.has(normalizePhrase(term))).length;
+    return (
+      count +
+      terms.filter((term) => roleTokenSet.has(normalizePhrase(term))).length
+    );
   }, 0);
   const titleFamilyHits = input.targetFamilies.reduce((count, family) => {
     const terms = FAMILY_TERMS[family] ?? [];
-    return count + terms.filter((term) => titleTokens.has(normalizePhrase(term))).length;
+    return (
+      count +
+      terms.filter((term) => titleTokens.has(normalizePhrase(term))).length
+    );
   }, 0);
-  const broadTechnicalHits = roleTokens.filter((token) => BROAD_TECHNICAL_TERMS.has(token)).length;
+  const broadTechnicalHits = roleTokens.filter((token) =>
+    BROAD_TECHNICAL_TERMS.has(token),
+  ).length;
   const hasGroundedTechnicalEvidence =
     broadTechnicalHits > 0 ||
     input.experience.skills.length > 0 ||
@@ -450,6 +473,10 @@ function buildGuidance(input: {
           ? "Compact strong-rewrite role: phrasing is grounded in stored facts, so review before expanding it."
           : "Compact weak-fit role: keep only the most grounded transferable detail.",
       );
+    } else if (input.careerFamilyFit === "unrelated") {
+      guidance.push(
+        "Compact continuity role: preserve the grounded title, employer, dates, and only verified detail.",
+      );
     } else if (input.isOlderStrongFit) {
       guidance.push(
         "Compact older strong-fit role: included for career coverage without crowding recent experience.",
@@ -462,7 +489,10 @@ function buildGuidance(input: {
 
 export function deriveResumeCoveragePlan(input: {
   profile: Pick<CandidateProfile, "experiences" | "targetRoles">;
-  searchPreferences: Pick<JobSearchPreferences, "targetRoles" | "jobFamilies" | "tailoringMode">;
+  searchPreferences: Pick<
+    JobSearchPreferences,
+    "targetRoles" | "jobFamilies" | "tailoringMode"
+  >;
   job: Pick<
     JobPosting,
     | "title"
@@ -474,7 +504,9 @@ export function deriveResumeCoveragePlan(input: {
   >;
 }): ResumeCoverageDecision[] {
   const targetTokens = new Set(buildTargetTokens(input));
-  const targetFamilies = detectTargetFamilies(new Set(buildTargetFamilyTokens(input)));
+  const targetFamilies = detectTargetFamilies(
+    new Set(buildTargetFamilyTokens(input)),
+  );
   const scored = input.profile.experiences
     .map((experience, originalIndex): ScoredExperience => {
       const fit = classifyCareerFamilyFit({
@@ -493,18 +525,18 @@ export function deriveResumeCoveragePlan(input: {
     })
     .sort((left, right) => {
       const dateSort = right.range.sortMonth - left.range.sortMonth;
-      return dateSort === 0 ? left.originalIndex - right.originalIndex : dateSort;
+      return dateSort === 0
+        ? left.originalIndex - right.originalIndex
+        : dateSort;
     });
-  const strongFit = scored.filter((entry) => entry.careerFamilyFit === "strong");
-  const defaultIncluded = scored.filter((entry) => {
-    if (entry.careerFamilyFit === "strong") {
-      return true;
-    }
-
-    return input.searchPreferences.tailoringMode === "aggressive" &&
-      entry.careerFamilyFit === "weak" &&
-      entry.hasGroundedTechnicalEvidence;
-  });
+  const strongFit = scored.filter(
+    (entry) => entry.careerFamilyFit === "strong",
+  );
+  const defaultIncluded = scored.filter(
+    (entry) =>
+      entry.careerFamilyFit === "strong" ||
+      hasUsableWorkHistory(entry.experience),
+  );
   const strongRankById = new Map(
     strongFit.map((entry, index) => [entry.experience.id, index]),
   );
@@ -513,47 +545,60 @@ export function deriveResumeCoveragePlan(input: {
     const strongRank = strongRankById.get(entry.experience.id) ?? -1;
     // Keep strongRank === 1 as a compact-only case: only isOlderStrongFit feeds the
     // older-fit guidance path in buildGuidance(...), so guidance starts at strongRank >= 2.
-    const isOlderStrongFit = entry.careerFamilyFit === "strong" && strongRank >= 2;
+    const isOlderStrongFit =
+      entry.careerFamilyFit === "strong" && strongRank >= 2;
     const isDetailedStrongFit =
       entry.careerFamilyFit === "strong" &&
       (entry.experience.isCurrent || strongRank === 0);
-    const coversGap = entry.careerFamilyFit !== "strong" && coversMeaningfulGap({
-      candidate: entry,
-      defaultIncluded: defaultIncluded.filter(
-        (included) => included.experience.id !== entry.experience.id,
-      ),
-    });
+    const coversGap =
+      entry.careerFamilyFit !== "strong" &&
+      coversMeaningfulGap({
+        candidate: entry,
+        defaultIncluded: defaultIncluded.filter(
+          (included) => included.experience.id !== entry.experience.id,
+        ),
+      });
     let classification: ResumeCoverageClassification;
     const reasons: string[] = [];
 
     if (isDetailedStrongFit) {
       classification = "detailed";
-      reasons.push("current or recent strong career-family fit");
+      reasons.push("closest to the job you want, and recent");
     } else if (entry.careerFamilyFit === "strong") {
       classification = "compact";
-      reasons.push("older strong career-family fit");
+      reasons.push("close to the job you want, but older");
     } else if (coversGap) {
-      reasons.push("gap coverage for a meaningful 6+ month work-history gap");
-      classification = input.searchPreferences.tailoringMode === "balanced"
-        ? "suggested_hidden"
-        : "compact";
-    } else if (entry.careerFamilyFit === "weak" && entry.hasGroundedTechnicalEvidence) {
-      reasons.push("weak career-family fit with grounded technical evidence");
-      if (input.searchPreferences.tailoringMode === "aggressive") {
-        classification = "compact";
-      } else if (input.searchPreferences.tailoringMode === "balanced") {
-        classification = "suggested_hidden";
-      } else {
-        classification = "omitted";
-      }
+      reasons.push("kept so a 6+ month gap in your dates is covered");
+      classification = hasUsableWorkHistory(entry.experience)
+        ? "compact"
+        : "suggested_hidden";
+    } else if (
+      entry.careerFamilyFit === "weak" &&
+      entry.hasGroundedTechnicalEvidence
+    ) {
+      reasons.push(
+        "further from this job, but the technical detail is backed by your saved evidence",
+      );
+      classification =
+        input.searchPreferences.tailoringMode === "aggressive"
+          ? "suggested_hidden"
+          : "compact";
     } else if (entry.careerFamilyFit === "weak") {
-      reasons.push("weak career-family fit without enough role-specific evidence");
-      classification = input.searchPreferences.tailoringMode === "balanced"
-        ? "suggested_hidden"
+      reasons.push(
+        "further from this job, with little role-specific detail saved",
+      );
+      classification = hasUsableWorkHistory(entry.experience)
+        ? input.searchPreferences.tailoringMode === "aggressive"
+          ? "suggested_hidden"
+          : "compact"
         : "omitted";
     } else {
-      reasons.push("no meaningful career-family fit or gap-coverage value");
-      classification = "omitted";
+      reasons.push("not close to this job and not needed to cover a gap");
+      classification = hasUsableWorkHistory(entry.experience)
+        ? input.searchPreferences.tailoringMode === "aggressive"
+          ? "suggested_hidden"
+          : "compact"
+        : "omitted";
     }
 
     if (coversGap) {

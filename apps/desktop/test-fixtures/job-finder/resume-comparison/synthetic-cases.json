@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "seed": "synthetic-original-vs-generated-v1",
+  "cases": [
+    {
+      "caseId": "platform-control",
+      "isControl": true,
+      "jobContext": "Senior platform engineer role at a B2B logistics software company",
+      "criticalAnchors": [
+        "Northwind Freight Cloud",
+        "Harborline Tools",
+        "University of Oregon"
+      ],
+      "originalText": "Jordan Avery\njordan.avery@example.com | +1 (415) 555-0148 | Portland, OR\n\nSummary\nSenior platform engineer with nine years building ingestion and delivery systems for B2B logistics software.\n\nExperience\nNorthwind Freight Cloud - Senior Platform Engineer, 2019-2026\n- Led a 6-engineer platform team owning ingestion, routing, and delivery services handling 40 million events per day at 99.95% uptime.\n- Cut p99 delivery latency 58% by redesigning the queue partitioning strategy across 3 Kafka clusters.\n- Introduced contract testing that reduced release rollbacks 70% across 14 services.\n\nHarborline Tools - Backend Engineer, 2016-2019\n- Built billing reconciliation jobs that recovered $210000 in missed invoices during the first year.\n- Partnered with 4 product teams to ship a usage metering pipeline adopted by 92% of customers.\n\nEducation\nB.S. Computer Science, University of Oregon, 2016\n\nSkills\nKafka, PostgreSQL, Go, Kubernetes, observability\n",
+      "generatedText": "Jordan Avery\njordan.avery@example.com | +1 (415) 555-0148 | Portland, OR\n\nSummary\nPlatform engineer experienced with ingestion, routing, and delivery services for B2B logistics software teams.\n\nExperience\nNorthwind Freight Cloud - Senior Platform Engineer, 2019-2026\n- Led the platform team owning ingestion, routing, and delivery services with attention to uptime.\n- Improved queue partitioning across Kafka clusters to cut delivery latency.\n- Supported contract testing adoption that reduced release rollbacks.\n\nHarborline Tools - Backend Engineer, 2016-2019\n- Built billing reconciliation jobs that recovered missed invoices.\n- Partnered with product teams to ship a usage metering pipeline.\n\nEducation\nB.S. Computer Science, University of Oregon, 2016\n\nSkills\nKafka, PostgreSQL, Go, Kubernetes\n"
+    },
+    {
+      "caseId": "marketing-analyst-tailored",
+      "isControl": false,
+      "jobContext": "Growth marketing analyst role at a subscription software company",
+      "criticalAnchors": [
+        "Cascade Home Goods",
+        "Bright Subscriptions",
+        "University of Washington"
+      ],
+      "originalText": "Riley Chen\nriley.chen@example.com | +1 (206) 555-0173 | Seattle, WA\n\nSummary\nMarketing analyst with five years of campaign analytics and reporting experience across retail and subscription brands.\n\nExperience\nCascade Home Goods - Marketing Analyst, 2021-2026\n- Owned weekly campaign reporting across email, paid social, and search channels covering 12 active campaigns.\n- Built a Looker dashboard suite adopted by 35 marketers that cut manual reporting time 60%.\n- Ran 9 A/B tests on lifecycle email flows that lifted repeat purchase rate 18%.\n\nBright Subscriptions - Junior Marketing Analyst, 2019-2021\n- Assembled monthly channel performance reports for a subscriber base of 48000 accounts.\n- Automated cohort exports in SQL, saving the team about 10 hours per week.\n\nEducation\nB.A. Economics, University of Washington, 2019\n\nSkills\nSQL, Looker, Google Analytics, Excel, A/B testing\n",
+      "generatedText": "Riley Chen\nriley.chen@example.com | +1 (206) 555-0173 | Seattle, WA\n\nSummary\nMarketing analyst focused on subscription reporting and campaign analytics across email, paid social, and search channels.\n\nExperience\nBright Subscriptions - Junior Marketing Analyst, 2019-2021\n- Assembled monthly channel performance reports for a subscriber base of 48000 accounts.\n- Automated cohort exports in SQL, saving the team about 10 hours per week.\n\nCascade Home Goods - Marketing Analyst, 2021-2026\n- Owned weekly campaign reporting across email, paid social, and search channels covering 12 active campaigns.\n- Built a Looker dashboard suite adopted by 35 marketers that cut manual reporting time 60%.\n- Ran A/B tests on lifecycle email flows that lifted repeat purchase rate 18%.\n\nEducation\nB.A. Economics, University of Washington, 2019\n\nSkills\nSQL, Looker, Google Analytics, A/B testing\n"
+    },
+    {
+      "caseId": "career-change-faithful",
+      "isControl": false,
+      "jobContext": "Junior data analyst role at a regional healthcare provider",
+      "criticalAnchors": [
+        "Rosewood Dental Group",
+        "Lento Insurance",
+        "Portland Community College"
+      ],
+      "originalText": "Sam Whitfield\nsam.whitfield@example.com | +1 (503) 555-0127 | Beaverton, OR\n\nSummary\nOffice coordinator transitioning into data analysis, with hands-on spreadsheet reporting and process documentation experience.\n\nExperience\nRosewood Dental Group - Office Coordinator, 2018-2026\n- Tracked appointment volume and no-show trends in spreadsheets covering 900 patient visits per month.\n- Documented scheduling procedures that shortened front-desk training from 6 weeks to 3 weeks.\n- Reconciled monthly supply invoices averaging $4200 against vendor statements.\n\nLento Insurance - Administrative Assistant, 2015-2018\n- Prepared weekly policy renewal reports for 2 regional managers.\n- Maintained the shared contact database used by 11 staff members.\n\nEducation\nA.A. Business Administration, Portland Community College, 2015\n\nSkills\nExcel, pivot tables, scheduling tools, documentation\n",
+      "generatedText": "Sam Whitfield\nsam.whitfield@example.com | +1 (503) 555-0127 | Beaverton, OR\n\nSummary\nOffice coordinator transitioning into data analysis, bringing spreadsheet reporting and process documentation experience.\n\nExperience\nRosewood Dental Group - Office Coordinator, 2018-2026\n- Tracked appointment volume and no-show trends in spreadsheets covering 900 patient visits per month.\n- Documented scheduling procedures that shortened front-desk training from 6 weeks to 3 weeks.\n- Reconciled monthly supply invoices against vendor statements.\n\nLento Insurance - Administrative Assistant, 2015-2018\n- Prepared weekly policy renewal reports for regional managers.\n- Maintained the shared contact database used by staff members.\n\nEducation\nA.A. Business Administration, Portland Community College, 2015\n\nSkills\nExcel, pivot tables, scheduling tools, documentation\n"
+    }
+  ]
+}

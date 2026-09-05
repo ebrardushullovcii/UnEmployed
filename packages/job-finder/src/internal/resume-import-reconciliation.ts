@@ -1,13 +1,24 @@
 import { buildValuePreview } from "@unemployed/ai-providers";
-import { ResumeImportFieldCandidateSchema, type CandidateProfile, type JobSearchPreferences, type ResumeImportConflictChoice, type ResumeImportFieldCandidate } from "@unemployed/contracts";
+import {
+  ResumeImportFieldCandidateSchema,
+  isFreshStartCandidateProfile,
+  type CandidateProfile,
+  type JobSearchPreferences,
+  type ResumeImportConflictChoice,
+  type ResumeImportFieldCandidate,
+} from "@unemployed/contracts";
 
 import {
   areEquivalentRecordCandidates,
   isObject,
   stringifyCandidateTarget,
+  toCandidateListValues,
+  toNarrativeStringArray,
   toStringArray,
 } from "./resume-import-common";
 import {
+  areEquivalentEducationRecords,
+  areEquivalentExperienceRecords,
   scoreEducationRecordCompleteness,
   scoreExperienceRecordCompleteness,
 } from "./resume-record-identity";
@@ -21,6 +32,10 @@ import {
   PROFILE_PLACEHOLDER_LOCATION,
   PROFILE_PLACEHOLDER_SUMMARY,
 } from "./workspace-defaults";
+import {
+  findResumeImportIdentityConflicts,
+  isLikelyPersonName as isLikelyPersonNameFromIdentity,
+} from "./resume-identity";
 
 export function candidateScore(candidate: ResumeImportFieldCandidate): number {
   const sourceBonus = (() => {
@@ -33,7 +48,9 @@ export function candidateScore(candidate: ResumeImportFieldCandidate): number {
         return 0;
     }
   })();
-  const deterministicFallbackBonus = candidate.notes.includes("deterministic_stage_fallback")
+  const deterministicFallbackBonus = candidate.notes.includes(
+    "deterministic_stage_fallback",
+  )
     ? 0.03
     : 0;
   const evidenceBonus = candidate.sourceBlockIds.length > 0 ? 0.01 : 0;
@@ -43,16 +60,26 @@ export function candidateScore(candidate: ResumeImportFieldCandidate): number {
       : candidate.confidenceBreakdown?.recommendation === "abstain"
         ? -0.05
         : 0;
-  return candidate.confidence + sourceBonus + deterministicFallbackBonus + evidenceBonus + recommendationBonus;
+  return (
+    candidate.confidence +
+    sourceBonus +
+    deterministicFallbackBonus +
+    evidenceBonus +
+    recommendationBonus
+  );
 }
 
-function candidateOverallConfidence(candidate: ResumeImportFieldCandidate): number {
+function candidateOverallConfidence(
+  candidate: ResumeImportFieldCandidate,
+): number {
   return candidate.confidenceBreakdown?.overall ?? candidate.confidence;
 }
 
 function recommendationForCandidate(
   candidate: ResumeImportFieldCandidate,
-): NonNullable<ResumeImportFieldCandidate["confidenceBreakdown"]>["recommendation"] {
+): NonNullable<
+  ResumeImportFieldCandidate["confidenceBreakdown"]
+>["recommendation"] {
   return (
     candidate.confidenceBreakdown?.recommendation ??
     (candidateOverallConfidence(candidate) < 0.35 ? "abstain" : "needs_review")
@@ -95,22 +122,15 @@ function existingScalarValueForCandidate(
       return profile.githubUrl;
     case "contact.personalWebsiteUrl":
       return profile.personalWebsiteUrl;
+    case "application_identity.preferredEmail":
+      return profile.applicationIdentity.preferredEmail;
+    case "application_identity.preferredPhone":
+      return profile.applicationIdentity.preferredPhone;
     case "search_preferences.salaryCurrency":
       return searchPreferences.salaryCurrency;
     default:
       return undefined;
   }
-}
-
-function isFreshStartProfile(profile: CandidateProfile): boolean {
-  return (
-    profile.id === "candidate_fresh_start" ||
-    (normalizeText(profile.firstName) === "new" &&
-      normalizeText(profile.lastName) === "candidate" &&
-      normalizeText(profile.fullName) === "new candidate" &&
-      normalizeText(profile.headline) === normalizeText(PROFILE_PLACEHOLDER_HEADLINE) &&
-      normalizeText(profile.currentLocation) === normalizeText(PROFILE_PLACEHOLDER_LOCATION))
-  );
 }
 
 function isPlaceholderScalarValue(
@@ -122,7 +142,7 @@ function isPlaceholderScalarValue(
     return (
       typeof currentValue === "number" &&
       currentValue <= 0 &&
-      isFreshStartProfile(profile)
+      isFreshStartCandidateProfile(profile)
     );
   }
 
@@ -132,19 +152,35 @@ function isPlaceholderScalarValue(
 
   switch (candidate.target.key) {
     case "firstName":
-      return isFreshStartProfile(profile) && normalizeText(currentValue) === "new";
+      return (
+        isFreshStartCandidateProfile(profile) &&
+        normalizeText(currentValue) === "new"
+      );
     case "lastName":
       return (
-        isFreshStartProfile(profile) && normalizeText(currentValue) === "candidate"
+        isFreshStartCandidateProfile(profile) &&
+        normalizeText(currentValue) === "candidate"
       );
     case "fullName":
-      return isFreshStartProfile(profile) && normalizeText(currentValue) === "new candidate";
+      return (
+        isFreshStartCandidateProfile(profile) &&
+        normalizeText(currentValue) === "new candidate"
+      );
     case "headline":
-      return isFreshStartProfile(profile) && currentValue === PROFILE_PLACEHOLDER_HEADLINE;
+      return (
+        isFreshStartCandidateProfile(profile) &&
+        currentValue === PROFILE_PLACEHOLDER_HEADLINE
+      );
     case "summary":
-      return isFreshStartProfile(profile) && currentValue === PROFILE_PLACEHOLDER_SUMMARY;
+      return (
+        isFreshStartCandidateProfile(profile) &&
+        currentValue === PROFILE_PLACEHOLDER_SUMMARY
+      );
     case "currentLocation":
-      return isFreshStartProfile(profile) && currentValue === PROFILE_PLACEHOLDER_LOCATION;
+      return (
+        isFreshStartCandidateProfile(profile) &&
+        currentValue === PROFILE_PLACEHOLDER_LOCATION
+      );
     default:
       return false;
   }
@@ -155,7 +191,11 @@ function scalarValueConflictsWithWorkspace(
   searchPreferences: JobSearchPreferences,
   candidate: ResumeImportFieldCandidate,
 ): boolean {
-  const currentValue = existingScalarValueForCandidate(profile, searchPreferences, candidate);
+  const currentValue = existingScalarValueForCandidate(
+    profile,
+    searchPreferences,
+    candidate,
+  );
 
   if (currentValue === undefined || currentValue === null) {
     return false;
@@ -176,12 +216,46 @@ function scalarValueConflictsWithWorkspace(
   return false;
 }
 
+function scalarValueMatchesWorkspace(
+  profile: CandidateProfile,
+  searchPreferences: JobSearchPreferences,
+  candidate: ResumeImportFieldCandidate,
+): boolean {
+  const currentValue = existingScalarValueForCandidate(
+    profile,
+    searchPreferences,
+    candidate,
+  );
+
+  if (
+    currentValue === undefined ||
+    currentValue === null ||
+    isPlaceholderScalarValue(profile, candidate, currentValue)
+  ) {
+    return false;
+  }
+
+  if (typeof currentValue === "string" && typeof candidate.value === "string") {
+    return normalizeText(currentValue) === normalizeText(candidate.value);
+  }
+
+  return (
+    typeof currentValue === "number" &&
+    typeof candidate.value === "number" &&
+    currentValue === candidate.value
+  );
+}
+
 export function shouldPreferCandidateOverExistingValue(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
   candidate: ResumeImportFieldCandidate,
 ): boolean {
-  const currentValue = existingScalarValueForCandidate(profile, searchPreferences, candidate);
+  const currentValue = existingScalarValueForCandidate(
+    profile,
+    searchPreferences,
+    candidate,
+  );
 
   if (currentValue === undefined || currentValue === null) {
     return true;
@@ -191,27 +265,130 @@ export function shouldPreferCandidateOverExistingValue(
     return true;
   }
 
-  if (candidate.sourceKind === "parser_literal" && hasSufficientEvidence(candidate)) {
-    if (typeof currentValue === "string" && typeof candidate.value === "string") {
+  if (
+    candidate.sourceKind === "parser_literal" &&
+    hasSufficientEvidence(candidate)
+  ) {
+    if (
+      typeof currentValue === "string" &&
+      typeof candidate.value === "string"
+    ) {
       return normalizeText(currentValue) !== normalizeText(candidate.value);
     }
 
     return currentValue !== candidate.value;
   }
 
-  return !scalarValueConflictsWithWorkspace(profile, searchPreferences, candidate);
+  return !scalarValueConflictsWithWorkspace(
+    profile,
+    searchPreferences,
+    candidate,
+  );
+}
+
+type EducationCandidateFieldKind = "degree" | "fieldOfStudy" | "location";
+
+function educationEvidenceTokens(value: string): string[] {
+  const stopWords = new Set([
+    "a",
+    "an",
+    "and",
+    "at",
+    "degree",
+    "in",
+    "of",
+    "s",
+    "the",
+  ]);
+  return normalizeText(value)
+    .split(/\s+/)
+    .map((token) =>
+      token === "bachelors"
+        ? "bachelor"
+        : token === "masters"
+          ? "master"
+          : token,
+    )
+    .filter((token) => token.length > 1 && !stopWords.has(token));
+}
+
+function normalizeSupportedEducationValue(
+  candidate: ResumeImportFieldCandidate,
+  value: unknown,
+  kind: EducationCandidateFieldKind,
+): string | null {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  const evidenceText = candidate.evidenceText?.trim();
+  if (evidenceText) {
+    const evidenceTokens = new Set(educationEvidenceTokens(evidenceText));
+    const valueTokens = educationEvidenceTokens(trimmed);
+    if (
+      valueTokens.length === 0 ||
+      !valueTokens.every((token) => evidenceTokens.has(token))
+    ) {
+      return null;
+    }
+  }
+
+  const normalized = normalizeText(trimmed);
+  const compact = normalized.replace(/\s+/g, "");
+  const degreeMarker =
+    /\b(?:associate|associates|bachelor|bachelors|master|masters|doctor|doctorate|phd|degree|diploma|certificate|bsc|bba|msc|mba|ba|bs|ma|ms)\b/;
+
+  if (kind === "degree") {
+    return degreeMarker.test(normalized) ||
+      ["ba", "bs", "ma", "ms"].some((prefix) => compact.startsWith(prefix))
+      ? trimmed
+      : null;
+  }
+
+  if (kind === "fieldOfStudy") {
+    const firstToken = normalized.split(/\s+/)[0] ?? "";
+    return degreeMarker.test(firstToken) ? null : trimmed;
+  }
+
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  if (
+    trimmed.length > 80 ||
+    tokens.length > 8 ||
+    /[@\d]|https?:\/\//i.test(trimmed) ||
+    /\b(?:bachelor|master|degree|computer|science|engineering|business|administration|technology|studies)\b/.test(
+      normalized,
+    )
+  ) {
+    return null;
+  }
+
+  return trimmed;
 }
 
 function normalizeRecordCandidateValue(
   candidate: ResumeImportFieldCandidate,
 ): ResumeImportFieldCandidate["value"] {
-  if (!isObject(candidate.value)) {
+  const parsedValue = (() => {
+    if (typeof candidate.value !== "string") {
+      return candidate.value;
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(candidate.value);
+      return isObject(parsed) ? parsed : candidate.value;
+    } catch {
+      return candidate.value;
+    }
+  })();
+
+  if (!isObject(parsedValue)) {
     return candidate.value;
   }
 
   switch (candidate.target.section) {
     case "experience": {
-      const value = candidate.value;
+      const value = parsedValue;
       return {
         companyName:
           typeof value.companyName === "string" ? value.companyName : null,
@@ -219,14 +396,16 @@ function normalizeRecordCandidateValue(
           typeof value.companyUrl === "string" ? value.companyUrl : null,
         title: typeof value.title === "string" ? value.title : null,
         employmentType:
-          typeof value.employmentType === "string" ? value.employmentType : null,
+          typeof value.employmentType === "string"
+            ? value.employmentType
+            : null,
         location: typeof value.location === "string" ? value.location : null,
         workMode: toStringArray(value.workMode),
         startDate: typeof value.startDate === "string" ? value.startDate : null,
         endDate: typeof value.endDate === "string" ? value.endDate : null,
         isCurrent: value.isCurrent === true,
         summary: typeof value.summary === "string" ? value.summary : null,
-        achievements: toStringArray(value.achievements),
+        achievements: toNarrativeStringArray(value.achievements),
         skills: toStringArray(value.skills),
         domainTags: toStringArray(value.domainTags),
         peopleManagementScope:
@@ -234,36 +413,66 @@ function normalizeRecordCandidateValue(
             ? value.peopleManagementScope
             : null,
         ownershipScope:
-          typeof value.ownershipScope === "string" ? value.ownershipScope : null,
+          typeof value.ownershipScope === "string"
+            ? value.ownershipScope
+            : null,
       };
     }
     case "education": {
-      const value = candidate.value;
+      const value = parsedValue;
+      const schoolName =
+        typeof value.schoolName === "string" ? value.schoolName : null;
+      const degree = normalizeSupportedEducationValue(
+        candidate,
+        value.degree,
+        "degree",
+      );
+      const fieldOfStudy = normalizeSupportedEducationValue(
+        candidate,
+        value.fieldOfStudy,
+        "fieldOfStudy",
+      );
+      const location = normalizeSupportedEducationValue(
+        candidate,
+        value.location,
+        "location",
+      );
+      const rawSummary =
+        typeof value.summary === "string" ? value.summary : null;
       return {
-        schoolName:
-          typeof value.schoolName === "string" ? value.schoolName : null,
-        degree: typeof value.degree === "string" ? value.degree : null,
-        fieldOfStudy:
-          typeof value.fieldOfStudy === "string" ? value.fieldOfStudy : null,
-        location: typeof value.location === "string" ? value.location : null,
+        schoolName,
+        degree,
+        fieldOfStudy,
+        location:
+          location &&
+          schoolName &&
+          normalizeText(location) === normalizeText(schoolName)
+            ? null
+            : location,
         startDate: typeof value.startDate === "string" ? value.startDate : null,
         endDate: typeof value.endDate === "string" ? value.endDate : null,
-        summary: typeof value.summary === "string" ? value.summary : null,
+        summary:
+          rawSummary &&
+          candidate.evidenceText &&
+          normalizeText(rawSummary) === normalizeText(candidate.evidenceText)
+            ? null
+            : rawSummary,
       };
     }
     case "certification": {
-      const value = candidate.value;
+      const value = parsedValue;
       return {
         name: typeof value.name === "string" ? value.name : null,
         issuer: typeof value.issuer === "string" ? value.issuer : null,
         issueDate: typeof value.issueDate === "string" ? value.issueDate : null,
-        expiryDate: typeof value.expiryDate === "string" ? value.expiryDate : null,
+        expiryDate:
+          typeof value.expiryDate === "string" ? value.expiryDate : null,
         credentialUrl:
           typeof value.credentialUrl === "string" ? value.credentialUrl : null,
       };
     }
     case "link": {
-      const value = candidate.value;
+      const value = parsedValue;
       return {
         label: typeof value.label === "string" ? value.label : null,
         url: typeof value.url === "string" ? value.url : null,
@@ -271,7 +480,7 @@ function normalizeRecordCandidateValue(
       };
     }
     case "project": {
-      const value = candidate.value;
+      const value = parsedValue;
       return {
         name: typeof value.name === "string" ? value.name : null,
         projectType:
@@ -289,7 +498,7 @@ function normalizeRecordCandidateValue(
       };
     }
     case "language": {
-      const value = candidate.value;
+      const value = parsedValue;
       return {
         language: typeof value.language === "string" ? value.language : null,
         proficiency:
@@ -299,7 +508,7 @@ function normalizeRecordCandidateValue(
       };
     }
     case "proof_point": {
-      const value = candidate.value;
+      const value = parsedValue;
       return {
         title: typeof value.title === "string" ? value.title : null,
         claim: typeof value.claim === "string" ? value.claim : null,
@@ -319,7 +528,52 @@ function normalizeRecordCandidateValue(
   }
 }
 
-function isAutoApplyLiteralField(candidate: ResumeImportFieldCandidate): boolean {
+function normalizeRecordCandidateForReconciliation(
+  candidate: ResumeImportFieldCandidate,
+): ResumeImportFieldCandidate {
+  if (!isRecordTarget(candidate)) {
+    return candidate;
+  }
+
+  const value = normalizeRecordCandidateValue(candidate);
+  if (value === candidate.value) {
+    return candidate;
+  }
+
+  return ResumeImportFieldCandidateSchema.parse({
+    ...candidate,
+    value,
+    valuePreview: buildValuePreview(value),
+  });
+}
+
+function isRedundantUnstructuredRecordCandidate(
+  candidate: ResumeImportFieldCandidate,
+  candidates: readonly ResumeImportFieldCandidate[],
+): boolean {
+  if (!isRecordTarget(candidate) || typeof candidate.value !== "string") {
+    return false;
+  }
+
+  const evidence = normalizeText(candidate.evidenceText ?? candidate.value);
+  if (!evidence) {
+    return false;
+  }
+
+  return candidates.some(
+    (other) =>
+      other.id !== candidate.id &&
+      other.target.section === candidate.target.section &&
+      other.target.key === candidate.target.key &&
+      isObject(other.value) &&
+      hasSufficientEvidence(other) &&
+      normalizeText(other.evidenceText ?? "") === evidence,
+  );
+}
+
+function isAutoApplyLiteralField(
+  candidate: ResumeImportFieldCandidate,
+): boolean {
   return [
     "firstName",
     "middleName",
@@ -348,7 +602,13 @@ function hasSufficientEvidence(candidate: ResumeImportFieldCandidate): boolean {
 function isLikelyPersonNamePart(value: string): boolean {
   const trimmed = value.trim();
 
-  return trimmed.length > 0 && /^[A-Z][A-Za-z.'-]*$/.test(trimmed);
+  return (
+    trimmed.length > 0 &&
+    /^\p{Lu}[\p{L}\p{M}.'’ʼ-]*$/u.test(trimmed) &&
+    !/\b(?:senior|junior|staff|principal|lead|head|chief|associate|intern|engineer|developer|designer|manager|director|analyst|consultant|specialist|architect|technical|product|platform|frontend|front[- ]end|backend|back[- ]end|full[- ]stack)\b/iu.test(
+      trimmed,
+    )
+  );
 }
 
 function shouldAutoApplyPlaceholderReplacement(
@@ -356,7 +616,7 @@ function shouldAutoApplyPlaceholderReplacement(
   searchPreferences: JobSearchPreferences,
   candidate: ResumeImportFieldCandidate,
 ): boolean {
-  if (!isFreshStartProfile(profile)) {
+  if (!isFreshStartCandidateProfile(profile)) {
     return false;
   }
 
@@ -377,7 +637,11 @@ function shouldAutoApplyPlaceholderReplacement(
     return false;
   }
 
-  const currentValue = existingScalarValueForCandidate(profile, searchPreferences, candidate);
+  const currentValue = existingScalarValueForCandidate(
+    profile,
+    searchPreferences,
+    candidate,
+  );
 
   if (!isPlaceholderScalarValue(profile, candidate, currentValue)) {
     return false;
@@ -393,7 +657,11 @@ function shouldAutoApplyPlaceholderReplacement(
     case "identity.firstName":
     case "identity.middleName":
     case "identity.lastName":
-      return typeof candidate.value === "string" && isLikelyPersonNamePart(candidate.value) && overall >= 0.8;
+      return (
+        typeof candidate.value === "string" &&
+        isLikelyPersonNamePart(candidate.value) &&
+        overall >= 0.8
+      );
     case "identity.fullName":
       return (
         typeof candidate.value === "string" &&
@@ -421,7 +689,11 @@ function shouldAutoApplyPlaceholderReplacement(
         overall >= 0.74
       );
     case "identity.yearsExperience":
-      return typeof candidate.value === "number" && candidate.value > 0 && overall >= 0.75;
+      return (
+        typeof candidate.value === "number" &&
+        candidate.value > 0 &&
+        overall >= 0.75
+      );
     case "location.currentLocation":
       return (
         typeof candidate.value === "string" &&
@@ -438,7 +710,9 @@ function canAutoApplyDespiteWorkspaceConflict(
   searchPreferences: JobSearchPreferences,
   candidate: ResumeImportFieldCandidate,
 ): boolean {
-  if (!scalarValueConflictsWithWorkspace(profile, searchPreferences, candidate)) {
+  if (
+    !scalarValueConflictsWithWorkspace(profile, searchPreferences, candidate)
+  ) {
     return true;
   }
 
@@ -450,30 +724,12 @@ function canAutoApplyDespiteWorkspaceConflict(
 }
 
 function isLikelyPersonName(value: string): boolean {
-  const trimmed = value.trim();
-
-  if (!trimmed || trimmed.length > 48) {
-    return false;
-  }
-
-  if (/[@\d]|https?:\/\//i.test(trimmed)) {
-    return false;
-  }
-
-  if (/(about me|about|summary|profile|skills|experience|education|language skills|work experience)/i.test(trimmed)) {
-    return false;
-  }
-
-  const parts = trimmed.split(/\s+/).filter(Boolean);
-  return (
-    parts.length >= 2 &&
-    parts.length <= 4 &&
-    /^[A-Za-z][A-Za-z\s.'-]+$/.test(trimmed) &&
-    parts.every((part) => /^[A-Z][A-Za-z.'-]*$/.test(part) || /^[A-Z]{2,}$/.test(part))
-  );
+  return isLikelyPersonNameFromIdentity(value);
 }
 
-function isStrongLiteralIdentityCandidate(candidate: ResumeImportFieldCandidate): boolean {
+function isStrongLiteralIdentityCandidate(
+  candidate: ResumeImportFieldCandidate,
+): boolean {
   return (
     candidate.sourceKind === "parser_literal" &&
     candidate.target.section === "identity" &&
@@ -500,7 +756,11 @@ function getDerivedNameParts(fullName: string): {
 }
 
 function isLikelyLocationValue(value: string): boolean {
-  const cleaned = value.trim().replace(/^Address:\s*/i, "").replace(/\s*\([^)]*\)\s*$/u, "").trim();
+  const cleaned = value
+    .trim()
+    .replace(/^Address:\s*/i, "")
+    .replace(/\s*\([^)]*\)\s*$/u, "")
+    .trim();
 
   if (!cleaned || cleaned.length > 80) {
     return false;
@@ -514,19 +774,28 @@ function isLikelyLocationValue(value: string): boolean {
     return false;
   }
 
-  if (/\b(recently|decided|return|passion|experience|building|driven|improving)\b/i.test(cleaned)) {
+  if (
+    /\b(recently|decided|return|passion|experience|building|driven|improving)\b/i.test(
+      cleaned,
+    )
+  ) {
     return false;
   }
 
   return (
     /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Za-z][A-Za-z\s.'-]+$/.test(cleaned) ||
-    /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?$/.test(cleaned) ||
+    /^[A-Za-z][A-Za-z\s.'-]+,\s*[A-Z]{2}(?:\s+\d{5}(?:-\d{4})?)?$/.test(
+      cleaned,
+    ) ||
     /^[A-Za-z][A-Za-z\s.'-]+\s+[A-Z]{2}\s+\d{5}(?:-\d{4})?$/.test(cleaned)
   );
 }
 
 export function isListTarget(candidate: ResumeImportFieldCandidate): boolean {
-  if (candidate.target.section === "skill" && candidate.target.key === "record") {
+  if (
+    candidate.target.section === "skill" &&
+    candidate.target.key === "record"
+  ) {
     return true;
   }
 
@@ -554,12 +823,108 @@ export function isRecordTarget(candidate: ResumeImportFieldCandidate): boolean {
   ].includes(candidate.target.section);
 }
 
+function normalizedStringValuesMatch(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  const leftValues = new Set(left.map(normalizeText).filter(Boolean));
+  const rightValues = new Set(right.map(normalizeText).filter(Boolean));
+  return (
+    leftValues.size === rightValues.size &&
+    [...leftValues].every((value) => rightValues.has(value))
+  );
+}
+
+function listCandidateMatchesWorkspace(
+  profile: CandidateProfile,
+  searchPreferences: JobSearchPreferences,
+  candidate: ResumeImportFieldCandidate,
+): boolean {
+  const values = toCandidateListValues(candidate);
+  if (values.length === 0) {
+    return false;
+  }
+
+  switch (`${candidate.target.section}.${candidate.target.key}`) {
+    case "search_preferences.targetRoles":
+      return (
+        normalizedStringValuesMatch(values, profile.targetRoles) &&
+        normalizedStringValuesMatch(values, searchPreferences.targetRoles)
+      );
+    case "search_preferences.locations":
+      return (
+        normalizedStringValuesMatch(values, profile.locations) &&
+        normalizedStringValuesMatch(values, searchPreferences.locations)
+      );
+    case "skill.skills":
+    case "skill.record":
+      return normalizedStringValuesMatch(values, profile.skills);
+    case "skill.skillGroups.coreSkills":
+      return normalizedStringValuesMatch(
+        values,
+        profile.skillGroups.coreSkills,
+      );
+    case "skill.skillGroups.tools":
+      return normalizedStringValuesMatch(values, profile.skillGroups.tools);
+    case "skill.skillGroups.languagesAndFrameworks":
+      return normalizedStringValuesMatch(
+        values,
+        profile.skillGroups.languagesAndFrameworks,
+      );
+    case "skill.skillGroups.softSkills":
+      return normalizedStringValuesMatch(
+        values,
+        profile.skillGroups.softSkills,
+      );
+    case "skill.skillGroups.highlightedSkills":
+      return normalizedStringValuesMatch(
+        values,
+        profile.skillGroups.highlightedSkills,
+      );
+    default:
+      return false;
+  }
+}
+
+function recordCandidateMatchesWorkspace(
+  profile: CandidateProfile,
+  candidate: ResumeImportFieldCandidate,
+): boolean {
+  if (candidate.target.section === "experience") {
+    return profile.experiences.some((record) =>
+      areEquivalentExperienceRecords(record, candidate.value),
+    );
+  }
+
+  if (candidate.target.section === "education") {
+    return profile.education.some((record) =>
+      areEquivalentEducationRecords(record, candidate.value),
+    );
+  }
+
+  return false;
+}
+
+function candidateMatchesWorkspace(
+  profile: CandidateProfile,
+  searchPreferences: JobSearchPreferences,
+  candidate: ResumeImportFieldCandidate,
+): boolean {
+  return (
+    scalarValueMatchesWorkspace(profile, searchPreferences, candidate) ||
+    listCandidateMatchesWorkspace(profile, searchPreferences, candidate) ||
+    recordCandidateMatchesWorkspace(profile, candidate)
+  );
+}
+
 function shouldAutoApply(
   profile: CandidateProfile,
   searchPreferences: JobSearchPreferences,
   candidate: ResumeImportFieldCandidate,
 ): boolean {
-  if (shouldAutoApplyPlaceholderReplacement(profile, searchPreferences, candidate)) {
+  if (
+    shouldAutoApplyPlaceholderReplacement(profile, searchPreferences, candidate)
+  ) {
     return true;
   }
 
@@ -590,7 +955,9 @@ function shouldAutoApply(
     return false;
   }
 
-  if (!canAutoApplyDespiteWorkspaceConflict(profile, searchPreferences, candidate)) {
+  if (
+    !canAutoApplyDespiteWorkspaceConflict(profile, searchPreferences, candidate)
+  ) {
     return false;
   }
 
@@ -638,24 +1005,31 @@ function shouldMergeRecordCandidate(
     case "experience": {
       const value = candidate.value;
       const hasCompany =
-        typeof value.companyName === "string" && value.companyName.trim().length > 0;
-      const hasTitle = typeof value.title === "string" && value.title.trim().length > 0;
+        typeof value.companyName === "string" &&
+        value.companyName.trim().length > 0;
+      const hasTitle =
+        typeof value.title === "string" && value.title.trim().length > 0;
       const hasDates =
-        (typeof value.startDate === "string" && value.startDate.trim().length > 0) ||
-        (typeof value.endDate === "string" && value.endDate.trim().length > 0) ||
+        (typeof value.startDate === "string" &&
+          value.startDate.trim().length > 0) ||
+        (typeof value.endDate === "string" &&
+          value.endDate.trim().length > 0) ||
         value.isCurrent === true;
       const completeness = scoreExperienceRecordCompleteness(candidate.value);
       const hasSubstantiveDetails =
-        (typeof value.summary === "string" && value.summary.trim().length >= 24) ||
-        toStringArray(value.achievements).length > 0 ||
+        (typeof value.summary === "string" &&
+          value.summary.trim().length >= 24) ||
+        toNarrativeStringArray(value.achievements).length > 0 ||
         toStringArray(value.skills).length > 0;
       const requiredCompleteness = hasDates
-        ? hasSubstantiveDetails ? 4 : 5
+        ? hasSubstantiveDetails
+          ? 4
+          : 5
         : 3;
       const requiredOverall = hasDates && hasSubstantiveDetails ? 0.68 : 0.72;
 
       return (
-        isFreshStartProfile(profile) &&
+        isFreshStartCandidateProfile(profile) &&
         hasCompany &&
         hasTitle &&
         (hasDates || hasSubstantiveDetails) &&
@@ -667,14 +1041,17 @@ function shouldMergeRecordCandidate(
     case "education": {
       const value = candidate.value;
       const hasSchool =
-        typeof value.schoolName === "string" && value.schoolName.trim().length > 0;
-      const hasDegree = typeof value.degree === "string" && value.degree.trim().length > 0;
+        typeof value.schoolName === "string" &&
+        value.schoolName.trim().length > 0;
+      const hasDegree =
+        typeof value.degree === "string" && value.degree.trim().length > 0;
       const hasField =
-        typeof value.fieldOfStudy === "string" && value.fieldOfStudy.trim().length > 0;
+        typeof value.fieldOfStudy === "string" &&
+        value.fieldOfStudy.trim().length > 0;
       const completeness = scoreEducationRecordCompleteness(candidate.value);
 
       return (
-        isFreshStartProfile(profile) &&
+        isFreshStartCandidateProfile(profile) &&
         hasSchool &&
         (hasDegree || hasField) &&
         completeness >= 2 &&
@@ -684,29 +1061,40 @@ function shouldMergeRecordCandidate(
     }
     case "certification": {
       const value = candidate.value;
-      const hasName = typeof value.name === "string" && value.name.trim().length > 0;
+      const hasName =
+        typeof value.name === "string" && value.name.trim().length > 0;
       return hasName && overall >= 0.6 && hasSufficientEvidence(candidate);
     }
     case "link": {
       const value = candidate.value;
-      const hasUrl = typeof value.url === "string" && value.url.trim().length > 0;
+      const hasUrl =
+        typeof value.url === "string" && value.url.trim().length > 0;
       return hasUrl && overall >= 0.72 && hasSufficientEvidence(candidate);
     }
     case "project": {
       const value = candidate.value;
-      const hasName = typeof value.name === "string" && value.name.trim().length > 0;
+      const hasName =
+        typeof value.name === "string" && value.name.trim().length > 0;
       return hasName && overall >= 0.58 && hasSufficientEvidence(candidate);
     }
     case "language": {
       const value = candidate.value;
-      const hasLanguage = typeof value.language === "string" && value.language.trim().length > 0;
+      const hasLanguage =
+        typeof value.language === "string" && value.language.trim().length > 0;
       return hasLanguage && overall >= 0.7 && hasSufficientEvidence(candidate);
     }
     case "proof_point": {
       const value = candidate.value;
-      const hasTitle = typeof value.title === "string" && value.title.trim().length > 0;
-      const hasClaim = typeof value.claim === "string" && value.claim.trim().length > 0;
-      return hasTitle && hasClaim && overall >= 0.88 && hasSufficientEvidence(candidate);
+      const hasTitle =
+        typeof value.title === "string" && value.title.trim().length > 0;
+      const hasClaim =
+        typeof value.claim === "string" && value.claim.trim().length > 0;
+      return (
+        hasTitle &&
+        hasClaim &&
+        overall >= 0.88 &&
+        hasSufficientEvidence(candidate)
+      );
     }
     default:
       return false;
@@ -717,7 +1105,11 @@ function shouldAutoApplyAdditionalFreshStartRecordCandidate(
   profile: CandidateProfile,
   candidate: ResumeImportFieldCandidate,
 ): boolean {
-  if (!isFreshStartProfile(profile) || !isRecordTarget(candidate) || !isObject(candidate.value)) {
+  if (
+    !isFreshStartCandidateProfile(profile) ||
+    !isRecordTarget(candidate) ||
+    !isObject(candidate.value)
+  ) {
     return false;
   }
 
@@ -726,15 +1118,19 @@ function shouldAutoApplyAdditionalFreshStartRecordCandidate(
   }
 
   const value = candidate.value;
-  const hasCompany = typeof value.companyName === "string" && value.companyName.trim().length > 0;
-  const hasTitle = typeof value.title === "string" && value.title.trim().length > 0;
+  const hasCompany =
+    typeof value.companyName === "string" &&
+    value.companyName.trim().length > 0;
+  const hasTitle =
+    typeof value.title === "string" && value.title.trim().length > 0;
   const hasDates =
-    (typeof value.startDate === "string" && value.startDate.trim().length > 0) ||
+    (typeof value.startDate === "string" &&
+      value.startDate.trim().length > 0) ||
     (typeof value.endDate === "string" && value.endDate.trim().length > 0) ||
     value.isCurrent === true;
   const hasSubstantiveDetails =
     (typeof value.summary === "string" && value.summary.trim().length >= 24) ||
-    toStringArray(value.achievements).length > 0 ||
+    toNarrativeStringArray(value.achievements).length > 0 ||
     toStringArray(value.skills).length > 0;
   const completeness = scoreExperienceRecordCompleteness(value);
   const overall = candidateOverallConfidence(candidate);
@@ -749,8 +1145,17 @@ function shouldAutoApplyAdditionalFreshStartRecordCandidate(
   );
 }
 
-function shouldMergeListCandidate(candidate: ResumeImportFieldCandidate): boolean {
-  if (candidate.target.section === "skill" && candidate.target.key === "record") {
+function shouldMergeListCandidate(
+  candidate: ResumeImportFieldCandidate,
+): boolean {
+  if (candidate.target.section === "search_preferences") {
+    return false;
+  }
+
+  if (
+    candidate.target.section === "skill" &&
+    candidate.target.key === "record"
+  ) {
     return false;
   }
 
@@ -758,7 +1163,7 @@ function shouldMergeListCandidate(candidate: ResumeImportFieldCandidate): boolea
     return false;
   }
 
-  const values = toStringArray(candidate.value);
+  const values = toCandidateListValues(candidate);
   if (values.length === 0) {
     return false;
   }
@@ -775,7 +1180,9 @@ function shouldMergeListCandidate(candidate: ResumeImportFieldCandidate): boolea
   return candidateOverallConfidence(candidate) >= 0.58;
 }
 
-function shouldAutoApplySkillRecordCandidate(candidate: ResumeImportFieldCandidate): boolean {
+function shouldAutoApplySkillRecordCandidate(
+  candidate: ResumeImportFieldCandidate,
+): boolean {
   return (
     candidate.target.section === "skill" &&
     candidate.target.key === "record" &&
@@ -809,7 +1216,8 @@ function compareRecordCandidates(
   }
 
   const completenessDelta =
-    recordCandidateCompletenessScore(right) - recordCandidateCompletenessScore(left);
+    recordCandidateCompletenessScore(right) -
+    recordCandidateCompletenessScore(left);
   if (completenessDelta !== 0) {
     return completenessDelta;
   }
@@ -826,7 +1234,9 @@ function groupCandidatesForReconciliation(
   for (const candidate of candidates) {
     if (isRecordTarget(candidate)) {
       const existingGroup = groups.find((group) =>
-        group.some((existing) => areEquivalentRecordCandidates(existing, candidate)),
+        group.some((existing) =>
+          areEquivalentRecordCandidates(existing, candidate),
+        ),
       );
 
       if (existingGroup) {
@@ -862,7 +1272,15 @@ function resolutionReasonForCandidate(
         ? "composite_confidence_recommended_abstain"
         : "insufficient_confidence_or_evidence";
     case "rejected":
-      return scalarValueConflictsWithWorkspace(profile, searchPreferences, candidate)
+      if (candidateMatchesWorkspace(profile, searchPreferences, candidate)) {
+        return "already_matches_workspace_value";
+      }
+
+      return scalarValueConflictsWithWorkspace(
+        profile,
+        searchPreferences,
+        candidate,
+      )
         ? "conflicts_with_existing_profile_value"
         : "lower_ranked_duplicate_candidate";
     case "needs_review": {
@@ -882,7 +1300,9 @@ function resolutionReasonForCandidate(
         return "missing_grounded_evidence";
       }
 
-      if (scalarValueConflictsWithWorkspace(profile, searchPreferences, candidate)) {
+      if (
+        scalarValueConflictsWithWorkspace(profile, searchPreferences, candidate)
+      ) {
         return "conflicts_with_existing_profile_value";
       }
 
@@ -896,8 +1316,10 @@ function applyCandidateResolution(
   searchPreferences: JobSearchPreferences,
   candidate: ResumeImportFieldCandidate,
   resolution: ResumeImportFieldCandidate["resolution"],
+  resolutionReasonOverride?: string,
 ): ResumeImportFieldCandidate {
-  const resolvedAt = resolution === "auto_applied" ? new Date().toISOString() : null;
+  const resolvedAt =
+    resolution === "auto_applied" ? new Date().toISOString() : null;
   const normalizedValue = normalizeRecordCandidateValue(candidate);
 
   return ResumeImportFieldCandidateSchema.parse({
@@ -909,17 +1331,21 @@ function applyCandidateResolution(
         ? Math.min(candidate.confidence, candidateOverallConfidence(candidate))
         : candidate.confidence,
     resolution,
-    resolutionReason: resolutionReasonForCandidate(
-      profile,
-      searchPreferences,
-      candidate,
-      resolution,
-    ),
+    resolutionReason:
+      resolutionReasonOverride ??
+      resolutionReasonForCandidate(
+        profile,
+        searchPreferences,
+        candidate,
+        resolution,
+      ),
     resolvedAt,
   });
 }
 
-function sourceLabelForCandidate(candidate: ResumeImportFieldCandidate): string {
+function sourceLabelForCandidate(
+  candidate: ResumeImportFieldCandidate,
+): string {
   switch (candidate.sourceKind) {
     case "parser_literal":
     case "model_identity_summary":
@@ -944,7 +1370,8 @@ function toConflictChoice(
   candidate: ResumeImportFieldCandidate,
   recommended: boolean,
 ): ResumeImportConflictChoice {
-  const valuePreview = candidate.valuePreview ?? buildValuePreview(candidate.value);
+  const valuePreview =
+    candidate.valuePreview ?? buildValuePreview(candidate.value);
 
   return {
     id: `${candidate.id}_choice`,
@@ -964,8 +1391,12 @@ function toConflictChoice(
 function hasTextVisionMaterialConflict(
   candidates: readonly ResumeImportFieldCandidate[],
 ): boolean {
-  const hasVision = candidates.some((candidate) => candidate.sourceKind === "vision_omni");
-  const hasText = candidates.some((candidate) => sourceLabelForCandidate(candidate) === "Document text");
+  const hasVision = candidates.some(
+    (candidate) => candidate.sourceKind === "vision_omni",
+  );
+  const hasText = candidates.some(
+    (candidate) => sourceLabelForCandidate(candidate) === "Document text",
+  );
 
   if (!hasVision || !hasText) {
     return false;
@@ -978,14 +1409,42 @@ function hasTextVisionMaterialConflict(
   );
   const normalizedValues = new Set(
     relevantCandidates.map((candidate) =>
-      normalizeText(candidate.valuePreview ?? buildValuePreview(candidate.value) ?? JSON.stringify(candidate.value)),
+      candidate.target.section === "identity" &&
+      candidate.target.key === "fullName" &&
+      typeof candidate.value === "string"
+        ? candidate.value
+            .normalize("NFKD")
+            .replace(/\p{M}/gu, "")
+            .toLocaleLowerCase()
+            .replace(/\s+/g, " ")
+            .trim()
+        : normalizeText(
+            candidate.valuePreview ??
+              buildValuePreview(candidate.value) ??
+              JSON.stringify(candidate.value),
+          ),
     ),
   );
   return normalizedValues.size > 1;
 }
 
+function candidateSharesMaterialTextVisionConflict(
+  candidate: ResumeImportFieldCandidate,
+  candidates: readonly ResumeImportFieldCandidate[],
+): boolean {
+  const sameTargetCandidates = candidates.filter(
+    (other) =>
+      stringifyCandidateTarget(other) === stringifyCandidateTarget(candidate),
+  );
+
+  return hasTextVisionMaterialConflict(sameTargetCandidates);
+}
+
 function isTextVisionWinner(candidate: ResumeImportFieldCandidate): boolean {
-  return candidate.resolution === "auto_applied" || candidate.resolution === "needs_review";
+  return (
+    candidate.resolution === "auto_applied" ||
+    candidate.resolution === "needs_review"
+  );
 }
 
 function applyConflictChoicesToGroup(
@@ -994,17 +1453,22 @@ function applyConflictChoicesToGroup(
 ): ResumeImportFieldCandidate[] {
   if (
     !hasTextVisionMaterialConflict(candidates) ||
-    candidates.some((candidate) => isRecordTarget(candidate) || isListTarget(candidate))
+    candidates.some(
+      (candidate) => isRecordTarget(candidate) || isListTarget(candidate),
+    )
   ) {
     return [...candidates];
   }
 
-  const recommendedCandidate = candidates.find(isStrongLiteralIdentityCandidate) ?? winner;
+  const recommendedCandidate =
+    candidates.find(isStrongLiteralIdentityCandidate) ?? winner;
   if (recommendedCandidate.sourceKind === "adjudicator") {
     return [...candidates];
   }
 
-  const ranked = [...candidates].sort((left, right) => candidateScore(right) - candidateScore(left));
+  const ranked = [...candidates].sort(
+    (left, right) => candidateScore(right) - candidateScore(left),
+  );
   const choices = ranked.map((candidate) =>
     toConflictChoice(candidate, candidate.id === recommendedCandidate.id),
   );
@@ -1037,7 +1501,11 @@ function appendResolvedConflictGroup(
   groupResolved: readonly ResumeImportFieldCandidate[],
 ): void {
   const winner = groupResolved.find(isTextVisionWinner) ?? groupResolved[0];
-  resolved.push(...(winner ? applyConflictChoicesToGroup(groupResolved, winner) : groupResolved));
+  resolved.push(
+    ...(winner
+      ? applyConflictChoicesToGroup(groupResolved, winner)
+      : groupResolved),
+  );
 }
 
 function resolveRedundantFreshStartNamePartCandidates(
@@ -1045,7 +1513,7 @@ function resolveRedundantFreshStartNamePartCandidates(
   searchPreferences: JobSearchPreferences,
   candidates: readonly ResumeImportFieldCandidate[],
 ): ResumeImportFieldCandidate[] {
-  if (!isFreshStartProfile(profile)) {
+  if (!isFreshStartCandidateProfile(profile)) {
     return [...candidates];
   }
 
@@ -1086,7 +1554,10 @@ function resolveRedundantFreshStartNamePartCandidates(
       }
     })();
 
-    if (!expectedValue || normalizeText(candidate.value) !== normalizeText(expectedValue)) {
+    if (
+      !expectedValue ||
+      normalizeText(candidate.value) !== normalizeText(expectedValue)
+    ) {
       return candidate;
     }
 
@@ -1105,9 +1576,69 @@ export function reconcileCandidates(
   candidates: readonly ResumeImportFieldCandidate[],
 ): ResumeImportFieldCandidate[] {
   const resolved: ResumeImportFieldCandidate[] = [];
+  const normalizedCandidates = candidates.map(
+    normalizeRecordCandidateForReconciliation,
+  );
+  const identityConflicts = findResumeImportIdentityConflicts(
+    profile,
+    normalizedCandidates,
+  );
+  const candidatesForGrouping: ResumeImportFieldCandidate[] = [];
 
-  for (const group of groupCandidatesForReconciliation(candidates)) {
-    const sorted = [...group].sort((left, right) => candidateScore(right) - candidateScore(left));
+  for (const candidate of normalizedCandidates) {
+    const identityConflict = identityConflicts.get(candidate.id);
+    if (
+      identityConflict &&
+      !candidateSharesMaterialTextVisionConflict(
+        candidate,
+        normalizedCandidates,
+      )
+    ) {
+      resolved.push(
+        applyCandidateResolution(
+          profile,
+          searchPreferences,
+          candidate,
+          "needs_review",
+          `identity_mismatch_requires_review: ${identityConflict}`,
+        ),
+      );
+      continue;
+    }
+
+    if (candidateMatchesWorkspace(profile, searchPreferences, candidate)) {
+      resolved.push(
+        applyCandidateResolution(
+          profile,
+          searchPreferences,
+          candidate,
+          "rejected",
+        ),
+      );
+      continue;
+    }
+
+    if (
+      isRedundantUnstructuredRecordCandidate(candidate, normalizedCandidates)
+    ) {
+      resolved.push(
+        applyCandidateResolution(
+          profile,
+          searchPreferences,
+          candidate,
+          "rejected",
+        ),
+      );
+      continue;
+    }
+
+    candidatesForGrouping.push(candidate);
+  }
+
+  for (const group of groupCandidatesForReconciliation(candidatesForGrouping)) {
+    const sorted = [...group].sort(
+      (left, right) => candidateScore(right) - candidateScore(left),
+    );
 
     if (sorted.length === 0) {
       continue;
@@ -1129,7 +1660,10 @@ export function reconcileCandidates(
           const shouldAutoApplyCollectionCandidate =
             shouldMergeRecordCandidate(profile, candidate) &&
             (!hasAutoAppliedCollectionCandidate ||
-              shouldAutoApplyAdditionalFreshStartRecordCandidate(profile, candidate));
+              shouldAutoApplyAdditionalFreshStartRecordCandidate(
+                profile,
+                candidate,
+              ));
           const resolution =
             recommendation === "abstain"
               ? "abstained"
@@ -1159,7 +1693,8 @@ export function reconcileCandidates(
       for (const candidate of sorted) {
         const recommendation = recommendationForCandidate(candidate);
         const shouldAutoApplyCollectionCandidate =
-          shouldMergeListCandidate(candidate) || shouldAutoApplySkillRecordCandidate(candidate);
+          shouldMergeListCandidate(candidate) ||
+          shouldAutoApplySkillRecordCandidate(candidate);
         const resolution =
           recommendation === "abstain"
             ? "abstained"

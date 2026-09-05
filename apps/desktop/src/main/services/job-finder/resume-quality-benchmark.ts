@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   createDeterministicJobFinderAiClient,
+  createJobFinderAiClientFromEnvironment,
   type JobFinderAiClient,
   type TailoredResumeDraft,
   TailoredResumeDraftSchema,
@@ -18,9 +19,11 @@ import {
   SavedJobSchema,
   isResumeTemplateBenchmarkEligible,
   type JobFinderRepositoryState,
+  type ResumeDraftEntry,
   type ResumeQualityBenchmarkCase,
   type ResumeQualityBenchmarkCaseResult,
   type ResumeQualityBenchmarkMetrics,
+  type ResumeQualityGenerationDiagnostics,
   type ResumeQualityBenchmarkReport,
   type ResumeQualityBenchmarkRequest,
   type ResumeTemplateDefinition,
@@ -42,18 +45,13 @@ import { defaultBenchmarkCases as defaultResumeImportBenchmarkCases } from './re
 type ResumeQualityBenchmarkFixture = {
   definition: ResumeQualityBenchmarkCase
   buildState: (templateId: ResumeTemplateId) => JobFinderRepositoryState | Promise<JobFinderRepositoryState>
-  overrideDraft?: (input: {
-    baseDraft: TailoredResumeDraft
-    job: JobPosting
-  }) => TailoredResumeDraft
+  overrideDraft?: (input: { baseDraft: TailoredResumeDraft; job: JobPosting }) => TailoredResumeDraft
 }
 
 export function selectBenchmarkTemplateIds(
   templates: readonly ResumeTemplateDefinition[] = listLocalResumeTemplates(),
 ): ResumeTemplateId[] {
-  return templates
-    .filter((template) => isResumeTemplateBenchmarkEligible(template))
-    .map((template) => template.id)
+  return templates.filter((template) => isResumeTemplateBenchmarkEligible(template)).map((template) => template.id)
 }
 
 function average(values: readonly number[]): number {
@@ -65,7 +63,10 @@ function average(values: readonly number[]): number {
 }
 
 function normalizeText(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
 }
 
 function escapeRegex(value: string): string {
@@ -98,7 +99,12 @@ function firstNonEmptyValue(values: readonly (string | null | undefined)[]): str
   return null
 }
 
-function resolveResponsibilityFallback(job: Pick<SavedJob, 'title' | 'responsibilities' | 'minimumQualifications' | 'preferredQualifications' | 'summary' | 'description'>): string {
+function resolveResponsibilityFallback(
+  job: Pick<
+    SavedJob,
+    'title' | 'responsibilities' | 'minimumQualifications' | 'preferredQualifications' | 'summary' | 'description'
+  >,
+): string {
   return (
     firstNonEmptyValue([
       ...job.responsibilities,
@@ -106,25 +112,24 @@ function resolveResponsibilityFallback(job: Pick<SavedJob, 'title' | 'responsibi
       ...job.preferredQualifications,
       job.summary,
       job.description,
-    ]) ??
-    `${job.title} responsibilities.`
+    ]) ?? `${job.title} responsibilities.`
   )
 }
 
-function collectVisibleSkills(
-  draft: JobFinderRepositoryState['resumeDrafts'][number],
-): string[] {
+function collectVisibleSkills(draft: JobFinderRepositoryState['resumeDrafts'][number]): string[] {
   return draft.sections
-    .filter(
-      (section) =>
-        section.included && section.kind === 'skills' && normalizeText(section.label) !== 'languages',
-    )
+    .filter((section) => section.included && section.kind === 'skills' && normalizeText(section.label) !== 'languages')
     .flatMap((section) => section.bullets.filter((bullet) => bullet.included).map((bullet) => bullet.text))
 }
 
+type GroundingSkillEvidenceProfile = Pick<JobFinderRepositoryState['profile'], 'skills' | 'skillGroups'> & {
+  experiences: readonly { skills: JobFinderRepositoryState['profile']['experiences'][number]['skills'] }[]
+  projects: readonly { skills: JobFinderRepositoryState['profile']['projects'][number]['skills'] }[]
+}
+
 function collectGroundingSkillEvidence(input: {
-  job: SavedJob
-  profile: JobFinderRepositoryState['profile']
+  job: Pick<SavedJob, 'keySkills' | 'keywordSignals'>
+  profile: GroundingSkillEvidenceProfile
 }): Set<string> {
   return new Set(
     [
@@ -136,22 +141,23 @@ function collectGroundingSkillEvidence(input: {
       ...input.profile.experiences.flatMap((experience) => experience.skills),
       ...input.profile.projects.flatMap((project) => project.skills),
       ...input.job.keySkills,
-      ...input.job.keywordSignals
-        .filter((signal) => signal.kind === 'skill')
-        .map((signal) => signal.label),
+      ...input.job.keywordSignals.filter((signal) => signal.kind === 'skill').map((signal) => signal.label),
     ]
       .map((value) => normalizeText(value))
       .filter(Boolean),
   )
 }
 
-function hasGroundedVisibleSkills(input: {
+/**
+ * Conservative grounding gate: zero visible skills is missing evidence, not a pass.
+ */
+export function calculateGroundedVisibleSkillRate(input: {
   visibleSkills: readonly string[]
-  job: SavedJob
-  profile: JobFinderRepositoryState['profile']
-}): boolean {
+  job: Pick<SavedJob, 'keySkills' | 'keywordSignals'>
+  profile: GroundingSkillEvidenceProfile
+}): number {
   if (input.visibleSkills.length === 0) {
-    return true
+    return 0
   }
 
   const evidence = collectGroundingSkillEvidence({
@@ -159,7 +165,292 @@ function hasGroundedVisibleSkills(input: {
     profile: input.profile,
   })
 
-  return input.visibleSkills.every((skill) => evidence.has(normalizeText(skill)))
+  return input.visibleSkills.every((skill) => evidence.has(normalizeText(skill))) ? 1 : 0
+}
+
+const experienceActionVerbs = new Set([
+  'achieved',
+  'administered',
+  'advised',
+  'analyzed',
+  'architected',
+  'audited',
+  'automated',
+  'built',
+  'collaborated',
+  'configured',
+  'consolidated',
+  'consulted',
+  'coordinated',
+  'created',
+  'defined',
+  'delivered',
+  'deployed',
+  'designed',
+  'developed',
+  'diagnosed',
+  'directed',
+  'documented',
+  'drove',
+  'engineered',
+  'established',
+  'facilitated',
+  'generated',
+  'grew',
+  'handled',
+  'implemented',
+  'improved',
+  'increased',
+  'integrated',
+  'introduced',
+  'launched',
+  'led',
+  'maintained',
+  'managed',
+  'mentored',
+  'migrated',
+  'modernized',
+  'operated',
+  'optimized',
+  'owned',
+  'partnered',
+  'planned',
+  'produced',
+  'reduced',
+  'resolved',
+  'scaled',
+  'streamlined',
+  'supervised',
+  'supported',
+  'tested',
+  'trained',
+  'transformed',
+  'validated',
+])
+
+function collectAllExperienceEntries(draft: JobFinderRepositoryState['resumeDrafts'][number]): ResumeDraftEntry[] {
+  return draft.sections
+    .filter((section) => section.kind === 'experience')
+    .flatMap((section) =>
+      section.entries.map((entry) => (section.included ? entry : { ...entry, included: false })),
+    )
+    .filter((entry) => entry.entryType === 'experience')
+}
+
+function collectExperienceEntries(draft: JobFinderRepositoryState['resumeDrafts'][number]): ResumeDraftEntry[] {
+  return collectAllExperienceEntries(draft).filter((entry) => entry.included)
+}
+
+function successfulRate(results: readonly boolean[]): number {
+  if (results.length === 0) {
+    return 1
+  }
+
+  return results.filter(Boolean).length / results.length
+}
+
+export function calculateWorkHistoryRepresentationRate(input: {
+  profileExperienceIds: readonly string[]
+  draftExperienceEntries: readonly Pick<ResumeDraftEntry, 'included' | 'profileRecordId'>[]
+  tailoringMode: JobFinderRepositoryState['searchPreferences']['tailoringMode']
+}): number {
+  const canonicalIds = new Set(input.profileExperienceIds)
+  if (canonicalIds.size === 0) {
+    return 1
+  }
+
+  const entriesByProfileId = new Map<string, (typeof input.draftExperienceEntries)[number][]>()
+  for (const entry of input.draftExperienceEntries) {
+    if (!entry.profileRecordId || !canonicalIds.has(entry.profileRecordId)) {
+      continue
+    }
+
+    const entries = entriesByProfileId.get(entry.profileRecordId) ?? []
+    entries.push(entry)
+    entriesByProfileId.set(entry.profileRecordId, entries)
+  }
+
+  const representedIds = [...canonicalIds].filter((profileExperienceId) => {
+    const entries = entriesByProfileId.get(profileExperienceId) ?? []
+    if (entries.length === 0) {
+      return false
+    }
+
+    return input.tailoringMode === 'conservative' || entries.some((entry) => entry.included)
+  })
+
+  return representedIds.length / canonicalIds.size
+}
+
+export function calculateVisibleWorkHistoryCoverageRate(input: {
+  profileExperienceIds: readonly string[]
+  draftExperienceEntries: readonly Pick<ResumeDraftEntry, 'included' | 'profileRecordId'>[]
+}): number {
+  const canonicalIds = new Set(input.profileExperienceIds)
+  if (canonicalIds.size === 0) {
+    return 1
+  }
+
+  const visibleIds = new Set(
+    input.draftExperienceEntries
+      .filter(
+        (entry) =>
+          entry.included &&
+          entry.profileRecordId !== null &&
+          canonicalIds.has(entry.profileRecordId),
+      )
+      .map((entry) => entry.profileRecordId)
+      .filter((profileRecordId): profileRecordId is string => profileRecordId !== null),
+  )
+
+  return visibleIds.size / canonicalIds.size
+}
+
+const nearDuplicateBulletStopWords = new Set([
+  'a',
+  'an',
+  'and',
+  'as',
+  'at',
+  'by',
+  'for',
+  'from',
+  'in',
+  'of',
+  'on',
+  'the',
+  'to',
+  'with',
+])
+
+function meaningfulBenchmarkLineTokens(value: string): Set<string> {
+  return new Set(
+    normalizeText(value)
+      .split(' ')
+      .filter((token) => token.length > 1 && !nearDuplicateBulletStopWords.has(token)),
+  )
+}
+
+function areNearDuplicateBenchmarkLines(left: string, right: string): boolean {
+  const leftTokens = meaningfulBenchmarkLineTokens(left)
+  const rightTokens = meaningfulBenchmarkLineTokens(right)
+  const smallestSize = Math.min(leftTokens.size, rightTokens.size)
+  if (smallestSize < 4) {
+    return false
+  }
+
+  const sharedCount = [...leftTokens].filter((token) => rightTokens.has(token)).length
+  return sharedCount / smallestSize >= 0.8
+}
+
+function hasRepeatedBenchmarkProse(value: string): boolean {
+  if (/\b([a-z][a-z0-9'-]{2,})\s+\1\b/i.test(value)) {
+    return true
+  }
+
+  const clauses = value
+    .split(/[.!?;]+/)
+    .map((clause) => normalizeText(clause))
+    .filter((clause) => clause.split(' ').filter(Boolean).length >= 3)
+  return new Set(clauses).size !== clauses.length
+}
+
+export function isSuspiciousExperienceBulletFragment(value: string): boolean {
+  const trimmed = value.trim()
+  const tokens = normalizeText(trimmed).split(' ').filter(Boolean)
+
+  if (!trimmed || tokens.length === 0) {
+    return true
+  }
+
+  const startsWithActionVerb = experienceActionVerbs.has(tokens[0] ?? '')
+  const firstLetter = trimmed.match(/[A-Za-z]/)?.[0] ?? null
+  const startsWithLowercase = Boolean(firstLetter && firstLetter === firstLetter.toLowerCase())
+
+  if (startsWithLowercase || /[,;:]$/.test(trimmed) || hasRepeatedBenchmarkProse(trimmed)) {
+    return true
+  }
+
+  if (tokens.length <= 2 && !startsWithActionVerb) {
+    return true
+  }
+
+  return tokens.length <= 4 && !/[.!?)]$/.test(trimmed) && !startsWithActionVerb
+}
+
+export function calculateFragmentFreeExperienceBulletRate(bullets: readonly string[]): number {
+  const seenBullets: string[] = []
+  return successfulRate(
+    bullets.map((bullet) => {
+      const isRepeated = seenBullets.some((seenBullet) => areNearDuplicateBenchmarkLines(seenBullet, bullet))
+      seenBullets.push(bullet)
+      return !isRepeated && !isSuspiciousExperienceBulletFragment(bullet)
+    }),
+  )
+}
+
+export function isProfessionalExperienceSummary(
+  summary: string | null | undefined,
+  entry: Pick<ResumeDraftEntry, 'location'>,
+): boolean {
+  const trimmed = summary?.trim() ?? ''
+  if (!trimmed) {
+    return true
+  }
+
+  const normalized = normalizeText(trimmed)
+  const tokens = normalized.split(' ').filter(Boolean)
+  const normalizedLocation = normalizeText(entry.location ?? '')
+  const hasFirstPersonVoice = /\b(?:i|me|my|mine|myself)\b/i.test(trimmed)
+  const hasCareerChangeMeta =
+    /\b(?:career\s+(?:change|pivot|transition)|decid(?:ed|ing)\s+to|passion|pivot(?:ed|ing)?\s+(?:back\s+)?to|return(?:ed|ing)?\s+to|seeking\s+(?:a|my)\s+next)\b/i.test(
+      trimmed,
+    )
+  const hasTeenLikeFiller =
+    /\b(?:did (?:a lot|lots)|helped (?:out|with) (?:different|many|some|various|a lot of|lots of)|worked on (?:different|many|some|various|a lot of|lots of)|lots of (?:stuff|things)|various tasks|really (?:good|great)|super (?:good|great))\b/i.test(
+      trimmed,
+    ) || hasRepeatedBenchmarkProse(trimmed)
+  const isKnownLocationOnly = Boolean(normalizedLocation && normalized === normalizedLocation)
+  const isCompactWorkModeLocation = tokens.length <= 5 && /^(?:remote|hybrid|onsite|on\s+site)\b/i.test(trimmed)
+  const isCompactCommaLocation = tokens.length <= 5 && trimmed.includes(',') && !/[.!?]$/.test(trimmed)
+  const isCompactAllCapsMeta = tokens.length <= 5 && /[A-Z]/.test(trimmed) && trimmed === trimmed.toUpperCase()
+
+  return !(
+    hasFirstPersonVoice ||
+    hasCareerChangeMeta ||
+    hasTeenLikeFiller ||
+    isKnownLocationOnly ||
+    isCompactWorkModeLocation ||
+    isCompactCommaLocation ||
+    isCompactAllCapsMeta
+  )
+}
+
+export function calculateProfessionalExperienceSummaryRate(
+  entries: readonly Pick<ResumeDraftEntry, 'location' | 'summary'>[],
+): number {
+  return successfulRate(
+    entries
+      .filter((entry) => Boolean(entry.summary?.trim()))
+      .map((entry) => isProfessionalExperienceSummary(entry.summary, entry)),
+  )
+}
+
+export function passesResumeQualityAcceptance(metrics: ResumeQualityBenchmarkMetrics): boolean {
+  return (
+    metrics.groundedVisibleSkillRate === 1 &&
+    metrics.workHistoryRepresentationRate === 1 &&
+    metrics.visibleWorkHistoryCoverageRate === 1 &&
+    metrics.fragmentFreeExperienceBulletRate === 1 &&
+    metrics.professionalExperienceSummaryRate === 1 &&
+    metrics.bleedFreeCaseRate === 1 &&
+    metrics.keywordCoverageRate === 1 &&
+    metrics.duplicateIssueFreeRate === 1 &&
+    metrics.thinOutputFreeRate === 1 &&
+    metrics.pageTargetPassRate === 1 &&
+    metrics.atsRenderPassRate === 1 &&
+    metrics.issueFreeCaseRate === 1
+  )
 }
 
 function buildGroundedBaselineProfile() {
@@ -184,8 +475,7 @@ function buildGroundedBaselineProfile() {
     narrative: {
       professionalStory:
         'Design systems and workflow tooling leader who helps product teams ship clearer operating systems.',
-      nextChapterSummary:
-        'Targeting remote senior design systems and workflow platform roles.',
+      nextChapterSummary: 'Targeting remote senior design systems and workflow platform roles.',
       careerTransitionSummary:
         'Leaning further into workflow platform roles because that is where recent impact has been strongest.',
       differentiators: [
@@ -226,8 +516,7 @@ function buildGroundedBaselineProfile() {
       {
         id: 'proof_1',
         title: 'Design-system rollout',
-        claim:
-          'Led design-system rollout across core product surfaces used by design and operations teams.',
+        claim: 'Led design-system rollout across core product surfaces used by design and operations teams.',
         heroMetric: 'Adoption reached 80% of core product surfaces within two quarters.',
         supportingContext:
           'Worked across product, engineering, and operations to standardize component and content patterns.',
@@ -354,10 +643,7 @@ function buildGroundedBaselineJob(): SavedJob {
     description:
       'Own the design system and workflow platform. Build accessible product foundations for remote operations teams.',
     keySkills: ['Figma', 'Design Systems', 'Accessibility'],
-    responsibilities: [
-      'Own the design system roadmap.',
-      'Lead accessible workflow platform experiences.',
-    ],
+    responsibilities: ['Own the design system roadmap.', 'Lead accessible workflow platform experiences.'],
     minimumQualifications: [
       'Strong product design systems experience.',
       'Experience partnering with engineering on platform work.',
@@ -552,8 +838,7 @@ function buildFrontendPlatformProfile() {
       {
         id: 'proof_frontend_platform',
         title: 'Frontend platform consolidation',
-        claim:
-          'Unified fragmented frontend foundations across product teams into a shared platform adoption program.',
+        claim: 'Unified fragmented frontend foundations across product teams into a shared platform adoption program.',
         heroMetric: 'Cut release regressions by 42% across three product lines in two quarters.',
         supportingContext:
           'Partnered with product, design, and platform engineering to standardize components, testing, and performance budgets.',
@@ -977,13 +1262,22 @@ function buildRealFixtureJob(input: {
   })
 }
 
-const realFixtureQualityTargets: Record<string, {
-  title: string
-  company: string
-  keySkills: readonly string[]
-  summary: string
-  seniority?: string | null
-}> = {
+const realFixtureQualityTargets: Record<
+  string,
+  {
+    title: string
+    company: string
+    keySkills: readonly string[]
+    summary: string
+    seniority?: string | null
+  }
+> = {
+  resume_import_comprehensive_txt: {
+    title: 'Senior Product Engineer',
+    company: 'Reliable Workflow Systems',
+    keySkills: ['TypeScript', 'React', 'Accessibility', 'AWS'],
+    summary: 'Build reliable, accessible workflow software for operations teams.',
+  },
   aaron_murphy_pdf: {
     title: 'Staff Software Engineer',
     company: 'Northstar Platform',
@@ -1017,11 +1311,7 @@ const realFixtureQualityTargets: Record<string, {
   },
 }
 
-async function importRealFixtureProfile(input: {
-  fixtureId: string
-  resumePath: string
-  label: string
-}) {
+async function importRealFixtureProfile(input: { fixtureId: string; resumePath: string; label: string }) {
   const repoRoot = resolveRepoRoot()
   const state = createEmptyJobFinderRepositoryState()
   const absoluteResumePath = path.resolve(repoRoot, input.resumePath)
@@ -1055,9 +1345,7 @@ async function importRealFixtureProfile(input: {
     sessions: [],
     catalog: [],
   })
-  const tempOutputDirectory = await mkdtemp(
-    path.join(os.tmpdir(), `unemployed-quality-import-${input.fixtureId}-`),
-  )
+  const tempOutputDirectory = await mkdtemp(path.join(os.tmpdir(), `unemployed-quality-import-${input.fixtureId}-`))
   const documentManager = createLocalJobFinderDocumentManager({
     outputDirectory: tempOutputDirectory,
   })
@@ -1077,10 +1365,7 @@ async function importRealFixtureProfile(input: {
 
     return repository.getProfile()
   } finally {
-    await Promise.allSettled([
-      workspaceService.shutdown(),
-      repository.close(),
-    ])
+    await Promise.allSettled([workspaceService.shutdown(), repository.close()])
     await rm(tempOutputDirectory, { recursive: true, force: true })
   }
 }
@@ -1155,9 +1440,7 @@ function parseMonthForSort(value: string | null | undefined): number | null {
   const yearMonthMatch = /^(\d{4})-(\d{2})/.exec(trimmed)
   if (yearMonthMatch) {
     const month = Number(yearMonthMatch[2])
-    return month >= 1 && month <= 12
-      ? Number(yearMonthMatch[1]) * 12 + month
-      : null
+    return month >= 1 && month <= 12 ? Number(yearMonthMatch[1]) * 12 + month : null
   }
 
   const yearMatch = /^(\d{4})$/.exec(trimmed)
@@ -1176,22 +1459,23 @@ function sortProfileForResumeCoverage(profile: JobFinderRepositoryState['profile
 
   return CandidateProfileSchema.parse({
     ...profile,
-    experiences: experiencesWithImportIndex
-      .sort((left, right) => {
-        const leftEndMonth = (left.isCurrent ? Number.MAX_SAFE_INTEGER : parseMonthForSort(left.endDate)) ?? Number.MIN_SAFE_INTEGER
-        const rightEndMonth = (right.isCurrent ? Number.MAX_SAFE_INTEGER : parseMonthForSort(right.endDate)) ?? Number.MIN_SAFE_INTEGER
-        if (rightEndMonth !== leftEndMonth) {
-          return rightEndMonth - leftEndMonth
-        }
+    experiences: experiencesWithImportIndex.sort((left, right) => {
+      const leftEndMonth =
+        (left.isCurrent ? Number.MAX_SAFE_INTEGER : parseMonthForSort(left.endDate)) ?? Number.MIN_SAFE_INTEGER
+      const rightEndMonth =
+        (right.isCurrent ? Number.MAX_SAFE_INTEGER : parseMonthForSort(right.endDate)) ?? Number.MIN_SAFE_INTEGER
+      if (rightEndMonth !== leftEndMonth) {
+        return rightEndMonth - leftEndMonth
+      }
 
-        const leftStartMonth = parseMonthForSort(left.startDate) ?? Number.MIN_SAFE_INTEGER
-        const rightStartMonth = parseMonthForSort(right.startDate) ?? Number.MIN_SAFE_INTEGER
-        if (rightStartMonth !== leftStartMonth) {
-          return rightStartMonth - leftStartMonth
-        }
+      const leftStartMonth = parseMonthForSort(left.startDate) ?? Number.MIN_SAFE_INTEGER
+      const rightStartMonth = parseMonthForSort(right.startDate) ?? Number.MIN_SAFE_INTEGER
+      if (rightStartMonth !== leftStartMonth) {
+        return rightStartMonth - leftStartMonth
+      }
 
-        return left.__importIndex - right.__importIndex
-      }),
+      return left.__importIndex - right.__importIndex
+    }),
   })
 }
 
@@ -1216,10 +1500,7 @@ function buildStateForCase(input: {
       ...state.settings,
       resumeTemplateId: input.templateId,
       resumeFormat: 'html',
-      fontPreset:
-        input.templateId === 'compact_exec'
-          ? 'space_grotesk_display'
-          : 'inter_requisite',
+      fontPreset: input.templateId === 'compact_exec' ? 'space_grotesk_display' : 'inter_requisite',
       keepSessionAlive: false,
     },
     profileSetupState: {
@@ -1299,7 +1580,7 @@ const defaultResumeQualityBenchmarkCases: ResumeQualityBenchmarkFixture[] = [
       return TailoredResumeDraftSchema.parse({
         label: 'Tailored Resume',
         summary: 'Designer exploring the next role.',
-        experienceHighlights: ['Basic collaboration support.'],
+        experienceHighlights: ['Basic resume text.'],
         coreSkills: ['Figma'],
         targetedKeywords: ['Figma'],
         experienceEntries: [],
@@ -1308,7 +1589,7 @@ const defaultResumeQualityBenchmarkCases: ResumeQualityBenchmarkFixture[] = [
         certificationEntries: [],
         additionalSkills: [],
         languages: [],
-        fullText: 'Designer exploring the next role.\n\nBasic collaboration support.\n\nCore skills: Figma',
+        fullText: 'Designer exploring the next role.\n\nBasic resume text.\n\nCore skills: Figma',
         compatibilityScore: 55,
         notes: ['Benchmark thin-profile case forces minimal grounded output.'],
       })
@@ -1347,23 +1628,16 @@ const defaultResumeQualityBenchmarkCases: ResumeQualityBenchmarkFixture[] = [
   ...buildRealFixtureQualityCases(),
 ]
 
-function resolveBenchmarkFixtures(
-  request: ResumeQualityBenchmarkRequest,
-): ResumeQualityBenchmarkFixture[] {
-  const cases = request.caseIds.length > 0
-    ? defaultResumeQualityBenchmarkCases.filter((entry) =>
-        request.caseIds.includes(entry.definition.id),
-      )
-    : defaultResumeQualityBenchmarkCases
+function resolveBenchmarkFixtures(request: ResumeQualityBenchmarkRequest): ResumeQualityBenchmarkFixture[] {
+  const cases =
+    request.caseIds.length > 0
+      ? defaultResumeQualityBenchmarkCases.filter((entry) => request.caseIds.includes(entry.definition.id))
+      : defaultResumeQualityBenchmarkCases
 
-  const fixtures = request.canaryOnly
-    ? cases.filter((entry) => entry.definition.canary)
-    : cases
+  const fixtures = request.canaryOnly ? cases.filter((entry) => entry.definition.canary) : cases
 
   if (fixtures.length === 0) {
-    const requestedCaseIds = request.caseIds.length > 0
-      ? request.caseIds.join(', ')
-      : 'all cases'
+    const requestedCaseIds = request.caseIds.length > 0 ? request.caseIds.join(', ') : 'all cases'
     throw new Error(
       `Resume quality benchmark resolved no cases for caseIds=${requestedCaseIds} and canaryOnly=${String(request.canaryOnly)}.`,
     )
@@ -1372,28 +1646,62 @@ function resolveBenchmarkFixtures(
   return fixtures
 }
 
-function buildBenchmarkAiClient(
-  fixture: ResumeQualityBenchmarkFixture,
-): JobFinderAiClient {
-  const baseClient = createDeterministicJobFinderAiClient(
-    `Resume quality benchmark deterministic runtime for ${fixture.definition.label}.`,
-  )
+function buildGenerationDiagnostics(
+  quality: TailoredResumeDraft['generationQuality'],
+): ResumeQualityGenerationDiagnostics | null {
+  if (!quality) {
+    return null
+  }
 
-  if (!fixture.overrideDraft) {
-    return baseClient
+  const proposed = quality.proposedRewriteCount
+  return {
+    ...quality,
+    acceptedRewriteRate: proposed > 0 ? quality.acceptedRewriteCount / proposed : 0,
+    fallbackRate: proposed > 0 ? quality.rejectedRewriteCount / proposed : 0,
+  }
+}
+
+/**
+ * Applies a fixture's controlled post-generation draft override in every provider lane,
+ * so sanitizer gates are exercised against the same synthetic content whether the draft
+ * came from the deterministic client or the configured environment model.
+ */
+export function applyFixtureDraftOverride<J>(input: {
+  overrideDraft?: ((args: { baseDraft: TailoredResumeDraft; job: J }) => TailoredResumeDraft) | undefined
+  baseDraft: TailoredResumeDraft
+  job: J
+}): TailoredResumeDraft {
+  return input.overrideDraft ? input.overrideDraft({ baseDraft: input.baseDraft, job: input.job }) : input.baseDraft
+}
+
+function buildBenchmarkAiClient(input: {
+  fixture: ResumeQualityBenchmarkFixture
+  useConfiguredAi: boolean
+  onDraft: (draft: TailoredResumeDraft) => void
+}): JobFinderAiClient {
+  const baseClient = input.useConfiguredAi
+    ? createJobFinderAiClientFromEnvironment(process.env)
+    : createDeterministicJobFinderAiClient(
+        `Resume quality benchmark deterministic runtime for ${input.fixture.definition.label}.`,
+      )
+
+  const createDraft = async (
+    createInput: Parameters<JobFinderAiClient['createResumeDraft']>[0],
+  ) => {
+    const baseDraft = await baseClient.createResumeDraft(createInput)
+    const validatedJob = JobPostingSchema.parse(createInput.job)
+    const result = applyFixtureDraftOverride({
+      overrideDraft: input.fixture.overrideDraft,
+      baseDraft,
+      job: validatedJob,
+    })
+    input.onDraft(result)
+    return result
   }
 
   return {
     ...baseClient,
-    async createResumeDraft(input) {
-      const baseDraft = await baseClient.createResumeDraft(input)
-      const validatedJob = JobPostingSchema.parse(input.job)
-
-      return fixture.overrideDraft!({
-        baseDraft,
-        job: validatedJob,
-      })
-    },
+    createResumeDraft: createDraft,
   }
 }
 
@@ -1404,20 +1712,62 @@ async function resolveFixtureState(
   return fixture.buildState(templateId)
 }
 
-function includesKeywordCoverage(content: string, job: SavedJob): boolean {
+/**
+ * Real coverage ratio: share of the job's distinct target keywords present in visible text.
+ * A job with no declared targets cannot demonstrate coverage, so the rate is 0.
+ */
+export function calculateKeywordCoverageRate(
+  content: string,
+  job: Pick<SavedJob, 'keySkills' | 'keywordSignals'>,
+): number {
   const normalizedContent = normalizeText(content)
   const normalizedTargets = [
-    ...job.keySkills,
-    ...job.keywordSignals.map((signal) => signal.label),
+    ...new Set(
+      [...job.keySkills, ...job.keywordSignals.map((signal) => signal.label)]
+        .map((entry) => normalizeText(entry))
+        .filter(Boolean),
+    ),
   ]
-    .map((entry) => normalizeText(entry))
-    .filter(Boolean)
 
   if (normalizedTargets.length === 0) {
-    return true
+    return 0
   }
 
-  return normalizedTargets.some((target) => matchesWholePhrase(normalizedContent, target))
+  const supportedCount = normalizedTargets.filter((target) => matchesWholePhrase(normalizedContent, target)).length
+
+  return supportedCount / normalizedTargets.length
+}
+
+/**
+ * Page-target gate requires measured page evidence; absence of a measurement fails
+ * instead of passing vacuously.
+ */
+export function calculatePageTargetPassRate(input: {
+  measuredPageCount: number | null | undefined
+  hasPageOverflowIssue: boolean
+}): number {
+  if (
+    typeof input.measuredPageCount !== 'number' ||
+    !Number.isFinite(input.measuredPageCount) ||
+    input.measuredPageCount < 1
+  ) {
+    return 0
+  }
+
+  return input.hasPageOverflowIssue ? 0 : 1
+}
+
+/**
+ * Structural ATS criteria only. A self-declared marker such as data-ats-safe never
+ * satisfies this gate on its own.
+ */
+export function looksAtsSafeFromStructure(html: string): boolean {
+  return (
+    html.includes('grid-template-columns: 1fr;') &&
+    html.includes('@page') &&
+    !html.includes('Targeted Keywords') &&
+    !html.includes('<table')
+  )
 }
 
 function scoreCaseMetrics(input: {
@@ -1430,12 +1780,22 @@ function scoreCaseMetrics(input: {
     tailoredAsset: JobFinderRepositoryState['tailoredAssets'][number] | null
   }
   profile: JobFinderRepositoryState['profile']
+  tailoringMode: JobFinderRepositoryState['searchPreferences']['tailoringMode']
 }): ResumeQualityBenchmarkMetrics {
   const issues = input.workspace.validation?.issues ?? []
-  const visibleText = input.workspace.tailoredAsset?.previewSections
-    .flatMap((section) => section.lines)
-    .join(' ') ?? ''
+  const visibleText = input.workspace.tailoredAsset?.previewSections.flatMap((section) => section.lines).join(' ') ?? ''
   const visibleSkills = collectVisibleSkills(input.workspace.draft)
+  const experienceSections = input.workspace.draft.sections.filter((section) => section.kind === 'experience')
+  const allExperienceEntries = collectAllExperienceEntries(input.workspace.draft)
+  const experienceEntries = collectExperienceEntries(input.workspace.draft)
+  const includedExperienceBullets = experienceSections
+    .filter((section) => section.included)
+    .flatMap((section) => [
+      ...section.bullets.filter((bullet) => bullet.included).map((bullet) => bullet.text),
+      ...section.entries
+        .filter((entry) => entry.entryType === 'experience' && entry.included)
+        .flatMap((entry) => entry.bullets.filter((bullet) => bullet.included).map((bullet) => bullet.text)),
+    ])
   const bleedCategories = new Set([
     'job_description_bleed',
     'keyword_stuffing',
@@ -1449,34 +1809,49 @@ function scoreCaseMetrics(input: {
   const hasDuplicateIssue = issues.some((issue) => duplicateCategories.has(issue.category))
   const hasThinOutputIssue = issues.some((issue) => issue.category === 'thin_output')
   const hasPageOverflowIssue = issues.some((issue) => issue.category === 'page_overflow')
-  const htmlLooksAtsSafe = input.html.includes('data-ats-safe="true"') || (
-    input.html.includes('grid-template-columns: 1fr;') &&
-    input.html.includes('@page') &&
-    !input.html.includes('Targeted Keywords') &&
-    !input.html.includes('<table')
-  )
+  const htmlLooksAtsSafe = looksAtsSafeFromStructure(input.html)
 
   return {
-    groundedVisibleSkillRate: hasGroundedVisibleSkills({
+    groundedVisibleSkillRate: calculateGroundedVisibleSkillRate({
       visibleSkills,
       job: input.job,
       profile: input.profile,
-    }) ? 1 : 0,
+    }),
+    workHistoryRepresentationRate: calculateWorkHistoryRepresentationRate({
+      profileExperienceIds: input.profile.experiences.map((experience) => experience.id),
+      draftExperienceEntries: allExperienceEntries,
+      tailoringMode: input.tailoringMode,
+    }),
+    visibleWorkHistoryCoverageRate: calculateVisibleWorkHistoryCoverageRate({
+      profileExperienceIds: input.profile.experiences.map((experience) => experience.id),
+      draftExperienceEntries: allExperienceEntries,
+    }),
+    fragmentFreeExperienceBulletRate: calculateFragmentFreeExperienceBulletRate(includedExperienceBullets),
+    professionalExperienceSummaryRate: calculateProfessionalExperienceSummaryRate(experienceEntries),
     bleedFreeCaseRate: hasBleedIssue ? 0 : 1,
-    keywordCoverageRate: includesKeywordCoverage(visibleText, input.job) ? 1 : 0,
+    keywordCoverageRate: calculateKeywordCoverageRate(visibleText, input.job),
     duplicateIssueFreeRate: hasDuplicateIssue ? 0 : 1,
     thinOutputFreeRate: hasThinOutputIssue ? 0 : 1,
-    pageTargetPassRate: hasPageOverflowIssue ? 0 : 1,
+    pageTargetPassRate: calculatePageTargetPassRate({
+      measuredPageCount: input.workspace.validation?.pageCount ?? null,
+      hasPageOverflowIssue,
+    }),
     atsRenderPassRate: htmlLooksAtsSafe ? 1 : 0,
     issueFreeCaseRate: issues.length === 0 ? 1 : 0,
   }
 }
 
-function aggregateMetrics(
-  results: readonly ResumeQualityBenchmarkCaseResult[],
-): ResumeQualityBenchmarkMetrics {
+function aggregateMetrics(results: readonly ResumeQualityBenchmarkCaseResult[]): ResumeQualityBenchmarkMetrics {
   return {
     groundedVisibleSkillRate: average(results.map((result) => result.metrics.groundedVisibleSkillRate)),
+    workHistoryRepresentationRate: average(results.map((result) => result.metrics.workHistoryRepresentationRate)),
+    visibleWorkHistoryCoverageRate: average(
+      results.map((result) => result.metrics.visibleWorkHistoryCoverageRate),
+    ),
+    fragmentFreeExperienceBulletRate: average(results.map((result) => result.metrics.fragmentFreeExperienceBulletRate)),
+    professionalExperienceSummaryRate: average(
+      results.map((result) => result.metrics.professionalExperienceSummaryRate),
+    ),
     bleedFreeCaseRate: average(results.map((result) => result.metrics.bleedFreeCaseRate)),
     keywordCoverageRate: average(results.map((result) => result.metrics.keywordCoverageRate)),
     duplicateIssueFreeRate: average(results.map((result) => result.metrics.duplicateIssueFreeRate)),
@@ -1514,9 +1889,10 @@ export async function runDesktopResumeQualityBenchmark(
   const fixtures = resolveBenchmarkFixtures(request)
   const availableTemplates = listLocalResumeTemplates()
   const benchmarkTemplateIds = selectBenchmarkTemplateIds(availableTemplates)
-  const requestedTemplateIds = request.templateIds.length > 0
-    ? request.templateIds.filter((templateId) => benchmarkTemplateIds.includes(templateId))
-    : benchmarkTemplateIds
+  const requestedTemplateIds =
+    request.templateIds.length > 0
+      ? request.templateIds.filter((templateId) => benchmarkTemplateIds.includes(templateId))
+      : benchmarkTemplateIds
   const templates = [...new Set(requestedTemplateIds)]
   const results: ResumeQualityBenchmarkCaseResult[] = []
 
@@ -1549,7 +1925,16 @@ export async function runDesktopResumeQualityBenchmark(
           let workspaceService: ReturnType<typeof createJobFinderWorkspaceService> | null = null
           const state = await resolveFixtureState(fixture, templateId)
           await repository.reset(state)
-          const aiClient = buildBenchmarkAiClient(fixture)
+          const generationCapture: { draft: TailoredResumeDraft | null } = {
+            draft: null,
+          }
+          const aiClient = buildBenchmarkAiClient({
+            fixture,
+            useConfiguredAi: request.useConfiguredAi,
+            onDraft: (value) => {
+              generationCapture.draft = value
+            },
+          })
           const documentManager = createLocalJobFinderDocumentManager({
             outputDirectory: path.join(tempRoot, fixture.definition.id, templateId),
           })
@@ -1567,17 +1952,19 @@ export async function runDesktopResumeQualityBenchmark(
               throw new Error(`Resume quality benchmark case '${fixture.definition.id}' is missing a saved job.`)
             }
 
+            const generationStartedAt = performance.now()
             await workspaceService.generateResume(jobId)
+            const generationDurationMs = performance.now() - generationStartedAt
             const workspace = await workspaceService.getResumeWorkspace(jobId)
             const asset = workspace.tailoredAsset
 
             if (!asset?.storagePath) {
-              throw new Error(`Resume quality benchmark case '${fixture.definition.id}' did not produce a rendered artifact.`)
+              throw new Error(
+                `Resume quality benchmark case '${fixture.definition.id}' did not produce a rendered artifact.`,
+              )
             }
 
-            const html = asset.storagePath.endsWith('.html')
-              ? await readFile(asset.storagePath, 'utf8')
-              : ''
+            const html = asset.storagePath.endsWith('.html') ? await readFile(asset.storagePath, 'utf8') : ''
             const htmlArtifactRelativePath = await persistHtmlArtifact({
               sourcePath: asset.storagePath,
               persistArtifactsDirectory: request.persistArtifactsDirectory,
@@ -1589,23 +1976,24 @@ export async function runDesktopResumeQualityBenchmark(
               html,
               workspace,
               profile: state.profile,
+              tailoringMode: state.searchPreferences.tailoringMode,
             })
             const issueCategories = Array.from(
               new Set((workspace.validation?.issues ?? []).map((issue) => issue.category)),
             )
-            const passed =
-              metrics.groundedVisibleSkillRate === 1 &&
-              metrics.bleedFreeCaseRate === 1 &&
-              metrics.keywordCoverageRate === 1 &&
-              metrics.duplicateIssueFreeRate === 1 &&
-              metrics.thinOutputFreeRate === 1 &&
-              metrics.pageTargetPassRate === 1 &&
-              metrics.atsRenderPassRate === 1
+
+            const passed = passesResumeQualityAcceptance(metrics)
 
             const templateName = asset.templateName?.trim() ?? ''
+            const pageCountMeasured = (workspace.validation?.pageCount ?? null) !== null
             const notes = [
               ...(templateName ? [`Template: ${templateName}.`] : []),
               ...(asset.notes ?? []).map((note) => note.trim()).filter(Boolean),
+              ...(pageCountMeasured
+                ? []
+                : [
+                    'Page target unevaluated: no measured page count for the rendered artifact, so the page-target gate cannot pass.',
+                  ]),
             ]
 
             results.push({
@@ -1616,6 +2004,10 @@ export async function runDesktopResumeQualityBenchmark(
               visibleSkills: collectVisibleSkills(workspace.draft),
               issueCategories,
               issueCount: workspace.validation?.issues.length ?? 0,
+              generationDurationMs,
+              generationDiagnostics: buildGenerationDiagnostics(
+                generationCapture.draft?.generationQuality,
+              ),
               metrics,
               htmlArtifactRelativePath,
               notes,
@@ -1625,10 +2017,7 @@ export async function runDesktopResumeQualityBenchmark(
           }
         }
       } finally {
-        await Promise.allSettled([
-          browserRuntime.closeSession('target_site'),
-          repository.close(),
-        ])
+        await Promise.allSettled([browserRuntime.closeSession('target_site'), repository.close()])
       }
     }
   } finally {
@@ -1638,16 +2027,21 @@ export async function runDesktopResumeQualityBenchmark(
   return ResumeQualityBenchmarkReportSchema.parse({
     benchmarkVersion: request.benchmarkVersion,
     generatedAt: new Date().toISOString(),
+    providerMode: request.useConfiguredAi ? 'configured' : 'deterministic',
     templates,
     persistedArtifactsDirectory: request.persistArtifactsDirectory,
     cases: results,
     aggregate: aggregateMetrics(results),
-    notes: availableTemplates
-      .filter((template) => !isResumeTemplateBenchmarkEligible(template))
-      .map(
-        (template) =>
-          `Skipped non-benchmark-eligible template: ${template.label} (${template.id}).`,
-      ),
+    notes: [
+      ...(request.useConfiguredAi
+        ? [
+            'Configured provider benchmark: the current environment model generated each draft; deterministic claim validation and rendering still enforced safety, and controlled fixture overrides (contamination guard, thin profile) were applied post-generation in this lane as well.',
+          ]
+        : []),
+      ...availableTemplates
+        .filter((template) => !isResumeTemplateBenchmarkEligible(template))
+        .map((template) => `Skipped non-benchmark-eligible template: ${template.label} (${template.id}).`),
+    ],
   })
 }
 

@@ -4,16 +4,23 @@ import {
   formatTimestamp,
   getEventTone,
 } from "@renderer/features/job-finder/lib/job-finder-utils";
+import { getCustomerFacingApplyText } from "./applications-detail-panel-helpers";
 
 export function ApplicationsDetailPanelTimelineSection(props: {
   events: ApplicationRecord["events"];
 }) {
   const { events } = props;
 
+  if (!events.length) {
+    return null;
+  }
+
   return (
-    <div className="grid gap-2">
-      <p className="label-mono-xs">Timeline</p>
-      <div className="grid gap-0">
+    <details className="group min-w-0">
+      <summary className="cursor-pointer list-none text-(length:--text-small) font-semibold text-primary outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-2 focus-visible:ring-ring">
+        Activity history ({events.length})
+      </summary>
+      <div className="mt-2 grid gap-0">
         {events.map((event) => {
           const tone = getEventTone(event);
 
@@ -48,16 +55,16 @@ export function ApplicationsDetailPanelTimelineSection(props: {
                           : "text-foreground",
                   )}
                 >
-                  {event.title}
+                  {getCustomerFacingApplyText(event.title)}
                 </strong>
                 <p className="mt-2 text-(length:--text-description) leading-relaxed text-foreground-soft">
-                  {event.detail}
+                  {getCustomerFacingApplyText(event.detail)}
                 </p>
               </div>
             </article>
           );
         })}
       </div>
-    </div>
+    </details>
   );
 }

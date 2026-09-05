@@ -1,22 +1,70 @@
-import { app } from 'electron'
-import path from 'node:path'
+import { app } from "electron";
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+import { resolveDesktopUserDataDirectory } from "../../setup/user-data-directory";
 
 function getUserDataDirectory() {
-  return process.env.UNEMPLOYED_USER_DATA_DIR ?? app.getPath('userData')
+  return resolveDesktopUserDataDirectory(app);
 }
 
 export function getJobFinderWorkspaceFilePath() {
-  return path.join(getUserDataDirectory(), 'job-finder-workspace.sqlite')
+  return path.join(getUserDataDirectory(), "job-finder-workspace.sqlite");
 }
 
 export function getJobFinderDocumentsDirectory() {
-  return path.join(getUserDataDirectory(), 'documents', 'resumes')
+  return path.join(getUserDataDirectory(), "documents", "resumes");
 }
 
 export function getGeneratedResumeDocumentsDirectory() {
-  return path.join(getJobFinderDocumentsDirectory(), 'generated')
+  return path.join(getJobFinderDocumentsDirectory(), "generated");
+}
+
+export function getCandidateAssetsDirectory() {
+  return path.join(getUserDataDirectory(), "documents", "candidate-assets");
+}
+
+export function getApplicationDocumentsDirectory() {
+  return path.join(
+    getUserDataDirectory(),
+    "documents",
+    "application-documents",
+  );
 }
 
 export function getBrowserAgentProfileDirectory() {
-  return path.join(getUserDataDirectory(), 'browser-agent', 'default')
+  return path.join(getUserDataDirectory(), "browser-agent", "default");
+}
+
+export function getJobFinderUserDataDirectory() {
+  return getUserDataDirectory();
+}
+
+export function getJobFinderResetIntentFilePath() {
+  return path.join(getUserDataDirectory(), "job-finder-reset-intent.json");
+}
+
+export function getJobFinderResetInvalidIntentMarkerFilePath(suffix: string) {
+  return path.join(
+    getUserDataDirectory(),
+    `job-finder-reset-intent.invalid-${suffix}.json`,
+  );
+}
+
+export function getJobFinderResetTrashRootDirectory() {
+  return path.join(getUserDataDirectory(), "trash");
+}
+
+export function getJobFinderResetTrashDirectory(resetToken: string) {
+  return path.join(
+    getJobFinderResetTrashRootDirectory(),
+    `job-finder-reset-${resetToken}`,
+  );
+}
+
+export function resolveJobFinderWorkspaceRelativePath(relativePath: string) {
+  return path.resolve(getUserDataDirectory(), relativePath);
+}
+
+export async function ensureJobFinderUserDataDirectory() {
+  await mkdir(getUserDataDirectory(), { recursive: true });
 }

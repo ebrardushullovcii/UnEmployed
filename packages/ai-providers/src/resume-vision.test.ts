@@ -1,11 +1,46 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { createResumeImportFixtureBundle } from "./resume-import-fixtures";
-import { createProfile, createPreferences, mockCapturingJsonFetch } from "./test-fixtures";
+import {
+  createProfile,
+  createPreferences,
+  mockCapturingJsonFetch,
+} from "./test-fixtures";
 import {
   createOpenAiCompatibleResumeVisionProvider,
   createResumeVisionProviderFromEnvironment,
 } from "./resume-vision";
+
+function createVisionArtifactFixture() {
+  return {
+    id: "vision_artifact_1",
+    runId: "run_1",
+    sourceResumeId: "resume_1",
+    sourceFileKind: "pdf" as const,
+    createdAt: "2026-04-10T10:00:00.000Z",
+    retained: "temporary" as const,
+    pages: [
+      {
+        id: "vision_page_1",
+        sourceResumeId: "resume_1",
+        sourceFileKind: "pdf" as const,
+        pageNumber: 1,
+        renderKind: "pdf_page_image" as const,
+        mimeType: "image/png",
+        width: 1200,
+        height: 1600,
+        byteLength: 4,
+        sha256: "abc123",
+        dataUrl: "data:image/png;base64,AAAA",
+        storagePath: null,
+        retained: "temporary" as const,
+        generatedAt: "2026-04-10T10:00:00.000Z",
+        warnings: [],
+      },
+    ],
+    warnings: [],
+  };
+}
 
 describe("resume vision provider", () => {
   afterEach(() => {
@@ -52,7 +87,7 @@ describe("resume vision provider", () => {
     const provider = createOpenAiCompatibleResumeVisionProvider({
       apiKey: "test-key",
       baseUrl: "https://example.com/v1",
-      model: "FelidaeAI-Omni-3.6",
+      model: "gpt-5.6-luna",
       maxPagesPerBatch: 1,
     });
     const bundle = createResumeImportFixtureBundle({
@@ -108,7 +143,9 @@ describe("resume vision provider", () => {
         },
       });
 
-      const headline = result.candidates.find((candidate) => candidate.target.key === "headline");
+      const headline = result.candidates.find(
+        (candidate) => candidate.target.key === "headline",
+      );
       expect(result.analysisProviderKind).toBe("openai_compatible_vision");
       expect(headline?.confidence).toBe(0.84);
       expect(headline?.notes).toEqual(["visible near the top of the resume"]);
@@ -120,10 +157,94 @@ describe("resume vision provider", () => {
         regionHint: "top headline",
         confidence: 0.86,
       });
-      expect(result.candidates.some((candidate) => candidate.target.key === "ignored")).toBe(false);
+      expect(
+        result.candidates.some(
+          (candidate) => candidate.target.key === "ignored",
+        ),
+      ).toBe(false);
       expect(fetchMock.getCapturedBody()).toContain("image_url");
     } finally {
       fetchMock.restore();
+    }
+  });
+
+  test("reports the deterministic source and a structured fallback when the vision model call fails", async () => {
+    const cases = [
+      {
+        name: "timeout",
+        rejection: (() => {
+          const abortError = new Error("This operation was aborted");
+          abortError.name = "AbortError";
+          return abortError;
+        })(),
+        expectedKind: "timeout" as const,
+        expectedReason: /timed out after \d+s/i,
+      },
+      {
+        name: "provider error",
+        rejection: new Error("Vision endpoint returned 500"),
+        expectedKind: "provider_error" as const,
+        expectedReason: /returned 500/i,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn(() =>
+        Promise.reject(testCase.rejection),
+      ) as unknown as typeof globalThis.fetch;
+
+      try {
+        const provider = createOpenAiCompatibleResumeVisionProvider({
+          apiKey: "test-key",
+          baseUrl: "https://example.com/v1",
+          model: "gpt-5.6-luna",
+          maxPagesPerBatch: 1,
+        });
+        const result = await provider.extractResumeVision({
+          existingProfile: createProfile(),
+          existingSearchPreferences: createPreferences(),
+          documentBundle: createResumeImportFixtureBundle({
+            id: "vision_fallback_bundle",
+            pageTexts: ["Alex Vanguard\nSenior Software Engineer"],
+            blocks: [
+              {
+                id: "block_1",
+                pageNumber: 1,
+                readingOrder: 0,
+                text: "Alex Vanguard",
+                kind: "heading",
+                sectionHint: "identity",
+                bbox: null,
+                sourceParserKinds: ["local_pdf_layout"],
+                sourceConfidence: 0.9,
+              },
+            ],
+          }),
+          visionArtifact: createVisionArtifactFixture(),
+        });
+
+        // Every candidate here comes from the deterministic reader, so the
+        // run must not record the configured vision model as the source.
+        expect(result.analysisProviderKind, testCase.name).toBe(
+          "deterministic",
+        );
+        expect(result.analysisProviderLabel, testCase.name).toBe(
+          "Deterministic resume vision fallback",
+        );
+        expect(result.fallbackUsed, testCase.name).toBe(true);
+        expect(result.fallback?.kind, testCase.name).toBe(
+          testCase.expectedKind,
+        );
+        expect(result.fallback?.reason ?? "", testCase.name).toMatch(
+          testCase.expectedReason,
+        );
+        expect(result.primaryErrorMessage ?? "", testCase.name).toMatch(
+          testCase.expectedReason,
+        );
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     }
   });
 
@@ -138,7 +259,7 @@ describe("resume vision provider", () => {
       role: "vision",
       ready: true,
       label: "Resume visual scan",
-      model: "FelidaeAI-Omni-3.6",
+      model: "gpt-5.6-luna",
       baseUrl: "https://shared.example.com/v1",
       modelContextWindowTokens: 139_000,
       reservedHeadroomTokens: 30_000,
@@ -146,26 +267,33 @@ describe("resume vision provider", () => {
     });
   });
 
-  test("sends shared AI credentials and default omni model to the vision endpoint", async () => {
+  test("sends shared AI credentials and Luna high to the Responses vision endpoint", async () => {
     const originalFetch = globalThis.fetch;
     let capturedUrl = "";
     let capturedAuthorization = "";
     let capturedBody: unknown = null;
 
     globalThis.fetch = ((url, init) => {
-      capturedUrl = typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
+      capturedUrl =
+        typeof url === "string" ? url : url instanceof URL ? url.href : url.url;
       const headers = new Headers(init?.headers);
       capturedAuthorization = headers.get("Authorization") ?? "";
-      capturedBody = JSON.parse(typeof init?.body === "string" ? init.body : "{}");
+      capturedBody = JSON.parse(
+        typeof init?.body === "string" ? init.body : "{}",
+      );
 
       return Promise.resolve(
         new Response(
           JSON.stringify({
-            choices: [
+            output: [
               {
-                message: {
-                  content: JSON.stringify({ candidates: [], notes: [] }),
-                },
+                type: "message",
+                content: [
+                  {
+                    type: "output_text",
+                    text: JSON.stringify({ candidates: [], notes: [] }),
+                  },
+                ],
               },
             ],
           }),
@@ -236,9 +364,14 @@ describe("resume vision provider", () => {
         },
       });
 
-      expect(capturedUrl).toBe("https://shared.example.com/v1/chat/completions");
+      expect(capturedUrl).toBe("https://shared.example.com/v1/responses");
       expect(capturedAuthorization).toBe("Bearer shared-test-key");
-      expect(capturedBody).toMatchObject({ model: "FelidaeAI-Omni-3.6" });
+      expect(capturedBody).toMatchObject({
+        model: "gpt-5.6-luna",
+        store: false,
+        reasoning: { effort: "high" },
+        text: { format: { type: "json_object" } },
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -248,7 +381,9 @@ describe("resume vision provider", () => {
     const provider = createResumeVisionProviderFromEnvironment({});
     const bundle = createResumeImportFixtureBundle({
       id: "role_headline_vision_fallback_bundle",
-      pageTexts: ["Senior Software Engineer\nTampa, FL\nmurphyaron12@gmail.com"],
+      pageTexts: [
+        "Senior Software Engineer\nTampa, FL\nmurphyaron12@gmail.com",
+      ],
       blocks: [
         {
           id: "block_1",
@@ -359,6 +494,26 @@ describe("resume vision provider", () => {
       ready: true,
       model: "shared-vision-model",
       baseUrl: "https://shared.example.com/v1",
+    });
+  });
+
+  test("keeps shared vision routing separate from a Chat Completions text provider", () => {
+    const provider = createResumeVisionProviderFromEnvironment({
+      UNEMPLOYED_AI_API_KEY: "go-test-key",
+      UNEMPLOYED_AI_BASE_URL: "https://text.example.com/v1",
+      UNEMPLOYED_AI_API_MODE: "chat_completions",
+      UNEMPLOYED_AI_REASONING_EFFORT: "max",
+      UNEMPLOYED_AI_VISION_BASE_URL: "https://vision.example.com/v1",
+      UNEMPLOYED_AI_VISION_MODEL: "gpt-5.6-luna",
+      UNEMPLOYED_AI_VISION_API_MODE: "responses",
+      UNEMPLOYED_AI_VISION_REASONING_EFFORT: "high",
+    });
+
+    expect(provider.getStatus()).toMatchObject({
+      kind: "openai_compatible_vision",
+      ready: true,
+      model: "gpt-5.6-luna",
+      baseUrl: "https://vision.example.com/v1",
     });
   });
 

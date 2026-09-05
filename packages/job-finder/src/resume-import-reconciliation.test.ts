@@ -56,21 +56,17 @@ describe("resume import reconciliation", () => {
       ],
     });
 
-    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [
-      textCandidate,
-      visionCandidate,
-    ]);
+    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [textCandidate, visionCandidate]);
     const winner = reconciled.find(
       (candidate) => candidate.resolutionReason === "text_vs_visual_conflict_requires_review",
     );
 
     expect(winner?.resolution).toBe("needs_review");
-    expect(winner?.conflictChoices?.map((choice) => choice.sourceLabel)).toEqual([
-      "Document text",
-      "Visual scan",
-    ]);
+    expect(winner?.conflictChoices?.map((choice) => choice.sourceLabel)).toEqual(["Document text", "Visual scan"]);
     expect(winner?.conflictChoices?.find((choice) => choice.sourceLabel === "Document text")?.recommended).toBe(true);
-    expect(winner?.conflictChoices?.find((choice) => choice.sourceLabel === "Visual scan")?.visualEvidence[0]).toMatchObject({
+    expect(
+      winner?.conflictChoices?.find((choice) => choice.sourceLabel === "Visual scan")?.visualEvidence[0],
+    ).toMatchObject({
       branch: "vision",
       pageNumber: 1,
       regionHint: "top headline",
@@ -129,10 +125,7 @@ describe("resume import reconciliation", () => {
       ],
     });
 
-    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [
-      visionCandidate,
-      textCandidate,
-    ]);
+    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [visionCandidate, textCandidate]);
     const reviewCandidate = reconciled.find(
       (candidate) => candidate.resolutionReason === "text_vs_visual_conflict_requires_review",
     );
@@ -150,8 +143,16 @@ describe("resume import reconciliation", () => {
         recommended: choice.recommended,
       })),
     ).toEqual([
-      { sourceLabel: "Document text", value: "Aaron Murphy", recommended: true },
-      { sourceLabel: "Visual scan", value: "Senior Software Engineer", recommended: false },
+      {
+        sourceLabel: "Document text",
+        value: "Aaron Murphy",
+        recommended: true,
+      },
+      {
+        sourceLabel: "Visual scan",
+        value: "Senior Software Engineer",
+        recommended: false,
+      },
     ]);
     expect(reconciled.find((candidate) => candidate.id === "candidate_vision_full_name")?.resolution).toBe("rejected");
   });
@@ -206,13 +207,45 @@ describe("resume import reconciliation", () => {
       ],
     });
 
-    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [
-      textCandidate,
-      visionCandidate,
-    ]);
+    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [textCandidate, visionCandidate]);
 
     expect(reconciled.filter((candidate) => candidate.resolution === "auto_applied")).toHaveLength(2);
-    expect(reconciled.some((candidate) => candidate.resolutionReason === "text_vs_visual_conflict_requires_review")).toBe(false);
+    expect(
+      reconciled.some((candidate) => candidate.resolutionReason === "text_vs_visual_conflict_requires_review"),
+    ).toBe(false);
+  });
+
+  test("keeps resume-inferred search preferences behind explicit review", () => {
+    const seed = createSeed();
+    const targetRolesCandidate = ResumeImportFieldCandidateSchema.parse({
+      runId: "resume_import_run_target_roles",
+      ...createStageCandidate({
+        target: {
+          section: "search_preferences",
+          key: "targetRoles",
+          recordId: null,
+        },
+        label: "Target roles",
+        value: ["Project Lead (React, Next.js) – QA Management System"],
+        sourceBlockIds: ["block_project_heading"],
+        confidence: 0.82,
+        overall: 0.8,
+        recommendation: "auto_apply",
+      }),
+      id: "candidate_target_roles",
+      sourceKind: "model_identity_summary",
+      resolution: "needs_review",
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+    });
+
+    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [targetRolesCandidate]);
+
+    expect(reconciled[0]).toMatchObject({
+      id: "candidate_target_roles",
+      resolution: "needs_review",
+      resolutionReason: "list_candidates_require_review",
+    });
   });
 
   test("does not merge skill record candidates through the generic list path", () => {
@@ -254,8 +287,7 @@ describe("resume import reconciliation", () => {
         lastName: "Candidate",
         fullName: "New Candidate",
         headline: "Import your resume to begin",
-        summary:
-          "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+        summary: "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
         currentLocation: "Set your preferred location",
         education: [],
       },
@@ -263,7 +295,11 @@ describe("resume import reconciliation", () => {
     const educationCandidate = ResumeImportFieldCandidateSchema.parse({
       runId: "resume_import_run_education",
       ...createStageCandidate({
-        target: { section: "education", key: "record", recordId: "education_1" },
+        target: {
+          section: "education",
+          key: "record",
+          recordId: "education_1",
+        },
         label: "Florida State University",
         value: {
           schoolName: "Florida State University",
@@ -291,6 +327,270 @@ describe("resume import reconciliation", () => {
     expect(reconciled[0]).toMatchObject({
       id: "candidate_education_record",
       resolution: "auto_applied",
+    });
+  });
+
+  test("normalizes JSON-encoded education records and removes redundant inferred fields", () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: {
+        ...baseSeed.profile,
+        id: "candidate_fresh_start",
+        firstName: "New",
+        lastName: "Candidate",
+        fullName: "New Candidate",
+        headline: "Import your resume to begin",
+        summary: "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+        currentLocation: "Set your preferred location",
+        education: [],
+      },
+    };
+    const evidenceText = "Bachelor of Science in Computer Science — Oregon State University, 2018";
+    const educationCandidate = ResumeImportFieldCandidateSchema.parse({
+      runId: "resume_import_run_json_education",
+      ...createStageCandidate({
+        target: {
+          section: "education",
+          key: "record",
+          recordId: "education_1",
+        },
+        label: "Education",
+        value: JSON.stringify({
+          schoolName: "Oregon State University",
+          degree: "Bachelor of Science",
+          fieldOfStudy: "Computer Science",
+          location: "Oregon State University",
+          startDate: null,
+          endDate: "2018",
+          summary: evidenceText,
+        }),
+        sourceBlockIds: ["block_education"],
+        confidence: 0.98,
+        overall: 0.86,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_json_education_record",
+      sourceKind: "model_background",
+      evidenceText,
+      resolution: "needs_review",
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+    });
+
+    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [educationCandidate]);
+
+    expect(reconciled[0]).toMatchObject({
+      id: "candidate_json_education_record",
+      resolution: "auto_applied",
+      value: {
+        schoolName: "Oregon State University",
+        degree: "Bachelor of Science",
+        fieldOfStudy: "Computer Science",
+        location: null,
+        startDate: null,
+        endDate: "2018",
+        summary: null,
+      },
+    });
+  });
+
+  test("rejects a raw education line already represented by a grounded structured record", () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: {
+        ...baseSeed.profile,
+        id: "candidate_fresh_start",
+        firstName: "New",
+        lastName: "Candidate",
+        fullName: "New Candidate",
+        headline: "Import your resume to begin",
+        summary: "Import a resume or paste resume text to build your profile, targeting, and tailored documents.",
+        currentLocation: "Set your preferred location",
+        education: [],
+      },
+    };
+    const evidenceText = "Bachelor of Science in Computer Science — Oregon State University, 2018";
+    const target = {
+      section: "education" as const,
+      key: "record",
+      recordId: "education_1",
+    };
+    const rawCandidate = ResumeImportFieldCandidateSchema.parse({
+      runId: "resume_import_run_duplicate_education",
+      ...createStageCandidate({
+        target,
+        label: "Education",
+        value: evidenceText,
+        sourceBlockIds: ["block_education"],
+        confidence: 0.98,
+        overall: 0.86,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_raw_education_record",
+      sourceKind: "model_background",
+      evidenceText,
+      resolution: "needs_review",
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+    });
+    const structuredCandidate = ResumeImportFieldCandidateSchema.parse({
+      runId: "resume_import_run_duplicate_education",
+      ...createStageCandidate({
+        target,
+        label: "Oregon State University",
+        value: {
+          schoolName: "Oregon State University",
+          degree: "Bachelor of Science in Computer Science",
+          fieldOfStudy: null,
+          location: null,
+          startDate: null,
+          endDate: "2018",
+          summary: null,
+        },
+        sourceBlockIds: ["block_education"],
+        confidence: 0.8,
+        overall: 0.75,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_structured_education_record",
+      sourceKind: "model_background",
+      evidenceText,
+      resolution: "needs_review",
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+      notes: ["deterministic_stage_fallback"],
+    });
+
+    const reconciled = reconcileCandidates(
+      seed.profile,
+      seed.searchPreferences,
+      [rawCandidate, structuredCandidate],
+    );
+
+    expect(reconciled.find((candidate) => candidate.id === rawCandidate.id)?.resolution).toBe("rejected");
+    expect(reconciled.find((candidate) => candidate.id === structuredCandidate.id)?.resolution).toBe("auto_applied");
+    expect(reconciled.some((candidate) => candidate.resolution === "needs_review")).toBe(false);
+  });
+
+  test("rejects scalar, list, and education suggestions that already match the workspace", () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: { ...baseSeed.profile, targetRoles: ["Principal Designer"] },
+      searchPreferences: { ...baseSeed.searchPreferences, targetRoles: ["Principal Designer"] },
+    };
+    const common = {
+      runId: "resume_import_run_saved_values",
+      sourceKind: "model_background" as const,
+      resolution: "needs_review" as const,
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+    };
+    const locationCandidate = ResumeImportFieldCandidateSchema.parse({
+      ...common,
+      ...createStageCandidate({
+        target: { section: "location", key: "currentLocation", recordId: null },
+        label: "Location",
+        value: "London, UK",
+        sourceBlockIds: ["block_location"],
+        confidence: 0.9,
+        overall: 0.9,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_saved_location",
+    });
+    const rolesCandidate = ResumeImportFieldCandidateSchema.parse({
+      ...common,
+      ...createStageCandidate({
+        target: { section: "search_preferences", key: "targetRoles", recordId: null },
+        label: "Target roles",
+        value: ["Principal Designer"],
+        sourceBlockIds: ["block_roles"],
+        confidence: 0.9,
+        overall: 0.9,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_saved_roles",
+    });
+    const educationCandidate = ResumeImportFieldCandidateSchema.parse({
+      ...common,
+      ...createStageCandidate({
+        target: { section: "education", key: "record", recordId: "education_1" },
+        label: "Royal College of Art",
+        value: {
+          schoolName: "Royal College of Art",
+          degree: "MA",
+          fieldOfStudy: "Design Products",
+          location: "London, UK",
+          startDate: "2012-09",
+          endDate: "2014-06",
+          summary: null,
+        },
+        sourceBlockIds: ["block_education"],
+        confidence: 0.9,
+        overall: 0.9,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_saved_education",
+      evidenceText: "Royal College of Art MA Design Products London UK 2012 2014",
+    });
+
+    const reconciled = reconcileCandidates(seed.profile, seed.searchPreferences, [
+      locationCandidate,
+      rolesCandidate,
+      educationCandidate,
+    ]);
+
+    expect(reconciled).toHaveLength(3);
+    expect(reconciled.every((candidate) => candidate.resolution === "rejected")).toBe(true);
+    expect(reconciled.every((candidate) => candidate.resolutionReason === "already_matches_workspace_value")).toBe(true);
+  });
+
+  test("removes unsupported degree, field, and location values from education records", () => {
+    const baseSeed = createSeed();
+    const seed = {
+      ...baseSeed,
+      profile: { ...baseSeed.profile, education: [] },
+    };
+    const evidenceText = "Bachelor of Science in Computer Science — Oregon State University, 2018";
+    const educationCandidate = ResumeImportFieldCandidateSchema.parse({
+      runId: "resume_import_run_unsupported_education",
+      ...createStageCandidate({
+        target: { section: "education", key: "record", recordId: "education_1" },
+        label: "Oregon State University",
+        value: {
+          schoolName: "Oregon State University",
+          degree: "MBA",
+          fieldOfStudy: "Artificial Intelligence",
+          location: "Boston, MA",
+          startDate: null,
+          endDate: "2018",
+          summary: null,
+        },
+        sourceBlockIds: ["block_education"],
+        confidence: 0.9,
+        overall: 0.8,
+        recommendation: "needs_review",
+      }),
+      id: "candidate_unsupported_education",
+      sourceKind: "model_background",
+      evidenceText,
+      resolution: "needs_review",
+      createdAt: "2026-04-10T10:00:00.000Z",
+      resolvedAt: null,
+    });
+
+    expect(reconcileCandidates(seed.profile, seed.searchPreferences, [educationCandidate])[0]).toMatchObject({
+      resolution: "needs_review",
+      value: {
+        schoolName: "Oregon State University",
+        degree: null,
+        fieldOfStudy: null,
+        location: null,
+        endDate: "2018",
+      },
     });
   });
 });

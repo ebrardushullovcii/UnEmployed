@@ -1,0 +1,28 @@
+DEVON PARK
+Junior Software Developer
+devon.park@example.test | Raleigh, North Carolina
+
+SUMMARY
+Entry-level developer with bootcamp, project, and internship experience in TypeScript, React, Node.js, SQL, and automated testing. Seeking a junior web development role with structured mentorship.
+
+INTERNSHIP
+Software Development Intern - Pine Workshop Software
+May 2026-August 2026
+- Fixed small interface defects with guidance from a senior developer.
+- Added tests and updated setup notes for an internal scheduling tool.
+
+PROJECTS
+Neighborhood Tool Share
+- Built a responsive React and TypeScript catalog for lending household tools.
+- Added Node.js API validation and PostgreSQL queries for inventory availability.
+- Wrote Vitest tests for account-free browsing and reservation rules.
+
+Study Planner
+- Created an accessible keyboard-friendly planner using semantic HTML and CSS.
+- Documented setup and testing steps for other student contributors.
+
+EDUCATION
+Full-stack Web Development Bootcamp - Triangle Code School, 2026
+
+SKILLS
+TypeScript, JavaScript, React, Node.js, PostgreSQL, Git, Vitest, HTML, CSS

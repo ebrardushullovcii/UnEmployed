@@ -92,6 +92,25 @@ describe("plan 019 deterministic resume parser regressions", () => {
     expect(extraction.currentLocation).toBe("Philadelphia, PA");
   });
 
+  test("extracts a location from a pipe-delimited contact line", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Casey Rowan",
+          "casey.rowan@example.test | +1 555 010 8420 | Portland, Oregon",
+          "Senior Frontend Engineer",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.currentLocation).toBe("Portland, Oregon");
+  });
+
   test("parses company-first experience headers with separate date lines", () => {
     const extraction = buildDeterministicResumeProfileExtraction(
       {

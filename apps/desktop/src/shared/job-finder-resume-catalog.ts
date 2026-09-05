@@ -16,16 +16,16 @@ const resumeTemplates = [
     familyId: 'chronology_classic',
     familyLabel: 'Chronology Classic',
     familyDescription:
-      'Conservative chronology-first layouts that mirror recruiter expectations while staying sharply typeset and parseable.',
-    variantLabel: 'Recruiter Standard',
+      'Traditional chronology-first typesetting with serif identity, disciplined rules, and the section order recruiters expect.',
+    variantLabel: 'Traditional Standard',
     description:
-      'A restrained chronology-first resume with an editorial header, compact skill strip, and familiar section order for broad ATS-safe use.',
+      'A formal serif-led resume with crisp dividers, compact contact details, and familiar reverse chronology for broad ATS-safe use.',
     fitSummary:
       'Strong default when the safest move is a familiar recruiter read: identity, summary, skills, then reverse chronology.',
     avoidSummary:
       'Less distinctive when long history, credentials, projects, or a career-pivot bridge need to lead the story.',
     bestFor: ['General applications', 'Recruiter screens', 'Conservative ATS submissions'],
-    visualTags: ['Chronology first', 'Conservative', 'Single column'],
+    visualTags: ['Standard ATS', 'Reverse chronology', 'Traditional'],
     density: 'balanced',
     deliveryLane: 'apply_safe',
     atsConfidence: 'high',
@@ -40,16 +40,16 @@ const resumeTemplates = [
     familyId: 'modern_editorial',
     familyLabel: 'Modern Editorial',
     familyDescription:
-      'Polished modern layouts with stronger editorial hierarchy, a sharper opening narrative, and restrained ATS-safe structure.',
-    variantLabel: 'Polished Default',
+      'Contemporary editorial typesetting with decisive asymmetry, colored rules, and generous but efficient vertical rhythm.',
+    variantLabel: 'Editorial Standard',
     description:
-      'A polished modern default with a strong left-aligned identity block, elevated summary, and balanced proof sections.',
+      'A left-aligned modern resume with a strong typographic masthead, a ruled opening statement, and balanced proof sections.',
     fitSummary:
       'Useful when you want a confident, contemporary first impression without leaving the single-column apply-safe lane.',
     avoidSummary:
       'Less helpful if a dense long-history timeline, credentials, or a highly technical skills-first scan is the main differentiator.',
     bestFor: ['Product roles', 'Design-adjacent teams', 'Startup hiring loops'],
-    visualTags: ['Modern default', 'Editorial header', 'Balanced'],
+    visualTags: ['Modern professional', 'Single column', 'Balanced'],
     density: 'balanced',
     deliveryLane: 'apply_safe',
     atsConfidence: 'high',
@@ -64,16 +64,16 @@ const resumeTemplates = [
     familyId: 'senior_brief',
     familyLabel: 'Senior Brief',
     familyDescription:
-      'Dense senior layouts that compress signal early and reward concise, high-trust experience narratives.',
-    variantLabel: 'Dense Timeline',
+      'Dense senior layouts that compress signal through strong hierarchy, short rules, and a tightly paced leadership chronology.',
+    variantLabel: 'Executive Timeline',
     description:
-      'A compact senior read with centered identity, compressed summary, and a tighter reverse-chronology timeline.',
+      'A compact executive read with centered identity, understated contact line, compressed summary, and tight reverse chronology.',
     fitSummary:
       'Best when you have strong experience density and want more signal visible before page pressure becomes a problem.',
     avoidSummary:
       'Can feel tight for early-career profiles or resumes that need extra whitespace to breathe.',
     bestFor: ['Senior candidates', 'Content-dense resumes', 'Leadership screens'],
-    visualTags: ['Dense', 'Senior timeline', 'High signal'],
+    visualTags: ['Experienced professional', 'Dense timeline', 'High signal'],
     density: 'compact',
     deliveryLane: 'apply_safe',
     atsConfidence: 'high',
@@ -88,16 +88,16 @@ const resumeTemplates = [
     familyId: 'credential_ledger',
     familyLabel: 'Formal Proof',
     familyDescription:
-      'Trust-first layouts that pull certifications, education, and formal proof forward without using tables or columns.',
-    variantLabel: 'Certs & Education',
+      'Trust-first editorial layouts that use classical typography and ledger-like rules to bring formal proof forward.',
+    variantLabel: 'Credential Ledger',
     description:
-      'Formal-proof structure that opens with certifications and education, then summary, skills, chronology, and project proof.',
+      'A classical credential ledger that opens with certifications and education, then moves into summary, skills, and chronology.',
     fitSummary:
       'Stronger when credentials, certifications, or formal education materially change recruiter trust or screening outcomes.',
     avoidSummary:
       'Less effective if credentials are thin and your strongest evidence is shipped work or technical systems depth.',
     bestFor: ['Regulated industries', 'Certification-heavy roles', 'Academic backgrounds'],
-    visualTags: ['Formal proof first', 'Centered header', 'Balanced'],
+    visualTags: ['Credential ledger', 'Classical type', 'Balanced'],
     density: 'balanced',
     deliveryLane: 'apply_safe',
     atsConfidence: 'high',
@@ -112,16 +112,16 @@ const resumeTemplates = [
     familyId: 'engineering_spec',
     familyLabel: 'Engineering Spec',
     familyDescription:
-      'Spec-like layouts that privilege technical depth, structured skills, and systems signal before polish.',
-    variantLabel: 'Skills First',
+      'Specification-inspired layouts with compact technical labels, blue rules, structured skills, and engineering-first scan order.',
+    variantLabel: 'Technical Brief',
     description:
-      'Skills-first ATS-safe layout that surfaces technical systems depth before summary and chronology.',
+      'A compact technical brief that surfaces grouped systems depth before summary and chronology without tables or sidebars.',
     fitSummary:
       'Best when technical skill grouping and systems credibility need to land before the reader reaches your experience timeline.',
     avoidSummary:
       'Can feel overly technical for generalist roles where the strongest signal is leadership story or project proof.',
     bestFor: ['Engineering roles', 'Data roles', 'Security roles'],
-    visualTags: ['Skills first', 'Technical', 'Compact'],
+    visualTags: ['Technical brief', 'Skills first', 'Compact'],
     density: 'compact',
     deliveryLane: 'apply_safe',
     atsConfidence: 'high',
@@ -136,16 +136,16 @@ const resumeTemplates = [
     familyId: 'proof_portfolio',
     familyLabel: 'Proof Portfolio',
     familyDescription:
-      'Proof-led layouts that lead with shipped work and outcome narrative while staying single-column and parseable.',
-    variantLabel: 'Projects First',
+      'Proof-led editorial layouts with an expressive masthead, plum rules, and generous spacing around shipped outcomes.',
+    variantLabel: 'Selected Work',
     description:
-      'Project-first ATS-safe layout for candidates whose strongest evidence comes through shipped work and measurable outcomes.',
+      'A project-first editorial resume for candidates whose strongest evidence is shipped work, ownership, and measurable outcomes.',
     fitSummary:
       'Useful when projects, launches, or portfolio proof tell the clearest case for fit.',
     avoidSummary:
       'Less ideal when you need a conservative recruiter-first chronology or stronger credentials signal up front.',
     bestFor: ['Portfolio-heavy candidates', 'Career changers', 'Product builders'],
-    visualTags: ['Projects first', 'Proof led', 'Comfortable'],
+    visualTags: ['Selected work', 'Proof led', 'Comfortable'],
     density: 'comfortable',
     deliveryLane: 'apply_safe',
     atsConfidence: 'high',
@@ -160,16 +160,16 @@ const resumeTemplates = [
     familyId: 'longform_timeline',
     familyLabel: 'Longform Timeline',
     familyDescription:
-      'Long-history layouts that make many roles scannable through a career snapshot and compact chaptered chronology.',
-    variantLabel: 'Career Depth',
+      'Long-history layouts that use compact newspaper-like rules, a factual career index, and chaptered chronology.',
+    variantLabel: 'Career Archive',
     description:
-      'A long-history timeline with a compact career snapshot, chapter-style experience entries, and reduced decorative friction for many roles.',
+      'A compact career archive with a factual snapshot, chapter-style experience entries, and low-friction scanning across many roles.',
     fitSummary:
       'Best when the draft includes many relevant or gap-covering roles and the reader needs fast orientation before the full chronology.',
     avoidSummary:
       'Overkill for thin or early-career resumes where a simpler chronology or project-led read would feel more focused.',
     bestFor: ['Long work histories', 'Senior ICs', 'Mixed chronology with gap coverage'],
-    visualTags: ['Long history', 'Career snapshot', 'Compact'],
+    visualTags: ['Career archive', 'Chaptered history', 'Compact'],
     density: 'compact',
     deliveryLane: 'apply_safe',
     atsConfidence: 'high',
@@ -184,16 +184,16 @@ const resumeTemplates = [
     familyId: 'career_pivot_bridge',
     familyLabel: 'Career Pivot Bridge',
     familyDescription:
-      'Hybrid layouts for mixed backgrounds that connect transferable experience, technical proof, and projects before chronology.',
-    variantLabel: 'Hybrid Bridge',
+      'Hybrid layouts with a grounded green accent and narrative-to-proof sequence that connects transferable work to the target role.',
+    variantLabel: 'Transferable Proof',
     description:
-      'A hybrid career-pivot layout that leads with transferable narrative, role-ready skills, project proof, and then supporting chronology.',
+      'A narrative-led career-pivot resume that moves from transferable strengths to role-ready skills, project proof, and chronology.',
     fitSummary:
       'Useful when mixed or dev-adjacent history needs a clear bridge from past roles to the target job before the timeline begins.',
     avoidSummary:
       'Less ideal when the candidate already has a straightforward same-lane chronology that should lead without explanation.',
     bestFor: ['Career pivots', 'Mixed backgrounds', 'Dev-adjacent evidence'],
-    visualTags: ['Hybrid bridge', 'Transferable proof', 'Balanced'],
+    visualTags: ['Transferable proof', 'Narrative bridge', 'Balanced'],
     density: 'balanced',
     deliveryLane: 'apply_safe',
     atsConfidence: 'high',

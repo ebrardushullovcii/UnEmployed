@@ -5,8 +5,46 @@ import {
   IsoDateTimeSchema,
   NonEmptyStringSchema,
 } from "./base";
+import { CandidateExperienceSchema } from "./profile";
 
 const ProbabilitySchema = z.number().min(0).max(1);
+
+export const resumeImportProgressStageValues = [
+  "saving_file",
+  "reading_document",
+  "building_profile",
+  "saving_results",
+] as const;
+export const ResumeImportProgressStageSchema = z.enum(
+  resumeImportProgressStageValues,
+);
+export type ResumeImportProgressStage = z.infer<
+  typeof ResumeImportProgressStageSchema
+>;
+
+export const ResumeImportProgressEventSchema = z.object({
+  stage: ResumeImportProgressStageSchema,
+  message: NonEmptyStringSchema,
+  occurredAt: IsoDateTimeSchema,
+  /**
+   * Determinate progress. `completed` counts stages that have finished, so the
+   * event announcing a stage carries the count of the stages behind it, and
+   * `total` is the number of stages this import will report. Optional so an
+   * older producer or a persisted legacy event still parses; the renderer falls
+   * back to an indeterminate spinner when either is absent.
+   */
+  completed: z.number().int().min(0).optional(),
+  total: z.number().int().min(1).optional(),
+  /**
+   * How long this stage typically takes, in seconds, stated as a range the user
+   * can plan around. The long model stage is otherwise a frozen label.
+   */
+  expectedSecondsMin: z.number().int().min(0).optional(),
+  expectedSecondsMax: z.number().int().min(0).optional(),
+});
+export type ResumeImportProgressEvent = z.infer<
+  typeof ResumeImportProgressEventSchema
+>;
 
 export const resumeDocumentFileKindValues = [
   "plain_text",
@@ -15,7 +53,9 @@ export const resumeDocumentFileKindValues = [
   "pdf",
   "unknown",
 ] as const;
-export const ResumeDocumentFileKindSchema = z.enum(resumeDocumentFileKindValues);
+export const ResumeDocumentFileKindSchema = z.enum(
+  resumeDocumentFileKindValues,
+);
 export type ResumeDocumentFileKind = z.infer<
   typeof ResumeDocumentFileKindSchema
 >;
@@ -103,7 +143,9 @@ export const ResumeDocumentTextSpanSchema = z.object({
   start: z.number().int().min(0),
   end: z.number().int().min(0),
 });
-export type ResumeDocumentTextSpan = z.infer<typeof ResumeDocumentTextSpanSchema>;
+export type ResumeDocumentTextSpan = z.infer<
+  typeof ResumeDocumentTextSpanSchema
+>;
 
 export const ResumeDocumentQualitySignalSchema = z.object({
   score: ProbabilitySchema.default(0),
@@ -123,7 +165,9 @@ export type ResumeDocumentQualitySignal = z.infer<
 >;
 
 export const ResumeDocumentParserManifestSchema = z.object({
-  workerKind: z.enum(["embedded_node", "python_sidecar"]).default("embedded_node"),
+  workerKind: z
+    .enum(["embedded_node", "python_sidecar"])
+    .default("embedded_node"),
   workerVersion: NonEmptyStringSchema.nullable().default(null),
   manifestVersion: NonEmptyStringSchema.nullable().default(null),
   runtimeLabel: NonEmptyStringSchema.nullable().default(null),
@@ -280,7 +324,9 @@ export const ResumeParserWorkerPageSchema = z.object({
   width: z.number().positive().nullable().default(null),
   height: z.number().positive().nullable().default(null),
 });
-export type ResumeParserWorkerPage = z.infer<typeof ResumeParserWorkerPageSchema>;
+export type ResumeParserWorkerPage = z.infer<
+  typeof ResumeParserWorkerPageSchema
+>;
 
 export const ResumeParserWorkerBlockSchema = z.object({
   id: NonEmptyStringSchema,
@@ -297,7 +343,9 @@ export const ResumeParserWorkerBlockSchema = z.object({
   readingOrderConfidence: ProbabilitySchema.nullable().default(null),
   textSpan: ResumeDocumentTextSpanSchema.nullable().default(null),
 });
-export type ResumeParserWorkerBlock = z.infer<typeof ResumeParserWorkerBlockSchema>;
+export type ResumeParserWorkerBlock = z.infer<
+  typeof ResumeParserWorkerBlockSchema
+>;
 
 export const ResumeParserWorkerRequestSchema = z.object({
   requestId: NonEmptyStringSchema,
@@ -384,16 +432,17 @@ export type ResumeImportJsonValue =
   | ResumeImportJsonValue[]
   | { [key: string]: ResumeImportJsonValue };
 
-export const ResumeImportJsonValueSchema: z.ZodType<ResumeImportJsonValue> = z.lazy(() =>
-  z.union([
-    z.string(),
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(ResumeImportJsonValueSchema),
-    z.record(ResumeImportJsonValueSchema),
-  ]),
-);
+export const ResumeImportJsonValueSchema: z.ZodType<ResumeImportJsonValue> =
+  z.lazy(() =>
+    z.union([
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.null(),
+      z.array(ResumeImportJsonValueSchema),
+      z.record(ResumeImportJsonValueSchema),
+    ]),
+  );
 
 export const ResumeImportConflictChoiceSchema = z.object({
   id: NonEmptyStringSchema,
@@ -493,11 +542,18 @@ export const ResumeImportFieldCandidateSchema = z.object({
   evidenceText: NonEmptyStringSchema.nullable().default(null),
   sourceBlockIds: z.array(NonEmptyStringSchema).default([]),
   confidence: ProbabilitySchema,
-  confidenceBreakdown: ResumeImportConfidenceBreakdownSchema.nullable().optional(),
+  confidenceBreakdown:
+    ResumeImportConfidenceBreakdownSchema.nullable().optional(),
   notes: z.array(NonEmptyStringSchema).default([]),
   alternatives: z.array(ResumeImportJsonValueSchema).default([]),
-  conflictChoices: z.array(ResumeImportConflictChoiceSchema).default([]).optional(),
-  visualEvidence: z.array(ResumeImportVisualEvidenceRefSchema).default([]).optional(),
+  conflictChoices: z
+    .array(ResumeImportConflictChoiceSchema)
+    .default([])
+    .optional(),
+  visualEvidence: z
+    .array(ResumeImportVisualEvidenceRefSchema)
+    .default([])
+    .optional(),
   resolution: ResumeImportCandidateResolutionSchema.default("needs_review"),
   resolutionReason: NonEmptyStringSchema.nullable().optional(),
   createdAt: IsoDateTimeSchema,
@@ -597,6 +653,63 @@ export type ResumeImportBranchState = z.infer<
   typeof ResumeImportBranchStateSchema
 >;
 
+export const resumeImportTextStageValues = [
+  "identity_summary",
+  "experience",
+  "background",
+  "shared_memory",
+] as const;
+export const ResumeImportTextStageSchema = z.enum(resumeImportTextStageValues);
+export type ResumeImportTextStage = z.infer<typeof ResumeImportTextStageSchema>;
+
+/**
+ * Why a stage stopped using the configured model and used the built-in
+ * deterministic reader instead. A stage that degrades this way still returns
+ * usable candidates, so its status stays `completed`; without this field the
+ * degradation is invisible and the app silently under-reports what it did.
+ */
+export const resumeImportStageFallbackKindValues = [
+  "timeout",
+  "provider_error",
+] as const;
+export const ResumeImportStageFallbackKindSchema = z.enum(
+  resumeImportStageFallbackKindValues,
+);
+export type ResumeImportStageFallbackKind = z.infer<
+  typeof ResumeImportStageFallbackKindSchema
+>;
+
+export const ResumeImportTextStageTimingSchema = z.object({
+  stage: ResumeImportTextStageSchema,
+  status: z.enum(["completed", "failed", "timed_out"]),
+  providerKind: AiProviderKindSchema.nullable().default(null),
+  providerLabel: NonEmptyStringSchema.nullable().default(null),
+  durationMs: z.number().int().min(0),
+  primaryProviderMs: z.number().int().min(0).nullable().default(null),
+  deterministicFallbackMs: z.number().int().min(0).nullable().default(null),
+  candidateCount: z.number().int().min(0).default(0),
+  // Null on a stage that genuinely used the configured model, and on the
+  // deterministic-by-design `shared_memory` stage, which never had a model
+  // call to lose.
+  fallbackKind: ResumeImportStageFallbackKindSchema.nullable().default(null),
+  fallbackReason: NonEmptyStringSchema.nullable().default(null),
+});
+export type ResumeImportTextStageTiming = z.infer<
+  typeof ResumeImportTextStageTimingSchema
+>;
+
+export const ResumeImportTimingSummarySchema = z.object({
+  totalMs: z.number().int().min(0).nullable().default(null),
+  textBranchMs: z.number().int().min(0),
+  literalExtractionMs: z.number().int().min(0),
+  reconciliationMs: z.number().int().min(0),
+  finalizationMs: z.number().int().min(0).nullable().default(null),
+  textStages: z.array(ResumeImportTextStageTimingSchema).default([]),
+});
+export type ResumeImportTimingSummary = z.infer<
+  typeof ResumeImportTimingSummarySchema
+>;
+
 export const ResumeImportModelRoleStateSchema = z.object({
   text: ResumeImportBranchStateSchema.default({}),
   vision: ResumeImportBranchStateSchema.default({}),
@@ -606,6 +719,108 @@ export type ResumeImportModelRoleState = z.infer<
   typeof ResumeImportModelRoleStateSchema
 >;
 
+export const ResumeAnalysisCacheIdentitySchema = z.object({
+  sourceSha256: z.string().regex(/^[a-f0-9]{64}$/i),
+  parserFingerprint: NonEmptyStringSchema,
+  textProviderKind: AiProviderKindSchema,
+  textProviderFingerprint: NonEmptyStringSchema,
+  visionProviderKind: AiProviderKindSchema.nullable().default(null),
+  visionProviderFingerprint: NonEmptyStringSchema,
+  promptVersion: NonEmptyStringSchema,
+  schemaVersion: NonEmptyStringSchema,
+  policyVersion: NonEmptyStringSchema,
+  contextFingerprint: NonEmptyStringSchema,
+});
+export type ResumeAnalysisCacheIdentity = z.infer<
+  typeof ResumeAnalysisCacheIdentitySchema
+>;
+
+export const resumeTimelineRepairIssueKindValues = [
+  "overlapping_dates",
+  "timeline_gap",
+  "ambiguous_dates",
+  "reversed_dates",
+  "split_record",
+  "duplicate_record",
+  "missing_employer",
+  "missing_title",
+] as const;
+export const ResumeTimelineRepairIssueKindSchema = z.enum(
+  resumeTimelineRepairIssueKindValues,
+);
+export type ResumeTimelineRepairIssueKind = z.infer<
+  typeof ResumeTimelineRepairIssueKindSchema
+>;
+
+export const resumeTimelineRepairStatusValues = [
+  "pending",
+  "accepted",
+  "rejected",
+] as const;
+export const ResumeTimelineRepairStatusSchema = z.enum(
+  resumeTimelineRepairStatusValues,
+);
+export type ResumeTimelineRepairStatus = z.infer<
+  typeof ResumeTimelineRepairStatusSchema
+>;
+
+export const ResumeTimelineRepairCertaintySchema = z.enum([
+  "review_only",
+  "deterministic_normalization",
+]);
+export type ResumeTimelineRepairCertainty = z.infer<
+  typeof ResumeTimelineRepairCertaintySchema
+>;
+
+export const ResumeTimelineRepairEvidenceSchema = z.object({
+  candidateId: NonEmptyStringSchema,
+  sourceBlockIds: z.array(NonEmptyStringSchema).default([]),
+  excerpt: NonEmptyStringSchema,
+});
+export type ResumeTimelineRepairEvidence = z.infer<
+  typeof ResumeTimelineRepairEvidenceSchema
+>;
+
+export const ResumeTimelineRepairActionSchema = z.enum([
+  "accept",
+  "reject",
+  "undo",
+]);
+export type ResumeTimelineRepairAction = z.infer<
+  typeof ResumeTimelineRepairActionSchema
+>;
+
+export const ResumeTimelineRepairActionEventSchema = z.object({
+  action: ResumeTimelineRepairActionSchema,
+  occurredAt: IsoDateTimeSchema,
+});
+export type ResumeTimelineRepairActionEvent = z.infer<
+  typeof ResumeTimelineRepairActionEventSchema
+>;
+
+export const ResumeTimelineRepairProposalSchema = z.object({
+  id: NonEmptyStringSchema,
+  runId: NonEmptyStringSchema,
+  issueKind: ResumeTimelineRepairIssueKindSchema,
+  status: ResumeTimelineRepairStatusSchema.default("pending"),
+  certainty: ResumeTimelineRepairCertaintySchema,
+  title: NonEmptyStringSchema,
+  explanation: NonEmptyStringSchema,
+  affectedExperienceIds: z.array(NonEmptyStringSchema).min(1),
+  initiallyPresentExperienceIds: z
+    .array(NonEmptyStringSchema)
+    .default([])
+    .optional(),
+  beforeExperiences: z.array(CandidateExperienceSchema).min(1),
+  proposedExperiences: z.array(CandidateExperienceSchema).min(1),
+  evidence: z.array(ResumeTimelineRepairEvidenceSchema).min(1),
+  createdAt: IsoDateTimeSchema,
+  resolvedAt: IsoDateTimeSchema.nullable().default(null),
+  actionHistory: z.array(ResumeTimelineRepairActionEventSchema).default([]),
+});
+export type ResumeTimelineRepairProposal = z.infer<
+  typeof ResumeTimelineRepairProposalSchema
+>;
 export const ResumeImportRunSchema = z.object({
   id: NonEmptyStringSchema,
   sourceResumeId: NonEmptyStringSchema,
@@ -624,9 +839,21 @@ export const ResumeImportRunSchema = z.object({
   visionProviderKind: AiProviderKindSchema.nullable().default(null).optional(),
   visionProviderLabel: NonEmptyStringSchema.nullable().default(null).optional(),
   modelRoles: ResumeImportModelRoleStateSchema.default({}).optional(),
+  timing: ResumeImportTimingSummarySchema.nullable().default(null).optional(),
+  analysisCacheIdentity: ResumeAnalysisCacheIdentitySchema.nullable()
+    .default(null)
+    .optional(),
+  analysisCacheHit: z.boolean().default(false).optional(),
+  analysisCacheSourceRunId: NonEmptyStringSchema.nullable()
+    .default(null)
+    .optional(),
   warnings: z.array(NonEmptyStringSchema).default([]),
   errorMessage: NonEmptyStringSchema.nullable().default(null),
   candidateCounts: ResumeImportRunCandidateCountsSchema.default({}),
+  timelineRepairProposals: z
+    .array(ResumeTimelineRepairProposalSchema)
+    .default([])
+    .optional(),
 });
 export type ResumeImportRun = z.infer<typeof ResumeImportRunSchema>;
 
@@ -653,6 +880,12 @@ export const ResumeImportBenchmarkGoldSchema = z.object({
   summaryContains: z.array(NonEmptyStringSchema).default([]),
   experienceRecords: z.array(z.record(ResumeImportJsonValueSchema)).default([]),
   educationRecords: z.array(z.record(ResumeImportJsonValueSchema)).default([]),
+  projectRecords: z.array(z.record(ResumeImportJsonValueSchema)).optional(),
+  certificationRecords: z
+    .array(z.record(ResumeImportJsonValueSchema))
+    .optional(),
+  languageRecords: z.array(z.record(ResumeImportJsonValueSchema)).optional(),
+  forbiddenProfileText: z.array(NonEmptyStringSchema).optional(),
 });
 export type ResumeImportBenchmarkGold = z.infer<
   typeof ResumeImportBenchmarkGoldSchema
@@ -685,7 +918,12 @@ export const ResumeImportBenchmarkMetricsSchema = z.object({
   literalFieldPrecision: ProbabilitySchema.default(0),
   literalFieldRecall: ProbabilitySchema.default(0),
   experienceRecordF1: ProbabilitySchema.default(0),
+  experienceDetailAccuracy: ProbabilitySchema.default(0),
   educationRecordF1: ProbabilitySchema.default(0),
+  projectRecordF1: ProbabilitySchema.default(0),
+  certificationRecordF1: ProbabilitySchema.default(0),
+  languageRecordF1: ProbabilitySchema.default(0),
+  contradictionFreeRate: ProbabilitySchema.default(0),
   evidenceCoverage: ProbabilitySchema.default(0),
   autoApplyPrecision: ProbabilitySchema.default(0),
   unresolvedRate: ProbabilitySchema.default(0),

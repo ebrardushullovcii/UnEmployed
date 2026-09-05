@@ -26,7 +26,11 @@ describe("createJobFinderWorkspaceService", () => {
               analysisProviderLabel: "Test AI",
               candidates: [
                 {
-                  target: { section: "education", key: "record", recordId: "education_1" },
+                  target: {
+                    section: "education",
+                    key: "record",
+                    recordId: "education_1",
+                  },
                   label: "Education",
                   value: {
                     schoolName: "Florida State University",
@@ -39,7 +43,8 @@ describe("createJobFinderWorkspaceService", () => {
                   },
                   normalizedValue: null,
                   valuePreview: "Florida State University | Bachelor’s Degree",
-                  evidenceText: "Florida State University — Bachelor’s Degree in Computer Science and Physics",
+                  evidenceText:
+                    "Florida State University — Bachelor’s Degree in Computer Science and Physics",
                   sourceBlockIds: ["page_1_block_2"],
                   confidence: 0.9,
                   notes: [],
@@ -89,7 +94,9 @@ describe("createJobFinderWorkspaceService", () => {
       resolutions: ["needs_review", "abstained"],
     });
     const educationCandidate = candidates.find(
-      (candidate) => candidate.target.section === "education" && candidate.target.key === "record",
+      (candidate) =>
+        candidate.target.section === "education" &&
+        candidate.target.key === "record",
     );
 
     expect(snapshot.profile.education).toEqual(seed.profile.education);
@@ -117,12 +124,17 @@ describe("createJobFinderWorkspaceService", () => {
               analysisProviderLabel: "Test AI",
               candidates: [
                 {
-                  target: { section: "identity", key: "summary", recordId: null },
+                  target: {
+                    section: "identity",
+                    key: "summary",
+                    recordId: null,
+                  },
                   label: "Summary",
                   value:
                     "A passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js, Node.js, .NET Core, SQL Server and AWS/Azure.",
                   normalizedValue: null,
-                  valuePreview: "A passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js, Node.js, .NET Core, SQL Server and AWS/Azure.",
+                  valuePreview:
+                    "A passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js, Node.js, .NET Core, SQL Server and AWS/Azure.",
                   evidenceText:
                     "A passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js, Node.js, .NET Core, SQL Server and AWS/Azure.",
                   sourceBlockIds: ["page_1_block_2"],
@@ -131,12 +143,19 @@ describe("createJobFinderWorkspaceService", () => {
                   alternatives: [],
                 },
                 {
-                  target: { section: "contact", key: "linkedinUrl", recordId: null },
+                  target: {
+                    section: "contact",
+                    key: "linkedinUrl",
+                    recordId: null,
+                  },
                   label: "LinkedIn URL",
-                  value: "https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
+                  value:
+                    "https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
                   normalizedValue: null,
-                  valuePreview: "https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
-                  evidenceText: "Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
+                  valuePreview:
+                    "https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
+                  evidenceText:
+                    "Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
                   sourceBlockIds: ["page_1_block_3"],
                   confidence: 0.96,
                   notes: [],
@@ -154,7 +173,11 @@ describe("createJobFinderWorkspaceService", () => {
               analysisProviderLabel: "Test AI",
               candidates: [
                 {
-                  target: { section: "link", key: "record", recordId: "link_1" },
+                  target: {
+                    section: "link",
+                    key: "record",
+                    recordId: "link_1",
+                  },
                   label: "LinkedIn",
                   value: {
                     label: "LinkedIn",
@@ -163,7 +186,8 @@ describe("createJobFinderWorkspaceService", () => {
                   },
                   normalizedValue: null,
                   valuePreview: "LinkedIn",
-                  evidenceText: "Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
+                  evidenceText:
+                    "Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
                   sourceBlockIds: ["page_1_block_3"],
                   confidence: 0.94,
                   notes: [],
@@ -181,19 +205,30 @@ describe("createJobFinderWorkspaceService", () => {
               analysisProviderLabel: "Test AI",
               candidates: [
                 {
-                  target: { section: "application_identity", key: "preferredLinkUrls", recordId: null },
+                  target: {
+                    section: "application_identity",
+                    key: "preferredLinkUrls",
+                    recordId: null,
+                  },
                   label: "LinkedIn URL",
-                  value: "https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
+                  value:
+                    "https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
                   normalizedValue: null,
-                  valuePreview: "https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
-                  evidenceText: "Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
+                  valuePreview:
+                    "https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
+                  evidenceText:
+                    "Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
                   sourceBlockIds: ["page_1_block_3"],
                   confidence: 0.99,
                   notes: [],
                   alternatives: [],
                 },
                 {
-                  target: { section: "narrative", key: "professionalStory", recordId: null },
+                  target: {
+                    section: "narrative",
+                    key: "professionalStory",
+                    recordId: null,
+                  },
                   label: "Professional summary",
                   value:
                     "Passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js, Node.js, .NET Core, SQL Server and AWS/Azure.",
@@ -208,11 +243,16 @@ describe("createJobFinderWorkspaceService", () => {
                   alternatives: [],
                 },
                 {
-                  target: { section: "proof_point", key: "technicalAchievement", recordId: null },
+                  target: {
+                    section: "proof_point",
+                    key: "technicalAchievement",
+                    recordId: null,
+                  },
                   label: "Technical achievement - Performance optimization",
                   value:
                     "Cut query response times by up to 60% in critical workflows and reduced AWS hosting costs by 15% through targeted refactors as .NET Consultant.",
-                  normalizedValue: "60% query response improvement and 15% AWS cost reduction",
+                  normalizedValue:
+                    "60% query response improvement and 15% AWS cost reduction",
                   valuePreview:
                     "Cut query response times by up to 60% in critical workflows and reduced AWS hosting costs by 15% through targeted refactors as .NET Consultant.",
                   evidenceText:
@@ -223,7 +263,11 @@ describe("createJobFinderWorkspaceService", () => {
                   alternatives: [],
                 },
                 {
-                  target: { section: "proof_point", key: "careerTransition", recordId: null },
+                  target: {
+                    section: "proof_point",
+                    key: "careerTransition",
+                    recordId: null,
+                  },
                   label: "Career transition proof point",
                   value:
                     "Returned to hands-on development after management experience, demonstrating renewed focus on technical execution.",
@@ -279,11 +323,61 @@ describe("createJobFinderWorkspaceService", () => {
         languageHints: [],
         pages: [],
         blocks: [
-          { id: "page_1_block_1", pageNumber: 1, readingOrder: 0, text: "Ebrar Dushullovci", kind: "paragraph", sectionHint: "identity", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.72 },
-          { id: "page_1_block_2", pageNumber: 1, readingOrder: 1, text: "A passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js, Node.js, .NET Core, SQL Server and AWS/Azure.", kind: "paragraph", sectionHint: "summary", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.72 },
-          { id: "page_1_block_3", pageNumber: 1, readingOrder: 2, text: "Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/", kind: "contact", sectionHint: "contact", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.72 },
-          { id: "page_1_block_4", pageNumber: 1, readingOrder: 3, text: "Provide on-call architecture and performance triage, cutting query response times by up to 60% in critical workflows.", kind: "paragraph", sectionHint: "experience", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.72 },
-          { id: "page_1_block_5", pageNumber: 1, readingOrder: 4, text: "After deciding to return to my passion for development, I transitioned back into a hands-on developer role.", kind: "paragraph", sectionHint: "summary", bbox: null, sourceParserKinds: ["pdfjs_text"], sourceConfidence: 0.72 },
+          {
+            id: "page_1_block_1",
+            pageNumber: 1,
+            readingOrder: 0,
+            text: "Ebrar Dushullovci",
+            kind: "paragraph",
+            sectionHint: "identity",
+            bbox: null,
+            sourceParserKinds: ["pdfjs_text"],
+            sourceConfidence: 0.72,
+          },
+          {
+            id: "page_1_block_2",
+            pageNumber: 1,
+            readingOrder: 1,
+            text: "A passionate software developer with 6+ years of full-stack experience building impactful solutions using React, Next.js, Node.js, .NET Core, SQL Server and AWS/Azure.",
+            kind: "paragraph",
+            sectionHint: "summary",
+            bbox: null,
+            sourceParserKinds: ["pdfjs_text"],
+            sourceConfidence: 0.72,
+          },
+          {
+            id: "page_1_block_3",
+            pageNumber: 1,
+            readingOrder: 2,
+            text: "Website: https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
+            kind: "contact",
+            sectionHint: "contact",
+            bbox: null,
+            sourceParserKinds: ["pdfjs_text"],
+            sourceConfidence: 0.72,
+          },
+          {
+            id: "page_1_block_4",
+            pageNumber: 1,
+            readingOrder: 3,
+            text: "Provide on-call architecture and performance triage, cutting query response times by up to 60% in critical workflows.",
+            kind: "paragraph",
+            sectionHint: "experience",
+            bbox: null,
+            sourceParserKinds: ["pdfjs_text"],
+            sourceConfidence: 0.72,
+          },
+          {
+            id: "page_1_block_5",
+            pageNumber: 1,
+            readingOrder: 4,
+            text: "After deciding to return to my passion for development, I transitioned back into a hands-on developer role.",
+            kind: "paragraph",
+            sectionHint: "summary",
+            bbox: null,
+            sourceParserKinds: ["pdfjs_text"],
+            sourceConfidence: 0.72,
+          },
         ],
         fullText: [
           "Ebrar Dushullovci",
@@ -299,9 +393,18 @@ describe("createJobFinderWorkspaceService", () => {
       "https://www.linkedin.com/in/ebrar-dushullovci-5b98b420b/",
     );
     expect(snapshot.profile.personalWebsiteUrl).toBeNull();
-    expect(snapshot.profile.applicationIdentity.preferredLinkIds.length).toBeGreaterThan(0);
-    expect(snapshot.profile.narrative.professionalStory).toContain("Passionate software developer");
-    expect(snapshot.profile.narrative.careerTransitionSummary).toContain("Returned to hands-on development");
+    expect(
+      snapshot.profile.applicationIdentity.preferredLinkIds.length,
+    ).toBeGreaterThan(0);
+    // The identical resume summary already lands in the professional summary,
+    // so it is not copied into the professional story as well; the story the
+    // user already had is preserved instead of being duplicated over.
+    expect(snapshot.profile.narrative.professionalStory).not.toContain(
+      "Passionate software developer",
+    );
+    expect(snapshot.profile.narrative.careerTransitionSummary).toContain(
+      "Returned to hands-on development",
+    );
     expect(snapshot.profile.proofBank).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -309,14 +412,20 @@ describe("createJobFinderWorkspaceService", () => {
         }),
       ]),
     );
-    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).not.toContain(
-      "LinkedIn URL",
-    );
-    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).not.toContain(
-      "Professional summary",
-    );
-    expect(snapshot.latestResumeImportReviewCandidates.map((candidate) => candidate.label)).not.toContain(
-      "Career transition summary",
-    );
+    expect(
+      snapshot.latestResumeImportReviewCandidates.map(
+        (candidate) => candidate.label,
+      ),
+    ).not.toContain("LinkedIn URL");
+    expect(
+      snapshot.latestResumeImportReviewCandidates.map(
+        (candidate) => candidate.label,
+      ),
+    ).not.toContain("Professional summary");
+    expect(
+      snapshot.latestResumeImportReviewCandidates.map(
+        (candidate) => candidate.label,
+      ),
+    ).not.toContain("Career transition summary");
   });
 });

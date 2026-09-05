@@ -2,22 +2,44 @@ export {
   getGeneratedResumeDocumentsDirectory,
   getJobFinderDocumentsDirectory,
   getJobFinderWorkspaceFilePath,
-  getBrowserAgentProfileDirectory
-} from './paths'
-export { createJobFinderWorkspaceServiceAsync } from './create-workspace-service'
+  getBrowserAgentProfileDirectory,
+} from "./paths";
+export {
+  createJobFinderWorkspaceServiceAsync,
+  dismissJobFinderStartupDatabaseRecoveryNotice,
+  getJobFinderStartupDatabaseRecoveryFact,
+  getJobFinderRepositoryForWorkspaceService,
+} from "./create-workspace-service";
+export {
+  createJobFinderApplicationAuthorityService,
+  getJobFinderApplicationAuthorityService,
+  JobFinderApplicationAuthorityError,
+  type CreateJobFinderApplicationAuthorityServiceOptions,
+  type JobFinderApplicationAuthorityErrorCode,
+  type JobFinderApplicationAuthorityService,
+} from "./application-authority-service";
 export {
   getJobFinderWorkspaceService,
   setJobFinderWorkspaceServiceTestEnv,
   shutdownJobFinderWorkspaceService,
-} from './workspace-service'
-export { importResumeFromSourcePath } from './import-resume'
-export { runDesktopResumeImportBenchmark, defaultBenchmarkCases } from './resume-import-benchmark'
+} from "./workspace-service";
+export { importResumeFromSourcePath } from "./import-resume";
+export {
+  runDesktopResumeImportBenchmark,
+  defaultBenchmarkCases,
+} from "./resume-import-benchmark";
 export {
   runDesktopResumeQualityBenchmark,
   defaultResumeQualityBenchmarkCases,
-} from './resume-quality-benchmark'
-export { loadApplyQueueDemoState, loadResumeWorkspaceDemoState } from './load-demo-state'
-export { resetJobFinderWorkspace } from './reset-workspace'
+} from "./resume-quality-benchmark";
+export {
+  loadApplyQueueDemoState,
+  loadResumeWorkspaceDemoState,
+} from "./load-demo-state";
+export {
+  resetJobFinderWorkspace,
+  getJobFinderStartupResetRecoveryFact,
+} from "./reset-workspace";
 export {
   getDesktopTestDelayMs,
   getResumePreviewTestMode,
@@ -28,4 +50,4 @@ export {
   parseResumeImportPathPayload,
   type ResumeImportPathPayload,
   type ResumePreviewTestMode,
-} from './test-api'
+} from "./test-api";
