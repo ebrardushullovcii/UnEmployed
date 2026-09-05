@@ -229,20 +229,11 @@ describe("Settings save ownership", () => {
     );
   });
 
-  it("keeps a clean save bar until a section is dirty, then names that section and commits only it", async () => {
+  it("hides the save reminder until a section is dirty, then names that section and commits only it", async () => {
     const callbacks = createCallbacks();
     renderScreen(parseSettings(), callbacks);
 
-    // Save ownership is persistent, like the Profile footer: a clean page
-    // still states that nothing is outstanding rather than going silent.
-    const cleanBar = unsavedBar();
-    expect(cleanBar).not.toBeNull();
-    expect(cleanBar?.getAttribute("data-settings-save-state")).toBe("clean");
-    expect(cleanBar?.getAttribute("data-settings-unsaved-count")).toBe("0");
-    expect(cleanBar?.textContent).toContain("No unsaved changes in Settings.");
-    expect(
-      within(cleanBar as HTMLElement).queryAllByRole("button"),
-    ).toHaveLength(0);
+    expect(unsavedBar()).toBeNull();
 
     const workspace = screen.getByRole("region", {
       name: WORKSPACE_BEHAVIOR_LABEL,
@@ -259,7 +250,7 @@ describe("Settings save ownership", () => {
     // The bar is pinned inside the viewport, so the commit never drifts
     // thousands of pixels away from the control it commits.
     expect(bar?.className).toContain("sticky");
-    expect(bar?.className).toContain("bottom-0");
+    expect(bar?.className).toContain("bottom-3");
 
     fireEvent.click(
       within(bar as HTMLElement).getByRole("button", {
@@ -276,14 +267,7 @@ describe("Settings save ownership", () => {
     expect(callbacks.onUpdateAppearanceTheme).not.toHaveBeenCalled();
     expect(callbacks.onUpdateApplicationDefaults).not.toHaveBeenCalled();
 
-    // A committed section stops being outstanding, and the bar says so
-    // instead of disappearing.
-    await waitFor(() =>
-      expect(unsavedBar()?.getAttribute("data-settings-save-state")).toBe(
-        "clean",
-      ),
-    );
-    expect(unsavedBar()?.getAttribute("data-settings-unsaved-count")).toBe("0");
+    await waitFor(() => expect(unsavedBar()).toBeNull());
 
     // The section that committed reports its own confirmation, so "saved"
     // and "never touched" are no longer the same quiet state.
@@ -323,11 +307,7 @@ describe("Settings save ownership", () => {
     expect(callbacks.onUpdateWorkspaceBehavior).not.toHaveBeenCalled();
     expect(callbacks.onUpdateAppearanceTheme).not.toHaveBeenCalled();
 
-    await waitFor(() =>
-      expect(unsavedBar()?.getAttribute("data-settings-save-state")).toBe(
-        "clean",
-      ),
-    );
+    await waitFor(() => expect(unsavedBar()).toBeNull());
     expect(within(tracker).getByText("Tracker settings saved.")).toBeTruthy();
   });
 
@@ -480,17 +460,23 @@ describe("Settings save bar reaches the window bottom", () => {
     );
   }
 
-  it("leaves no gap between the sticky bar and the scrollport bottom", () => {
+  it("keeps the dirty reminder compact and inside the settings scroll region", () => {
     // The bar is `sticky bottom-0`, and a sticky box is clamped to its
     // containing block. The shell's own `pb-10` on the scrolling `<main>` and
     // the route's former trailing `pb-8` both ended that block above the
     // window, so the bar came to rest 40px up with the page's own template
     // card rendering under and below it. Neither may return.
     renderScreen(parseSettings(), createCallbacks());
+    fireEvent.click(
+      within(
+        screen.getByRole("region", { name: WORKSPACE_BEHAVIOR_LABEL }),
+      ).getAllByRole("switch")[0]!,
+    );
 
     const bar = unsavedBar();
     expect(bar?.className).toContain("sticky");
-    expect(bar?.className).toContain("bottom-0");
+    expect(bar?.className).toContain("bottom-3");
+    expect(bar?.className).toContain("max-w-3xl");
 
     const root = bar?.parentElement;
     expect(root?.tagName).toBe("SECTION");

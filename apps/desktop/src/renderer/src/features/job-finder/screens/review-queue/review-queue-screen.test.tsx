@@ -89,6 +89,7 @@ function createOriginalResume(): ResumeSourceDocument {
 }
 
 function renderScreen(props: {
+  resumeOperationStarts?: Readonly<Record<string, number>>;
   browserSession?: BrowserSessionState;
   isJobPending?: (jobId: string) => boolean;
   campaignId?: string;
@@ -111,6 +112,7 @@ function renderScreen(props: {
   return render(
     <MemoryRouter>
       <ReviewQueueScreen
+        resumeOperationStarts={props.resumeOperationStarts}
         applicationRecords={[]}
         actionState={{ message: null }}
         browserSession={props.browserSession ?? createBrowserSession()}
@@ -179,8 +181,10 @@ describe("ReviewQueueScreen tailored draft preparation (controlled)", () => {
         assetStatus: "generating",
       };
 
-      renderScreen({
-        isJobPending: (jobId) => jobId === "job_generating",
+      const operationStartedAt = Date.now();
+      const props = {
+        resumeOperationStarts: { job_generating: operationStartedAt },
+        isJobPending: (jobId: string) => jobId === "job_generating",
         queue: [selectedItem],
         selectedItem,
         selectedJob: {
@@ -199,7 +203,8 @@ describe("ReviewQueueScreen tailored draft preparation (controlled)", () => {
             requirements: [],
           },
         } as unknown as SavedJob,
-      });
+      };
+      const view = renderScreen(props);
 
       const elapsed = document.querySelector("[data-resume-draft-elapsed]");
       expect(elapsed).not.toBeNull();
@@ -224,6 +229,14 @@ describe("ReviewQueueScreen tailored draft preparation (controlled)", () => {
       expect(
         document.querySelector("[data-resume-draft-elapsed]")?.textContent,
       ).toBe("0:03");
+      view.unmount();
+      act(() => {
+        vi.advanceTimersByTime(12_000);
+      });
+      renderScreen(props);
+      expect(
+        document.querySelector("[data-resume-draft-elapsed]")?.textContent,
+      ).toBe("0:15");
     } finally {
       vi.useRealTimers();
     }

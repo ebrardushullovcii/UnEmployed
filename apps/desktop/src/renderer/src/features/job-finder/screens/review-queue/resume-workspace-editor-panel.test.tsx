@@ -817,6 +817,13 @@ describe("ResumeWorkspaceEditorPanel", () => {
     expect(disclosure?.textContent).toContain(
       "Aggressive tailoring generated 1 bullet line",
     );
+    const details = disclosure?.querySelector("details");
+    expect(details?.open).toBe(false);
+    expect(details?.querySelector("summary")?.textContent).toBe(
+      "See generated lines",
+    );
+    expect(details?.textContent).toContain("Summary");
+    expect(details?.textContent).toContain("Generated metric line.");
     expect(markedContainer.textContent).toContain("AI-generated");
     expect(
       markedContainer.querySelector("[data-resume-ai-assistance-disclosure]")

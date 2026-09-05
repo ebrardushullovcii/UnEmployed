@@ -1658,6 +1658,13 @@ describe("ResumeWorkspaceScreen", () => {
     );
     expect(scrollRegion?.textContent).toContain("Work-history decisions");
     expect(scrollRegion?.textContent).toContain(hiddenRoleMessage);
+    const decisionContext = document.querySelector(
+      "[data-resume-work-history-decisions]",
+    );
+    expect(decisionContext?.textContent).toContain(
+      "Sales Operations Associate",
+    );
+    expect(decisionContext?.textContent).toMatch(/Bright Market.*2019.*2020/);
     expect(screen.getAllByText("Needs decision").length).toBeGreaterThan(0);
 
     const decisionsSection = document.querySelector(

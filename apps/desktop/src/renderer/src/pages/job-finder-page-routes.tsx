@@ -1284,6 +1284,7 @@ function JobFinderReviewQueueRouteContent() {
         campaignDefaultResumeStrategyId={
           activeCampaign?.applicationPolicy.defaultResumeStrategyId ?? null
         }
+        resumeOperationStarts={context.resumeOperationStarts}
         draftPreparation={context.tailoredDraftPreparation}
         globalDailyApplicationPreparationCapacity={
           context.workspace.dashboard

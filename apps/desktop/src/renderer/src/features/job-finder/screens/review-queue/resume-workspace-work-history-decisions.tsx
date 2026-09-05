@@ -1,11 +1,14 @@
 import type {
   JobFinderSetWorkHistoryReviewAcknowledgmentInput,
   ResumeDraft,
+  ResumeCoverageRoleComparison,
   WorkHistoryReviewAcknowledgment,
   WorkHistoryReviewSuggestion,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { StatusBadge } from "../../components/status-badge";
+
+import { describeReviewRole } from "./resume-review-context";
 
 type DraftAcknowledgments = ResumeDraft["workHistoryReviewAcknowledgments"];
 
@@ -138,6 +141,8 @@ export function buildWorkHistoryReviewAcknowledgmentCommandInput(input: {
 }
 
 interface ResumeWorkHistoryDecisionsProps {
+  sections?: ResumeDraft["sections"];
+  roles?: readonly ResumeCoverageRoleComparison[];
   acknowledgments: DraftAcknowledgments;
   disabled: boolean;
   draftId: string;
@@ -159,6 +164,11 @@ export function ResumeWorkHistoryDecisions(
 
   const resolved = decisions.map((suggestion) => ({
     suggestion,
+    context: describeReviewRole(
+      suggestion,
+      props.sections ?? [],
+      props.roles ?? [],
+    ),
     acknowledgment: matchWorkHistoryOmissionDecisionAcknowledgment({
       draftId: props.draftId,
       suggestion,
@@ -195,20 +205,36 @@ export function ResumeWorkHistoryDecisions(
           : "Every listed hidden role is kept omitted by your explicit decision."}
       </p>
       <ul className="grid min-w-0 grid-cols-1 gap-2">
-        {resolved.map(({ suggestion, acknowledgment }) => (
+        {resolved.map(({ suggestion, context, acknowledgment }) => (
           <li
             className="grid min-w-0 grid-cols-1 gap-1.5 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/60 px-2.5 py-2"
             key={suggestion.id}
           >
-            <StatusBadge tone={acknowledgment ? "positive" : "critical"}>
-              {acknowledgment ? "Kept omitted" : "Needs decision"}
-            </StatusBadge>
+            <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-1">
+              <div
+                className="min-w-0 flex-1 [overflow-wrap:anywhere]"
+                id={`review-role-${suggestion.id}`}
+              >
+                <p className="font-medium text-(--text-headline)">
+                  {context.title}
+                </p>
+                {context.detail ? (
+                  <p className="text-xs text-foreground-soft">
+                    {context.detail}
+                  </p>
+                ) : null}
+              </div>
+              <StatusBadge tone={acknowledgment ? "positive" : "critical"}>
+                {acknowledgment ? "Kept omitted" : "Needs decision"}
+              </StatusBadge>
+            </div>
             <p className="min-w-0 [overflow-wrap:anywhere]">
               {suggestion.message}
             </p>
             <div>
               <Button
                 aria-label={`${acknowledgment ? "Undo keep omitted" : "Keep omitted"} · ${omissionKindLabels[suggestion.kind]}: ${suggestion.message}`}
+                aria-describedby={`review-role-${suggestion.id}`}
                 aria-pressed={Boolean(acknowledgment)}
                 disabled={props.disabled}
                 onClick={() =>

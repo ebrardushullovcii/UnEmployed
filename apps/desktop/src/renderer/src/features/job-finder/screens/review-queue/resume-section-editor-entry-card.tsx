@@ -234,6 +234,17 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
           <h3 className="text-foreground" id={workHistoryHeadingId}>
             {reviewHeading}
           </h3>
+          <p className="text-xs text-foreground-soft">
+            {[
+              entry.title,
+              entry.subtitle,
+              [entry.startDate, entry.isCurrent ? "Present" : entry.endDate]
+                .filter(Boolean)
+                .join("–") || entry.dateRange,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
           {workHistoryReviewSuggestions.map((suggestion) => (
             <p key={suggestion.id}>
               {suggestion.kind === "date_quality" ? "Date quality: " : null}

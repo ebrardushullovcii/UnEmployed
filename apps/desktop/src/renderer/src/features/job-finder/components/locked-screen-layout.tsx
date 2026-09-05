@@ -846,7 +846,7 @@ export function LockedScreenLayout({
       </div>
       {bottomContent ? (
         <div
-          className="z-20 shrink-0 border-t border-(--surface-panel-border) bg-(--surface-fill-soft)/95 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-10px_28px_rgba(0,0,0,0.18)] backdrop-blur-sm"
+          className="z-20 shrink-0 border-t border-(--surface-panel-border) bg-(--surface-fill-soft)/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-10px_28px_rgba(0,0,0,0.18)] backdrop-blur-sm"
           data-locked-screen-bottom-content
         >
           {bottomContent}

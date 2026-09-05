@@ -18,7 +18,21 @@ export function focusSettingsSection(sectionId: string): boolean {
     return false;
   }
 
-  if (typeof target.scrollIntoView === "function") {
+  const scrollOwner = target.closest<HTMLElement>("main.screen-scroll-area");
+  if (scrollOwner) {
+    // scrollIntoView also scrolls the outer document, even with overflow:hidden.
+    // That moves the entire shell behind its fixed header and exposes a bottom gap.
+    const clearance =
+      Number.parseFloat(getComputedStyle(target).scrollMarginTop) || 0;
+    const topPadding =
+      Number.parseFloat(getComputedStyle(scrollOwner).paddingTop) || 0;
+    scrollOwner.scrollTop +=
+      target.getBoundingClientRect().top -
+      scrollOwner.getBoundingClientRect().top -
+      scrollOwner.clientTop -
+      clearance -
+      topPadding;
+  } else if (typeof target.scrollIntoView === "function") {
     target.scrollIntoView({ block: "start" });
   }
   if (typeof target.focus === "function") {

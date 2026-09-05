@@ -88,6 +88,7 @@ export interface JobFinderPageContext {
   discoveryRunFeedback: DiscoveryRunFeedback | null;
   importResumeGuardMessage: string | null;
   isPending: (scope: PendingActionScope) => boolean;
+  resumeOperationStarts?: Readonly<Record<string, number>>;
   isAnyPending: (scopes: readonly PendingActionScope[]) => boolean;
   onPrepareTailoredDrafts: () => void;
   onStopTailoredDraftPreparation: () => void;

@@ -268,7 +268,7 @@ describe("SettingsScreen information architecture", () => {
   // of the last card, and no scroll position freed it: nothing below the last
   // section reserved the bar's own height. The bar stays sticky inside the
   // settings scroll owner, and the last section now carries that clearance.
-  it("keeps the sticky save bar inside the scroll owner and reserves its height below the last card", () => {
+  it("leaves no save bar or bottom clearance on a clean page", () => {
     render(
       <MemoryRouter>
         <SettingsScreen {...baseProps} />
@@ -278,11 +278,7 @@ describe("SettingsScreen information architecture", () => {
     const bar = document.querySelector<HTMLElement>(
       "[data-settings-unsaved-bar]",
     );
-    expect(bar).not.toBeNull();
-    // Sticky, not fixed: it may only ever stick to its own scroll owner.
-    expect(bar?.className).toContain("sticky");
-    expect(bar?.className).toContain("bottom-0");
-    expect(bar?.className).not.toContain("fixed");
+    expect(bar).toBeNull();
 
     const lastSection = screen.getByRole("region", { name: "Danger zone" });
     expect(lastSection.className).toContain(
@@ -290,13 +286,12 @@ describe("SettingsScreen information architecture", () => {
     );
 
     const settingsRoot = lastSection.parentElement as HTMLElement;
-    expect(bar?.parentElement).toBe(settingsRoot);
-    // Unmeasured layouts keep a wrap-aware floor rather than zero clearance.
+    // A clean page reserves no room for an absent reminder.
     expect(
       settingsRoot.style.getPropertyValue(
         SETTINGS_UNSAVED_BAR_CLEARANCE_VARIABLE,
       ),
-    ).toBe(`${SETTINGS_UNSAVED_BAR_CLEARANCE_FALLBACK_PX}px`);
+    ).toBe("0px");
     expect(SETTINGS_UNSAVED_BAR_CLEARANCE_FALLBACK_PX).toBeGreaterThan(
       SETTINGS_UNSAVED_BAR_BOTTOM_GAP_PX,
     );
@@ -331,14 +326,13 @@ describe("SettingsScreen information architecture", () => {
       expect(
         settingsRoot.style.getPropertyValue(SETTINGS_SUBNAV_OFFSET_VARIABLE),
       ).toBe(`${96 + SETTINGS_SUBNAV_BOTTOM_GAP_PX}px`);
-      // Two measured bands own scroll clearance on this page: the sticky
-      // subnav above and the sticky unsaved-changes bar below.
+      // Only the subnav needs measuring on a clean page.
       expect(
         settingsRoot.style.getPropertyValue(
           SETTINGS_UNSAVED_BAR_CLEARANCE_VARIABLE,
         ),
-      ).toBe(`${96 + SETTINGS_UNSAVED_BAR_BOTTOM_GAP_PX}px`);
-      expect(capturedCallbacks).toHaveLength(2);
+      ).toBe("0px");
+      expect(capturedCallbacks).toHaveLength(1);
     } finally {
       vi.restoreAllMocks();
       vi.unstubAllGlobals();

@@ -78,6 +78,7 @@ function selectRestorableQueueSelection(
 }
 
 export function ReviewQueueScreen(props: {
+  resumeOperationStarts?: Readonly<Record<string, number>> | undefined;
   actionState: { message: string | null };
   applicationRecords: readonly ApplicationRecord[];
   browserSession: BrowserSessionState;
@@ -125,6 +126,7 @@ export function ReviewQueueScreen(props: {
   tailoredAssets?: readonly TailoredAsset[] | undefined;
 }) {
   const {
+    resumeOperationStarts,
     actionState,
     applicationRecords,
     browserSession,
@@ -247,6 +249,10 @@ export function ReviewQueueScreen(props: {
       : text;
   })();
 
+  const operationStartedAt = selectedJobId
+    ? resumeOperationStarts?.[selectedJobId]
+    : undefined;
+
   useEffect(() => {
     setSelectedJobPendingTooLong(false);
 
@@ -254,12 +260,21 @@ export function ReviewQueueScreen(props: {
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
-      setSelectedJobPendingTooLong(true);
-    }, RESUME_OPERATION_LONG_RUNNING_MS);
+    const timeoutId = window.setTimeout(
+      () => {
+        setSelectedJobPendingTooLong(true);
+      },
+      Math.max(
+        0,
+        RESUME_OPERATION_LONG_RUNNING_MS -
+          (operationStartedAt === undefined
+            ? 0
+            : Date.now() - operationStartedAt),
+      ),
+    );
 
     return () => window.clearTimeout(timeoutId);
-  }, [selectedJobId, selectedJobPending]);
+  }, [selectedJobId, selectedJobPending, operationStartedAt]);
 
   // The draft reports no real progress, so the honest thing to move is the
   // clock, not a fabricated percentage. Same shape the resume import and the
@@ -271,14 +286,14 @@ export function ReviewQueueScreen(props: {
       return;
     }
 
-    const startedAt = Date.now();
+    const startedAt = operationStartedAt ?? Date.now();
     const updateElapsed = () =>
       setPendingElapsedSeconds(Math.floor((Date.now() - startedAt) / 1_000));
     updateElapsed();
     const timer = window.setInterval(updateElapsed, 1_000);
 
     return () => window.clearInterval(timer);
-  }, [isSelectedJobPreparing, selectedJobId]);
+  }, [isSelectedJobPreparing, selectedJobId, operationStartedAt]);
 
   useEffect(() => {
     writeReviewQueueBatchSelection(campaignId, queueSelection);

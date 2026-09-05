@@ -262,9 +262,11 @@ export function SettingsScreen(props: {
   useLayoutEffect(() => {
     const bar = unsavedBarRef.current;
     if (!bar) {
+      setUnsavedBarClearancePx(0);
       return;
     }
 
+    setUnsavedBarClearancePx(SETTINGS_UNSAVED_BAR_CLEARANCE_FALLBACK_PX);
     const measureUnsavedBarClearance = () => {
       const height = bar.getBoundingClientRect().height;
       // Unmeasured layouts (jsdom, pre-first-paint) report 0px; keep the
@@ -285,7 +287,7 @@ export function SettingsScreen(props: {
     const observer = new ResizeObserver(measureUnsavedBarClearance);
     observer.observe(bar);
     return () => observer.disconnect();
-  }, []);
+  }, [dirtySections.length > 0]);
 
   const handleSectionAnchorClick = (event: MouseEvent<HTMLAnchorElement>) => {
     const isUnmodifiedPrimaryActivation =
@@ -517,7 +519,7 @@ export function SettingsScreen(props: {
           // Scroll clearance for the sticky save bar below. Without it the
           // bar painted over the last card's live text at the bottom of the
           // scroll region, and no scroll position freed it.
-          className="scroll-mt-(--settings-subnav-offset) min-w-0 pb-(--settings-unsaved-bar-clearance)"
+          className="scroll-mt-(--settings-subnav-offset) mb-3 min-w-0 pb-(--settings-unsaved-bar-clearance)"
           id="settings-danger-zone"
           tabIndex={-1}
         >

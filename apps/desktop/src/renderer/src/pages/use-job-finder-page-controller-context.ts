@@ -55,6 +55,7 @@ type BuildJobFinderPageContextArgs = {
   canImportResume: boolean;
   confirmLeaveDirtyResumeWorkspace: (pendingAction: string) => Promise<boolean>;
   importResumeGuardMessage: string | null;
+  resumeOperationStarts?: Readonly<Record<string, number>>;
   isAnyPendingAction: (scopes: readonly PendingActionScope[]) => boolean;
   isPendingAction: (scope: PendingActionScope) => boolean;
   isCurrentResumeAssistantRequest: (
@@ -151,6 +152,7 @@ export function buildJobFinderPageContext(
     canImportResume,
     confirmLeaveDirtyResumeWorkspace,
     importResumeGuardMessage,
+    resumeOperationStarts,
     isAnyPendingAction,
     isPendingAction,
     isCurrentResumeAssistantRequest,
@@ -264,6 +266,7 @@ export function buildJobFinderPageContext(
     canImportResume,
     discoveryRunFeedback,
     importResumeGuardMessage,
+    resumeOperationStarts: resumeOperationStarts ?? {},
     isAnyPending: isAnyPendingAction,
     isPending: isPendingAction,
     profileCopilotBusy,

@@ -1,3 +1,4 @@
+import { useResumeOperationStarts } from "./use-resume-operation-starts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type {
@@ -616,6 +617,13 @@ export function useJobFinderPageController() {
     [pendingActionState],
   );
 
+  const resumeOperationStarts = useResumeOperationStarts(
+    workspaceState.status === "ready"
+      ? workspaceState.workspace.reviewQueue
+      : [],
+    (jobId) => isPendingAction(jobFinderPendingActions.resumeJob(jobId)),
+  );
+
   // Action-level counterpart to the router blocker below: an action that
   // leaves dirty Resume Studio work asks the same branded question through a
   // controller-owned request instead of `window.confirm`. The promise resolves
@@ -1112,6 +1120,7 @@ export function useJobFinderPageController() {
       canImportResume,
       confirmLeaveDirtyResumeWorkspace,
       importResumeGuardMessage,
+      resumeOperationStarts,
       isAnyPendingAction,
       isPendingAction,
       isCurrentResumeAssistantRequest,
@@ -1181,6 +1190,7 @@ export function useJobFinderPageController() {
     clearResumeWorkspaceState,
     confirmLeaveDirtyResumeWorkspace,
     discoveryRunFeedback,
+    resumeOperationStarts,
     isAnyPendingAction,
     isPendingAction,
     isCurrentResumeAssistantRequest,
