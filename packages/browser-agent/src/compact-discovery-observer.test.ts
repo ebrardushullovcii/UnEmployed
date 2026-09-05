@@ -134,10 +134,12 @@ function makeContainer(
     easyApplyHint?: boolean;
     companyHref?: string | null;
     companyLabel?: string | null;
+    repeatedCard?: boolean;
   },
 ): CompactDiscoveryScanPayload["cardContainers"][number] {
   return {
     key,
+    repeatedCard: overrides?.repeatedCard ?? false,
     headingText: overrides?.headingText ?? null,
     lines,
     easyApplyHint: overrides?.easyApplyHint ?? false,
@@ -147,7 +149,12 @@ function makeContainer(
 }
 
 function emptyScanPayload(): CompactDiscoveryScanPayload {
-  return { structuredPostings: [], cardContainers: [], elements: [] };
+  return {
+    structuredPostings: [],
+    cardContainers: [],
+    elements: [],
+    cardSignatures: [],
+  };
 }
 
 function standardListingPayload(): CompactDiscoveryScanPayload {

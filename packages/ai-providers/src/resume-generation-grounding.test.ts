@@ -902,6 +902,25 @@ describe("classifyResumeClaimGrounding", () => {
     ]);
   });
 
+  test("treats inflections of an evidenced verb as the same word", () => {
+    // The model reordered one bullet and turned "automating deployments" into
+    // "to automate deployments". That is the same fact; the classifier used to
+    // read "automate" as new content and block approval.
+    const result = classify(
+      "Reduced deployment time by 40% by creating and maintaining CI/CD pipelines with Docker and Kubernetes to automate deployments.",
+      [
+        makeEvidence(
+          "experience:role_1:bullet_1",
+          "Created and maintained CI/CD pipelines with Docker and Kubernetes, automating deployments and reducing deployment time by 40%.",
+        ),
+      ],
+      { allowReasonableInference: true },
+    );
+
+    expect(result.verdict).toBe("covered");
+    expect(result.gaps).toEqual([]);
+  });
+
   test("classifies safe elaboration only when inference is allowed", () => {
     const text =
       "Designed table reservation flows and ordering modules for the restaurant platform.";
@@ -917,7 +936,9 @@ describe("classifyResumeClaimGrounding", () => {
     expect(conservative.gaps).toEqual([
       {
         type: "inference_not_allowed",
-        values: ["group_1", "table", "reservation", "flow", "order", "module"],
+        // Gap values are normalized stems, the same form the evidence is
+        // compared in.
+        values: ["group_1", "table", "reservation", "flow", "order", "modul"],
       },
     ]);
 

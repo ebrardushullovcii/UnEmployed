@@ -76,6 +76,13 @@ const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
  * models and reported them as failures; the extraction budget fits the work.
  */
 const DEFAULT_RESUME_DRAFT_TIMEOUT_MS = 120_000;
+/**
+ * One tool-calling turn of the Assistant or Copilot. A turn that inspects the
+ * draft and proposes a grounded rewrite is a large structured output too; at
+ * sixty seconds slower models were cut off mid-turn and the whole request
+ * collapsed into the safe fallback.
+ */
+const DEFAULT_AGENT_TURN_TIMEOUT_MS = 90_000;
 const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 120_000;
 const DEFAULT_RESUME_IMPORT_STAGE_TIMEOUT_MS: Record<
   Exclude<ResumeImportExtractionStage, "shared_memory">,
@@ -655,7 +662,7 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
       const controller = new AbortController();
       const timeoutMs =
-        validatedOptions.requestTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
+        validatedOptions.requestTimeoutMs ?? DEFAULT_AGENT_TURN_TIMEOUT_MS;
       let localTimedOut = false;
       const timeoutId = setTimeout(() => {
         localTimedOut = true;
@@ -816,6 +823,10 @@ export function createOpenAiCompatibleJobFinderAiClient(
 const LISTING_TEXT_MISSING_DETAIL =
   "The listing text was not captured, so there was nothing to tailor the resume toward; your original wording was kept.";
 
+/** The agent's opening placeholder before it has worked; never an answer. */
+const RESUME_EDIT_PLACEHOLDER_CONTENT =
+  /^I am reviewing the requested résumé change against the saved evidence\.?$/u;
+
 function buildProviderFailureProvenance(error: unknown) {
   const detail = summarizeError(error);
   return {
@@ -873,7 +884,7 @@ export function createJobFinderAiClientFromEnvironment(
   );
   function createFallbackExecutionReceipt(
     capability: string,
-    stopReason: "no_progress" | "permanent_failure",
+    stopReason: "no_progress" | "permanent_failure" | "time_budget",
   ) {
     const timestamp = new Date().toISOString();
     return AgentTaskExecutionReceiptSchema.parse({
@@ -1086,12 +1097,26 @@ export function createJobFinderAiClientFromEnvironment(
           request: input,
         });
         if (reply.executionReceipt?.stopReason === "completed") return reply;
+        // A run that stopped on its time or progress budget may still have
+        // produced the answer: a grounded patch, or a plain explanation of
+        // what could not be done. Throwing that away for the deterministic
+        // fallback cost the user the model's work. Keep it, with the receipt
+        // saying honestly how the run ended.
+        if (
+          reply.patches.length > 0 ||
+          (reply.content.trim().length > 0 &&
+            !RESUME_EDIT_PLACEHOLDER_CONTENT.test(reply.content))
+        ) {
+          return reply;
+        }
         const fallback = await fallbackClient.reviseResumeDraft(input);
         return {
           ...fallback,
           executionReceipt: createFallbackExecutionReceipt(
             "resume_guided_edit",
-            "no_progress",
+            reply.executionReceipt?.stopReason === "time_budget"
+              ? "time_budget"
+              : "no_progress",
           ),
         };
       } catch (error) {

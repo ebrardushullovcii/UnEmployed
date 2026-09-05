@@ -96,6 +96,7 @@ import { createUniqueId, normalizeText, uniqueStrings } from "./shared";
 import { createJobIdentityIndex } from "./job-identity";
 import { assessJobPostingDetailQuality } from "./job-posting-detail-quality";
 import {
+  LISTING_DETAIL_READS_PER_RUN,
   describeListingDetailEnrichment,
   enrichSavedJobListingDetails,
   jobNeedsListingDetail,
@@ -2603,11 +2604,17 @@ export function createWorkspaceDiscoveryMethods(
             duplicatesMerged: activeRun.summary.duplicatesMerged,
             invalidSkipped: activeRun.summary.invalidSkipped,
           });
+        const readsThisRun = Math.min(
+          enrichmentCandidates.length,
+          LISTING_DETAIL_READS_PER_RUN,
+        );
         emitActivity(
           readEvent(
-            `Reading listing details for ${enrichmentCandidates.length} ${
-              enrichmentCandidates.length === 1 ? "job" : "jobs"
-            }`,
+            readsThisRun < enrichmentCandidates.length
+              ? `Reading listing details for ${readsThisRun} of ${enrichmentCandidates.length} jobs; the rest are read on the next search`
+              : `Reading listing details for ${readsThisRun} ${
+                  readsThisRun === 1 ? "job" : "jobs"
+                }`,
           ),
         );
         try {

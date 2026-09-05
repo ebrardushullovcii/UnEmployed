@@ -34,6 +34,41 @@ const ResumeSectionTextInputSchema = z.object({
   sectionId: z.string().trim().min(1),
   newText: z.string().trim().min(1),
 });
+const ResumeBulletTextInputSchema = z.object({
+  sectionId: z.string().trim().min(1),
+  entryId: z.string().trim().min(1),
+  bulletId: z.string().trim().min(1),
+  newText: z.string().trim().min(1),
+});
+
+/**
+ * What each patch operation must carry to be appliable. The patch schema
+ * leaves the target ids nullable because different operations need different
+ * ones; a model that omits the bullet id used to sail through the schema and
+ * fail at apply time with a message the user saw verbatim. Rejecting it here
+ * hands the model an exact repair instead.
+ */
+function describeMissingPatchFields(patch: ResumeDraftPatch): string | null {
+  const needs = (fields: Array<keyof ResumeDraftPatch>): string | null => {
+    const missing = fields.filter((field) => {
+      const value = patch[field];
+      return value === null || value === undefined || value === "";
+    });
+    return missing.length > 0
+      ? `${patch.operation} requires ${missing.join(", ")}. Read the draft with read_resume_context to find the exact ids.`
+      : null;
+  };
+  switch (patch.operation) {
+    case "update_bullet":
+      return needs(["targetEntryId", "targetBulletId", "newText"]);
+    case "replace_entry_summary":
+      return needs(["targetEntryId", "newText"]);
+    case "replace_section_text":
+      return needs(["newText"]);
+    default:
+      return null;
+  }
+}
 
 function profileOperationInputSchema<T extends z.ZodTypeAny>(fields: T) {
   return z.object({
@@ -431,7 +466,9 @@ export async function runProfileCopilotAgentTask(input: {
           validationIssues,
         }),
       }),
-    timeBudgetMs: 90_000,
+    // Two or three tool turns on a slower model; each turn has its own
+    // timeout, this bounds the whole request.
+    timeBudgetMs: 150_000,
     noProgressLimit: 4,
   });
 
@@ -455,7 +492,8 @@ export async function runResumeEditAgentTask(input: {
     capability: "guided_resume_edits",
     systemPrompt: [
       "You are a grounded résumé editing agent. Work through tools, not a final JSON response.",
-      "Prefer replace_resume_section_text for ordinary section prose changes; use add_resume_patch only when no dedicated tool fits.",
+      "Prefer replace_resume_section_text for ordinary section prose changes and update_resume_bullet for one bullet in one entry; use add_resume_patch only when no dedicated tool fits.",
+      "Never state a fact, metric, employer, tool, or date that the saved evidence does not carry. If part of a request asks for one, do the grounded part and say plainly in the response which part you did not do and why.",
       "Set a useful response and add only bounded patches supported by the supplied draft and job evidence.",
       "Never invent facts, dates, metrics, credentials, or outcomes. Do not touch locked content.",
       "Validate the draft, repair every issue, then finish_task.",
@@ -537,6 +575,67 @@ export async function runResumeEditAgentTask(input: {
         },
       },
       {
+        name: "update_resume_bullet",
+        description:
+          "Propose a grounded rewrite of one bullet in one experience or project entry. Use the section, entry and bullet ids from read_resume_context. The runtime adds patch IDs, timestamps and origin automatically.",
+        inputSchema: ResumeBulletTextInputSchema,
+        parameters: jsonObject(
+          {
+            sectionId: { type: "string" },
+            entryId: { type: "string" },
+            bulletId: { type: "string" },
+            newText: { type: "string" },
+          },
+          ["sectionId", "entryId", "bulletId", "newText"],
+        ),
+        permission: "draft_write",
+        execute(toolInput, context) {
+          const parsed = ResumeBulletTextInputSchema.parse(toolInput);
+          const section = context.state.draft.sections.find(
+            (candidate) => candidate.id === parsed.sectionId,
+          );
+          if (!section)
+            throw new Error("The requested résumé section does not exist.");
+          if (section.locked)
+            throw new Error("The requested résumé section is locked.");
+          const entry = section.entries.find(
+            (candidate) => candidate.id === parsed.entryId,
+          );
+          if (!entry)
+            throw new Error(
+              `Entry '${parsed.entryId}' is not in section '${section.id}'. Entry ids in this section: ${section.entries.map((candidate) => candidate.id).join(", ") || "none"}.`,
+            );
+          const bullet = entry.bullets.find(
+            (candidate) => candidate.id === parsed.bulletId,
+          );
+          if (!bullet)
+            throw new Error(
+              `Bullet '${parsed.bulletId}' is not in entry '${entry.id}'. Bullet ids in this entry: ${entry.bullets.map((candidate) => candidate.id).join(", ") || "none"}.`,
+            );
+          if (bullet.locked || entry.locked)
+            throw new Error("The requested bullet is locked.");
+          const patch = ResumeDraftPatchSchema.parse({
+            id: `resume_patch_${context.draft.patches.length + 1}`,
+            draftId: context.state.draft.id,
+            operation: "update_bullet",
+            targetSectionId: section.id,
+            targetEntryId: entry.id,
+            targetBulletId: bullet.id,
+            newText: parsed.newText,
+            appliedAt: new Date().toISOString(),
+            origin: "assistant",
+          });
+          return {
+            draft: {
+              ...context.draft,
+              patches: [...context.draft.patches, patch],
+            },
+            summary: `Proposed a rewrite of one bullet in ${entry.title ?? section.label}`,
+            progressMade: true,
+          };
+        },
+      },
+      {
         name: "add_resume_patch",
         description:
           "Add one validated bounded patch to the temporary résumé proposal.",
@@ -549,6 +648,10 @@ export async function runResumeEditAgentTask(input: {
         execute(toolInput, context) {
           const parsed = ResumePatchInputSchema.parse(toolInput);
           const patch: ResumeDraftPatch = parsed.patch;
+          const missing = describeMissingPatchFields(patch);
+          if (missing) {
+            throw new Error(missing);
+          }
           return {
             draft: {
               ...context.draft,
@@ -606,7 +709,9 @@ export async function runResumeEditAgentTask(input: {
           validationIssues,
         }),
       }),
-    timeBudgetMs: 90_000,
+    // Two or three tool turns on a slower model; each turn has its own
+    // timeout, this bounds the whole request.
+    timeBudgetMs: 150_000,
     noProgressLimit: 4,
   });
 

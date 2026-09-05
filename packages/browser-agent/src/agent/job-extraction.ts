@@ -1355,7 +1355,12 @@ export function buildSearchResultCardMergeKey(input: {
   return baseCanonicalUrl;
 }
 
-function buildGenericJobId(url: string): string {
+/**
+ * A stable posting id from a URL that carries no explicit id: host and path
+ * (plus any id-shaped query values) as one slug. Every extraction path uses
+ * this same fallback so the same listing reached twice gets the same id.
+ */
+export function buildGenericJobId(url: string): string {
   try {
     const parsed = new URL(url);
     const interestingParamKeys = [

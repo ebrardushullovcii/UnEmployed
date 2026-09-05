@@ -129,6 +129,48 @@ describe("extractListingDetailFromHtml", () => {
     expect(detail?.description).not.toContain("© Northwind");
   });
 
+  it("reads a non-English posting when it is long and names the job, starting at the title", () => {
+    const menu = [
+      "Thirrje",
+      "Publiko Konkurs",
+      "Produktet",
+      "Llogarite Pagën",
+      "Rroga",
+      "Akademi Pune",
+      "Blog",
+      "Kontakt",
+      "AL",
+      "Profili Im",
+    ]
+      .map((item) => `<div><a href="/x">${item}</a></div>`)
+      .join("");
+    const body = Array.from(
+      { length: 30 },
+      (_, index) =>
+        `<p>Paragrafi ${index}: kandidati do të zhvillojë shërbime, do të punojë me ekipin dhe do të mirëmbajë sistemet tona.</p>`,
+    ).join("");
+    const html = `<html><head><title>Zhvillues Softueri • Board</title></head><body>${menu}<div class="x"><h1>Zhvillues Softueri</h1><div>Kc Commerce</div>${body}</div><div>Punë të ngjashme</div></body></html>`;
+
+    const detail = extractListingDetailFromHtml({
+      html,
+      url: "https://board.example.test/kc-commerce/zhvillues-softueri",
+      expectedTitle: "Zhvillues Softueri / IT",
+    });
+
+    expect(detail?.method).toBe("page_text");
+    expect(detail?.description.startsWith("Zhvillues Softueri")).toBe(true);
+    expect(detail?.description).not.toContain("Publiko Konkurs");
+    expect(detail?.description).toContain("Paragrafi 29");
+
+    // Without the card title the page cannot be told from any other long page.
+    expect(
+      extractListingDetailFromHtml({
+        html,
+        url: "https://board.example.test/kc-commerce/zhvillues-softueri",
+      }),
+    ).toBeNull();
+  });
+
   it("returns null for a thin page rather than inventing a body", () => {
     const html = `<html><body><main><h1>Job</h1><p>Sign in to view this listing.</p></main></body></html>`;
 

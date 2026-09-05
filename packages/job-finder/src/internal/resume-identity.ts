@@ -103,27 +103,63 @@ export function isLikelyPersonName(value: string): boolean {
   );
 }
 
-function nameLooksLikeIdentityLine(line: string): boolean {
-  const value = line.trim();
+/**
+ * The person's name as it appears at the start of a header line, or null.
+ *
+ * Two rules that the plain line test lacked: every word must look like a name
+ * part (capitalised, so a sentence tail such as "at scale." is never a name),
+ * and a two-column header that the text extractor flattened into one line
+ * ("Aaron Murphy Tampa, FL") still yields the leading name rather than being
+ * rejected for the trailing location.
+ */
+export function extractIdentityNameFromLine(line: string): string | null {
+  const value = line.trim().replace(/\s+/g, " ");
   if (!value || value.length > 100 || /[@]|https?:\/\//i.test(value)) {
-    return false;
+    return null;
   }
 
   if (
     /^(about|summary|profile|skills|experience|education|projects?|certifications?|contact|work history|professional summary)\b/i.test(
       value,
-    ) ||
-    nonNamePhrasePattern.test(value)
+    )
   ) {
-    return false;
+    return null;
   }
 
-  const words = value.split(/\s+/).filter(Boolean);
-  return (
-    words.length >= 2 &&
-    words.length <= 5 &&
-    identityNameLinePattern.test(value)
-  );
+  // Cut at the first token that cannot be part of a name: a digit, a pipe,
+  // a bullet, a lowercase word. A token carrying a trailing comma belongs to
+  // what follows it ("Tampa, FL"), so it ends the name and is not part of it.
+  const words = value.split(" ");
+  const nameWords: string[] = [];
+  for (const word of words) {
+    if (/[|•·]$/u.test(word)) {
+      const bare = word.replace(/[|•·]+$/u, "");
+      if (bare && isLikelyPersonNamePart(bare)) {
+        nameWords.push(bare);
+      }
+      break;
+    }
+    if (/,$/u.test(word)) {
+      break;
+    }
+    if (!isLikelyPersonNamePart(word)) {
+      break;
+    }
+    nameWords.push(word);
+    if (nameWords.length === 4) {
+      break;
+    }
+  }
+  if (nameWords.length < 2) {
+    return null;
+  }
+  // A name never ends in a bare period unless it is an initial ("J.").
+  const last = nameWords[nameWords.length - 1] ?? "";
+  if (/\.$/u.test(last) && last.length > 2) {
+    return null;
+  }
+  const candidate = nameWords.join(" ");
+  return isLikelyPersonName(candidate) ? candidate : null;
 }
 
 function candidateEvidencePriority(
@@ -232,7 +268,12 @@ function extractCanonicalResumeIdentity(
     .filter(Boolean)
     .slice(0, 12);
   const email = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i)?.[0];
-  const name = candidateName ?? lines.find(nameLooksLikeIdentityLine);
+  const name =
+    candidateName ??
+    lines
+      .map((line) => extractIdentityNameFromLine(line))
+      .find((extracted): extracted is string => extracted !== null) ??
+    null;
   const sourceEmail = candidateEmail ?? email ?? null;
 
   return {

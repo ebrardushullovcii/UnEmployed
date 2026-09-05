@@ -181,6 +181,60 @@ describe("addExtractedJobsToState", () => {
     );
   });
 
+  test("merges the same slug-routed listing reached twice instead of keeping two copies", () => {
+    const state = createState();
+    const base = {
+      canonicalUrl:
+        "https://board.example.test/ls-global/senior-software-engineer",
+      company: "Ls Global",
+      location: "Prishtinë",
+      salaryText: null,
+      postedAt: null,
+      workMode: [] as ("remote" | "hybrid" | "onsite" | "flexible")[],
+      applyPath: "unknown" as const,
+      easyApplyEligible: false,
+      keySkills: [] as string[],
+    };
+    // First pass: the card, with a card-derived id.
+    expect(
+      addExtractedJobsToState(
+        [
+          {
+            ...base,
+            sourceJobId: "card_senior_software_engineer",
+            title: "Senior Software Engineer",
+            description: "19 ditë",
+            summary: "19 ditë",
+          },
+        ],
+        state,
+        "target_site",
+      ),
+    ).toBe(1);
+    // Second pass: the detail page of the same listing under another id.
+    expect(
+      addExtractedJobsToState(
+        [
+          {
+            ...base,
+            sourceJobId:
+              "board_example_test_ls_global_senior_software_engineer",
+            title: "Senior Software Engineer",
+            company: "LS GLOBAL",
+            description:
+              "Senior Software Engineer at LS GLOBAL. Build APIs with Python and SQL.",
+            summary: "Backend role at LS Global.",
+            keySkills: ["Python", "SQL"],
+          },
+        ],
+        state,
+        "target_site",
+      ),
+    ).toBe(0);
+    expect(state.collectedJobs).toHaveLength(1);
+    expect(state.collectedJobs[0]?.keySkills).toEqual(["Python", "SQL"]);
+  });
+
   test("still deduplicates stable LinkedIn detail urls", () => {
     const state = createState();
 
@@ -207,7 +261,8 @@ describe("addExtractedJobsToState", () => {
           title: "Full Stack Developer (AI-First)",
           company: "Full Circle Agency",
           location: "Prishtina (Remote)",
-          description: "Second copy with stronger evidence and extracted skills.",
+          description:
+            "Second copy with stronger evidence and extracted skills.",
           salaryText: null,
           summary: "Second copy with stronger evidence and extracted skills.",
           postedAt: null,
