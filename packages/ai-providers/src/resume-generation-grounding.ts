@@ -42,7 +42,7 @@ export interface ResumeRewriteSelection {
   inferred: boolean;
 }
 
-const RESUME_STOP_WORDS = new Set([
+const RESUME_STOP_WORD_LIST = [
   "a",
   "an",
   "and",
@@ -66,7 +66,7 @@ const RESUME_STOP_WORDS = new Set([
   "using",
   "via",
   "with",
-]);
+];
 
 const RESUME_TOKEN_SYNONYM_GROUPS = [
   ["build", "create", "develop", "engineer", "implement"],
@@ -84,6 +84,13 @@ const RESUME_TOKEN_SYNONYMS = new Map<string, string>(
   RESUME_TOKEN_SYNONYM_GROUPS.flatMap((group, groupIndex) =>
     group.map((token) => [token, `group_${groupIndex}`] as const),
   ),
+);
+
+// Both sets are consulted with normalized tokens, so their entries are
+// normalized the same way; a literal "predictable" would otherwise never meet
+// the stem the text produces.
+const RESUME_STOP_WORDS = new Set(
+  RESUME_STOP_WORD_LIST.flatMap((word) => [word, normalizeToken(word)]),
 );
 
 const UNSUPPORTED_ABSOLUTE_CLAIM_PATTERN =
@@ -126,7 +133,28 @@ function normalizeToken(value: string): string {
     return "reliab";
   }
 
-  return RESUME_TOKEN_SYNONYMS.get(normalized) ?? normalized;
+  // Bring inflections of one verb to one stem: "automating" is stripped to
+  // "automat" above, so "automate" must land there too, or a rewrite that
+  // says "to automate deployments" reads as new content next to evidence that
+  // said "automating deployments". A trailing silent "e" is dropped and a
+  // doubled final consonant left by "-ing"/"-ed" stripping is collapsed.
+  // Both sides of every comparison pass through here, so the stem only has to
+  // be consistent, not linguistically exact.
+  const synonym = RESUME_TOKEN_SYNONYMS.get(normalized);
+  if (synonym) {
+    return synonym;
+  }
+  let stemmed = normalized;
+  if (
+    stemmed.length > 5 &&
+    /[a-z]e$/.test(stemmed) &&
+    !/[aeiou]e$/.test(stemmed)
+  ) {
+    stemmed = stemmed.slice(0, -1);
+  } else if (stemmed.length > 5 && /([bdfglmnprt])\1$/.test(stemmed)) {
+    stemmed = stemmed.slice(0, -1);
+  }
+  return RESUME_TOKEN_SYNONYMS.get(stemmed) ?? stemmed;
 }
 
 function meaningfulTokens(value: string): string[] {
@@ -829,7 +857,7 @@ function capitalizedNamedWords(value: string): string[] {
 // grounding tests and stay strictly non-domain and non-product: connectors,
 // modifiers, elaboration verbs, and generic engineering nouns that cannot
 // assert a named tool.
-const SAFE_ELABORATION_TOKENS = new Set([
+const SAFE_ELABORATION_TOKEN_LIST = [
   // Connector synonyms and elaboration verb groups (leadership group
   // excluded: leading/directing/owning must always come from evidence).
   "group_0",
@@ -1397,7 +1425,10 @@ const SAFE_ELABORATION_TOKENS = new Set([
   "reservation",
   "ritual",
   "organization",
-]);
+];
+const SAFE_ELABORATION_TOKENS = new Set(
+  SAFE_ELABORATION_TOKEN_LIST.flatMap((word) => [word, normalizeToken(word)]),
+);
 
 // Gate tokens keep technology spellings intact ("c++"), then split
 // punctuation-joined compounds at separators so evidence compounds such as

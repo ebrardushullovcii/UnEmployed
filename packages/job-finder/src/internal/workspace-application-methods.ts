@@ -4451,13 +4451,21 @@ export function createWorkspaceApplicationMethods(
           origin: "assistant",
         }),
       );
+      // A patch the model left incomplete (no replacement text, or a bullet
+      // change with no bullet named) cannot be applied. It is reported as an
+      // unusable proposal in plain words, never as the apply error it would
+      // raise later.
       const invalidReplacementPatch = normalizedPatches.find(
         (patch) =>
-          [
+          ([
             "replace_section_text",
             "replace_entry_summary",
             "update_bullet",
-          ].includes(patch.operation) && !patch.newText?.trim(),
+          ].includes(patch.operation) &&
+            !patch.newText?.trim()) ||
+          (patch.operation === "update_bullet" &&
+            (!patch.targetEntryId || !patch.targetBulletId)) ||
+          (patch.operation === "replace_entry_summary" && !patch.targetEntryId),
       );
       const reviewablePatches = invalidReplacementPatch
         ? []
@@ -4502,9 +4510,12 @@ export function createWorkspaceApplicationMethods(
           ? buildResumeProposalReplyContent({
               approvalBlockers: proposalGate.approvalBlockers,
               changeCount: reviewablePatches.length,
+              assistantNote: assistantReply.content,
             })
           : invalidReplacementPatch
-            ? "I could not produce a usable replacement for that request, so no resume change was proposed. Try asking for the exact section and outcome you want."
+            ? invalidReplacementPatch.operation === "update_bullet"
+              ? "I could not tell which bullet to change, so no resume change was proposed. Name the bullet by its first few words and the role it belongs to."
+              : "I could not produce a usable replacement for that request, so no resume change was proposed. Try asking for the exact section and outcome you want."
             : assistantReply.content;
       const assistantMessage = buildAssistantReplyMessage({
         jobId,

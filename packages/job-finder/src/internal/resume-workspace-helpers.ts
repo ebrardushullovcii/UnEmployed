@@ -2324,17 +2324,43 @@ export function buildResumeProposalReplyContent(input: {
   approvalBlockers: readonly ResumeProposalApprovalBlocker[];
   changeCount: number;
   scopeLabel?: string | null;
+  /**
+   * The model's own note about the request, kept when it says something the
+   * standard line does not: typically which part of the request it did not
+   * do and why ("no evidence for a 60% AWS saving"). The user asked for that
+   * part and deserves the answer, not silence.
+   */
+  assistantNote?: string | null;
 }): string {
   const scope = input.scopeLabel
     ? ` for the '${input.scopeLabel}' section`
     : "";
   const plural = input.changeCount === 1 ? "" : "s";
+  const note = selectAssistantNote(input.assistantNote);
 
   if (input.approvalBlockers.length > 0) {
+    // A blocked proposal carries only the blocker: the model's own note could
+    // call the edit grounded or done, which the gate has just said it is not.
     return `I prepared ${input.changeCount} resume edit${plural}${scope}, but ${input.approvalBlockers.length === 1 ? "1 of them would block approval" : `${input.approvalBlockers.length} of them would block approval`}: the new wording is not supported by your saved evidence. Nothing changed yet; rewrite the flagged text or reject this proposal.`;
   }
 
-  return `I prepared ${input.changeCount} grounded resume edit${plural}${scope} for your review. Nothing changed yet; select the changes you want and accept them explicitly.`;
+  return `I prepared ${input.changeCount} grounded resume edit${plural}${scope} for your review. Nothing changed yet; select the changes you want and accept them explicitly.${note}`;
+}
+
+const ASSISTANT_NOTE_MAX_LENGTH = 420;
+const ASSISTANT_NOTE_BOILERPLATE =
+  /^(?:i (?:am|'m) reviewing|i prepared|i (?:have )?(?:proposed|updated|added|drafted)[^.]*\.?$|done\.?$|ok(?:ay)?\.?$)/iu;
+
+function selectAssistantNote(note: string | null | undefined): string {
+  const trimmed = note?.replace(/\s+/g, " ").trim() ?? "";
+  if (!trimmed || ASSISTANT_NOTE_BOILERPLATE.test(trimmed)) {
+    return "";
+  }
+  const clipped =
+    trimmed.length > ASSISTANT_NOTE_MAX_LENGTH
+      ? `${trimmed.slice(0, ASSISTANT_NOTE_MAX_LENGTH).replace(/\s+\S*$/u, "")}…`
+      : trimmed;
+  return ` ${clipped}`;
 }
 
 export function hasBlockingResumeIdentityMismatch(

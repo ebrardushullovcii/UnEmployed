@@ -445,14 +445,95 @@ function readMetaContent(html: string, property: string): string | null {
 const LISTING_BODY_SIGNAL =
   /\b(responsibilit|requirement|qualification|what you.ll do|what you will do|about (?:the|this) role|about you|who you are|experience|skills|benefits|compensation|salary)\b/iu;
 
+/**
+ * Pages without `<main>`/`<article>` landmarks put the site's menus ahead of
+ * the posting. When the card's title appears as its own line, the body starts
+ * there; everything before it is chrome (menu items, account links, language
+ * switches) that would otherwise lead the description.
+ */
+function trimLeadingChromeBeforeTitle(
+  text: string,
+  expectedTitle: string | null | undefined,
+): string {
+  if (!expectedTitle) {
+    return text;
+  }
+  const lines = text.split("\n");
+  const titleLineIndex = lines.findIndex((line) =>
+    lineNamesTitle(line, expectedTitle),
+  );
+  // Only trim when the title sits past a stretch of short lines: a body that
+  // already starts with the posting stays as it is.
+  if (titleLineIndex < 3) {
+    return text;
+  }
+  const preceding = lines
+    .slice(0, titleLineIndex)
+    .filter((line) => line.trim());
+  const shortShare =
+    preceding.filter((line) => line.trim().split(/\s+/u).length <= 4).length /
+    Math.max(1, preceding.length);
+  return shortShare >= 0.7 ? lines.slice(titleLineIndex).join("\n") : text;
+}
+
+/**
+ * Whether one line of page text is the card's title: the same words, or the
+ * title with a suffix such as "(Remote)". A short menu item that happens to
+ * be a substring of the title ("EN", "IT") is not.
+ */
+function lineNamesTitle(
+  line: string,
+  expectedTitle: string | null | undefined,
+): boolean {
+  if (!expectedTitle) {
+    return false;
+  }
+  const normalize = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9\u00c0-\u024f]+/gu, " ")
+      .trim();
+  const candidate = normalize(line);
+  const title = normalize(expectedTitle);
+  if (!candidate || !title || candidate.length > 160) {
+    return false;
+  }
+  if (candidate === title || candidate.includes(title)) {
+    return true;
+  }
+  // The card may carry a suffix the page drops ("Zhvillues Softueri / IT"
+  // on the card, "Zhvillues Softueri" as the heading).
+  return title.includes(candidate) && candidate.length >= title.length * 0.6;
+}
+
+/** Enough body to stand in for a posting when it carries no English cue words. */
+const MIN_UNCUED_PAGE_TEXT_WORDS = 200;
+
 function extractListingDetailFromPageText(
   html: string,
   input: ExtractListingDetailInput,
 ): ExtractedListingDetail | null {
   const bodyHtml = selectMainContentHtml(html);
-  const text = truncateText(htmlToPlainText(bodyHtml), MAX_PAGE_TEXT_LENGTH);
+  const text = truncateText(
+    trimLeadingChromeBeforeTitle(
+      htmlToPlainText(bodyHtml),
+      input.expectedTitle,
+    ),
+    MAX_PAGE_TEXT_LENGTH,
+  );
   const wordCount = text.split(/\s+/u).filter(Boolean).length;
-  if (wordCount < MIN_PAGE_TEXT_WORDS || !LISTING_BODY_SIGNAL.test(text)) {
+  if (wordCount < MIN_PAGE_TEXT_WORDS) {
+    return null;
+  }
+  // The cue words are English. A posting in another language still reads as
+  // the listing when it is long enough and names the job the card promised.
+  const titleNamed =
+    Boolean(input.expectedTitle) &&
+    text.split("\n").some((line) => lineNamesTitle(line, input.expectedTitle));
+  if (
+    !LISTING_BODY_SIGNAL.test(text) &&
+    !(titleNamed && wordCount >= MIN_UNCUED_PAGE_TEXT_WORDS)
+  ) {
     return null;
   }
 

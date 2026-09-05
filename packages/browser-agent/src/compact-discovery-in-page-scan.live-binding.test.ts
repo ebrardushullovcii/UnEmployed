@@ -295,6 +295,81 @@ describe("compactDiscoveryInPageScan live employer binding", () => {
     await page.close();
   });
 
+  test("reads a lone card on a results page once the shape was learned on a busier page", async () => {
+    const page = await browser!.newPage();
+    const card = (slug: string, title: string, city: string) =>
+      `<div class="listing listing--premium"><a href="https://board.example.test/${slug}"><div class="logo"></div><div class="body"><div class="title">${title}</div><div class="city">${city}</div><div class="expires">19 days</div></div></a></div>`;
+    const frontPage = `<!doctype html><html><head><meta charset="utf-8"></head><body><div class="wrap"><div class="header"><h1>Jobs</h1></div><div class="list">${card(
+      "mero/kuzhinier",
+      "Kuzhinier",
+      "Fushë Kosovë",
+    )}${card("tregu-group/arkatare", "Arkatare", "Prishtinë")}${card(
+      "ls-global/senior-software-engineer",
+      "Senior Software Engineer",
+      "Prishtinë",
+    )}${card("salt/hr-manager", "HR Manager", "Prishtinë")}</div></div></body></html>`;
+    const resultsPage = `<!doctype html><html><head><meta charset="utf-8"></head><body><div class="wrap"><div class="header"><h1>Results</h1></div><div class="list">${card(
+      "ls-global/senior-software-engineer",
+      "Senior Software Engineer",
+      "Prishtinë",
+    )}</div></div></body></html>`;
+
+    // Without memory, one block has no repetition to prove it is a card.
+    await loadFixturePage(page, "https://board.example.test/?q=x", resultsPage);
+    const cold = await captureCompactDiscoveryObservation({
+      page,
+      targetId: "card-shape-cold",
+      observationId: "obs-card-shape-cold",
+      revision: 1,
+      observedAt: "2026-09-05T06:00:00.000Z",
+    });
+    expect(cold.kind === "supported" ? cold.postingCandidates.length : 0).toBe(
+      0,
+    );
+
+    const cardShapeMemory = new Set<string>();
+    await loadFixturePage(page, "https://board.example.test/", frontPage);
+    const front = await captureCompactDiscoveryObservation({
+      page,
+      targetId: "card-shape-front",
+      observationId: "obs-card-shape-front",
+      revision: 1,
+      observedAt: "2026-09-05T06:00:01.000Z",
+      cardShapeMemory,
+    });
+    expect(front.kind).toBe("supported");
+    if (front.kind === "supported") {
+      expect(front.postingCandidates).toHaveLength(4);
+      expect(front.postingCandidates[2]).toMatchObject({
+        title: "Senior Software Engineer",
+        company: "Ls Global",
+        location: "Prishtinë",
+      });
+    }
+    expect(cardShapeMemory.size).toBe(1);
+
+    await loadFixturePage(page, "https://board.example.test/?q=x", resultsPage);
+    const warm = await captureCompactDiscoveryObservation({
+      page,
+      targetId: "card-shape-warm",
+      observationId: "obs-card-shape-warm",
+      revision: 2,
+      observedAt: "2026-09-05T06:00:02.000Z",
+      cardShapeMemory,
+    });
+    expect(warm.kind).toBe("supported");
+    if (warm.kind === "supported") {
+      expect(warm.postingCandidates).toHaveLength(1);
+      expect(warm.postingCandidates[0]).toMatchObject({
+        title: "Senior Software Engineer",
+        company: "Ls Global",
+        canonicalUrl:
+          "https://board.example.test/ls-global/senior-software-engineer",
+      });
+    }
+    await page.close();
+  });
+
   test("drops bare /jobs hub rows from posting inventory", async () => {
     expect(browser).not.toBeNull();
     const page = await browser!.newPage();

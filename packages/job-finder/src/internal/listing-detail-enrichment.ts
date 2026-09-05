@@ -78,7 +78,9 @@ export interface EnrichSavedJobListingDetailsResult {
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_TIME_BUDGET_MS = 25_000;
 const DEFAULT_PER_REQUEST_TIMEOUT_MS = 8_000;
-const DEFAULT_MAX_JOBS = 40;
+/** Exported so the run log can say how many of the candidates this pass reads. */
+export const LISTING_DETAIL_READS_PER_RUN = 60;
+const DEFAULT_MAX_JOBS = LISTING_DETAIL_READS_PER_RUN;
 const RETRY_AFTER_SUCCESSFUL_ATTEMPT_MS = 24 * 60 * 60 * 1000;
 const RETRY_AFTER_FAILED_ATTEMPT_MS = 60 * 60 * 1000;
 const MAX_RESPONSE_CHARACTERS = 1_500_000;

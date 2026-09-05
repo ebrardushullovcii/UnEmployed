@@ -1934,6 +1934,23 @@ export function renderResumeTemplateHtml(
       .page { margin: 0; box-shadow: none !important; }
       .header, .entry-block, h3, h4, .skill-group { break-inside: avoid; page-break-inside: avoid; }
       a { color: inherit; text-decoration: none; }
+      /* Chromium prints a grid container as one unbreakable box. With the
+         body and every section laid out as grids, a resume a few pixels
+         taller than a page moved its entire body to page two and left page
+         one holding only the header. In print the body and sections flow as
+         blocks with margin gaps instead, so pages break between entries. */
+      .body-grid, .section-block, .section-cluster { display: block; }
+      .body-grid > * + * { margin-top: var(--print-body-gap, 0.6rem); }
+      .section-block > * + * { margin-top: 0.24rem; }
+      .section-cluster > * + * { margin-top: 0.42rem; }
+      .body-grid-classic { --print-body-gap: 0.62rem; }
+      .body-grid-compact { --print-body-gap: 0.5rem; }
+      .body-grid-modern { --print-body-gap: 0.58rem; }
+      .body-grid-technical { --print-body-gap: 0.54rem; }
+      .body-grid-projects { --print-body-gap: 0.64rem; }
+      .body-grid-credentials { --print-body-gap: 0.58rem; }
+      .body-grid-longform { --print-body-gap: 0.42rem; }
+      .body-grid-pivot { --print-body-gap: 0.58rem; }
     }
     ${
       mode === "preview"
