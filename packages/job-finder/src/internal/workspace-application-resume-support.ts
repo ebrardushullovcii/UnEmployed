@@ -122,7 +122,7 @@ function canReuseResearch(input: {
   });
 }
 
-async function resolveResumeStrategyContextForJob(
+export async function resolveResumeStrategyContextForJob(
   ctx: WorkspaceServiceContext,
   jobId: string,
 ): Promise<JobFinderResumeWorkspaceStrategyContext | null> {

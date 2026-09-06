@@ -368,10 +368,10 @@ describe("profile setup customer-quality guidance", () => {
     expect(container?.textContent).toContain(
       "This sets the default for reusable resume strategies and per-job drafts.",
     );
-    expect(container?.textContent).toContain("Review every generated line");
     expect(container?.textContent).toContain(
-      "new facts and numbers are never invented",
+      "Review and confirm every generated line",
     );
+    expect(container?.textContent).toContain("strongest form you can prove");
 
     const balanced = container?.querySelector<HTMLInputElement>(
       'input[value="balanced"]',
@@ -391,11 +391,9 @@ describe("profile setup customer-quality guidance", () => {
       container?.querySelector("output[data-tailoring-mode]")?.textContent,
     ).toBe("aggressive");
     expect(container?.textContent).toContain(
-      "Strong rewrite can substantially rewrite, combine, or elaborate supported experience.",
+      "Strong rewrite reshapes supported experience",
     );
-    expect(container?.textContent).toContain(
-      "does not auto-approve or submit applications",
-    );
+    expect(container?.textContent).toContain("never auto-approves or submits");
   });
 
   it("offers an explicit unchanged-original resume choice with privacy-safe copy", () => {

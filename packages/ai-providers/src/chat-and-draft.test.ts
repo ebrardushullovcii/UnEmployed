@@ -2061,7 +2061,7 @@ describe("openai-compatible chat and draft behavior", () => {
         acceptedRewriteCount: 1,
       });
       expect(result.notes).toContain(
-        "1 AI-inferred line came from aggressive tailoring. These lines go beyond your saved evidence: they may round your evidenced years of experience up to the job's stated requirement by at most one year, and they may name technologies taken from the job listing that your saved evidence does not mention. Confirming that every inferred line is accurate, defensible, and yours to claim is up to you — review each one before approving the resume.",
+        "1 AI-inferred line came from aggressive tailoring. These lines are small, deliberate stretches of your saved evidence with one purpose: clearing the job's screening and earning you the first interview. They stay bounded to what your evidence implies you can actually do — evidenced years may round up by at most one toward the job's stated ask, technologies the job asks for may be added whenever your saved experience shows you are a developer or engineer, and the job's requested technologies also join your skills section. Proving each claim happens in the interview, and that is yours alone: review every inferred line and only approve ones you can stand behind.",
       );
     } finally {
       restoreFetch();
@@ -2190,6 +2190,72 @@ describe("openai-compatible chat and draft behavior", () => {
         strategy: "deterministic",
         acceptedRewriteCount: 0,
       });
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("aggressive mode adds the job's requested technologies to the skills section", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [{ message: { content: JSON.stringify({}) } }],
+    });
+
+    try {
+      const buildClient = () =>
+        createOpenAiCompatibleJobFinderAiClient({
+          apiKey: "test-key",
+          baseUrl: "https://example.com/v1",
+          model: "test-model",
+        });
+      const draftInput = {
+        profile: createProfile(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          description:
+            "Mandatory Kubernetes experience for the customer platform.",
+          minimumQualifications: ["Kubernetes experience required."],
+          keySkills: ["TypeScript", "Kubernetes"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["TypeScript"],
+          keywords: ["Kubernetes"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      };
+
+      const aggressive = await buildClient().createResumeDraft({
+        ...draftInput,
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "aggressive" as const,
+        },
+      });
+      expect(aggressive.coreSkills).toEqual(
+        expect.arrayContaining(["Kubernetes"]),
+      );
+      expect(aggressive.notes).toEqual(
+        expect.arrayContaining([expect.stringContaining("job-listing skill")]),
+      );
+
+      const balanced = await buildClient().createResumeDraft({
+        ...draftInput,
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "balanced" as const,
+        },
+      });
+      expect(balanced.coreSkills).not.toEqual(
+        expect.arrayContaining(["Kubernetes"]),
+      );
     } finally {
       restoreFetch();
     }

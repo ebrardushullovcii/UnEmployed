@@ -123,6 +123,7 @@ import {
   loadUnresolvedWorkHistoryOmissionSuggestions,
   previewResumeDraft,
   renderDraftToPdf,
+  resolveResumeStrategyContextForJob,
   assertResumeProfileRevisionCurrent,
 } from "./workspace-application-resume-support";
 import {
@@ -2861,6 +2862,10 @@ export function createWorkspaceApplicationMethods(
       state.job,
       state.profileRevision,
     );
+    const strategyContext = await resolveResumeStrategyContextForJob(
+      ctx,
+      jobId,
+    );
     const assistantReply = await ctx.aiClient.reviseResumeDraft({
       draft,
       job: state.job,
@@ -2869,6 +2874,7 @@ export function createWorkspaceApplicationMethods(
         (
           await ctx.repository.listResumeValidationResults(draft.id)
         )[0]?.issues.map((issue) => issue.message) ?? [],
+      tailoringStrength: strategyContext?.tailoringStrength ?? null,
       researchContext: collectResearchContext(research),
     });
     // Section regeneration is review-first like Guided Edits: normalized
@@ -4432,12 +4438,17 @@ export function createWorkspaceApplicationMethods(
         workspaceState.draft.id,
       );
       const research = await fetchAndPersistResearch(ctx, workspaceState.job);
+      const strategyContext = await resolveResumeStrategyContextForJob(
+        ctx,
+        jobId,
+      );
       const assistantReply = await ctx.aiClient.reviseResumeDraft({
         draft: workspaceState.draft,
         job: workspaceState.job,
         request: content,
         validationIssues:
           validations[0]?.issues.map((issue) => issue.message) ?? [],
+        tailoringStrength: strategyContext?.tailoringStrength ?? null,
         researchContext: collectResearchContext(research),
       });
       const normalizedPatches = assistantReply.patches.map((patch) =>

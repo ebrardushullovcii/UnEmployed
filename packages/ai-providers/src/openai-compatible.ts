@@ -141,7 +141,7 @@ function buildResumeRewriteProposalPrompt(
 ): string {
   const modeGuidance =
     tailoringMode === "aggressive"
-      ? "Aggressive mode: substantially rewrite, combine, and elaborate the cited candidate evidence into the strongest plausible job-tailored prose. When the cited evidence names the candidate's stack (for example JavaScript, TypeScript, Next.js) or product domain (for example restaurant management SaaS), infer and spell out realistic engineering details around them - typical features, implementation approaches, trade-offs, and effects consistent with that stack and domain - even when the cited wording omits them. You may connect an evidenced metric to plausible supporting work, but every number in your output must come verbatim from the cited evidence. Mark every proposal that elaborates beyond the cited wording with inferred:true. Never introduce: named technologies, frameworks, tools, services, or products that do not appear in the cited evidence (no Angular, Vue, Redis, or similar unless evidenced); employers, dates, titles, credentials, certifications, seniority, team size, or leadership not supported by the cited evidence; or any new number, percentage, count, or money. Two permissions apply only when you mark the proposal inferred:true and cite the evidence that anchors the underlying experience: you may round the candidate's evidenced years of experience up to the job's stated years requirement when the evidenced figure is exactly one year below it, and you may name a technology, library, framework, or tool that the target job listing itself mentions when the cited evidence's stack or domain directly implies the candidate used it or could readily use it with that experience. Never name a technology absent from both the cited evidence and the job listing, never round up by more than one year, and never claim the listing's employer, dates, titles, credentials, seniority, or leadership."
+      ? "Aggressive mode: substantially rewrite, combine, and elaborate the cited candidate evidence into the strongest plausible job-tailored prose. When the cited evidence names the candidate's stack (for example JavaScript, TypeScript, Next.js) or product domain (for example restaurant management SaaS), infer and spell out realistic engineering details around them - typical features, implementation approaches, trade-offs, and effects consistent with that stack and domain - even when the cited wording omits them. You may connect an evidenced metric to plausible supporting work, but every number in your output must come verbatim from the cited evidence. Mark every proposal that elaborates beyond the cited wording with inferred:true. Never introduce: named technologies, frameworks, tools, services, or products that do not appear in the cited evidence (no Angular, Vue, Redis, or similar unless evidenced); employers, dates, titles, credentials, certifications, seniority, team size, or leadership not supported by the cited evidence; or any new number, percentage, count, or money. Two permissions apply only when you mark the proposal inferred:true and cite the evidence that anchors the underlying experience: you may round the candidate's evidenced years of experience up to the job's stated years requirement when the evidenced figure is exactly one year below it, and you may name any technology, library, framework, or tool the target job listing itself asks for — required or preferred — whenever the candidate's saved evidence shows professional technical experience (a developer or engineer role, a technical headline, or technical skills), even when your stack or domain does not directly imply it, because a developer with years of evidenced experience can reasonably stand behind the job's own stack; prefer covering the listing's required technologies. Never name a technology absent from both the cited evidence and the job listing, never round up by more than one year, and never claim the listing's employer, dates, titles, credentials, seniority, or leadership. You may also return a `coreSkills` array: the candidate's own key skills plus the job's required or preferred technologies they can stand behind; every skill must come from the cited evidence or the job listing, and Job Finder verifies each against both before showing it."
       : tailoringMode === "conservative"
         ? "Conservative mode: stay very close to the cited wording and propose only clear, low-risk improvements."
         : "Balanced mode: improve structure and relevance while keeping every factual statement directly supported by cited evidence.";
@@ -885,17 +885,22 @@ export function createJobFinderAiClientFromEnvironment(
     resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
   });
   // Aggressive resume tailoring uses its own model route rather than the
-  // primary provider. DeepSeek V4 Flash is text-only, so keep its Chat
-  // Completions API mode and reasoning effort independent of the primary
-  // route (which may, for example, use Responses for another model).
+  // primary provider. DeepSeek V4 Flash is text-only, so it uses Chat
+  // Completions; reasoning effort is read from its own env var so it is
+  // always applied (defaults to `max` when not configured).
   const aggressiveClient = createOpenAiCompatibleJobFinderAiClient({
     apiKey,
     baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? DEFAULT_OPENCODE_GO_BASE_URL,
     model:
       env.UNEMPLOYED_AI_AGGRESSIVE_MODEL?.trim() ||
       DEFAULT_AGGRESSIVE_RESUME_MODEL,
-    apiMode: DEFAULT_AGGRESSIVE_RESUME_MODEL_API_MODE,
-    reasoningEffort: DEFAULT_AGGRESSIVE_RESUME_MODEL_REASONING_EFFORT,
+    apiMode:
+      parseModelApiMode(env.UNEMPLOYED_AI_AGGRESSIVE_API_MODE) ??
+      DEFAULT_AGGRESSIVE_RESUME_MODEL_API_MODE,
+    reasoningEffort:
+      parseModelReasoningEffort(
+        env.UNEMPLOYED_AI_AGGRESSIVE_REASONING_EFFORT,
+      ) ?? DEFAULT_AGGRESSIVE_RESUME_MODEL_REASONING_EFFORT,
     label: "Aggressive AI resume agent",
     requestTimeoutMs: parsedRequestTimeoutMs,
     resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
@@ -1126,9 +1131,16 @@ export function createJobFinderAiClientFromEnvironment(
       }
     },
     async reviseResumeDraft(input) {
+      // Model-backed review and section regeneration on an aggressive draft
+      // stays on the aggressive provider so the whole lifecycle uses one
+      // model; without a known aggressive strength the primary provider runs.
+      const editClient =
+        input.tailoringStrength === "aggressive"
+          ? aggressiveClient
+          : primaryClient;
       try {
         const reply = await runResumeEditAgentTask({
-          client: primaryClient,
+          client: editClient,
           request: input,
         });
         if (reply.executionReceipt?.stopReason === "completed") return reply;

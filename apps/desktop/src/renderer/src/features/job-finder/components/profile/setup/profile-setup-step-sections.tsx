@@ -87,7 +87,7 @@ const tailoringModeOptions = [
   },
   {
     description:
-      "Substantially rewrite, combine, or elaborate supported experience. Review every generated line; new facts and numbers are never invented.",
+      "Substantially rewrite, combine, or elaborate supported experience into the strongest form you can prove. Small deliberate stretches — evidenced years rounded up by one toward the job's ask, technologies the job asks for that your developer experience makes credible, and the job's requested technologies added to your skills — help clear screening for the first interview. Review and confirm every generated line yourself.",
     label: "Strong rewrite",
     value: "aggressive",
   },
@@ -757,10 +757,16 @@ export function ProfileSetupTargetingStep(props: {
                   id={tailoringModeWarningId}
                   role="status"
                 >
-                  Strong rewrite can substantially rewrite, combine, or
-                  elaborate supported experience. Review every generated line:
-                  Job Finder does not invent new facts or numbers, and it does
-                  not auto-approve or submit applications.
+                  Strong rewrite reshapes supported experience and can add
+                  small, deliberate stretches meant to get you the first
+                  interview: evidenced years may round up by one toward the
+                  job's ask, and technologies the job asks for may appear for a
+                  developer with professional experience. The job's requested
+                  technologies are also added to your skills section. Every such
+                  line and skill is flagged, counted in the draft notes, and
+                  stays review-required until you confirm it — the interview is
+                  where you prove each claim. Job Finder never auto-approves or
+                  submits applications.
                 </p>
               ) : null}
             </fieldset>

@@ -1625,6 +1625,25 @@ function gateUnits(value: string): string[] {
   return Array.from(units);
 }
 
+/**
+ * Whether a term appears as a token in the target job listing text. Used by
+ * the skills-section relaxation: a job-requested technology (Kubernetes,
+ * shadcn, Python) may enter an aggressive resume's skills when the listing
+ * itself names it — the bound is the listing, never a technology invented
+ * from nowhere. Token-bound matching keeps listing prose such as "reaction"
+ * from authorizing "React".
+ */
+export function listingTextContainsTerm(
+  listingText: string,
+  term: string,
+): boolean {
+  const normalizedTerm = normalizeToken(term.trim());
+  if (normalizedTerm.length < 2) {
+    return false;
+  }
+  return new Set(gateUnits(listingText)).has(normalizedTerm);
+}
+
 export function selectResumeRewrite(input: {
   generated: unknown;
   companionEvidenceRefs?: unknown;

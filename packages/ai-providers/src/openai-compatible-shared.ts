@@ -14,6 +14,7 @@ import {
 } from "./deterministic";
 import {
   buildResumeGenerationEvidenceCatalog,
+  listingTextContainsTerm,
   parseEvidenceLinkedText,
   selectResumeRewrite,
   type ResumeGenerationEvidenceItem,
@@ -891,6 +892,36 @@ export function completeTailoredResumeDraft(
         orderSkillsByJobRelevance(coreSkills, fallbackInput.job),
         VISIBLE_CORE_SKILL_LIMIT,
       );
+  // Aggressive tailoring also adds the job's requested technologies to the
+  // skills section — the strongest screening signal for landing the first
+  // interview — even when the profile never recorded them. The bound stays
+  // the listing itself: job.keySkills plus any core skill the listing text
+  // names, never a technology invented from nowhere. Every added skill is
+  // named in a note so the candidate confirms each one.
+  const isAggressiveTailoring =
+    (fallbackInput.strategy?.tailoringStrength ??
+      fallbackInput.searchPreferences.tailoringMode) === "aggressive";
+  const addedListingSkills = isAggressiveTailoring
+    ? uniqueStrings([
+        ...fallbackInput.job.keySkills.filter(
+          (skill) => skill.trim().length > 0,
+        ),
+        ...coreSkills.filter((skill) =>
+          listingTextContainsTerm(rewriteContext.jobListingText, skill),
+        ),
+      ]).filter(
+        (skill) =>
+          !groundedCoreSkills.some(
+            (grounded) => grounded.toLowerCase() === skill.toLowerCase(),
+          ),
+      )
+    : [];
+  const finalCoreSkills = isAggressiveTailoring
+    ? orderSkillsByJobRelevance(
+        uniqueStrings([...groundedCoreSkills, ...addedListingSkills]),
+        fallbackInput.job,
+      ).slice(0, VISIBLE_CORE_SKILL_LIMIT)
+    : groundedCoreSkills;
   const targetedKeywords = fallbackInput.strategy
     ? selectCanonicalStringList(
         sanitizedTargetedKeywords.filter((keyword) =>
@@ -924,12 +955,17 @@ export function completeTailoredResumeDraft(
   )
     .filter(
       (skill) =>
-        !groundedCoreSkills.some(
+        !finalCoreSkills.some(
           (coreSkill) => coreSkill.toLowerCase() === skill.toLowerCase(),
         ),
     )
     .slice(0, VISIBLE_ADDITIONAL_SKILL_LIMIT);
   const notes = [...fallback.notes];
+  if (addedListingSkills.length > 0) {
+    notes.push(
+      `Aggressive tailoring added ${addedListingSkills.length} job-listing ${addedListingSkills.length === 1 ? "skill" : "skills"} to your skills: ${addedListingSkills.join(", ")}. These are the technologies the job asked for — confirm each is one you can back in the interview before approving.`,
+    );
+  }
   const canonicalExperienceEvidenceByRecordId = new Map(
     fallbackInput.profile.experiences.map((experience) => [
       experience.id,
@@ -958,7 +994,7 @@ export function completeTailoredResumeDraft(
       : fallback.projectEntries;
   if (quality.acceptedInferredRewriteCount > 0) {
     notes.push(
-      `${quality.acceptedInferredRewriteCount} AI-inferred ${quality.acceptedInferredRewriteCount === 1 ? "line" : "lines"} came from aggressive tailoring. These lines go beyond your saved evidence: they may round your evidenced years of experience up to the job's stated requirement by at most one year, and they may name technologies taken from the job listing that your saved evidence does not mention. Confirming that every inferred line is accurate, defensible, and yours to claim is up to you — review each one before approving the resume.`,
+      `${quality.acceptedInferredRewriteCount} AI-inferred ${quality.acceptedInferredRewriteCount === 1 ? "line" : "lines"} came from aggressive tailoring. These lines are small, deliberate stretches of your saved evidence with one purpose: clearing the job's screening and earning you the first interview. They stay bounded to what your evidence implies you can actually do — evidenced years may round up by at most one toward the job's stated ask, technologies the job asks for may be added whenever your saved experience shows you are a developer or engineer, and the job's requested technologies also join your skills section. Proving each claim happens in the interview, and that is yours alone: review every inferred line and only approve ones you can stand behind.`,
     );
   }
   const generationProvenance = describeModelDraftProvenance(quality, notes);
@@ -966,7 +1002,7 @@ export function completeTailoredResumeDraft(
     label,
     summary,
     experienceHighlights,
-    coreSkills: groundedCoreSkills,
+    coreSkills: finalCoreSkills,
     experienceEntries,
     projectEntries,
     educationEntries: fallback.educationEntries,
@@ -982,7 +1018,7 @@ export function completeTailoredResumeDraft(
     label,
     summary,
     experienceHighlights,
-    coreSkills: groundedCoreSkills,
+    coreSkills: finalCoreSkills,
     targetedKeywords,
     coverageMetadata: fallback.coverageMetadata,
     experienceEntries,

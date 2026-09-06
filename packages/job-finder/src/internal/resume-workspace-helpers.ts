@@ -2,6 +2,7 @@ import {
   buildCandidateSkillBank,
   classifyResumeClaimGrounding,
   extractYearsOfExperienceNumbers,
+  listingTextContainsTerm,
   type ResumeClaimGroundingResult,
   type ResumeGenerationEvidenceItem,
   type TailoredResumeDraft,
@@ -1300,6 +1301,7 @@ export function sanitizeResumeDraft(input: {
 }): ResumeDraft {
   const jobPhraseBank = buildJobPhraseBank(input.job);
   const profileSupportBank = buildProfileSupportBank(input.profile);
+  const listingText = buildVerifierJobListingText(input.job);
   const candidateSkillBank = uniqueStrings([
     ...buildCandidateSkillBank(input.profile),
     ...(input.sourceSkills ?? []),
@@ -1375,7 +1377,12 @@ export function sanitizeResumeDraft(input: {
             ) {
               return false;
             }
-          } else if (!isGroundedVisibleSkill(bullet.text, candidateSkillBank)) {
+          } else if (
+            !isGroundedVisibleSkill(bullet.text, candidateSkillBank) &&
+            // Aggressive tailoring may add the job's own requested
+            // technologies to the skills section; the bound is the listing.
+            !listingTextContainsTerm(listingText, bullet.text)
+          ) {
             return false;
           }
         }
@@ -2093,7 +2100,7 @@ export function validateResumeDraft(input: {
         entryId: assessment.entryId,
         bulletId: assessment.bulletId,
         message:
-          "This claim goes beyond the stored candidate evidence. Confirm it is accurate and the candidate's own before export.",
+          "This claim goes beyond the stored candidate evidence — the kind of small, deliberate stretch that clears screening for a first interview. Confirm it is accurate and the candidate's own before export; only confirm what the candidate can back in the interview.",
       });
     }
     const blocksExport =

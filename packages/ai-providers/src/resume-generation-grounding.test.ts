@@ -492,6 +492,52 @@ describe("resume generation grounding", () => {
     ).toBeNull();
   });
 
+  test("aggressive mode adds a listing technology the evidence does not directly imply", () => {
+    // The evidence shows frontend-flavored work; Kubernetes comes only from
+    // the listing's own requirement. For a candidate with professional
+    // experience the gate admits it: the bound is "the listing asked for it",
+    // not "the evidence implies it".
+    const input = {
+      generated: {
+        text: "Deployed customer dashboard services with Kubernetes across the platform.",
+        evidenceRefs: ["experience:role_1:achievement:0"],
+        inferred: true,
+      },
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: "Built customer dashboard services with TypeScript for the platform.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: ["TypeScript", "Kubernetes"],
+      jobListingText:
+        "Mandatory: Kubernetes experience. Preferred: TypeScript for the customer platform.",
+      allowReasonableInference: true,
+    };
+
+    expect(selectResumeRewrite(input)).toMatchObject({
+      kind: "grounded_rewrite",
+      inferred: true,
+    });
+    // The same claim without the listing's Kubernetes requirement stays
+    // rejected: the technology must come from the job itself.
+    expect(
+      selectResumeRewrite({
+        ...input,
+        jobSkills: ["TypeScript"],
+        jobListingText: "TypeScript for the customer platform.",
+      }),
+    ).toBeNull();
+  });
+
   test("rejects unevidenced lowercase technology names regardless of casing rules", () => {
     const input = {
       generated: {

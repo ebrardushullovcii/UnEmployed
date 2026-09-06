@@ -325,6 +325,69 @@ describe("resume workspace quality helpers", () => {
     expect(visibleSkills).toEqual(["Figma"]);
   });
 
+  test("sanitizeResumeDraft keeps job-listing technologies in the skills section", () => {
+    const { profile, job } = getSeedContext();
+    const listingJob = {
+      ...job,
+      keySkills: [...job.keySkills, "Kubernetes"],
+      minimumQualifications: [
+        ...job.minimumQualifications,
+        "Kubernetes experience required.",
+      ],
+    };
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_skills",
+      (section) => ({
+        ...section,
+        bullets: createBullets("skill_bullet", ["Kubernetes", "Figma"]),
+      }),
+    );
+
+    const sanitized = sanitizeResumeDraft({ draft, job: listingJob, profile });
+    const visibleSkills = getSection(sanitized, "section_skills").bullets.map(
+      (bullet) => bullet.text,
+    );
+
+    expect(visibleSkills).toEqual(["Kubernetes", "Figma"]);
+  });
+
+  test("validateResumeDraft maps a job-listing skill bullet to confirm_needed", () => {
+    const { profile, job } = getSeedContext();
+    const listingJob = {
+      ...job,
+      keySkills: [...job.keySkills, "Kubernetes"],
+      description: `${job.description} Kubernetes required.`,
+    };
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_skills",
+      (section) => ({
+        ...section,
+        bullets: createBullets("skill_bullet", ["Kubernetes"]),
+      }),
+    );
+
+    const validation = validateResumeDraft({
+      draft,
+      job: listingJob,
+      profile,
+    });
+
+    expect(
+      validation.claimAssessments.find(
+        (assessment) => assessment.bulletId === "skill_bullet_1",
+      ),
+    ).toMatchObject({ status: "confirm_needed" });
+    // The same skill without the job ever asking for it stays unsupported.
+    const unsupported = validateResumeDraft({ draft, job, profile });
+    expect(
+      unsupported.claimAssessments.find(
+        (assessment) => assessment.bulletId === "skill_bullet_1",
+      ),
+    ).toMatchObject({ status: "unsupported" });
+  });
+
   test("validateResumeDraft flags short job-only skill bleed that remains in a draft", () => {
     const { profile, job } = getSeedContext();
     const draft = updateSection(

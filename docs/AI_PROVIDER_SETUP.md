@@ -22,6 +22,13 @@ UNEMPLOYED_AI_MODEL=deepseek-v4-flash
 UNEMPLOYED_AI_API_MODE=chat_completions
 UNEMPLOYED_AI_REASONING_EFFORT=max
 
+# Aggressive resume tailoring runs on its own dedicated route so the whole
+# aggressive lifecycle (draft, re-tailor, and model-backed review/regenerate)
+# stays on one provider. Reasoning effort is read from its own env var.
+UNEMPLOYED_AI_AGGRESSIVE_MODEL=deepseek-v4-flash
+UNEMPLOYED_AI_AGGRESSIVE_API_MODE=chat_completions
+UNEMPLOYED_AI_AGGRESSIVE_REASONING_EFFORT=high
+
 UNEMPLOYED_AI_VISION_BASE_URL=https://opencode.ai/zen/go/v1
 UNEMPLOYED_AI_VISION_MODEL=gpt-5.6-luna
 UNEMPLOYED_AI_VISION_API_MODE=responses
