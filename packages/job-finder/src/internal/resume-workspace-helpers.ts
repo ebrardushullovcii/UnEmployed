@@ -1,6 +1,8 @@
 import {
   buildCandidateSkillBank,
   classifyResumeClaimGrounding,
+  extractYearsOfExperienceNumbers,
+  type ResumeClaimGroundingResult,
   type ResumeGenerationEvidenceItem,
   type TailoredResumeDraft,
 } from "@unemployed/ai-providers";
@@ -184,6 +186,25 @@ function buildJobPhraseBank(job: SavedJob): string[] {
       .filter((entry) => tokenize(entry).length >= 5)
       .slice(0, 12),
   ]).filter((entry) => tokenize(entry).length >= 5);
+}
+
+/**
+ * Compact listing text for the aggressive claim relaxation. The relaxation
+ * bounds added technologies to ones the listing itself names, so this text —
+ * not the classifier's judgment — is what a listing-anchored term must come
+ * from.
+ */
+function buildVerifierJobListingText(job: SavedJob): string {
+  return [
+    job.summary ?? "",
+    job.description,
+    ...job.responsibilities,
+    ...job.minimumQualifications,
+    ...job.preferredQualifications,
+    ...job.keySkills,
+  ]
+    .filter((entry) => entry.trim())
+    .join("\n");
 }
 
 function buildProfileSupportBank(
@@ -513,10 +534,38 @@ function hasUnsupportedQuantifiedClaim(
     (claim) =>
       !profileSupportBank.some(
         (evidence) =>
-          extractQuantifiedClaims(evidence).includes(claim) &&
-          calculateTokenOverlap(content, evidence) >= 0.35,
+          (extractQuantifiedClaims(evidence).includes(claim) &&
+            calculateTokenOverlap(content, evidence) >= 0.35) ||
+          hasAdjacentYearsOfExperienceEvidence(claim, evidence),
       ),
   );
+}
+
+/**
+ * The years-of-experience rounding the aggressive generation gate may admit:
+ * a claimed "N years" is anchored by an evidenced "N-1 years" from the
+ * candidate's own profile. The years unit itself is the anchor, so no token
+ * overlap with the rounded claim is required; every other quantified claim
+ * still needs verbatim evidence with relevant overlap. Bounded to exactly
+ * one year — the generation gate never admits more, and this keeps the
+ * verifier from re-rejecting accepted rounded claims.
+ */
+function hasAdjacentYearsOfExperienceEvidence(
+  claim: string,
+  evidence: string,
+): boolean {
+  const claimYears = parseYearsOfExperienceClaimValue(claim);
+  if (claimYears === null) {
+    return false;
+  }
+  return extractYearsOfExperienceNumbers(evidence).some(
+    (years) => claimYears === years + 1,
+  );
+}
+
+function parseYearsOfExperienceClaimValue(claim: string): number | null {
+  const match = /^(\d+) years?$/.exec(claim);
+  return match ? Number.parseInt(match[1] ?? "", 10) : null;
 }
 
 function looksLikeUnsupportedAbsoluteClaim(
@@ -844,6 +893,16 @@ function buildResumeClaimEvidenceBank(
   add("profile", "profile:summary", profile.summary);
   add("profile", "profile:headline", profile.headline);
   add("profile", "profile:current-location", profile.currentLocation);
+  // The profile's own years-of-experience figure is candidate evidence the
+  // aggressive relaxation rounds up from (10 evidenced years may be stated
+  // as 11); without it the verifier could not recognize the rounded figure.
+  add(
+    "profile",
+    "profile:years-experience",
+    profile.yearsExperience > 0
+      ? `${profile.yearsExperience} years of professional experience`
+      : null,
+  );
   for (const [index, role] of profile.targetRoles.entries()) {
     add("profile", `profile:target-role:${index + 1}`, role, 1);
   }
@@ -1016,6 +1075,7 @@ function claimTextIsVerbatimInSupport(
 function resolveResumeClaimAssessmentStatus(input: {
   verdict: ReturnType<typeof classifyResumeClaimGrounding>["verdict"];
   gaps: readonly { type: string }[];
+  relaxations: ResumeClaimGroundingResult["relaxations"];
   hasSupportEvidence: boolean;
   supportText: string;
   claimText: string;
@@ -1023,6 +1083,16 @@ function resolveResumeClaimAssessmentStatus(input: {
 }): ResumeClaimAssessment["status"] {
   if (input.gaps.some((gap) => resumeClaimIntegrityGapTypes.has(gap.type))) {
     return "unsupported";
+  }
+
+  // Aggressive-tailoring relaxations (years of experience rounded up to the
+  // job's requirement, technologies named by the job listing) are
+  // user-confirmation states, never silent acceptances: the generation gate
+  // admits them only flagged inferred and counted in the draft notes, and
+  // export stays blocked until the candidate explicitly confirms each one.
+  // User-authored prose keeps the informational review status.
+  if (input.relaxations.length > 0) {
+    return input.generatedClaim ? "confirm_needed" : "review";
   }
 
   if (input.verdict === "weakly_supported") {
@@ -1099,14 +1169,18 @@ function assessResumeClaims(input: {
   const evidenceRefById = new Map(
     evidenceBank.map((entry) => [entry.ref.id, entry.ref] as const),
   );
+  const jobListingText = buildVerifierJobListingText(input.job);
 
   return buildResumeClaimDescriptors(input.draft).map((claim) => {
     const support = buildRelevantResumeClaimSupport(claim.text, evidenceBank);
-    // Inference stays enabled to match the most permissive legitimate
-    // generation posture: conservative generations only emit fully covered
-    // wording (unaffected by this flag), aggressive generations emit safe
-    // elaborations that must not flip to unsupported after acceptance. Hard
-    // integrity gaps fire mode-independently either way.
+    // Inference and aggressive claim relaxation stay enabled to match the
+    // most permissive legitimate generation posture: conservative
+    // generations only emit fully covered wording (unaffected by these
+    // flags), aggressive generations emit safe elaborations and may emit
+    // relaxed claims (years rounded up to the job's requirement, technologies
+    // named by the listing) that must not flip to unsupported after
+    // acceptance — they surface as confirm_needed so the user owns them.
+    // Hard integrity gaps fire mode-independently either way.
     const grounding = classifyResumeClaimGrounding({
       text: claim.text,
       evidence: support.map((entry) => ({
@@ -1117,7 +1191,9 @@ function assessResumeClaims(input: {
       })),
       jobCompany: input.job.company,
       jobSkills: input.job.keySkills,
+      jobListingText,
       allowReasonableInference: true,
+      allowAggressiveClaimRelaxation: true,
     });
     const legacyIntegrityOverride =
       hasUnsupportedQuantifiedClaim(claim.text, input.profileSupportBank) ||
@@ -1134,6 +1210,7 @@ function assessResumeClaims(input: {
       : resolveResumeClaimAssessmentStatus({
           verdict: grounding.verdict,
           gaps: grounding.gaps,
+          relaxations: grounding.relaxations,
           hasSupportEvidence: grounding.supportEvidenceIds.length > 0,
           supportText: support
             .filter((entry) =>

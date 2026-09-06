@@ -555,6 +555,106 @@ describe("resume workspace quality helpers", () => {
     );
   });
 
+  test("validateResumeDraft maps rounded-up years and listing technologies to confirm_needed instead of unsupported", () => {
+    const { profile, job } = getSeedContext();
+    const listingJob = {
+      ...job,
+      keySkills: [...job.keySkills, "Framer"],
+      description: `${job.description} Strong Framer prototyping and 11 years of professional experience required.`,
+      minimumQualifications: [
+        ...job.minimumQualifications,
+        "11 years of professional experience.",
+      ],
+    };
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_experience",
+      (section) => ({
+        ...section,
+        entries: section.entries.map((entry) => ({
+          ...entry,
+          bullets: createBullets("experience_relaxed", [
+            // 10 evidenced years rounded up by exactly one.
+            "Designed resilient workflow tools across 11 years of professional experience.",
+            // A listing technology the evidenced product-design stack implies.
+            "Prototyped resilient workflow systems in Framer for product teams.",
+          ]),
+        })),
+      }),
+    );
+
+    const validation = validateResumeDraft({
+      draft,
+      job: listingJob,
+      profile,
+    });
+
+    const roundedYears = validation.claimAssessments.find(
+      (assessment) => assessment.bulletId === "experience_relaxed_1",
+    );
+    const listingTerm = validation.claimAssessments.find(
+      (assessment) => assessment.bulletId === "experience_relaxed_2",
+    );
+
+    expect(roundedYears).toMatchObject({ status: "confirm_needed" });
+    expect(listingTerm).toMatchObject({ status: "confirm_needed" });
+    expect(validation.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "claim_confirmation_needed",
+          bulletId: "experience_relaxed_1",
+        }),
+        expect.objectContaining({
+          category: "claim_confirmation_needed",
+          bulletId: "experience_relaxed_2",
+        }),
+      ]),
+    );
+    // Both stay export-blocking until the user confirms them.
+    expect(hasBlockingResumeClaimAssessment({ validation, draft })).toBe(true);
+  });
+
+  test("validateResumeDraft keeps years beyond one rounding and technologies absent from the listing unsupported", () => {
+    const { profile, job } = getSeedContext();
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_experience",
+      (section) => ({
+        ...section,
+        entries: section.entries.map((entry) => ({
+          ...entry,
+          bullets: createBullets("experience_unrelaxed", [
+            // Two years past the evidenced 10 is not a rounding.
+            "Designed resilient workflow tools across 12 years of professional experience.",
+            // A technology neither the evidence nor the listing mentions.
+            "Prototyped resilient workflow systems in Framer for product teams.",
+          ]),
+        })),
+      }),
+    );
+
+    const validation = validateResumeDraft({ draft, job, profile });
+
+    expect(
+      validation.claimAssessments.find(
+        (assessment) => assessment.bulletId === "experience_unrelaxed_1",
+      ),
+    ).toMatchObject({ status: "unsupported" });
+    expect(
+      validation.claimAssessments.find(
+        (assessment) => assessment.bulletId === "experience_unrelaxed_2",
+      ),
+    ).toMatchObject({ status: "unsupported" });
+    expect(validation.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "invented_metric",
+          bulletId: "experience_unrelaxed_1",
+        }),
+      ]),
+    );
+  });
+
   test("validateResumeDraft flags keyword stuffing and vague filler when they remain in bullets", () => {
     const { profile, job } = getSeedContext();
     const draft = updateSection(

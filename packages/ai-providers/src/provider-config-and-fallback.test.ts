@@ -111,6 +111,99 @@ describe("ai provider config and fallback behavior", () => {
     });
   });
 
+  test("routes aggressive resume tailoring to DeepSeek V4 Flash by default", async () => {
+    const balancedCapture = mockCapturingJsonFetch({
+      choices: [{ message: { content: JSON.stringify({}) } }],
+    });
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: "test-key",
+        UNEMPLOYED_AI_MODEL: "ordinary-model",
+      });
+
+      await client.tailorResume({
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Resume text",
+      });
+
+      const balancedBody = JSON.parse(balancedCapture.getCapturedBody()) as {
+        model?: string;
+      };
+      expect(balancedBody.model).toBe("ordinary-model");
+    } finally {
+      balancedCapture.restore();
+    }
+
+    const aggressiveCapture = mockCapturingJsonFetch({
+      choices: [{ message: { content: JSON.stringify({}) } }],
+    });
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: "test-key",
+        UNEMPLOYED_AI_MODEL: "ordinary-model",
+      });
+
+      await client.tailorResume({
+        profile: createProfile(),
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "aggressive",
+        },
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Resume text",
+      });
+
+      const aggressiveBody = JSON.parse(
+        aggressiveCapture.getCapturedBody(),
+      ) as {
+        model?: string;
+        reasoning_effort?: string;
+      };
+      expect(aggressiveBody.model).toBe("deepseek-v4-flash");
+      expect(aggressiveBody.reasoning_effort).toBe("max");
+    } finally {
+      aggressiveCapture.restore();
+    }
+  });
+
+  test("allows the aggressive resume model to be overridden", async () => {
+    const capture = mockCapturingJsonFetch({
+      choices: [{ message: { content: JSON.stringify({}) } }],
+    });
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: "test-key",
+        UNEMPLOYED_AI_MODEL: "ordinary-model",
+        UNEMPLOYED_AI_AGGRESSIVE_MODEL: "custom-aggressive-model",
+      });
+
+      await client.tailorResume({
+        profile: createProfile(),
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "aggressive",
+        },
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Resume text",
+      });
+
+      const body = JSON.parse(capture.getCapturedBody()) as {
+        model?: string;
+      };
+      expect(body.model).toBe("custom-aggressive-model");
+    } finally {
+      capture.restore();
+    }
+  });
+
   test("defaults ordinary text work to DeepSeek V4 on OpenCode Go", () => {
     const client = createJobFinderAiClientFromEnvironment({
       UNEMPLOYED_AI_API_KEY: "go-test-key",

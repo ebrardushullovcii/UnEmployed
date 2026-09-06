@@ -129,6 +129,12 @@ interface ResumeRewriteContext {
   evidenceCatalog: readonly ResumeGenerationEvidenceItem[];
   jobCompany: string;
   jobSkills: readonly string[];
+  /**
+   * Compact text of the target job listing. Only consumed by the aggressive
+   * claim relaxation (rounded-up years, listing-anchored technologies), which
+   * bounds added technologies to ones the listing itself names.
+   */
+  jobListingText: string;
   quality: ResumeGenerationQualityAccumulator;
   allowReasonableInference: boolean;
   allowExactClaims: boolean;
@@ -312,6 +318,7 @@ function selectGroundedResumeText(input: {
     allowedScope: input.allowedScope,
     jobCompany: input.rewriteContext.jobCompany,
     jobSkills: input.rewriteContext.jobSkills,
+    jobListingText: input.rewriteContext.jobListingText,
     allowReasonableInference: input.rewriteContext.allowReasonableInference,
     allowExactClaims: input.rewriteContext.allowExactClaims,
     allowParaphrasedClaims: input.rewriteContext.allowParaphrasedClaims,
@@ -383,6 +390,7 @@ function selectGroundedResumeBullets(
         allowedScope,
         jobCompany: rewriteContext.jobCompany,
         jobSkills: rewriteContext.jobSkills,
+        jobListingText: rewriteContext.jobListingText,
         allowReasonableInference: rewriteContext.allowReasonableInference,
         allowExactClaims: rewriteContext.allowExactClaims,
         allowParaphrasedClaims: rewriteContext.allowParaphrasedClaims,
@@ -771,6 +779,26 @@ export function logFallbackError(operation: string, error: unknown): void {
   }
 }
 
+function buildJobListingTextForRelaxation(job: {
+  summary: string | null;
+  description: string;
+  responsibilities: readonly string[];
+  minimumQualifications: readonly string[];
+  preferredQualifications: readonly string[];
+  keySkills: readonly string[];
+}): string {
+  return [
+    job.summary,
+    job.description,
+    ...job.responsibilities,
+    ...job.minimumQualifications,
+    ...job.preferredQualifications,
+    ...job.keySkills,
+  ]
+    .filter((entry): entry is string => Boolean(entry?.trim()))
+    .join("\n");
+}
+
 export function completeTailoredResumeDraft(
   primary: unknown,
   fallbackInput: Parameters<typeof buildDeterministicStructuredResumeDraft>[0],
@@ -820,6 +848,7 @@ export function completeTailoredResumeDraft(
     evidenceCatalog: buildResumeGenerationEvidenceCatalog(fallbackInput),
     jobCompany: fallbackInput.job.company,
     jobSkills: fallbackInput.job.keySkills,
+    jobListingText: buildJobListingTextForRelaxation(fallbackInput.job),
     quality,
     allowReasonableInference:
       (fallbackInput.strategy?.tailoringStrength ??
@@ -929,7 +958,7 @@ export function completeTailoredResumeDraft(
       : fallback.projectEntries;
   if (quality.acceptedInferredRewriteCount > 0) {
     notes.push(
-      `${quality.acceptedInferredRewriteCount} AI-inferred ${quality.acceptedInferredRewriteCount === 1 ? "line" : "lines"} came from aggressive tailoring. Review and confirm each inferred line before approving the resume.`,
+      `${quality.acceptedInferredRewriteCount} AI-inferred ${quality.acceptedInferredRewriteCount === 1 ? "line" : "lines"} came from aggressive tailoring. These lines go beyond your saved evidence: they may round your evidenced years of experience up to the job's stated requirement by at most one year, and they may name technologies taken from the job listing that your saved evidence does not mention. Confirming that every inferred line is accurate, defensible, and yours to claim is up to you — review each one before approving the resume.`,
     );
   }
   const generationProvenance = describeModelDraftProvenance(quality, notes);

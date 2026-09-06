@@ -4,7 +4,10 @@ import {
   createOpenAiCompatibleJobFinderAiClient,
   createJobFinderAiClientFromEnvironment,
 } from "./index";
-import type { ProfileCopilotRelevantReviewItem } from "@unemployed/contracts";
+import type {
+  CandidateProfile,
+  ProfileCopilotRelevantReviewItem,
+} from "@unemployed/contracts";
 import {
   createEnvironment,
   createJobPosting,
@@ -2058,8 +2061,135 @@ describe("openai-compatible chat and draft behavior", () => {
         acceptedRewriteCount: 1,
       });
       expect(result.notes).toContain(
-        "1 AI-inferred line came from aggressive tailoring. Review and confirm each inferred line before approving the resume.",
+        "1 AI-inferred line came from aggressive tailoring. These lines go beyond your saved evidence: they may round your evidenced years of experience up to the job's stated requirement by at most one year, and they may name technologies taken from the job listing that your saved evidence does not mention. Confirming that every inferred line is accurate, defensible, and yours to claim is up to you — review each one before approving the resume.",
       );
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("aggressive mode accepts a years-rounded inferred proposal that balanced mode rejects", async () => {
+    const roundedBullet =
+      "Delivered resilient customer dashboard services across 9 years of professional TypeScript experience.";
+    const restoreFetch = mockJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              experienceEntries: [
+                {
+                  profileRecordId: "experience_platform",
+                  bullets: [
+                    {
+                      text: roundedBullet,
+                      evidenceRefs: [
+                        "experience:experience_platform:achievement:0",
+                        "experience:experience_platform:skills",
+                        "profile:yearsExperience",
+                      ],
+                      inferred: true,
+                    },
+                  ],
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    });
+
+    try {
+      const buildClient = () =>
+        createOpenAiCompatibleJobFinderAiClient({
+          apiKey: "test-key",
+          baseUrl: "https://example.com/v1",
+          model: "test-model",
+        });
+      const profile: CandidateProfile = {
+        ...createProfile(),
+        proofBank: [],
+        experiences: [
+          {
+            id: "experience_platform",
+            companyName: "Acme Labs",
+            companyUrl: null,
+            title: "Platform Engineer",
+            employmentType: null,
+            location: "Remote",
+            workMode: ["remote"],
+            startDate: "2022-01",
+            endDate: null,
+            isCurrent: true,
+            isDraft: false,
+            summary: "Built the customer dashboard.",
+            achievements: ["Made the customer dashboard 15% faster on load."],
+            skills: ["TypeScript", "Next.js"],
+            domainTags: [],
+            peopleManagementScope: null,
+            ownershipScope: null,
+          },
+        ],
+      };
+      const sharedDraftInput = {
+        profile,
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          company: "ExampleCo",
+          description:
+            "Requires 9 years of professional TypeScript experience building customer dashboards.",
+          minimumQualifications: [
+            "9 years of professional TypeScript experience.",
+          ],
+          keySkills: ["TypeScript", "Next.js"],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["TypeScript", "Next.js"],
+          keywords: ["TypeScript", "Next.js"],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      };
+
+      const aggressive = await buildClient().createResumeDraft({
+        ...sharedDraftInput,
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "aggressive" as const,
+        },
+      });
+      expect(aggressive.experienceEntries[0]?.bullets).toContain(roundedBullet);
+      expect(aggressive.generationQuality).toMatchObject({
+        strategy: "evidence_linked",
+        acceptedRewriteCount: 1,
+      });
+      expect(aggressive.notes).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("1 AI-inferred line came from"),
+        ]),
+      );
+
+      const balanced = await buildClient().createResumeDraft({
+        ...sharedDraftInput,
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "balanced" as const,
+        },
+      });
+      expect(balanced.experienceEntries[0]?.bullets).not.toContain(
+        roundedBullet,
+      );
+      expect(balanced.generationQuality).toMatchObject({
+        strategy: "deterministic",
+        acceptedRewriteCount: 0,
+      });
     } finally {
       restoreFetch();
     }

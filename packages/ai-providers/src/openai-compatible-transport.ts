@@ -15,6 +15,11 @@ export const DEFAULT_OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
 export const DEFAULT_TEXT_MODEL = "deepseek-v4-flash";
 export const DEFAULT_TEXT_MODEL_API_MODE: ModelApiMode = "chat_completions";
 export const DEFAULT_TEXT_MODEL_REASONING_EFFORT: ModelReasoningEffort = "max";
+export const DEFAULT_AGGRESSIVE_RESUME_MODEL = "deepseek-v4-flash";
+export const DEFAULT_AGGRESSIVE_RESUME_MODEL_API_MODE: ModelApiMode =
+  "chat_completions";
+export const DEFAULT_AGGRESSIVE_RESUME_MODEL_REASONING_EFFORT: ModelReasoningEffort =
+  "max";
 export const DEFAULT_VISION_MODEL = "gpt-5.6-luna";
 export const DEFAULT_VISION_MODEL_API_MODE: ModelApiMode = "responses";
 export const DEFAULT_VISION_MODEL_REASONING_EFFORT: ModelReasoningEffort =

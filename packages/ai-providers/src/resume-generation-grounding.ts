@@ -185,6 +185,38 @@ function normalizedComparableText(value: string): string {
     .trim();
 }
 
+// Years-of-experience figures the aggressive relaxation may round up by at
+// most one: a bare number ("4", "3+") directly followed by "year"/"years".
+// Every other number keeps requiring verbatim evidence in every mode.
+const YEARS_OF_EXPERIENCE_PATTERN = /\b(\d+)\s*\+?\s*years?\b/gi;
+
+export function extractYearsOfExperienceNumbers(value: string): number[] {
+  return Array.from(value.matchAll(YEARS_OF_EXPERIENCE_PATTERN), (match) =>
+    Number.parseInt(match[1] ?? "", 10),
+  ).filter((years) => Number.isFinite(years));
+}
+
+// A metric may only count as a rounded-up years figure when it is a pure
+// integer (never "15%", "$4", or "4k"), the claim itself states it as years
+// of experience, the cited evidence carries exactly one year less, and the
+// target listing states the rounded figure as its own years requirement.
+function isRoundedUpYearsMetric(
+  metric: string,
+  claimYearsNumbers: ReadonlySet<number>,
+  evidenceYearsNumbers: ReadonlySet<number>,
+  listingYearsNumbers: ReadonlySet<number>,
+): boolean {
+  if (!/^\d+$/.test(metric)) {
+    return false;
+  }
+  const years = Number.parseInt(metric, 10);
+  return (
+    claimYearsNumbers.has(years) &&
+    evidenceYearsNumbers.has(years - 1) &&
+    listingYearsNumbers.has(years)
+  );
+}
+
 function findStrictPrefixCanonical(
   generated: string,
   canonicalCandidates: readonly string[],
@@ -485,6 +517,16 @@ export type ResumeClaimGroundingVerdict =
   | "unsupported";
 
 /**
+ * Aggressive-tailoring claim relaxations that let content beyond the cited
+ * candidate evidence through the gate. They never make a claim silently
+ * accepted: consumers surface every relaxed claim as a user-confirmation
+ * state, so the candidate owns the risk of standing behind it.
+ */
+export type ResumeClaimGroundingRelaxation =
+  | "years_rounded_up"
+  | "listing_term";
+
+/**
  * Hard gaps are integrity violations that make a claim unpublishable without
  * edits. A classification is `weakly_supported` — a human-confirmation state,
  * never auto-accepted for generation — only when it carries no hard gap.
@@ -524,6 +566,13 @@ export interface ResumeClaimGroundingResult {
    */
   anchorRatio: number;
   gaps: ResumeClaimGroundingGap[];
+  /**
+   * Aggressive-tailoring relaxations that actually authorized content beyond
+   * the cited evidence for this claim. Empty unless aggressive relaxation was
+   * explicitly enabled; consumers must treat every relaxed claim as needing
+   * the candidate's explicit confirmation, never as silently verified.
+   */
+  relaxations: ResumeClaimGroundingRelaxation[];
 }
 
 export interface ResumeClaimGroundingInput {
@@ -532,6 +581,25 @@ export interface ResumeClaimGroundingInput {
   jobCompany: string;
   jobSkills: readonly string[];
   allowReasonableInference?: boolean;
+  /**
+   * Compact text of the target job listing (description, responsibilities,
+   * qualifications, key skills). Consulted only when aggressive claim
+   * relaxation is enabled, and only to bound listing-anchored claims: a
+   * technology the claim adds may come from the listing, never from nowhere.
+   */
+  jobListingText?: string | null;
+  /**
+   * Enables the aggressive-tailoring claim relaxations (years of experience
+   * rounded up from an evidenced figure exactly one year lower to the years
+   * figure stated by the listing, and technologies named by the target job
+   * listing) on top of the safe-elaboration vocabulary. Requires
+   * `allowReasonableInference`. The generation gate enables it only for
+   * proposals the model itself flagged `inferred`, so every relaxed line is
+   * counted and surfaced for review; the workspace verifier enables it to
+   * match the most permissive legitimate generation posture so accepted
+   * claims never flip to unsupported after acceptance.
+   */
+  allowAggressiveClaimRelaxation?: boolean;
 }
 
 // Support unions are bounded to the same per-claim citation limit enforced by
@@ -629,6 +697,21 @@ export function classifyResumeClaimGrounding(
   input: ResumeClaimGroundingInput,
 ): ResumeClaimGroundingResult {
   const allowReasonableInference = input.allowReasonableInference ?? false;
+  // Relaxation requires the aggressive posture itself: no caller can widen
+  // claim acceptance without also opting into reasonable inference.
+  const allowAggressiveClaimRelaxation =
+    allowReasonableInference && (input.allowAggressiveClaimRelaxation ?? false);
+  const jobListingText = allowAggressiveClaimRelaxation
+    ? (normalizeNullableText(input.jobListingText) ?? "")
+    : "";
+  const jobListingUnits = new Set(
+    allowAggressiveClaimRelaxation ? gateUnits(jobListingText) : [],
+  );
+  const listingYearsNumbers = new Set(
+    allowAggressiveClaimRelaxation
+      ? extractYearsOfExperienceNumbers(jobListingText)
+      : [],
+  );
   const trimmed = input.text.trim();
   const supportEvidence = selectResumeClaimSupportEvidence(
     trimmed,
@@ -636,6 +719,7 @@ export function classifyResumeClaimGrounding(
   );
   const supportEvidenceIds = supportEvidence.map((item) => item.id);
 
+  const relaxations = new Set<ResumeClaimGroundingRelaxation>();
   const gaps: ResumeClaimGroundingGap[] = [];
   const pushGap = (
     type: ResumeClaimHardGapType,
@@ -661,33 +745,93 @@ export function classifyResumeClaimGrounding(
 
   const evidenceText = supportEvidence.map((item) => item.text).join(" ");
   const evidenceMetrics = new Set(normalizedMetrics(evidenceText));
-  const fabricatedMetrics = normalizedMetrics(trimmed).filter(
-    (metric) => !evidenceMetrics.has(metric),
+  // Aggressive relaxation only: a years-of-experience figure may be rounded
+  // up from an evidenced figure exactly one year lower to the years figure
+  // stated by the listing (3 evidenced years may be stated as a listed 4).
+  // Every other metric still requires verbatim evidence in every mode, so
+  // percentages, money, and counts stay fail-closed.
+  const evidenceYearsNumbers = new Set(
+    allowAggressiveClaimRelaxation
+      ? extractYearsOfExperienceNumbers(evidenceText)
+      : [],
   );
+  const claimYearsNumbers = new Set(extractYearsOfExperienceNumbers(trimmed));
+  const fabricatedMetrics = normalizedMetrics(trimmed).filter((metric) => {
+    if (evidenceMetrics.has(metric)) {
+      return false;
+    }
+    if (
+      allowAggressiveClaimRelaxation &&
+      isRoundedUpYearsMetric(
+        metric,
+        claimYearsNumbers,
+        evidenceYearsNumbers,
+        listingYearsNumbers,
+      )
+    ) {
+      relaxations.add("years_rounded_up");
+      return false;
+    }
+    return true;
+  });
   if (fabricatedMetrics.length > 0) {
     pushGap("fabricated_metric", fabricatedMetrics);
   }
 
   // Named words are capitalized tokens that are not plain sentence starts:
   // technologies, frameworks, tools, services, products, employers, and other
-  // proper nouns. They must come from the cited evidence in every mode.
+  // proper nouns. They must come from the cited evidence in every mode, with
+  // one aggressive relaxation: a named word the target job listing itself
+  // uses may anchor a flagged inferred claim (a listing technology), never
+  // one invented from nowhere.
   // Aggressive rewrites are additionally gated by the fail-closed lexical
   // policy below (SAFE_ELABORATION_TOKENS): unevidenced technology, product,
   // or brand tokens reject regardless of casing or sentence position.
   const evidenceLowercaseText = evidenceText.toLowerCase();
-  const unknownNamedWords = capitalizedNamedWords(trimmed).filter(
-    (word) => !evidenceLowercaseText.includes(word),
-  );
+  const unknownNamedWords = capitalizedNamedWords(trimmed).filter((word) => {
+    if (evidenceLowercaseText.includes(word)) {
+      return false;
+    }
+    // Token-bound matching only: listing prose such as "reaction" must not
+    // authorize "React" through substring containment.
+    if (
+      allowAggressiveClaimRelaxation &&
+      jobListingUnits.has(normalizeToken(word))
+    ) {
+      relaxations.add("listing_term");
+      return false;
+    }
+    return true;
+  });
   if (unknownNamedWords.length > 0) {
     pushGap("unknown_named_word", unknownNamedWords);
   }
 
-  const jobOnlyTerms = [input.jobCompany, ...input.jobSkills].filter(
-    (term) =>
-      normalizeNullableText(term) &&
-      phraseAppears(trimmed, term) &&
-      !phraseAppears(evidenceText, term),
-  );
+  const jobOnlyTerms = [input.jobCompany, ...input.jobSkills].filter((term) => {
+    if (!normalizeNullableText(term)) {
+      return false;
+    }
+    if (!phraseAppears(trimmed, term)) {
+      return false;
+    }
+    if (phraseAppears(evidenceText, term)) {
+      return false;
+    }
+    // Aggressive relaxation only: a job-listing skill may anchor a flagged
+    // inferred claim (the candidate plausibly used a technology the listing
+    // asks for) only when the listing text itself states that term. The
+    // employer itself stays evidence-required in every mode, so the gate
+    // never authorizes borrowed work history.
+    if (
+      allowAggressiveClaimRelaxation &&
+      input.jobSkills.includes(term) &&
+      phraseAppears(jobListingText, term)
+    ) {
+      relaxations.add("listing_term");
+      return false;
+    }
+    return true;
+  });
   if (jobOnlyTerms.length > 0) {
     pushGap("job_only_term", jobOnlyTerms);
   }
@@ -744,6 +888,7 @@ export function classifyResumeClaimGrounding(
       supportEvidenceIds,
       anchorRatio,
       gaps,
+      relaxations: [...relaxations],
     };
   }
 
@@ -762,6 +907,7 @@ export function classifyResumeClaimGrounding(
       supportEvidenceIds,
       anchorRatio,
       gaps: [],
+      relaxations: [...relaxations],
     };
   }
 
@@ -773,6 +919,7 @@ export function classifyResumeClaimGrounding(
         supportEvidenceIds,
         anchorRatio,
         gaps,
+        relaxations: [...relaxations],
       };
     }
   } else {
@@ -785,12 +932,21 @@ export function classifyResumeClaimGrounding(
     // including new or unknown brands, products, and technologies in any casing
     // or sentence position, rejects here. Conservative false negatives are
     // preferred over invented facts; no proportional cap is needed because
-    // unmatched content is bounded to explicitly safe prose.
+    // unmatched content is bounded to explicitly safe prose, with one
+    // aggressive relaxation: units the target job listing itself uses may
+    // anchor a flagged inferred claim (a listing technology), so the added
+    // terms stay bounded to what the employer asked for.
     const evidenceGateUnits = new Set(gateUnits(evidenceText));
-    const unsafeUnits = gateUnits(trimmed).filter(
-      (unit) =>
-        !evidenceGateUnits.has(unit) && !SAFE_ELABORATION_TOKENS.has(unit),
-    );
+    const unsafeUnits = gateUnits(trimmed).filter((unit) => {
+      if (evidenceGateUnits.has(unit) || SAFE_ELABORATION_TOKENS.has(unit)) {
+        return false;
+      }
+      if (allowAggressiveClaimRelaxation && jobListingUnits.has(unit)) {
+        relaxations.add("listing_term");
+        return false;
+      }
+      return true;
+    });
     if (unsafeUnits.length > 0) {
       pushGap("unsafe_elaboration", unsafeUnits);
       return {
@@ -798,6 +954,7 @@ export function classifyResumeClaimGrounding(
         supportEvidenceIds,
         anchorRatio,
         gaps,
+        relaxations: [...relaxations],
       };
     }
   }
@@ -821,6 +978,7 @@ export function classifyResumeClaimGrounding(
     supportEvidenceIds,
     anchorRatio,
     gaps: [],
+    relaxations: [...relaxations],
   };
 }
 
@@ -1480,6 +1638,7 @@ export function selectResumeRewrite(input: {
     | undefined;
   jobCompany: string;
   jobSkills: readonly string[];
+  jobListingText?: string | null;
   allowReasonableInference?: boolean;
   allowExactClaims?: boolean;
   allowParaphrasedClaims?: boolean;
@@ -1573,7 +1732,13 @@ export function selectResumeRewrite(input: {
     evidence: referencedEvidence,
     jobCompany: input.jobCompany,
     jobSkills: input.jobSkills,
+    jobListingText: input.jobListingText ?? null,
     allowReasonableInference: input.allowReasonableInference ?? false,
+    // Relaxed acceptance (rounded-up years, listing technologies) requires
+    // the model to have flagged the proposal inferred, so every relaxed line
+    // is counted in the draft notes and stays user-confirmed before export.
+    allowAggressiveClaimRelaxation:
+      (input.allowReasonableInference ?? false) && parsed.inferred,
   });
   if (!GENERATION_ACCEPTED_GROUNDING_VERDICTS.has(grounding.verdict)) {
     return null;

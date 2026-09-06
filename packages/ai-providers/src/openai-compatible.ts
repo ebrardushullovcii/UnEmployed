@@ -14,10 +14,12 @@ import {
   ResumeProfileExtractionSchema,
   type AgentCapableJobFinderAiClient,
   type ChatWithToolsOptions,
+  type CreateResumeDraftInput,
   type JobFinderAiClient,
   type OpenAiCompatibleJobFinderAiClientOptions,
   type ResumeGenerationStrategyPolicy,
   type StringMap,
+  type TailorResumeInput,
 } from "./shared";
 import {
   buildDeterministicResumeProfileExtraction,
@@ -34,6 +36,9 @@ import { buildGroundedResumeRewriteModelPayload } from "./resume-generation-grou
 import {
   buildModelRequestBody,
   buildModelUrl,
+  DEFAULT_AGGRESSIVE_RESUME_MODEL,
+  DEFAULT_AGGRESSIVE_RESUME_MODEL_API_MODE,
+  DEFAULT_AGGRESSIVE_RESUME_MODEL_REASONING_EFFORT,
   DEFAULT_OPENCODE_GO_BASE_URL,
   DEFAULT_TEXT_MODEL,
   DEFAULT_TEXT_MODEL_API_MODE,
@@ -136,7 +141,7 @@ function buildResumeRewriteProposalPrompt(
 ): string {
   const modeGuidance =
     tailoringMode === "aggressive"
-      ? "Aggressive mode: substantially rewrite, combine, and elaborate the cited candidate evidence into the strongest plausible job-tailored prose. When the cited evidence names the candidate's stack (for example JavaScript, TypeScript, Next.js) or product domain (for example restaurant management SaaS), infer and spell out realistic engineering details around them - typical features, implementation approaches, trade-offs, and effects consistent with that stack and domain - even when the cited wording omits them. You may connect an evidenced metric to plausible supporting work, but every number in your output must come verbatim from the cited evidence. Mark every proposal that elaborates beyond the cited wording with inferred:true. Never introduce: named technologies, frameworks, tools, services, or products that do not appear in the cited evidence (no Angular, Vue, Redis, or similar unless evidenced); employers, dates, titles, credentials, certifications, seniority, team size, or leadership not supported by the cited evidence; or any new number, percentage, count, or money."
+      ? "Aggressive mode: substantially rewrite, combine, and elaborate the cited candidate evidence into the strongest plausible job-tailored prose. When the cited evidence names the candidate's stack (for example JavaScript, TypeScript, Next.js) or product domain (for example restaurant management SaaS), infer and spell out realistic engineering details around them - typical features, implementation approaches, trade-offs, and effects consistent with that stack and domain - even when the cited wording omits them. You may connect an evidenced metric to plausible supporting work, but every number in your output must come verbatim from the cited evidence. Mark every proposal that elaborates beyond the cited wording with inferred:true. Never introduce: named technologies, frameworks, tools, services, or products that do not appear in the cited evidence (no Angular, Vue, Redis, or similar unless evidenced); employers, dates, titles, credentials, certifications, seniority, team size, or leadership not supported by the cited evidence; or any new number, percentage, count, or money. Two permissions apply only when you mark the proposal inferred:true and cite the evidence that anchors the underlying experience: you may round the candidate's evidenced years of experience up to the job's stated years requirement when the evidenced figure is exactly one year below it, and you may name a technology, library, framework, or tool that the target job listing itself mentions when the cited evidence's stack or domain directly implies the candidate used it or could readily use it with that experience. Never name a technology absent from both the cited evidence and the job listing, never round up by more than one year, and never claim the listing's employer, dates, titles, credentials, seniority, or leadership."
       : tailoringMode === "conservative"
         ? "Conservative mode: stay very close to the cited wording and propose only clear, low-risk improvements."
         : "Balanced mode: improve structure and relevance while keeping every factual statement directly supported by cited evidence.";
@@ -879,6 +884,33 @@ export function createJobFinderAiClientFromEnvironment(
     requestTimeoutMs: parsedRequestTimeoutMs,
     resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
   });
+  // Aggressive resume tailoring uses its own model route rather than the
+  // primary provider. DeepSeek V4 Flash is text-only, so keep its Chat
+  // Completions API mode and reasoning effort independent of the primary
+  // route (which may, for example, use Responses for another model).
+  const aggressiveClient = createOpenAiCompatibleJobFinderAiClient({
+    apiKey,
+    baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? DEFAULT_OPENCODE_GO_BASE_URL,
+    model:
+      env.UNEMPLOYED_AI_AGGRESSIVE_MODEL?.trim() ||
+      DEFAULT_AGGRESSIVE_RESUME_MODEL,
+    apiMode: DEFAULT_AGGRESSIVE_RESUME_MODEL_API_MODE,
+    reasoningEffort: DEFAULT_AGGRESSIVE_RESUME_MODEL_REASONING_EFFORT,
+    label: "Aggressive AI resume agent",
+    requestTimeoutMs: parsedRequestTimeoutMs,
+    resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
+  });
+  function selectResumeGenerationClient(
+    input: CreateResumeDraftInput | TailorResumeInput,
+  ): AgentCapableJobFinderAiClient {
+    const tailoringStrength =
+      "strategy" in input ? input.strategy?.tailoringStrength : undefined;
+    const effectiveTailoringMode =
+      tailoringStrength ?? input.searchPreferences.tailoringMode;
+    return effectiveTailoringMode === "aggressive"
+      ? aggressiveClient
+      : primaryClient;
+  }
   const fallbackClient = createDeterministicJobFinderAiClient(
     "The configured model is enabled, and deterministic fallbacks protect the app when a model call fails.",
   );
@@ -1074,8 +1106,11 @@ export function createJobFinderAiClientFromEnvironment(
           ]),
         };
       }
+      const modelClient = selectResumeGenerationClient(input);
+      const providerLabel =
+        modelClient === aggressiveClient ? "Aggressive AI" : "Primary AI";
       try {
-        return await primaryClient.createResumeDraft(input);
+        return await modelClient.createResumeDraft(input);
       } catch (error) {
         logFallbackError("createResumeDraft", error);
         const fallback = await fallbackClient.createResumeDraft(input);
@@ -1085,7 +1120,7 @@ export function createJobFinderAiClientFromEnvironment(
           notes: uniqueStrings([
             ...fallback.notes,
             "Fell back to the deterministic resume draft creator after the model call failed.",
-            `Primary AI draft creation failed: ${summarizeError(error)}`,
+            `${providerLabel} draft creation failed: ${summarizeError(error)}`,
           ]),
         };
       }
@@ -1199,8 +1234,11 @@ export function createJobFinderAiClientFromEnvironment(
       }
     },
     async tailorResume(input) {
+      const modelClient = selectResumeGenerationClient(input);
+      const providerLabel =
+        modelClient === aggressiveClient ? "Aggressive AI" : "Primary AI";
       try {
-        return await primaryClient.tailorResume(input);
+        return await modelClient.tailorResume(input);
       } catch (error) {
         logFallbackError("tailorResume", error);
         const fallback = await fallbackClient.tailorResume(input);
@@ -1210,7 +1248,7 @@ export function createJobFinderAiClientFromEnvironment(
           notes: uniqueStrings([
             ...fallback.notes,
             "Fell back to the deterministic resume tailorer after the model call failed.",
-            `Primary AI tailoring failed: ${summarizeError(error)}`,
+            `${providerLabel} tailoring failed: ${summarizeError(error)}`,
           ]),
         };
       }
