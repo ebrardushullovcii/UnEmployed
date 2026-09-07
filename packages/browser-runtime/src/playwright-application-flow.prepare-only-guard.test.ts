@@ -355,6 +355,102 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
   );
 
   test(
+    "allows page-owned reads, including GraphQL queries, but never one carrying a field value",
+    { timeout: 60_000 },
+    async () => {
+      const app = await startTrackedServer();
+      app.registerHtml(
+        "/spa-shell",
+        `<label for="email">Email address</label><input id="email">
+         <button id="config" type="button">config</button>
+         <button id="graphql" type="button">graphql</button>
+         <button id="beacon" type="button">beacon</button>
+         <script>
+         document.getElementById('config').addEventListener('click', function () {
+           fetch('/form-definition.json').catch(function () {});
+           fetch('/api/applications?type=active&posting=R1').catch(function () {});
+           var xhr = new XMLHttpRequest();
+           xhr.open('GET', '/lang/en-US.json');
+           xhr.send();
+         });
+         document.getElementById('graphql').addEventListener('click', function () {
+           fetch('/api/graphql?op=Posting', {
+             method: 'POST',
+             headers: { 'content-type': 'application/json' },
+             body: JSON.stringify({ operationName: 'Posting', query: 'query Posting($id: ID!) { posting(id: $id) { title } }', variables: { id: 'R1' } })
+           }).catch(function () {});
+           fetch('/api/graphql?op=Submit', {
+             method: 'POST',
+             headers: { 'content-type': 'application/json' },
+             body: JSON.stringify({ operationName: 'Submit', query: 'mutation Submit { submit { id } }' })
+           }).catch(function () {});
+         });
+         document.getElementById('beacon').addEventListener('click', function () {
+           var value = document.getElementById('email').value;
+           fetch('/analytics', { method: 'POST', body: JSON.stringify({ event: 'field_focus' }) }).catch(function () {});
+           fetch('/collect?email=' + encodeURIComponent(value)).catch(function () {});
+           fetch('/api/graphql?op=Check', {
+             method: 'POST',
+             headers: { 'content-type': 'application/json' },
+             body: JSON.stringify({ query: 'query Check($email: String!) { exists(email: $email) }', variables: { email: value } })
+           }).catch(function () {});
+         });
+         </script>`,
+      );
+      const { page } = await newGuardedPage();
+      await page.goto(`${app.baseUrl}/spa-shell`);
+      await ensurePrepareOnlyMutationGuard(page, false);
+
+      await page.click("#config");
+      await page.waitForTimeout(700);
+      expect(requestHitsFor(app.hits, "/form-definition.json")).toHaveLength(1);
+      expect(requestHitsFor(app.hits, "/api/applications")).toHaveLength(1);
+      expect(requestHitsFor(app.hits, "/lang/en-US.json")).toHaveLength(1);
+      expect(await getLatestBlockedPrepareOnlyAttempt(page)).toBeNull();
+
+      await page.click("#graphql");
+      await page.waitForTimeout(700);
+      const graphQlHits = requestHitsFor(app.hits, "/api/graphql");
+      expect(graphQlHits.map((hit) => hit.query)).toEqual(["?op=Posting"]);
+      expect(await getLatestBlockedPrepareOnlyAttempt(page)).toMatchObject({
+        kind: "fetch",
+        method: "POST",
+      });
+
+      await page.fill("#email", "alex@example.com");
+      await page.click("#beacon");
+      await page.waitForTimeout(700);
+      expect(requestHitsFor(app.hits, "/collect")).toHaveLength(0);
+      expect(requestHitsFor(app.hits, "/api/graphql")).toHaveLength(1);
+      const snapshot = await ensurePrepareOnlyMutationGuard(page, false);
+      const leaking = snapshot.blockedAttempts.filter(
+        (attempt) =>
+          attempt.kind === "fetch" &&
+          ((attempt.url ?? "").includes("/collect") ||
+            (attempt.url ?? "").includes("op=Check")),
+      );
+      expect(leaking).toHaveLength(2);
+      expect(leaking.every((attempt) => attempt.carriedPreparedValue)).toBe(
+        true,
+      );
+      expect(
+        snapshot.blockedAttempts.find((attempt) =>
+          (attempt.url ?? "").includes("/analytics"),
+        ),
+      ).toMatchObject({ kind: "fetch", carriedPreparedValue: false });
+      expect(requestHitsFor(app.hits, "/analytics")).toHaveLength(0);
+      expect(
+        app.hits.filter((hit) => hit.method !== "GET" && hit.method !== "POST"),
+      ).toHaveLength(0);
+      expect(
+        app.hits.filter(
+          (hit) => hit.method === "POST" && !hit.body.includes("query Posting"),
+        ),
+      ).toHaveLength(0);
+    },
+  );
+
+  test(
     "blocks a page-initiated WebSocket connection before the handshake",
     { timeout: 60_000 },
     async () => {

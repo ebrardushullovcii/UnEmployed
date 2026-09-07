@@ -95,39 +95,117 @@ export type DesktopBrowserImportResult = z.infer<
   typeof DesktopBrowserImportResultSchema
 >;
 
+export const DesktopBrowserImportBrowserSchema = z.enum([
+  "chrome",
+  "chromium",
+  "brave",
+  "edge",
+  "arc",
+  "firefox",
+]);
+export type DesktopBrowserImportBrowser = z.infer<
+  typeof DesktopBrowserImportBrowserSchema
+>;
+
+/** One browser profile found on this device. Paths and cookies stay in main. */
+export const DesktopBrowserImportSourceSchema = z.object({
+  id: z.string().min(1).max(200),
+  browser: DesktopBrowserImportBrowserSchema,
+  browserLabel: z.string().max(60),
+  profileLabel: z.string().max(120),
+  supported: z.boolean(),
+  note: z.string().max(300).nullable(),
+});
+export type DesktopBrowserImportSource = z.infer<
+  typeof DesktopBrowserImportSourceSchema
+>;
+
+export const DesktopBrowserImportSourcesSchema = z.object({
+  sources: z.array(DesktopBrowserImportSourceSchema).max(60),
+  note: z.string().max(300).nullable(),
+});
+export type DesktopBrowserImportSources = z.infer<
+  typeof DesktopBrowserImportSourcesSchema
+>;
+
+export const DesktopBrowserImportInputSchema = z
+  .object({ sourceId: z.string().min(1).max(200) })
+  .strict();
+export type DesktopBrowserImportInput = z.infer<
+  typeof DesktopBrowserImportInputSchema
+>;
+
+/**
+ * A still of the active page, used while app chrome (a menu, a picker) has to
+ * sit above the native page view, which always paints over the app's own
+ * document. Null when there is no page to show.
+ */
+export const DesktopBrowserSnapshotSchema = z
+  .object({ dataUrl: z.string().startsWith("data:image/").nullable() })
+  .strict();
+export type DesktopBrowserSnapshot = z.infer<
+  typeof DesktopBrowserSnapshotSchema
+>;
+
 export interface DesktopBrowserBridge {
   getState(): Promise<DesktopBrowserState>;
   command(command: DesktopBrowserCommand): Promise<DesktopBrowserState>;
   setViewport(viewport: DesktopBrowserViewport): Promise<void>;
-  importSession(): Promise<DesktopBrowserImportResult>;
+  captureActivePage(): Promise<DesktopBrowserSnapshot>;
+  listImportSources(): Promise<DesktopBrowserImportSources>;
+  importFromBrowser(
+    input: DesktopBrowserImportInput,
+  ): Promise<DesktopBrowserImportResult>;
   onStateChanged(listener: (state: DesktopBrowserState) => void): () => void;
   onFocusAddress(listener: () => void): () => void;
 }
-const CookieExportSchema = z.object({
-  name: z.string().min(1).max(1024),
-  value: z.string().max(16384),
-  domain: z.string().min(1).max(253),
-  path: z.string().startsWith("/").max(2048).default("/"),
-  secure: z.boolean().default(true),
-  httpOnly: z.boolean().default(false),
-  hostOnly: z.boolean().optional(),
-  session: z.boolean().optional(),
-  expirationDate: z.number().finite().optional(),
-  expires: z.number().finite().optional(),
-  sameSite: z
-    .enum([
-      "Strict",
-      "Lax",
-      "None",
-      "strict",
-      "lax",
-      "no_restriction",
-      "unspecified",
-    ])
-    .optional(),
-  partitionKey: z.unknown().optional(),
-});
-export const DesktopBrowserCookieExportSchema = z.union([
-  z.array(CookieExportSchema).min(1).max(5000),
-  z.object({ cookies: z.array(CookieExportSchema).min(1).max(5000) }),
-]);
+
+const BROWSER_SEARCH_URL = "https://www.google.com/search?q=";
+const BROWSER_HOST_PATTERN =
+  /^(?:localhost|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}|\d{1,3}(?:\.\d{1,3}){3})(?::\d{1,5})?$/i;
+const BROWSER_LOCAL_HOST_PATTERN =
+  /^(?:localhost|\d{1,3}(?:\.\d{1,3}){3})(?::\d{1,5})?$/i;
+
+export type DesktopBrowserAddressResolution =
+  | { kind: "url"; url: string }
+  | { kind: "search"; url: string; query: string };
+
+/**
+ * Reads what a person typed into the address bar the way a browser does: a
+ * web address is opened, and anything else is searched. Only http(s) pages are
+ * ever opened; other schemes (file:, javascript:, data:) become searches.
+ */
+export function resolveBrowserAddress(
+  input: string,
+): DesktopBrowserAddressResolution | null {
+  const text = input.trim();
+  if (!text) return null;
+  const search = (query: string): DesktopBrowserAddressResolution => ({
+    kind: "search",
+    url: `${BROWSER_SEARCH_URL}${encodeURIComponent(query)}`,
+    query,
+  });
+  if (text === "about:blank") return { kind: "url", url: text };
+  if (/\s/u.test(text)) return search(text);
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(text)?.[1]?.toLowerCase();
+  if (scheme === "http" || scheme === "https") {
+    try {
+      const url = new URL(text);
+      if (url.username || url.password) return search(text);
+      return { kind: "url", url: url.href };
+    } catch {
+      return search(text);
+    }
+  }
+  if (scheme) return search(text);
+  const authority = text.split(/[/?#]/u, 1)[0] ?? "";
+  if (!BROWSER_HOST_PATTERN.test(authority)) return search(text);
+  const protocol = BROWSER_LOCAL_HOST_PATTERN.test(authority)
+    ? "http://"
+    : "https://";
+  try {
+    return { kind: "url", url: new URL(`${protocol}${text}`).href };
+  } catch {
+    return search(text);
+  }
+}

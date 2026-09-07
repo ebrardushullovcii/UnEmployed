@@ -520,7 +520,7 @@ function GroupedDecisionCard(props: {
 
       <div className="rounded-md border border-border/70 bg-background/45 p-4">
         <p className="text-xs text-muted-foreground">Reusable answer</p>
-        <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground">
+        <p className="mt-1 min-w-0 wrap-anywhere whitespace-pre-wrap text-sm leading-6 text-foreground">
           {decision.answer.value}
         </p>
       </div>
@@ -758,7 +758,7 @@ export function ActionsScreen(props: {
         // action it offers; the page header owns the credential boundary
         // only, so the promise is stated once per card instead of three
         // times on the same screen.
-        description={`Finish each step in ${JOB_FINDER_BROWSER_NAME}, a separate window outside this app, then come back and confirm. Passwords and security codes stay with you.`}
+        description={`Finish each step in ${JOB_FINDER_BROWSER_NAME}, right here in the app, then come back and confirm. Passwords and security codes stay with you.`}
         title="Needs you"
       />
 

@@ -7,20 +7,26 @@ import {
   Check,
   ChevronDown,
   Globe2,
-  Hand,
   Import,
+  KeyRound,
   LoaderCircle,
+  Lock,
   Maximize2,
   Minimize2,
+  MoreHorizontal,
+  Play,
   Plus,
   RotateCw,
+  Search,
   ShieldCheck,
   Square,
   X,
 } from "lucide-react";
-import type {
-  DesktopBrowserCommand,
-  DesktopBrowserState,
+import {
+  resolveBrowserAddress,
+  type DesktopBrowserCommand,
+  type DesktopBrowserImportSource,
+  type DesktopBrowserState,
 } from "@unemployed/contracts";
 import {
   JOB_FINDER_BROWSER_LABEL,
@@ -43,19 +49,85 @@ const initialState: DesktopBrowserState = {
   automationPaused: false,
 };
 
+/** A compact window glyph: distinct from the globe used for pages and tabs. */
+function BrowserGlyph({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="browser-glyph"
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2.5" />
+      <path d="M1.75 6.25h12.5" />
+      <circle cx="4.4" cy="4.5" r="0.55" fill="currentColor" stroke="none" />
+      <circle cx="6.4" cy="4.5" r="0.55" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function BrowserBrandMark({
+  browser,
+}: {
+  browser: DesktopBrowserImportSource["browser"];
+}) {
+  const letter = {
+    chrome: "C",
+    chromium: "C",
+    brave: "B",
+    edge: "E",
+    arc: "A",
+    firefox: "F",
+  }[browser];
+  return (
+    <span className={`browser-brand-mark is-${browser}`} aria-hidden="true">
+      {letter}
+    </span>
+  );
+}
+
 export function BrowserPeek() {
   const bridge = window.unemployed?.browser;
   const [state, setState] = useState(initialState);
   const [address, setAddress] = useState("");
   const [message, setMessage] = useState<string | null>(null);
-  const [importing, setImporting] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // App chrome cannot paint above the native page view, so while a menu or
+  // picker is open the page is hidden behind a still of itself (Arc-style).
+  const [pageHidden, setPageHidden] = useState(false);
+  const [snapshot, setSnapshot] = useState<string | null>(null);
+  const [importPanel, setImportPanel] = useState<
+    | null
+    | { step: "loading" }
+    | {
+        step: "pick";
+        sources: DesktopBrowserImportSource[];
+        note: string | null;
+      }
+    | { step: "importing"; source: DesktopBrowserImportSource }
+    | { step: "done"; ok: boolean; message: string }
+  >(null);
+  const [importSources, setImportSources] = useState<
+    DesktopBrowserImportSource[] | null
+  >(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const addressRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const active = state.tabs.find((tab) => tab.id === state.activeTabId);
   const shown = state.presentation !== "minimized" && state.phase !== "closed";
   const busy = state.phase === "working";
+  const needsYou = state.phase === "needs_you";
+  const paused = state.automationPaused;
+  const blank = !active || active.url === "about:blank";
+  const overlayRequested = menuOpen || importPanel !== null;
   const accept = useCallback(
     (next: DesktopBrowserState) =>
       setState((current) =>
@@ -105,6 +177,14 @@ export function BrowserPeek() {
   useEffect(() => {
     setAddress(active?.url === "about:blank" ? "" : (active?.url ?? ""));
   }, [active?.url, active?.id]);
+  // The welcome screen names the browsers it can bring sign-ins from.
+  useEffect(() => {
+    if (!bridge || !shown || !blank || importSources !== null) return;
+    void bridge
+      .listImportSources()
+      .then((listed) => setImportSources(listed.sources))
+      .catch(() => setImportSources([]));
+  }, [bridge, shown, blank, importSources]);
   useEffect(() => {
     if (!bridge || !shown) return;
     const measure = () => {
@@ -116,7 +196,7 @@ export function BrowserPeek() {
           y: Math.max(0, rect.y),
           width: rect.width,
           height: rect.height,
-          visible: isTopmost() && !!active && active.url !== "about:blank",
+          visible: isTopmost() && !blank && !pageHidden,
         })
         .catch(() => undefined);
     };
@@ -134,18 +214,46 @@ export function BrowserPeek() {
         .setViewport({ x: 0, y: 0, width: 0, height: 0, visible: false })
         .catch(() => undefined);
     };
-  }, [bridge, shown, active?.id, active?.url, state.presentation, isTopmost]);
+  }, [bridge, shown, blank, pageHidden, state.presentation, isTopmost]);
+  useEffect(() => {
+    if (!bridge || !shown) return;
+    if (!overlayRequested) {
+      setPageHidden(false);
+      setSnapshot(null);
+      return;
+    }
+    if (blank) {
+      setPageHidden(true);
+      return;
+    }
+    let cancelled = false;
+    void bridge
+      .captureActivePage()
+      .then((still) => {
+        if (cancelled) return;
+        setSnapshot(still.dataUrl);
+        setPageHidden(true);
+      })
+      .catch(() => {
+        if (!cancelled) setPageHidden(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bridge, shown, blank, overlayRequested]);
   useEffect(() => {
     if (!shown) return;
     const root = document.getElementById("root");
     const wasInert = root?.inert ?? false;
     if (root) root.inert = true;
-    addressRef.current?.focus();
+    if (blank) addressRef.current?.focus();
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || !isTopmost()) return;
       if (event.key === "Escape") {
         event.preventDefault();
-        minimize();
+        if (importPanel) setImportPanel(null);
+        else if (menuOpen) setMenuOpen(false);
+        else minimize();
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "l") {
         event.preventDefault();
@@ -175,54 +283,119 @@ export function BrowserPeek() {
       if (root) root.inert = wasInert;
       triggerRef.current?.focus();
     };
-  }, [shown, isTopmost, minimize]);
+  }, [shown, blank, isTopmost, minimize, importPanel, menuOpen]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menuOpen]);
+  useEffect(() => {
+    if (!shown) {
+      setMenuOpen(false);
+      setImportPanel(null);
+    }
+  }, [shown]);
 
-  async function importSession() {
-    if (!bridge || importing) return;
-    setImporting(true);
+  async function openImportPicker() {
+    if (!bridge) return;
+    setMenuOpen(false);
+    setImportPanel({ step: "loading" });
     try {
-      const result = await bridge.importSession();
-      setMessage(result.message);
+      const listed = await bridge.listImportSources();
+      setImportSources(listed.sources);
+      setImportPanel({
+        step: "pick",
+        sources: listed.sources,
+        note: listed.note,
+      });
     } catch {
-      setMessage(
-        "The import couldn’t finish. Your existing sign-ins are still available.",
-      );
-    } finally {
-      setImporting(false);
+      setImportPanel({
+        step: "done",
+        ok: false,
+        message: "Installed browsers couldn’t be checked right now.",
+      });
     }
   }
+  async function importFrom(source: DesktopBrowserImportSource) {
+    if (!bridge) return;
+    setImportPanel({ step: "importing", source });
+    try {
+      const result = await bridge.importFromBrowser({ sourceId: source.id });
+      setImportPanel({
+        step: "done",
+        ok: result.status === "imported",
+        message: result.message,
+      });
+    } catch {
+      setImportPanel({
+        step: "done",
+        ok: false,
+        message:
+          "The import couldn’t finish. Your existing sign-ins are still available.",
+      });
+    }
+  }
+
   const status =
     state.phase === "closing"
-      ? "Closing browser"
+      ? "Closing"
       : state.phase === "closed"
-        ? "Browser closed"
+        ? "Closed"
         : state.phase === "pausing"
-          ? "Pausing activity…"
+          ? "Pausing…"
           : busy
             ? (state.activity ?? "Agent browsing")
-            : state.attention
-              ? "Needs you"
-              : state.automationPaused
-                ? "Activity paused"
-                : "Ready when you are";
+            : needsYou
+              ? (state.attention?.title ?? "Needs you")
+              : paused
+                ? "You’re in control"
+                : "Ready";
+  const triggerState =
+    state.phase === "closed" || state.phase === "closing"
+      ? paused
+        ? "paused"
+        : "closed"
+      : needsYou
+        ? "needs-you"
+        : busy
+          ? "working"
+          : paused
+            ? "paused"
+            : "open";
+  const importable = (importSources ?? []).filter((source) => source.supported);
+  const importableBrowsers = [
+    ...new Set(importable.map((source) => source.browserLabel)),
+  ];
+  const showNotice = !!message || (!!state.attention && !blank);
+  const isSecure = !!active?.url.startsWith("https://");
+  const currentAddress = blank ? "" : (active?.url ?? "");
+  const typing = address.trim() !== "" && address !== currentAddress;
+  const typedResolution = typing ? resolveBrowserAddress(address) : null;
+  const willSearch = typedResolution?.kind === "search";
+
   return (
     <>
       <button
         ref={triggerRef}
-        className="browser-peek-trigger"
+        className={`browser-peek-trigger is-${triggerState}`}
         type="button"
         disabled={!bridge}
         aria-label={`${OPEN_JOB_FINDER_BROWSER_ACTION} · ${status}`}
         title={`${JOB_FINDER_BROWSER_LABEL} · ${status}`}
         onClick={() => void command({ type: "open" })}
       >
-        <Globe2 size={16} aria-hidden="true" />
+        <span className="browser-trigger-icon">
+          <BrowserGlyph size={17} />
+          {triggerState !== "closed" && (
+            <span className="browser-trigger-badge" aria-hidden="true">
+              {triggerState === "needs-you" ? "!" : ""}
+            </span>
+          )}
+        </span>
         <span className="browser-trigger-label">Browser</span>
-        {state.phase !== "closed" && (
-          <span
-            className={`browser-status-dot ${busy ? "is-working" : state.attention ? "needs-you" : ""}`}
-          />
-        )}
       </button>
       {shown &&
         createPortal(
@@ -237,41 +410,178 @@ export function BrowserPeek() {
               ref={dialogRef}
               role="dialog"
               aria-modal="true"
-              aria-label="Job Finder browser"
-              className={`browser-peek ${state.presentation === "expanded" ? "is-expanded" : ""}`}
+              aria-label={JOB_FINDER_BROWSER_LABEL}
+              className={`browser-peek ${state.presentation === "expanded" ? "is-expanded" : ""} ${busy ? "is-working" : ""} ${needsYou ? "is-needs-you" : ""}`}
             >
-              <div className="browser-peek-heading">
-                <div className="browser-peek-brand">
-                  <Globe2 size={17} />
-                  <span>Browser</span>
-                  <span className="browser-peek-divider" />
-                  <span className="browser-peek-status" aria-live="polite">
-                    {busy && (
-                      <LoaderCircle size={13} className="browser-spin" />
-                    )}
-                    {status}
-                  </span>
-                </div>
-                <div className="browser-window-actions">
+              <div className="browser-toolbar">
+                <div className="browser-nav">
                   <button
                     type="button"
-                    title="Minimize · keep tabs and activity running"
-                    aria-label="Minimize browser"
-                    onClick={minimize}
+                    aria-label="Go back"
+                    disabled={!active?.canGoBack}
+                    onClick={() => void command({ type: "back" })}
                   >
-                    <ChevronDown size={18} />
+                    <ArrowLeft size={16} />
                   </button>
+                  <button
+                    type="button"
+                    aria-label="Go forward"
+                    disabled={!active?.canGoForward}
+                    onClick={() => void command({ type: "forward" })}
+                  >
+                    <ArrowRight size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={
+                      active?.loading ? "Stop loading" : "Reload page"
+                    }
+                    disabled={!active || blank}
+                    onClick={() =>
+                      void command({
+                        type: active?.loading ? "stop" : "reload",
+                      })
+                    }
+                  >
+                    {active?.loading ? (
+                      <Square size={12} />
+                    ) : (
+                      <RotateCw size={14} />
+                    )}
+                  </button>
+                </div>
+                <form
+                  className={`browser-address ${busy ? "is-working" : ""} ${needsYou ? "is-needs-you" : ""}`}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!address.trim()) return;
+                    void command({ type: "navigate", url: address });
+                    addressRef.current?.blur();
+                  }}
+                >
+                  <span className="browser-address-lead" aria-hidden="true">
+                    {willSearch ? (
+                      <Search size={13} />
+                    ) : busy ? (
+                      <LoaderCircle size={13} className="browser-spin" />
+                    ) : isSecure ? (
+                      <Lock size={12} />
+                    ) : (
+                      <Globe2 size={13} />
+                    )}
+                  </span>
+                  <input
+                    ref={addressRef}
+                    aria-label="Website address"
+                    placeholder="Search or enter a website address"
+                    value={address}
+                    onChange={(event) => setAddress(event.target.value)}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onKeyDown={(event) => {
+                      // Escape restores the current address and leaves the
+                      // bar, as in any browser; it must not hide the panel.
+                      if (event.key !== "Escape") return;
+                      event.preventDefault();
+                      setAddress(currentAddress);
+                      event.currentTarget.blur();
+                    }}
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  {(busy ||
+                    state.phase === "pausing" ||
+                    (paused && !needsYou)) && (
+                    <span className="browser-address-status" aria-live="polite">
+                      <span className="browser-address-status-dot" />
+                      {status}
+                    </span>
+                  )}
+                  {typing && (
+                    <button
+                      type="submit"
+                      className="browser-address-go"
+                      aria-label={
+                        willSearch ? "Search the web" : "Go to website"
+                      }
+                    >
+                      {willSearch ? "Search" : "Go"}
+                      <ArrowUpRight size={14} />
+                    </button>
+                  )}
+                </form>
+                <div className="browser-window-actions">
+                  {paused && !needsYou && state.phase !== "pausing" && (
+                    <button
+                      type="button"
+                      className="browser-resume"
+                      title="Hand the page back to the agent and resume activity"
+                      onClick={() => void command({ type: "resume" })}
+                    >
+                      <Play size={12} />
+                      Resume agent
+                    </button>
+                  )}
+                  <div className="browser-menu" ref={menuRef}>
+                    <button
+                      type="button"
+                      aria-label="More browser actions"
+                      aria-expanded={menuOpen}
+                      aria-haspopup="menu"
+                      onClick={() => setMenuOpen((open) => !open)}
+                    >
+                      <MoreHorizontal size={17} />
+                    </button>
+                    {menuOpen && (
+                      <div className="browser-menu-list" role="menu">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={state.tabs.length >= 8}
+                          onClick={() => {
+                            setMenuOpen(false);
+                            void command({ type: "new_tab" });
+                          }}
+                        >
+                          <Plus size={14} /> New tab
+                        </button>
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => void openImportPicker()}
+                        >
+                          <Import size={14} /> Bring sign-ins from another
+                          browser…
+                        </button>
+                        <span className="browser-menu-separator" />
+                        <button
+                          type="button"
+                          role="menuitem"
+                          className="is-danger"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            void command({ type: "close" });
+                          }}
+                        >
+                          <X size={14} /> Close browser
+                        </button>
+                        <span className="browser-menu-hint">
+                          Closing stops the agent’s activity and frees the
+                          pages. Sign-ins are kept.
+                        </span>
+                      </div>
+                    )}
+                  </div>
                   <button
                     type="button"
                     title={
                       state.presentation === "expanded"
-                        ? "Return to Peek"
-                        : "Expand browser"
+                        ? "Shrink to peek"
+                        : "Fill the window"
                     }
                     aria-label={
                       state.presentation === "expanded"
-                        ? "Return to Peek"
-                        : "Expand browser"
+                        ? "Shrink to peek"
+                        : "Fill the window"
                     }
                     onClick={() =>
                       void command({
@@ -287,17 +597,16 @@ export function BrowserPeek() {
                     )}
                   </button>
                   <button
-                    className="browser-close"
                     type="button"
-                    title="Close · stop activity and release browser pages; keep sign-ins"
-                    aria-label="Close browser"
-                    onClick={() => void command({ type: "close" })}
+                    title="Hide · the agent keeps working"
+                    aria-label="Hide browser"
+                    onClick={minimize}
                   >
-                    <X size={18} />
+                    <ChevronDown size={18} />
                   </button>
                 </div>
               </div>
-              {state.tabs.length > 0 && (
+              {state.tabs.length > 1 && (
                 <div
                   className="browser-tabs"
                   role="tablist"
@@ -318,9 +627,9 @@ export function BrowserPeek() {
                         }
                       >
                         {tab.loading ? (
-                          <LoaderCircle size={12} className="browser-spin" />
+                          <LoaderCircle size={11} className="browser-spin" />
                         ) : (
-                          <Globe2 size={12} />
+                          <Globe2 size={11} />
                         )}
                         <span>{tab.title}</span>
                       </button>
@@ -331,7 +640,7 @@ export function BrowserPeek() {
                           void command({ type: "close_tab", tabId: tab.id })
                         }
                       >
-                        <X size={12} />
+                        <X size={11} />
                       </button>
                     </div>
                   ))}
@@ -342,156 +651,199 @@ export function BrowserPeek() {
                     aria-label="New browser tab"
                     onClick={() => void command({ type: "new_tab" })}
                   >
-                    <Plus size={15} />
+                    <Plus size={14} />
                   </button>
                 </div>
               )}
-              <div className="browser-address-row">
-                <button
-                  type="button"
-                  aria-label="Go back"
-                  disabled={!active?.canGoBack || busy}
-                  onClick={() => void command({ type: "back" })}
+              {showNotice && (
+                <div
+                  className={`browser-notice ${needsYou && !message ? "is-needs-you" : ""}`}
+                  role="status"
                 >
-                  <ArrowLeft size={16} />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Go forward"
-                  disabled={!active?.canGoForward || busy}
-                  onClick={() => void command({ type: "forward" })}
-                >
-                  <ArrowRight size={16} />
-                </button>
-                <button
-                  type="button"
-                  aria-label={active?.loading ? "Stop loading" : "Reload page"}
-                  disabled={!active || busy}
-                  onClick={() =>
-                    void command({ type: active?.loading ? "stop" : "reload" })
-                  }
-                >
-                  {active?.loading ? (
-                    <Square size={13} />
-                  ) : (
-                    <RotateCw size={15} />
-                  )}
-                </button>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (address.trim())
-                      void command({ type: "navigate", url: address });
-                  }}
-                >
-                  <Globe2 size={14} aria-hidden="true" />
-                  <input
-                    ref={addressRef}
-                    aria-label="Website address"
-                    placeholder="Enter a website address"
-                    value={address}
-                    onChange={(event) => setAddress(event.target.value)}
-                    autoComplete="off"
-                    spellCheck={false}
-                    disabled={busy}
-                  />
-                  <button
-                    type="submit"
-                    aria-label="Go to website"
-                    disabled={!address.trim() || busy}
-                  >
-                    <ArrowUpRight size={16} />
-                  </button>
-                </form>
-              </div>
-              {(state.attention || message) && (
-                <div className="browser-notice" role="status">
-                  <div>
-                    {state.attention && (
+                  <span className="browser-notice-text">
+                    {!message && state.attention && (
                       <strong>{state.attention.title}. </strong>
                     )}
                     {message ?? state.attention?.detail}
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Dismiss browser message"
-                    onClick={() => setMessage(null)}
-                    hidden={!message}
-                  >
-                    <X size={14} />
-                  </button>
+                  </span>
+                  {message ? (
+                    <button
+                      type="button"
+                      aria-label="Dismiss browser message"
+                      onClick={() => setMessage(null)}
+                    >
+                      <X size={14} />
+                    </button>
+                  ) : paused ? (
+                    <button
+                      type="button"
+                      className="browser-notice-action"
+                      onClick={() => void command({ type: "resume" })}
+                    >
+                      Done, resume agent
+                    </button>
+                  ) : null}
                 </div>
               )}
-              <div ref={viewportRef} className="browser-page-viewport">
-                {(!active || active.url === "about:blank") && (
+              <div
+                ref={viewportRef}
+                className={`browser-page-viewport ${blank ? "is-blank" : ""} ${pageHidden && !blank ? "is-covered" : ""}`}
+              >
+                {pageHidden && !blank && snapshot && (
+                  <img
+                    className="browser-page-snapshot"
+                    src={snapshot}
+                    alt=""
+                    aria-hidden="true"
+                    draggable={false}
+                  />
+                )}
+                {blank && !importPanel && (
                   <div className="browser-welcome">
                     <div className="browser-welcome-icon">
-                      <Globe2 size={32} strokeWidth={1.35} />
+                      <BrowserGlyph size={30} />
                     </div>
                     <h2>Your browser, right here.</h2>
                     <p>
-                      Visit job sites, sign in once, and stay close to your
-                      search.
+                      Sign in to job sites once. The agent browses in these same
+                      tabs, and you can step in whenever it needs you.
                     </p>
-                    <button
-                      type="button"
-                      className="browser-welcome-go"
-                      onClick={() => addressRef.current?.focus()}
-                    >
-                      Open a website <ArrowUpRight size={15} />
-                    </button>
+                    <div className="browser-welcome-actions">
+                      <button
+                        type="button"
+                        className="browser-welcome-go"
+                        onClick={() => addressRef.current?.focus()}
+                      >
+                        Open a website <ArrowUpRight size={15} />
+                      </button>
+                      {importable.length > 0 && (
+                        <button
+                          type="button"
+                          className="browser-welcome-import"
+                          onClick={() => void openImportPicker()}
+                        >
+                          <Import size={14} />
+                          Bring sign-ins from{" "}
+                          {importableBrowsers.length === 1
+                            ? importableBrowsers[0]
+                            : importableBrowsers.length === 2
+                              ? importableBrowsers.join(" or ")
+                              : "another browser"}
+                        </button>
+                      )}
+                    </div>
                     <div className="browser-welcome-notes">
                       <span>
-                        <ShieldCheck size={15} /> Sign-ins stay on this device
+                        <ShieldCheck size={14} /> Sign-ins stay on this device
                       </span>
                       <span>
-                        <Check size={15} /> Minimize to keep things running
+                        <Check size={14} /> Hide it and the agent keeps going
                       </span>
                     </div>
                   </div>
                 )}
-              </div>
-              <div className="browser-peek-footer">
-                <button
-                  type="button"
-                  className="browser-import"
-                  disabled={importing || busy}
-                  onClick={() => void importSession()}
-                  title="Import cookies from a JSON export. Browser profile folders and passwords aren’t supported."
-                >
-                  {importing ? (
-                    <LoaderCircle size={14} className="browser-spin" />
-                  ) : (
-                    <Import size={14} />
-                  )}
-                  <span>Import sessions</span>
-                </button>
-                <span className="browser-footer-hint">
-                  {busy
-                    ? "Take control before interacting with the page."
-                    : state.automationPaused
-                      ? "If a prepared form won’t save, reload it. Unsaved fields may reset."
-                      : "Your workspace stays right behind this window."}
-                </span>
-                <button
-                  type="button"
-                  className="browser-control"
-                  disabled={
-                    state.phase === "pausing" || state.phase === "closing"
-                  }
-                  onClick={() =>
-                    void command({
-                      type: state.automationPaused ? "resume" : "take_control",
-                    })
-                  }
-                >
-                  <Hand size={14} />
-                  {state.phase === "pausing"
-                    ? "Pausing…"
-                    : state.automationPaused
-                      ? "Resume activity"
-                      : "Take control"}
-                </button>
+                {importPanel && (
+                  <div className="browser-import">
+                    <div className="browser-import-card">
+                      <div className="browser-import-head">
+                        <div>
+                          <h3>Bring your sign-ins over</h3>
+                          <p>
+                            Pick a browser you already use. Its saved sign-ins
+                            are copied into this browser so job sites remember
+                            you here too.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          aria-label="Close import"
+                          onClick={() => setImportPanel(null)}
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                      {importPanel.step === "loading" && (
+                        <div className="browser-import-empty">
+                          <LoaderCircle size={16} className="browser-spin" />
+                          Looking for browsers on this Mac…
+                        </div>
+                      )}
+                      {importPanel.step === "pick" &&
+                        (importPanel.sources.length === 0 ? (
+                          <div className="browser-import-empty">
+                            {importPanel.note ??
+                              "No other browsers with saved sign-ins were found on this device."}
+                          </div>
+                        ) : (
+                          <div className="browser-import-list" role="list">
+                            {importPanel.sources.map((source) => (
+                              <button
+                                key={source.id}
+                                type="button"
+                                role="listitem"
+                                className="browser-import-source"
+                                disabled={!source.supported}
+                                title={source.note ?? undefined}
+                                onClick={() => void importFrom(source)}
+                              >
+                                <BrowserBrandMark browser={source.browser} />
+                                <span className="browser-import-source-text">
+                                  <span>{source.browserLabel}</span>
+                                  <small>
+                                    {source.profileLabel}
+                                    {!source.supported &&
+                                      " · can’t be read on this device"}
+                                  </small>
+                                </span>
+                                <ArrowUpRight size={15} />
+                              </button>
+                            ))}
+                          </div>
+                        ))}
+                      {importPanel.step === "importing" && (
+                        <div className="browser-import-empty">
+                          <LoaderCircle size={16} className="browser-spin" />
+                          Bringing sign-ins over from{" "}
+                          {importPanel.source.browserLabel}…
+                        </div>
+                      )}
+                      {importPanel.step === "done" && (
+                        <div
+                          className={`browser-import-result ${importPanel.ok ? "is-ok" : ""}`}
+                        >
+                          {importPanel.ok ? (
+                            <Check size={16} />
+                          ) : (
+                            <KeyRound size={16} />
+                          )}
+                          <span>{importPanel.message}</span>
+                        </div>
+                      )}
+                      <div className="browser-import-foot">
+                        {importPanel.step === "pick" &&
+                        importPanel.sources.some((s) => s.note) ? (
+                          <span>
+                            {importPanel.sources.find((s) => s.note)?.note}
+                          </span>
+                        ) : (
+                          <span>
+                            Only sign-ins are copied. Passwords, bookmarks and
+                            history stay where they are.
+                          </span>
+                        )}
+                        {importPanel.step === "done" && (
+                          <button
+                            type="button"
+                            className="browser-import-done"
+                            onClick={() => setImportPanel(null)}
+                          >
+                            Done
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>,

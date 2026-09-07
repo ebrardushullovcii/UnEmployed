@@ -737,7 +737,7 @@ describe("ResumeStrategyJobPanel", () => {
     expect(selects.length).toBe(1);
     const select = selects[0]!;
     for (const className of [
-      "h-10",
+      "h-11",
       "rounded-(--radius-field)",
       "border-(--field-border)",
       "bg-(--field)",

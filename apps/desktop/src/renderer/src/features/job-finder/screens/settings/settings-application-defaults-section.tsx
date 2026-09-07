@@ -151,6 +151,7 @@ export function SettingsApplicationDefaultsSection({
           onSave={saveApplicationDefaults}
           saveState={saveState}
           subject="resume preference"
+          effect="Applies to jobs you shortlist from now on."
         />
       </div>
 

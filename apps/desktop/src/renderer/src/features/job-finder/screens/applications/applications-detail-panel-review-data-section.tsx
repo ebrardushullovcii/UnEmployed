@@ -720,7 +720,7 @@ function ApplicationQuestionAnswerEditor(props: {
       {question.answerControlType === "single_choice" ? (
         <select
           aria-label={`Answer for ${question.prompt}`}
-          className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+          className="h-11 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
           disabled={isPending}
           onChange={(event) => setValue(event.target.value)}
           value={value}
@@ -777,7 +777,7 @@ function ApplicationQuestionAnswerEditor(props: {
       ) : question.answerControlType === "boolean" ? (
         <select
           aria-label={`Answer for ${question.prompt}`}
-          className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+          className="h-11 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
           disabled={isPending}
           onChange={(event) => setValue(event.target.value)}
           value={value}
@@ -789,7 +789,7 @@ function ApplicationQuestionAnswerEditor(props: {
       ) : question.answerControlType === "date" ? (
         <input
           aria-label={`Answer for ${question.prompt}`}
-          className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+          className="h-11 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
           disabled={isPending}
           onChange={(event) => setValue(event.target.value)}
           lang={jobFinderDateInputLocale}
@@ -816,7 +816,7 @@ function ApplicationQuestionAnswerEditor(props: {
           ) : candidateAssets.length > 0 ? (
             <select
               aria-label={`Answer for ${question.prompt}`}
-              className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              className="h-11 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
               disabled={isPending}
               onChange={(event) => setSelectedAssetId(event.target.value)}
               value={selectedAssetId}

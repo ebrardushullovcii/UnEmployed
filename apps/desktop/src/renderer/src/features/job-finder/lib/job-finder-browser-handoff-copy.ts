@@ -43,10 +43,11 @@ export const JOB_FINDER_BROWSER_NAME = `the ${JOB_FINDER_BROWSER_LABEL}`;
 export const JOB_FINDER_BROWSER_NAME_SENTENCE_START = `The ${JOB_FINDER_BROWSER_LABEL}`;
 
 /**
- * Said once, at the moment the user is sent out, so the window is never a
- * thing they are expected to already know about.
+ * Said once, at the moment the user is sent there, so the browser is never a
+ * thing they are expected to already know about. It lives inside the app
+ * (ADR 0017), behind the Browser button in the header.
  */
-export const JOB_FINDER_BROWSER_IS_A_SEPARATE_WINDOW = `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} is a separate window outside this app.`;
+const JOB_FINDER_BROWSER_IS_IN_THE_APP = `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} opens right here in the app, from the Browser button at the top.`;
 
 /** Opens or focuses that window on the paused application page. */
 export const OPEN_JOB_FINDER_BROWSER_ACTION = `Open ${JOB_FINDER_BROWSER_NAME}`;
@@ -91,8 +92,8 @@ export const RUN_PREPARATION_AGAIN_LATER_ACTION = "Run preparation again later";
  */
 export const FINISH_IN_JOB_FINDER_BROWSER_INSTRUCTION =
   `Finish this application in ${JOB_FINDER_BROWSER_NAME}. ` +
-  `${JOB_FINDER_BROWSER_IS_A_SEPARATE_WINDOW} Switch to it, complete the step ` +
-  `there, then come back here and choose "${CONFIRM_STEP_DONE_ACTION}".`;
+  `${JOB_FINDER_BROWSER_IS_IN_THE_APP} Complete the step there, hide it, ` +
+  `then choose "${CONFIRM_STEP_DONE_ACTION}".`;
 
 /** Compact one-line variant for list rows, where the detail pane carries the rest. */
 export const FINISH_IN_JOB_FINDER_BROWSER_LIST_NEXT_STEP = `Finish this application in ${JOB_FINDER_BROWSER_NAME}, then come back and confirm`;
@@ -103,8 +104,8 @@ export const FINISH_IN_JOB_FINDER_BROWSER_LIST_NEXT_STEP = `Finish this applicat
  * repeating the instruction a second way.
  */
 export const JOB_FINDER_BROWSER_OPENED_STATUS =
-  `Opened in ${JOB_FINDER_BROWSER_NAME}. Switch to that window to finish the step, ` +
-  `then come back here.`;
+  `Opened in ${JOB_FINDER_BROWSER_NAME}. Finish the step there, ` +
+  `then hide it and come back here.`;
 
 /**
  * Shown when the window cannot be opened from this screen. Still names the
@@ -112,7 +113,7 @@ export const JOB_FINDER_BROWSER_OPENED_STATUS =
  */
 export const JOB_FINDER_BROWSER_UNAVAILABLE_NOTE =
   `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} cannot be opened from here right now. ` +
-  `Use the window if it is already open, or open this step from Needs you.`;
+  `Use the Browser button at the top, or open this step from Needs you.`;
 
 /**
  * The hand-off opened the window but had no recorded step to reopen, so the
@@ -122,7 +123,7 @@ export const JOB_FINDER_BROWSER_UNAVAILABLE_NOTE =
  */
 export const JOB_FINDER_BROWSER_OPENED_WITHOUT_PAGE_STATUS =
   `${JOB_FINDER_BROWSER_NAME_SENTENCE_START} is open, but this application page was not reopened ` +
-  `from here, so the step may not be on screen there. Find the application in that window, or ` +
+  `from here, so the step may not be on screen there. Find the application in the browser, or ` +
   `open this step from Needs you.`;
 
 /**

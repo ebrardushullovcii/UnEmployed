@@ -951,6 +951,7 @@ export function JobFinderDiscoveryRoute() {
   const navigationContext = readJobFinderNavigationContext(searchParams);
   const rapidReviewReturnRoute = readJobFinderReturnRoute(searchParams);
   const [activityPausePending, setActivityPausePending] = useState(false);
+  const [planSwitchPending, setPlanSwitchPending] = useState(false);
 
   const handleResumeActivity = () => {
     setActivityPausePending(true);
@@ -1063,6 +1064,15 @@ export function JobFinderDiscoveryRoute() {
         actionState={context.actionState}
         activityPaused={context.workspace.activityControl?.paused ?? false}
         activeRun={context.workspace.activeDiscoveryRun}
+        campaigns={context.workspace.campaigns}
+        activeCampaignId={context.workspace.activeCampaignId}
+        isPlanSwitchPending={planSwitchPending}
+        onSelectCampaign={(campaignId) => {
+          setPlanSwitchPending(true);
+          void context.onSelectCampaign(campaignId).finally(() => {
+            setPlanSwitchPending(false);
+          });
+        }}
         browserSession={context.workspace.browserSession}
         companies={context.workspace.intelligence.companies}
         discoveryRunFeedback={context.discoveryRunFeedback}
@@ -2058,6 +2068,37 @@ export function JobFinderResumeStrategiesRoute() {
   const candidateDocumentIds = context.workspace.tailoredAssets.map(
     (asset) => asset.id,
   );
+  const reviewQueue = context.workspace.reviewQueue;
+  const resumeStrategySelections = intelligence.resumeStrategySelections;
+  // Which shortlisted jobs use an approach, and which of their drafts a
+  // re-tailor may regenerate: tailored, existing, and not yet approved.
+  const strategyUsage = useCallback(
+    (strategyId: string) => {
+      const jobIds = new Set(
+        resumeStrategySelections
+          .filter((selection) => selection.strategyId === strategyId)
+          .map((selection) => selection.jobId),
+      );
+      const items = reviewQueue.filter((item) => jobIds.has(item.jobId));
+      return {
+        jobCount: jobIds.size,
+        retailorableJobIds: items
+          .filter(
+            (item) =>
+              item.resumeApplicationMode === "tailored_per_job" &&
+              item.resumeAssetId !== null &&
+              (item.resumeReview.status === "draft" ||
+                item.resumeReview.status === "needs_review" ||
+                item.resumeReview.status === "stale"),
+          )
+          .map((item) => item.jobId),
+        approvedCount: items.filter(
+          (item) => item.resumeReview.status === "approved",
+        ).length,
+      };
+    },
+    [resumeStrategySelections, reviewQueue],
+  );
 
   return (
     <JobFinderHydrationGate
@@ -2084,9 +2125,15 @@ export function JobFinderResumeStrategiesRoute() {
           jobFinderPendingActions.resumeStrategySave(),
         )}
         onDisableStrategy={context.onDisableResumeStrategy}
+        onRetailorJobs={(jobIds) => {
+          for (const jobId of jobIds) {
+            context.onRegenerateResumeDraft(jobId);
+          }
+        }}
         onSaveStrategy={context.onSaveResumeStrategy}
         onSetCampaignDefault={context.onSetCampaignResumeStrategyDefault}
         strategies={intelligence.resumeStrategies}
+        strategyUsage={strategyUsage}
       />
     </JobFinderHydrationGate>
   );

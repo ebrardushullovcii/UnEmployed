@@ -92,6 +92,11 @@ export default defineConfig({
           "chromium-bidi",
           "jsdom",
           "@mozilla/readability",
+          // Bundling ws turns its optional native `bufferutil` require into an
+          // empty module, so masked frames over 48 bytes from the CDP client
+          // crash main ("bufferUtil.unmask is not a function"). Load it as
+          // the installed dependency instead.
+          "ws",
         ],
         output: {
           format: "cjs",
@@ -107,6 +112,14 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
+        input: {
+          index: path.resolve(currentDir, "src/preload/index.ts"),
+          // Bridge-free page preload for the embedded browser (ADR 0017).
+          "browser-page": path.resolve(
+            currentDir,
+            "src/preload/browser-page.ts",
+          ),
+        },
         output: {
           format: "cjs",
           entryFileNames: "[name].cjs",

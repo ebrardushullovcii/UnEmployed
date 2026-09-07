@@ -456,9 +456,7 @@ describe("manual field-finish helpers", () => {
     expect(FIELD_SAVE_PAUSE_NEXT_STEP).toMatch(
       /Finish this application in the Job Finder browser\./,
     );
-    expect(FIELD_SAVE_PAUSE_NEXT_STEP).toMatch(
-      /separate window outside this app/i,
-    );
+    expect(FIELD_SAVE_PAUSE_NEXT_STEP).toMatch(/right here in the app/i);
     expect(FIELD_SAVE_PAUSE_NEXT_STEP).toMatch(
       /Check whether this step is done/,
     );

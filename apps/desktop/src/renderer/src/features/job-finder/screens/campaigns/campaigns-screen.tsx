@@ -182,8 +182,13 @@ function CampaignEditor(props: {
   isCurrentPlan: boolean;
   onCancel: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Makes this saved plan the one Find jobs searches with. */
+  onMakeCurrent?: () => void;
+  /** Starts a search with this saved plan right away. */
+  onRunNow?: () => void;
   onSave: (campaign: SaveJobSearchCampaignInput) => Promise<boolean>;
   pending: boolean;
+  runPending?: boolean;
 }) {
   const [initialCampaign] = useState(props.campaign);
   const [draft, setDraft] = useState(props.campaign);
@@ -338,7 +343,7 @@ function CampaignEditor(props: {
             <span className="font-medium">Volume</span>
             <select
               aria-label="Volume"
-              className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
               onChange={(event) =>
                 updateMode(event.target.value as JobSearchCampaignMode)
               }
@@ -358,7 +363,7 @@ function CampaignEditor(props: {
           <label className="grid gap-1 text-sm">
             <span className="font-medium">Status</span>
             <select
-              className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
               onChange={(event) =>
                 setDraft({
                   ...draft,
@@ -392,9 +397,45 @@ function CampaignEditor(props: {
           </p>
         ) : null}
         {saveOutcome === "saved" ? (
-          <p className="text-sm text-foreground" role="status">
-            Search plan saved.
-          </p>
+          // A save is not the end of the job: the plan only matters once a
+          // search runs with it, so the confirmation says when that happens
+          // and offers the one step that makes it happen.
+          <div
+            className="flex flex-wrap items-center gap-3 rounded-(--radius-field) border border-border-subtle px-4 py-3 text-sm text-foreground"
+            role="status"
+          >
+            <span>
+              {props.isCurrentPlan
+                ? "Search plan saved. Your next search uses it."
+                : "Search plan saved. Find jobs keeps searching with your current plan until you switch to this one."}
+            </span>
+            {props.isCurrentPlan &&
+            props.onRunNow &&
+            draft.status === "active" ? (
+              <Button
+                onClick={props.onRunNow}
+                pending={props.runPending ?? false}
+                size="xs"
+                type="button"
+                variant="outline"
+              >
+                Search now with this plan
+              </Button>
+            ) : null}
+            {!props.isCurrentPlan &&
+            props.onMakeCurrent &&
+            draft.status !== "archived" ? (
+              <Button
+                onClick={props.onMakeCurrent}
+                pending={props.pending}
+                size="xs"
+                type="button"
+                variant="outline"
+              >
+                Use it in Find jobs
+              </Button>
+            ) : null}
+          </div>
         ) : null}
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Plan purpose</span>
@@ -640,7 +681,7 @@ function CampaignEditor(props: {
               <label className="grid gap-1 text-sm">
                 <span>Pay interval</span>
                 <select
-                  className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                  className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
                   onChange={(event) =>
                     setDraft({
                       ...draft,
@@ -804,7 +845,7 @@ function CampaignEditor(props: {
               <label className="grid gap-1 text-sm">
                 <span>Schedule mode</span>
                 <select
-                  className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                  className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
                   disabled={!draft.schedule.enabled}
                   onChange={(event) =>
                     updateSchedule({
@@ -1275,9 +1316,10 @@ export function CampaignsScreen(props: {
               Search plans are optional.
             </span>
             <span className="min-w-0 flex-1 text-foreground-soft">
-              The current default plan is already enough to use Find jobs.
-              Create another plan when you want a reusable search setup with its
-              own roles, sources, discovery volume, and progress.
+              Find jobs always searches with the current plan; switch plans from
+              the Plan chip there or with Make current here. Create another plan
+              when you want a reusable search setup with its own roles, sources,
+              discovery volume, and progress.
             </span>
           </span>
           <span className="inline-flex w-fit items-center gap-1.5 rounded-(--radius-button) border border-(--surface-panel-border) px-2.5 py-1 text-xs font-medium text-foreground">
@@ -1315,6 +1357,15 @@ export function CampaignsScreen(props: {
             setEditorDirty(false);
           }}
           onDirtyChange={handleEditorDirtyChange}
+          {...(editing.id !== null
+            ? {
+                onMakeCurrent: () => props.onSelectCampaign(editing.id!),
+                ...(props.onRunCampaignNow
+                  ? { onRunNow: () => props.onRunCampaignNow?.(editing.id!) }
+                  : {}),
+                runPending: props.runCampaignPending?.(editing.id) ?? false,
+              }
+            : {})}
           onSave={handleEditorSave}
           pending={props.pending}
         />
@@ -1325,7 +1376,7 @@ export function CampaignsScreen(props: {
           className="flex flex-wrap items-center gap-3 rounded-(--radius-field) border border-border-subtle px-4 py-3 text-sm text-foreground"
           role="status"
         >
-          {`Search plan "${createdPlanNotice.name}" created.`}
+          {`Search plan "${createdPlanNotice.name}" created. Find jobs keeps searching with your current plan until you switch.`}
           {createdPlanNotice.resolvedId !== null ? (
             <Button
               onClick={() => {
@@ -1339,7 +1390,7 @@ export function CampaignsScreen(props: {
               type="button"
               variant="outline"
             >
-              Switch to it
+              Use it in Find jobs
             </Button>
           ) : null}
         </p>

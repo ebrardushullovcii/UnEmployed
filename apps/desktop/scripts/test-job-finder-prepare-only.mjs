@@ -1703,6 +1703,30 @@ async function runPrepareOnlySmoke() {
             importedLocationReviewItem.id,
           ),
       );
+      // A resume import never silently overwrites a real name, email or
+      // phone already on the profile; it proposes them for review, the way
+      // the setup screen shows them. Confirm each proposal like a user would.
+      const importedIdentityReviewItems =
+        latestWorkspace.profileSetupState.reviewItems.filter(
+          (item) =>
+            item.status === "pending" &&
+            item.target.domain === "identity" &&
+            ["fullName", "email", "phone"].includes(item.target.key),
+        );
+      for (const reviewItem of importedIdentityReviewItems) {
+        latestWorkspace = await runPhase(
+          `confirm_synthetic_imported_${reviewItem.target.key}`,
+          () =>
+            page.evaluate(
+              (reviewItemId) =>
+                window.unemployed.jobFinder.applyProfileSetupReviewAction(
+                  reviewItemId,
+                  "confirm",
+                ),
+              reviewItem.id,
+            ),
+        );
+      }
       report.candidate = {
         fullName: latestWorkspace.profile.fullName,
         email: latestWorkspace.profile.email,

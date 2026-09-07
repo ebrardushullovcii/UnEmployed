@@ -1,12 +1,16 @@
-import { app, BrowserWindow, dialog } from "electron";
+import { app, BrowserWindow } from "electron";
 import { getEmbeddedBrowser } from "../../src/main/services/browser/embedded-browser";
 import { createServer } from "node:http";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { createDesktopBrowserRuntime } from "../../src/main/services/job-finder/create-workspace-service";
-import { importBrowserSession } from "../../src/main/services/browser/browser-session-import";
+import {
+  importSignInsFromBrowser,
+  listBrowserImportSources,
+} from "../../src/main/services/browser/browser-profile-import";
+import { DatabaseSync } from "node:sqlite";
 import { createDeterministicJobFinderAiClient } from "@unemployed/ai-providers";
 import {
   ensurePrepareOnlyMutationGuard,
@@ -161,44 +165,50 @@ async function main() {
     result.cookieRetained =
       (await host.getSession().cookies.get({ name: "synthetic-session" }))
         .length === 1;
-    const cookieFile = join(out, "synthetic-cookies.json");
-    await writeFile(
-      cookieFile,
-      JSON.stringify([
-        {
-          name: "synthetic-import",
-          value: "fixture-only",
-          domain: "127.0.0.1",
-          path: "/",
-          secure: false,
-          expires: Date.now() / 1000 + 86400,
-        },
-      ]),
+    // A synthetic Firefox profile stands in for the user's real browsers.
+    const home = await mkdtemp(join(tmpdir(), "unemployed-import-home-"));
+    const profile = join(
+      home,
+      "Library/Application Support/Firefox/Profiles/abc.synthetic",
     );
-    const openDialog = dialog.showOpenDialog;
-    const messageBox = dialog.showMessageBox;
-    try {
-      dialog.showOpenDialog = async () => ({
-        canceled: false,
-        filePaths: [cookieFile],
-      });
-      dialog.showMessageBox = async () => ({
-        response: 1,
-        checkboxChecked: false,
-      });
-      const imported = await importBrowserSession(host, mainWindow.webContents);
-      assert.equal(imported.cookieCount, 1);
-      assert.equal(
-        (await host.getSession().cookies.get({ name: "synthetic-import" }))
-          .length,
-        1,
-      );
-      assert.equal(host.getState().automationPaused, true);
-      result.cookieImport = imported.status;
-    } finally {
-      dialog.showOpenDialog = openDialog;
-      dialog.showMessageBox = messageBox;
-    }
+    await mkdir(profile, { recursive: true });
+    await writeFile(
+      join(home, "Library/Application Support/Firefox/profiles.ini"),
+      "[Profile0]\nName=synthetic\nIsRelative=1\nPath=Profiles/abc.synthetic\n",
+    );
+    const db = new DatabaseSync(join(profile, "cookies.sqlite"));
+    db.exec(
+      "CREATE TABLE moz_cookies (id INTEGER PRIMARY KEY, originAttributes TEXT DEFAULT '', name TEXT, value TEXT, host TEXT, path TEXT, expiry INTEGER, isSecure INTEGER, isHttpOnly INTEGER, sameSite INTEGER)",
+    );
+    db.prepare(
+      "INSERT INTO moz_cookies (name, value, host, path, expiry, isSecure, isHttpOnly, sameSite) VALUES (?, ?, ?, ?, ?, 0, 0, 0)",
+    ).run(
+      "synthetic-import",
+      "fixture-only",
+      "127.0.0.1",
+      "/",
+      Math.floor(Date.now() / 1000) + 86400,
+    );
+    db.close();
+    const importEnv = { platform: "darwin" as const, home };
+    const sources = await listBrowserImportSources(importEnv);
+    assert.equal(sources.sources.length, 1);
+    assert.equal(sources.sources[0]?.browser, "firefox");
+    const imported = await importSignInsFromBrowser(
+      host,
+      { sourceId: sources.sources[0]!.id },
+      importEnv,
+    );
+    result.importMessage = imported.message;
+    assert.equal(imported.status, "imported");
+    assert.equal(imported.cookieCount, 1);
+    assert.equal(
+      (await host.getSession().cookies.get({ name: "synthetic-import" }))
+        .length,
+      1,
+    );
+    assert.equal(host.getState().automationPaused, true);
+    result.cookieImport = imported.status;
     try {
       await host.connect();
       result.closedBlocksConnect = false;

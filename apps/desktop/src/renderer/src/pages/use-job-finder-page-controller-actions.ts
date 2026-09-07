@@ -2069,7 +2069,13 @@ export function createPrimaryPageActions(
         "PDF exported for review.",
         { scope: jobFinderPendingActions.resumeExport(jobId) },
       ),
-    onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
+    onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => {
+      // Search settings belong to the current plan, and a saved change is
+      // only felt on the next search, so the confirmation says both.
+      const activePlanName =
+        workspace.campaigns?.find(
+          (campaign) => campaign.id === workspace.activeCampaignId,
+        )?.name ?? null;
       void runSaveAction({
         action: () => actions.saveSearchPreferences(searchPreferences),
         dedupeKey: createSaveDedupeKey("profile", searchPreferences),
@@ -2077,10 +2083,13 @@ export function createPrimaryPageActions(
           "Job-search preferences were not saved. Retry before leaving this page.",
         label: "Job-search preferences",
         onSuccess: () => undefined,
-        savedMessage: "Job-search preferences saved.",
+        savedMessage: activePlanName
+          ? `Search settings saved to "${activePlanName}". Your next search uses them.`
+          : "Search settings saved. Your next search uses them.",
         scope: jobFinderPendingActions.profileMutation(),
         surface: "profile",
-      }),
+      });
+    },
     onClearResumeApproval: (jobId: string) =>
       void runResumeWorkspaceAction(
         () => actions.clearResumeApproval(jobId),
@@ -2212,8 +2221,8 @@ export function createPrimaryPageActions(
         () => actions.saveResumeStrategy(input),
         () => undefined,
         input.id
-          ? "Resume strategy updated. Reusing it never approves or readies any resume artifact."
-          : "Resume strategy created. Reusing it never approves or readies any resume artifact.",
+          ? "Resume approach updated. It shapes the next tailored draft; drafts that already exist stay as they are until you re-tailor them. Reusing it never approves a resume."
+          : "Resume approach created. It shapes future tailored drafts and never approves a resume.",
         { scope: jobFinderPendingActions.resumeStrategySave() },
       ),
     onDisableResumeStrategy: (strategyId: string) =>

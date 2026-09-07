@@ -15,6 +15,7 @@ import type {
   DiscoveryFeedbackReason,
   EmployerExclusionPreview,
   DiscoveryRunRecord,
+  JobSearchCampaign,
   JobSearchPreferences,
   SourceAccessPrompt,
   SavedJob,
@@ -206,6 +207,11 @@ export function DiscoveryScreen(props: {
   actionState: { message: string | null };
   activityPaused?: boolean;
   activeRun: DiscoveryRunRecord | null;
+  /** Search plans the page can switch between; Search now runs the current one. */
+  campaigns?: readonly JobSearchCampaign[];
+  activeCampaignId?: string | null;
+  isPlanSwitchPending?: boolean;
+  onSelectCampaign?: (campaignId: string) => void;
   browserSession: BrowserSessionState;
   companies?: readonly CompanyEntity[];
   discoveryRunFeedback?: DiscoveryRunFeedback | null;
@@ -255,6 +261,10 @@ export function DiscoveryScreen(props: {
     actionState,
     activityPaused = false,
     activeRun,
+    campaigns,
+    activeCampaignId = null,
+    isPlanSwitchPending = false,
+    onSelectCampaign,
     browserSession,
     companies,
     discoveryRunFeedback = null,
@@ -866,6 +876,10 @@ export function DiscoveryScreen(props: {
                 // bar: each chip opens the same editor in place, and the one
                 // search command lives at its right end.
                 <DiscoverySearchBar
+                  {...(campaigns ? { campaigns } : {})}
+                  activeCampaignId={activeCampaignId}
+                  isPlanSwitchPending={isPlanSwitchPending}
+                  {...(onSelectCampaign ? { onSelectCampaign } : {})}
                   browserSession={browserSession}
                   isBrowserSessionPending={isBrowserSessionPending}
                   isSearchDisabled={

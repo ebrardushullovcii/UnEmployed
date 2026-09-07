@@ -1,11 +1,56 @@
-import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
+import type {
+  BrowserSessionRuntime,
+  OpenBrowserSessionOptions,
+} from "@unemployed/browser-runtime";
+import type {
+  ApplyExecutionResult,
+  BrowserSessionState,
+  JobSource,
+} from "@unemployed/contracts";
 import type { EmbeddedBrowser } from "./embedded-browser";
 
-/** Desktop activity/lifecycle adapter; workflow and authority remain in the runtime. */
+/**
+ * Desktop activity/lifecycle adapter; workflow and authority remain in the
+ * runtime. When a run stops because only the user can continue (sign-in, a
+ * human-verification challenge), the browser keeps that page and asks for
+ * attention so the launcher can show it; the runtime never enters credentials.
+ */
 export function withEmbeddedBrowserActivity(
   runtime: BrowserSessionRuntime,
   browser: EmbeddedBrowser,
 ): BrowserSessionRuntime {
+  const flagSession = (session: BrowserSessionState): BrowserSessionState => {
+    if (session.status === "login_required")
+      browser.requestAttention({
+        kind: "sign_in",
+        title: "Sign in to continue",
+        detail:
+          "This site needs you to sign in. Your password stays with you; the agent picks up again afterwards.",
+      });
+    return session;
+  };
+  const flagResult = (result: ApplyExecutionResult): ApplyExecutionResult => {
+    const code = result.blocker?.code;
+    if (code === "site_login_required")
+      browser.requestAttention({
+        kind: "sign_in",
+        title: "Sign in to continue",
+        detail:
+          "This application needs you to sign in. Your password stays with you; run preparation again afterwards.",
+      });
+    else if (code === "requires_manual_review" && result.blocker?.summary)
+      browser.requestAttention({
+        kind: "challenge",
+        title: "This page needs a human",
+        detail: result.blocker.summary,
+      });
+    return result;
+  };
+  const flagAfter = async <T>(source: JobSource, work: Promise<T>) => {
+    const result = await work;
+    await runtime.getSessionState(source).then(flagSession, () => undefined);
+    return result;
+  };
   return {
     ...runtime,
     async getSessionState(source) {
@@ -29,10 +74,10 @@ export function withEmbeddedBrowserActivity(
             }
           : session;
     },
-    async openSession(source, options) {
+    async openSession(source, options?: OpenBrowserSessionOptions) {
       if (options?.purpose === "automation") {
         return browser.runAutomation("Opening browser", undefined, () =>
-          runtime.openSession(source, options),
+          runtime.openSession(source, options).then(flagSession),
         );
       }
       await browser.takeControl();
@@ -51,18 +96,20 @@ export function withEmbeddedBrowserActivity(
     closeSession: (source) => runtime.closeSession(source),
     runDiscovery: (source, preferences) =>
       browser.runAutomation("Finding jobs", undefined, () =>
-        runtime.runDiscovery(source, preferences),
+        flagAfter(source, runtime.runDiscovery(source, preferences)),
       ),
     executeEasyApply: (source, input) =>
       browser.runAutomation("Preparing application", undefined, () =>
-        runtime.executeEasyApply(source, input),
+        runtime.executeEasyApply(source, input).then(flagResult),
       ),
     executeApplicationFlow: (source, input, options) =>
       browser.runAutomation(
         "Preparing application",
         options?.signal,
         (signal) =>
-          runtime.executeApplicationFlow(source, input, { ...options, signal }),
+          runtime
+            .executeApplicationFlow(source, input, { ...options, signal })
+            .then(flagResult),
       ),
     ...(runtime.runAgentDiscovery
       ? ({
@@ -71,7 +118,10 @@ export function withEmbeddedBrowserActivity(
               `Browsing ${options.siteLabel}`.slice(0, 200),
               options.signal,
               (signal) =>
-                runtime.runAgentDiscovery!(source, { ...options, signal }),
+                flagAfter(
+                  source,
+                  runtime.runAgentDiscovery!(source, { ...options, signal }),
+                ),
             ),
         } satisfies Partial<BrowserSessionRuntime>)
       : {}),

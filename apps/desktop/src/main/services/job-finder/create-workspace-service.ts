@@ -305,7 +305,7 @@ function buildCatalogSessionDetail(
     case "blocked":
       return "The shared browser session is blocked until you resolve the current browser issue.";
     case "unknown":
-      return "Open the dedicated browser profile when you want to sign in or prepare a site before the next run.";
+      return "Open the browser from the Browser button when you want to sign in or prepare a site before the next run.";
   }
 
   const exhaustiveStatus: never = status;

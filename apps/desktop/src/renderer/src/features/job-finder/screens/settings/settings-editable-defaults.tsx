@@ -384,11 +384,11 @@ export function SettingsEditableDefaults({
                   : "Tailored resume"}{" "}
                 ·{" "}
                 {settingsForm.keepSessionAlive
-                  ? "Keep browser open"
-                  : "Close after runs"}
+                  ? "Keep browser tabs"
+                  : "Close tabs after runs"}
               </strong>
               <p className="mt-1.5 text-(length:--text-description) leading-5 text-foreground-soft">
-                Decide whether Job Finder reuses a warm browser session and
+                Decide whether the browser keeps its tabs between runs and
                 whether new search results persist automatically.
               </p>
             </div>
@@ -409,10 +409,10 @@ export function SettingsEditableDefaults({
           <div className="grid min-w-0 gap-(--gap-content) md:grid-cols-2">
             <ToggleField
               checked={settingsForm.keepSessionAlive}
-              description="Leave the browser open after searches and application steps instead of closing it when a run finishes."
+              description="Keep the agent’s tabs open after searches and application steps so the next run starts where the last one left off."
               disabled={isSavePending}
-              hint="Keep this off if you want the browser to fully close after each run."
-              label="Keep browser open after runs"
+              hint="Off closes the tabs as soon as a run finishes and you are not looking at them. Sign-ins are kept either way."
+              label="Keep browser tabs after runs"
               onCheckedChange={(checked) =>
                 updateSettingsForm((current) => ({
                   ...current,

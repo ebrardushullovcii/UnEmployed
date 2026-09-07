@@ -54,9 +54,12 @@ interface FakeActionControl {
   type: string;
   visible: boolean;
   disabled: boolean;
+  href: string | null;
 }
 
 interface FakeApplicationStep {
+  /** A navigation to this URL lands on the step, the way a link would. */
+  url?: string;
   bodyText?: string;
   frameHints?: string[];
   controls?: Array<Partial<FakeFormControl> & Pick<FakeFormControl, "label">>;
@@ -70,10 +73,14 @@ interface FakeApplicationStep {
   blockedAttemptAfterMutation?: {
     kind: "dom_submit" | "form_request_submit" | "fetch" | "xhr";
     method: string;
+    url?: string;
+    carriedPreparedValue?: boolean;
   };
   blockedAttemptAfterAction?: {
     kind: "dom_submit" | "form_request_submit" | "fetch" | "xhr";
     method: string;
+    url?: string;
+    carriedPreparedValue?: boolean;
   };
 }
 
@@ -100,6 +107,7 @@ interface FakeApplicationState {
     method: string;
     url: string | null;
     at: string;
+    carriedPreparedValue?: boolean;
   }>;
   injectedServiceWorkerScan: {
     controllerUrl: string | null;
@@ -231,12 +239,15 @@ function createFakeApplicationPage(
       type: action.type ?? "button",
       visible: action.visible ?? true,
       disabled: action.disabled ?? false,
+      href: action.href ?? null,
     })),
+    url: step.url ?? null,
     mutationTriggerLabel: step.mutationTriggerLabel ?? null,
     actionsAfterMutation: (step.actionsAfterMutation ?? []).map(
       (action, index) => ({
         index,
         label: action.label,
+        href: action.href ?? null,
         type: action.type ?? "button",
         visible: action.visible ?? true,
         disabled: action.disabled ?? false,
@@ -308,7 +319,7 @@ function createFakeApplicationPage(
     if (attemptedMutation && guardBlocksAttempt(attemptedMutation)) {
       state.guardBlockedAttempts.push({
         ...attemptedMutation,
-        url: currentUrl,
+        url: attemptedMutation.url ?? currentUrl,
         at: new Date().toISOString(),
       });
     }
@@ -441,7 +452,7 @@ function createFakeApplicationPage(
     if (attemptedMutation && guardBlocksAttempt(attemptedMutation)) {
       state.guardBlockedAttempts.push({
         ...attemptedMutation,
-        url: currentUrl,
+        url: attemptedMutation.url ?? currentUrl,
         at: new Date().toISOString(),
       });
       return Promise.resolve();
@@ -483,6 +494,12 @@ function createFakeApplicationPage(
       targetBaseUrl = url;
       currentUrl = url;
       state.gotoUrls.push(url);
+      const landing = steps.findIndex(
+        (candidate, index) => index > stepIndex && candidate.url === url,
+      );
+      if (landing !== -1) {
+        stepIndex = landing;
+      }
       return Promise.resolve(null);
     }),
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
@@ -1073,6 +1090,11 @@ describe("Playwright prepare-only application flow", () => {
           submitListener = listener;
         }
       },
+      // The prepared answer the read policy must never let a request carry.
+      querySelectorAll: (selector: string) =>
+        selector.startsWith("input")
+          ? [{ type: "email", value: "alex@example.com" }]
+          : [],
     };
     const fakeNavigator = {
       sendBeacon: originalSendBeacon as unknown as typeof navigator.sendBeacon,
@@ -1122,11 +1144,18 @@ describe("Playwright prepare-only application flow", () => {
       ),
     ).rejects.toMatchObject({ name: "AbortError" });
     await expect(
-      fakeWindow.fetch("https://apply.example.com/jobs/job_prepare_runtime", {
-        method: "GET",
-      }),
+      fakeWindow.fetch(
+        "https://apply.example.com/jobs/job_prepare_runtime?email=alex%40example.com",
+        { method: "GET" },
+      ),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(originalFetch).not.toHaveBeenCalled();
+    // A queryless safe read carries nothing prepared; the page may render.
+    await fakeWindow.fetch(
+      "https://apply.example.com/jobs/job_prepare_runtime/form.json",
+      { method: "GET" },
+    );
+    expect(originalFetch).toHaveBeenCalledTimes(1);
 
     expect(
       () =>
@@ -1144,9 +1173,17 @@ describe("Playwright prepare-only application flow", () => {
     expect(originalWindowOpen).not.toHaveBeenCalled();
 
     const xhrGet = new FakeXmlHttpRequest();
-    xhrGet.open("GET", "https://apply.example.com/jobs/job_prepare_runtime");
+    xhrGet.open(
+      "GET",
+      "https://apply.example.com/jobs/job_prepare_runtime?email=alex%40example.com",
+    );
     expect(() => xhrGet.send()).toThrow(/Prepare-only mode blocked/u);
     expect(originalXhrSendCalls).toBe(0);
+
+    const xhrRead = new FakeXmlHttpRequest();
+    xhrRead.open("GET", "https://apply.example.com/lang/en-US.json");
+    xhrRead.send();
+    expect(originalXhrSendCalls).toBe(1);
 
     const xhr = new FakeXmlHttpRequest();
     xhr.open(
@@ -1154,7 +1191,7 @@ describe("Playwright prepare-only application flow", () => {
       "https://apply.example.com/jobs/job_prepare_runtime/submit",
     );
     expect(() => xhr.send("payload")).toThrow(/Prepare-only mode blocked/u);
-    expect(originalXhrSendCalls).toBe(0);
+    expect(originalXhrSendCalls).toBe(1);
 
     const preventDefault = vi.fn();
     const stopImmediatePropagation = vi.fn();
@@ -1196,9 +1233,10 @@ describe("Playwright prepare-only application flow", () => {
       ),
     ).resolves.toBeInstanceOf(Response);
     await expect(
-      fakeWindow.fetch("https://apply.example.com/jobs/job_prepare_runtime", {
-        method: "GET",
-      }),
+      fakeWindow.fetch(
+        "https://apply.example.com/jobs/job_prepare_runtime?email=alex%40example.com",
+        { method: "GET" },
+      ),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(
       fakeNavigator.sendBeacon(
@@ -1227,9 +1265,11 @@ describe("Playwright prepare-only application flow", () => {
     form.requestSubmit();
     expect(originalFormSubmitCalls).toBe(0);
     expect(originalRequestSubmitCalls).toBe(0);
-    expect(originalFetch).toHaveBeenCalledTimes(1);
+    // One queryless read plus one authorized autosave; one queryless XHR read
+    // plus one authorized draft PATCH.
+    expect(originalFetch).toHaveBeenCalledTimes(2);
     expect(originalSendBeacon).not.toHaveBeenCalled();
-    expect(originalXhrSendCalls).toBe(1);
+    expect(originalXhrSendCalls).toBe(2);
     expect(originalWindowOpen).not.toHaveBeenCalled();
   });
 
@@ -2706,6 +2746,84 @@ describe("Playwright prepare-only application flow", () => {
     expect(result.submittedAt).toBeNull();
   });
 
+  test("tolerates an analytics post after a fill when the guard saw it carried no field value", async () => {
+    const { result, state } = await runApplicationScenario({
+      submitAuthorized: false,
+      steps: [
+        {
+          controls: [
+            { label: "Email address", inputType: "email" },
+            { label: "Phone", inputType: "tel" },
+          ],
+          mutationTriggerLabel: "Email address",
+          blockedAttemptAfterMutation: {
+            kind: "fetch",
+            method: "POST",
+            url: "https://collector.analytics.test/tp2",
+            carriedPreparedValue: false,
+          },
+          actions: [{ label: "Submit application", type: "submit" }],
+        },
+      ],
+    });
+
+    expect(state.guardBlockedAttempts).toHaveLength(1);
+    expect(state.filledValues.has("Phone")).toBe(true);
+    expect(result.detail).not.toContain("did not have permission");
+    const labels = result.checkpoints.map((checkpoint) => checkpoint.label);
+    expect(labels).toContain("Blocked a background page request");
+    expect(labels.at(-1)).toBe(
+      "Stopped at final control for resume verification",
+    );
+    expect(result.submittedAt).toBeNull();
+  });
+
+  test("still stops on a same-origin write after a fill even when it carried no field value", async () => {
+    const { result } = await runApplicationScenario({
+      submitAuthorized: false,
+      steps: [
+        {
+          controls: [{ label: "Email address", inputType: "email" }],
+          mutationTriggerLabel: "Email address",
+          blockedAttemptAfterMutation: {
+            kind: "xhr",
+            method: "POST",
+            carriedPreparedValue: false,
+          },
+        },
+      ],
+    });
+    expect(result.summary).toBe(
+      "The application page could not safely save a prepared field",
+    );
+  });
+
+  test("tolerates a widget's own form post on an untouched page, but not one carrying field values", async () => {
+    for (const carriedPreparedValue of [false, true]) {
+      const { result, state } = await runApplicationScenario({
+        submitAuthorized: false,
+        initialBlockedAttempts: [
+          {
+            kind: "dom_submit",
+            method: "POST",
+            url: "https://widgets.example.test/apply-with-network",
+            at: "2026-09-05T00:00:00.000Z",
+            carriedPreparedValue,
+          },
+        ],
+        steps: [{ controls: [{ label: "Email address", inputType: "email" }] }],
+      });
+      if (carriedPreparedValue) {
+        expect(state.filledValues.size).toBe(0);
+        expect(result.detail).toContain("blocked a form submission");
+      } else {
+        expect(state.filledValues.has("Email address")).toBe(true);
+        expect(result.detail).not.toContain("blocked a form submission");
+      }
+      expect(result.submittedAt).toBeNull();
+    }
+  });
+
   test("stops on a background request that arrives after the runtime has filled a field", async () => {
     const { result, state } = await runApplicationScenario({
       submitAuthorized: false,
@@ -3410,6 +3528,118 @@ describe("Playwright prepare-only application flow", () => {
     expect(result.state).toBe("paused");
     expect(result.blocker?.code).toBe(scenario.blockerCode);
     expect(state.clickedLabels).toEqual([]);
+  });
+
+  test.each([
+    {
+      label: "as a link",
+      manualHref: "https://jobs.example.test/job/R1/apply/applyManually",
+    },
+    { label: "as a button", manualHref: null },
+  ])(
+    "follows an Apply link on a posting and an Apply Manually choice $label, then stops at the sign-in gate",
+    async ({ manualHref }) => {
+      const applyUrl = "https://jobs.example.test/job/R1/apply";
+      const { result, state } = await runApplicationScenario({
+        accountCreationAuthorized: false,
+        submitAuthorized: false,
+        steps: [
+          {
+            bodyText: "Software Engineer. Santa Clara, CA. Full time.",
+            actions: [
+              { label: "Sign In", type: "submit" },
+              { label: "Apply", type: "button", href: applyUrl },
+              { label: "Read More", type: "button" },
+            ],
+          },
+          {
+            url: applyUrl,
+            bodyText: "Start Your Application. Software Engineer.",
+            actions: [
+              {
+                label: "Autofill with Resume",
+                type: "button",
+                href:
+                  manualHref &&
+                  "https://jobs.example.test/job/R1/apply/autofill",
+              },
+              { label: "Apply Manually", type: "button", href: manualHref },
+              {
+                label: "Use My Last Application",
+                type: "button",
+                href:
+                  manualHref &&
+                  "https://jobs.example.test/job/R1/apply/useMyLastApplication",
+              },
+            ],
+          },
+          {
+            ...(manualHref ? { url: manualHref } : {}),
+            bodyText: "Sign in to continue your application",
+            controls: [
+              { label: "Email Address", inputType: "text", required: true },
+              { label: "Password", inputType: "password", required: true },
+            ],
+            actions: [
+              { label: "Create Account", type: "submit" },
+              { label: "Sign In", type: "submit" },
+            ],
+          },
+        ],
+      });
+
+      expect(state.gotoUrls).toContain(applyUrl);
+      if (manualHref) {
+        expect(state.gotoUrls).toContain(manualHref);
+        expect(state.clickedLabels).toEqual([]);
+      } else {
+        expect(state.clickedLabels).toEqual(["Apply Manually"]);
+      }
+      expect(state.gotoUrls.join(" ")).not.toMatch(
+        /autofill|useMyLastApplication/u,
+      );
+      expect(result.state).toBe("paused");
+      expect(result.blocker?.code).toBe("site_login_required");
+      expect(
+        result.checkpoints.map((checkpoint) => checkpoint.label),
+      ).toContain("Opened the application from Apply");
+    },
+  );
+
+  test("never follows an Apply link or a manual-entry choice once a form or final-page evidence is on screen", async () => {
+    for (const step of [
+      {
+        bodyText: "Application details",
+        controls: [{ label: "Resume", inputType: "file", required: true }],
+        actions: [
+          {
+            label: "Apply",
+            type: "button",
+            href: "https://jobs.example.test/apply",
+          },
+          { label: "Apply Manually", type: "button" },
+        ],
+      },
+      {
+        bodyText: "Review your application before you submit",
+        actions: [
+          {
+            label: "Apply now",
+            type: "button",
+            href: "https://jobs.example.test/apply",
+          },
+          { label: "Start application", type: "button" },
+        ],
+      },
+    ]) {
+      const { result, state } = await runApplicationScenario({
+        submitAuthorized: false,
+        steps: [step],
+      });
+      expect(state.clickedLabels).toEqual([]);
+      expect(state.gotoUrls).not.toContain("https://jobs.example.test/apply");
+      expect(result.state).toBe("paused");
+    }
   });
 
   test("treats a submit-typed Continue control on an opaque page as non-clickable", async () => {

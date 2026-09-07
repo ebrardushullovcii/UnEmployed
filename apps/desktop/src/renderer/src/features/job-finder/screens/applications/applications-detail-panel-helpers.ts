@@ -100,7 +100,7 @@ export function applicationRecordLooksSiteBlocked(
  * action they come back to — the round-eight review found the instruction
  * pointing at a window the user was never told existed.
  */
-export const MANUAL_FIELD_FINISH_NEXT_STEP = `Review and fix the conflicting or unfinished fields in ${JOB_FINDER_BROWSER_NAME} — a separate window outside this app — then come back here and choose "${CONFIRM_STEP_DONE_ACTION}".`;
+export const MANUAL_FIELD_FINISH_NEXT_STEP = `Review and fix the conflicting or unfinished fields in ${JOB_FINDER_BROWSER_NAME} — it opens right here in the app — then come back here and choose "${CONFIRM_STEP_DONE_ACTION}".`;
 
 export const MANUAL_FIELD_FINISH_GUIDANCE = `${MANUAL_FIELD_FINISH_NEXT_STEP} Use "${RUN_PREPARATION_AGAIN_ACTION}" only if you want a fresh run after that.`;
 

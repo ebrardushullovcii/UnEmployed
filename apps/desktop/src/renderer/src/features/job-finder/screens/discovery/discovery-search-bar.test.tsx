@@ -9,6 +9,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DiscoverySearchBar,
+  getDiscoveryPlanOptions,
   getDiscoverySearchChips,
 } from "./discovery-search-bar";
 
@@ -212,5 +213,58 @@ describe("DiscoverySearchBar", () => {
     expect(screen.getByRole("button", { name: "Searching" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stop search" }));
     expect(onStopSearch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("DiscoverySearchBar plan chip", () => {
+  const plans = [
+    { id: "plan_a", name: "Remote TypeScript", status: "active" as const },
+    { id: "plan_b", name: "Focused frontend", status: "paused" as const },
+    { id: "plan_c", name: "Old broad", status: "archived" as const },
+  ];
+
+  it("lists every non-archived plan and keeps an archived current plan visible", () => {
+    expect(getDiscoveryPlanOptions(plans, "plan_a").map((p) => p.id)).toEqual([
+      "plan_a",
+      "plan_b",
+    ]);
+    expect(getDiscoveryPlanOptions(plans, "plan_c").map((p) => p.id)).toEqual([
+      "plan_a",
+      "plan_b",
+      "plan_c",
+    ]);
+  });
+
+  it("names the plan Search now runs with and switches it in place", () => {
+    const onSelectCampaign = vi.fn();
+    renderBar({
+      campaigns: plans,
+      activeCampaignId: "plan_a",
+      onSelectCampaign,
+    });
+
+    const select = screen.getByLabelText("Search plan") as HTMLSelectElement;
+    expect(select.value).toBe("plan_a");
+    expect(
+      screen.getByTestId("discovery-search-plan").getAttribute("title"),
+    ).toContain("Search now");
+    fireEvent.change(select, { target: { value: "plan_b" } });
+    expect(onSelectCampaign).toHaveBeenCalledWith("plan_b");
+  });
+
+  it("does not offer a switch while a search is running, and hides without plans", () => {
+    renderBar({
+      campaigns: plans,
+      activeCampaignId: "plan_a",
+      onSelectCampaign: vi.fn(),
+      isSearchRunning: true,
+      searchStartedAt: "2026-09-01T00:00:00.000Z",
+    });
+    expect(
+      (screen.getByLabelText("Search plan") as HTMLSelectElement).disabled,
+    ).toBe(true);
+    cleanup();
+    renderBar({ campaigns: [], activeCampaignId: null });
+    expect(screen.queryByLabelText("Search plan")).toBeNull();
   });
 });

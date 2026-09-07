@@ -1,5 +1,6 @@
 import type {
   BrowserSessionState,
+  JobSearchCampaign,
   JobSearchPreferences,
 } from "@unemployed/contracts";
 import { SlidersHorizontal } from "lucide-react";
@@ -115,12 +116,34 @@ function getBrowserChipLabel(
   }
 }
 
+/** The plans a job seeker can switch to: every non-archived plan, plus the current one. */
+export function getDiscoveryPlanOptions(
+  campaigns: readonly Pick<JobSearchCampaign, "id" | "name" | "status">[],
+  activeCampaignId: string | null,
+): readonly { id: string; name: string }[] {
+  return campaigns
+    .filter(
+      (campaign) =>
+        campaign.status !== "archived" || campaign.id === activeCampaignId,
+    )
+    .map((campaign) => ({ id: campaign.id, name: campaign.name }));
+}
+
 /**
  * One interactive strip above the results: what the search is set to, one
  * search command, and the browser as a small link rather than the first block
  * on the page.
  */
 export function DiscoverySearchBar(props: {
+  /**
+   * Search plans, when the page can switch between them. Search now always
+   * runs the current plan, which used to be invisible from this page: the
+   * plan was chosen on Search plans and only inferred here from the chips.
+   */
+  campaigns?: readonly Pick<JobSearchCampaign, "id" | "name" | "status">[];
+  activeCampaignId?: string | null;
+  isPlanSwitchPending?: boolean;
+  onSelectCampaign?: (campaignId: string) => void;
   browserSession: BrowserSessionState;
   isBrowserSessionPending: boolean;
   isSearchPending: boolean;
@@ -149,6 +172,10 @@ export function DiscoverySearchBar(props: {
   isSearchRunning: boolean;
 }) {
   const {
+    campaigns = [],
+    activeCampaignId = null,
+    isPlanSwitchPending = false,
+    onSelectCampaign,
     browserSession,
     isBrowserSessionPending,
     isSearchDisabled,
@@ -167,6 +194,9 @@ export function DiscoverySearchBar(props: {
     searchPreferences,
   } = props;
   const chips = getDiscoverySearchChips(searchPreferences);
+  const planOptions = getDiscoveryPlanOptions(campaigns, activeCampaignId);
+  const activePlan =
+    planOptions.find((plan) => plan.id === activeCampaignId) ?? null;
   const elapsedSeconds = useSearchElapsedSeconds(
     isSearchRunning ? searchStartedAt : null,
   );
@@ -180,6 +210,35 @@ export function DiscoverySearchBar(props: {
       className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-2 rounded-(--radius-button) border border-(--surface-panel-border) bg-(--surface-panel) px-2 py-1.5"
       data-testid="discovery-search-bar"
     >
+      {activePlan && onSelectCampaign ? (
+        <label
+          className={cn(
+            "inline-flex min-h-7 shrink-0 items-center gap-1.5 rounded-(--radius-small) border border-(--control-border) pl-2.5 pr-1.5 text-(length:--text-small) transition-colors focus-within:ring-[3px] focus-within:ring-ring/30",
+            planOptions.length > 1
+              ? "hover:bg-secondary hover:text-foreground"
+              : null,
+          )}
+          data-testid="discovery-search-plan"
+          title="Search now searches with this plan's roles, places and sources."
+        >
+          <span className="text-foreground-muted">Plan</span>
+          <select
+            aria-label="Search plan"
+            className="max-w-56 cursor-pointer truncate bg-transparent pr-1 font-medium text-foreground outline-none disabled:cursor-default"
+            disabled={
+              isPlanSwitchPending || isSearchRunning || planOptions.length < 2
+            }
+            onChange={(event) => onSelectCampaign(event.target.value)}
+            value={activePlan.id}
+          >
+            {planOptions.map((plan) => (
+              <option key={plan.id} value={plan.id}>
+                {plan.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <SlidersHorizontal
         aria-hidden="true"
         className="size-3.5 shrink-0 text-foreground-muted"

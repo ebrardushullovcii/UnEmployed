@@ -492,7 +492,7 @@ export function OutcomeAnalyticsScreen(props: {
         <label className="grid gap-1.5 text-sm font-medium text-foreground">
           Search plan scope
           <select
-            className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-sm text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) => {
               const value = event.target.value;
               setScope(

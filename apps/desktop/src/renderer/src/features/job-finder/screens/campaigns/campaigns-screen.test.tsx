@@ -952,7 +952,7 @@ describe("CampaignsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
 
     expect(
-      await screen.findByText('Search plan "Focused frontend" created.'),
+      await screen.findByText(/Search plan "Focused frontend" created\./),
     ).toBeTruthy();
     expect(onSelectCampaign).not.toHaveBeenCalled();
 
@@ -969,7 +969,7 @@ describe("CampaignsScreen", () => {
       />,
     );
     fireEvent.click(
-      await screen.findByRole("button", { name: "Switch to it" }),
+      await screen.findByRole("button", { name: "Use it in Find jobs" }),
     );
     expect(onSelectCampaign).toHaveBeenCalledWith("two");
     expect(screen.queryByText(/created\./)).toBeNull();
@@ -1028,7 +1028,9 @@ describe("CampaignsScreen", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
 
-    expect(await screen.findByText("Search plan saved.")).toBeTruthy();
+    expect(
+      await screen.findByText("Search plan saved. Your next search uses it."),
+    ).toBeTruthy();
   });
 
   it("guards Escape like cancel while the editor has unsaved changes", () => {
@@ -1378,10 +1380,12 @@ describe("CampaignsScreen", () => {
       expect(control.className).not.toContain("--surface-panel-raised");
       expect(control.className).not.toContain("focus-visible:ring");
     }
+    // Native selects share the Input's 44px height and padding so a select
+    // beside a text field sits on the same baseline.
     for (const select of selects) {
-      expect(select.className).toContain("h-10");
+      expect(select.className).toContain("h-11");
       expect(select.className).toContain("rounded-(--radius-field)");
-      expect(select.className).toContain("px-3");
+      expect(select.className).toContain("px-3.5");
     }
     expect(textareas[0]?.className).toContain("min-h-20");
 

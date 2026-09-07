@@ -507,16 +507,21 @@ export function ReviewQueueScreen(props: {
               />
             ) : null}
             {selectedJob && selectedItem ? (
-              <div className="px-6 pt-2">
-                <div className="grid max-w-3xl gap-6">
-                  <section className="grid gap-2 border-t border-(--surface-panel-border) pt-5">
+              <div className="min-w-0 px-6 pt-2">
+                {/* Every level down to the listing text resets its minimum
+                    width, and the text may break inside a word: a listing
+                    with one long unbroken token (a URL, a hashtag run)
+                    otherwise sets the column's minimum content width and
+                    pushes the whole workspace past the pane's right edge. */}
+                <div className="grid min-w-0 max-w-3xl gap-6">
+                  <section className="grid min-w-0 gap-2 border-t border-(--surface-panel-border) pt-5">
                     <span className="label-mono-xs text-foreground-muted">
                       About this job
                     </span>
                     {/* An echoed title under a heading looks like a bug; the
                         listing text only appears when it is real text. */}
                     {selectedJobSummaryText ? (
-                      <p className="whitespace-pre-line text-(length:--text-body) leading-7 text-foreground-soft">
+                      <p className="min-w-0 wrap-anywhere whitespace-pre-line text-(length:--text-body) leading-7 text-foreground-soft">
                         {selectedJobSummaryText}
                       </p>
                     ) : (

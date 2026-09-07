@@ -54,7 +54,7 @@ function toLocalInputValue(iso: string): string {
 }
 
 const fieldClassName =
-  "h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-sm text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]";
+  "h-11 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]";
 const areaClassName =
   "min-h-20 w-full resize-y rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 py-2 text-sm leading-6 text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]";
 
@@ -652,7 +652,7 @@ export function ApplicationsCrmDetail(props: {
                   key={entry.id}
                 >
                   <div>
-                    <p className="whitespace-pre-wrap text-foreground">
+                    <p className="min-w-0 wrap-anywhere whitespace-pre-wrap text-foreground">
                       {entry.body}
                     </p>
                     <time

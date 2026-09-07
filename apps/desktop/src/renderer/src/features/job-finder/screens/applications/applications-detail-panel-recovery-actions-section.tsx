@@ -409,7 +409,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
               {isDailyCapacityExhausted
                 ? `"${RUN_PREPARATION_AGAIN_ACTION}" stays available after today's application slots reset.`
                 : isWaitingForSignIn
-                  ? `Job Finder is waiting while you sign in in ${JOB_FINDER_BROWSER_NAME}, a separate window outside this app. It never handles or stores your credentials. Come back here after sign-in and run preparation again. That creates a fresh run and uses one of today's remaining application slots.`
+                  ? `Job Finder is waiting while you sign in in ${JOB_FINDER_BROWSER_NAME}, right here in the app. It never handles or stores your credentials. Come back here after sign-in and run preparation again. That creates a fresh run and uses one of today's remaining application slots.`
                   : isNavigationUnreachable
                     ? `Last time, ${JOB_FINDER_BROWSER_NAME} could not open this employer page, so preparation stopped before anything was filled or submitted. That failed attempt did not count against today's application slots. Run preparation again below when you are ready.`
                     : needsResumeAttachment

@@ -3,6 +3,7 @@ import {
   app,
   type BrowserWindow,
   dialog,
+  screen,
   session,
   WebContentsView,
   type Session,
@@ -11,12 +12,16 @@ import {
 import { chromium, type Browser } from "playwright";
 import {
   DesktopBrowserStateSchema,
+  resolveBrowserAddress,
   type DesktopBrowserState,
   type DesktopBrowserAttention,
   type DesktopBrowserCommand,
+  type DesktopBrowserSnapshot,
   type DesktopBrowserViewport,
 } from "@unemployed/contracts";
+import path from "node:path";
 import { BrowserCdpBridge, type BrowserCdpPage } from "./browser-cdp-bridge";
+import { alignClientHintHeaders } from "./browser-identity";
 import {
   browserDisplayUrl,
   browserUserAgent,
@@ -28,6 +33,7 @@ export const EMBEDDED_BROWSER_PARTITION = "persist:unemployed-browser";
 const MAX_TABS = 8;
 interface BrowserPage extends BrowserCdpPage {
   view: WebContentsView;
+  createdAt: number;
 }
 interface ActivityHooks {
   pause(reason: string): Promise<void>;
@@ -61,6 +67,7 @@ export class EmbeddedBrowser {
   private closePromise: Promise<void> | null = null;
   private connectionGeneration = 0;
   private handoverPromise: Promise<void> | null = null;
+  private releasePending = false;
 
   attachWindow(window: BrowserWindow): void {
     if (this.window === window) return;
@@ -145,6 +152,21 @@ export class EmbeddedBrowser {
     browserSession.setUserAgent(
       browserUserAgent(browserSession.getUserAgent(), app.getName()),
     );
+    // Present as the Chrome this Chromium is built from: brand headers here,
+    // the in-page brand list and window.chrome shape through a bridge-free
+    // page preload. Google's sign-in refuses the bare Chromium identity.
+    browserSession.registerPreloadScript({
+      type: "frame",
+      filePath: path.join(__dirname, "../preload/browser-page.cjs"),
+    });
+    browserSession.webRequest.onBeforeSendHeaders((details, callback) => {
+      callback({
+        requestHeaders: alignClientHintHeaders(
+          details.requestHeaders,
+          process.versions.chrome,
+        ),
+      });
+    });
     browserSession.setPermissionCheckHandler(() => false);
     browserSession.setPermissionRequestHandler(
       (contents, permission, callback) => {
@@ -152,18 +174,19 @@ export class EmbeddedBrowser {
         const page = [...this.pageMap.values()].find(
           (item) => item.contents.id === contents?.id,
         );
-        if (
-          !page ||
-          !this.window ||
-          this.operations.size > 0 ||
-          this.presentation === "minimized"
-        ) {
+        // A site asking during a run is declined quietly: the agent never
+        // needs device access, and a prompt would stop the run for nothing.
+        if (!page || !this.window || this.operations.size > 0) {
+          callback(false);
+          return;
+        }
+        if (this.presentation === "minimized") {
           callback(false);
           this.requestAttention({
             kind: "permission",
             title: "Website permission requested",
             detail:
-              "Open the browser and take control to review this website’s permission request.",
+              "Open the browser and click into the page to review this website’s permission request.",
           });
           return;
         }
@@ -208,7 +231,7 @@ export class EmbeddedBrowser {
           kind: "user_action",
           title: "A download needs you",
           detail:
-            "Take control in the browser, then click the download again to choose where to save it.",
+            "Open the browser and click the download again to choose where to save it.",
         });
         return;
       }
@@ -285,6 +308,7 @@ export class EmbeddedBrowser {
       id: randomUUID(),
       contents: view.webContents,
       view,
+      createdAt: Date.now(),
       ...(openerId ? { openerId } : {}),
     };
     this.pageMap.set(page.id, page);
@@ -335,6 +359,21 @@ export class EmbeddedBrowser {
           detail:
             "Reload the page to continue. Your saved sign-ins are still kept.",
         });
+    });
+    // Agent input arrives over CDP and never moves the pointer. A page the
+    // agent creates still takes native focus on its own, so focus alone is
+    // not the user: it counts only when the page is on screen, past its
+    // creation, with the pointer over it. Then it is the user stepping in:
+    // pause the agent and let their click land, without a control button.
+    page.contents.on("focus", () => {
+      if (!this.isUserOnPage(page)) return;
+      if (this.operations.size > 0 && !this.paused && !this.handoverPromise)
+        void this.takeControl().catch(() => undefined);
+      else if (this.attention && this.operations.size === 0) {
+        // The user is on the page that asked for them; stop asking.
+        this.attention = null;
+        this.emit();
+      }
     });
     page.contents.on("before-input-event", (event, input) => {
       if (input.type !== "keyDown") return;
@@ -407,6 +446,32 @@ export class EmbeddedBrowser {
     const page = this.pageMap.get(id);
     if (!page || page.contents.isDestroyed()) return;
     page.contents.close({ waitForBeforeUnload: false });
+  }
+
+  /**
+   * A still of the active page for the renderer to show while its own chrome
+   * (a menu, the import picker) needs to sit where the native view paints.
+   */
+  async captureActivePage(): Promise<DesktopBrowserSnapshot> {
+    const page = this.activeTabId
+      ? this.pageMap.get(this.activeTabId)
+      : undefined;
+    if (
+      !page ||
+      page.contents.isDestroyed() ||
+      page.contents.getURL() === "about:blank" ||
+      !this.viewport.visible
+    )
+      return { dataUrl: null };
+    try {
+      const image = await page.contents.capturePage();
+      if (image.isEmpty()) return { dataUrl: null };
+      return {
+        dataUrl: `data:image/jpeg;base64,${image.toJPEG(82).toString("base64")}`,
+      };
+    } catch {
+      return { dataUrl: null };
+    }
   }
 
   setViewport(viewport: DesktopBrowserViewport): void {
@@ -540,9 +605,11 @@ export class EmbeddedBrowser {
     this.operations.set(controller, label);
     this.attention = null;
     this.closed = false;
+    this.releasePending = false;
     for (const page of this.pageMap.values())
       if (!page.contents.isDestroyed())
         page.contents.setBackgroundThrottling(false);
+    this.focusApp();
     this.emit();
     try {
       await this.bridge?.setAutomationActive(true);
@@ -577,8 +644,19 @@ export class EmbeddedBrowser {
         if (this.operations.size > 0) await this.takeControl();
         this.createPage(command.url);
       }
-    } else if (command.type === "minimize") this.presentation = "minimized";
-    else if (command.type === "expand")
+    } else if (command.type === "minimize") {
+      this.presentation = "minimized";
+      if (
+        this.releasePending &&
+        this.operations.size === 0 &&
+        !this.paused &&
+        !this.attention
+      ) {
+        this.layout();
+        await this.close(false);
+        return this.getState();
+      }
+    } else if (command.type === "expand")
       this.presentation = command.expanded ? "expanded" : "peek";
     else if (command.type === "take_control") await this.takeControl();
     else if (command.type === "resume") {
@@ -587,6 +665,7 @@ export class EmbeddedBrowser {
       await this.activityHooks?.resume();
       this.paused = false;
       this.attention = null;
+      this.focusApp();
     } else if (command.type === "select_tab") this.selectPage(command.tabId);
     else if (command.type === "close_tab") {
       if (this.operations.size > 0) await this.takeControl();
@@ -600,7 +679,11 @@ export class EmbeddedBrowser {
       this.attention = null;
       if (command.type === "new_tab") this.createPage("about:blank");
       if (command.type === "navigate") {
-        const url = normalizeBrowserNavigation(command.url);
+        // Typed input follows browser rules: an address opens, anything else
+        // becomes a search. Agent and app navigation ("open") stays strict.
+        const url = normalizeBrowserNavigation(
+          resolveBrowserAddress(command.url)?.url ?? command.url,
+        );
         if (!page) this.createPage(url);
         else void page.contents.loadURL(url).catch(() => undefined);
       }
@@ -639,10 +722,66 @@ export class EmbeddedBrowser {
     return handover;
   }
 
+  private isUserOnPage(page: BrowserPage): boolean {
+    if (
+      !this.window ||
+      this.window.isDestroyed() ||
+      this.presentation === "minimized" ||
+      !this.viewport.visible ||
+      this.activeTabId !== page.id ||
+      page.contents.isDestroyed() ||
+      Date.now() - page.createdAt < 1500
+    )
+      return false;
+    const content = this.window.getContentBounds();
+    const bounds = page.view.getBounds();
+    const cursor = screen.getCursorScreenPoint();
+    return (
+      cursor.x >= content.x + bounds.x &&
+      cursor.x <= content.x + bounds.x + bounds.width &&
+      cursor.y >= content.y + bounds.y &&
+      cursor.y <= content.y + bounds.y + bounds.height
+    );
+  }
+
+  /**
+   * When automation starts on a page the user was typing into, move keyboard
+   * focus back to the app so their keystrokes stop landing in that page.
+   *
+   * Only while this window is already the focused window. On macOS and Linux
+   * `webContents.focus()` also focuses the owning window, which activates the
+   * app: a scheduled source check would pull the user out of whatever
+   * full-screen app they were in. When the window is in the background there
+   * is nothing to protect, so nothing is done.
+   */
+  private focusApp(): void {
+    if (
+      this.window &&
+      !this.window.isDestroyed() &&
+      this.window.isFocused() &&
+      [...this.pageMap.values()].some(
+        (page) => !page.contents.isDestroyed() && page.contents.isFocused(),
+      )
+    )
+      this.window.webContents.focus();
+  }
+
   async releaseAutomationSession(): Promise<void> {
     // Workflow finally-blocks must not close a page handed to the user, nor
     // wait on Close while Close is waiting for those same workflows to settle.
     if (this.paused || this.closing) return;
+    // A run that ends while the user is watching leaves its pages on screen,
+    // and a run that stopped because it needs the user (sign-in, a challenge)
+    // keeps the page it stopped on. Both are released on Close, or when the
+    // panel is minimized with nothing left for the user to do.
+    if (
+      this.attention ||
+      (this.presentation !== "minimized" && this.viewport.visible)
+    ) {
+      this.releasePending = true;
+      this.emit();
+      return;
+    }
     await this.close(false);
   }
 
@@ -653,6 +792,7 @@ export class EmbeddedBrowser {
       return pending;
     }
     this.closing = true;
+    this.releasePending = false;
     if (pauseActivity) this.paused = true;
     this.abortOperations();
     this.presentation = "minimized";

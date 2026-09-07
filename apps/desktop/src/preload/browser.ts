@@ -1,7 +1,10 @@
 import { ipcRenderer } from "electron";
 import {
   DesktopBrowserCommandSchema,
+  DesktopBrowserImportInputSchema,
   DesktopBrowserImportResultSchema,
+  DesktopBrowserImportSourcesSchema,
+  DesktopBrowserSnapshotSchema,
   DesktopBrowserStateSchema,
   DesktopBrowserViewportSchema,
   type DesktopBrowserBridge,
@@ -25,9 +28,20 @@ export const browserBridge: DesktopBrowserBridge = {
       DesktopBrowserViewportSchema.parse(viewport),
     );
   },
-  importSession: async () =>
+  captureActivePage: async () =>
+    DesktopBrowserSnapshotSchema.parse(
+      await ipcRenderer.invoke("browser:capture-page"),
+    ),
+  listImportSources: async () =>
+    DesktopBrowserImportSourcesSchema.parse(
+      await ipcRenderer.invoke("browser:list-import-sources"),
+    ),
+  importFromBrowser: async (input) =>
     DesktopBrowserImportResultSchema.parse(
-      await ipcRenderer.invoke("browser:import-session"),
+      await ipcRenderer.invoke(
+        "browser:import-from-browser",
+        DesktopBrowserImportInputSchema.parse(input),
+      ),
     ),
   onStateChanged: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, state: unknown) => {

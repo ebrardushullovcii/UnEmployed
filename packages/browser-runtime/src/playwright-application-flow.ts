@@ -11,6 +11,7 @@ import {
   type ApplicationAttemptQuestion,
   type CandidateProfile,
 } from "@unemployed/contracts";
+import { isPageOwnedReadRequest } from "./application-read-request-policy";
 import {
   classifyIntermediateMutationRequest,
   INTERMEDIATE_MUTATION_WINDOW_DURATION_MS,
@@ -101,26 +102,52 @@ export interface PrepareOnlyBlockedAttempt {
   method: string;
   url: string | null;
   at: string;
+  /**
+   * Whether the attempt carried a value that was in a form field when it was
+   * blocked. Set by the page guard, which can see the form; unset for
+   * network-layer blocks, which are then treated as if they might have.
+   */
+  carriedPreparedValue?: boolean;
 }
 
 type WebTransportPageConstructor = new (url: string | URL) => unknown;
 
 const PREPARE_ONLY_SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+// Channels and beacons are never opened while preparation is unauthorized.
 const PREPARE_ONLY_DENIED_RESOURCE_TYPES = new Set([
-  "xhr",
-  "fetch",
   "websocket",
   "eventsource",
   "ping",
-  "other",
 ]);
 
+// Resources the page guard cannot inspect are beacons when they carry a query
+// string. Fetch and XHR are judged by the page guard, which sees the form's
+// current values, and by the read policy below.
 const PREPARE_ONLY_QUERY_GUARDED_RESOURCE_TYPES = new Set([
   "image",
   "media",
   "texttrack",
+  "other",
 ]);
+
+const PREPARE_ONLY_READ_RESOURCE_TYPES = new Set(["fetch", "xhr"]);
+
+/**
+ * Network-layer view of a page-owned read: the page guard has already
+ * refused anything carrying a form value, so this only re-checks the shape.
+ */
+function isNetworkLayerPageOwnedRead(request: Request): boolean {
+  return (
+    PREPARE_ONLY_READ_RESOURCE_TYPES.has(request.resourceType()) &&
+    isPageOwnedReadRequest({
+      method: request.method(),
+      url: request.url(),
+      bodyText: request.postData(),
+      preparedValues: [],
+    })
+  );
+}
 
 export interface PrepareOnlyGuardSnapshot {
   installed: boolean;
@@ -213,14 +240,136 @@ export function installPrepareOnlyMutationGuardInPage(
     kind: PrepareOnlyBlockedAttempt["kind"],
     method: string,
     url: string | null,
+    carriedPreparedValue?: boolean,
   ): void => {
     state.blockedAttempts.push({
       kind,
       method: normalizeMethod(method),
       url,
       at: new Date().toISOString(),
+      ...(carriedPreparedValue === undefined ? {} : { carriedPreparedValue }),
     });
     state.blockedAttempts = state.blockedAttempts.slice(-32);
+  };
+  const PREPARED_VALUE_SKIP_TYPES = new Set([
+    "hidden",
+    "checkbox",
+    "radio",
+    "submit",
+    "button",
+    "file",
+    "image",
+    "reset",
+  ]);
+  const readFieldValues = (
+    root: {
+      querySelectorAll?: (selector: string) => ArrayLike<unknown>;
+    } | null,
+  ): string[] => {
+    const values: string[] = [];
+    if (!root || typeof root.querySelectorAll !== "function") return values;
+    for (const element of Array.from(
+      root.querySelectorAll(
+        "input, textarea, select, [contenteditable='true']",
+      ),
+    ) as Array<{
+      type?: string;
+      value?: unknown;
+      textContent?: string | null;
+    }>) {
+      if (
+        typeof element.type === "string" &&
+        PREPARED_VALUE_SKIP_TYPES.has(element.type)
+      ) {
+        continue;
+      }
+      const value =
+        typeof element.value === "string"
+          ? element.value
+          : (element.textContent ?? "");
+      const trimmed = value.trim();
+      if (trimmed.length >= 3) values.push(trimmed);
+    }
+    return values;
+  };
+  /** A form submission always carries its own filled fields. */
+  const formCarriesPreparedValue = (form: unknown): boolean | undefined =>
+    form && typeof form === "object"
+      ? readFieldValues(
+          form as {
+            querySelectorAll?: (selector: string) => ArrayLike<unknown>;
+          },
+        ).length > 0
+      : undefined;
+  // Mirrors application-read-request-policy.ts; this function is serialized
+  // into the page and cannot import. A page-owned read (safe method, or a
+  // GraphQL query) is allowed unless it carries a value that is currently in
+  // a form field, which is the only way a read could send a prepared answer.
+  const collectPreparedValues = (): string[] =>
+    readFieldValues(typeof document === "undefined" ? null : document);
+  const requestCarriesPreparedValue = (
+    url: string | null,
+    bodyText: string | null,
+  ): boolean => {
+    const preparedValues = collectPreparedValues();
+    return (
+      carriesPreparedValue(url, preparedValues) ||
+      carriesPreparedValue(bodyText, preparedValues)
+    );
+  };
+  const carriesPreparedValue = (
+    text: string | null,
+    preparedValues: readonly string[],
+  ): boolean => {
+    if (!text) return false;
+    let decoded = text;
+    try {
+      decoded = decodeURIComponent(text);
+    } catch {
+      /* keep the raw text */
+    }
+    return preparedValues.some(
+      (value) => text.includes(value) || decoded.includes(value),
+    );
+  };
+  const isGraphQlReadBody = (bodyText: string | null): boolean => {
+    if (!bodyText || bodyText.length > 65_536) return false;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(bodyText);
+    } catch {
+      return false;
+    }
+    const operations = Array.isArray(parsed) ? parsed : [parsed];
+    if (operations.length === 0) return false;
+    return operations.every((operation) => {
+      if (typeof operation !== "object" || operation === null) return false;
+      const query = (operation as { query?: unknown }).query;
+      if (typeof query !== "string") return false;
+      const graphDocument = query.replace(/#[^\n]*/g, " ").trim();
+      return (
+        /^(?:query\b|\{)/u.test(graphDocument) &&
+        !/\b(?:mutation|subscription)\b/u.test(graphDocument)
+      );
+    });
+  };
+  const isPageOwnedRead = (
+    method: string,
+    url: string | null,
+    bodyText: string | null,
+  ): boolean => {
+    const normalized = normalizeMethod(method);
+    if (["GET", "HEAD", "OPTIONS"].includes(normalized)) {
+      return !carriesPreparedValue(url, collectPreparedValues());
+    }
+    if (normalized === "POST" && isGraphQlReadBody(bodyText)) {
+      const preparedValues = collectPreparedValues();
+      return (
+        !carriesPreparedValue(url, preparedValues) &&
+        !carriesPreparedValue(bodyText, preparedValues)
+      );
+    }
+    return false;
   };
   const canAllowIntermediateRequest = (input: {
     bodyText?: string | null;
@@ -278,6 +427,7 @@ export function installPrepareOnlyMutationGuardInPage(
           "dom_submit",
           form?.method ?? "FORM",
           normalizeUrl(form?.action ?? window.location.href),
+          formCarriesPreparedValue(form),
         );
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -294,6 +444,7 @@ export function installPrepareOnlyMutationGuardInPage(
           "form_submit",
           this.method || "FORM",
           normalizeUrl(this.action || window.location.href),
+          formCarriesPreparedValue(this),
         );
       };
     HTMLFormElement.prototype.submit = guardedFormSubmit;
@@ -309,6 +460,7 @@ export function installPrepareOnlyMutationGuardInPage(
           "form_request_submit",
           this.method || "FORM",
           normalizeUrl(this.action || window.location.href),
+          formCarriesPreparedValue(this),
         );
       };
     HTMLFormElement.prototype.requestSubmit = guardedRequestSubmit;
@@ -320,8 +472,22 @@ export function installPrepareOnlyMutationGuardInPage(
     navigator.sendBeacon !== state.sendBeaconWrapper
   ) {
     const guardedSendBeacon: typeof navigator.sendBeacon = (url, data) => {
-      void data;
-      recordBlockedAttempt("send_beacon", "POST", normalizeUrl(url));
+      const beaconUrl = normalizeUrl(url);
+      const beaconText =
+        typeof data === "string"
+          ? data
+          : typeof URLSearchParams !== "undefined" &&
+              data instanceof URLSearchParams
+            ? data.toString()
+            : null;
+      recordBlockedAttempt(
+        "send_beacon",
+        "POST",
+        beaconUrl,
+        data != null && beaconText === null
+          ? undefined
+          : requestCarriesPreparedValue(beaconUrl, beaconText),
+      );
       return false;
     };
     Object.defineProperty(navigator, "sendBeacon", {
@@ -352,7 +518,11 @@ export function installPrepareOnlyMutationGuardInPage(
               init?.body instanceof URLSearchParams
             ? init.body.toString()
             : null;
+      // A body the guard cannot read (FormData, Blob, a stream) may carry
+      // anything, so its attempt is judged as unknown rather than clean.
+      const bodyOpaque = init?.body != null && bodyText === null;
       if (
+        !isPageOwnedRead(method, url, bodyText) &&
         !canAllowIntermediateRequest({
           bodyText,
           kind: "fetch",
@@ -360,7 +530,12 @@ export function installPrepareOnlyMutationGuardInPage(
           url,
         })
       ) {
-        recordBlockedAttempt("fetch", method, url);
+        recordBlockedAttempt(
+          "fetch",
+          method,
+          url,
+          bodyOpaque ? undefined : requestCarriesPreparedValue(url, bodyText),
+        );
         return Promise.reject(
           new DOMException(
             "Prepare-only mode blocked a new network request while field mutations were unauthorized.",
@@ -418,7 +593,9 @@ export function installPrepareOnlyMutationGuardInPage(
                 body instanceof URLSearchParams
               ? body.toString()
               : null;
+        const bodyOpaque = body != null && bodyText === null;
         if (
+          !isPageOwnedRead(request.method, request.url, bodyText) &&
           !canAllowIntermediateRequest({
             bodyText,
             kind: "xhr",
@@ -426,7 +603,14 @@ export function installPrepareOnlyMutationGuardInPage(
             url: request.url,
           })
         ) {
-          recordBlockedAttempt("xhr", request.method, request.url);
+          recordBlockedAttempt(
+            "xhr",
+            request.method,
+            request.url,
+            bodyOpaque
+              ? undefined
+              : requestCarriesPreparedValue(request.url, bodyText),
+          );
           throw new DOMException(
             "Prepare-only mode blocked a new XMLHttpRequest while field mutations were unauthorized.",
             "AbortError",
@@ -447,7 +631,12 @@ export function installPrepareOnlyMutationGuardInPage(
       protocols?: string | string[],
     ): WebSocket {
       void protocols;
-      recordBlockedAttempt("websocket", "GET", normalizeUrl(url));
+      recordBlockedAttempt(
+        "websocket",
+        "GET",
+        normalizeUrl(url),
+        requestCarriesPreparedValue(normalizeUrl(url), null),
+      );
       throw new DOMException(
         "Prepare-only mode blocked a new WebSocket connection.",
         "AbortError",
@@ -480,7 +669,12 @@ export function installPrepareOnlyMutationGuardInPage(
       eventSourceInit?: EventSourceInit,
     ): EventSource {
       void eventSourceInit;
-      recordBlockedAttempt("eventsource", "GET", normalizeUrl(url));
+      recordBlockedAttempt(
+        "eventsource",
+        "GET",
+        normalizeUrl(url),
+        requestCarriesPreparedValue(normalizeUrl(url), null),
+      );
       throw new DOMException(
         "Prepare-only mode blocked a new EventSource stream.",
         "AbortError",
@@ -507,7 +701,12 @@ export function installPrepareOnlyMutationGuardInPage(
     const GuardedWebTransport = function GuardedWebTransport(
       url: string | URL,
     ): unknown {
-      recordBlockedAttempt("webtransport", "GET", normalizeUrl(url));
+      recordBlockedAttempt(
+        "webtransport",
+        "GET",
+        normalizeUrl(url),
+        requestCarriesPreparedValue(normalizeUrl(url), null),
+      );
       throw new DOMException(
         "Prepare-only mode blocked a new WebTransport session.",
         "AbortError",
@@ -819,6 +1018,8 @@ interface InspectedActionControl {
   type: string;
   visible: boolean;
   disabled: boolean;
+  /** An http(s) destination when the control is a link; opening it is a navigation, not an action. */
+  href?: string | null;
 }
 
 interface ApplicationPageInspection {
@@ -932,12 +1133,13 @@ export async function ensurePrepareOnlyMutationGuard(
       };
 
       if (
-        PREPARE_ONLY_SAFE_METHODS.has(method) &&
-        !PREPARE_ONLY_DENIED_RESOURCE_TYPES.has(resourceType) &&
-        !(
-          PREPARE_ONLY_QUERY_GUARDED_RESOURCE_TYPES.has(resourceType) &&
-          request.url().includes("?")
-        )
+        (PREPARE_ONLY_SAFE_METHODS.has(method) &&
+          !PREPARE_ONLY_DENIED_RESOURCE_TYPES.has(resourceType) &&
+          !(
+            PREPARE_ONLY_QUERY_GUARDED_RESOURCE_TYPES.has(resourceType) &&
+            request.url().includes("?")
+          )) ||
+        isNetworkLayerPageOwnedRead(request)
       ) {
         await route.continue();
         return;
@@ -1520,12 +1722,13 @@ export function createApplicationRunServiceWorkerSentinel(input: {
     const method = request.method().trim().toUpperCase();
     const resourceType = request.resourceType();
     const allowed =
-      PREPARE_ONLY_SAFE_METHODS.has(method) &&
-      !PREPARE_ONLY_DENIED_RESOURCE_TYPES.has(resourceType) &&
-      !(
-        PREPARE_ONLY_QUERY_GUARDED_RESOURCE_TYPES.has(resourceType) &&
-        request.url().includes("?")
-      );
+      (PREPARE_ONLY_SAFE_METHODS.has(method) &&
+        !PREPARE_ONLY_DENIED_RESOURCE_TYPES.has(resourceType) &&
+        !(
+          PREPARE_ONLY_QUERY_GUARDED_RESOURCE_TYPES.has(resourceType) &&
+          request.url().includes("?")
+        )) ||
+      isNetworkLayerPageOwnedRead(request);
     if (!allowed) {
       recordInterruption({
         kind: "network_request",
@@ -2952,6 +3155,9 @@ async function inspectApplicationPage(
             input?.value.trim() ||
             htmlElement.innerText.trim();
 
+          const anchorHref =
+            element instanceof HTMLAnchorElement ? element.href : "";
+
           return {
             index,
             label,
@@ -2960,6 +3166,7 @@ async function inspectApplicationPage(
             disabled:
               Boolean(input?.disabled ?? button?.disabled) ||
               element.getAttribute("aria-disabled") === "true",
+            href: /^https?:\/\//iu.test(anchorHref) ? anchorHref : null,
           };
         }),
       ),
@@ -3111,11 +3318,19 @@ function detectPageBlocker(
   const hasLoginAction = visibleActionLabels.some((label) =>
     /^(?:sign in|log in|create account|sign up|register)$/u.test(label),
   );
-  const hasApplicationAdvanceAction = visibleActionLabels.some((label) =>
-    /^(?:next|continue|continue application|save and continue|review|review application)$/u.test(
-      label,
-    ),
-  );
+  // A header "Sign in" beside a posting's Apply link or a "start application"
+  // choice is not a gate: the application has not been opened yet.
+  const hasApplicationAdvanceAction =
+    visibleActionLabels.some((label) =>
+      /^(?:next|continue|continue application|save and continue|review|review application)$/u.test(
+        label,
+      ),
+    ) ||
+    findApplicationEntryLink(inspection) !== null ||
+    (isApplicationEntryPage(inspection) &&
+      visibleActionLabels.some((label) =>
+        APPLICATION_MANUAL_ENTRY_LABELS.has(label),
+      ));
 
   if (captchaVisible) {
     return {
@@ -3881,6 +4096,78 @@ function hasFinalApplicationPageEvidence(
   );
 }
 
+function hasVisibleApplicationForm(
+  inspection: ApplicationPageInspection,
+): boolean {
+  return inspection.controls.some(
+    (control) =>
+      control.visible &&
+      (control.required || control.invalid || isResumeUploadControl(control)),
+  );
+}
+
+/**
+ * An Apply on a job posting is followed only when it is a link: opening its
+ * destination is the same navigation the runtime performs for an application
+ * URL, so it can send nothing. A button with the same wording is not proven
+ * navigation (a signed-in profile can make it a one-click apply) and stays
+ * untouched.
+ */
+const APPLICATION_ENTRY_LINK_LABELS = new Set([
+  "apply",
+  "apply now",
+  "apply for this job",
+  "apply for this position",
+  "apply to this job",
+  "apply to this position",
+  "apply online",
+  "apply here",
+]);
+
+/**
+ * Choices a site offers before its form that promise a manual, from-scratch
+ * application. With no application form on the page there is nothing
+ * prepared to submit, so choosing one only opens the form.
+ */
+const APPLICATION_MANUAL_ENTRY_LABELS = new Set([
+  "apply manually",
+  "start application",
+  "start your application",
+  "begin application",
+]);
+
+function isApplicationEntryPage(
+  inspection: ApplicationPageInspection,
+): boolean {
+  return (
+    !hasVisibleApplicationForm(inspection) &&
+    !hasFinalApplicationPageEvidence(inspection)
+  );
+}
+
+function findApplicationEntryLink(
+  inspection: ApplicationPageInspection,
+): InspectedActionControl | null {
+  if (!isApplicationEntryPage(inspection)) {
+    return null;
+  }
+  // A manual-entry choice that is itself a link is followed by URL as well:
+  // a hydrated click can route through a form submission the guard blocks,
+  // while opening the destination is the same navigation with nothing sent.
+  return (
+    inspection.actions.find((action) => {
+      const label = normalizeControlSignal(action.label);
+      return (
+        action.visible &&
+        !action.disabled &&
+        typeof action.href === "string" &&
+        (APPLICATION_ENTRY_LINK_LABELS.has(label) ||
+          APPLICATION_MANUAL_ENTRY_LABELS.has(label))
+      );
+    }) ?? null
+  );
+}
+
 function isFinalApplicationAction(
   action: InspectedActionControl,
   inspection: ApplicationPageInspection,
@@ -3890,14 +4177,10 @@ function isFinalApplicationAction(
   }
 
   const normalizedLabel = normalizeControlSignal(action.label);
-  const applicationFormVisible = inspection.controls.some(
-    (control) =>
-      control.visible &&
-      (control.required || control.invalid || isResumeUploadControl(control)),
-  );
   if (
     new Set(["apply", "apply now"]).has(normalizedLabel) &&
-    (applicationFormVisible || hasFinalApplicationPageEvidence(inspection))
+    (hasVisibleApplicationForm(inspection) ||
+      hasFinalApplicationPageEvidence(inspection))
   ) {
     return true;
   }
@@ -3920,17 +4203,25 @@ function isSafeApplicationAdvance(
   }
 
   const label = normalizeControlSignal(action.label);
-  return new Set([
-    "next",
-    "continue",
-    "continue application",
-    "save and continue",
-    "review",
-    "review application",
-    "continue to review",
-    "proceed to review",
-    "review and continue",
-  ]).has(label);
+  if (
+    new Set([
+      "next",
+      "continue",
+      "continue application",
+      "save and continue",
+      "review",
+      "review application",
+      "continue to review",
+      "proceed to review",
+      "review and continue",
+    ]).has(label)
+  ) {
+    return true;
+  }
+  return (
+    APPLICATION_MANUAL_ENTRY_LABELS.has(label) &&
+    isApplicationEntryPage(inspection)
+  );
 }
 
 function createInspectionSignature(
@@ -4122,6 +4413,9 @@ export async function runGenericApplicationPreparation(input: {
   // and containment attempts (popups, downloads, new windows) are never
   // tolerated.
   let runtimeHasMutatedPage = false;
+  // A page the runtime just opened or advanced to may still be rendering its
+  // form; the first inspection of it gets the same grace as the first step.
+  let awaitingFreshPage = true;
   const toleratedBlockedAttemptKeys = new Set<string>();
   const blockedAttemptKey = (attempt: PrepareOnlyBlockedAttempt): string =>
     `${attempt.kind}|${attempt.method}|${attempt.url ?? ""}|${attempt.at}`;
@@ -4132,6 +4426,40 @@ export async function runGenericApplicationPreparation(input: {
     attempt.kind !== "popup_open" &&
     attempt.kind !== "download" &&
     attempt.kind !== "window_open";
+  const isCrossOriginAttempt = (
+    attempt: PrepareOnlyBlockedAttempt,
+  ): boolean => {
+    try {
+      const pageUrl = safePageUrl(currentPage);
+      return (
+        !!attempt.url &&
+        !!pageUrl &&
+        new URL(attempt.url).origin !== new URL(pageUrl).origin
+      );
+    } catch {
+      return false;
+    }
+  };
+  const isContainmentAttempt = (attempt: PrepareOnlyBlockedAttempt): boolean =>
+    attempt.kind === "popup_open" ||
+    attempt.kind === "download" ||
+    attempt.kind === "window_open";
+  const tolerateBlockedAttempt = (
+    attempt: PrepareOnlyBlockedAttempt,
+    reason: string,
+  ): void => {
+    toleratedBlockedAttemptKeys.add(blockedAttemptKey(attempt));
+    checkpoints.push({
+      id: `checkpoint_${executionInput.job.id}_tolerated_background_request_${toleratedBlockedAttemptKeys.size}`,
+      at: new Date().toISOString(),
+      label: "Blocked a background page request",
+      detail: `The page tried a ${attempt.method} ${attempt.kind.replace(/_/g, " ")} request${
+        attempt.url ? ` to ${attempt.url}` : ""
+      } ${reason} The request was blocked and nothing was sent; preparation continued.`,
+      state: "in_progress",
+      visualEvidence: [],
+    });
+  };
   const unacknowledgedBlockedAttempt = (
     attempt: PrepareOnlyBlockedAttempt | null | undefined,
   ): PrepareOnlyBlockedAttempt | null => {
@@ -4141,18 +4469,32 @@ export async function runGenericApplicationPreparation(input: {
     if (toleratedBlockedAttemptKeys.has(blockedAttemptKey(attempt))) {
       return null;
     }
+    if (isContainmentAttempt(attempt)) {
+      return attempt;
+    }
     if (!runtimeHasMutatedPage && isPageOwnBackgroundTraffic(attempt)) {
-      toleratedBlockedAttemptKeys.add(blockedAttemptKey(attempt));
-      checkpoints.push({
-        id: `checkpoint_${executionInput.job.id}_tolerated_background_request_${toleratedBlockedAttemptKeys.size}`,
-        at: new Date().toISOString(),
-        label: "Blocked a background page request",
-        detail: `The page tried a ${attempt.method} ${attempt.kind.replace(/_/g, " ")} request${
-          attempt.url ? ` to ${attempt.url}` : ""
-        } on its own before Job Finder touched any field. The request was blocked and nothing was sent; preparation continued.`,
-        state: "in_progress",
-        visualEvidence: [],
-      });
+      tolerateBlockedAttempt(
+        attempt,
+        "on its own before Job Finder touched any field.",
+      );
+      return null;
+    }
+    // The page guard saw the form when it blocked the attempt. A request to
+    // another origin that carried none of the field values cannot have saved
+    // an answer: a widget posting its own form on an untouched page, or an
+    // analytics beacon after a fill. Same-origin writes stay stops even when
+    // opaque, and anything the guard could not judge is still a stop.
+    if (
+      attempt.carriedPreparedValue === false &&
+      isCrossOriginAttempt(attempt) &&
+      (!runtimeHasMutatedPage || isPageOwnBackgroundTraffic(attempt))
+    ) {
+      tolerateBlockedAttempt(
+        attempt,
+        runtimeHasMutatedPage
+          ? "after fields were prepared; it carried none of the prepared answers."
+          : "on its own before Job Finder touched any field; it carried nothing from the page.",
+      );
       return null;
     }
     return attempt;
@@ -4194,7 +4536,7 @@ export async function runGenericApplicationPreparation(input: {
     id: `checkpoint_${executionInput.job.id}_opened_application_target`,
     at: startedAt,
     label: "Opened exact application target",
-    detail: `The dedicated Chrome profile opened ${targetUrl}.`,
+    detail: `The Job Finder browser opened ${targetUrl}.`,
     state: "in_progress",
     visualEvidence: [],
   });
@@ -4262,15 +4604,22 @@ export async function runGenericApplicationPreparation(input: {
         : `The application page tried to open a new popup window${
             attempt.url ? ` pointing at ${attempt.url}` : ""
           } while preparation was running. The runtime blocked or immediately closed the popup window and stopped before any further action.`;
-    const detail = containmentStop
-      ? containmentDetail
-      : pageRequestStop
-        ? attempt.kind.includes("submit")
-          ? "Job Finder blocked a form submission before your review and stopped preparing this application. Review the application in the browser; no submission was made."
-          : "Job Finder blocked a background page request before it could continue preparing this application. This does not prove the site tried to save an answer. Review the application in the browser; no submission was made."
-        : resumeInterrupted
-          ? `The application site tried to upload the approved resume file while '${fieldLabel}' was being prepared, but this run did not have permission for that external save. The blocked attempt transmitted nothing, and the selected file remains only inside the open page. Finish this employer-owned step yourself in the open application, or cancel; Job Finder will still never activate the final submit control.`
-          : `The application site tried to save '${fieldLabel}' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.`;
+    // Naming the blocked attempt lets the user (and a later run's evidence)
+    // see what the site tried, without any request body.
+    const attemptNote = ` Blocked: ${attempt.kind.replace(/_/g, " ")} ${attempt.method}${
+      attempt.url ? ` ${attempt.url}` : ""
+    }.`;
+    const detail =
+      (containmentStop
+        ? containmentDetail
+        : pageRequestStop
+          ? attempt.kind.includes("submit")
+            ? "Job Finder blocked a form submission before your review and stopped preparing this application. Review the application in the browser; no submission was made."
+            : "Job Finder blocked a background page request before it could continue preparing this application. This does not prove the site tried to save an answer. Review the application in the browser; no submission was made."
+          : resumeInterrupted
+            ? `The application site tried to upload the approved resume file while '${fieldLabel}' was being prepared, but this run did not have permission for that external save. The blocked attempt transmitted nothing, and the selected file remains only inside the open page. Finish this employer-owned step yourself in the open application, or cancel; Job Finder will still never activate the final submit control.`
+            : `The application site tried to save '${fieldLabel}' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open instead of risking a final submission.`) +
+      attemptNote;
     return buildManualSafetyStop({
       summary,
       detail,
@@ -4400,7 +4749,7 @@ export async function runGenericApplicationPreparation(input: {
       checkpointUrls.add(inspection.url);
     }
 
-    if (step === 0 && inspection.controls.length === 0) {
+    if (awaitingFreshPage && inspection.controls.length === 0) {
       await currentPage
         .locator(APPLICATION_FORM_CONTROL_SELECTOR)
         .first()
@@ -4411,6 +4760,7 @@ export async function runGenericApplicationPreparation(input: {
         checkpointUrls.add(inspection.url);
       }
     }
+    awaitingFreshPage = false;
 
     const pageBlocker = detectPageBlocker(inspection);
     if (pageBlocker) {
@@ -5094,9 +5444,38 @@ export async function runGenericApplicationPreparation(input: {
       });
     }
 
-    const safeAdvance = actionableControls.find((action) =>
-      isSafeApplicationAdvance(action, inspection),
-    );
+    const entryLink = findApplicationEntryLink(inspection);
+    const safeAdvance = entryLink
+      ? null
+      : actionableControls.find((action) =>
+          isSafeApplicationAdvance(action, inspection),
+        );
+    if (entryLink?.href) {
+      // Opening the link's destination is the navigation the runtime would
+      // make for an application URL. Nothing on this page is prepared, so
+      // there is nothing a click could send.
+      await currentPage.goto(entryLink.href, {
+        waitUntil: "domcontentloaded",
+        timeout: 30_000,
+      });
+      await currentPage
+        .waitForLoadState("load", { timeout: 10_000 })
+        .catch(() => undefined);
+      checkpoints.push({
+        id: `checkpoint_${executionInput.job.id}_application_entry_${step + 1}`,
+        at: new Date().toISOString(),
+        label: `Opened the application from ${entryLink.label}`,
+        detail: `Followed the '${entryLink.label}' link on the posting to ${entryLink.href}. No field had been prepared, so nothing could be sent.`,
+        state: "in_progress",
+        visualEvidence: [],
+      });
+      checkpointUrls.add(entryLink.href);
+      currentPage = await resolveLivePageForContext(input.context, {
+        bringToFront: false,
+      });
+      awaitingFreshPage = true;
+      continue;
+    }
     if (!safeAdvance) {
       const detail =
         "The page exposes no clearly non-final Next, Continue, or Review control. The runtime stopped instead of guessing which action is safe.";
@@ -5178,6 +5557,7 @@ export async function runGenericApplicationPreparation(input: {
       currentPage = await resolveLivePageForContext(input.context, {
         bringToFront: false,
       });
+      awaitingFreshPage = true;
     } catch (error) {
       const blockedAttempt = await getLatestBlockedPrepareOnlyAttempt(
         currentPage,

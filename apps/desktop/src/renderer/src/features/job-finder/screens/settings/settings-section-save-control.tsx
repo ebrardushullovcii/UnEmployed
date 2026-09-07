@@ -33,12 +33,20 @@ export function SettingsSectionSaveControl({
   onSave,
   saveState,
   subject,
+  effect,
 }: {
   hasUnsavedChanges: boolean;
   onSave: () => void;
   saveState: SettingsSectionSaveState;
   /** Lowercase noun phrase naming what commits, for example "appearance". */
   subject: string;
+  /**
+   * When a committed value is felt, for example "Applies from your next
+   * search." A quiet section otherwise leaves the user guessing whether a
+   * saved change reaches the run already in progress (it does not: runs read
+   * settings when they start).
+   */
+  effect?: string;
 }) {
   const feedbackId = useId();
   const isSavePending = saveState.status === "saving";
@@ -94,6 +102,14 @@ export function SettingsSectionSaveControl({
           {isOutstanding ? "Not saved yet." : "No unsaved changes."}
         </p>
       )}
+      {effect && !isSavePending ? (
+        <p
+          className="min-w-0 max-w-80 break-words text-right text-xs leading-4 text-foreground-muted"
+          data-settings-save-effect
+        >
+          {effect}
+        </p>
+      ) : null}
     </div>
   );
 }

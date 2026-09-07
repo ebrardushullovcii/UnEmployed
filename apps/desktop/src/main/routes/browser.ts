@@ -1,10 +1,14 @@
 import type { IpcMain, IpcMainInvokeEvent } from "electron";
 import {
   DesktopBrowserCommandSchema,
+  DesktopBrowserImportInputSchema,
   DesktopBrowserViewportSchema,
 } from "@unemployed/contracts";
 import { getEmbeddedBrowser } from "../services/browser/embedded-browser";
-import { importBrowserSession } from "../services/browser/browser-session-import";
+import {
+  importSignInsFromBrowser,
+  listBrowserImportSources,
+} from "../services/browser/browser-profile-import";
 
 export function registerBrowserRoutes(ipc: IpcMain): void {
   const host = getEmbeddedBrowser();
@@ -28,8 +32,19 @@ export function registerBrowserRoutes(ipc: IpcMain): void {
     assertOwner(event);
     host.setViewport(DesktopBrowserViewportSchema.parse(input));
   });
-  ipc.handle("browser:import-session", async (event) => {
+  ipc.handle("browser:capture-page", (event) => {
     assertOwner(event);
-    return importBrowserSession(host, event.sender);
+    return host.captureActivePage();
+  });
+  ipc.handle("browser:list-import-sources", (event) => {
+    assertOwner(event);
+    return listBrowserImportSources();
+  });
+  ipc.handle("browser:import-from-browser", async (event, input: unknown) => {
+    assertOwner(event);
+    return importSignInsFromBrowser(
+      host,
+      DesktopBrowserImportInputSchema.parse(input),
+    );
   });
 }

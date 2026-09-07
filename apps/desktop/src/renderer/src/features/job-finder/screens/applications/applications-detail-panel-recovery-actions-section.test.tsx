@@ -752,7 +752,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     const status = getByTestId("manual-field-finish-status");
     expect(status.getAttribute("role")).toBe("status");
     expect(status.textContent).toMatch(
-      /Opened in the Job Finder browser\. Switch to that window/i,
+      /Opened in the Job Finder browser\. Finish the step there/i,
     );
     // Retry stays the secondary action and never fires from the finish click.
     expect(
@@ -829,7 +829,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         "opened_application_page",
       );
       expect(status.textContent).toMatch(
-        /Opened in the Job Finder browser\. Switch to that window/i,
+        /Opened in the Job Finder browser\. Finish the step there/i,
       );
       // The page is open, so the open action demotes and confirming is the
       // primary path back in.
@@ -859,7 +859,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         "this application page was not reopened",
       );
       expect(status.textContent).not.toMatch(
-        /Opened in the Job Finder browser\. Switch to that window/i,
+        /Opened in the Job Finder browser\. Finish the step there/i,
       );
       // The page still needs opening, so the open action must not demote to
       // "Reopen"; the way back into the loop stays available.
