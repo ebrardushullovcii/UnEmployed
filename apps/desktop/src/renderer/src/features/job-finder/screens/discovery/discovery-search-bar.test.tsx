@@ -243,7 +243,7 @@ describe("DiscoverySearchBar plan chip", () => {
       onSelectCampaign,
     });
 
-    const select = screen.getByLabelText("Search plan") as HTMLSelectElement;
+    const select = screen.getByLabelText<HTMLSelectElement>("Search plan");
     expect(select.value).toBe("plan_a");
     expect(
       screen.getByTestId("discovery-search-plan").getAttribute("title"),
@@ -261,7 +261,7 @@ describe("DiscoverySearchBar plan chip", () => {
       searchStartedAt: "2026-09-01T00:00:00.000Z",
     });
     expect(
-      (screen.getByLabelText("Search plan") as HTMLSelectElement).disabled,
+      screen.getByLabelText<HTMLSelectElement>("Search plan").disabled,
     ).toBe(true);
     cleanup();
     renderBar({ campaigns: [], activeCampaignId: null });
