@@ -139,9 +139,9 @@ function StrategyForm(props: {
           {isEdit ? "Edit resume approach" : "Create resume approach"}
         </h2>
         <p className="mt-1 text-(length:--text-small) leading-6 text-foreground-soft">
-          An approach saves your targeting preferences for a role family. Saving
-          or reusing one never approves a resume — you review and approve each
-          resume before it is applied.
+          An approach saves how you want resumes tailored for one kind of role.
+          Saving or reusing one never approves a resume — you review and approve
+          each resume before it is applied.
         </p>
       </div>
 
@@ -824,8 +824,8 @@ export function ResumeStrategiesScreen(props: {
         <div className="grid gap-3">
           <EmptyState
             className="min-h-40 px-5 py-6"
-            description="Create a named approach for a role family to reuse its targeting preferences. Nothing is approved until you review it."
-            title="No resume approaches yet"
+            description="If you apply for several similar roles — say backend engineering jobs — save one approach and every resume for those jobs starts the same way instead of you re-choosing each time. You still review and approve each resume."
+            title="Save how you want your resume tailored"
           />
           <div className="flex justify-center">
             <Button

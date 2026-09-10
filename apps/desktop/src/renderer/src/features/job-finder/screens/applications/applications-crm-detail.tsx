@@ -541,20 +541,19 @@ export function ApplicationsCrmDetail(props: {
                 tabIndex={-1}
               >
                 <div className="grid gap-2">
-                  <p className="label-mono-xs">Confirm local tracking claim</p>
+                  <p className="label-mono-xs">Update your tracker</p>
                   <h2
                     className="font-display font-semibold text-foreground"
                     id={stageConfirmationTitleId}
                   >
-                    Record {pendingStage.label}?
+                    Mark this as {pendingStage.label}?
                   </h2>
                   <p
                     className="text-sm leading-6 text-foreground-soft"
                     id={stageConfirmationDescriptionId}
                   >
-                    Confirm this matches information you saw or received. This
-                    saves only your local, user-recorded stage and does not
-                    verify it with the employer or ATS.
+                    This updates your own tracker only. Job Finder does not
+                    check this with the employer.
                   </p>
                 </div>
                 <div className="flex flex-wrap justify-end gap-3">
@@ -569,7 +568,7 @@ export function ApplicationsCrmDetail(props: {
                     onClick={() => void confirmPendingStage()}
                     type="button"
                   >
-                    Confirm user-recorded stage
+                    Mark as {pendingStage.label}
                   </Button>
                 </div>
               </div>

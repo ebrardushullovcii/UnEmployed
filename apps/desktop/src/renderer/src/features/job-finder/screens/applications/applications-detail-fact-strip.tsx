@@ -1,3 +1,4 @@
+import { APPLICATION_BLOCKER_LABELS } from "../../lib/status-copy";
 import { ApplicationsDisclosureSummary } from "./applications-disclosure-summary";
 import type {
   ApplicationAttempt,
@@ -24,20 +25,6 @@ import {
 // same panel, so the detail pane had two label sizes with no rule behind them.
 export const APPLICATION_DETAIL_FACT_LABEL_CLASS =
   "text-(length:--text-eyebrow) font-semibold uppercase leading-4 tracking-(--tracking-badge) text-muted-foreground";
-
-/**
- * `formatStatusLabel` title-cases every word, which reads like a system state
- * ("Requires Manual Review") rather than a plain sentence. The blocker cell is
- * customer-facing copy, so only the first word stays capitalized.
- */
-function toSentenceCase(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return trimmed;
-  }
-
-  return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1).toLowerCase()}`;
-}
 
 /** Compares customer-facing copy ignoring case and trailing punctuation. */
 function isSameSentence(left: string, right: string): boolean {
@@ -184,7 +171,7 @@ export function ApplicationsDetailFactStrip(props: {
                 ? FIELD_SAVE_PAUSE_CAUSE
                 : isSiteBlockedPause
                   ? "Needs you on the job site"
-                  : toSentenceCase(formatStatusLabel(latestBlocker.code)),
+                  : APPLICATION_BLOCKER_LABELS[latestBlocker.code],
               label: "What stopped progress",
               ...(showsBlockerNote && blockerNote ? { note: blockerNote } : {}),
             }

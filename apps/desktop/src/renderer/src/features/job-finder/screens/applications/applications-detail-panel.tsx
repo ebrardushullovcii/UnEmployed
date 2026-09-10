@@ -1,3 +1,4 @@
+import { inferApplicationCrmStageForView } from "./applications-crm-model";
 import { getApplicationSubmissionAnswer } from "./applications-status";
 import { useMemo } from "react";
 import type {
@@ -244,10 +245,15 @@ export function ApplicationsDetailPanel({
   const selectedRecordJob = selectedRecord
     ? (discoveryJobs.find((job) => job.id === selectedRecord.jobId) ?? null)
     : null;
+  // Prepare-only runs never reach a "submitted" status, so the tracker stage
+  // the user records by hand is the path that actually enables this.
   const canPrepareInterview = selectedRecord
     ? selectedRecord.lastAttemptState === "submitted" ||
       ["submitted", "assessment", "interview", "offer"].includes(
         selectedRecord.status,
+      ) ||
+      ["assessment", "interview", "offer"].includes(
+        inferApplicationCrmStageForView(selectedRecord),
       )
     : false;
   const needsPrimaryRecovery = selectedRecord

@@ -47,7 +47,6 @@ export function getFitEvidenceDepth(
   // boundary. A missing dimension counts as "not verified", never as a crash.
   const dimensions = assessment.dimensions;
   const roleSuitability = dimensions?.roleSuitability?.state;
-  const preferenceAlignment = dimensions?.preferenceAlignment?.state;
   const evidenceConfidence = dimensions?.evidenceConfidence?.level;
   const compensationFit = assessment.compensationFit?.state;
   // A requirement only counts once it was actually decided against captured
@@ -69,9 +68,9 @@ export function getFitEvidenceDepth(
   const verifiedChecks = [
     decidedRequirementCount > 0,
     roleSuitability === "exact" || roleSuitability === "conflict",
-    // "mixed" is not evidence on its own: it is also the state produced when
-    // one saved preference aligned and the rest of the listing was blank.
-    preferenceAlignment === "aligned" || preferenceAlignment === "conflict",
+    // Preference alignment is built from the location and work-mode facets
+    // excluded above, so it is the same saved-preference check and is left
+    // out for the same reason: a footer's "Remote" link must not earn a "%".
     compensationFit === "meets_minimum" || compensationFit === "below_minimum",
     evidenceConfidence === "moderate" || evidenceConfidence === "high",
   ];

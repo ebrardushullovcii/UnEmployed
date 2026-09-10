@@ -1017,11 +1017,12 @@ export function DiscoveryResultsPanel({
             aria-live="polite"
             className="text-(length:--text-small) tabular-nums text-foreground-muted"
             data-testid="discovery-result-count"
-            {...(resultCountTotalLabel ? { title: resultCountTotalLabel } : {})}
           >
             {resultCountLabel}
+            {/* Visible, not sr-only: this is the sentence that reconciles the
+                banded headline with the "kept" count Home prints. */}
             {resultCountTotalLabel ? (
-              <span className="sr-only"> — {resultCountTotalLabel}</span>
+              <span> · {resultCountTotalLabel}</span>
             ) : null}
           </span>
         </div>

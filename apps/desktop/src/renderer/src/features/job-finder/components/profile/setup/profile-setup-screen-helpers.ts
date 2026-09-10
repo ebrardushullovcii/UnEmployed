@@ -197,7 +197,9 @@ const PROFILE_SETUP_READINESS_BLOCKER_LABELS: Record<
 > = {
   background: "Add work history",
   discovery_source: "Enable a job source",
-  eligibility_preferences: "Add a preferred location",
+  // Any one work or location answer satisfies this gate, so the label must
+  // not promise that a location was saved.
+  eligibility_preferences: "Answer one work or location detail",
   identity_contact: "Complete your essentials",
   work_mode_preference: "Pick a work mode (remote, hybrid, or onsite)",
 };

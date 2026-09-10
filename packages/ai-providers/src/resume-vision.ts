@@ -19,6 +19,10 @@ import {
 } from "./resume-import";
 import { buildCandidateConfidenceBreakdown } from "./resume-import-helpers";
 import {
+  buildModelRequestHeaders,
+  modelConversationKeys,
+} from "./model-request-identity";
+import {
   buildModelRequestBody,
   buildModelUrl,
   DEFAULT_OPENCODE_GO_BASE_URL,
@@ -498,10 +502,17 @@ export function createOpenAiCompatibleResumeVisionProvider(
         {
           method: "POST",
           signal: controller.signal,
-          headers: {
-            Authorization: `Bearer ${validatedOptions.apiKey}`,
-            "Content-Type": "application/json",
-          },
+          // Same conversation key as the text stages of this import: the
+          // gateway routes one import's requests together, and OpenCode Go
+          // rejects a request that carries no session header at all.
+          headers: buildModelRequestHeaders({
+            apiKey: validatedOptions.apiKey,
+            baseUrl: validatedOptions.baseUrl,
+            conversationKey: modelConversationKeys.resumeImport(
+              input.documentBundle.fullText ??
+                input.documentBundle.sourceResumeId,
+            ),
+          }),
           body: JSON.stringify(
             buildModelRequestBody({
               apiMode,

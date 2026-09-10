@@ -41,18 +41,13 @@ describe("application CRM renderer model", () => {
     expect(applicationCrmStageProvenanceForView(legacyRecord)).toBe(
       "From your activity",
     );
-    expect(applicationCrmStageLabelForView(explicitRecord)).toBe(
-      "Applied (user recorded)",
-    );
+    // Same stage name either way; provenance is its own badge.
+    expect(applicationCrmStageLabelForView(explicitRecord)).toBe("Applied");
     expect(applicationCrmStageProvenanceForView(explicitRecord)).toBe(
       "You recorded this",
     );
-    expect(APPLICATION_CRM_STAGE_LABELS.applied).toBe(
-      "Applied (user recorded)",
-    );
-    expect(APPLICATION_CRM_STAGE_LABELS.interview).toBe(
-      "Interview (user recorded)",
-    );
+    expect(APPLICATION_CRM_STAGE_LABELS.applied).toBe("Applied");
+    expect(APPLICATION_CRM_STAGE_LABELS.interview).toBe("Interview");
     expect(legacyRecord.crm).toBeNull();
   });
 

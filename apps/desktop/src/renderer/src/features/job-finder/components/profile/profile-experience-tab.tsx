@@ -151,7 +151,9 @@ export function ProfileExperienceTab({
       .join(" | ");
 
     if (primaryLine && detailLine) {
-      return `${primaryLine}. ${detailLine}`;
+      // A middle dot, not a full stop: "DataHub. Remote, CA | Dec 2021 to
+      // Feb 2026" read as a sentence that had ended, then carried on.
+      return `${primaryLine} · ${detailLine}`;
     }
 
     return primaryLine || detailLine || "";

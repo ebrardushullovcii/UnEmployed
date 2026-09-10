@@ -169,9 +169,11 @@ describe("ApplicationsCrmViews", () => {
       />,
     );
 
-    expect(screen.getByText("Applied")).toBeTruthy();
+    // Both rows say "Applied"; provenance is the badge, not a suffix on the
+    // stage name.
+    expect(screen.getAllByText("Applied")).toHaveLength(2);
     expect(screen.queryByText(/historical inference/i)).toBeNull();
-    expect(screen.getByText("Applied (user recorded)")).toBeTruthy();
+    expect(screen.queryByText(/user recorded/i)).toBeNull();
     expect(
       screen.queryByText(/receipt|submission proof|externally verified/i),
     ).toBeNull();

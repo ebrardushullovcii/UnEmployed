@@ -62,7 +62,8 @@ describe("discovery run failure recovery classification", () => {
     );
 
     expect(recovery.kind).toBe("retry");
-    expect(recovery.headline).toContain("AI provider that can use tools");
+    expect(recovery.headline).toContain("Live search needs AI");
+    expect(recovery.nextStep).not.toMatch(/provider|test mode/i);
     expect(recovery.headline).not.toBe(
       "The search stopped before it could finish.",
     );
@@ -125,7 +126,7 @@ describe("discovery run interrupted feedback", () => {
       targetLabel: null,
     });
 
-    expect(feedback.recovery?.headline).toContain("AI provider");
+    expect(feedback.recovery?.headline).toContain("Live search needs AI");
     expect(feedback.recovery?.headline).not.toBe(feedback.headline);
   });
 });

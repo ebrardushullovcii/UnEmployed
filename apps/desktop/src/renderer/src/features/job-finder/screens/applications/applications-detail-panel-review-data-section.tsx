@@ -410,7 +410,23 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                     <p className="mt-2">{request.detail}</p>
                   ) : null}
                   {request.status === "pending" &&
-                  selectedApplyRunDetails.run.state === "paused_for_consent" ? (
+                  request.linkedConsentKind === "manual_follow_up" &&
+                  visibleApplyResult.blockerReason === "auth_required" ? (
+                    // A sign-in wall is not a decision about the user's data:
+                    // approving it here cannot sign them in, and marking it
+                    // approved would report an application as prepared that
+                    // was never filled. Only the sign-in wall is gated on:
+                    // the same consent kind also carries real decisions
+                    // (sign-up, account choice, unsupported answers) from the
+                    // catalog runtime, and those keep their buttons.
+                    <p className="mt-3 text-(length:--text-small) leading-6 text-foreground-soft">
+                      This is the website asking you to sign in, not a choice
+                      about your data. Use the sign-in step above to finish it,
+                      then run preparation again.
+                    </p>
+                  ) : request.status === "pending" &&
+                    selectedApplyRunDetails.run.state ===
+                      "paused_for_consent" ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button
                         onClick={() => {

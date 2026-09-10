@@ -930,7 +930,7 @@ describe("ResumeWorkspaceEditorPanel", () => {
     ).toBe(false);
   });
 
-  it("hides the AI retry when no provider is configured", () => {
+  it("offers the AI retry when AI was unavailable, without blaming setup", () => {
     renderPanel(false, {
       onOpenAssistant: vi.fn(),
       tailoredAssetGeneration: {
@@ -946,8 +946,12 @@ describe("ResumeWorkspaceEditorPanel", () => {
         "[data-resume-deterministic-fallback-disclosure]",
       )?.textContent,
     ).toContain(
-      "The first draft came from the built-in generator because no AI provider is configured.",
+      "The first draft came from the built-in generator because AI writing is not available right now.",
     );
-    expect(container?.querySelector("[data-resume-open-assistant]")).toBeNull();
+    // AI ships with the product, so its absence is an outage: retryable, and
+    // never described as something the user failed to configure.
+    expect(
+      container?.querySelector("[data-resume-open-assistant]"),
+    ).toBeTruthy();
   });
 });

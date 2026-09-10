@@ -450,7 +450,7 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
           <EmptyState
             className="min-h-40 px-5 py-6"
             title="No companies reconciled yet"
-            description="Companies are a local projection of saved jobs and application records. Choose Refresh from jobs and applications to reconcile employers already in this workspace."
+            description="This is where the employers from your saved jobs and started applications appear. Choose Refresh from jobs and applications to build the list from what you already have."
           />
           <div className="flex justify-center">
             <Button

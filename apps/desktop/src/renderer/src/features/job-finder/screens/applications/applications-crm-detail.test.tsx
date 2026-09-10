@@ -322,7 +322,7 @@ describe("ApplicationsCrmDetail", () => {
       });
       expect(onMutate).not.toHaveBeenCalled();
       expect(screen.getByRole("alertdialog").textContent).toContain(
-        "does not verify it with the employer or ATS",
+        "does not check this with the employer",
       );
       fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
       expect(onMutate).not.toHaveBeenCalled();
@@ -335,7 +335,7 @@ describe("ApplicationsCrmDetail", () => {
       target: { value: "recruiter_contact" },
     });
     const confirmButton = screen.getByRole("button", {
-      name: "Confirm user-recorded stage",
+      name: /^Mark as /,
     });
     fireEvent.click(confirmButton);
     fireEvent.click(confirmButton);
@@ -401,7 +401,7 @@ describe("ApplicationsCrmDetail", () => {
     const dialog = screen.getByRole("alertdialog");
     const cancelButton = screen.getByRole("button", { name: "Cancel" });
     const confirmButton = screen.getByRole("button", {
-      name: "Confirm user-recorded stage",
+      name: /^Mark as /,
     });
     expect(document.activeElement).toBe(cancelButton);
     expect(appRoot.getAttribute("inert")).toBe("");

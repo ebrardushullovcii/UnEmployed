@@ -327,6 +327,84 @@ describe("application question answer review", () => {
     ).toBeTruthy();
   });
 
+  function renderManualFollowUp(input: {
+    blockerReason: "auth_required" | "signup_consent_required";
+    label: string;
+  }) {
+    const onResolveApplyConsentRequest = vi.fn();
+    const baseDetails = createDetails(true);
+    const details = ApplyRunDetailsSchema.parse({
+      ...baseDetails,
+      run: { ...baseDetails.run, state: "paused_for_consent" },
+      result: {
+        ...baseDetails.result,
+        blockerReason: input.blockerReason,
+        blockerSummary: input.label,
+      },
+      consentRequests: [
+        {
+          id: "consent-gate",
+          runId: baseDetails.run.id,
+          jobId: "job-1",
+          applicationRecordId: "application-1",
+          linkedConsentKind: "manual_follow_up",
+          label: input.label,
+          detail:
+            "The runtime paused without making this decision on the user's behalf.",
+          requestedAt: now,
+        },
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <ApplicationsDetailPanelReviewDataSection
+          applyRunDetailsError={null}
+          applyRunDetailsStatus="ready"
+          isApplyRequestPending={() => false}
+          onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
+          onResolveApplyConsentRequest={onResolveApplyConsentRequest}
+          onSaveApplicationAnswer={vi.fn(() => Promise.resolve())}
+          selectedApplyRunDetails={details}
+          visibleApplyResult={details.result}
+        />
+      </MemoryRouter>,
+    );
+    return onResolveApplyConsentRequest;
+  }
+
+  it("never offers to approve a sign-in gate, which cannot be approved away", () => {
+    // "Continue safely" on a login wall marked the application ready and
+    // changed the next step to "Submit the prepared application manually" —
+    // for a form that was never filled, because the run stopped at the gate.
+    const onResolve = renderManualFollowUp({
+      blockerReason: "auth_required",
+      label: "The application requires an authenticated account.",
+    });
+    expect(
+      screen.queryByRole("button", { name: "Continue safely" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip this job" })).toBeNull();
+    expect(
+      screen.getByText(/website asking you to sign in, not a choice/i),
+    ).toBeTruthy();
+    expect(onResolve).not.toHaveBeenCalled();
+  });
+
+  it("keeps the decision buttons for a manual follow-up that is a real choice", () => {
+    // The catalog runtime raises the same consent kind for sign-up and
+    // account-choice decisions, which the user can and should answer here.
+    renderManualFollowUp({
+      blockerReason: "signup_consent_required",
+      label: "Choose whether to continue through an existing-account path",
+    });
+    expect(
+      screen.getByRole("button", { name: "Continue safely" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skip this job" })).toBeTruthy();
+    expect(screen.queryByText(/asking you to sign in/i)).toBeNull();
+  });
+
   it("explains consent requests as one view of the same paused preparation shown in Needs you", () => {
     const onResolveApplyConsentRequest = vi.fn();
     const baseDetails = createDetails(true);
@@ -444,7 +522,7 @@ describe("application question answer review", () => {
       const view = renderSection(detailsWithControl({ answerControlType }));
       expect(view.container.querySelectorAll("select")).toHaveLength(1);
       expectCanonicalField(view.container.querySelector("select")!, [
-        "h-10",
+        "h-11",
         "w-full",
       ]);
       view.unmount();
@@ -455,7 +533,7 @@ describe("application question answer review", () => {
     );
     expectCanonicalField(
       dateView.container.querySelector("input[type='date']")!,
-      ["h-10", "w-full"],
+      ["h-11", "w-full"],
     );
     dateView.unmount();
 
@@ -511,7 +589,7 @@ describe("application question answer review", () => {
       expect(fileView.container.querySelector("select")).toBeTruthy(),
     );
     expectCanonicalField(fileView.container.querySelector("select")!, [
-      "h-10",
+      "h-11",
       "w-full",
     ]);
     fileView.unmount();

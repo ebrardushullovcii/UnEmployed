@@ -280,7 +280,7 @@ describe("DiscoveryResultsPanel triage filters", () => {
     const { container } = renderResults(jobs);
     expect(
       screen.getByLabelText(
-        /Closed listing status observed .*Reported closed from provider evidence observed on .*The provider marked it closed\./i,
+        /Closed listing status observed .*Reported closed by the job site's own listing feed on .*The provider marked it closed\./i,
       ),
     ).toBeTruthy();
     openFilters();

@@ -1759,12 +1759,12 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
 
     // Prepare remaining jobs as the fresh-run path forward.
     const explanation = getByText(
-      /paused this run on one of its stop rules\. It will not continue on its own/i,
+      /one of your safety limits was reached\. It will not carry on by itself/i,
     );
     expect(explanation.textContent).toContain(
-      "Use Prepare remaining jobs to finish the unfinished jobs in a fresh safe recovery run",
+      "Use Prepare remaining jobs to finish the ones it did not get to",
     );
-    expect(explanation.textContent).not.toMatch(/Resolve the consent request/i);
+    expect(explanation.textContent).not.toMatch(/Needs you/i);
 
     // Finishing stays possible through a fresh recovery run.
     const queueButton = getByRole("button", { name: "Prepare remaining jobs" });

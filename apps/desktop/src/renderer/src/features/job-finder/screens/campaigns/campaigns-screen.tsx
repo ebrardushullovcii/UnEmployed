@@ -1504,9 +1504,9 @@ export function CampaignsScreen(props: {
                       {campaign.progress.jobsRetained}
                     </strong>
                     <span className="text-xs text-foreground-muted">
-                      {campaign.progress.jobsRetained === 1
-                        ? "job kept for review"
-                        : "jobs kept for review"}
+                      {/* "Kept" means the plan's retained results on Home
+                          and Find jobs; this number is the shortlist. */}
+                      shortlisted
                     </span>
                   </div>
                 </div>
@@ -1518,7 +1518,7 @@ export function CampaignsScreen(props: {
                       "Remaining 1" explained neither. */}
                   <div>
                     <dt className="text-xs text-foreground-muted">
-                      Jobs found
+                      Jobs in this plan
                     </dt>
                     <dd>{campaign.progress.jobsFound}</dd>
                   </div>
@@ -1534,12 +1534,17 @@ export function CampaignsScreen(props: {
                     </dt>
                     <dd>{campaign.progress.blockedCount}</dd>
                   </div>
-                  <div>
-                    <dt className="text-xs text-foreground-muted">
-                      Still to review
-                    </dt>
-                    <dd>{campaign.progress.remainingQueueSize}</dd>
-                  </div>
+                  {/* This counts jobs left in a running application batch,
+                      not a review backlog; an idle plan printing "0" read as
+                      "nothing left to review" beside a shortlist of one. */}
+                  {campaign.progress.remainingQueueSize > 0 ? (
+                    <div>
+                      <dt className="text-xs text-foreground-muted">
+                        Jobs left in this batch
+                      </dt>
+                      <dd>{campaign.progress.remainingQueueSize}</dd>
+                    </div>
+                  ) : null}
                   <div className="col-span-2">
                     <dt className="text-xs text-foreground-muted">Next run</dt>
                     <dd>{describeNextRun(campaign.schedule)}</dd>

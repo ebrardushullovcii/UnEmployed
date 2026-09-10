@@ -721,8 +721,10 @@
  * so the control drifts down out of line with its neighbours. Extra height
  * always stays at the bottom.
  */
-label.grid {
-  align-content: start;
+@layer base {
+  label.grid {
+    align-content: start;
+  }
 }
 
 .surface-card-tint {

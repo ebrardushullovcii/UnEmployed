@@ -251,10 +251,12 @@ export function getDiscoveryRunFailureRecovery(
   if (AI_TOOL_CALLING_FAILURE_RE.test(detail)) {
     return {
       kind: "retry",
-      headline: "This search needs an AI provider that can use tools.",
+      // AI is bundled with the product, so a missing or non-tool-capable
+      // model is an outage from the user's side, never something to set up.
+      headline: "Live search needs AI, which is not available right now.",
       actionLabel: null,
       nextStep:
-        "Use a tool-capable provider (or enable live AI in test mode), then search again from the same button.",
+        "Try again in a few minutes from the same button. Nothing was submitted anywhere.",
     };
   }
 
@@ -310,20 +312,29 @@ export function shouldPresentRepeatedDiscoveryFeedback(input: {
 
 export function createDiscoveryRunRepeatedFeedback(input: {
   duplicatesMerged: number;
+  /** Listings the run looked at, new or not. Reported when it is known. */
+  reviewedListingCount?: number | null;
   targetLabel?: string | null;
 }): DiscoveryRunFeedback {
   const targetLabel = input.targetLabel ?? null;
-  const duplicateLabel =
-    input.duplicatesMerged === 1
-      ? "1 listing was already saved"
-      : `${input.duplicatesMerged} listings were already saved`;
+  // `duplicatesMerged` counts the listings that merged, not the listings the
+  // run read: a re-run that re-checked fifty postings and found one changed
+  // reported "1 listing was already saved", which reads as if the search
+  // barely ran. Lead with what was checked whenever that count is known.
+  const reviewed = input.reviewedListingCount ?? null;
+  const summary =
+    reviewed !== null && reviewed > 0
+      ? `Checked ${reviewed} ${reviewed === 1 ? "listing" : "listings"} — nothing new since your last search`
+      : input.duplicatesMerged === 1
+        ? "1 listing was already saved"
+        : `${input.duplicatesMerged} listings were already saved`;
 
   return {
     status: "succeeded",
     detail: null,
     headline: targetLabel
-      ? `Search finished for ${targetLabel}. ${duplicateLabel}; your existing results are unchanged.`
-      : `Search finished. ${duplicateLabel}; your existing results are unchanged.`,
+      ? `Search finished for ${targetLabel}. ${summary}; your existing results are unchanged.`
+      : `Search finished. ${summary}; your existing results are unchanged.`,
     recovery: null,
     targetLabel,
   };

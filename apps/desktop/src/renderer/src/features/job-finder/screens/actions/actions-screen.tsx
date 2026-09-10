@@ -147,7 +147,7 @@ export const userActionKindPresentations: Record<
     label: "Other",
     openLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
     doneLabel: CONFIRM_STEP_DONE_ACTION,
-    guidance: "Complete the described browser-owned step yourself.",
+    guidance: "Do this step yourself in the browser.",
   },
 };
 
@@ -339,7 +339,7 @@ function ActionCard(props: {
       <p className="text-xs leading-5 text-muted-foreground">
         {presentation.guidance}{" "}
         {request.kind === "manual_answer"
-          ? "A one-use answer stays scoped to this application; future reuse requires the explicit save action. "
+          ? 'This answer is used for this application only. Tick "Save for next time" if you want Job Finder to reuse it. '
           : ""}
         Confirming here cannot create an account or submit an application.
       </p>
@@ -431,9 +431,10 @@ function ActionCard(props: {
 
       {attemptsExhausted ? (
         <p className="text-xs leading-5 text-muted-foreground" role="status">
-          Automatic checks paused after {request.maxAttempts} attempts. You can
-          reopen the step in {JOB_FINDER_BROWSER_NAME}, then skip or cancel this
-          request.
+          Job Finder checked {request.maxAttempts} times and still saw the same
+          page. Finish the step in {JOB_FINDER_BROWSER_NAME}, then open the
+          application and choose Run preparation again, or cancel this step to
+          stop working on this job.
         </p>
       ) : null}
     </article>

@@ -915,6 +915,8 @@ export function createPrimaryPageActions(
           })
             ? createDiscoveryRunRepeatedFeedback({
                 duplicatesMerged,
+                reviewedListingCount:
+                  newestRun?.summary.changeDigest?.known ?? null,
                 targetLabel,
               })
             : createDiscoveryRunSucceededFeedback(targetLabel),

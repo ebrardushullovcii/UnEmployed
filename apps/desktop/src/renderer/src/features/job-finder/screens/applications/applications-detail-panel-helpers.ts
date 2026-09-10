@@ -229,7 +229,7 @@ const APPLY_RUN_STATE_LABELS: Partial<
   Record<JobFinderWorkspaceSnapshot["applyRuns"][number]["state"], string>
 > = {
   paused_for_user_review: "Paused for your review",
-  paused_for_consent: "Paused for a consent decision",
+  paused_for_consent: "Paused — needs something from you",
   awaiting_submit_approval: "Waiting for preparation approval",
 };
 
@@ -525,21 +525,21 @@ export function getQueueStateExplanation(
   }
 
   if (input.runState === "paused_for_consent") {
-    return "This run is paused on a live consent decision. Resolve the consent request to continue, or start a fresh safe run with only the blocked jobs.";
+    return "This application is paused until you deal with the item below — often signing in on the job site. Handle it in Needs you, then Job Finder carries on. You can also start again on just the jobs that stopped.";
   }
 
   // A stop-rule pause holds no pending decision to resolve, so the run can
   // never resume; finishing the remaining jobs requires a fresh recovery run.
   if (input.runState === "paused_for_user_review") {
-    return "Job Finder paused this run on one of its stop rules. It will not continue on its own and no consent decision is holding it here. Use Prepare remaining jobs to finish the unfinished jobs in a fresh safe recovery run.";
+    return "Job Finder paused because one of your safety limits was reached. It will not carry on by itself, and nothing is waiting on your decision. Use Prepare remaining jobs to finish the ones it did not get to.";
   }
 
   if (input.runState === "awaiting_submit_approval") {
-    return "This run is waiting for Preparation approval and has not started yet. Approve safe preparation to let the fill-only pass begin, or stage a narrower selection if the job list changed. Final submission remains disabled.";
+    return "This has not started yet — it is waiting for your go-ahead. Approve it to let Job Finder open the applications and fill them in, or pick a shorter list of jobs first. It never sends an application.";
   }
 
   if (input.runState === "cancelled") {
-    return "This historical run was cancelled before it finished. Remaining planned, blocked, failed, or skipped jobs can be prepared again in a fresh safe run.";
+    return "You stopped this before it finished. The jobs it did not get to can be prepared again whenever you want.";
   }
 
   if (input.failedJobCount > 0) {

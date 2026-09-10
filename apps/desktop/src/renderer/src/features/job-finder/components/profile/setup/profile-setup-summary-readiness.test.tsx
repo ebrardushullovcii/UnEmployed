@@ -90,7 +90,7 @@ describe("guided setup readiness, stated once", () => {
       "discovery_source",
     ]);
     expect(text).toBe(
-      "Still needed to finish: Complete your essentials · Add work history · Add a preferred location · Pick a work mode (remote, hybrid, or onsite) · Enable a job source.",
+      "Still needed to finish: Complete your essentials · Add work history · Answer one work or location detail · Pick a work mode (remote, hybrid, or onsite) · Enable a job source.",
     );
   });
 

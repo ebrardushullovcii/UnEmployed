@@ -166,7 +166,9 @@ describe("ResumeStrategiesScreen", () => {
       />,
     );
 
-    expect(screen.getByText("No resume approaches yet")).toBeTruthy();
+    expect(
+      screen.getByText("Save how you want your resume tailored"),
+    ).toBeTruthy();
     expect(
       screen.queryByRole("searchbox", { name: "Search approaches" }),
     ).toBeNull();

@@ -82,7 +82,7 @@ export function AnswerMemoryEditor(props: {
 
       <dl className="grid gap-2 text-xs sm:grid-cols-2">
         <div>
-          <dt className="text-muted-foreground">Provenance</dt>
+          <dt className="text-muted-foreground">Where this came from</dt>
           <dd className="font-medium text-foreground">{match.provenance}</dd>
         </div>
         <div>
@@ -92,14 +92,8 @@ export function AnswerMemoryEditor(props: {
           </dd>
         </div>
         <div>
-          <dt className="text-muted-foreground">Scope</dt>
+          <dt className="text-muted-foreground">Used for</dt>
           <dd className="font-medium text-foreground">{match.scope}</dd>
-        </div>
-        <div>
-          <dt className="text-muted-foreground">Revision</dt>
-          <dd className="font-medium text-foreground">
-            Action revision {props.request.revision}
-          </dd>
         </div>
       </dl>
 

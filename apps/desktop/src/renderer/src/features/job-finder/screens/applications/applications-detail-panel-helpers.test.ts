@@ -254,14 +254,14 @@ describe("getQueueStateExplanation", () => {
       runState: "paused_for_user_review",
     });
 
-    expect(explanation).toContain("paused this run on one of its stop rules");
-    expect(explanation).toContain("will not continue on its own");
-    expect(explanation).toContain("no consent decision is holding it here");
+    expect(explanation).toContain("one of your safety limits was reached");
+    expect(explanation).toContain("will not carry on by itself");
+    expect(explanation).toContain("nothing is waiting on your decision");
     expect(explanation).toContain(
-      "Use Prepare remaining jobs to finish the unfinished jobs in a fresh safe recovery run",
+      "Use Prepare remaining jobs to finish the ones it did not get to",
     );
     // Unlike the consent pause, there is nothing to resolve to resume.
-    expect(explanation).not.toContain("Resolve the consent request");
+    expect(explanation).not.toContain("Needs you");
   });
 
   it("keeps the live consent pause framed as resumable", () => {
@@ -270,8 +270,11 @@ describe("getQueueStateExplanation", () => {
       runState: "paused_for_consent",
     });
 
-    expect(explanation).toContain("Resolve the consent request to continue");
-    expect(explanation).not.toContain("will not continue on its own");
+    expect(explanation).toContain("Handle it in Needs you");
+    // The common cause is a sign-in wall, so the sentence names it rather
+    // than sending the reader hunting for a permission prompt.
+    expect(explanation).toContain("signing in on the job site");
+    expect(explanation).not.toContain("will not carry on by itself");
   });
 
   it("returns no explanation when no run is selected", () => {
@@ -485,7 +488,7 @@ describe("manual field-finish helpers", () => {
       "Paused for your review",
     );
     expect(formatApplyRunStateLabel("paused_for_consent")).toBe(
-      "Paused for a consent decision",
+      "Paused — needs something from you",
     );
     expect(formatApplyRunStateLabel("completed")).toBe("Completed");
     expect(formatApplyRunModeLabel("copilot")).toBe("Preparation");

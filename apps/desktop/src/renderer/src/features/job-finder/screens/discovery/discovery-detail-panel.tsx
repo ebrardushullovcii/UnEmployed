@@ -1,3 +1,7 @@
+import {
+  discoveryFeedbackOptions,
+  formatDiscoveryHideReason,
+} from "./discovery-hide-reason-options";
 import type {
   DiscoveryFeedbackReason,
   DiscoveryJobView,
@@ -67,27 +71,16 @@ export function presentDiscoveryJobStatusLabel(status: string): string {
       return "Resume approved";
     case "ready_for_review":
       return "Resume needs review";
+    // shortlistJob writes "drafting" the moment a job is shortlisted, before
+    // any draft is requested, so this is the same state Shortlisted calls
+    // "Needs resume". "Resume in progress" made people wait for nothing.
     case "drafting":
-      return "Resume in progress";
+      return "Needs resume";
     default:
       return formatStatusLabel(status);
   }
 }
 
-const discoveryFeedbackOptions: ReadonlyArray<{
-  value: DiscoveryFeedbackReason;
-  label: string;
-}> = [
-  { value: "role", label: "Role" },
-  { value: "seniority", label: "Seniority" },
-  { value: "location", label: "Location" },
-  { value: "work_mode", label: "Work mode" },
-  { value: "compensation", label: "Compensation" },
-  { value: "company", label: "Company" },
-  { value: "missing_requirement", label: "Missing requirement" },
-  { value: "duplicate", label: "Duplicate" },
-  { value: "other", label: "Other" },
-];
 interface DiscoveryDetailPanelProps {
   discoveryTargets: readonly JobDiscoveryTarget[];
   isJobPending: (jobId: string) => boolean;
@@ -1367,3 +1360,5 @@ export function DiscoveryDetailPanel({
     </section>
   );
 }
+
+export { discoveryFeedbackOptions, formatDiscoveryHideReason };

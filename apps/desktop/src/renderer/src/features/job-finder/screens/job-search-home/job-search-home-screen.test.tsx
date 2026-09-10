@@ -38,6 +38,24 @@ function notification(id: string, unread = true): CampaignNotification {
 
 afterEach(cleanup);
 
+/**
+ * The search-loop recommendation only owns the slot when nothing is blocked
+ * on the user and nothing waits for their approval; these tests are about
+ * the loop itself, so they start from that state.
+ */
+function unblockedWorkspace(): JobFinderWorkspaceSnapshot {
+  const base = workspace();
+  return {
+    ...base,
+    dashboard: {
+      ...base.dashboard,
+      applicationsReadyForApproval: 0,
+      needsYouCount: 0,
+    },
+    userActionRequests: [],
+  };
+}
+
 function workspace(): JobFinderWorkspaceSnapshot {
   return {
     activeCampaignId: "campaign-1",
@@ -1151,6 +1169,30 @@ describe("JobSearchHomeScreen", () => {
     expect(screen.getByRole("heading", { name: "Find jobs" })).toBeTruthy();
   });
 
+  it("lets a blocked item outrank the search loop in Recommended next", () => {
+    // The dogfood run had one shortlisted job with an approved resume and a
+    // blocked application; "Review 1 shortlisted job" sent the user back to a
+    // finished job while the real next step stayed invisible.
+    render(
+      <JobSearchHomeScreen
+        activityPending={false}
+        onSelectCampaign={vi.fn()}
+        onNavigate={vi.fn()}
+        onNavigateGlobalEntry={vi.fn()}
+        onPauseActivity={vi.fn()}
+        onResumeActivity={vi.fn()}
+        workspace={workspace()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Review prepared applications" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Review 4 shortlisted jobs" }),
+    ).toBeNull();
+  });
+
   it("keeps one recommended action and follows it", () => {
     const onNavigate = vi.fn();
     render(
@@ -1161,7 +1203,7 @@ describe("JobSearchHomeScreen", () => {
         onNavigateGlobalEntry={vi.fn()}
         onPauseActivity={vi.fn()}
         onResumeActivity={vi.fn()}
-        workspace={workspace()}
+        workspace={unblockedWorkspace()}
       />,
     );
 
@@ -1171,8 +1213,7 @@ describe("JobSearchHomeScreen", () => {
       document.querySelectorAll<HTMLButtonElement>('[data-variant="primary"]'),
     );
     expect(primaryButtons).toHaveLength(1);
-    // The returning user's next move is the search loop, not the app's own
-    // blocked item — which stays reachable from Notifications and the badges.
+    // With nothing blocked, the returning user's next move is the search loop.
     expect(
       screen.getByRole("heading", {
         name: "Review 4 shortlisted jobs",
@@ -1215,7 +1256,10 @@ describe("JobSearchHomeScreen", () => {
 
   it("routes back to the results the last search already kept", () => {
     const onNavigate = vi.fn();
-    const base = withLastSearch(workspace(), { retained: 15, duplicates: 35 });
+    const base = withLastSearch(unblockedWorkspace(), {
+      retained: 15,
+      duplicates: 35,
+    });
     render(
       <JobSearchHomeScreen
         activityPending={false}
@@ -1244,7 +1288,7 @@ describe("JobSearchHomeScreen", () => {
     // A run can save more listings to the device than the active plan's rules
     // retain. Home printed the larger number beside a link to a screen that
     // shows the smaller one, so the two screens read as a contradiction.
-    const base = withLastSearch(workspace(), {
+    const base = withLastSearch(unblockedWorkspace(), {
       retained: 50,
       duplicates: 0,
       keptInPlan: 15,
@@ -1278,7 +1322,7 @@ describe("JobSearchHomeScreen", () => {
     // with it. Counting the ledger made one "Not interested" click leave Home
     // saying "16 kept in your current search plan" beside Find jobs' "15 jobs
     // kept in this search plan" — the same words, two numbers.
-    const base = withLastSearch(workspace(), {
+    const base = withLastSearch(unblockedWorkspace(), {
       retained: 50,
       duplicates: 0,
       keptInPlan: 15,
@@ -1608,12 +1652,13 @@ describe("JobSearchHomeScreen", () => {
     const outstanding = screen.getByTestId("notifications-outstanding-work");
     expect(outstanding.textContent).toContain("1 item needs you");
     expect(outstanding.textContent).toContain(
-      "3 applications are ready for your approval",
-    );
-    // Recommended next already owns the shortlisted-review work, so one item
-    // no longer advertises itself twice on the same screen.
-    expect(outstanding.textContent).not.toContain(
       "4 jobs are waiting for your review",
+    );
+    // Something is waiting for approval, so Recommended next is the backend's
+    // "Review prepared applications" and that item does not advertise itself
+    // twice on the same screen.
+    expect(outstanding.textContent).not.toContain(
+      "3 applications are ready for your approval",
     );
     // Every Open button says what it opens.
     expect(screen.getByRole("button", { name: "Open Needs you" })).toBeTruthy();

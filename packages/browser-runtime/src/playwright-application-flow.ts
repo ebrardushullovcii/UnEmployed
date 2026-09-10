@@ -3353,7 +3353,7 @@ function detectPageBlocker(
       code: "site_login_required",
       summary: "The application requires an authenticated account.",
       detail:
-        "The page requests account credentials. The runtime does not enter passwords, create accounts, or continue through login gates.",
+        "This site asks you to sign in before the application can be filled in. Job Finder never types a password, creates an account, or clicks through a sign-in screen.",
       nextActionLabel: "Sign in manually, then retry preparation",
     };
   }

@@ -16,10 +16,16 @@ export type ListingActivityPresentation = {
   tone: "positive" | "critical" | "neutral" | "muted";
 };
 
+const PROVENANCE_LABELS: Record<string, string> = {
+  discovery_ledger: "an earlier search",
+  provider: "the job site's own listing feed",
+  browser: "opening the page",
+  user: "you",
+  system: "a routine check",
+};
+
 function formatProvenance(value: string): string {
-  return value === "discovery_ledger"
-    ? "the discovery ledger"
-    : `${value} evidence`;
+  return PROVENANCE_LABELS[value] ?? "an earlier check";
 }
 
 export function presentListingActivity(
@@ -54,8 +60,8 @@ export function presentListingActivity(
   if (activity.status === "stale") {
     const detail = activity.detail ? ` ${activity.detail}` : "";
     return {
-      description: `This listing may be stale based on ${formatProvenance(activity.provenance)} observed on ${observedDate}. ${activity.explanation}${detail}`,
-      label: "Stale",
+      description: `This listing may no longer be open — ${formatProvenance(activity.provenance)} last saw it on ${observedDate}. ${activity.explanation}${detail}`,
+      label: "May be closed",
       observedDate,
       tone: "neutral",
     };
@@ -63,7 +69,7 @@ export function presentListingActivity(
 
   const detail = activity.detail ? ` ${activity.detail}` : "";
   return {
-    description: `Reported closed from ${formatProvenance(activity.provenance)} observed on ${observedDate}. ${activity.explanation}${detail}`,
+    description: `Reported closed by ${formatProvenance(activity.provenance)} on ${observedDate}. ${activity.explanation}${detail}`,
     label: "Closed",
     observedDate,
     tone: "muted",

@@ -373,9 +373,21 @@ export function getPrimaryApplicationAction(input: {
     };
   }
 
+  // While the run is in flight the button says so; a greyed button with the
+  // same label read as "nothing is happening" for the whole 15-60 seconds.
+  if (isApplyPending) {
+    return {
+      blocker: null,
+      enabled: false,
+      kind: "start_apply",
+      label: "Opening the application…",
+      recovery: null,
+    };
+  }
+
   return {
     blocker: null,
-    enabled: !isApplyPending && !isSelectedJobPending,
+    enabled: !isSelectedJobPending,
     kind: "start_apply",
     label: "Prepare application",
     recovery: null,

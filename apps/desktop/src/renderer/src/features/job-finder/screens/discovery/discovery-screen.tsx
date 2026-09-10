@@ -44,6 +44,7 @@ import {
   DiscoverySearchBar,
 } from "./discovery-search-bar";
 import { DiscoveryDetailPanel } from "./discovery-detail-panel";
+import { formatDiscoveryHideReason } from "./discovery-hide-reason-options";
 import { DiscoveryFiltersPanel } from "./discovery-filters-panel";
 import {
   DISCOVERY_OFFLINE_CATALOG_NOTICE_ID,
@@ -758,8 +759,9 @@ export function DiscoveryScreen(props: {
                       {job.title}
                     </p>
                     <p className="text-(length:--text-tiny) text-foreground-muted">
-                      {job.discoveryFeedback?.reasons.join(" · ") ??
-                        "Hidden without saved reasons"}
+                      {job.discoveryFeedback?.reasons
+                        .map(formatDiscoveryHideReason)
+                        .join(" · ") ?? "Hidden without saved reasons"}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">

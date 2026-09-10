@@ -80,7 +80,7 @@ describe("CompaniesScreen", () => {
     expect(screen.getByText("No companies reconciled yet")).toBeTruthy();
     expect(
       screen.getByText(
-        /local projection of saved jobs and application records.*Refresh from jobs and applications/i,
+        /employers from your saved jobs and started applications.*Refresh from jobs and applications/i,
       ),
     ).toBeTruthy();
   });

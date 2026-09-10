@@ -553,7 +553,7 @@ describe("shared discovery run feedback handler", () => {
       expect(harness.feedbackUpdates.at(-1)?.status).toBe("failed");
     });
     const terminal = harness.feedbackUpdates.at(-1);
-    expect(terminal?.recovery?.headline).toContain("AI provider");
+    expect(terminal?.recovery?.headline).toContain("Live search needs AI");
     expect(terminal?.recovery?.headline).not.toBe(terminal?.headline);
     expect(`${terminal?.headline} ${terminal?.recovery?.headline}`).not.toMatch(
       /The search stopped before it could finish\..*The search stopped before it could finish\./,

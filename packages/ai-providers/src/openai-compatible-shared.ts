@@ -916,11 +916,20 @@ export function completeTailoredResumeDraft(
           ),
       )
     : [];
+  // Grounded skills keep their slots; injected listing skills only fill what
+  // is left. Ordering the merged list by relevance let a listing keyword push
+  // one of the candidate's real skills off the visible list.
   const finalCoreSkills = isAggressiveTailoring
-    ? orderSkillsByJobRelevance(
-        uniqueStrings([...groundedCoreSkills, ...addedListingSkills]),
-        fallbackInput.job,
-      ).slice(0, VISIBLE_CORE_SKILL_LIMIT)
+    ? [
+        ...orderSkillsByJobRelevance(
+          uniqueStrings(groundedCoreSkills),
+          fallbackInput.job,
+        ),
+        ...orderSkillsByJobRelevance(
+          uniqueStrings(addedListingSkills),
+          fallbackInput.job,
+        ),
+      ].slice(0, VISIBLE_CORE_SKILL_LIMIT)
     : groundedCoreSkills;
   const targetedKeywords = fallbackInput.strategy
     ? selectCanonicalStringList(
