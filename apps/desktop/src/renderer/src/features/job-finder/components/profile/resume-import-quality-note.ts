@@ -46,8 +46,11 @@ export function getResumeImportStageFallbackSummary(
   return {
     fallbackStageCount,
     modelStageCount: modelStages.length,
-    hint: `${fallbackStageCount} of ${modelStages.length} AI stage${
-      modelStages.length === 1 ? "" : "s"
-    } used the built-in reader`,
+    // "1 of 3 AI stages" asked the reader to picture a pipeline; this says
+    // what it means for them.
+    hint:
+      fallbackStageCount === modelStages.length
+        ? "The built-in reader handled this import instead of AI, so check the imported details closely"
+        : `The built-in reader handled ${fallbackStageCount} of ${modelStages.length} import steps instead of AI`,
   };
 }

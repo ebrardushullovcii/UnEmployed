@@ -67,7 +67,13 @@ export function buildJobFinderGlobalSearchEntries(
     campaignId ? (campaignNameById.get(campaignId) ?? "Campaign") : null;
   const isInActivePlan = (jobId: string) =>
     campaignIdsByJobId.get(jobId)?.has(workspace.activeCampaignId) ?? false;
-  const isInSearchScope = resolvesActivePlan ? isInActivePlan : () => true;
+  // Nothing the app says it saved may be unfindable: Home advertises every
+  // job saved on the device, so the search covers them all and labels the
+  // ones outside the active plan instead of denying they exist.
+  const outOfPlanLabel = (jobId: string) =>
+    resolvesActivePlan && !isInActivePlan(jobId)
+      ? "Saved on this device, not in this search plan"
+      : null;
   const campaignIdForJob = resolvesActivePlan
     ? (jobId: string) =>
         isInActivePlan(jobId) ? workspace.activeCampaignId : null
@@ -87,50 +93,47 @@ export function buildJobFinderGlobalSearchEntries(
       title: campaign.name,
     }),
   );
-  const jobEntries: JobFinderGlobalSearchEntry[] = discoveryJobs
-    .filter((job) => isInSearchScope(job.id))
-    .map((job) => {
-      const employer = resolveJobEmployerDisplay({
-        company: job.company,
-        canonicalUrl: job.canonicalUrl,
-      });
-      const location = resolveJobLocationDisplay(job.location);
-      return {
-        campaignId: campaignIdForJob(job.id),
-        href: buildJobFinderContextRoute("/job-finder/discovery", {
-          jobId: job.id,
-        }),
-        id: job.id,
-        kind: "job" as const,
-        metadata: [
-          employer,
-          location,
-          ...(job.workMode ?? []),
-          job.status,
-          ...(job.matchAssessment?.reasons ?? []),
-        ].filter(
-          (value): value is string =>
-            typeof value === "string" &&
-            value.length > 0 &&
-            !isEmployerAbsenceLabel(value) &&
-            !isLocationAbsenceLabel(value),
-        ),
-        subtitle: [
-          formatJobEmployerLocationLine({
-            company: job.company,
-            location: job.location,
-            canonicalUrl: job.canonicalUrl,
-          }),
-          campaignLabelFor(campaignIdForJob(job.id)),
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        title: job.title,
-      };
+  const jobEntries: JobFinderGlobalSearchEntry[] = discoveryJobs.map((job) => {
+    const employer = resolveJobEmployerDisplay({
+      company: job.company,
+      canonicalUrl: job.canonicalUrl,
     });
-  const applicationEntries: JobFinderGlobalSearchEntry[] = applicationRecords
-    .filter((record) => isInSearchScope(record.jobId))
-    .map((record) => ({
+    const location = resolveJobLocationDisplay(job.location);
+    return {
+      campaignId: campaignIdForJob(job.id),
+      href: buildJobFinderContextRoute("/job-finder/discovery", {
+        jobId: job.id,
+      }),
+      id: job.id,
+      kind: "job" as const,
+      metadata: [
+        employer,
+        location,
+        ...(job.workMode ?? []),
+        job.status,
+        ...(job.matchAssessment?.reasons ?? []),
+      ].filter(
+        (value): value is string =>
+          typeof value === "string" &&
+          value.length > 0 &&
+          !isEmployerAbsenceLabel(value) &&
+          !isLocationAbsenceLabel(value),
+      ),
+      subtitle: [
+        formatJobEmployerLocationLine({
+          company: job.company,
+          location: job.location,
+          canonicalUrl: job.canonicalUrl,
+        }),
+        campaignLabelFor(campaignIdForJob(job.id)) ?? outOfPlanLabel(job.id),
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      title: job.title,
+    };
+  });
+  const applicationEntries: JobFinderGlobalSearchEntry[] =
+    applicationRecords.map((record) => ({
       campaignId: campaignIdForJob(record.jobId),
       href: buildJobFinderContextRoute("/job-finder/applications", {
         applicationRecordId: record.id,
@@ -154,40 +157,36 @@ export function buildJobFinderGlobalSearchEntries(
       title: record.title,
     }));
   const documentEntries: JobFinderGlobalSearchEntry[] = [
-    ...tailoredAssets
-      .filter((asset) => isInSearchScope(asset.jobId))
-      .map((asset) => ({
-        campaignId: campaignIdForJob(asset.jobId),
-        href: buildResumeWorkspaceRoute(asset.jobId),
-        id: asset.id,
-        kind: "document" as const,
-        metadata: [asset.templateName, asset.status, asset.version],
-        subtitle: [
-          asset.templateName,
-          asset.status,
-          campaignLabelFor(campaignIdForJob(asset.jobId)),
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        title: asset.label,
-      })),
-    ...resumeExportArtifacts
-      .filter((artifact) => isInSearchScope(artifact.jobId))
-      .map((artifact) => ({
-        campaignId: campaignIdForJob(artifact.jobId),
-        href: buildResumeWorkspaceRoute(artifact.jobId),
-        id: artifact.id,
-        kind: "document" as const,
-        metadata: [artifact.templateId, artifact.format, artifact.filePath],
-        subtitle: [
-          (artifact.templateId ?? "").replaceAll("_", " "),
-          `${(artifact.format ?? "").toUpperCase()} export`,
-          campaignLabelFor(campaignIdForJob(artifact.jobId)),
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        title: artifact.filePath.split(/[\\/]/).at(-1) ?? "Resume export",
-      })),
+    ...tailoredAssets.map((asset) => ({
+      campaignId: campaignIdForJob(asset.jobId),
+      href: buildResumeWorkspaceRoute(asset.jobId),
+      id: asset.id,
+      kind: "document" as const,
+      metadata: [asset.templateName, asset.status, asset.version],
+      subtitle: [
+        asset.templateName,
+        asset.status,
+        campaignLabelFor(campaignIdForJob(asset.jobId)),
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      title: asset.label,
+    })),
+    ...resumeExportArtifacts.map((artifact) => ({
+      campaignId: campaignIdForJob(artifact.jobId),
+      href: buildResumeWorkspaceRoute(artifact.jobId),
+      id: artifact.id,
+      kind: "document" as const,
+      metadata: [artifact.templateId, artifact.format, artifact.filePath],
+      subtitle: [
+        (artifact.templateId ?? "").replaceAll("_", " "),
+        `${(artifact.format ?? "").toUpperCase()} export`,
+        campaignLabelFor(campaignIdForJob(artifact.jobId)),
+      ]
+        .filter(Boolean)
+        .join(" · "),
+      title: artifact.filePath.split(/[\\/]/).at(-1) ?? "Resume export",
+    })),
   ];
 
   return [

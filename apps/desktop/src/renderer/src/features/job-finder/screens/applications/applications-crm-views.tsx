@@ -73,8 +73,8 @@ type CrmColumn = (typeof columnValues)[number];
 export const APPLICATION_CRM_VIEW_SWITCHER_MIN_RECORDS = 2;
 
 const viewLabels: Record<ApplicationCrmView, string> = {
-  table: "Table",
-  kanban: "Kanban",
+  table: "List",
+  kanban: "Board",
   calendar: "Calendar",
 };
 
@@ -517,7 +517,7 @@ export function ApplicationsCrmViews(props: {
       />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-(--surface-panel-border) px-5 py-2">
         <label className="flex items-center gap-2 text-sm font-medium text-foreground">
-          Lifecycle view
+          Show
           <select
             className="h-9 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-2 text-sm outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
@@ -549,7 +549,7 @@ export function ApplicationsCrmViews(props: {
         <div className="grid min-h-48 place-items-center px-6 text-center">
           <div>
             <h3 className="font-semibold text-foreground">
-              No applications match this lifecycle view
+              No applications in this view right now
             </h3>
             <Button
               className="mt-3"

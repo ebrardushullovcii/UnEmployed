@@ -259,17 +259,13 @@ describe("CampaignsScreen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(
-      screen.getByText(
-        /Use Precision for a smaller discovery pool focused on the strongest matches/,
-      ),
+      screen.getByText(/Fewer jobs each run, chosen for a closer match/),
     ).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Volume"), {
+    fireEvent.change(screen.getByLabelText("How many jobs each search keeps"), {
       target: { value: "scale" },
     });
     expect(
-      screen.getByText(
-        /Use Scale to discover and retain a larger pool of matching jobs/,
-      ),
+      screen.getByText(/More jobs each run, keeping more of them for review/),
     ).toBeTruthy();
   });
 
@@ -297,7 +293,7 @@ describe("CampaignsScreen", () => {
       ),
     ).toBeNull();
 
-    fireEvent.change(screen.getByLabelText("Volume"), {
+    fireEvent.change(screen.getByLabelText("How many jobs each search keeps"), {
       target: { value: "scale" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
@@ -562,7 +558,7 @@ describe("CampaignsScreen", () => {
     fireEvent.change(screen.getByLabelText("Local start time"), {
       target: { value: "08:30" },
     });
-    fireEvent.change(screen.getByLabelText("Time zone"), {
+    fireEvent.change(screen.getByLabelText("Run in this time zone"), {
       target: { value: "Europe/Belgrade" },
     });
 

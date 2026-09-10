@@ -602,7 +602,7 @@ describe("ProfileResumePanel", () => {
     expect(qualityNote).not.toBeNull();
     // `shared_memory` is deterministic by design and is not counted.
     expect(qualityNote?.textContent).toContain(
-      "2 of 3 AI stages used the built-in reader",
+      "The built-in reader handled 2 of 3 import steps instead of AI",
     );
   });
 
@@ -820,7 +820,7 @@ describe("ProfileResumePanel", () => {
     const hint = strip?.querySelector("[data-profile-resume-fallback-hint]");
     expect(hint).not.toBeNull();
     expect(hint?.textContent).toBe(
-      "3 of 3 AI stages used the built-in reader.",
+      "The built-in reader handled this import instead of AI, so check the imported details closely.",
     );
     // The hint qualifies the status badge, so it shares that band with it.
     const statusBand = strip?.querySelector("div");

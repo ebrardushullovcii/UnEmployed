@@ -857,15 +857,20 @@ export function DiscoveryDetailPanel({
                     </span>
                     <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
                       {[
+                        // A six-month contract read as a permanent role at an
+                        // annual salary until the user opened the page.
+                        selectedJob.employmentType?.trim()
+                          ? selectedJob.employmentType
+                          : null,
                         selectedJob.location?.trim()
                           ? selectedJob.location
                           : null,
                         selectedJob.workMode.length > 0
                           ? selectedJob.workMode.join(", ")
-                          : null,
+                          : "Work mode not stated",
                       ]
                         .filter(Boolean)
-                        .join(" · ") || "Not stated"}
+                        .join(" · ")}
                     </strong>
                   </div>
                 </div>

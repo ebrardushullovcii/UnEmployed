@@ -84,15 +84,15 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
         value: selectedApplyRunDetails?.questionRecords.length ?? 0,
       },
       {
-        label: "Grounded answers",
+        label: "Answers filled in",
         value: selectedApplyRunDetails?.answerRecords.length ?? 0,
       },
       { label: "Artifacts", value: retainedArtifacts.length },
       {
-        label: "Checkpoints",
+        label: "Steps recorded",
         value: selectedApplyRunDetails?.checkpoints.length ?? 0,
       },
-      { label: "Visual checkpoints", value: resultVisualCheckpointCount },
+      { label: "Screenshots", value: resultVisualCheckpointCount },
       { label: "Visual evidence", value: retainedVisualEvidenceCount },
     ] as const
   ).filter((metric) => metric.value > 0);
@@ -107,7 +107,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
     <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className={cn(APPLICATION_DETAIL_FACT_LABEL_CLASS, "text-primary")}>
-          What this run recorded
+          What Job Finder filled in
         </h3>
         <StatusBadge tone={applyDetailsStatusBadge.tone}>
           {applyDetailsStatusBadge.label}
@@ -115,13 +115,13 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
       </div>
       {applyRunDetailsStatus === "loading" ? (
         <p className="text-(length:--text-body) leading-7 text-foreground-soft">
-          Loading saved questions, grounded answers, artifacts, and checkpoints
-          for this run.
+          Loading what Job Finder filled in on this application.
         </p>
       ) : null}
       {applyRunDetailsStatus === "error" ? (
         <p className="text-(length:--text-body) leading-7 text-destructive">
-          {applyRunDetailsError ?? "Apply run details could not be loaded."}
+          {applyRunDetailsError ??
+            "This application's details could not be loaded. Try again."}
         </p>
       ) : null}
       {selectedApplyRunDetails ? (
@@ -149,7 +149,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
           )}
           {selectedApplyRunDetails.result?.visualCheckpoints.length ? (
             <div className="grid gap-2">
-              <p className="label-mono-xs">Visual apply checkpoints</p>
+              <p className="label-mono-xs">Screenshots of the form</p>
               {selectedApplyRunDetails.result.visualCheckpoints.map(
                 (checkpoint) => (
                   <div
@@ -194,7 +194,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
           ) : null}
           {selectedApplyRunDetails.questionRecords.length ? (
             <div className="grid gap-2">
-              <p className="label-mono-xs">Detected questions</p>
+              <p className="label-mono-xs">Questions on the form</p>
               {selectedApplyRunDetails.questionRecords.map((question) => {
                 const latestAnswer = getLatestAnswerForQuestion(
                   selectedApplyRunDetails.answerRecords,
@@ -264,7 +264,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
           ) : null}
           {selectedApplyRunDetails.answerRecords.length ? (
             <div className="grid gap-2">
-              <p className="label-mono-xs">Grounded answers</p>
+              <p className="label-mono-xs">Answers Job Finder filled in</p>
               {selectedApplyRunDetails.answerRecords.map((answer) => (
                 <div
                   key={answer.id}
@@ -298,7 +298,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
           ) : null}
           {retainedArtifacts.length ? (
             <div className="grid gap-2">
-              <p className="label-mono-xs">Retained artifacts</p>
+              <p className="label-mono-xs">Files Job Finder attached</p>
               {retainedArtifacts.map((artifact) => (
                 <div
                   key={artifact.id}
@@ -322,7 +322,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
           ) : null}
           {selectedApplyRunDetails.checkpoints.length ? (
             <div className="grid gap-2">
-              <p className="label-mono-xs">Replay checkpoints</p>
+              <p className="label-mono-xs">Screenshots of each step</p>
               {selectedApplyRunDetails.checkpoints.map((checkpoint) => (
                 <div
                   key={checkpoint.id}

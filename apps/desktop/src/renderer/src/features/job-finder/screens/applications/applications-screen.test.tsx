@@ -1155,7 +1155,7 @@ describe("ApplicationsScreen", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByText("Visual apply checkpoints")).toBeTruthy();
+      expect(screen.getByText("Screenshots of the form")).toBeTruthy();
     });
     expect(
       screen.getAllByText(
@@ -1303,7 +1303,7 @@ describe("ApplicationsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open tracker" }));
     expect(await screen.findByRole("combobox", { name: "Stage" })).toBeTruthy();
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Lifecycle view" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "Show" }), {
       target: { value: "offers" },
     });
     expect(

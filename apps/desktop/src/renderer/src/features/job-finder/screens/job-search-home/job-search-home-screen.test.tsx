@@ -1307,7 +1307,7 @@ describe("JobSearchHomeScreen", () => {
 
     expect(
       screen.getByText(
-        /Your last search: 50 new jobs saved on this device · 15 kept in your current search plan\./,
+        /Your last search: 50 new jobs saved on this device · 15 kept in your current search plan/,
       ),
     ).toBeTruthy();
     // The two numbers are two populations, so they never share one verb: the
@@ -1345,7 +1345,7 @@ describe("JobSearchHomeScreen", () => {
 
     expect(
       screen.getByText(
-        /Your last search: 50 new jobs saved on this device · 15 kept in your current search plan\./,
+        /Your last search: 50 new jobs saved on this device · 15 kept in your current search plan/,
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/16 kept/)).toBeNull();
@@ -1374,7 +1374,7 @@ describe("JobSearchHomeScreen", () => {
     );
 
     const statusLine =
-      "Search finished · 50 new jobs saved on this device · 15 kept in your current search plan.";
+      "Search finished · 50 new jobs saved on this device · 15 kept in your current search plan (its 'Jobs to retain' limit; raise it in Search plans → Edit to keep more).";
     expect(screen.getByTestId("home-status-line").textContent).toBe(statusLine);
     // One owner for the counts clause: the recommended card must not print the
     // identical sentence again a few lines above its own status line.

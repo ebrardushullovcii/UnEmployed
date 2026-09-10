@@ -216,7 +216,7 @@ describe("formatLastSearchSummarySentence", () => {
         keptInPlan: 15,
       }),
     ).toBe(
-      "Your last search: 50 new jobs saved on this device · 15 kept in your current search plan.",
+      "Your last search: 50 new jobs saved on this device · 15 kept in your current search plan (its 'Jobs to retain' limit; raise it in Search plans → Edit to keep more).",
     );
   });
 
@@ -255,7 +255,7 @@ describe("formatLastSearchSummarySentence", () => {
         keptInPlan: 15,
       }),
     ).toBe(
-      "Search finished · 50 new jobs saved on this device · 15 kept in your current search plan.",
+      "Search finished · 50 new jobs saved on this device · 15 kept in your current search plan (its 'Jobs to retain' limit; raise it in Search plans → Edit to keep more).",
     );
 
     // One population, nothing to reconcile: the run's own label stands, so a
@@ -289,7 +289,7 @@ describe("formatLastSearchSummarySentence", () => {
         keptInPlan: 0,
       }),
     ).toBe(
-      "Search finished · 1 new job saved on this device · 0 kept in your current search plan.",
+      "Search finished · 1 new job saved on this device · 0 kept in your current search plan (its 'Jobs to retain' limit; raise it in Search plans → Edit to keep more).",
     );
   });
 

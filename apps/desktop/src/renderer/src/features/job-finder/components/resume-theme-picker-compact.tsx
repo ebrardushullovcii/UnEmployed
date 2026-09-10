@@ -2,15 +2,11 @@ import type {
   ResumeTemplateDefinition,
   ResumeTemplateId,
 } from "@unemployed/contracts";
-import {
-  getResumeTemplateAtsConfidence,
-  getResumeTemplateDeliveryLane,
-} from "@unemployed/contracts";
+import { getResumeTemplateDeliveryLane } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
 import { cn } from "@renderer/lib/utils";
 import {
-  getAtsConfidenceLabel,
   getLaneBadgeVariant,
   getLaneLabel,
   getTemplateOptionLabel,
@@ -75,7 +71,6 @@ function CompactVariantCard(props: {
 }) {
   const { disabled, onChange, recommendationReason, selected, theme } = props;
   const deliveryLane = getResumeTemplateDeliveryLane(theme);
-  const atsConfidence = getResumeTemplateAtsConfidence(theme);
   const compactReason =
     recommendationReason ?? theme.fitSummary ?? theme.description;
 
@@ -98,9 +93,6 @@ function CompactVariantCard(props: {
             {selected ? <Badge variant="default">Selected</Badge> : null}
             <Badge variant={getLaneBadgeVariant(deliveryLane)}>
               {getLaneLabel(deliveryLane)}
-            </Badge>
-            <Badge variant="outline">
-              {getAtsConfidenceLabel(atsConfidence)}
             </Badge>
           </div>
           <p className="text-(length:--text-small) leading-5 text-foreground-soft">

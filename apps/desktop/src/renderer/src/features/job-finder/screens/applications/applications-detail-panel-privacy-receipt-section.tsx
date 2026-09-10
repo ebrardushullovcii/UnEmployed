@@ -254,7 +254,7 @@ export function ApplicationsDetailPanelPrivacyReceiptSection(props: {
               : "Nothing was sent to a model during application preparation."}
           </ReceiptGroup>
 
-          <ReceiptGroup icon={Fingerprint} label="Resume fingerprint">
+          <ReceiptGroup icon={Fingerprint} label="The resume that was used">
             <span className="grid gap-1">
               <span>
                 Saved file name:{" "}
@@ -273,9 +273,7 @@ export function ApplicationsDetailPanelPrivacyReceiptSection(props: {
                   SHA-256 {receipt.resume.sha256.slice(0, 12)}…
                   {receipt.resume.sha256.slice(-12)}
                 </code>
-                <span>
-                  Confirms the exact resume bytes used for this preparation.
-                </span>
+                <span>This is the exact PDF you approved — unchanged.</span>
               </span>
             ) : (
               <>

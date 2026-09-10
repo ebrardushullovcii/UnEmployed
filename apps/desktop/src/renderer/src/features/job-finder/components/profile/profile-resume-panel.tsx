@@ -201,7 +201,11 @@ function shouldHideAnalysisWarning(value: string): boolean {
     normalized.includes(
       "fell back to the deterministic resume parser after the model call failed",
     ) ||
-    normalized.includes("primary ai extraction failed:")
+    normalized.includes("primary ai extraction failed:") ||
+    // Vision-branch diagnostics are provider output, not advice for the user.
+    normalized.includes("vision branch used") ||
+    normalized.includes("configured resume vision provider failed") ||
+    normalized.startsWith("error from provider (")
   );
 }
 

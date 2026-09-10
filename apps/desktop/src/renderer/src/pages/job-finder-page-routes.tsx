@@ -591,6 +591,9 @@ export function JobFinderHomeRoute() {
 
   return (
     <JobSearchHomeScreen
+      activeResumeDraftCount={
+        Object.keys(context.resumeOperationStarts ?? {}).length
+      }
       activityPending={activityPending}
       campaignNotificationAllPending={context.isPending(
         jobFinderPendingActions.campaignNotificationAll(),

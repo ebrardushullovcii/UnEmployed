@@ -115,7 +115,8 @@ function createDefaultCampaign(
   return JobSearchCampaignSchema.parse({
     id,
     name: "My job search",
-    description: "Your existing Job Finder workspace.",
+    description:
+      "Your main search. Find jobs uses this plan's roles, places, and sources.",
     mode: "precision",
     status: "active",
     createdAt: now,

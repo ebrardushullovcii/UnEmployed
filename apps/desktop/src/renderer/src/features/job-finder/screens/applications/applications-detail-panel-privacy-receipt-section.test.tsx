@@ -143,7 +143,7 @@ describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
     expect(screen.getByText("Stayed local")).not.toBeNull();
     expect(screen.getByText("Sent to a model")).not.toBeNull();
     expect(screen.getByText("Written to the site")).not.toBeNull();
-    expect(screen.getByText("Resume fingerprint")).not.toBeNull();
+    expect(screen.getByText("The resume that was used")).not.toBeNull();
     expect(
       screen.getByText(/SHA-256 was not recorded for this preparation/i),
     ).not.toBeNull();
@@ -346,13 +346,13 @@ describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
       />,
     );
 
-    expect(screen.getByText("Resume fingerprint")).not.toBeNull();
+    expect(screen.getByText("The resume that was used")).not.toBeNull();
     expect(
       screen.getByText("SHA-256 0123456789ab…456789abcdef"),
     ).not.toBeNull();
     expect(screen.getByLabelText(`Resume SHA-256 ${sha256}`)).not.toBeNull();
     expect(
-      screen.getByText(/Confirms the exact resume bytes used/i),
+      screen.getByText(/exact PDF you approved/i),
     ).not.toBeNull();
   });
 

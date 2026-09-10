@@ -477,7 +477,7 @@ describe("ApplicationsDetailPanelOverviewSections dedupe", () => {
       "Stage",
       "Saved next step",
       "Latest apply attempt",
-      "Detected questions",
+      "Questions on the form",
     ]) {
       expect(screen.queryByText(removedCardHeading)).toBeNull();
     }
@@ -776,7 +776,7 @@ describe("ApplicationsDetailPanel container contract", () => {
       }),
     ).toBeTruthy();
     expect(
-      within(technicalDetails).getByText("What this run recorded"),
+      within(technicalDetails).getByText("What Job Finder filled in"),
     ).toBeTruthy();
     expect(
       within(technicalDetails).getByText("Preparation details"),

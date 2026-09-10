@@ -1,3 +1,7 @@
+import {
+  STRONG_REWRITE_WARNING,
+  TAILORING_MODE_DESCRIPTIONS,
+} from "./profile-tailoring-copy";
 import { workModeValues } from "@unemployed/contracts";
 import { useId } from "react";
 import type { UseFormReturn } from "react-hook-form";
@@ -344,8 +348,8 @@ export function ProfilePreferencesTargetingSection(props: {
                 <FormSelect
                   onValueChange={field.onChange}
                   options={[
-                    { label: "Light touch", value: "conservative" },
-                    { label: "Balanced", value: "balanced" },
+                    { label: "Light edit", value: "conservative" },
+                    { label: "Balanced rewrite", value: "balanced" },
                     { label: "Strong rewrite", value: "aggressive" },
                   ]}
                   placeholder="Select a style"
@@ -353,6 +357,20 @@ export function ProfilePreferencesTargetingSection(props: {
                   triggerId={tailoringModeId}
                   value={field.value}
                 />
+                {/* The same disclosure the setup screen gives; this dropdown
+                    could switch Strong rewrite on without a word about it. */}
+                <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                  {TAILORING_MODE_DESCRIPTIONS[field.value] ??
+                    TAILORING_MODE_DESCRIPTIONS.balanced}
+                </p>
+                {field.value === "aggressive" ? (
+                  <p
+                    className="text-sm leading-6 text-(--warning-text)"
+                    role="status"
+                  >
+                    {STRONG_REWRITE_WARNING}
+                  </p>
+                ) : null}
               </div>
             )}
           />

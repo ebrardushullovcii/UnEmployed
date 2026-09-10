@@ -36,13 +36,14 @@ const kindOptions = [
   { value: "other", label: "Other document" },
 ] as const;
 
+// "assistant_context" is not offered until something consumes it; picking it
+// only removed the file from the attachment picker and granted nothing.
 const consentOptions = [
-  { value: "private_storage_only", label: "Store privately only" },
+  { value: "private_storage_only", label: "Only stored on this device" },
   {
     value: "job_application_attachment",
-    label: "Allow as an application attachment",
+    label: "Can be attached to applications",
   },
-  { value: "assistant_context", label: "Allow as assistant context" },
 ] as const;
 
 const retentionOptions = [
@@ -74,8 +75,10 @@ export function SettingsCandidateAssets() {
   const removalDialogRef = useRef<HTMLDivElement | null>(null);
   const [assets, setAssets] = useState<readonly CandidateAsset[]>([]);
   const [kind, setKind] = useState<CandidateAssetKind>("work_sample");
+  // People import these files in order to send them, so the default must
+  // leave them attachable; "private only" hid every import from the picker.
   const [consentScope, setConsentScope] = useState<CandidateAssetConsentScope>(
-    "private_storage_only",
+    "job_application_attachment",
   );
   const [retention, setRetention] =
     useState<CandidateAssetRetention>("until_deleted");
@@ -251,9 +254,9 @@ export function SettingsCandidateAssets() {
           Keep reusable application material on this device
         </h2>
         <p className="text-sm leading-6 text-foreground-soft">
-          Imported files are copied into private app-owned storage. Models and
-          this screen receive metadata only—not raw paths or file bytes. Choose
-          a broader consent scope only when you intend to use the asset later.
+          Files you add are copied into Job Finder&apos;s own private folder on
+          this device. Nothing is uploaded anywhere unless you attach it to an
+          application.
         </p>
       </div>
 
@@ -266,7 +269,7 @@ export function SettingsCandidateAssets() {
           line hang below without moving the control. */}
       <div className="grid min-w-0 items-start gap-3 md:grid-cols-3">
         <div className="grid min-w-0 gap-1.5 text-sm text-foreground-soft">
-          <label htmlFor="candidate-asset-kind">Asset type</label>
+          <label htmlFor="candidate-asset-kind">What is this file?</label>
           <FormSelect
             disabled={controlsDisabled}
             onValueChange={(value) => setKind(value as CandidateAssetKind)}
@@ -276,7 +279,9 @@ export function SettingsCandidateAssets() {
           />
         </div>
         <div className="grid min-w-0 gap-1.5 text-sm text-foreground-soft">
-          <label htmlFor="candidate-asset-consent">Consent scope</label>
+          <label htmlFor="candidate-asset-consent">
+            How may Job Finder use it?
+          </label>
           <FormSelect
             disabled={controlsDisabled}
             onValueChange={(value) =>
@@ -288,7 +293,9 @@ export function SettingsCandidateAssets() {
           />
         </div>
         <div className="grid min-w-0 gap-1.5 text-sm text-foreground-soft">
-          <label htmlFor="candidate-asset-retention">Retention</label>
+          <label htmlFor="candidate-asset-retention">
+            How long should it be kept?
+          </label>
           <FormSelect
             disabled={controlsDisabled}
             onValueChange={(value) =>
@@ -299,7 +306,7 @@ export function SettingsCandidateAssets() {
             value={retention}
           />
           <p className="text-(length:--text-description)">
-            Timed retention starts after the import succeeds.
+            The countdown starts once the file finishes importing.
           </p>
         </div>
       </div>

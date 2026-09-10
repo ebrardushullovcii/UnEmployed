@@ -162,7 +162,7 @@ describe("JobFinderGlobalSearchDialog", () => {
     );
     expect(
       screen.getByText(
-        "Jobs, applications, and documents come from the active search plan. Other search plans are also searchable.",
+        "Everything saved on this device is searchable. Jobs outside the current search plan say so in their description.",
       ),
     ).toBeTruthy();
     expect(appRoot.getAttribute("inert")).toBe("");
@@ -471,7 +471,7 @@ describe("JobFinderGlobalSearch", () => {
 
     typeQuery("zzzz");
     expect(screen.getByText("0 results")).toBeTruthy();
-    expect(screen.getByText(/No local records match this search/i));
+    expect(screen.getByText(/Nothing in your saved jobs/i));
   });
 
   it("does not search on one noisy character", () => {

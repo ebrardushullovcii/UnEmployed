@@ -188,7 +188,7 @@ describe("ProfileSetupImportStep", () => {
       "[data-profile-setup-import-quality-hint]",
     );
     expect(hint?.textContent).toBe(
-      "1 of 3 AI stages used the built-in reader.",
+      "The built-in reader handled 1 of 3 import steps instead of AI.",
     );
 
     const note = container?.querySelector(

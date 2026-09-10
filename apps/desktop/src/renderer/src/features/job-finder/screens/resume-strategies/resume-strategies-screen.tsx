@@ -166,7 +166,7 @@ function StrategyForm(props: {
           />
         </label>
         <label className="grid gap-1 text-sm sm:col-span-2">
-          <span className="font-medium">Base resume document</span>
+          <span className="font-medium">Start from this resume</span>
           <Input
             list="resume-strategy-base-resume-options"
             onChange={(event) =>
@@ -368,6 +368,7 @@ function describeUsage(usage: ResumeStrategyUsage): string {
 }
 
 function StrategyCard(props: {
+  baseResumeDocumentId: string;
   isDisablePending: boolean;
   isSavePending: boolean;
   onDisable: (strategyId: string) => void;
@@ -475,7 +476,9 @@ function StrategyCard(props: {
             Base resume
           </dt>
           <dd className="break-all text-foreground-soft">
-            {strategy.baseResumeDocumentId}
+            {strategy.baseResumeDocumentId === props.baseResumeDocumentId
+              ? "Your imported resume"
+              : strategy.baseResumeDocumentId}
           </dd>
         </div>
         {props.usage ? (
@@ -849,6 +852,7 @@ export function ResumeStrategiesScreen(props: {
         <div className="grid gap-3 xl:grid-cols-2">
           {filteredStrategies.map((strategy) => (
             <StrategyCard
+              baseResumeDocumentId={props.baseResumeDocumentId}
               isDisablePending={props.isDisablePending(strategy.id)}
               isSavePending={props.isSavePending}
               key={strategy.id}

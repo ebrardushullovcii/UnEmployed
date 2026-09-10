@@ -70,6 +70,7 @@ export function ReviewQueuePreviewPanel({
   const workflowStatus = getReviewQueueWorkflowStatus(
     selectedItem,
     selectedAsset,
+    isSelectedJobPending,
   );
   const previewTone =
     previewState === "missing" ? "critical" : workflowStatus.tone;

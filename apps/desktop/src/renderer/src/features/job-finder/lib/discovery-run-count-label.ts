@@ -257,7 +257,9 @@ function formatSavedAndKeptCounts(
   savedByRun: number,
   keptInPlan: number,
 ): string {
+  // Names the cause of the gap and where to change it; "50 saved · 15 kept"
+  // sent people looking for 35 jobs that no screen lists.
   return `${savedByRun} new ${
     savedByRun === 1 ? "job" : "jobs"
-  } saved on this device · ${keptInPlan} kept in your current search plan`;
+  } saved on this device · ${keptInPlan} kept in your current search plan (its 'Jobs to retain' limit; raise it in Search plans → Edit to keep more)`;
 }

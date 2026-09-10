@@ -5,7 +5,7 @@ export function DocumentsScreen() {
   return (
     <section className="grid min-w-0 gap-3 pb-8">
       <PageHeader
-        description="Import and manage the documents you reuse across applications. Files are copied into private app-owned storage on this device, and removal always goes through Trash first."
+        description="The extra files you attach to applications, like a portfolio or transcript. Your imported resume is managed in Profile. Files are copied into Job Finder's own folder on this device, and removal goes through Trash first."
         title="Documents"
       />
       <SettingsCandidateAssets />

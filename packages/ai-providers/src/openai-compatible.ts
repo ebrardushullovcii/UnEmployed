@@ -291,19 +291,18 @@ export function createOpenAiCompatibleJobFinderAiClient(
       systemPrompt,
       userPayload,
     });
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    // `controller` carries only the caller's abort. Each attempt below gets
+    // its own deadline: one budget shared across retries meant a transient
+    // failure retried against an already-aborted signal, and a timeout on
+    // the first attempt was never retried at all.
     let onCallerAbort: (() => void) | null = null;
 
     if (options?.signal?.aborted) {
-      clearTimeout(timeoutId);
       throw new DOMException("Aborted", "AbortError");
     }
 
     if (options?.signal) {
-      onCallerAbort = () => {
-        clearTimeout(timeoutId);
-        controller.abort();
-      };
+      onCallerAbort = () => controller.abort();
       options.signal.addEventListener("abort", onCallerAbort, { once: true });
     }
 
@@ -314,12 +313,25 @@ export function createOpenAiCompatibleJobFinderAiClient(
         attempt < TRANSIENT_MODEL_MAX_ATTEMPTS;
         attempt += 1
       ) {
+        const attemptController = new AbortController();
+        const attemptTimeoutId = setTimeout(
+          () => attemptController.abort(),
+          timeoutMs,
+        );
+        const forwardCallerAbort = () => attemptController.abort();
+        if (controller.signal.aborted) {
+          attemptController.abort();
+        } else {
+          controller.signal.addEventListener("abort", forwardCallerAbort, {
+            once: true,
+          });
+        }
         try {
           const response = await fetch(
             buildModelUrl(validatedOptions.baseUrl, apiMode),
             {
               method: "POST",
-              signal: controller.signal,
+              signal: attemptController.signal,
               headers: buildModelRequestHeaders({
                 apiKey: validatedOptions.apiKey,
                 baseUrl: validatedOptions.baseUrl,
@@ -345,13 +357,22 @@ export function createOpenAiCompatibleJobFinderAiClient(
           );
           return await parseModelJsonResponse(response, apiMode);
         } catch (error) {
+          const attemptTimedOut =
+            attemptController.signal.aborted && !controller.signal.aborted;
+          // A timed-out attempt is not retried: the budget is the user's wait,
+          // and a second full wait would double it. Per-attempt deadlines only
+          // make sure a transient failure retries against a live signal.
           if (
+            attemptTimedOut ||
             !isTransientModelError(error) ||
             attempt === TRANSIENT_MODEL_MAX_ATTEMPTS - 1
           ) {
             throw error;
           }
           await waitForTransientModelRetry(attempt, options?.signal);
+        } finally {
+          clearTimeout(attemptTimeoutId);
+          controller.signal.removeEventListener("abort", forwardCallerAbort);
         }
       }
       throw new Error("Model request exhausted transient retries.");
@@ -362,7 +383,6 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
       throw normalizeTimeoutLikeError(error, timeoutMs);
     } finally {
-      clearTimeout(timeoutId);
       if (onCallerAbort) {
         options?.signal?.removeEventListener("abort", onCallerAbort);
       }
@@ -668,22 +688,16 @@ export function createOpenAiCompatibleJobFinderAiClient(
       const controller = new AbortController();
       const timeoutMs =
         validatedOptions.requestTimeoutMs ?? DEFAULT_AGENT_TURN_TIMEOUT_MS;
+      // Set when the last attempt's own deadline expired (see the per-attempt
+      // controllers below); the caller's abort never sets it.
       let localTimedOut = false;
-      const timeoutId = setTimeout(() => {
-        localTimedOut = true;
-        controller.abort();
-      }, timeoutMs);
 
       let onCallerAbort: (() => void) | null = null;
 
       if (options?.signal?.aborted) {
-        clearTimeout(timeoutId);
         controller.abort();
       } else if (options?.signal) {
-        onCallerAbort = () => {
-          clearTimeout(timeoutId);
-          controller.abort();
-        };
+        onCallerAbort = () => controller.abort();
         options.signal.addEventListener("abort", onCallerAbort, { once: true });
       }
 
@@ -729,12 +743,25 @@ export function createOpenAiCompatibleJobFinderAiClient(
           attempt < TRANSIENT_MODEL_MAX_ATTEMPTS;
           attempt += 1
         ) {
+          const attemptController = new AbortController();
+          const attemptTimeoutId = setTimeout(
+            () => attemptController.abort(),
+            timeoutMs,
+          );
+          const forwardCallerAbort = () => attemptController.abort();
+          if (controller.signal.aborted) {
+            attemptController.abort();
+          } else {
+            controller.signal.addEventListener("abort", forwardCallerAbort, {
+              once: true,
+            });
+          }
           try {
             const response = await fetch(
               buildModelUrl(validatedOptions.baseUrl, apiMode),
               {
                 method: "POST",
-                signal: controller.signal,
+                signal: attemptController.signal,
                 headers: buildModelRequestHeaders({
                   apiKey: validatedOptions.apiKey,
                   baseUrl: validatedOptions.baseUrl,
@@ -747,13 +774,24 @@ export function createOpenAiCompatibleJobFinderAiClient(
             payload = await parseResponsePayload(response, apiMode);
             break;
           } catch (error) {
+            const attemptTimedOut =
+              attemptController.signal.aborted && !controller.signal.aborted;
+            if (attemptTimedOut) {
+              localTimedOut = true;
+            }
+            // A timed-out attempt is not retried; see the structured request
+            // above for why.
             if (
+              attemptTimedOut ||
               !isTransientModelError(error) ||
               attempt === TRANSIENT_MODEL_MAX_ATTEMPTS - 1
             ) {
               throw error;
             }
             await waitForTransientModelRetry(attempt, options?.signal);
+          } finally {
+            clearTimeout(attemptTimeoutId);
+            controller.signal.removeEventListener("abort", forwardCallerAbort);
           }
         }
         if (!payload) {
@@ -816,7 +854,6 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
         throw error;
       } finally {
-        clearTimeout(timeoutId);
         if (options?.signal && onCallerAbort) {
           options.signal.removeEventListener("abort", onCallerAbort);
         }

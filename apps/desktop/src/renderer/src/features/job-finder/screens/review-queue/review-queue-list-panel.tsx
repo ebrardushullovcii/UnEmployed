@@ -302,6 +302,11 @@ export function ReviewQueueListPanel({
                     {draftEligibleCount} eligible · {readyToStageCount} ready to
                     prepare
                   </p>
+                  <p className="m-0 text-foreground-muted">
+                    Each resume takes about a minute, so a full batch of{" "}
+                    {TAILORED_DRAFT_PREPARATION_LIMIT} takes roughly 8–12
+                    minutes. Stop any time — finished drafts are kept.
+                  </p>
                   {draftPreparationCapNote ? (
                     <p className="m-0 text-foreground-muted">
                       {draftPreparationCapNote}
@@ -315,7 +320,7 @@ export function ReviewQueueListPanel({
                     aria-live="polite"
                   >
                     <p className="m-0 text-xs text-primary">
-                      Preparing {draftPreparation.currentIndex ?? 1} of{" "}
+                      Writing resume {draftPreparation.currentIndex ?? 1} of{" "}
                       {draftPreparation.totalCount}
                     </p>
                     <Button
@@ -434,6 +439,7 @@ export function ReviewQueueListPanel({
             const workflowStatus = getReviewQueueWorkflowStatus(
               item,
               assetsByJobId.get(item.jobId),
+              isPending,
             );
             const showProgress =
               isResumeGenerationInProgress(item) || isPending;

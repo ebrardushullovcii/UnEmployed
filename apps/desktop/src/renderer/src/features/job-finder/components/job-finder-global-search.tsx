@@ -171,8 +171,8 @@ export function JobFinderGlobalSearch(props: {
         {JOB_FINDER_GLOBAL_SEARCH_LABEL}
       </label>
       <p className="sr-only" id={scopeHelpId}>
-        Jobs, applications, and documents come from the active search plan.
-        Other search plans are also searchable.
+        Everything saved on this device is searchable. Jobs outside the current
+        search plan say so in their description.
       </p>
       <Input
         aria-activedescendant={activeOptionId}
@@ -207,7 +207,8 @@ export function JobFinderGlobalSearch(props: {
           </p>
           {groups.length === 0 ? (
             <p className="rounded-(--radius-field) px-3 py-5 text-center text-sm text-foreground-soft">
-              No local records match this search.
+              Nothing in your saved jobs, companies, applications, or documents
+              matches &ldquo;{query}&rdquo;.
             </p>
           ) : (
             <div

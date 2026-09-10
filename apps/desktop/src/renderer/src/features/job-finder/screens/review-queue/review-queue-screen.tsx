@@ -222,6 +222,7 @@ export function ReviewQueueScreen(props: {
   const selectedWorkflowStatus = getReviewQueueWorkflowStatus(
     selectedItem,
     selectedAsset,
+    selectedItem ? isJobPending(selectedItem.jobId) : false,
   );
   const selectedJobEmployerLocationLine = selectedJob
     ? formatJobEmployerLocationLine({
