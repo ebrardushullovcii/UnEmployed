@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { areEquivalentExperienceRecords } from "./resume-record-identity";
+import {
+  areEquivalentEducationRecords,
+  areEquivalentExperienceRecords,
+} from "./resume-record-identity";
 
 describe("resume record identity", () => {
   test("treats M/D/YYYY slash dates as month-first when the first capture is a valid month", () => {
@@ -40,6 +43,29 @@ describe("resume record identity", () => {
           startDate: "2023-07",
           endDate: "2024-06",
           isCurrent: false,
+        },
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("areEquivalentEducationRecords stubs", () => {
+  test("treats a dateless, fieldless stub of the same degree at the same school as the same record", () => {
+    expect(
+      areEquivalentEducationRecords(
+        {
+          schoolName: "University of Texas at Austin",
+          degree: "Bachelor of Science",
+          fieldOfStudy: "Computer Science",
+          startDate: "2012-08",
+          endDate: "2016-05",
+        },
+        {
+          schoolName: "University of Texas at Austin",
+          degree: "Bachelor of Science",
+          fieldOfStudy: null,
+          startDate: null,
+          endDate: null,
         },
       ),
     ).toBe(true);

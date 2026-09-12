@@ -209,6 +209,12 @@ const SOURCE_SETUP_FAILURE_RE =
   /single_target|not found or unavailable|missing, disabled|no runnable|no enabled|enable at least one|add at least one|add or enable/i;
 const CONNECTION_FAILURE_RE =
   /fetch failed|network|offline|\bdns\b|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|timed?\s?out|unreachable|socket|provider (is )?(unavailable|unreachable)/i;
+const SITE_PROTECTION_FAILURE_RE =
+  /human-verification check|verification check|verify you are human|\bcaptcha\b|are you a robot/i;
+const SIGN_IN_WALL_FAILURE_RE =
+  /asks you to sign in before it shows job listings/i;
+const NO_PROGRESS_FAILURE_RE =
+  /repeated actions produced no new jobs|no new jobs, page evidence|showed nothing new after several tries/i;
 const AI_TOOL_CALLING_FAILURE_RE =
   /does not support tool calling|chatWithTools|tool calling|Cannot run agent discovery/i;
 
@@ -220,6 +226,37 @@ const AI_TOOL_CALLING_FAILURE_RE =
 export function getDiscoveryRunFailureRecovery(
   detail: string,
 ): DiscoveryRunRecovery {
+  // Access walls first: their sentences mention the browser and job sites,
+  // which the broader classifiers below would read as a runtime failure.
+  if (SITE_PROTECTION_FAILURE_RE.test(detail)) {
+    return {
+      kind: "source_setup",
+      headline:
+        "This site asked for a human verification check, so the search could not read it.",
+      actionLabel: "Review job sources",
+      nextStep:
+        "Verification checks cannot be passed automatically. Try another job site or a company careers page, then search again.",
+    };
+  }
+
+  if (SIGN_IN_WALL_FAILURE_RE.test(detail)) {
+    return {
+      kind: "browser_session",
+      headline: "This site asks you to sign in before it shows job listings.",
+      actionLabel: OPEN_JOB_FINDER_BROWSER_ACTION,
+      nextStep: `Open ${JOB_FINDER_BROWSER_NAME}, sign in on that site, then search again.`,
+    };
+  }
+
+  if (NO_PROGRESS_FAILURE_RE.test(detail)) {
+    return {
+      kind: "retry",
+      headline: "This source did not show any readable job listings.",
+      actionLabel: null,
+      nextStep: `Open the source in ${JOB_FINDER_BROWSER_NAME} to see what it shows, or try another job site, then search again.`,
+    };
+  }
+
   if (SOURCE_SETUP_FAILURE_RE.test(detail)) {
     return {
       kind: "source_setup",

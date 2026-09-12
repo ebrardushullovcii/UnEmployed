@@ -58,12 +58,12 @@ describe("profile readiness quality", () => {
       formatProfileSetupFinishReadiness({
         canFinishSetup: false,
         remainingBlockerLabels: [
-          "Complete your essentials",
+          "Add your name and an email or phone",
           "Enable a job source",
         ],
       }),
     ).toBe(
-      "Still needed to finish: Complete your essentials · Enable a job source.",
+      "Still needed to finish: Add your name and an email or phone · Enable a job source.",
     );
   });
 

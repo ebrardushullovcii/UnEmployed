@@ -1073,15 +1073,15 @@ function describeModelDraftProvenance(
     if (deterministicNoteIndex >= 0) {
       notes.splice(deterministicNoteIndex, 1);
     }
-    const detail = `Created with the configured AI model: ${accepted} of ${proposed} proposed ${proposed === 1 ? "rewrite" : "rewrites"} verified against saved evidence; the rest keeps grounded resume wording.`;
+    const detail = `Created with AI: ${accepted} of ${proposed} proposed ${proposed === 1 ? "rewrite" : "rewrites"} verified against saved evidence; the rest keeps grounded resume wording.`;
     notes.unshift(detail);
     return { method: "ai", reason: null, detail };
   }
 
   const detail =
     proposed > 0
-      ? `The configured AI model proposed ${proposed} ${proposed === 1 ? "rewrite" : "rewrites"}, but none could be verified against saved evidence.`
-      : "The configured AI model returned no usable rewrite proposals.";
+      ? `AI proposed ${proposed} ${proposed === 1 ? "rewrite" : "rewrites"}, but none could be verified against your saved evidence.`
+      : "AI could not produce usable rewrite suggestions this time.";
   if (!notes.includes(DETERMINISTIC_TAILORER_NOTE)) {
     notes.unshift(DETERMINISTIC_TAILORER_NOTE);
   }

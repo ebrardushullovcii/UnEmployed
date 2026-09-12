@@ -302,6 +302,24 @@ describe("resume workspace quality helpers", () => {
     );
   });
 
+  test("sanitizeResumeDraft drops how-the-job-ended sentences from a generated summary", () => {
+    const { profile, job } = getSeedContext();
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_summary",
+      (section) => ({
+        ...section,
+        text: "Product designer focused on reliable workflow software. Position ended in a company-wide reduction in July 2026.",
+      }),
+    );
+
+    const sanitized = sanitizeResumeDraft({ draft, job, profile });
+
+    expect(getSection(sanitized, "section_summary").text).toBe(
+      "Product designer focused on reliable workflow software.",
+    );
+  });
+
   test("sanitizeResumeDraft removes visible company and job-only skill bleed", () => {
     const { profile, job } = getSeedContext();
     const draft = updateSection(

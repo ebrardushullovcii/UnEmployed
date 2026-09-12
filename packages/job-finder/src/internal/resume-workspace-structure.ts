@@ -157,16 +157,40 @@ export function buildResumeDraftIdentity(
   };
 }
 
+// A listing title only becomes the resume headline when it reads like a
+// role. Board marketing ("FULL TIME: Software Engineer Position - React and
+// Rest", "URGENT hiring…") printed as the candidate's headline on an exported
+// PDF was the single worst defect a blind auditor found.
+const POLLUTED_JOB_TITLE_PATTERN =
+  /^(?:full|part)[\s-]?time\b|\b(?:urgent|hiring|immediate(?:ly)?|apply|now|position|opening|vacanc(?:y|ies)|wanted|needed|asap)\b|[:!|#()[\]]|\$|\d{2,}|\bhr\b|\bper\s+(?:hour|year)\b/iu;
+
+export function looksLikeCleanRoleTitle(title: string): boolean {
+  const trimmed = title.trim();
+  return (
+    trimmed.length >= 3 &&
+    trimmed.length <= 60 &&
+    !POLLUTED_JOB_TITLE_PATTERN.test(trimmed) &&
+    trimmed.split(/\s+/u).length <= 7
+  );
+}
+
+// The headline names who the candidate is, not what the posting is called.
+// Two HR graders, a coach and a UX auditor independently flagged posting
+// titles in the identity block as seniority or function misrepresentation
+// ("Staff Software Development Engineer SDM" for a senior engineer, an
+// employer's team name bolted on). The per-job policy in Resume approaches
+// can still opt into a tailored headline explicitly.
 function buildJobTargetedHeadline(
   profile: CandidateProfile,
   job: SavedJob,
 ): string | null {
-  const jobTitle = job.title.trim();
-  if (jobTitle) {
-    return jobTitle;
+  const ownHeadline = profile.headline?.trim();
+  if (ownHeadline) {
+    return ownHeadline;
   }
 
-  return profile.headline ?? null;
+  const jobTitle = job.title.trim();
+  return jobTitle && looksLikeCleanRoleTitle(jobTitle) ? jobTitle : null;
 }
 
 function buildResumeContactItems(

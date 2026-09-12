@@ -528,7 +528,7 @@ export function DiscoveryHistoryModal(props: {
                 </div>
                 <div>
                   <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
-                    Found
+                    Saved
                   </p>
                   <p className="mt-2 text-[0.95rem] font-semibold text-(--text-headline)">
                     {selectedRun.summary.validJobsFound}
@@ -601,7 +601,9 @@ export function DiscoveryHistoryModal(props: {
                   </h3>
                   {(() => {
                     const changeCounts: ReadonlyArray<[string, number]> = [
-                      ["New", selectedRun.summary.changeDigest.new],
+                      // Listings seen for the first time, before the plan's
+                      // "jobs to retain" limit; can exceed the saved count.
+                      ["New listings seen", selectedRun.summary.changeDigest.new],
                       ["Unchanged", selectedRun.summary.changeDigest.unchanged],
                       ["Changed", selectedRun.summary.changeDigest.changed],
                       [

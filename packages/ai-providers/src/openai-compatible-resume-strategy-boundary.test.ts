@@ -262,7 +262,7 @@ describe("configured resume strategy request boundary", () => {
       const body = JSON.parse(fetchMock.getCapturedBody()) as {
         model?: string;
       };
-      expect(body.model).toBe("deepseek-v4-flash");
+      expect(body.model).toBe("deepseek-v4.1-flash");
     } finally {
       fetchMock.restore();
     }

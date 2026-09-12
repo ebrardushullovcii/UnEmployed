@@ -331,7 +331,7 @@ describe("profile setup customer-quality guidance", () => {
     render(<FormHarness screen="targeting" />);
 
     expect(container?.textContent).toContain(
-      "Choose at least one work mode before relying on discovery results.",
+      "Choose at least one so searches know what to look for.",
     );
     expect(container?.textContent).toContain(
       "A city and country entered together stay one location.",

@@ -155,8 +155,12 @@ export function ResumeWorkspaceEditorPanel(
     );
   };
   const generatedLines = props.showGeneratedLineMarkers
-    ? listGeneratedReviewLines(props.draft).filter(({ bullet }) =>
-        isGeneratedResumeOrigin(bullet.origin),
+    ? listGeneratedReviewLines(props.draft).filter(
+        ({ bullet }) =>
+          isGeneratedResumeOrigin(bullet.origin) &&
+          // A single skill word ("React") is not a generated line; counting
+          // eight of them made a "14 lines" warning read as theatre.
+          bullet.text.trim().split(/\s+/u).length >= 4,
       )
     : [];
   const generatedBulletCount = generatedLines.length;

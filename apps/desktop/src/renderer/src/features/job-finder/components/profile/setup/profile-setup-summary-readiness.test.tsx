@@ -90,7 +90,7 @@ describe("guided setup readiness, stated once", () => {
       "discovery_source",
     ]);
     expect(text).toBe(
-      "Still needed to finish: Complete your essentials · Add work history · Answer one work or location detail · Pick a work mode (remote, hybrid, or onsite) · Enable a job source.",
+      "Still needed to finish: Add your name and an email or phone · Add work history · Answer one work or location detail · Pick a work mode (remote, hybrid, or onsite) · Enable a job source (on the Job targets step).",
     );
   });
 
@@ -208,13 +208,14 @@ describe("guided setup readiness, stated once", () => {
       draftSearchPreferences: searchPreferences,
     });
 
+    // Mina has a name and an email; her zero years of experience is a true
+    // answer and no longer counts against the essentials.
     expect(presentation.blockers.map((blocker) => blocker.id)).toEqual([
-      "identity_contact",
       "work_mode_preference",
       "discovery_source",
     ]);
     expect(text).toBe(
-      "Still needed to finish: Complete your essentials · Pick a work mode (remote, hybrid, or onsite) · Enable a job source.",
+      "Still needed to finish: Pick a work mode (remote, hybrid, or onsite) · Enable a job source (on the Job targets step).",
     );
     // One readiness system: the footer primary is gated by the same
     // presentation the line above is written from.

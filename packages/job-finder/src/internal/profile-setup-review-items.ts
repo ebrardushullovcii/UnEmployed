@@ -3,7 +3,6 @@ import {
   ProfileSetupStateSchema,
   evaluateProfileSetupReadiness,
   hasProfileSetupPlaceholderValue,
-  isFreshStartCandidateProfile,
   type CandidateProfile,
   type JobSearchPreferences,
   type ProfileReviewItem,
@@ -604,8 +603,11 @@ function buildMissingFieldDrafts(
       target: { domain: "identity", key: "currentLocation", recordId: null },
       label: "Location",
       reason:
-        "Add your current location so discovery and application defaults can respect where you can realistically work.",
-      severity: "critical",
+        "Add your current location so searches and applications can respect where you can realistically work.",
+      // Recommended, not blocking: a person who could not get the card to
+      // clear was locked out of finishing setup over a field the search
+      // plan's own locations already cover.
+      severity: "recommended",
       proposedValue: null,
       sourceSnippet: null,
     });
@@ -615,17 +617,14 @@ function buildMissingFieldDrafts(
     profile.yearsExperience <= 0 &&
     !hasDraftForTarget(candidateDrafts, "identity", "yearsExperience")
   ) {
-    // Fresh-start profiles cannot complete setup without a real seniority
-    // signal, so the copy and severity must say that requirement out loud.
-    const freshStart = isFreshStartCandidateProfile(profile);
+    // Recommended, never blocking: zero is a true answer for a first job.
     drafts.push({
       step: "essentials",
       target: { domain: "identity", key: "yearsExperience", recordId: null },
       label: "Years of experience",
-      reason: freshStart
-        ? "Add your years of experience so setup, search targeting, and resume outputs have a grounded seniority signal. A fresh-start profile stays blocked until this is added."
-        : "Add your years of experience so setup, search targeting, and resume outputs have a grounded seniority signal.",
-      severity: freshStart ? "critical" : "recommended",
+      reason:
+        "Add your years of experience so search results and resumes match your level. Zero is fine if this is your first job.",
+      severity: "recommended",
       proposedValue: null,
       sourceSnippet: null,
     });

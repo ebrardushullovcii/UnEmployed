@@ -2299,12 +2299,10 @@ export function createBrowserAgentRuntime(
           warning:
             [
               result.incomplete
-                ? `Agent discovery stopped after ${result.steps} steps. Found ${result.jobs.length} jobs.`
+                ? `Stopped early with ${result.jobs.length} job${result.jobs.length === 1 ? "" : "s"} saved.`
                 : null,
               result.warning ?? null,
-              result.error
-                ? `Discovery encountered an error: ${result.error}`
-                : null,
+              result.error ?? null,
             ]
               .filter(Boolean)
               .join(" ") || null,

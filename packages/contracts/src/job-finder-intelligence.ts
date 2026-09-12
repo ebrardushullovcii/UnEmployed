@@ -721,12 +721,34 @@ export function isGenericCompanyName(value: string): boolean {
  * intelligence (non-empty, outside the generic/absence placeholder corpus,
  * and not site utility chrome such as privacy-policy shells).
  */
+// Job titles mis-read as employers ("Senior DevOps Engineer", "Customer
+// Service Representative") filled a Companies list with 41 entries after one
+// search. A name that ends in a role noun is a title, not a company; a
+// seniority prefix alone is not enough ("Lead Bank" is a company).
+const ROLE_TITLE_AS_COMPANY_PATTERN =
+  /\b(?:engineer|engineers|developer|developers|programmer|manager|managers|analyst|analysts|designer|designers|specialist|specialists|coordinator|coordinators|assistant|assistants|nurse|nurses|technician|technicians|intern|interns|director|directors|representative|representatives|consultant|consultants|administrator|administrators|accountant|accountants|architect|architects|scientist|scientists|officer|officers|clerk|clerks|supervisor|supervisors|recruiter|recruiters|bookkeeper|bookkeepers|driver|drivers|cashier|cashiers|receptionist|receptionists|therapist|therapists|attendant|attendants|associate|associates)(?:\s*\(.*\))?\s*$/iu;
+
+export function isRoleTitleMisreadAsCompany(value: string): boolean {
+  return ROLE_TITLE_AS_COMPANY_PATTERN.test(value.trim());
+}
+
+// A card's posted-age token ("12d", "3h", "2w ago") or a bare number that
+// landed in the employer slot; a Companies entry called "12d" followed.
+const AGE_TOKEN_AS_COMPANY_PATTERN =
+  /^(?:\d+\s*(?:[dhwmy]|days?|hours?|weeks?|months?|years?)(?:\s+ago)?|\d+|today|yesterday|new)$/iu;
+
+export function isAgeTokenMisreadAsCompany(value: string): boolean {
+  return AGE_TOKEN_AS_COMPANY_PATTERN.test(value.trim());
+}
+
 export function isListableCompanyName(value: string): boolean {
   const trimmed = value.trim();
   if (
     trimmed === "" ||
     isLikelyUtilitySiteChromeName(trimmed) ||
-    isUrlDerivedEmployerLabel(trimmed)
+    isUrlDerivedEmployerLabel(trimmed) ||
+    isRoleTitleMisreadAsCompany(trimmed) ||
+    isAgeTokenMisreadAsCompany(trimmed)
   ) {
     return false;
   }
@@ -925,6 +947,7 @@ export function sanitizeEmployerLabel(
     isGenericCompanyName(trimmed) ||
     isLikelyUtilitySiteChromeName(trimmed) ||
     isUrlDerivedEmployerLabel(trimmed) ||
+    isAgeTokenMisreadAsCompany(trimmed) ||
     /^[A-Z][a-z]{12,}$/.test(trimmed)
   ) {
     return null;

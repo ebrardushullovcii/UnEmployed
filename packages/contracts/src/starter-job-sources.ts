@@ -23,7 +23,32 @@ export const StarterJobSourceSchema = z.object({
 
 export type StarterJobSource = z.infer<typeof StarterJobSourceSchema>;
 
+// Public boards first: a first-run user whose only readable suggestion was a
+// regional board ended up with a page of jobs from the wrong country, and the
+// sign-in boards cannot be searched until they have signed in.
 export const STARTER_JOB_SOURCES: readonly StarterJobSource[] = [
+  StarterJobSourceSchema.parse({
+    accessNote:
+      "Large general job board that is usually readable without an account.",
+    aliases: ["indeed", "indeed jobs"],
+    id: "target_starter_indeed",
+    label: "Indeed",
+    startingUrl: "https://www.indeed.com/jobs",
+  }),
+  StarterJobSourceSchema.parse({
+    accessNote: "Remote-only board that is readable without an account.",
+    aliases: ["we work remotely", "weworkremotely", "wwr"],
+    id: "target_starter_we_work_remotely",
+    label: "We Work Remotely",
+    startingUrl: "https://weworkremotely.com/remote-jobs",
+  }),
+  StarterJobSourceSchema.parse({
+    accessNote: "Remote-only board that is readable without an account.",
+    aliases: ["remote ok", "remoteok"],
+    id: "target_starter_remote_ok",
+    label: "Remote OK",
+    startingUrl: "https://remoteok.com/",
+  }),
   StarterJobSourceSchema.parse({
     accessNote:
       "Usually requires signing in to your own account before jobs appear.",
@@ -50,8 +75,19 @@ export const STARTER_JOB_SOURCES: readonly StarterJobSource[] = [
   }),
 ];
 
-/** Disabled-by-default discovery targets for a fresh workspace seed. */
+/**
+ * A fresh workspace seeds no sources. The known-source list above exists so
+ * the assistant can add a board by name and so the setup step can show an
+ * access note for a URL the user pastes; a seeded list of three suggestions
+ * sent every blind tester to whichever board happened to work without an
+ * account, whatever country they lived in. Real users add the sites they use.
+ */
 export function createStarterJobDiscoveryTargets(): JobDiscoveryTarget[] {
+  return [];
+}
+
+/** The known sources as disabled targets, for fixtures and tests only. */
+export function createKnownJobSourceTargetsForFixtures(): JobDiscoveryTarget[] {
   return STARTER_JOB_SOURCES.map((source) =>
     JobDiscoveryTargetSchema.parse({
       enabled: false,

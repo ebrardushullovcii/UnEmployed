@@ -19,16 +19,25 @@ export function formatNormalizedCompensation(
     compensation.maxAmount !== null
       ? `${currencyPrefix}${compensation.maxAmount.toLocaleString()}`
       : null;
-  const directRange = [minAmount, maxAmount].filter(Boolean).join(" – ");
+  const directRange =
+    minAmount && !maxAmount
+      ? `${minAmount}+`
+      : minAmount && maxAmount && minAmount === maxAmount
+        ? minAmount
+        : [minAmount, maxAmount].filter(Boolean).join(" – ");
 
   if (directRange) {
     return `${directRange}${interval}`;
   }
 
-  const annualizedRange = [compensation.minAnnualUsd, compensation.maxAnnualUsd]
-    .filter((value): value is number => value !== null)
-    .map((value) => `USD ${value.toLocaleString()}`)
-    .join(" – ");
+  const annualizedValues = [
+    compensation.minAnnualUsd,
+    compensation.maxAnnualUsd,
+  ].filter((value): value is number => value !== null);
+  const annualizedRange =
+    annualizedValues.length === 1 && compensation.maxAnnualUsd === null
+      ? `USD ${annualizedValues[0]!.toLocaleString()}+`
+      : annualizedValues.map((value) => `USD ${value.toLocaleString()}`).join(" – ");
 
   return annualizedRange ? `${annualizedRange} annualized` : null;
 }

@@ -253,6 +253,35 @@ test("keeps jobs outside soft preferences visible unless strict collection is en
   ).toEqual({ outcome: "pass", reason: null });
 });
 
+test("skips a sign-in wall captured as a job even when broad discovery is enabled", () => {
+  const seed = createSeed();
+  const posting = createPosting({
+    title: "Customer Service",
+    company: "Linkedin",
+    summary: "Get notified about new Customer Service jobs in San Antonio.",
+    description:
+      "Sign in to continue. Welcome back. Email or phone. Password. New to LinkedIn? Join now. Get notified about new Customer Service jobs in San Antonio, TX.",
+  });
+
+  expect(
+    applyDiscoveryTitleTriage({
+      posting,
+      profile: seed.profile,
+      searchPreferences: createSearchPreferences({
+        discovery: {
+          targets: [],
+          historyLimit: 5,
+          collectOnlyHardCriteriaMatches: false,
+        },
+      }),
+    }),
+  ).toEqual({
+    outcome: "skip_title",
+    reason:
+      "This page asks you to sign in or create an account; it is not a job listing.",
+  });
+});
+
 test("skips generic talent-pool invitations even when broad discovery is enabled", () => {
   const seed = createSeed();
   const posting = createPosting({

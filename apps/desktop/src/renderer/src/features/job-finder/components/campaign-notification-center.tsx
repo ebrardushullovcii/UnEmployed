@@ -1,5 +1,6 @@
 import type { CampaignNotification } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
+import { JOB_FINDER_ROUTE_PATHS } from "../lib/job-finder-route-hrefs";
 
 const kindLabels: Record<CampaignNotification["kind"], string> = {
   digest_ready: "Digest ready",
@@ -23,6 +24,26 @@ const NOTIFICATION_OPEN_LABELS: Record<CampaignNotification["kind"], string> = {
   schedule_paused: "Open Search plans",
   rule_effect_update: "Open Search plans",
 };
+
+/**
+ * Blocked work on a job source (a failed source check) lives on Profile >
+ * Job sources, not on Needs you: that screen counts application blockers,
+ * so "Open Needs you" landed on a screen that said 0 and contradicted the
+ * notification.
+ */
+function getNotificationRoute(notification: CampaignNotification): string {
+  if (notification.kind === "blocked_work" && notification.sourceTargetId) {
+    return JOB_FINDER_ROUTE_PATHS.profileSources;
+  }
+  return NOTIFICATION_ROUTES[notification.kind];
+}
+
+function getNotificationOpenLabel(notification: CampaignNotification): string {
+  if (notification.kind === "blocked_work" && notification.sourceTargetId) {
+    return "Open job sources";
+  }
+  return NOTIFICATION_OPEN_LABELS[notification.kind];
+}
 
 function compareNewestFirst(
   left: CampaignNotification,
@@ -162,8 +183,8 @@ export function CampaignNotificationCenter(props: {
           ) : null}
           {!hasNotifications && outstandingWork.length === 0 ? (
             <p className="rounded-(--radius-field) border border-border-subtle p-4 text-sm text-foreground-soft">
-              Nothing here yet. After a search finishes, strong new matches and
-              work that needs you show up here.
+              Nothing here yet. After a search finishes, matches scoring 86% or
+              better and work that needs you show up here.
             </p>
           ) : null}
           {hasNotifications ? (
@@ -217,14 +238,14 @@ export function CampaignNotificationCenter(props: {
                         <Button
                           onClick={() =>
                             props.onNavigate?.(
-                              NOTIFICATION_ROUTES[notification.kind],
+                              getNotificationRoute(notification),
                             )
                           }
                           size="xs"
                           type="button"
                           variant="outline"
                         >
-                          {NOTIFICATION_OPEN_LABELS[notification.kind]}
+                          {getNotificationOpenLabel(notification)}
                         </Button>
                       </div>
                     ) : null}

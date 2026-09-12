@@ -1287,7 +1287,7 @@ export function DiscoveryResultsPanel({
               ? { onRecoveryAction: onShowAlsoFound }
               : {})}
             recoveryActionLabel={`Show also found (${hiddenAlsoFoundCount})`}
-            recoveryActionNextStep="Open one before trusting its score, then hide them again when you are done."
+            recoveryActionNextStep="Open a job to judge it yourself; a low score alone is not a reason to skip it."
             title="Nothing scored close to your targets"
           />
         </div>

@@ -43,11 +43,17 @@ import {
   DEFAULT_TEXT_MODEL,
   DEFAULT_TEXT_MODEL_API_MODE,
   DEFAULT_TEXT_MODEL_REASONING_EFFORT,
+  extractModelJsonFromPayload,
   parseModelApiMode,
-  parseModelJsonResponse,
   parseModelReasoningEffort,
-  parseResponsePayload,
 } from "./openai-compatible-transport";
+import {
+  type ModelRequestResilienceOptions,
+  ModelRequestTimeoutError,
+  parseConfiguredBoolean,
+  parseConfiguredPositiveInteger,
+  performModelRequest,
+} from "./model-request-transport";
 import {
   compactOpenAiCompatibleUserPayload,
   type OpenAiCompatibleJsonOperation,
@@ -73,68 +79,35 @@ import {
   modelConversationKeys,
 } from "./model-request-identity";
 
-const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
+const DEFAULT_MODEL_TIMEOUT_MS = 300_000;
 /**
  * A first tailored draft is the largest structured output the product asks
  * for: every section rewritten against a full listing body with evidence
  * references. Sixty seconds cut real drafts off mid-generation on slower
  * models and reported them as failures; the extraction budget fits the work.
  */
-const DEFAULT_RESUME_DRAFT_TIMEOUT_MS = 120_000;
+const DEFAULT_RESUME_DRAFT_TIMEOUT_MS = 600_000;
 /**
  * One tool-calling turn of the Assistant or Copilot. A turn that inspects the
  * draft and proposes a grounded rewrite is a large structured output too; at
  * sixty seconds slower models were cut off mid-turn and the whole request
  * collapsed into the safe fallback.
  */
-const DEFAULT_AGENT_TURN_TIMEOUT_MS = 90_000;
-const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 120_000;
+const DEFAULT_AGENT_TURN_TIMEOUT_MS = 300_000;
+const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 600_000;
 const DEFAULT_RESUME_IMPORT_STAGE_TIMEOUT_MS: Record<
   Exclude<ResumeImportExtractionStage, "shared_memory">,
   number
 > = {
-  identity_summary: 25_000,
-  experience: 25_000,
-  background: 20_000,
+  identity_summary: 300_000,
+  experience: 300_000,
+  background: 300_000,
 };
-const SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS = 35_000;
+const SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS = 240_000;
 const SEARCH_RESULTS_EXTRACTION_PAGE_TEXT_LIMIT = 8_000;
 const JOB_DETAIL_EXTRACTION_PAGE_TEXT_LIMIT = 12_000;
 const SEARCH_RESULTS_MAX_MODEL_JOBS = 12;
 const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS = 196_000;
-const TRANSIENT_MODEL_MAX_ATTEMPTS = 3;
-
-function isTransientModelError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  return /timeout|timed out|429|rate.?limit|overload|temporar|fetch failed|network|econn|socket|dns|502|503|504/.test(
-    message,
-  );
-}
-
-async function waitForTransientModelRetry(
-  attempt: number,
-  signal?: AbortSignal,
-): Promise<void> {
-  const delayMs = Math.min(2_000, 300 * 2 ** attempt) + attempt * 53;
-  await new Promise<void>((resolve, reject) => {
-    const cleanup = () => signal?.removeEventListener("abort", abort);
-    const abort = () => {
-      clearTimeout(timer);
-      cleanup();
-      reject(new DOMException("Aborted", "AbortError"));
-    };
-    if (signal?.aborted) {
-      reject(new DOMException("Aborted", "AbortError"));
-      return;
-    }
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve();
-    }, delayMs);
-    signal?.addEventListener("abort", abort, { once: true });
-  });
-}
-
 function buildResumeRewriteProposalPrompt(
   tailoringMode: "conservative" | "balanced" | "aggressive",
   strategy?: ResumeGenerationStrategyPolicy | null,
@@ -183,7 +156,10 @@ function parseConfiguredTimeoutMs(
   return parsedValue;
 }
 
-function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
+function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): Error {
+  if (error instanceof ModelRequestTimeoutError) {
+    return error;
+  }
   const message = error instanceof Error ? error.message.trim() : "";
   const isAbortLikeMessage =
     message === "This operation was aborted" ||
@@ -213,7 +189,7 @@ function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
     return abortError;
   }
 
-  return error;
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function resumeImportStageTimeoutMs(
@@ -260,6 +236,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
   // Requests that belong to no product conversation share one id per client
   // instance, so even background work is attributable and cacheable.
   const instanceConversationKey = createInstanceConversationKey();
+  const resilience: ModelRequestResilienceOptions = {
+    idleTimeoutMs: validatedOptions?.idleTimeoutMs,
+    maxAttempts: validatedOptions?.maxAttempts,
+    streaming: validatedOptions?.streaming,
+    retryBaseDelayMs: validatedOptions?.retryBaseDelayMs,
+  };
 
   async function fetchModelJson(
     operation: OpenAiCompatibleJsonOperation,
@@ -278,7 +260,6 @@ export function createOpenAiCompatibleJobFinderAiClient(
       );
     }
 
-    const controller = new AbortController();
     const timeoutMs =
       options?.timeoutMs ??
       validatedOptions.requestTimeoutMs ??
@@ -291,101 +272,48 @@ export function createOpenAiCompatibleJobFinderAiClient(
       systemPrompt,
       userPayload,
     });
-    // `controller` carries only the caller's abort. Each attempt below gets
-    // its own deadline: one budget shared across retries meant a transient
-    // failure retried against an already-aborted signal, and a timeout on
-    // the first attempt was never retried at all.
-    let onCallerAbort: (() => void) | null = null;
 
     if (options?.signal?.aborted) {
       throw new DOMException("Aborted", "AbortError");
     }
 
-    if (options?.signal) {
-      onCallerAbort = () => controller.abort();
-      options.signal.addEventListener("abort", onCallerAbort, { once: true });
-    }
-
+    const apiMode = validatedOptions.apiMode ?? "chat_completions";
     try {
-      const apiMode = validatedOptions.apiMode ?? "chat_completions";
-      for (
-        let attempt = 0;
-        attempt < TRANSIENT_MODEL_MAX_ATTEMPTS;
-        attempt += 1
-      ) {
-        const attemptController = new AbortController();
-        const attemptTimeoutId = setTimeout(
-          () => attemptController.abort(),
-          timeoutMs,
-        );
-        const forwardCallerAbort = () => attemptController.abort();
-        if (controller.signal.aborted) {
-          attemptController.abort();
-        } else {
-          controller.signal.addEventListener("abort", forwardCallerAbort, {
-            once: true,
-          });
-        }
-        try {
-          const response = await fetch(
-            buildModelUrl(validatedOptions.baseUrl, apiMode),
+      // Streaming, idle and total deadlines, and retries live in
+      // model-request-transport; `timeoutMs` is the total budget.
+      const payload = await performModelRequest({
+        url: buildModelUrl(validatedOptions.baseUrl, apiMode),
+        headers: buildModelRequestHeaders({
+          apiKey: validatedOptions.apiKey,
+          baseUrl: validatedOptions.baseUrl,
+          conversationKey: options?.conversationKey ?? instanceConversationKey,
+        }),
+        body: buildModelRequestBody({
+          apiMode,
+          model: validatedOptions.model,
+          reasoningEffort: validatedOptions.reasoningEffort,
+          reasoningSummary: resilience.streaming !== false,
+          jsonOutput: true,
+          messages: [
+            { role: "system", content: systemPrompt },
             {
-              method: "POST",
-              signal: attemptController.signal,
-              headers: buildModelRequestHeaders({
-                apiKey: validatedOptions.apiKey,
-                baseUrl: validatedOptions.baseUrl,
-                conversationKey:
-                  options?.conversationKey ?? instanceConversationKey,
-              }),
-              body: JSON.stringify(
-                buildModelRequestBody({
-                  apiMode,
-                  model: validatedOptions.model,
-                  reasoningEffort: validatedOptions.reasoningEffort,
-                  jsonOutput: true,
-                  messages: [
-                    { role: "system", content: systemPrompt },
-                    {
-                      role: "user",
-                      content: JSON.stringify(compactedUserPayload),
-                    },
-                  ],
-                }),
-              ),
+              role: "user",
+              content: JSON.stringify(compactedUserPayload),
             },
-          );
-          return await parseModelJsonResponse(response, apiMode);
-        } catch (error) {
-          const attemptTimedOut =
-            attemptController.signal.aborted && !controller.signal.aborted;
-          // A timed-out attempt is not retried: the budget is the user's wait,
-          // and a second full wait would double it. Per-attempt deadlines only
-          // make sure a transient failure retries against a live signal.
-          if (
-            attemptTimedOut ||
-            !isTransientModelError(error) ||
-            attempt === TRANSIENT_MODEL_MAX_ATTEMPTS - 1
-          ) {
-            throw error;
-          }
-          await waitForTransientModelRetry(attempt, options?.signal);
-        } finally {
-          clearTimeout(attemptTimeoutId);
-          controller.signal.removeEventListener("abort", forwardCallerAbort);
-        }
-      }
-      throw new Error("Model request exhausted transient retries.");
+          ],
+        }),
+        apiMode,
+        totalTimeoutMs: timeoutMs,
+        ...resilience,
+        signal: options?.signal,
+      });
+      return extractModelJsonFromPayload(payload);
     } catch (error) {
       if (options?.signal?.aborted) {
         throw new DOMException("Aborted", "AbortError");
       }
 
       throw normalizeTimeoutLikeError(error, timeoutMs);
-    } finally {
-      if (onCallerAbort) {
-        options?.signal?.removeEventListener("abort", onCallerAbort);
-      }
     }
   }
 
@@ -685,29 +613,28 @@ export function createOpenAiCompatibleJobFinderAiClient(
         );
       }
 
-      const controller = new AbortController();
       const timeoutMs =
         validatedOptions.requestTimeoutMs ?? DEFAULT_AGENT_TURN_TIMEOUT_MS;
-      // Set when the last attempt's own deadline expired (see the per-attempt
-      // controllers below); the caller's abort never sets it.
-      let localTimedOut = false;
-
-      let onCallerAbort: (() => void) | null = null;
 
       if (options?.signal?.aborted) {
-        controller.abort();
-      } else if (options?.signal) {
-        onCallerAbort = () => controller.abort();
-        options.signal.addEventListener("abort", onCallerAbort, { once: true });
+        throw new DOMException("Aborted", "AbortError");
       }
 
       try {
         const apiMode = validatedOptions.apiMode ?? "chat_completions";
-        const requestBody = JSON.stringify(
-          buildModelRequestBody({
+        const payload = await performModelRequest({
+          url: buildModelUrl(validatedOptions.baseUrl, apiMode),
+          headers: buildModelRequestHeaders({
+            apiKey: validatedOptions.apiKey,
+            baseUrl: validatedOptions.baseUrl,
+            conversationKey:
+              options?.conversationKey ?? instanceConversationKey,
+          }),
+          body: buildModelRequestBody({
             apiMode,
             model: validatedOptions.model,
             reasoningEffort: validatedOptions.reasoningEffort,
+            reasoningSummary: resilience.streaming !== false,
             messages: messages.map((msg) => {
               const base = { role: msg.role, content: msg.content };
               if (msg.role === "assistant" && msg.toolCalls) {
@@ -735,68 +662,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
             })),
             maxOutputTokens: options?.maxOutputTokens,
           }),
-        );
-        let payload: Awaited<ReturnType<typeof parseResponsePayload>> | null =
-          null;
-        for (
-          let attempt = 0;
-          attempt < TRANSIENT_MODEL_MAX_ATTEMPTS;
-          attempt += 1
-        ) {
-          const attemptController = new AbortController();
-          const attemptTimeoutId = setTimeout(
-            () => attemptController.abort(),
-            timeoutMs,
-          );
-          const forwardCallerAbort = () => attemptController.abort();
-          if (controller.signal.aborted) {
-            attemptController.abort();
-          } else {
-            controller.signal.addEventListener("abort", forwardCallerAbort, {
-              once: true,
-            });
-          }
-          try {
-            const response = await fetch(
-              buildModelUrl(validatedOptions.baseUrl, apiMode),
-              {
-                method: "POST",
-                signal: attemptController.signal,
-                headers: buildModelRequestHeaders({
-                  apiKey: validatedOptions.apiKey,
-                  baseUrl: validatedOptions.baseUrl,
-                  conversationKey:
-                    options?.conversationKey ?? instanceConversationKey,
-                }),
-                body: requestBody,
-              },
-            );
-            payload = await parseResponsePayload(response, apiMode);
-            break;
-          } catch (error) {
-            const attemptTimedOut =
-              attemptController.signal.aborted && !controller.signal.aborted;
-            if (attemptTimedOut) {
-              localTimedOut = true;
-            }
-            // A timed-out attempt is not retried; see the structured request
-            // above for why.
-            if (
-              attemptTimedOut ||
-              !isTransientModelError(error) ||
-              attempt === TRANSIENT_MODEL_MAX_ATTEMPTS - 1
-            ) {
-              throw error;
-            }
-            await waitForTransientModelRetry(attempt, options?.signal);
-          } finally {
-            clearTimeout(attemptTimeoutId);
-            controller.signal.removeEventListener("abort", forwardCallerAbort);
-          }
-        }
-        if (!payload) {
-          throw new Error("Model request exhausted transient retries.");
-        }
+          apiMode,
+          totalTimeoutMs: timeoutMs,
+          ...resilience,
+          signal: options?.signal,
+        });
 
         const message = payload.choices?.[0]?.message;
 
@@ -848,15 +718,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
         return result;
       } catch (error) {
-        if (localTimedOut) {
-          throw normalizeTimeoutLikeError(error, timeoutMs);
+        if (options?.signal?.aborted) {
+          throw new DOMException("Aborted", "AbortError");
         }
 
-        throw error;
-      } finally {
-        if (options?.signal && onCallerAbort) {
-          options.signal.removeEventListener("abort", onCallerAbort);
-        }
+        throw normalizeTimeoutLikeError(error, timeoutMs);
       }
     },
   };
@@ -890,6 +756,16 @@ export function createJobFinderAiClientFromEnvironment(
   const parsedResumeExtractionTimeoutMs = parseConfiguredTimeoutMs(
     env.UNEMPLOYED_AI_RESUME_TIMEOUT_MS,
   );
+  // Liveness and retry knobs shared by every model route (see ADR 0020).
+  const parsedResilience = {
+    idleTimeoutMs: parseConfiguredTimeoutMs(env.UNEMPLOYED_AI_IDLE_TIMEOUT_MS),
+    maxAttempts: parseConfiguredPositiveInteger(env.UNEMPLOYED_AI_MAX_ATTEMPTS),
+    streaming: parseConfiguredBoolean(env.UNEMPLOYED_AI_STREAMING),
+    retryBaseDelayMs: parseConfiguredPositiveInteger(
+      env.UNEMPLOYED_AI_RETRY_BASE_DELAY_MS,
+      0,
+    ),
+  };
 
   const browserVisualProvider =
     createBrowserVisualAnalysisProviderFromEnvironment(env);
@@ -920,11 +796,12 @@ export function createJobFinderAiClientFromEnvironment(
     label: "AI resume agent",
     requestTimeoutMs: parsedRequestTimeoutMs,
     resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
+    ...parsedResilience,
   });
   // Aggressive resume tailoring uses its own model route rather than the
-  // primary provider. DeepSeek V4 Flash is text-only, so it uses Chat
+  // primary provider. DeepSeek V4.1 Flash is text-only, so it uses Chat
   // Completions; reasoning effort is read from its own env var so it is
-  // always applied (defaults to `max` when not configured).
+  // always applied (defaults to `high` when not configured). See ADR 0019.
   const aggressiveClient = createOpenAiCompatibleJobFinderAiClient({
     apiKey,
     baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? DEFAULT_OPENCODE_GO_BASE_URL,
@@ -941,6 +818,7 @@ export function createJobFinderAiClientFromEnvironment(
     label: "Aggressive AI resume agent",
     requestTimeoutMs: parsedRequestTimeoutMs,
     resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
+    ...parsedResilience,
   });
   function selectResumeGenerationClient(
     input: CreateResumeDraftInput | TailorResumeInput,

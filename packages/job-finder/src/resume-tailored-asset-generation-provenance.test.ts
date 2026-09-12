@@ -30,7 +30,7 @@ describe("buildTailoredAssetBridge generation provenance", () => {
       generationMethod: "deterministic",
       generationReason: "provider_output_unverified",
       generationDetail:
-        "The configured AI model proposed 1 rewrite, but none could be verified against saved evidence",
+        "AI proposed 1 rewrite, but none could be verified against your saved evidence",
       notes: ["Used the built-in deterministic resume tailorer."],
       failureMessage: null,
       failedAt: null,
@@ -55,7 +55,7 @@ describe("buildTailoredAssetBridge generation provenance", () => {
 
     expect(asset.generationReason).toBe("provider_output_unverified");
     expect(asset.generationDetail).toBe(
-      "The configured AI model proposed 1 rewrite, but none could be verified against saved evidence",
+      "AI proposed 1 rewrite, but none could be verified against your saved evidence",
     );
   });
 

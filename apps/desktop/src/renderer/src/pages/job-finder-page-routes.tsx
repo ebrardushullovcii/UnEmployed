@@ -1024,15 +1024,32 @@ export function JobFinderDiscoveryRoute() {
   }
 
   if (navigationContext.jobId && !requestedJob) {
+    // Workspace search lists every job saved on this device, but Find jobs
+    // shows only the active plan's kept jobs. Say which case this is and
+    // point at the control that changes it instead of a dead "Show all jobs".
+    const savedOutsidePlan = context.workspace.discoveryJobs.some(
+      (job) => job.id === navigationContext.jobId,
+    );
     return (
       <WorkspaceStateScreen
-        action={{
-          label: "Show all jobs",
-          onClick: () => context.onNavigateSafely("/job-finder/discovery"),
-        }}
+        action={
+          savedOutsidePlan
+            ? {
+                label: "Open Search plans",
+                onClick: () => context.onNavigateSafely("/job-finder/campaigns"),
+              }
+            : {
+                label: "Show all jobs",
+                onClick: () => context.onNavigateSafely("/job-finder/discovery"),
+              }
+        }
         kicker="Find jobs"
-        message="The requested job is no longer available in the active search plan, so no other job was selected."
-        title="Job unavailable"
+        message={
+          savedOutsidePlan
+            ? "This job is saved on this device, but the active search plan keeps only its newest jobs (its \"Jobs to retain\" limit), so Find jobs cannot show it. Raise that limit in Search plans and search again to bring it back."
+            : "The requested job is no longer available in the active search plan, so no other job was selected."
+        }
+        title={savedOutsidePlan ? "Job outside this search plan" : "Job unavailable"}
       />
     );
   }

@@ -877,7 +877,7 @@ describe("ResumeWorkspaceEditorPanel", () => {
         generationMethod: "deterministic",
         generationReason: "provider_output_unverified",
         generationDetail:
-          "The configured AI model returned no usable rewrite proposals",
+          "AI could not produce usable rewrite suggestions this time",
         notes: [],
       },
       undoAiEditAction: <button type="button">Undo</button>,
@@ -890,7 +890,7 @@ describe("ResumeWorkspaceEditorPanel", () => {
 
     const provenance = provenanceNotes?.[0];
     expect(provenance?.textContent).toContain(
-      "The configured AI model returned no usable rewrite proposals. The first draft came from the built-in generator instead.",
+      "AI could not produce usable rewrite suggestions this time. The first draft came from the built-in generator instead.",
     );
     expect(provenance?.textContent).toContain(
       "1 assistant edit has been applied since",

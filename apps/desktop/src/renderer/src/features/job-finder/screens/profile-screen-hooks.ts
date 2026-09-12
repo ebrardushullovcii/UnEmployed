@@ -378,6 +378,23 @@ export function useProfileScreenForms(input: {
     defaultValues: createSearchPreferencesEditorValues(input.searchPreferences),
   });
 
+  // A rejected save's message must not outlive the correction: the moment
+  // either form changes again, the footer stops claiming the data is invalid.
+  useEffect(() => {
+    if (!validationMessage) {
+      return undefined;
+    }
+    const subscriptions = [
+      profileForm.watch(() => setValidationMessage(null)),
+      preferencesForm.watch(() => setValidationMessage(null)),
+    ];
+    return () => {
+      for (const subscription of subscriptions) {
+        subscription.unsubscribe();
+      }
+    };
+  }, [validationMessage, profileForm, preferencesForm]);
+
   // Raised only around this hook's own canonical reseeds as defense in depth
   // for synchronous reset notifications; the name filter below carries the
   // primary semantics.

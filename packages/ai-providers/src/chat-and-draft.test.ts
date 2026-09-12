@@ -144,12 +144,12 @@ describe("openai-compatible chat and draft behavior", () => {
       );
       expect(result.notes).toEqual([
         ...deterministicFallback.notes,
-        "The configured AI model returned no usable rewrite proposals.",
+        "AI could not produce usable rewrite suggestions this time.",
       ]);
       expect(result.generationProvenance).toEqual({
         method: "deterministic",
         reason: "provider_output_unverified",
-        detail: "The configured AI model returned no usable rewrite proposals.",
+        detail: "AI could not produce usable rewrite suggestions this time.",
       });
       expect(result.fullText).not.toContain("Model draft partial");
     } finally {
@@ -305,7 +305,7 @@ describe("openai-compatible chat and draft behavior", () => {
         languages: deterministicFallback.languages,
         notes: [
           ...deterministicFallback.notes,
-          "The configured AI model proposed 2 rewrites, but none could be verified against saved evidence.",
+          "AI proposed 2 rewrites, but none could be verified against your saved evidence.",
         ],
         generationProvenance: {
           method: "deterministic",

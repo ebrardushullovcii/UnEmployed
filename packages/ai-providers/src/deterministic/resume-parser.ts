@@ -597,6 +597,32 @@ function inferName(lines: readonly string[]): string | null {
   return rankedCandidates[0]?.line ?? null;
 }
 
+/**
+ * "DANA KIM" on a resume header is styling, not a spelling: shouted names
+ * came through into form fields and onto generated PDFs. Only a word that is
+ * entirely upper case is changed; "McKay" and "de la Cruz" stay as written.
+ */
+export function normalizeShoutedName(fullName: string | null): string | null {
+  if (!fullName) {
+    return fullName;
+  }
+  return fullName
+    .trim()
+    .split(/\s+/)
+    .map((word) =>
+      word.length > 1 && word === word.toUpperCase() && /\p{L}/u.test(word)
+        ? word
+            .toLowerCase()
+            .replace(
+              /(^|[-'’])(\p{L})/gu,
+              (_match: string, separator: string, letter: string) =>
+                `${separator}${letter.toUpperCase()}`,
+            )
+        : word,
+    )
+    .join(" ");
+}
+
 function parseNameParts(fullName: string | null) {
   if (!fullName) {
     return { firstName: null, lastName: null, middleName: null };
@@ -743,7 +769,7 @@ export function buildDeterministicResumeProfileExtraction(
   const preserveExistingValues = options?.preserveExistingValues ?? true;
   const now = resolveNow(options?.now);
   const lines = splitLines(input.resumeText);
-  const fullName = inferName(lines);
+  const fullName = normalizeShoutedName(inferName(lines));
   const nameParts = parseNameParts(fullName);
   const experiences = inferExperienceEntries(input.resumeText);
   const headline = inferHeadline(lines, experiences);

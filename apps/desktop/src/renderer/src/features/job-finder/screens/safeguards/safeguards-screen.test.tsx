@@ -67,7 +67,7 @@ function mixedSafeguards() {
         paused: true,
         explanation: "Elevated discovery failure rate.",
         recoveryGuidance:
-          "Inspect the failed source history and retry only after the cause is understood.",
+          "Open Search history to see which source failed and why. Fix or disable that source, then retry.",
       },
     ],
   });
@@ -447,7 +447,7 @@ describe("SafeguardsScreen", () => {
           paused: true,
           explanation: "Elevated discovery failure rate.",
           recoveryGuidance:
-            "Inspect the failed source history and retry only after the cause is understood.",
+            "Open Search history to see which source failed and why. Fix or disable that source, then retry.",
         },
       ],
     });

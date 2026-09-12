@@ -484,7 +484,7 @@ describe("Interview Helper AI providers", () => {
     expect(visionStatus.detail).toContain("gpt-5.6-luna");
   });
 
-  test("does not inherit the DeepSeek text model for screenshot vision", () => {
+  test("does not inherit the text model for screenshot vision", () => {
     const providers = createInterviewHelperProvidersFromEnvironment({
       UNEMPLOYED_AI_API_KEY: "go-test-key",
       UNEMPLOYED_AI_MODEL: "deepseek-v4-flash",
@@ -496,7 +496,7 @@ describe("Interview Helper AI providers", () => {
       "deepseek-v4-flash",
     );
     expect(providers.screenshotVisionProvider.getStatus().detail).toContain(
-      "gpt-5.6-luna",
+      "muse-spark-1.3-contributor",
     );
   });
 
@@ -551,7 +551,9 @@ describe("Interview Helper AI providers", () => {
       ready: true,
       label: "Deterministic screenshot vision",
     });
-    expect(visionStatus.detail).toContain("Desktop test API forces deterministic");
+    expect(visionStatus.detail).toContain(
+      "Desktop test API forces deterministic",
+    );
     expect(
       providers.transcriptionProvider.getEngines().meetingAudio,
     ).toMatchObject({

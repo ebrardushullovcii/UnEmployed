@@ -26,4 +26,4 @@ Local-first Electron monorepo (pnpm + turbo) with two modules: `Job Finder` and 
 
 ## Testing the app
 
-The user usually has `pnpm desktop:dev` running. For "use it like a user" checks: build once with `pnpm --filter @unemployed/desktop build`, launch an isolated instance with a temporary user-data directory and synthetic profile data, drive it, keep screenshots, batch the fixes, then rebuild once. Details and safety rules: `docs/TESTING.md`.
+The user usually has `pnpm desktop:dev` running. For "use it like a user" checks: build with `pnpm --filter @unemployed/desktop build`, launch an isolated instance with a temporary user-data directory and synthetic profile data, drive it, keep screenshots, and batch the fixes. Rebuild when needed and verify that the inspected app contains the final changes. Details and safety rules: `docs/TESTING.md`.

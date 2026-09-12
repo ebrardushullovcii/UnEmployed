@@ -2043,6 +2043,14 @@ export async function collectPublicProviderJobs(input: {
   }
 }
 
+// The listing's own text says it is over; the app stored that sentence and
+// still ranked the job as open.
+const CLOSED_LISTING_BODY_PATTERN =
+  /\b(?:no longer accepting applications|no longer available|this (?:job|position|role|listing) (?:has been|is|was) (?:filled|closed|removed|archived|expired)|(?:job|position|listing) has (?:closed|expired)|applications? (?:are|is) (?:now )?closed|this posting has expired|we are no longer hiring for this)\b/iu;
+
+const ACCOUNT_WALL_BODY_PATTERN =
+  /\b(?:sign in to (?:continue|view|see|apply|access)|log in to (?:continue|view|see|apply)|join now|welcome back|create (?:an|your|a free) account|get notified about new [^.\n]{0,80}\bjobs\b|by clicking (?:continue|agree|join)|forgot password|new to [a-z]+\? join now)\b/iu;
+
 export function applyDiscoveryTitleTriage(input: {
   posting: JobPosting;
   searchPreferences: JobSearchPreferences;
@@ -2088,6 +2096,31 @@ export function applyDiscoveryTitleTriage(input: {
       outcome: "skip_title" as const,
       reason:
         "This is a general talent-pool invitation rather than a specific open role.",
+    };
+  }
+
+  if (CLOSED_LISTING_BODY_PATTERN.test(`${posting.summary ?? ""} ${posting.description}`)) {
+    return {
+      outcome: "skip_title" as const,
+      reason: "The listing says it is closed or no longer accepting applications.",
+    };
+  }
+
+  // A sign-in or account wall captured as a "job": the body is the site's
+  // login prompt, not a role. Boards show these behind generic titles
+  // ("Customer Service") and they outscore real jobs on title match alone.
+  const listingBody = `${posting.summary ?? ""} ${posting.description}`;
+  if (
+    listingBody.length < 900 &&
+    ACCOUNT_WALL_BODY_PATTERN.test(listingBody) &&
+    !/\b(?:responsibilit|requirement|qualification|salary|you will|we are looking)/iu.test(
+      listingBody,
+    )
+  ) {
+    return {
+      outcome: "skip_title" as const,
+      reason:
+        "This page asks you to sign in or create an account; it is not a job listing.",
     };
   }
 

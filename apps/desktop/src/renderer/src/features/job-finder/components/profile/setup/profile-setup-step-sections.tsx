@@ -16,12 +16,12 @@ import {
 } from "./profile-setup-screen-helpers";
 import {
   type CandidateProfile,
-  type JobSearchPreferences,
   type ProfileSetupStep,
   type ResumeApplicationMode,
   type ResumeImportFieldCandidateSummary,
   type ResumeImportProgressEvent,
   type ResumeImportRun,
+  workModeValues,
 } from "@unemployed/contracts";
 import { getResumeImportStageFallbackNotes } from "../profile-resume-panel";
 import { getResumeImportStageFallbackSummary } from "../resume-import-quality-note";
@@ -64,6 +64,16 @@ const booleanSelectOptions = [
   { label: "Not set", value: "" },
   { label: "Yes", value: "yes" },
   { label: "No", value: "no" },
+] as const;
+
+// Same wording as the employment type on a work-history card, so a saved
+// preference and a listing's stated type compare as equal text.
+const SETUP_EMPLOYMENT_TYPE_OPTIONS = [
+  "Full-time",
+  "Part-time",
+  "Contract",
+  "Internship",
+  "Temporary",
 ] as const;
 
 const tailoringModeOptions = [
@@ -454,7 +464,10 @@ export function ProfileSetupTargetingStep(props: {
   const deferredSourceQuery = useDeferredValue(sourceQuery);
   const [sourcePage, setSourcePage] = useState(0);
   const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
-  const [isManualSourceOpen, setIsManualSourceOpen] = useState(false);
+  // With no saved sources, adding one is the whole step, so the form is open.
+  const [isManualSourceOpen, setIsManualSourceOpen] = useState(
+    () => discoveryTargets.length === 0,
+  );
   const [manualSourceLabel, setManualSourceLabel] = useState("");
   const [manualSourceUrl, setManualSourceUrl] = useState("");
   const manualSourceLabelId = "profile-setup-field-manual-source-label";
@@ -741,8 +754,15 @@ export function ProfileSetupTargetingStep(props: {
                         type="radio"
                         value={option.value}
                       />
-                      <span className="font-semibold text-foreground">
-                        {option.label}
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-foreground">
+                          {option.label}
+                        </span>
+                        {selected ? (
+                          <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-(--tracking-label) text-primary">
+                            Selected
+                          </span>
+                        ) : null}
                       </span>
                       <span className="text-sm leading-5 text-foreground-soft">
                         {option.description}
@@ -880,7 +900,7 @@ export function ProfileSetupTargetingStep(props: {
             {PROFILE_WORK_CONSTRAINT_COPY.workModes.description}
           </p>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            {["remote", "hybrid", "onsite"].map((workMode) => (
+            {workModeValues.map((workMode) => (
               <Controller
                 control={props.preferencesForm.control}
                 key={workMode}
@@ -889,9 +909,7 @@ export function ProfileSetupTargetingStep(props: {
                   const selectedWorkModes = field.value ?? [];
                   return (
                     <CheckboxField
-                      checked={selectedWorkModes.includes(
-                        workMode as JobSearchPreferences["workModes"][number],
-                      )}
+                      checked={selectedWorkModes.includes(workMode)}
                       label={formatStatusLabel(workMode)}
                       onCheckedChange={(checked) =>
                         field.onChange(
@@ -914,7 +932,7 @@ export function ProfileSetupTargetingStep(props: {
               id={workModesGuidanceId}
               role="status"
             >
-              Choose at least one work mode before relying on discovery results.
+              Choose at least one so searches know what to look for.
             </p>
           ) : (props.preferencesForm.watch("workModes") ?? []).includes(
               "remote",
@@ -936,6 +954,48 @@ export function ProfileSetupTargetingStep(props: {
               describe what you can accept.
             </p>
           )}
+        </fieldset>
+
+        <fieldset className="grid gap-2">
+          <legend className="text-(length:--text-field-label) font-medium tracking-(--tracking-label) text-muted-foreground">
+            Hours
+          </legend>
+          <p className="text-sm leading-6 text-foreground-soft">
+            Tick the kinds of work you want. Leave every box empty to see all of
+            them.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {SETUP_EMPLOYMENT_TYPE_OPTIONS.map((employmentType) => {
+              const selectedTypes = parseListInput(
+                props.preferencesForm.watch("employmentTypes"),
+              );
+              const checked = selectedTypes.some(
+                (value) => value.toLowerCase() === employmentType.toLowerCase(),
+              );
+              return (
+                <CheckboxField
+                  checked={checked}
+                  key={employmentType}
+                  label={employmentType}
+                  onCheckedChange={(nextChecked) =>
+                    props.preferencesForm.setValue(
+                      "employmentTypes",
+                      joinListInput(
+                        nextChecked
+                          ? [...selectedTypes, employmentType]
+                          : selectedTypes.filter(
+                              (value) =>
+                                value.toLowerCase() !==
+                                employmentType.toLowerCase(),
+                            ),
+                      ),
+                      { shouldDirty: true, shouldTouch: true },
+                    )
+                  }
+                />
+              );
+            })}
+          </div>
         </fieldset>
 
         <section
@@ -962,8 +1022,11 @@ export function ProfileSetupTargetingStep(props: {
               className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) p-3 text-sm leading-6 text-(--warning-text)"
               role="status"
             >
-              No job source is configured yet. Add the public page where you
-              would normally browse open roles.
+              Add the job sites you use. Paste the page where you normally
+              browse open roles — for example
+              https://weworkremotely.com/remote-jobs, https://remoteok.com, or a
+              company&apos;s careers page. Job Finder searches only the sites
+              you add.
             </div>
           ) : (
             <>
@@ -1294,11 +1357,14 @@ export function ProfileSetupTargetingStep(props: {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="grid gap-0.5">
                 <p className="text-sm font-semibold text-foreground">
-                  Know the exact web address?
+                  {discoveryTargets.length === 0
+                    ? "Add a job site"
+                    : "Know the exact web address?"}
                 </p>
                 <p className="text-xs leading-5 text-foreground-muted">
-                  Advanced option for a public careers page that is not in the
-                  list above.
+                  {discoveryTargets.length === 0
+                    ? "Give it a name and paste the page where the jobs are listed."
+                    : "Add another public careers page or job board by its web address."}
                 </p>
               </div>
               <Button

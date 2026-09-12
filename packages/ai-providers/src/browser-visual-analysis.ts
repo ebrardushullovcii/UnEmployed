@@ -19,15 +19,21 @@ import {
   modelApiModes,
   modelReasoningEfforts,
   parseModelApiMode,
-  parseModelJsonResponse,
+  extractModelJsonFromPayload,
   parseModelReasoningEffort,
 } from "./openai-compatible-transport";
+import {
+  ModelRequestTimeoutError,
+  parseConfiguredBoolean,
+  parseConfiguredPositiveInteger,
+  performModelRequest,
+} from "./model-request-transport";
 import {
   buildModelRequestHeaders,
   modelConversationKeys,
 } from "./model-request-identity";
 
-const DEFAULT_BROWSER_VISUAL_MODEL = "gpt-5.6-luna";
+const DEFAULT_BROWSER_VISUAL_MODEL = "muse-spark-1.3-contributor";
 const DEFAULT_BROWSER_VISUAL_BASE_URL = DEFAULT_OPENCODE_GO_BASE_URL;
 const DEFAULT_BROWSER_VISUAL_TIMEOUT_MS = 120_000;
 
@@ -39,6 +45,10 @@ export const OpenAiCompatibleBrowserVisualProviderOptionsSchema = z.object({
   apiMode: z.enum(modelApiModes).optional(),
   reasoningEffort: z.enum(modelReasoningEfforts).optional(),
   requestTimeoutMs: z.number().int().min(1_000).optional(),
+  idleTimeoutMs: z.number().int().min(1_000).optional(),
+  maxAttempts: z.number().int().min(1).max(10).optional(),
+  streaming: z.boolean().optional(),
+  retryBaseDelayMs: z.number().int().min(0).optional(),
 });
 export type OpenAiCompatibleBrowserVisualProviderOptions = z.infer<
   typeof OpenAiCompatibleBrowserVisualProviderOptionsSchema
@@ -115,7 +125,10 @@ function visualQuestionContextKey(value: BrowserVisualQuestionContext): string {
   ].join("\u0000");
 }
 
-function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
+function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): Error {
+  if (error instanceof ModelRequestTimeoutError) {
+    return error;
+  }
   const message = error instanceof Error ? error.message.trim() : "";
   const isAbortLikeMessage =
     message === "This operation was aborted" ||
@@ -145,7 +158,7 @@ function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
     return abortError;
   }
 
-  return error;
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function createObservationSetId(snapshotId: string): string {
@@ -506,100 +519,97 @@ export function createOpenAiCompatibleBrowserVisualAnalysisProvider(
     const includeImagePayload =
       Boolean(input.snapshot.dataUrl) &&
       input.snapshot.retention.redactionLevel !== "sensitive";
-    const controller = new AbortController();
-    const localTimeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const apiMode = validatedOptions.apiMode ?? "chat_completions";
-      const response = await fetch(
-        buildModelUrl(validatedOptions.baseUrl, apiMode),
-        {
-          method: "POST",
-          signal: controller.signal,
-          headers: buildModelRequestHeaders({
-            apiKey: validatedOptions.apiKey,
-            baseUrl: validatedOptions.baseUrl,
-            conversationKey: modelConversationKeys.pageExtraction(
-              input.snapshot.url ?? "",
-            ),
-          }),
-          body: JSON.stringify(
-            buildModelRequestBody({
-              apiMode,
-              model: validatedOptions.model,
-              reasoningEffort: validatedOptions.reasoningEffort,
-              jsonOutput: true,
-              messages: [
-                {
-                  role: "system",
-                  content: [
-                    "You classify a browser screenshot into safe structured observations.",
-                    "Return JSON only. Do not provide browser actions, selectors, generated answers, saved jobs, final submit advice, or site-specific workflow rules.",
-                    "Allowed content: blockers, visibleControls, jobCardClues, applyPathClues, fieldControls, validationErrors, buttonStates, questionContexts, recoveryNotes, uncertainty, observations, and reconciliations.",
-                    "Keep findings generic and descriptive; no CSS selectors, no click/fill/navigate instructions, and no final-submit guidance.",
-                  ].join(" "),
-                },
-                {
-                  role: "user",
-                  content: [
-                    {
-                      type: "text",
-                      text: JSON.stringify({
-                        snapshot: {
-                          id: input.snapshot.id,
-                          purpose: input.snapshot.purpose,
-                          mode: input.snapshot.mode,
-                          url: input.snapshot.url,
-                          pageTitle: input.snapshot.pageTitle,
-                          label: input.snapshot.label,
-                          warnings: input.snapshot.warnings,
-                        },
-                        context: input.context,
-                        outputContract: {
-                          summary: "short descriptive text or null",
-                          blockers: "string[]",
-                          visibleControls: "string[]",
-                          jobCardClues: "string[]",
-                          applyPathClues: "string[]",
-                          fieldControls: "string[]",
-                          validationErrors: "string[]",
-                          buttonStates: "string[]",
-                          recoveryNotes: "string[]",
-                          uncertainty: "string[]",
-                          observations:
-                            "array of {label,description,kind,confidence,severity,tags}; kind must be blocker, visible_control, job_card_clue, apply_path_clue, field_control, validation_error, button_state, upload_control, question_context, recovery_note, or uncertainty; severity must be info, warning, or critical; no selectors/actions",
-                          reconciliations:
-                            "Return an empty array; DOM reconciliation is performed locally.",
-                        },
-                      }),
-                    },
-                    ...(includeImagePayload
-                      ? [
-                          {
-                            type: "image_url",
-                            image_url: {
-                              url: input.snapshot.dataUrl!,
-                              detail:
-                                input.snapshot.mode === "full_page"
-                                  ? "high"
-                                  : "auto",
-                            },
-                          },
-                        ]
-                      : []),
-                  ],
-                },
-              ],
-            }),
+      const payload = await performModelRequest({
+        url: buildModelUrl(validatedOptions.baseUrl, apiMode),
+        headers: buildModelRequestHeaders({
+          apiKey: validatedOptions.apiKey,
+          baseUrl: validatedOptions.baseUrl,
+          conversationKey: modelConversationKeys.pageExtraction(
+            input.snapshot.url ?? "",
           ),
-        },
-      );
+        }),
+        body: buildModelRequestBody({
+          apiMode,
+          model: validatedOptions.model,
+          reasoningEffort: validatedOptions.reasoningEffort,
+          reasoningSummary: validatedOptions.streaming !== false,
+          jsonOutput: true,
+          messages: [
+            {
+              role: "system",
+              content: [
+                "You classify a browser screenshot into safe structured observations.",
+                "Return JSON only. Do not provide browser actions, selectors, generated answers, saved jobs, final submit advice, or site-specific workflow rules.",
+                "Allowed content: blockers, visibleControls, jobCardClues, applyPathClues, fieldControls, validationErrors, buttonStates, questionContexts, recoveryNotes, uncertainty, observations, and reconciliations.",
+                "Keep findings generic and descriptive; no CSS selectors, no click/fill/navigate instructions, and no final-submit guidance.",
+              ].join(" "),
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    snapshot: {
+                      id: input.snapshot.id,
+                      purpose: input.snapshot.purpose,
+                      mode: input.snapshot.mode,
+                      url: input.snapshot.url,
+                      pageTitle: input.snapshot.pageTitle,
+                      label: input.snapshot.label,
+                      warnings: input.snapshot.warnings,
+                    },
+                    context: input.context,
+                    outputContract: {
+                      summary: "short descriptive text or null",
+                      blockers: "string[]",
+                      visibleControls: "string[]",
+                      jobCardClues: "string[]",
+                      applyPathClues: "string[]",
+                      fieldControls: "string[]",
+                      validationErrors: "string[]",
+                      buttonStates: "string[]",
+                      recoveryNotes: "string[]",
+                      uncertainty: "string[]",
+                      observations:
+                        "array of {label,description,kind,confidence,severity,tags}; kind must be blocker, visible_control, job_card_clue, apply_path_clue, field_control, validation_error, button_state, upload_control, question_context, recovery_note, or uncertainty; severity must be info, warning, or critical; no selectors/actions",
+                      reconciliations:
+                        "Return an empty array; DOM reconciliation is performed locally.",
+                    },
+                  }),
+                },
+                ...(includeImagePayload
+                  ? [
+                      {
+                        type: "image_url",
+                        image_url: {
+                          url: input.snapshot.dataUrl!,
+                          detail:
+                            input.snapshot.mode === "full_page"
+                              ? "high"
+                              : "auto",
+                        },
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          ],
+        }),
+        apiMode,
+        totalTimeoutMs: timeoutMs,
+        idleTimeoutMs: validatedOptions.idleTimeoutMs,
+        maxAttempts: validatedOptions.maxAttempts,
+        streaming: validatedOptions.streaming,
+        retryBaseDelayMs: validatedOptions.retryBaseDelayMs,
+      });
 
-      return parseModelJsonResponse(response, apiMode);
+      return extractModelJsonFromPayload(payload);
     } catch (error) {
       throw normalizeTimeoutLikeError(error, timeoutMs);
-    } finally {
-      clearTimeout(localTimeoutId);
     }
   }
 
@@ -760,5 +770,12 @@ export function createBrowserVisualAnalysisProviderFromEnvironment(
     requestTimeoutMs:
       parseConfiguredNumber(env.UNEMPLOYED_BROWSER_VISION_TIMEOUT_MS) ??
       DEFAULT_BROWSER_VISUAL_TIMEOUT_MS,
+    idleTimeoutMs: parseConfiguredNumber(env.UNEMPLOYED_AI_IDLE_TIMEOUT_MS),
+    maxAttempts: parseConfiguredPositiveInteger(env.UNEMPLOYED_AI_MAX_ATTEMPTS),
+    streaming: parseConfiguredBoolean(env.UNEMPLOYED_AI_STREAMING),
+    retryBaseDelayMs: parseConfiguredPositiveInteger(
+      env.UNEMPLOYED_AI_RETRY_BASE_DELAY_MS,
+      0,
+    ),
   });
 }

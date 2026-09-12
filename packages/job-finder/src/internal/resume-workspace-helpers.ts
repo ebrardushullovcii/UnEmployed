@@ -1293,6 +1293,19 @@ function removeBulletDuplicatesFromSummary(
   return uniqueSentences.length > 0 ? uniqueSentences.join(" ") : null;
 }
 
+const EMPLOYMENT_END_SENTENCE_PATTERN =
+  /\b(?:laid off|lay-?offs?|reduction in force|company-wide reduction|workforce reduction|position (?:was )?(?:ended|eliminated)|role (?:was )?(?:ended|eliminated)|let go|terminated|made redundant|redundancy)\b/i;
+
+/** Drops sentences that narrate how a job ended; a summary is not the place for them. */
+export function stripEmploymentEndSentences(text: string): string {
+  return text
+    .trim()
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !EMPLOYMENT_END_SENTENCE_PATTERN.test(sentence))
+    .join(" ")
+    .trim();
+}
+
 export function sanitizeResumeDraft(input: {
   draft: ResumeDraft;
   job: SavedJob;
@@ -1332,6 +1345,19 @@ export function sanitizeResumeDraft(input: {
           looksLikeUnsupportedAbsoluteClaim(section.text, profileSupportBank))
       ) {
         return null;
+      }
+      if (canSuppressGeneratedSummary) {
+        // A summary is the pitch. Generators copy "Position ended in a
+        // company-wide reduction" from the imported resume into it, which a
+        // candidate would never lead with; the work history keeps the dates.
+        const withoutEmploymentEnd = stripEmploymentEndSentences(section.text);
+        if (withoutEmploymentEnd !== section.text.trim()) {
+          if (!withoutEmploymentEnd) {
+            return null;
+          }
+          seenLines.add(normalizeText(withoutEmploymentEnd));
+          return withoutEmploymentEnd;
+        }
       }
       if (seenLines.has(normalizedSectionText)) {
         return null;

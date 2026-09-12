@@ -452,7 +452,7 @@ export function createWorkspaceApplicationMethods(
   ): DirectApplyExecutionClaim {
     if (activeDirectApplyClaims.has(applicationRecordId)) {
       throw new Error(
-        `Application preparation for job '${jobId}' is already running.`,
+        "This application is already being prepared. Wait for it to finish before starting it again.",
       );
     }
 
@@ -531,7 +531,7 @@ export function createWorkspaceApplicationMethods(
     });
     if (runningRun) {
       throw new Error(
-        `Application preparation for job '${claim.jobId}' is already running in apply run '${runningRun.id}'.`,
+        "This application is already being prepared. Wait for it to finish before starting it again.",
       );
     }
   }
@@ -2377,14 +2377,8 @@ export function createWorkspaceApplicationMethods(
       );
     });
     if (conflictingLineage.length > 0) {
-      const conflicting = conflictingLineage[0]!;
-      const owningRunId = activeStagedApplyJobClaims.get(
-        conflicting.applicationRecordId,
-      );
       throw new Error(
-        `Application preparation for job '${conflicting.jobId}' is already running${
-          owningRunId ? ` in apply run '${owningRunId}'` : ""
-        }.`,
+        "This application is already being prepared. Wait for it to finish before starting it again.",
       );
     }
     for (const { applicationRecordId } of stagedLineage) {

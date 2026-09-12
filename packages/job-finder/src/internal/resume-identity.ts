@@ -394,7 +394,10 @@ export function resolveResumeIdentity(
   profile: CandidateProfile,
   sourceCandidates: readonly ResumeImportFieldCandidate[] = [],
 ): ResumeIdentityResolution {
-  const canonicalName = clean(profile.fullName) ?? composedProfileName(profile);
+  // The parts the user edits on Profile win over the imported full name:
+  // fixing "MARCUS BELL" to "Marcus Bell" in Basics used to leave the
+  // resume header shouting, because fullName kept the imported spelling.
+  const canonicalName = composedProfileName(profile) ?? clean(profile.fullName);
   const identity: ResumeIdentityValues = {
     fullName: clean(profile.preferredDisplayName) ?? canonicalName,
     email:

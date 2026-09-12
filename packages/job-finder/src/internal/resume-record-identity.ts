@@ -224,7 +224,14 @@ export function areEquivalentEducationRecords(
     (strongSchool &&
       degreeCompatible &&
       fieldCompatible &&
-      (strongDegree || strongField || strongStart || strongEnd))
+      (strongDegree || strongField || strongStart || strongEnd)) ||
+    // A stub of the same degree at the same school (no dates, no field) is
+    // the same degree read twice, not a second qualification: both ended up
+    // printed on an approved PDF.
+    (strongSchool &&
+      strongDegree &&
+      ((!leftField && !leftStart && !leftEnd) ||
+        (!rightField && !rightStart && !rightEnd)))
   );
 }
 

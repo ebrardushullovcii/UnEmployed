@@ -154,6 +154,19 @@ function describeCompactObservationPageIdentity(pageUrl: string): string {
 }
 
 /**
+ * Plain-language stop reason for a source whose start page was an access
+ * wall and that yielded no jobs. Read by users on Home, Find jobs and the
+ * source's health line, so it names what the site did and what to do next.
+ */
+function describeAccessWallStop(reason: string): string {
+  if (reason === "auth_required") {
+    return "This site asks you to sign in before it shows job listings, so nothing could be read automatically. Open it in the Job Finder browser, sign in there, then search again.";
+  }
+
+  return "This site showed a human-verification check instead of its job listings, so nothing could be read. Verification checks cannot be passed automatically; try another job site or a company careers page.";
+}
+
+/**
  * Bounded summary of one observation for the model fallback path. Only
  * contract-capped fields travel here: kind/reason, page identity, posting
  * titles/canonical URLs/composites, control kinds+labels+ref ids,
@@ -768,6 +781,10 @@ export async function runAgentDiscovery(
     // is bounded to a few passes: 21 passes over an unreadable front page
     // produced nothing but steps.
     let compactScanReadable = true;
+    // An access wall seen on the start page (verification challenge, sign-in
+    // wall). When the run then ends with nothing, the stop reason names the
+    // wall instead of a generic no-progress sentence.
+    let accessWall: { reason: string } | null = null;
     if (!requiresExplicitFinish) {
       if (signal?.aborted) {
         return buildInterruptedBeforeModelWorkResult();
@@ -824,6 +841,15 @@ export async function runAgentDiscovery(
 
       if (signal?.aborted) {
         return buildInterruptedBeforeModelWorkResult();
+      }
+
+      if (
+        observation.kind === "unsupported" &&
+        (observation.reason === "site_protection" ||
+          observation.reason === "manual_step_required" ||
+          observation.reason === "auth_required")
+      ) {
+        accessWall = { reason: observation.reason };
       }
 
       // Search before scrolling. A board's front page is a feed of every new
@@ -1293,7 +1319,9 @@ export async function runAgentDiscovery(
         return await buildDiscoveryResult({
           incomplete: true,
           error:
-            "Discovery stopped because repeated actions produced no new jobs, page evidence, or useful state changes.",
+            accessWall && state.collectedJobs.length === 0
+              ? describeAccessWallStop(accessWall.reason)
+              : "The site showed nothing new after several tries, so the search moved on.",
           phaseCompletionMode: requiresExplicitFinish ? "interrupted" : null,
           phaseCompletionReason: requiresExplicitFinish
             ? "No measurable progress remained after repeated actions."

@@ -47,6 +47,7 @@ export const AUTOMATIC_SOURCE_DEBUG_FAILURE_PAUSE_ID =
 export const AUTOMATIC_APPLICATION_FAILURE_PAUSE_ID =
   "automatic_application_failures";
 /** Default quality sample ratio for legacy campaigns without the new policy. */
+const AUTOMATIC_QUALITY_REVIEW_MIN_BATCH = 3;
 export const AUTOMATIC_QUALITY_REVIEW_SAMPLE_RATIO = 0.2;
 /** Fallback conflict window for runs not attached to a campaign. */
 export const AUTOMATIC_SIMULTANEOUS_APPLICATION_WINDOW_DAYS = 1;
@@ -318,9 +319,9 @@ async function persistAutomaticFailurePause(input: {
           input.campaign.stopRules.pauseOnFailureRatePercent,
         minimumSample: input.campaign.stopRules.failureRateMinimumSample,
         explanation:
-          "Discovery/source failures reached the campaign's configured automatic safety threshold.",
+          "Too many searches or source checks failed in a row, so this search plan paused itself.",
         recoveryGuidance:
-          "Inspect the failed source history and retry only after the cause is understood.",
+          "Open Search history to see which source failed and why. Fix or disable that source, then retry.",
       },
     });
     if (!result.ok) return;
@@ -600,7 +601,9 @@ export function derivePreparedBatchSampleInput(input: {
     )
     .map((result) => ({ id: result.id }));
 
-  if (prepared.length === 0) return null;
+  // A sample review is a batch safeguard. Demanding one after a single
+  // prepared application stalled a volume persona after every run.
+  if (prepared.length < AUTOMATIC_QUALITY_REVIEW_MIN_BATCH) return null;
 
   const ratio =
     input.campaign?.applicationPolicy.qualityReviewSampleRatio ??

@@ -1,6 +1,5 @@
 import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
 
-import { countDiscoveryDefaultVisibleResults } from "../screens/discovery/discovery-result-groups";
 import { countActiveSafeguardBlockers } from "./safeguards-blocker-count";
 import { countWorkspaceNeedsYouItems } from "./needs-you-count";
 
@@ -44,9 +43,12 @@ export function countDiscoveryVisibleJobs(
   workspace: JobFinderWorkspaceSnapshot,
   campaignJobIds: ReadonlySet<string> = selectCampaignJobIds(workspace),
 ): number {
-  return countDiscoveryDefaultVisibleResults(
-    (workspace.discoveryJobs ?? []).filter((job) => campaignJobIds.has(job.id)),
-  );
+  // Every job the plan kept that the user has not hidden: the same number
+  // Find jobs prints as "N jobs kept in this search plan". Counting only the
+  // recommended band put "0 Results" on Home beside a list of seven rows.
+  return (workspace.discoveryJobs ?? []).filter(
+    (job) => campaignJobIds.has(job.id) && !job.discoveryFeedback,
+  ).length;
 }
 
 export function countShortlistedJobs(

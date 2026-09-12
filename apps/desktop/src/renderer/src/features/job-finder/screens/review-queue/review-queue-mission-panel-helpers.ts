@@ -163,9 +163,9 @@ export function getApplicationReadinessFacts(input: {
     },
     {
       label: "Site writes",
-      value: "Authorized for preparation",
+      value: "Fills fields, never submits",
       detail:
-        "While authorized, Job Finder may enter confirmed fields, attach the selected resume, and trigger site autosaves. It never performs a final-submit action, and the site controls its own behavior.",
+        "Job Finder may enter your confirmed answers, attach the selected resume, and let the site autosave. It never clicks the final submit; you do that yourself.",
     },
     {
       label: "Final submit",
@@ -611,7 +611,7 @@ export function buildMissionPanelState(input: {
       description: (() => {
         if (hasReadyApprovedAsset) {
           return usesOriginalResume
-            ? "Job Finder will attach the original file shown in Review Queue."
+            ? "Job Finder will attach the original file shown on Shortlisted."
             : "The current approved tailored PDF will be used when you start.";
         }
         if (resumeReviewStatus === "approved") {

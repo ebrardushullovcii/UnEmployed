@@ -1397,9 +1397,13 @@ export function assessPostingLocationCompatibility(
     return { state, remotePreferenceApplied: false };
   }
 
+  // "Anywhere in the World", "Worldwide", "Work from home" are remote
+  // listings even when the board never says the word "remote".
   const listingIsRemote =
     posting.workMode.includes("remote") ||
-    /\bremote\b/iu.test(posting.location);
+    /\b(?:remote|anywhere|worldwide|work from home|wfh|global|distributed)\b/iu.test(
+      posting.location,
+    );
   const prefersRemote = searchPreferences.workModes.includes("remote");
   if (!listingIsRemote || !prefersRemote) {
     return { state, remotePreferenceApplied: false };

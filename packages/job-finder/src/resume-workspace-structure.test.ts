@@ -14,7 +14,7 @@ import {
 import { createSeed } from "./workspace-service.test-support";
 
 describe("buildResumeRenderDocument", () => {
-  test("uses the exact target role as the generated resume headline and gives experienced candidates two pages", () => {
+  test("keeps the candidate's own headline on the generated resume and gives experienced candidates two pages", () => {
     const seed = createSeed();
     const job = {
       ...seed.savedJobs[0]!,
@@ -45,15 +45,48 @@ describe("buildResumeRenderDocument", () => {
       },
     });
 
-    // The first line a recruiter reads must name the target role, not the
-    // headline that came in with the imported CV.
-    expect(draft.identity?.headline).toBe("JavaScript Frontend Developer");
-    expect(draft.identity?.headline).not.toBe(seed.profile.headline);
+    // The first line a recruiter reads names the candidate, not the posting:
+    // graders read a posting title there as a claimed level or team.
+    expect(draft.identity?.headline).toBe(seed.profile.headline);
     expect(
       buildResumeRenderDocument({ ...seed.profile, yearsExperience: 7 }, draft)
         .headline,
-    ).toBe("JavaScript Frontend Developer");
+    ).toBe(seed.profile.headline);
     expect(draft.targetPageCount).toBe(2);
+  });
+
+  test("keeps the candidate's own headline when the listing title is board marketing", () => {
+    const seed = createSeed();
+    const job = {
+      ...seed.savedJobs[0]!,
+      title: "FULL TIME: Software Engineer Position - React and Rest",
+    };
+    const draft = buildResumeDraftFromTailoredDraft({
+      job,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-03-20T10:04:00.000Z",
+      generationMethod: "deterministic",
+      profile: seed.profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: "Software engineer with React experience.",
+        experienceHighlights: [],
+        coreSkills: ["React"],
+        targetedKeywords: ["React"],
+        experienceEntries: [],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: "Software engineer with React experience.",
+        compatibilityScore: 70,
+        notes: [],
+      },
+    });
+
+    expect(draft.identity?.headline).toBe(seed.profile.headline);
   });
 
   test("filters quantified job requirements from model-shaped candidate keyword sections", () => {

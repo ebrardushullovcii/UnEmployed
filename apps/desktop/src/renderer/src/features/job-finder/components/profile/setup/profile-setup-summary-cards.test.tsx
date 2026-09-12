@@ -168,7 +168,7 @@ describe("ProfileSetupSummaryCards", () => {
     );
     expect(container?.textContent).toContain("asks only about the gaps");
     expect(container?.textContent).toContain(
-      "the extracted text is sent to it for analysis",
+      "sent to Job Finder's AI to fill in your profile",
     );
     // The AI-provider statement appears once, and the legal-style employer
     // footer no longer competes with the first decision on this screen.

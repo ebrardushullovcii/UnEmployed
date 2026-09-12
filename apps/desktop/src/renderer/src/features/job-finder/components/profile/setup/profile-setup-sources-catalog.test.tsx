@@ -11,7 +11,7 @@ import { useForm } from "react-hook-form";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   CandidateProfileSchema,
-  createStarterJobDiscoveryTargets,
+  createKnownJobSourceTargetsForFixtures,
   evaluateProfileSetupReadiness,
   JobSearchPreferencesSchema,
   type JobSearchPreferences,
@@ -73,7 +73,7 @@ const freshSeedPreferences = JobSearchPreferencesSchema.parse({
   tailoringMode: "balanced",
   discovery: {
     historyLimit: 5,
-    targets: createStarterJobDiscoveryTargets(),
+    targets: createKnownJobSourceTargetsForFixtures(),
   },
 });
 const freshSeedEditorTargets =
@@ -191,7 +191,7 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
     vi.unstubAllGlobals();
   });
 
-  it("presents seeded starter sources on a true fresh workspace and enables one explicitly", () => {
+  it("presents saved sources that are all off and enables one explicitly", () => {
     render(
       <SetupCatalogHarness
         baselinePreferences={freshSeedPreferences}
@@ -199,13 +199,13 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
       />,
     );
 
-    expect(screen.getByText("3 sources")).toBeTruthy();
-    expect(screen.getByText("0 of 3 sources enabled for search")).toBeTruthy();
+    expect(screen.getByText("6 sources")).toBeTruthy();
+    expect(screen.getByText("0 of 6 sources enabled for search")).toBeTruthy();
     // Starter sources exist but are all disabled: warn before the ready
     // check instead of staying silent until discovery fails.
     expect(
       screen.getByText(
-        "All 3 saved sources are turned off. Enable at least one source below so Job Finder has somewhere to search.",
+        "All 6 saved sources are turned off. Enable at least one source below so Job Finder has somewhere to search.",
       ),
     ).toBeTruthy();
     const jumpCta = screen.getByRole("button", {
@@ -214,7 +214,7 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
     expect(jumpCta).toBeTruthy();
     expect(screen.getByText(/Saved job sources are still off/i)).toBeTruthy();
     const firstUsableSourceToggle = screen.getByRole("checkbox", {
-      name: "Include LinkedIn Jobs in searches",
+      name: "Include Indeed in searches",
     });
     const scrollSpy = vi.fn();
     firstUsableSourceToggle.scrollIntoView = scrollSpy;
@@ -267,7 +267,7 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
         .getByRole("checkbox", { name: /^Include / })
         .getAttribute("aria-checked"),
     ).toBe("true");
-    expect(screen.getByText("1 of 3 sources enabled for search")).toBeTruthy();
+    expect(screen.getByText("1 of 6 sources enabled for search")).toBeTruthy();
     expect(screen.queryByText(/Enable at least one source below/)).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Show job sources to enable" }),
@@ -488,11 +488,15 @@ describe("ProfileSetupTargetingStep guided source catalog", () => {
   it("adds a manual URL fallback that stays off until explicitly enabled", async () => {
     render(<SetupCatalogHarness targets={[]} />);
 
+    expect(screen.getByText(/Add the job sites you use\./)).toBeTruthy();
+    // With nothing saved, adding a site is the step: the form is already open
+    // and the toggle only closes it.
     expect(
-      screen.getByText(
-        "No job source is configured yet. Add the public page where you would normally browse open roles.",
-      ),
+      document.querySelector("[data-profile-setup-manual-source-form]"),
     ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add a source URL manually" }),
+    );
     expect(
       document.querySelector("[data-profile-setup-manual-source-form]"),
     ).toBeNull();

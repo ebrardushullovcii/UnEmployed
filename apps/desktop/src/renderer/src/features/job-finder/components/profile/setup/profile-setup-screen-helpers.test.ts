@@ -27,6 +27,7 @@ import {
   isProfileSetupPathStepComplete,
   PROFILE_SETUP_VALIDATION_ALERT_ID,
   type ProfileSetupPathStepReadiness,
+  buildDraftAwareSetupReviewItems,
 } from "./profile-setup-screen-helpers";
 import { getReviewItemScrollTargetId } from "./profile-setup-review-scroll-targets";
 import { profileSetupSteps } from "./profile-setup-steps";
@@ -899,5 +900,40 @@ describe("guided setup profile continuity", () => {
     expect(reloadedValues.identity.currentCity).toBe("Madison");
     expect(reloadedValues.identity.currentRegion).toBe("Wisconsin");
     expect(reloadedValues.summary.shortValueProposition).toBe(summary);
+  });
+});
+
+describe("buildDraftAwareSetupReviewItems", () => {
+  it("treats a case-only correction of an imported value as an edit, not a confirmation", () => {
+    // Retyping "NICO TURNER" as "Nico Turner" in Basics was classified as
+    // confirming the import, so the save re-applied the shouted spelling
+    // while the toast said "Saved".
+    const currentProfile = createFreshStartCandidateProfile();
+    const draftProfile = { ...currentProfile, fullName: "Nico Turner" };
+    const item = {
+      id: "review_full_name",
+      step: "essentials" as const,
+      target: { domain: "identity" as const, key: "fullName", recordId: null },
+      label: "Full name",
+      reason: "Imported from the resume header.",
+      severity: "recommended" as const,
+      status: "pending" as const,
+      proposedValue: "NICO TURNER",
+      sourceCandidateId: null,
+      sourceRunId: null,
+      sourceSnippet: null,
+      resolvedAt: null,
+      createdAt: "2026-09-11T10:00:00.000Z",
+      updatedAt: "2026-09-11T10:00:00.000Z",
+    };
+    const [display] = buildDraftAwareSetupReviewItems({
+      currentProfile,
+      currentSearchPreferences: createTestSearchPreferences(),
+      draftProfile,
+      draftSearchPreferences: createTestSearchPreferences(),
+      reviewItems: [item as never],
+    });
+    expect(display?.status).toBe("edited");
+    expect(display?.statusSource).toBe("draft");
   });
 });

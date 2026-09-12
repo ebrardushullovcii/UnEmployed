@@ -219,7 +219,7 @@ export function DiscoverySearchBar(props: {
               : null,
           )}
           data-testid="discovery-search-plan"
-          title="Search now searches with this plan's roles, places and sources."
+          title="Search now uses this plan's roles and places and every job source enabled on Profile."
         >
           <span className="text-foreground-muted">Plan</span>
           <select

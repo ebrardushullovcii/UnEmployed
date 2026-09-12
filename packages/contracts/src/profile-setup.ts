@@ -499,10 +499,10 @@ export function evaluateProfileSetupReadiness(
 ): ProfileSetupReadiness {
   const freshStart = isFreshStartCandidateProfile(profile);
   const hasResumeText = hasMeaningfulText(profile.baseResume.textContent);
-  const hasRealIdentityText =
-    hasMeaningfulText(profile.fullName) &&
-    hasMeaningfulText(profile.headline) &&
-    hasMeaningfulText(profile.currentLocation);
+  // Identity is the name. Headline and location have their own review items
+  // and their own labels; folding them in here produced a footer that said
+  // "add your name and an email" to people who had typed both.
+  const hasRealIdentityText = hasMeaningfulText(profile.fullName);
   // Placeholder strings left over from legacy first-run seeds are not facts.
   const hasPlaceholderOnlyIdentity = Boolean(
     (profile.fullName === null ||
@@ -515,10 +515,11 @@ export function evaluateProfileSetupReadiness(
         profile.currentLocation,
       )),
   );
+  // Years of experience is not part of identity: a first-jobber with zero
+  // years was told to "complete your essentials" with no way to find out
+  // that a 0 was the reason.
   const hasCoreIdentity = Boolean(
-    hasRealIdentityText &&
-    (!freshStart || profile.yearsExperience > 0) &&
-    (!freshStart || !hasPlaceholderOnlyIdentity),
+    hasRealIdentityText && (!freshStart || !hasPlaceholderOnlyIdentity),
   );
 
   const hasContactPath = Boolean(

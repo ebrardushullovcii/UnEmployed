@@ -363,6 +363,13 @@ export function ProfilePreferencesTargetingSection(props: {
                   {TAILORING_MODE_DESCRIPTIONS[field.value] ??
                     TAILORING_MODE_DESCRIPTIONS.balanced}
                 </p>
+                {/* Setup offers a fourth choice, "Use original resume
+                    unchanged"; it lives in Settings, so say where instead of
+                    letting this list look like the complete set. */}
+                <p className="text-(length:--text-small) leading-5 text-foreground-soft">
+                  To send your original file unchanged instead of a tailored
+                  copy, choose that under Settings › Application defaults.
+                </p>
                 {field.value === "aggressive" ? (
                   <p
                     className="text-sm leading-6 text-(--warning-text)"

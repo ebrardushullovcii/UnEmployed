@@ -32,9 +32,7 @@ export function createEmptyJobFinderRepositoryState(): JobFinderRepositoryState 
       companyWhitelist: [],
       discovery: {
         historyLimit: 5,
-        // Starter sources give a first-run user understandable choices without
-        // requiring URL knowledge. They seed disabled and never enable
-        // themselves; setup readiness still requires one explicit enable.
+        // No seeded sources: the user adds the job sites they actually use.
         targets: createStarterJobDiscoveryTargets(),
       },
     }),

@@ -1119,7 +1119,7 @@ export function createWorkspaceSnapshotProfileMethods(
           id: "campaign_default",
           name: "My job search",
           description:
-            "Your main search. Find jobs uses this plan's roles, places, and sources.",
+            "Your main search. Find jobs uses this plan's roles and places, plus the job sources enabled on Profile.",
           mode: "precision",
           searchPreferences: setupContext.searchPreferences,
           now: generatedAt,

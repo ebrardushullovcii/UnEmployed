@@ -107,7 +107,22 @@ export function resolveJobLocationDisplay(
     return null;
   }
 
-  return value;
+  // "Anywhere, Anywhere, United States" arrives when a board repeats a token
+  // in city, region and country slots; print each part once.
+  const seen = new Set<string>();
+  const parts = value
+    .split(/\s*,\s*/u)
+    .map((part) => part.trim())
+    .filter((part) => {
+      const key = part.toLowerCase();
+      if (!part || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+
+  return parts.length > 0 ? parts.join(", ") : value;
 }
 
 export function formatJobEmployerLocationLine(input: {

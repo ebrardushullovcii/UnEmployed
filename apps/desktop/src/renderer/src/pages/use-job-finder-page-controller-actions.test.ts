@@ -1635,7 +1635,7 @@ describe("createPrimaryPageActions", () => {
       expect.stringMatching(
         /fill-only run.*final submission and account creation remain disabled/i,
       ),
-      { scope: jobFinderPendingActions.apply() },
+      expect.objectContaining({ scope: jobFinderPendingActions.apply() }),
     );
     expect(runAction.mock.calls[0]?.[2] as string).not.toMatch(
       /automatic submit/i,

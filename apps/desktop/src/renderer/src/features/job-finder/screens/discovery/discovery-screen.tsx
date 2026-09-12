@@ -184,8 +184,9 @@ export function DiscoveryPausedBanner(props: {
     >
       <PauseCircle aria-hidden="true" className="size-4 shrink-0" />
       <span className="min-w-0 flex-1">
-        <strong className="font-semibold">Search paused.</strong> Activity is
-        paused by you, so new browser work and searches are stopped.
+        <strong className="font-semibold">Search paused.</strong> Opening the
+        Job Finder browser hands it to you, so automatic browsing and searches
+        wait. Close the browser panel or press Resume activity to continue.
       </span>
       {props.onResolve ? (
         <Button
@@ -354,6 +355,14 @@ export function DiscoveryScreen(props: {
     jobs.length === 0 ? "roles" : null,
   );
   const isSetupOpen = openSetupChipId !== null;
+  // A search that starts while setup is open would finish behind the setup
+  // panel: the completion banner and results were invisible until the user
+  // happened to close it. Starting a run closes setup.
+  useEffect(() => {
+    if (discoveryRunFeedback?.status === "started") {
+      setOpenSetupChipId(null);
+    }
+  }, [discoveryRunFeedback?.status]);
   // The wait belongs beside the control that started it, in the same
   // vocabulary Home and Search history use for the finished run.
   const liveSearchProgressLabel = useMemo(() => {
@@ -814,7 +823,10 @@ export function DiscoveryScreen(props: {
           hasCompletedSearch={recentRuns.some(
             (run) => run.state === "completed",
           )}
-          isSearchInProgress={activeRun?.state === "running"}
+          isSearchInProgress={
+            activeRun?.state === "running" ||
+            discoveryRunFeedback?.status === "started"
+          }
           hiddenAlsoFoundCount={hiddenJobCount}
           jobs={resultVisibility.jobs}
           latestRunVerdict={latestRunVerdict}
