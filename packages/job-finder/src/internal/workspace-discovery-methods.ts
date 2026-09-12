@@ -96,10 +96,26 @@ import { createUniqueId, normalizeText, uniqueStrings } from "./shared";
 import { createJobIdentityIndex } from "./job-identity";
 import { assessJobPostingDetailQuality } from "./job-posting-detail-quality";
 import {
+  LISTING_DETAIL_READS_PER_RUN,
   describeListingDetailEnrichment,
   enrichSavedJobListingDetails,
   jobNeedsListingDetail,
 } from "./listing-detail-enrichment";
+import { htmlToPlainText } from "./listing-detail-extraction";
+
+const EMPLOYER_ABSENCE_LABEL = "Employer not stated";
+
+// Structured-data descriptions arrive as HTML on some boards ("<strong>Job
+// Title<br></strong>Regional Manager"). Stored text must be plain so every
+// screen reads it the same way.
+const HTML_MARKUP_PATTERN = /<\/?[a-z][^>]*>|&(?:amp|lt|gt|nbsp|quot|#\d+);/i;
+
+function normalizeListingText<T extends string | null | undefined>(value: T): T {
+  if (typeof value === "string" && HTML_MARKUP_PATTERN.test(value)) {
+    return htmlToPlainText(value) as T;
+  }
+  return value;
+}
 
 const DISCOVERY_ACTIVITY_SAMPLE_LIMIT = 3;
 const LOW_YIELD_TECHNICAL_DISCOVERY_FLOOR = 6;
@@ -771,7 +787,12 @@ function toProviderAwarePosting(input: {
     source: input.posting.source ?? input.adapterKind,
     discoveryMethod: input.discoveryMethod,
     collectionMethod: input.collectionMethod,
-    company: input.posting.company || input.target.label,
+    // A source label ("Indeed", "Example Board") is not an employer. When
+    // extraction found no company, store the absence placeholder that every
+    // screen already knows to hide instead of naming the board as the hirer.
+    company: input.posting.company || EMPLOYER_ABSENCE_LABEL,
+    description: normalizeListingText(input.posting.description),
+    summary: normalizeListingText(input.posting.summary),
     providerKey: input.posting.providerKey ?? provider?.key ?? null,
     providerBoardToken:
       input.posting.providerBoardToken ?? provider?.boardToken ?? null,
@@ -933,6 +954,7 @@ async function collectTargetJobs(input: {
       }),
     );
     await ctx.openRunBrowserSession(adapterKind, {
+      purpose: "automation",
       targetUrl: target.startingUrl,
       targetId: target.id,
     });
@@ -2603,11 +2625,17 @@ export function createWorkspaceDiscoveryMethods(
             duplicatesMerged: activeRun.summary.duplicatesMerged,
             invalidSkipped: activeRun.summary.invalidSkipped,
           });
+        const readsThisRun = Math.min(
+          enrichmentCandidates.length,
+          LISTING_DETAIL_READS_PER_RUN,
+        );
         emitActivity(
           readEvent(
-            `Reading listing details for ${enrichmentCandidates.length} ${
-              enrichmentCandidates.length === 1 ? "job" : "jobs"
-            }`,
+            readsThisRun < enrichmentCandidates.length
+              ? `Reading listing details for ${readsThisRun} of ${enrichmentCandidates.length} jobs; the rest are read on the next search`
+              : `Reading listing details for ${readsThisRun} ${
+                  readsThisRun === 1 ? "job" : "jobs"
+                }`,
           ),
         );
         try {

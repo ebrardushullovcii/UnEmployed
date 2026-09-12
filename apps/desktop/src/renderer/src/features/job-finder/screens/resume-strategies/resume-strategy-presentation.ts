@@ -8,71 +8,70 @@ import type {
 } from "@unemployed/contracts";
 import type { TailoringMode } from "@unemployed/contracts";
 
+// The same names the resume picker shows (job-finder-resume-catalog); a
+// second vocabulary here made one template look like two.
 export const resumeTemplateLabels: Record<ResumeTemplateId, string> = {
-  classic_ats: "Chronology Classic (ATS)",
-  modern_split: "Modern Split",
-  compact_exec: "Compact Executive",
-  technical_matrix: "Technical Matrix",
-  project_showcase: "Project Showcase",
-  credentials_focus: "Credentials Focus",
-  timeline_longform: "Timeline Longform",
-  career_pivot: "Career Pivot",
+  classic_ats: "Chronology Classic",
+  modern_split: "Modern Editorial",
+  compact_exec: "Senior Brief",
+  technical_matrix: "Engineering Spec",
+  project_showcase: "Proof Portfolio",
+  credentials_focus: "Formal Proof",
+  timeline_longform: "Longform Timeline",
+  career_pivot: "Career Pivot Bridge",
 };
 
 export const resumeHeadlinePolicyLabels: Record<
   ResumeStrategyHeadlinePolicy,
   string
 > = {
-  fixed: "Fixed headline (unchanged)",
-  role_family_template: "Role-family template headline",
-  per_job_tailored: "Tailored per job",
+  fixed: "Keep my headline",
+  role_family_template: "One headline for this kind of role",
+  per_job_tailored: "A headline per job",
 };
 
 export const resumeSkillsPolicyLabels: Record<
   ResumeStrategySkillsPolicy,
   string
 > = {
-  base_only: "Base resume skills only",
-  role_family_expanded: "Role-family expanded skills",
-  per_job_tailored: "Tailored per job",
+  base_only: "Only the skills on my resume",
+  role_family_expanded: "Skills common to this kind of role",
+  per_job_tailored: "Skills picked per job",
 };
 
 export const resumeCoveragePolicyLabels: Record<
   ResumeStrategyCoveragePolicy,
   string
 > = {
-  base_omissions: "Cover base-resume omissions",
-  role_family_recommended: "Role-family recommended coverage",
-  full_tailoring: "Full per-job tailoring",
+  base_omissions: "Fill gaps my resume leaves",
+  role_family_recommended: "Cover what this kind of role expects",
+  full_tailoring: "Tailor fully per job",
 };
 
 export const resumeTailoringStrengthLabels: Record<TailoringMode, string> = {
-  conservative: "Conservative",
-  balanced: "Balanced",
-  aggressive: "Aggressive",
+  // Same names the setup screen uses; "Conservative" and "Aggressive" were a
+  // second vocabulary for one setting.
+  conservative: "Light edit",
+  balanced: "Balanced rewrite",
+  aggressive: "Strong rewrite",
 };
 
 export function describeEvidenceBoundaries(
   boundaries: ResumeStrategyEvidenceBoundaries,
 ): string {
   const parts: string[] = [];
+  // What the user reads on the saved card; the evidence-ref count is a
+  // generator bound, not a choice they made, so it stays out of the summary.
   parts.push(
-    boundaries.allowExactClaims
-      ? "Exact claims allowed"
-      : "Exact claims blocked",
+    boundaries.allowExactClaims ? "Quotes allowed" : "No word-for-word quotes",
   );
   parts.push(
-    boundaries.allowParaphrasedClaims
-      ? "Paraphrased claims allowed"
-      : "Paraphrased claims blocked",
-  );
-  parts.push(
-    `Up to ${boundaries.maxEvidenceRefsPerBullet} evidence refs per bullet`,
+    boundaries.allowParaphrasedClaims ? "Rewording allowed" : "No rewording",
   );
   parts.push(
     boundaries.requireVerifierPass
-      ? "Verifier pass required"
-      : "Verifier pass not required",
+      ? "Checked against your resume before export"
+      : "Not checked against your resume before export",
   );
   return parts.join(" · ");
 }

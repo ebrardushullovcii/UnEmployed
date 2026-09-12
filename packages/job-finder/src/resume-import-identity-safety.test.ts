@@ -18,6 +18,7 @@ import { buildResumeDraftIdentity } from "./internal/resume-workspace-structure"
 import {
   findResumeImportIdentityConflicts,
   resolveResumeIdentity,
+  extractIdentityNameFromLine,
 } from "./internal/resume-identity";
 import { reconcileCandidates } from "./internal/resume-import-reconciliation";
 import { createSeed } from "./workspace-service.test-fixtures";
@@ -371,6 +372,46 @@ describe("resume import identity and revision safety", () => {
     expect(reconciled[0]?.resolutionReason).toMatch(
       /identity_mismatch_requires_review/,
     );
+  });
+
+  test("reads the name from a flattened two-column header and never from a sentence tail", () => {
+    // pdf text extraction merges a two-column header into one line and wraps
+    // the summary so its last words land on their own line. The identity
+    // check used to reject the first and accept "at scale." as the name.
+    expect(extractIdentityNameFromLine("Aaron Murphy Tampa, FL")).toBe(
+      "Aaron Murphy",
+    );
+    expect(extractIdentityNameFromLine("Aaron Murphy | Tampa, FL")).toBe(
+      "Aaron Murphy",
+    );
+    expect(extractIdentityNameFromLine("at scale.")).toBeNull();
+    expect(extractIdentityNameFromLine("and reliability")).toBeNull();
+    expect(extractIdentityNameFromLine("PROFESSIONAL SUMMARY")).toBeNull();
+    expect(extractIdentityNameFromLine("Mary-Jane O’Neil")).toBe(
+      "Mary-Jane O’Neil",
+    );
+
+    const caseyProfile = createCaseyProfile();
+    const profileWithMergedHeader = CandidateProfileSchema.parse({
+      ...caseyProfile,
+      baseResume: {
+        ...caseyProfile.baseResume,
+        id: "resume_casey_merged_header",
+        fileName: "casey-resume.pdf",
+        textContent: [
+          "Casey Rowan Tampa, FL",
+          "+1 555 000 0000",
+          "casey@example.com",
+          "PROFESSIONAL SUMMARY",
+          "Experienced engineer improving development practices for security and reliability",
+          "at scale.",
+        ].join("\n"),
+      },
+    });
+
+    expect(
+      resolveResumeIdentity(profileWithMergedHeader).mismatchReasons,
+    ).toEqual([]);
   });
 
   test("blocks an established profile when its base resume identifies another person", () => {

@@ -8,20 +8,13 @@ import {
 import { createEmptyJobFinderRepositoryState } from "./job-finder-initial-state";
 
 describe("createEmptyJobFinderRepositoryState fresh seed", () => {
-  it("seeds disabled starter sources so first-run setup can offer real choices", () => {
+  it("seeds no job sources so first-run setup asks for the sites the user uses", () => {
     const state = createEmptyJobFinderRepositoryState();
     const parsed = JobFinderRepositoryStateSchema.parse(state);
     const seededTargets = parsed.searchPreferences.discovery.targets;
 
-    expect(seededTargets).toHaveLength(STARTER_JOB_SOURCES.length);
-    for (const [index, source] of STARTER_JOB_SOURCES.entries()) {
-      expect(seededTargets[index]).toMatchObject({
-        enabled: false,
-        id: source.id,
-        label: source.label,
-        startingUrl: source.startingUrl,
-      });
-    }
+    expect(seededTargets).toHaveLength(0);
+    expect(STARTER_JOB_SOURCES.length).toBeGreaterThan(0);
 
     for (const target of seededTargets) {
       expect(target.instructionStatus).toBe("missing");

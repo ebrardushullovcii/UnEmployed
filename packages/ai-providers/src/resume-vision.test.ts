@@ -259,7 +259,7 @@ describe("resume vision provider", () => {
       role: "vision",
       ready: true,
       label: "Resume visual scan",
-      model: "gpt-5.6-luna",
+      model: "muse-spark-1.3-contributor",
       baseUrl: "https://shared.example.com/v1",
       modelContextWindowTokens: 139_000,
       reservedHeadroomTokens: 30_000,
@@ -267,7 +267,7 @@ describe("resume vision provider", () => {
     });
   });
 
-  test("sends shared AI credentials and Luna high to the Responses vision endpoint", async () => {
+  test("sends shared AI credentials and Muse Spark xhigh to the Responses vision endpoint", async () => {
     const originalFetch = globalThis.fetch;
     let capturedUrl = "";
     let capturedAuthorization = "";
@@ -367,9 +367,9 @@ describe("resume vision provider", () => {
       expect(capturedUrl).toBe("https://shared.example.com/v1/responses");
       expect(capturedAuthorization).toBe("Bearer shared-test-key");
       expect(capturedBody).toMatchObject({
-        model: "gpt-5.6-luna",
+        model: "muse-spark-1.3-contributor",
         store: false,
-        reasoning: { effort: "high" },
+        reasoning: { effort: "xhigh" },
         text: { format: { type: "json_object" } },
       });
     } finally {

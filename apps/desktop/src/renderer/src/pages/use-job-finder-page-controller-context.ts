@@ -529,7 +529,7 @@ export function buildJobFinderPageContext(
         command.action === "confirm_done"
           ? null
           : command.action === "open_page"
-            ? `Opened this application in ${JOB_FINDER_BROWSER_NAME}, a separate window outside this app. Finish the step there, then come back and choose "${CONFIRM_STEP_DONE_ACTION}".`
+            ? `Opened this application in ${JOB_FINDER_BROWSER_NAME}, right here in the app. Finish the step there, then come back and choose "${CONFIRM_STEP_DONE_ACTION}".`
             : "Saved. Needs you is up to date.",
         {
           scope: jobFinderPendingActions.userAction(command.requestId),

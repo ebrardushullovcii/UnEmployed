@@ -139,9 +139,9 @@ function StrategyForm(props: {
           {isEdit ? "Edit resume approach" : "Create resume approach"}
         </h2>
         <p className="mt-1 text-(length:--text-small) leading-6 text-foreground-soft">
-          An approach saves your targeting preferences for a role family. Saving
-          or reusing one never approves a resume — you review and approve each
-          resume before it is applied.
+          An approach saves how you want resumes tailored for one kind of role.
+          Saving or reusing one never approves a resume — you review and approve
+          each resume before it is applied.
         </p>
       </div>
 
@@ -166,7 +166,7 @@ function StrategyForm(props: {
           />
         </label>
         <label className="grid gap-1 text-sm sm:col-span-2">
-          <span className="font-medium">Base resume document</span>
+          <span className="font-medium">Start from this resume</span>
           <Input
             list="resume-strategy-base-resume-options"
             onChange={(event) =>
@@ -193,7 +193,7 @@ function StrategyForm(props: {
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Template</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               update({
                 templateId: event.target
@@ -212,7 +212,7 @@ function StrategyForm(props: {
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Tailoring strength</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               update({
                 tailoringStrength: event.target
@@ -233,7 +233,7 @@ function StrategyForm(props: {
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Headline policy</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               update({
                 headlinePolicy: event.target
@@ -254,7 +254,7 @@ function StrategyForm(props: {
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Skills policy</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               update({
                 skillsPolicy: event.target
@@ -273,7 +273,7 @@ function StrategyForm(props: {
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Coverage policy</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               update({
                 coveragePolicy: event.target
@@ -351,13 +351,31 @@ function StrategyForm(props: {
   );
 }
 
+/**
+ * Where an approach is in use: the shortlisted jobs that chose or were
+ * recommended it, split by what a re-tailor may touch. Approved resumes are
+ * never regenerated from here.
+ */
+export interface ResumeStrategyUsage {
+  jobCount: number;
+  retailorableJobIds: readonly string[];
+  approvedCount: number;
+}
+
+function describeUsage(usage: ResumeStrategyUsage): string {
+  if (usage.jobCount === 0) return "No shortlisted jobs yet";
+  return `${usage.jobCount} shortlisted job${usage.jobCount === 1 ? "" : "s"}`;
+}
+
 function StrategyCard(props: {
+  baseResumeDocumentId: string;
   isDisablePending: boolean;
   isSavePending: boolean;
   onDisable: (strategyId: string) => void;
   onEdit: (strategy: ResumeStrategy) => void;
   onEnable: (strategy: ResumeStrategy) => void;
   strategy: ResumeStrategy;
+  usage?: ResumeStrategyUsage;
 }) {
   const { strategy } = props;
   const boundaries = describeEvidenceBoundaries(strategy.evidenceBoundaries);
@@ -458,9 +476,21 @@ function StrategyCard(props: {
             Base resume
           </dt>
           <dd className="break-all text-foreground-soft">
-            {strategy.baseResumeDocumentId}
+            {strategy.baseResumeDocumentId === props.baseResumeDocumentId
+              ? "Your imported resume"
+              : strategy.baseResumeDocumentId}
           </dd>
         </div>
+        {props.usage ? (
+          <div>
+            <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+              Used by
+            </dt>
+            <dd className="text-foreground-soft">
+              {describeUsage(props.usage)}
+            </dd>
+          </div>
+        ) : null}
       </dl>
       <p className="text-(length:--text-small) leading-5 text-foreground-soft">
         {boundaries}
@@ -523,7 +553,7 @@ function CampaignDefaultsSection(props: {
               <label className="grid gap-1">
                 <span className="font-medium">{campaign.name}</span>
                 <select
-                  className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                  className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
                   disabled={props.isPending(campaign.id)}
                   onChange={(event) =>
                     props.onSetDefault({
@@ -604,10 +634,23 @@ export function ResumeStrategiesScreen(props: {
   onRetry?: () => void;
   onSaveStrategy: (input: SaveResumeStrategyInput) => Promise<boolean>;
   onSetCampaignDefault: (input: SetCampaignResumeStrategyDefaultInput) => void;
+  /** Re-tailors the given jobs' unapproved drafts with their current approach. */
+  onRetailorJobs?: (jobIds: readonly string[]) => void;
   strategies: readonly ResumeStrategy[];
+  strategyUsage?: (strategyId: string) => ResumeStrategyUsage;
 }) {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<SaveResumeStrategyInput | null>(null);
+  // After an edit, the jobs already using the approach are the open question:
+  // they keep their current drafts, and this is the one place to act on that.
+  const [savedNotice, setSavedNotice] = useState<{
+    strategyId: string;
+    name: string;
+  } | null>(null);
+  const savedUsage =
+    savedNotice && props.strategyUsage
+      ? props.strategyUsage(savedNotice.strategyId)
+      : null;
   const [searchParams] = useSearchParams();
   const shortlistedReturnPath = getSafeShortlistedReturnPath(
     searchParams.get("returnTo"),
@@ -667,6 +710,45 @@ export function ResumeStrategiesScreen(props: {
         </p>
       ) : null}
 
+      {savedNotice && savedUsage && savedUsage.jobCount > 0 ? (
+        <div
+          className="flex flex-wrap items-center gap-3 rounded-(--radius-small) border border-border-subtle px-3 py-2 text-(length:--text-small) leading-6 text-foreground"
+          data-testid="resume-strategy-usage-notice"
+          role="status"
+        >
+          <span>
+            {`${describeUsage(savedUsage)} use "${savedNotice.name}".`}
+            {savedUsage.retailorableJobIds.length > 0
+              ? ` ${savedUsage.retailorableJobIds.length === 1 ? "Its current draft stays" : "Their current drafts stay"} as ${savedUsage.retailorableJobIds.length === 1 ? "it is" : "they are"} until you re-tailor ${savedUsage.retailorableJobIds.length === 1 ? "it" : "them"}.`
+              : ""}
+            {savedUsage.approvedCount > 0
+              ? ` ${savedUsage.approvedCount} approved resume${savedUsage.approvedCount === 1 ? " is" : "s are"} left untouched.`
+              : ""}
+          </span>
+          {savedUsage.retailorableJobIds.length > 0 && props.onRetailorJobs ? (
+            <Button
+              onClick={() => {
+                props.onRetailorJobs?.(savedUsage.retailorableJobIds);
+                setSavedNotice(null);
+              }}
+              size="xs"
+              type="button"
+              variant="outline"
+            >
+              {`Re-tailor ${savedUsage.retailorableJobIds.length} draft${savedUsage.retailorableJobIds.length === 1 ? "" : "s"}`}
+            </Button>
+          ) : null}
+          <Button
+            onClick={() => setSavedNotice(null)}
+            size="xs"
+            type="button"
+            variant="ghost"
+          >
+            Dismiss
+          </Button>
+        </div>
+      ) : null}
+
       {props.loadError ? (
         <div
           className="grid gap-2 rounded-(--radius-small) border border-destructive/35 bg-destructive/8 px-3 py-2"
@@ -711,6 +793,9 @@ export function ResumeStrategiesScreen(props: {
             const saved = await props.onSaveStrategy(input);
             if (saved) {
               setEditing(null);
+              setSavedNotice(
+                input.id ? { strategyId: input.id, name: input.name } : null,
+              );
             }
           }}
           value={editing}
@@ -742,8 +827,8 @@ export function ResumeStrategiesScreen(props: {
         <div className="grid gap-3">
           <EmptyState
             className="min-h-40 px-5 py-6"
-            description="Create a named approach for a role family to reuse its targeting preferences. Nothing is approved until you review it."
-            title="No resume approaches yet"
+            description="If you apply for several similar roles — say backend engineering jobs — save one approach and every resume for those jobs starts the same way instead of you re-choosing each time. You still review and approve each resume."
+            title="Save how you want your resume tailored"
           />
           <div className="flex justify-center">
             <Button
@@ -767,6 +852,7 @@ export function ResumeStrategiesScreen(props: {
         <div className="grid gap-3 xl:grid-cols-2">
           {filteredStrategies.map((strategy) => (
             <StrategyCard
+              baseResumeDocumentId={props.baseResumeDocumentId}
               isDisablePending={props.isDisablePending(strategy.id)}
               isSavePending={props.isSavePending}
               key={strategy.id}
@@ -776,6 +862,9 @@ export function ResumeStrategiesScreen(props: {
                 void props.onSaveStrategy(toSaveInput(next, { enabled: true }));
               }}
               strategy={strategy}
+              {...(props.strategyUsage
+                ? { usage: props.strategyUsage(strategy.id) }
+                : {})}
             />
           ))}
         </div>

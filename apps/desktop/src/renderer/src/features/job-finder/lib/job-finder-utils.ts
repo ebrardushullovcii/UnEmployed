@@ -59,8 +59,17 @@ export function getPostedDateLabel(input: {
   postedAtText: string | null;
   providerUpdatedAt: string | null;
 }): { label: "Posted" | "Updated"; value: string } {
+  // A site's own text often already says "Posted 3 days ago"; printing the
+  // label in front of it read "POSTED POSTED 3 DAYS AGO".
+  const visibleText = input.postedAtText
+    ?.replace(/^\s*(posted|updated|published)\s*:?\s*/iu, "")
+    .trim();
+  // A board's own text can be a machine timestamp ("2026-08-18T16:00:22+00:00");
+  // show it as a date, never as the loudest thing on the card.
+  const isMachineTimestamp =
+    Boolean(visibleText) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/u.test(visibleText ?? "");
   const postedValue =
-    input.postedAtText ??
+    (isMachineTimestamp ? formatDateOnly(visibleText ?? "") : visibleText || null) ??
     (input.postedAt ? formatDateOnly(input.postedAt) : null);
 
   if (postedValue) {

@@ -12,13 +12,22 @@ export const modelReasoningEfforts = [
 export type ModelReasoningEffort = (typeof modelReasoningEfforts)[number];
 
 export const DEFAULT_OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1";
-export const DEFAULT_TEXT_MODEL = "deepseek-v4-flash";
-export const DEFAULT_TEXT_MODEL_API_MODE: ModelApiMode = "chat_completions";
-export const DEFAULT_TEXT_MODEL_REASONING_EFFORT: ModelReasoningEffort = "max";
-export const DEFAULT_VISION_MODEL = "gpt-5.6-luna";
+// Product routes on OpenCode Go: Muse Spark 1.3 at xhigh for every text and
+// vision task, DeepSeek V4.1 Flash at high only for aggressive resume
+// tailoring. Model ids are verified against /models on the gateway.
+export const DEFAULT_TEXT_MODEL = "muse-spark-1.3-contributor";
+export const DEFAULT_TEXT_MODEL_API_MODE: ModelApiMode = "responses";
+export const DEFAULT_TEXT_MODEL_REASONING_EFFORT: ModelReasoningEffort =
+  "xhigh";
+export const DEFAULT_AGGRESSIVE_RESUME_MODEL = "deepseek-v4.1-flash";
+export const DEFAULT_AGGRESSIVE_RESUME_MODEL_API_MODE: ModelApiMode =
+  "chat_completions";
+export const DEFAULT_AGGRESSIVE_RESUME_MODEL_REASONING_EFFORT: ModelReasoningEffort =
+  "high";
+export const DEFAULT_VISION_MODEL = "muse-spark-1.3-contributor";
 export const DEFAULT_VISION_MODEL_API_MODE: ModelApiMode = "responses";
 export const DEFAULT_VISION_MODEL_REASONING_EFFORT: ModelReasoningEffort =
-  "high";
+  "xhigh";
 
 export type CompatibleMessage = {
   role: "system" | "user" | "assistant" | "tool";
@@ -40,7 +49,7 @@ export type CompatibleTool = {
   };
 };
 
-type ChatCompletionsPayload = {
+export type ChatCompletionsPayload = {
   choices?: Array<{
     message?: {
       content?: string;
@@ -57,7 +66,7 @@ type ChatCompletionsPayload = {
   error?: { message?: string };
 };
 
-type ResponsesPayload = {
+export type ResponsesPayload = {
   output?: Array<{
     type?: string;
     call_id?: string;
@@ -190,6 +199,34 @@ function normalizeResponsesPayload(
   };
 }
 
+/** Normalizes either API's JSON body into the Chat Completions shape. */
+export function normalizeModelPayload(
+  rawPayload: ChatCompletionsPayload | ResponsesPayload,
+  apiMode: ModelApiMode,
+): ChatCompletionsPayload {
+  return apiMode === "responses"
+    ? normalizeResponsesPayload(rawPayload as ResponsesPayload)
+    : (rawPayload as ChatCompletionsPayload);
+}
+
+/** Reads the JSON object the model was asked to return from a normalized payload. */
+export function extractModelJsonFromPayload(
+  payload: ChatCompletionsPayload,
+): unknown {
+  const rawContent = extractContentString(
+    payload.choices?.[0]?.message?.content,
+  );
+  const jsonString = extractJsonString(rawContent);
+
+  try {
+    return JSON.parse(jsonString) as unknown;
+  } catch (error) {
+    throw new Error(
+      `Model returned invalid JSON: ${error instanceof Error ? error.message : "Unknown parse error"}`,
+    );
+  }
+}
+
 async function parseNormalizedPayload(
   response: Response,
   apiMode: ModelApiMode,
@@ -218,9 +255,7 @@ async function parseNormalizedPayload(
     throw new Error("Model returned a non-JSON response");
   }
 
-  return apiMode === "responses"
-    ? normalizeResponsesPayload(rawPayload as ResponsesPayload)
-    : (rawPayload as ChatCompletionsPayload);
+  return normalizeModelPayload(rawPayload, apiMode);
 }
 
 export async function parseModelJsonResponse(
@@ -228,18 +263,7 @@ export async function parseModelJsonResponse(
   apiMode: ModelApiMode = "chat_completions",
 ): Promise<unknown> {
   const payload = await parseNormalizedPayload(response, apiMode);
-  const rawContent = extractContentString(
-    payload.choices?.[0]?.message?.content,
-  );
-  const jsonString = extractJsonString(rawContent);
-
-  try {
-    return JSON.parse(jsonString) as unknown;
-  } catch (error) {
-    throw new Error(
-      `Model returned invalid JSON: ${error instanceof Error ? error.message : "Unknown parse error"}`,
-    );
-  }
+  return extractModelJsonFromPayload(payload);
 }
 
 export async function parseResponsePayload(
@@ -337,6 +361,13 @@ export function buildModelRequestBody(input: {
   jsonOutput?: boolean;
   tools?: readonly CompatibleTool[];
   maxOutputTokens?: number | undefined;
+  /**
+   * Ask the Responses API for reasoning summaries. The text is ignored; the
+   * summary events are what keep a streamed request visibly alive while the
+   * model thinks for minutes (verified against OpenCode Go: one summary every
+   * 4–15s, versus total silence without it).
+   */
+  reasoningSummary?: boolean | undefined;
 }): Record<string, unknown> {
   if (input.apiMode === "chat_completions") {
     return {
@@ -363,6 +394,7 @@ export function buildModelRequestBody(input: {
     store: false,
     reasoning: {
       effort: input.reasoningEffort ?? DEFAULT_VISION_MODEL_REASONING_EFFORT,
+      ...(input.reasoningSummary ? { summary: "auto" } : {}),
     },
     input: toResponsesInput(input.messages),
     ...(input.jsonOutput ? { text: { format: { type: "json_object" } } } : {}),

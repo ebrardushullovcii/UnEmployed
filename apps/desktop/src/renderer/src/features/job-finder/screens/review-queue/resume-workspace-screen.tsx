@@ -750,6 +750,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       isDirty={hasUnsavedChanges}
       isPending={props.isWorkspacePending}
       onRetry={() => refreshPreview(draft)}
+      onRevealSuggestions={() => setMobileStudioTab("editor")}
       onSelectTarget={handlePreviewSelection}
       preview={preview}
       previewError={previewError}

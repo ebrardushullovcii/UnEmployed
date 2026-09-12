@@ -28,9 +28,11 @@ export const SHELL_SCROLLING_ROUTE_TOP_GUTTER_CLASS = "pt-3";
 export const SHELL_SCROLLING_ROUTE_TOP_GUTTER_PX = 12;
 
 /**
- * The header mask's total height and the fraction of it that stays fully
- * opaque. The opaque band must cover the whole top gutter; the remainder fades
- * so the first row at scroll 0 does not end on a hard edge.
+ * The shell header mask is exactly the top gutter, fully opaque, and nothing
+ * more: any fade tail past the gutter lands on the first row of every route at
+ * scroll 0 and reads as a shadow across its controls. Nested scrollers that
+ * show their edge treatment only while clipping (the Find jobs inspector) keep
+ * the fade below, sized from the shared stop.
  */
 /**
  * How far a route's bottom-anchored sticky chrome ends up above the scrollport
@@ -56,8 +58,8 @@ export function getStickyBottomChromeGapPx(input: {
   );
 }
 
-export const SHELL_HEADER_MASK_HEIGHT_CLASS = "h-5";
-export const SHELL_HEADER_MASK_HEIGHT_PX = 20;
+export const SHELL_HEADER_MASK_HEIGHT_CLASS = "h-3";
+export const SHELL_HEADER_MASK_HEIGHT_PX = 12;
 export const SHELL_HEADER_MASK_OPAQUE_STOP_CLASS = "from-60%";
 export const SHELL_HEADER_MASK_OPAQUE_STOP_FRACTION = 0.6;
 

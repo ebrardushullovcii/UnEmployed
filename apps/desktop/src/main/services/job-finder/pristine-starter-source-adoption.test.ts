@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
-  createStarterJobDiscoveryTargets,
   deriveProfileSetupState,
   evaluateProfileSetupReadiness,
   JobSearchPreferencesSchema,
@@ -166,17 +165,14 @@ describe("adoptPristineWorkspaceStarterSources executor", () => {
       getSearchPreferences: repository.getSearchPreferences,
       saveSearchPreferences: repository.saveSearchPreferences,
     });
-    expect(adopted).toBe(true);
+    // Nothing is seeded any more: the user adds the sites they use, so the
+    // executor is a no-op and never touches the saved preferences.
+    expect(adopted).toBe(false);
 
-    const next = repository.readSaved();
-    expect(next?.discovery.targets.map((target) => target.id)).toEqual(
-      createStarterJobDiscoveryTargets().map((target) => target.id),
-    );
-    expect(next?.discovery.targets.every((target) => !target.enabled)).toBe(
-      true,
-    );
+    const next = repository.readSaved() ?? emptyPreferences;
+    expect(next.discovery.targets).toEqual([]);
     expect(
-      evaluateProfileSetupReadiness(freshProfile, next!).hasDiscoverySource,
+      evaluateProfileSetupReadiness(freshProfile, next).hasDiscoverySource,
     ).toBe(false);
 
     const derivedBefore = deriveProfileSetupState(
@@ -184,7 +180,7 @@ describe("adoptPristineWorkspaceStarterSources executor", () => {
       emptyPreferences,
       { currentState: notStartedSetupState },
     );
-    const derivedAfter = deriveProfileSetupState(freshProfile, next!, {
+    const derivedAfter = deriveProfileSetupState(freshProfile, next, {
       currentState: notStartedSetupState,
     });
     expect(derivedAfter.status).toBe(derivedBefore.status);
@@ -201,7 +197,7 @@ describe("adoptPristineWorkspaceStarterSources executor", () => {
       saveSearchPreferences: repository.saveSearchPreferences,
     });
     expect(secondCall).toBe(false);
-    expect(repository.saveCalls()).toBe(1);
+    expect(repository.saveCalls()).toBe(0);
   });
 
   test("does not save for established or non-pristine workspaces", async () => {
@@ -301,7 +297,7 @@ describe("starter source adoption during service bootstrap", () => {
 
     expect(
       snapshot.searchPreferences.discovery.targets.map((t) => t.id),
-    ).toEqual(createStarterJobDiscoveryTargets().map((t) => t.id));
+    ).toEqual([]);
     expect(
       snapshot.searchPreferences.discovery.targets.every((t) => !t.enabled),
     ).toBe(true);
@@ -322,7 +318,7 @@ describe("starter source adoption during service bootstrap", () => {
         activeCampaign?.searchPreferences.discovery.targets.map(
           (target) => target.id,
         ),
-      ).toEqual(createStarterJobDiscoveryTargets().map((target) => target.id));
+      ).toEqual([]);
     }
   });
 });

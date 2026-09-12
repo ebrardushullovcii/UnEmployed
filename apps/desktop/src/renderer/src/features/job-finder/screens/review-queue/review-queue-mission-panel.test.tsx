@@ -160,7 +160,7 @@ describe("ReviewQueueMissionPanel", () => {
     ).toBeTruthy();
     expect(screen.getByText("circle.com")).toBeTruthy();
     expect(screen.getByText("Checked on the live form")).toBeTruthy();
-    expect(screen.getByText("Authorized for preparation")).toBeTruthy();
+    expect(screen.getByText("Fills fields, never submits")).toBeTruthy();
     expect(screen.getByText("Disabled for this run")).toBeTruthy();
     expect(
       screen.getByRole("heading", { name: "Application readiness" })
@@ -1433,7 +1433,7 @@ describe("ReviewQueueMissionPanel", () => {
       within(details as HTMLElement).getByText("Checked on the live form"),
     ).toBeTruthy();
     expect(
-      within(details as HTMLElement).getByText("Authorized for preparation"),
+      within(details as HTMLElement).getByText("Fills fields, never submits"),
     ).toBeTruthy();
     const primaryGrid = readiness.querySelector("dl");
     expect(primaryGrid).toBeTruthy();
@@ -1444,7 +1444,7 @@ describe("ReviewQueueMissionPanel", () => {
     ).toBeNull();
     expect(
       within(primaryGrid as HTMLElement).queryByText(
-        "Authorized for preparation",
+        "Fills fields, never submits",
       ),
     ).toBeNull();
     const checklist = screen.getByTestId("shortlisted-readiness-checklist");

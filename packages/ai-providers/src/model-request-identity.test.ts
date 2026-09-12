@@ -83,6 +83,29 @@ describe("model request identity", () => {
   });
 });
 
+describe("every model caller sends the identity headers", () => {
+  it("has no request path that hand-builds an Authorization header", async () => {
+    // The resume vision provider shipped its own `{ Authorization,
+    // Content-Type }` object and OpenCode Go rejected every call with
+    // "Request is missing x-opencode-session", so the visual scan failed on
+    // each install and fell back silently. Any new caller that does the same
+    // fails here instead of in a user's import.
+    const { readdir, readFile } = await import("node:fs/promises");
+    const path = await import("node:path");
+    const dir = path.dirname(new URL(import.meta.url).pathname);
+    const files = (await readdir(dir)).filter(
+      (name) => name.endsWith(".ts") && !name.includes(".test."),
+    );
+    const offenders: string[] = [];
+    for (const name of files) {
+      if (name === "model-request-identity.ts") continue;
+      const source = await readFile(path.join(dir, name), "utf8");
+      if (/Authorization:\s*`Bearer/u.test(source)) offenders.push(name);
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe("OpenCode-compatible client requests", () => {
   const originalFetch = globalThis.fetch;
 

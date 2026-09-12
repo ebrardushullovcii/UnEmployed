@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted; supersedes the provider-selection part of ADR 0009. ADR 0009's
+Superseded by ADR 0019 for model selection (Muse Spark for text and vision,
+DeepSeek V4.1 Flash for aggressive tailoring). The independent text/vision
+route configuration this ADR introduced remains in force. ADR 0009's
 contract-first agent and safety boundaries remain accepted.
 
 ## Context

@@ -84,15 +84,15 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
         value: selectedApplyRunDetails?.questionRecords.length ?? 0,
       },
       {
-        label: "Grounded answers",
+        label: "Answers filled in",
         value: selectedApplyRunDetails?.answerRecords.length ?? 0,
       },
       { label: "Artifacts", value: retainedArtifacts.length },
       {
-        label: "Checkpoints",
+        label: "Steps recorded",
         value: selectedApplyRunDetails?.checkpoints.length ?? 0,
       },
-      { label: "Visual checkpoints", value: resultVisualCheckpointCount },
+      { label: "Screenshots", value: resultVisualCheckpointCount },
       { label: "Visual evidence", value: retainedVisualEvidenceCount },
     ] as const
   ).filter((metric) => metric.value > 0);
@@ -107,7 +107,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
     <section className="surface-card-tint grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className={cn(APPLICATION_DETAIL_FACT_LABEL_CLASS, "text-primary")}>
-          What this run recorded
+          What Job Finder filled in
         </h3>
         <StatusBadge tone={applyDetailsStatusBadge.tone}>
           {applyDetailsStatusBadge.label}
@@ -115,13 +115,13 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
       </div>
       {applyRunDetailsStatus === "loading" ? (
         <p className="text-(length:--text-body) leading-7 text-foreground-soft">
-          Loading saved questions, grounded answers, artifacts, and checkpoints
-          for this run.
+          Loading what Job Finder filled in on this application.
         </p>
       ) : null}
       {applyRunDetailsStatus === "error" ? (
         <p className="text-(length:--text-body) leading-7 text-destructive">
-          {applyRunDetailsError ?? "Apply run details could not be loaded."}
+          {applyRunDetailsError ??
+            "This application's details could not be loaded. Try again."}
         </p>
       ) : null}
       {selectedApplyRunDetails ? (
@@ -149,7 +149,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
           )}
           {selectedApplyRunDetails.result?.visualCheckpoints.length ? (
             <div className="grid gap-2">
-              <p className="label-mono-xs">Visual apply checkpoints</p>
+              <p className="label-mono-xs">Screenshots of the form</p>
               {selectedApplyRunDetails.result.visualCheckpoints.map(
                 (checkpoint) => (
                   <div
@@ -194,7 +194,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
           ) : null}
           {selectedApplyRunDetails.questionRecords.length ? (
             <div className="grid gap-2">
-              <p className="label-mono-xs">Detected questions</p>
+              <p className="label-mono-xs">Questions on the form</p>
               {selectedApplyRunDetails.questionRecords.map((question) => {
                 const latestAnswer = getLatestAnswerForQuestion(
                   selectedApplyRunDetails.answerRecords,
@@ -264,7 +264,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
           ) : null}
           {selectedApplyRunDetails.answerRecords.length ? (
             <div className="grid gap-2">
-              <p className="label-mono-xs">Grounded answers</p>
+              <p className="label-mono-xs">Answers Job Finder filled in</p>
               {selectedApplyRunDetails.answerRecords.map((answer) => (
                 <div
                   key={answer.id}
@@ -298,7 +298,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
           ) : null}
           {retainedArtifacts.length ? (
             <div className="grid gap-2">
-              <p className="label-mono-xs">Retained artifacts</p>
+              <p className="label-mono-xs">Files Job Finder attached</p>
               {retainedArtifacts.map((artifact) => (
                 <div
                   key={artifact.id}
@@ -322,7 +322,7 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
           ) : null}
           {selectedApplyRunDetails.checkpoints.length ? (
             <div className="grid gap-2">
-              <p className="label-mono-xs">Replay checkpoints</p>
+              <p className="label-mono-xs">Screenshots of each step</p>
               {selectedApplyRunDetails.checkpoints.map((checkpoint) => (
                 <div
                   key={checkpoint.id}
@@ -410,7 +410,23 @@ export function ApplicationsDetailPanelReviewDataSection(props: {
                     <p className="mt-2">{request.detail}</p>
                   ) : null}
                   {request.status === "pending" &&
-                  selectedApplyRunDetails.run.state === "paused_for_consent" ? (
+                  request.linkedConsentKind === "manual_follow_up" &&
+                  visibleApplyResult.blockerReason === "auth_required" ? (
+                    // A sign-in wall is not a decision about the user's data:
+                    // approving it here cannot sign them in, and marking it
+                    // approved would report an application as prepared that
+                    // was never filled. Only the sign-in wall is gated on:
+                    // the same consent kind also carries real decisions
+                    // (sign-up, account choice, unsupported answers) from the
+                    // catalog runtime, and those keep their buttons.
+                    <p className="mt-3 text-(length:--text-small) leading-6 text-foreground-soft">
+                      This is the website asking you to sign in, not a choice
+                      about your data. Use the sign-in step above to finish it,
+                      then run preparation again.
+                    </p>
+                  ) : request.status === "pending" &&
+                    selectedApplyRunDetails.run.state ===
+                      "paused_for_consent" ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Button
                         onClick={() => {
@@ -720,7 +736,7 @@ function ApplicationQuestionAnswerEditor(props: {
       {question.answerControlType === "single_choice" ? (
         <select
           aria-label={`Answer for ${question.prompt}`}
-          className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+          className="h-11 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
           disabled={isPending}
           onChange={(event) => setValue(event.target.value)}
           value={value}
@@ -777,7 +793,7 @@ function ApplicationQuestionAnswerEditor(props: {
       ) : question.answerControlType === "boolean" ? (
         <select
           aria-label={`Answer for ${question.prompt}`}
-          className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+          className="h-11 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
           disabled={isPending}
           onChange={(event) => setValue(event.target.value)}
           value={value}
@@ -789,7 +805,7 @@ function ApplicationQuestionAnswerEditor(props: {
       ) : question.answerControlType === "date" ? (
         <input
           aria-label={`Answer for ${question.prompt}`}
-          className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+          className="h-11 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
           disabled={isPending}
           onChange={(event) => setValue(event.target.value)}
           lang={jobFinderDateInputLocale}
@@ -816,7 +832,7 @@ function ApplicationQuestionAnswerEditor(props: {
           ) : candidateAssets.length > 0 ? (
             <select
               aria-label={`Answer for ${question.prompt}`}
-              className="h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-(length:--text-small) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              className="h-11 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
               disabled={isPending}
               onChange={(event) => setSelectedAssetId(event.target.value)}
               value={selectedAssetId}

@@ -54,7 +54,7 @@ function toLocalInputValue(iso: string): string {
 }
 
 const fieldClassName =
-  "h-10 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 text-sm text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]";
+  "h-11 w-full rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]";
 const areaClassName =
   "min-h-20 w-full resize-y rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 py-2 text-sm leading-6 text-foreground outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]";
 
@@ -541,20 +541,19 @@ export function ApplicationsCrmDetail(props: {
                 tabIndex={-1}
               >
                 <div className="grid gap-2">
-                  <p className="label-mono-xs">Confirm local tracking claim</p>
+                  <p className="label-mono-xs">Update your tracker</p>
                   <h2
                     className="font-display font-semibold text-foreground"
                     id={stageConfirmationTitleId}
                   >
-                    Record {pendingStage.label}?
+                    Mark this as {pendingStage.label}?
                   </h2>
                   <p
                     className="text-sm leading-6 text-foreground-soft"
                     id={stageConfirmationDescriptionId}
                   >
-                    Confirm this matches information you saw or received. This
-                    saves only your local, user-recorded stage and does not
-                    verify it with the employer or ATS.
+                    This updates your own tracker only. Job Finder does not
+                    check this with the employer.
                   </p>
                 </div>
                 <div className="flex flex-wrap justify-end gap-3">
@@ -569,7 +568,7 @@ export function ApplicationsCrmDetail(props: {
                     onClick={() => void confirmPendingStage()}
                     type="button"
                   >
-                    Confirm user-recorded stage
+                    Mark as {pendingStage.label}
                   </Button>
                 </div>
               </div>
@@ -652,7 +651,7 @@ export function ApplicationsCrmDetail(props: {
                   key={entry.id}
                 >
                   <div>
-                    <p className="whitespace-pre-wrap text-foreground">
+                    <p className="min-w-0 wrap-anywhere whitespace-pre-wrap text-foreground">
                       {entry.body}
                     </p>
                     <time

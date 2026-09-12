@@ -79,7 +79,7 @@ vi.mock("./settings-workspace-controls", () => ({
     onResetWorkspace: () => void;
   }) => (
     <section data-testid="panel-danger-zone">
-      Danger zone panel
+      Delete everything panel
       <button
         disabled={props.isWorkspaceResetPending}
         onClick={props.onResetWorkspace}
@@ -105,7 +105,7 @@ const sectionLabels = [
   "Browser & saved jobs",
   "Tracker",
   "Diagnostics",
-  "Danger zone",
+  "Delete everything",
 ] as const;
 
 const baseSettings = {
@@ -280,7 +280,9 @@ describe("SettingsScreen information architecture", () => {
     );
     expect(bar).toBeNull();
 
-    const lastSection = screen.getByRole("region", { name: "Danger zone" });
+    const lastSection = screen.getByRole("region", {
+      name: "Delete everything",
+    });
     expect(lastSection.className).toContain(
       "pb-(--settings-unsaved-bar-clearance)",
     );
@@ -407,7 +409,7 @@ describe("SettingsScreen information architecture", () => {
     }
   });
 
-  it("links to Documents instead of embedding candidate assets", () => {
+  it("points the resume at Profile instead of embedding candidate assets", () => {
     render(
       <MemoryRouter>
         <SettingsScreen {...baseProps} />
@@ -417,11 +419,11 @@ describe("SettingsScreen information architecture", () => {
     // The standing bordered Documents notice is now one line of header meta
     // with an inline link, so Settings does not spend a band of a short window
     // on chrome before its first setting.
-    const documentsLink = screen.getByRole("link", { name: "Documents" });
-    // The link must come from the canonical route-path contract, not a local
-    // duplicate of the Documents path.
-    expect(documentsLink.getAttribute("href")).toBe(
-      JOB_FINDER_ROUTE_PATHS.documents,
+    // The imported resume lives in Profile; Documents never showed it, so the
+    // pointer names the screen that actually has it.
+    const profileLink = screen.getByRole("link", { name: "Profile" });
+    expect(profileLink.getAttribute("href")).toBe(
+      JOB_FINDER_ROUTE_PATHS.profile,
     );
 
     expect(
@@ -454,7 +456,9 @@ describe("SettingsScreen information architecture", () => {
       </MemoryRouter>,
     );
 
-    const dangerZone = screen.getByRole("region", { name: "Danger zone" });
+    const dangerZone = screen.getByRole("region", {
+      name: "Delete everything",
+    });
     const resetButton = within(dangerZone).getByRole<HTMLButtonElement>(
       "button",
       {

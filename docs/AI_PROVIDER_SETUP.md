@@ -2,14 +2,16 @@
 
 UnEmployed uses a mixed OpenCode Go route:
 
-- DeepSeek V4 Flash with `max` reasoning handles normal text and tool-based
-  agent work through Chat Completions.
-- GPT-5.6 Luna with `high` reasoning handles image-only résumé, browser, and
-  Interview Helper analysis through the Responses API.
+- Muse Spark 1.3 Contributor with `xhigh` reasoning handles text, tool-based
+  agent work, and image-capable résumé, browser, and Interview Helper analysis
+  through the Responses API.
+- DeepSeek V4.1 Flash with `high` reasoning handles aggressive resume tailoring
+  only, through Chat Completions.
 - Audio transcription remains local Whisper or an explicit audio-model concern.
 
-This supersedes the earlier Luna-for-everything provider selection while
-preserving the contract-first agent boundaries from ADR 0009. See ADR 0010.
+These are also the code defaults, so a packaged build behaves this way with
+only an API key. See ADR 0019; the contract-first agent boundaries from ADR
+0009 are unchanged.
 
 ## Recommended production setup
 
@@ -18,24 +20,31 @@ Create an OpenCode Go key, then use the same key for both text and vision:
 ```dotenv
 UNEMPLOYED_AI_API_KEY=your-opencode-go-key
 UNEMPLOYED_AI_BASE_URL=https://opencode.ai/zen/go/v1
-UNEMPLOYED_AI_MODEL=deepseek-v4-flash
-UNEMPLOYED_AI_API_MODE=chat_completions
-UNEMPLOYED_AI_REASONING_EFFORT=max
+UNEMPLOYED_AI_MODEL=muse-spark-1.3-contributor
+UNEMPLOYED_AI_API_MODE=responses
+UNEMPLOYED_AI_REASONING_EFFORT=xhigh
+
+# Aggressive resume tailoring runs on its own dedicated route so the whole
+# aggressive lifecycle (draft, re-tailor, and model-backed review/regenerate)
+# stays on one provider. Reasoning effort is read from its own env var.
+UNEMPLOYED_AI_AGGRESSIVE_MODEL=deepseek-v4.1-flash
+UNEMPLOYED_AI_AGGRESSIVE_API_MODE=chat_completions
+UNEMPLOYED_AI_AGGRESSIVE_REASONING_EFFORT=high
 
 UNEMPLOYED_AI_VISION_BASE_URL=https://opencode.ai/zen/go/v1
-UNEMPLOYED_AI_VISION_MODEL=gpt-5.6-luna
+UNEMPLOYED_AI_VISION_MODEL=muse-spark-1.3-contributor
 UNEMPLOYED_AI_VISION_API_MODE=responses
-UNEMPLOYED_AI_VISION_REASONING_EFFORT=high
-UNEMPLOYED_RESUME_VISION_MODEL=gpt-5.6-luna
-UNEMPLOYED_RESUME_VISION_REASONING_EFFORT=high
-UNEMPLOYED_BROWSER_VISION_MODEL=gpt-5.6-luna
-UNEMPLOYED_BROWSER_VISION_REASONING_EFFORT=high
-UNEMPLOYED_INTERVIEW_AI_MODEL=deepseek-v4-flash
-UNEMPLOYED_INTERVIEW_AI_API_MODE=chat_completions
-UNEMPLOYED_INTERVIEW_REASONING_EFFORT=max
-UNEMPLOYED_INTERVIEW_VISION_MODEL=gpt-5.6-luna
+UNEMPLOYED_AI_VISION_REASONING_EFFORT=xhigh
+UNEMPLOYED_RESUME_VISION_MODEL=muse-spark-1.3-contributor
+UNEMPLOYED_RESUME_VISION_REASONING_EFFORT=xhigh
+UNEMPLOYED_BROWSER_VISION_MODEL=muse-spark-1.3-contributor
+UNEMPLOYED_BROWSER_VISION_REASONING_EFFORT=xhigh
+UNEMPLOYED_INTERVIEW_AI_MODEL=muse-spark-1.3-contributor
+UNEMPLOYED_INTERVIEW_AI_API_MODE=responses
+UNEMPLOYED_INTERVIEW_REASONING_EFFORT=xhigh
+UNEMPLOYED_INTERVIEW_VISION_MODEL=muse-spark-1.3-contributor
 UNEMPLOYED_INTERVIEW_VISION_API_MODE=responses
-UNEMPLOYED_INTERVIEW_VISION_REASONING_EFFORT=high
+UNEMPLOYED_INTERVIEW_VISION_REASONING_EFFORT=xhigh
 ```
 
 Use the raw API model IDs shown above. The `opencode-go/...` prefix is only for
@@ -47,12 +56,12 @@ Audio configuration is intentionally not included in this mixed provider routing
 Keep local Whisper or an explicit audio-capable transcription model configured
 for Interview Helper audio.
 
-## Temporary Muse Contributor dogfood override
+## Muse Contributor route details
 
-For current local dogfood only, the owner selected OpenCode Go's Muse Spark 1.2
-Contributor model for shared text, tool-based agent work, and image-capable
-surfaces. Muse Contributor accepts image input on this route; Luna is not used
-in the local override:
+Muse Spark Contributor is the product route for shared text, tool-based agent
+work, and image-capable surfaces. Muse Contributor accepts image input on this
+route, so Luna is not needed (the block below shows the 1.2 ids; 1.3 is the
+current default):
 
 ```dotenv
 UNEMPLOYED_AI_API_KEY=your-opencode-go-key
@@ -248,6 +257,31 @@ UNEMPLOYED_AI_API_MODE=chat_completions
 
 That mode is now the intended DeepSeek text route. Keep Luna image work on the
 separate Responses route.
+
+## Reliability on slow or dropping connections
+
+Every Job Finder model call (structured JSON, agent tool turns, resume and
+browser vision) goes through one transport
+(`packages/ai-providers/src/model-request-transport.ts`, ADR 0020):
+
+- Requests are streamed. On the Responses route the model is asked for
+  reasoning summaries, whose events keep the connection visibly alive while
+  it thinks; on Chat Completions the reasoning deltas do the same.
+- Two clocks: an idle clock (`UNEMPLOYED_AI_IDLE_TIMEOUT_MS`, default 120s of
+  silence) retries an attempt that has gone quiet, and a total clock
+  (`UNEMPLOYED_AI_TIMEOUT_MS`, default 300s; `UNEMPLOYED_AI_RESUME_TIMEOUT_MS`,
+  default 600s) caps the whole wait across attempts.
+- Retries (`UNEMPLOYED_AI_MAX_ATTEMPTS`, default 5) cover network errors, idle
+  timeouts, streams the gateway closed before completing, and HTTP
+  408/409/425/429/5xx, with backoff from `UNEMPLOYED_AI_RETRY_BASE_DELAY_MS`
+  (default 1s) doubling to 20s and honouring `Retry-After`. Validation errors
+  (4xx) and user cancellations are never retried.
+- `UNEMPLOYED_AI_STREAMING=0` sends plain JSON requests; use it only for a
+  gateway that rejects `stream: true`, since it removes the liveness signal.
+
+When a call still fails, the deterministic fallback runs and the note says
+"timed out after Ns" (budget exhausted) or "of silence" (the service went
+quiet), so the cause is visible in the studio and in import notes.
 
 ## Verification
 

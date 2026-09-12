@@ -99,8 +99,19 @@ import {
   type JobFinderSaveSurface,
 } from "./job-finder-save-state";
 
+/** How long an apply start may keep every Prepare control disabled. */
+const APPLY_PENDING_RELEASE_MS = 90_000;
+
 type ActionOptions = {
   clearMessageOnStart?: boolean;
+  /**
+   * Release the pending scope after this long even if the call has not
+   * settled. Application preparation runs inside one IPC call that can take
+   * many minutes or hang; while it did, every Prepare control in the app
+   * stayed disabled, including after the run had been cancelled. The run's
+   * own state is shown by the Applications screen and the Tasks panel.
+   */
+  releasePendingAfterMs?: number;
   rethrowError?: boolean;
   scope?: PendingActionScope;
   startMessage?: string;
@@ -288,6 +299,8 @@ function writeActionStateWithOwner(
 export type DiscoveryWorkspaceRefreshCoordinator = {
   notifySourceCompleted: () => void;
   notifyJobsPersisted: () => void;
+  /** First progress of a run: one bounded refresh so the run, the browser chip and Search history appear while it works. */
+  notifyRunStarted: () => void;
   flushFinal: () => Promise<unknown>;
   dispose: () => void;
 };
@@ -338,6 +351,10 @@ export function createDiscoveryWorkspaceRefreshCoordinator(
       schedule();
     },
     notifyJobsPersisted: () => {
+      pending = true;
+      schedule();
+    },
+    notifyRunStarted: () => {
       pending = true;
       schedule();
     },
@@ -455,6 +472,7 @@ export function createActionRunners(args: {
   const withPendingScope = async <TResult>(
     scope: PendingActionScope | null,
     action: () => Promise<TResult>,
+    releasePendingAfterMs?: number,
   ) => {
     if (!scope) {
       return action();
@@ -462,10 +480,12 @@ export function createActionRunners(args: {
 
     setPendingActionState((current) => incrementPendingScope(current, scope));
     const pendingGeneration = getPendingActionGeneration(scope);
-
-    try {
-      return await action();
-    } finally {
+    let released = false;
+    const release = () => {
+      if (released) {
+        return;
+      }
+      released = true;
       // A route/reload may retire a native-dialog operation before its IPC
       // promise settles. Do not let that stale finally decrement a newer
       // operation that reused this scope.
@@ -474,6 +494,19 @@ export function createActionRunners(args: {
           decrementPendingScope(current, scope),
         );
       }
+    };
+    const releaseTimer =
+      releasePendingAfterMs !== undefined
+        ? setTimeout(release, releasePendingAfterMs)
+        : null;
+
+    try {
+      return await action();
+    } finally {
+      if (releaseTimer !== null) {
+        clearTimeout(releaseTimer);
+      }
+      release();
     }
   };
 
@@ -497,34 +530,38 @@ export function createActionRunners(args: {
         applyStatusMessage({ message: options?.startMessage ?? null });
       }
 
-      await withPendingScope(pendingScope, async () => {
-        const result = await action();
-        const resolvedSuccessMessage =
-          typeof successMessage === "function"
-            ? successMessage(result)
-            : successMessage;
+      await withPendingScope(
+        pendingScope,
+        async () => {
+          const result = await action();
+          const resolvedSuccessMessage =
+            typeof successMessage === "function"
+              ? successMessage(result)
+              : successMessage;
 
-        try {
-          await onSuccess(result);
-        } catch (error) {
-          if (isHandledRefreshError(error)) {
-            throw error;
+          try {
+            await onSuccess(result);
+          } catch (error) {
+            if (isHandledRefreshError(error)) {
+              throw error;
+            }
+
+            const detail =
+              error instanceof Error
+                ? error.message
+                : "The workspace view could not refresh automatically.";
+            applyStatusMessage({
+              message: `Action completed, but the current view could not refresh automatically. ${detail}`,
+            });
+            return;
           }
 
-          const detail =
-            error instanceof Error
-              ? error.message
-              : "The workspace view could not refresh automatically.";
           applyStatusMessage({
-            message: `Action completed, but the current view could not refresh automatically. ${detail}`,
+            message: resolvedSuccessMessage,
           });
-          return;
-        }
-
-        applyStatusMessage({
-          message: resolvedSuccessMessage,
-        });
-      });
+        },
+        options?.releasePendingAfterMs,
+      );
       return true;
     } catch (error) {
       if (isHandledRefreshError(error)) {
@@ -828,6 +865,9 @@ export function createPrimaryPageActions(
 
         try {
           agentDiscoveryResult = await actions.runAgentDiscovery((event) => {
+            if (!sawDiscoveryProgress) {
+              refreshCoordinator.notifyRunStarted();
+            }
             sawDiscoveryProgress = true;
             setLiveDiscoveryEvents((current) =>
               appendDiscoveryLiveActivityEvent(current, event),
@@ -915,6 +955,8 @@ export function createPrimaryPageActions(
           })
             ? createDiscoveryRunRepeatedFeedback({
                 duplicatesMerged,
+                reviewedListingCount:
+                  newestRun?.summary.changeDigest?.known ?? null,
                 targetLabel,
               })
             : createDiscoveryRunSucceededFeedback(targetLabel),
@@ -934,6 +976,12 @@ export function createPrimaryPageActions(
           ? createDiscoveryRunInterruptedFeedback({ detail, targetLabel })
           : createDiscoveryRunFailedFeedback({ detail, targetLabel });
         setDiscoveryRunFeedback(feedback);
+        // The success path ends with an authoritative refresh; a failed run
+        // is recorded too (Search history, Home, source health) and must not
+        // leave those screens claiming no search ever ran.
+        if (sawDiscoveryProgress) {
+          void actions.refreshWorkspace().catch(() => undefined);
+        }
       })
       .finally(() => {
         isDiscoveryRunActive = false;
@@ -961,7 +1009,10 @@ export function createPrimaryPageActions(
             navigate("/job-finder/applications");
           },
           successMessage,
-          { scope },
+          // Preparation can run for minutes and can hang on a job site; the
+          // Applications screen and the Tasks panel show its real state, so
+          // the buttons must not stay disabled for the whole call.
+          { scope, releasePendingAfterMs: APPLY_PENDING_RELEASE_MS },
         );
       },
     );
@@ -2069,7 +2120,13 @@ export function createPrimaryPageActions(
         "PDF exported for review.",
         { scope: jobFinderPendingActions.resumeExport(jobId) },
       ),
-    onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) =>
+    onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => {
+      // Search settings belong to the current plan, and a saved change is
+      // only felt on the next search, so the confirmation says both.
+      const activePlanName =
+        workspace.campaigns?.find(
+          (campaign) => campaign.id === workspace.activeCampaignId,
+        )?.name ?? null;
       void runSaveAction({
         action: () => actions.saveSearchPreferences(searchPreferences),
         dedupeKey: createSaveDedupeKey("profile", searchPreferences),
@@ -2077,10 +2134,13 @@ export function createPrimaryPageActions(
           "Job-search preferences were not saved. Retry before leaving this page.",
         label: "Job-search preferences",
         onSuccess: () => undefined,
-        savedMessage: "Job-search preferences saved.",
+        savedMessage: activePlanName
+          ? `Search settings saved to "${activePlanName}". Your next search uses them.`
+          : "Search settings saved. Your next search uses them.",
         scope: jobFinderPendingActions.profileMutation(),
         surface: "profile",
-      }),
+      });
+    },
     onClearResumeApproval: (jobId: string) =>
       void runResumeWorkspaceAction(
         () => actions.clearResumeApproval(jobId),
@@ -2212,8 +2272,8 @@ export function createPrimaryPageActions(
         () => actions.saveResumeStrategy(input),
         () => undefined,
         input.id
-          ? "Resume strategy updated. Reusing it never approves or readies any resume artifact."
-          : "Resume strategy created. Reusing it never approves or readies any resume artifact.",
+          ? "Resume approach updated. It shapes the next tailored draft; drafts that already exist stay as they are until you re-tailor them. Reusing it never approves a resume."
+          : "Resume approach created. It shapes future tailored drafts and never approves a resume.",
         { scope: jobFinderPendingActions.resumeStrategySave() },
       ),
     onDisableResumeStrategy: (strategyId: string) =>

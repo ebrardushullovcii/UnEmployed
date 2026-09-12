@@ -48,15 +48,16 @@ export const APPLICATION_CRM_STAGE_LABELS: Record<ApplicationCrmStage, string> =
     shortlisted: "Shortlisted",
     preparing: "Preparing",
     ready_for_approval: "Ready for approval",
-    applied: "Applied (user recorded)",
-    employer_viewed: "Employer viewed (user recorded)",
-    recruiter_contact: "Recruiter contact (user recorded)",
-    assessment: "Assessment (user recorded)",
-    interview: "Interview (user recorded)",
-    offer: "Offer (user recorded)",
-    rejected: "Rejected (user recorded)",
-    withdrawn: "Withdrawn (user recorded)",
-    no_response: "No response (user recorded)",
+    // Provenance lives in the "You recorded this" badge, not in every label.
+    applied: "Applied",
+    employer_viewed: "Employer viewed",
+    recruiter_contact: "Recruiter contact",
+    assessment: "Assessment",
+    interview: "Interview",
+    offer: "Offer",
+    rejected: "Rejected",
+    withdrawn: "Withdrawn",
+    no_response: "No response",
   };
 
 export function inferApplicationCrmStageForView(

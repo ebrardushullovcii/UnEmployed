@@ -119,6 +119,11 @@ const EMPLOYMENT_TYPE_PATTERN =
   /\b(full[- ]time|part[- ]time|contract|temporary|intern(ship)?|freelance)\b/i;
 const COMPOSITE_POSTED_SUFFIX_PATTERN =
   /(?:posted\s+)?(?:\d+\s*(?:day|days|week|weeks|month|months|hour|hours|hr|hrs|dit[eë]?|jav[eë]?|jave|muaj(?:sh)?|ore?)(?:\s+ago)?|today|yesterday|just posted|sot|dje)$/iu;
+const POSTED_SUFFIX_CALL_TO_ACTION_PREFIX_PATTERN =
+  /\b(?:apply|start|join(?:\s+us)?|interview|hiring|call|book|register|sign\s+up|get\s+(?:hired|started)|begin)\s*$/i;
+// "Apply today" is a call to action, not a posting date.
+const POSTED_CALL_TO_ACTION_LINE_PATTERN =
+  /\b(?:apply|start|join(?:\s+us)?|interview|hiring|call|book|register|sign\s+up|get\s+(?:hired|started)|begin)\s+(?:today|now)\b/i;
 const EXTRACTION_UI_NOISE_PATTERN =
   /\b(dismiss|viewed|promoted|follow|works here|school alumni|connection(?:s)?|verified job)\b/i;
 const EXTRACTION_UI_SUFFIX_PATTERN =
@@ -310,6 +315,28 @@ const SITE_UTILITY_ALBANIAN_PRIVACY_TITLE_PATTERN =
 const SITE_UTILITY_TITLE_PREFIX_PATTERN =
   /^(sign up with|view all|create profile|get discovered|for companies|hire developers|platform status|privacy|privacy policy|cookie policy|terms|remote jobs|web3 jobs|tech startups|recruit pro|try errgo|why wellfound|publiko|llogarite|llogaritja|www\.fb\.com\/|fb\.com\/)\b/i;
 const SITE_UTILITY_OPEN_POSITIONS_TITLE_PATTERN = /^\d+\s+open positions$/i;
+// Informational pages that boards list beside their postings and that read
+// like jobs once they are cards: salary explorers ("Find salaries", "Cashier
+// salaries in Waterloo, IA"), curated collections ("Job Collections"), hub
+// pages ("Job Opportunities", "Jobs by location") and advice articles ("How
+// the Local Government Hiring Process Works"). Source-generic by design.
+const SITE_UTILITY_INFO_TITLE_PATTERN =
+  /^(find|browse|explore|compare)\s+(salaries|jobs|companies|careers)\b|\bsalar(y|ies)\s+in\s+\S|^(job|jobs|career|careers)\s+(opportunities|collections|listings|openings|by\s+\w+)$|^how\s+(the\s+)?.+\b(works|process)\b/i;
+// Board self-promotion rendered as a result card ("Unlock your remote career
+// potential with Remote OK Premium ★★★★★").
+const SITE_PROMO_TITLE_PATTERN =
+  /^(?:unlock|upgrade|get exclusive|be the first|try|go)\b.*\b(?:premium|pro|plus|membership|subscription)\b|\bpremium\b.*\b(?:access|career|jobs?)\b|[★⭐]{2,}|\b(?:\d+[,.]?\d*k?\+? remote jobs)\b/iu;
+const SITE_UTILITY_INFO_PATH_SEGMENTS = new Set([
+  "salaries",
+  "salary",
+  "job-collections",
+  "collections",
+  "career-advice",
+  "advice",
+  "resources",
+  "guides",
+  "cmp",
+]);
 const TWO_PANE_RESULTS_LIST_CLASS_HINTS = [
   "jobs-search-results",
   "jobs-search-results-list",
@@ -1355,7 +1382,12 @@ export function buildSearchResultCardMergeKey(input: {
   return baseCanonicalUrl;
 }
 
-function buildGenericJobId(url: string): string {
+/**
+ * A stable posting id from a URL that carries no explicit id: host and path
+ * (plus any id-shaped query values) as one slug. Every extraction path uses
+ * this same fallback so the same listing reached twice gets the same id.
+ */
+export function buildGenericJobId(url: string): string {
   try {
     const parsed = new URL(url);
     const interestingParamKeys = [
@@ -2506,7 +2538,11 @@ function findSalaryText(lines: readonly string[]): string | null {
 function findPostedAtText(lines: readonly string[]): string | null {
   for (const line of lines) {
     const normalized = cleanLine(line);
-    if (!POSTED_PATTERN.test(normalized) || normalized.length > 80) {
+    if (
+      !POSTED_PATTERN.test(normalized) ||
+      normalized.length > 80 ||
+      POSTED_CALL_TO_ACTION_LINE_PATTERN.test(normalized)
+    ) {
       continue;
     }
 
@@ -2531,6 +2567,12 @@ function stripTrailingPostedAtText(value: string): {
   const match = normalized.match(COMPOSITE_POSTED_SUFFIX_PATTERN);
 
   if (!match || typeof match.index !== "number") {
+    return { content: normalized, postedAtText: null };
+  }
+
+  // "Apply today", "Start today", "Join us today" are calls to action, not
+  // posting dates. Keep them in the content and report no posted text.
+  if (POSTED_SUFFIX_CALL_TO_ACTION_PREFIX_PATTERN.test(normalized.slice(0, match.index))) {
     return { content: normalized, postedAtText: null };
   }
 
@@ -3204,11 +3246,29 @@ export function isLikelyJobListingHubUrl(canonicalUrl: string): boolean {
       .split("/")
       .map((segment) => cleanLine(decodeURIComponent(segment)).toLowerCase())
       .filter(Boolean);
-    return segments.length === 1 && segments[0] === "jobs";
+    if (segments.length === 1 && segments[0] === "jobs") {
+      return true;
+    }
+    // Category and search routes under /jobs ("/jobs/dev-engineering/front-end",
+    // "/jobs/dev-engineering/search/engineering") are board navigation, not
+    // postings: no segment carries an id, and every segment is a category
+    // word. A posting route has an id or a multi-word title slug.
+    if (
+      segments[0] === "jobs" &&
+      segments.length >= 2 &&
+      segments.length <= 4 &&
+      segments.slice(1).every((segment) => JOB_HUB_CATEGORY_SEGMENT_PATTERN.test(segment))
+    ) {
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
 }
+
+const JOB_HUB_CATEGORY_SEGMENT_PATTERN =
+  /^(?:search|browse|category|categories|all|remote|hybrid|onsite|dev-engineering|engineering|software|developer|front-?end|back-?end|full-?stack|mobile|devops|data(?:-science)?|design|product|marketing|sales|finance|hr|people|operations|support|customer-success|security|qa|it|legal|internships?|new-grad|entry-level|senior|junior|management|executive)$/u;
 
 export function isLikelySiteUtilityJob(input: {
   canonicalUrl: string;
@@ -3225,7 +3285,9 @@ export function isLikelySiteUtilityJob(input: {
     (SITE_UTILITY_TITLE_PATTERN.test(title) ||
       SITE_UTILITY_ALBANIAN_PRIVACY_TITLE_PATTERN.test(title) ||
       SITE_UTILITY_TITLE_PREFIX_PATTERN.test(title) ||
-      SITE_UTILITY_OPEN_POSITIONS_TITLE_PATTERN.test(title))
+      SITE_UTILITY_OPEN_POSITIONS_TITLE_PATTERN.test(title) ||
+      SITE_UTILITY_INFO_TITLE_PATTERN.test(title) ||
+      SITE_PROMO_TITLE_PATTERN.test(title))
   ) {
     return true;
   }
@@ -3252,7 +3314,13 @@ export function isLikelySiteUtilityJob(input: {
       .split("/")
       .map((segment) => cleanLine(decodeURIComponent(segment)).toLowerCase())
       .filter(Boolean);
-    if (segments.some((segment) => SITE_UTILITY_PATH_SEGMENTS.has(segment))) {
+    if (
+      segments.some(
+        (segment) =>
+          SITE_UTILITY_PATH_SEGMENTS.has(segment) ||
+          SITE_UTILITY_INFO_PATH_SEGMENTS.has(segment),
+      )
+    ) {
       return true;
     }
 

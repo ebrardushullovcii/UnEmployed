@@ -38,7 +38,7 @@ describe("presentListingActivity", () => {
         confidence: 0.8,
       } satisfies ListingActivity,
       expected:
-        "This listing may be stale based on browser evidence observed on 21 Aug 2026. The apply control was missing. An expiry message was visible.",
+        "This listing may no longer be open — opening the page last saw it on 21 Aug 2026. The apply control was missing. An expiry message was visible.",
     },
     {
       activity: {
@@ -51,7 +51,7 @@ describe("presentListingActivity", () => {
         confidence: 1,
       } satisfies ListingActivity,
       expected:
-        "Reported closed from provider evidence observed on 20 Aug 2026. The provider marked the role closed.",
+        "Reported closed by the job site's own listing feed on 20 Aug 2026. The provider marked the role closed.",
     },
   ])(
     "presents $activity.status with exact observed evidence",

@@ -341,6 +341,203 @@ describe("resume generation grounding", () => {
     });
   });
 
+  test("aggressive mode rounds evidenced years up by one for flagged inferred proposals", () => {
+    const input = {
+      generated: {
+        text: "Delivered resilient TypeScript services across 4 years of professional experience.",
+        evidenceRefs: [
+          "experience:role_1:achievement:0",
+          "profile:yearsExperience",
+        ],
+        inferred: true,
+      },
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: "Delivered resilient TypeScript services for the operations platform.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+        {
+          id: "profile:yearsExperience",
+          text: "3 years of professional experience.",
+          scope: "profile" as const,
+          profileRecordId: null,
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: ["TypeScript"],
+      jobListingText: "4+ years of TypeScript experience required.",
+      allowReasonableInference: true,
+    };
+
+    expect(selectResumeRewrite(input)).toMatchObject({
+      kind: "grounded_rewrite",
+      inferred: true,
+    });
+    // The rounding relaxation requires the model's own inferred flag...
+    expect(
+      selectResumeRewrite({
+        ...input,
+        generated: { ...input.generated, inferred: false },
+      }),
+    ).toBeNull();
+    // ...it stays targeted to the job's stated years figure...
+    expect(
+      selectResumeRewrite({
+        ...input,
+        jobListingText: "TypeScript experience required.",
+      }),
+    ).toBeNull();
+    // ...and never applies outside aggressive mode.
+    expect(
+      selectResumeRewrite({ ...input, allowReasonableInference: false }),
+    ).toBeNull();
+  });
+
+  test("aggressive mode never rounds evidenced years up by more than one", () => {
+    const input = {
+      generated: {
+        text: "Delivered resilient TypeScript services across 5 years of professional experience.",
+        evidenceRefs: [
+          "experience:role_1:achievement:0",
+          "profile:yearsExperience",
+        ],
+        inferred: true,
+      },
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: "Delivered resilient TypeScript services for the operations platform.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+        {
+          id: "profile:yearsExperience",
+          text: "3 years of professional experience.",
+          scope: "profile" as const,
+          profileRecordId: null,
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: ["TypeScript"],
+      jobListingText: "5+ years of TypeScript experience required.",
+      allowReasonableInference: true,
+    };
+
+    expect(selectResumeRewrite(input)).toBeNull();
+  });
+
+  test("aggressive mode accepts a job-listing technology for flagged inferred proposals", () => {
+    const input = {
+      generated: {
+        text: "Built type-safe React interfaces for customer dashboard workflows.",
+        evidenceRefs: ["experience:role_1:achievement:0"],
+        inferred: true,
+      },
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: "Built type-safe customer interfaces with TypeScript for dashboard workflows.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: ["TypeScript", "React"],
+      jobListingText: "Requirements: React for our customer dashboard.",
+      allowReasonableInference: true,
+    };
+
+    expect(selectResumeRewrite(input)).toMatchObject({
+      kind: "grounded_rewrite",
+      inferred: true,
+    });
+    // The same technology invented outside the listing stays rejected.
+    expect(
+      selectResumeRewrite({
+        ...input,
+        jobSkills: ["TypeScript"],
+        jobListingText: "TypeScript only.",
+      }),
+    ).toBeNull();
+    // Substring containment is not enough: "reaction" never authorizes React.
+    expect(
+      selectResumeRewrite({
+        ...input,
+        jobListingText: "Requirements: fast reaction handling.",
+      }),
+    ).toBeNull();
+    // And so does an unflagged proposal.
+    expect(
+      selectResumeRewrite({
+        ...input,
+        generated: { ...input.generated, inferred: false },
+      }),
+    ).toBeNull();
+  });
+
+  test("aggressive mode adds a listing technology the evidence does not directly imply", () => {
+    // The evidence shows frontend-flavored work; Kubernetes comes only from
+    // the listing's own requirement. For a candidate with professional
+    // experience the gate admits it: the bound is "the listing asked for it",
+    // not "the evidence implies it".
+    const input = {
+      generated: {
+        text: "Deployed customer dashboard services with Kubernetes across the platform.",
+        evidenceRefs: ["experience:role_1:achievement:0"],
+        inferred: true,
+      },
+      canonicalCandidates: [],
+      evidenceCatalog: [
+        {
+          id: "experience:role_1:achievement:0",
+          text: "Built customer dashboard services with TypeScript for the platform.",
+          scope: "experience" as const,
+          profileRecordId: "role_1",
+        },
+      ],
+      allowedScope: {
+        scope: "experience" as const,
+        profileRecordId: "role_1",
+      },
+      jobCompany: "ExampleCo",
+      jobSkills: ["TypeScript", "Kubernetes"],
+      jobListingText:
+        "Mandatory: Kubernetes experience. Preferred: TypeScript for the customer platform.",
+      allowReasonableInference: true,
+    };
+
+    expect(selectResumeRewrite(input)).toMatchObject({
+      kind: "grounded_rewrite",
+      inferred: true,
+    });
+    // The same claim without the listing's Kubernetes requirement stays
+    // rejected: the technology must come from the job itself.
+    expect(
+      selectResumeRewrite({
+        ...input,
+        jobSkills: ["TypeScript"],
+        jobListingText: "TypeScript for the customer platform.",
+      }),
+    ).toBeNull();
+  });
+
   test("rejects unevidenced lowercase technology names regardless of casing rules", () => {
     const input = {
       generated: {
@@ -902,6 +1099,25 @@ describe("classifyResumeClaimGrounding", () => {
     ]);
   });
 
+  test("treats inflections of an evidenced verb as the same word", () => {
+    // The model reordered one bullet and turned "automating deployments" into
+    // "to automate deployments". That is the same fact; the classifier used to
+    // read "automate" as new content and block approval.
+    const result = classify(
+      "Reduced deployment time by 40% by creating and maintaining CI/CD pipelines with Docker and Kubernetes to automate deployments.",
+      [
+        makeEvidence(
+          "experience:role_1:bullet_1",
+          "Created and maintained CI/CD pipelines with Docker and Kubernetes, automating deployments and reducing deployment time by 40%.",
+        ),
+      ],
+      { allowReasonableInference: true },
+    );
+
+    expect(result.verdict).toBe("covered");
+    expect(result.gaps).toEqual([]);
+  });
+
   test("classifies safe elaboration only when inference is allowed", () => {
     const text =
       "Designed table reservation flows and ordering modules for the restaurant platform.";
@@ -917,7 +1133,9 @@ describe("classifyResumeClaimGrounding", () => {
     expect(conservative.gaps).toEqual([
       {
         type: "inference_not_allowed",
-        values: ["group_1", "table", "reservation", "flow", "order", "module"],
+        // Gap values are normalized stems, the same form the evidence is
+        // compared in.
+        values: ["group_1", "table", "reservation", "flow", "order", "modul"],
       },
     ]);
 
@@ -930,6 +1148,58 @@ describe("classifyResumeClaimGrounding", () => {
     ]);
     expect(aggressive.anchorRatio).toBe(0.25);
     expect(aggressive.gaps).toEqual([]);
+    expect(aggressive.relaxations).toEqual([]);
+  });
+
+  test("records which aggressive relaxations authorized content beyond the evidence", () => {
+    const evidence = [
+      makeEvidence(
+        "experience:role_1:achievement:0",
+        "Delivered resilient TypeScript services for the operations platform.",
+      ),
+      makeEvidence(
+        "profile:yearsExperience",
+        "3 years of professional experience.",
+        { scope: "profile", profileRecordId: null },
+      ),
+    ];
+
+    const roundedYears = classify(
+      "Delivered resilient TypeScript services across 4 years of professional experience.",
+      evidence,
+      {
+        allowReasonableInference: true,
+        allowAggressiveClaimRelaxation: true,
+        jobListingText: "4+ years of TypeScript experience required.",
+      },
+    );
+    expect(roundedYears.verdict).toBe("elaborated");
+    expect(roundedYears.gaps).toEqual([]);
+    expect(roundedYears.relaxations).toEqual(["years_rounded_up"]);
+
+    const listingTerm = classify(
+      "Delivered resilient TypeScript and React services for the operations platform.",
+      evidence,
+      {
+        allowReasonableInference: true,
+        allowAggressiveClaimRelaxation: true,
+        jobSkills: ["TypeScript", "React"],
+        jobListingText: "Requirements: React for the operations platform.",
+      },
+    );
+    expect(listingTerm.verdict).toBe("elaborated");
+    expect(listingTerm.gaps).toEqual([]);
+    expect(listingTerm.relaxations).toEqual(["listing_term"]);
+
+    // The relaxation flags require both the aggressive posture and the
+    // explicit relaxation switch; neither fires in plain aggressive mode.
+    const unrelaxed = classify(
+      "Delivered resilient TypeScript services across 4 years of professional experience.",
+      evidence,
+      { allowReasonableInference: true },
+    );
+    expect(unrelaxed.verdict).toBe("unsupported");
+    expect(unrelaxed.relaxations).toEqual([]);
   });
 
   test("keeps ordinary plural nouns aligned with their singular evidence", () => {

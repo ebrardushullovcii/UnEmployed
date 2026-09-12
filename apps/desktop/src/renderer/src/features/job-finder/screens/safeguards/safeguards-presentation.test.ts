@@ -360,7 +360,7 @@ describe("buildSafeguardsPresentationModel", () => {
             paused: true,
             explanation: "Elevated discovery failure rate.",
             recoveryGuidance:
-              "Inspect the failed source history and retry only after the cause is understood.",
+              "Open Search history to see which source failed and why. Fix or disable that source, then retry.",
           },
         ],
       }),
@@ -450,7 +450,7 @@ describe("filterSafeguardRows", () => {
       sampleRow({
         key: "row_2",
         kind: "pauses",
-        title: "Abnormal failure pause",
+        title: "Paused after repeated failures",
         searchText: "failure rate elevated",
       }),
     ];

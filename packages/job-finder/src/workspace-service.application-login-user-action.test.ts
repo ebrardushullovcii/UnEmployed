@@ -104,7 +104,7 @@ describe("application login UserActionRequest adoption", () => {
     // The no-submit boundary is stated once per card by the renderer, so the
     // reason keeps the concrete cause without repeating it.
     expect(request.summary).toBe(
-      `${blocker.summary}. The application site tried to save 'Work authorization' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open. Complete this manual step in the Job Finder browser, then return so Job Finder can verify the exact blocker no longer appears.`,
+      `${blocker.summary}. The application site tried to save 'Work authorization' while it was being prepared, but this run did not have permission for that external save. Job Finder stopped and left the application open. Complete this manual step in the Job Finder browser, then come back here and confirm so Job Finder can check the page again.`,
     );
     expect(request.summary).not.toContain("Complete the described step");
     expect(request.summary).not.toMatch(/risking a final/i);

@@ -259,17 +259,13 @@ describe("CampaignsScreen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(
-      screen.getByText(
-        /Use Precision for a smaller discovery pool focused on the strongest matches/,
-      ),
+      screen.getByText(/Fewer jobs each run, chosen for a closer match/),
     ).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Volume"), {
+    fireEvent.change(screen.getByLabelText("How many jobs each search keeps"), {
       target: { value: "scale" },
     });
     expect(
-      screen.getByText(
-        /Use Scale to discover and retain a larger pool of matching jobs/,
-      ),
+      screen.getByText(/More jobs each run, keeping more of them for review/),
     ).toBeTruthy();
   });
 
@@ -297,7 +293,7 @@ describe("CampaignsScreen", () => {
       ),
     ).toBeNull();
 
-    fireEvent.change(screen.getByLabelText("Volume"), {
+    fireEvent.change(screen.getByLabelText("How many jobs each search keeps"), {
       target: { value: "scale" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
@@ -562,7 +558,7 @@ describe("CampaignsScreen", () => {
     fireEvent.change(screen.getByLabelText("Local start time"), {
       target: { value: "08:30" },
     });
-    fireEvent.change(screen.getByLabelText("Time zone"), {
+    fireEvent.change(screen.getByLabelText("Run in this time zone"), {
       target: { value: "Europe/Belgrade" },
     });
 
@@ -952,7 +948,7 @@ describe("CampaignsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
 
     expect(
-      await screen.findByText('Search plan "Focused frontend" created.'),
+      await screen.findByText(/Search plan "Focused frontend" created\./),
     ).toBeTruthy();
     expect(onSelectCampaign).not.toHaveBeenCalled();
 
@@ -969,7 +965,7 @@ describe("CampaignsScreen", () => {
       />,
     );
     fireEvent.click(
-      await screen.findByRole("button", { name: "Switch to it" }),
+      await screen.findByRole("button", { name: "Use it in Find jobs" }),
     );
     expect(onSelectCampaign).toHaveBeenCalledWith("two");
     expect(screen.queryByText(/created\./)).toBeNull();
@@ -1028,7 +1024,9 @@ describe("CampaignsScreen", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
 
-    expect(await screen.findByText("Search plan saved.")).toBeTruthy();
+    expect(
+      await screen.findByText("Search plan saved. Your next search uses it."),
+    ).toBeTruthy();
   });
 
   it("guards Escape like cancel while the editor has unsaved changes", () => {
@@ -1378,10 +1376,12 @@ describe("CampaignsScreen", () => {
       expect(control.className).not.toContain("--surface-panel-raised");
       expect(control.className).not.toContain("focus-visible:ring");
     }
+    // Native selects share the Input's 44px height and padding so a select
+    // beside a text field sits on the same baseline.
     for (const select of selects) {
-      expect(select.className).toContain("h-10");
+      expect(select.className).toContain("h-11");
       expect(select.className).toContain("rounded-(--radius-field)");
-      expect(select.className).toContain("px-3");
+      expect(select.className).toContain("px-3.5");
     }
     expect(textareas[0]?.className).toContain("min-h-20");
 

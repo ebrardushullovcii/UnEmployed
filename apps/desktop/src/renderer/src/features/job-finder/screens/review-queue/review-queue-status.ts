@@ -55,6 +55,12 @@ export type ApplySupportState = "incomplete" | "manual_follow_up" | "supported";
 export function getReviewQueueWorkflowStatus(
   item: ReviewQueueItem | null,
   asset?: TailoredAsset | null,
+  /**
+   * The renderer's own in-flight flag. The persisted asset status never moves
+   * to "generating" during a draft, so without this the row and header kept
+   * saying "Needs resume" for the whole run beside a progress bar.
+   */
+  isPending = false,
 ): ReviewQueueWorkflowStatus {
   if (!item) {
     return {
@@ -67,6 +73,13 @@ export function getReviewQueueWorkflowStatus(
     return {
       label: "Resume issue",
       tone: "critical",
+    };
+  }
+
+  if (isPending) {
+    return {
+      label: "Preparing resume",
+      tone: "active",
     };
   }
 
@@ -426,17 +439,20 @@ export function getApplyReadinessStatus(params: {
     };
   }
 
-  if (needsGeneration) {
-    return {
-      label: "Needs resume",
-      tone: "muted",
-    };
-  }
-
+  // An in-flight run wins over "Needs resume": both flags are true while a
+  // draft is being written, and the readiness description already orders
+  // them this way.
   if (isGenerating) {
     return {
       label: "Preparing resume",
       tone: "active",
+    };
+  }
+
+  if (needsGeneration) {
+    return {
+      label: "Needs resume",
+      tone: "muted",
     };
   }
 

@@ -1196,6 +1196,23 @@ export function buildRequirementEvidenceAssessment(input: {
     });
   }
 
+  // When the user saved a work-mode preference, the check must always show
+  // up. Omitting the row when the listing states no work mode read as "the
+  // work mode is fine", and an in-office role topped a remote-only search.
+  if (input.hasWorkModePreferences && posting.workMode.length === 0) {
+    requirements.push({
+      id: requirementId("work_mode", "not stated"),
+      category: "work_mode",
+      label: "Work mode (not stated in listing)",
+      importance: "required",
+      status: "unknown",
+      jobEvidence: "The listing does not state a work mode.",
+      resumeEvidence: [],
+      explanation:
+        "This listing does not publish a work mode, so it could not be confirmed against your saved preference. Check the listing before you apply.",
+    });
+  }
+
   if (input.hasWorkModePreferences && posting.workMode.length > 0) {
     const isRemotePosting = posting.workMode.includes("remote");
     const workModeStatus =
@@ -1299,10 +1316,28 @@ function preferenceRequirementRationale(
   requirement: JobRequirementAssessment,
 ): string | null {
   switch (requirement.category) {
-    case "location":
+    case "location": {
+      // "Could not be compared" contradicted the explanation four lines down
+      // when the listing did state a location outside the saved areas and
+      // only relocation was unconfirmed. Name what was observed instead.
+      // The label is "Location: <stated>" or "Location (not stated in
+      // listing)"; the evidence field is not reliably the location itself.
+      const statedLocation = requirement.label.startsWith("Location: ")
+        ? requirement.label.slice("Location: ".length).trim()
+        : "";
+      const outsideButUnconfirmed =
+        requirement.status === "unknown" &&
+        statedLocation.length > 0 &&
+        requirement.explanation.includes("outside the saved search area");
+      if (outsideButUnconfirmed) {
+        return `This job is in ${statedLocation}, outside your saved search areas — your profile does not say whether you would relocate.`;
+      }
       return requirement.status === "unknown"
         ? "The listing location could not be compared with the saved search areas yet."
-        : "The listing location is outside the saved search areas.";
+        : statedLocation
+          ? `This job is in ${statedLocation}, outside your saved search areas.`
+          : "The listing location is outside the saved search areas.";
+    }
     case "work_mode":
       return requirement.status === "unknown"
         ? `${requirement.label} — not stated clearly enough to compare with your preferred work modes.`

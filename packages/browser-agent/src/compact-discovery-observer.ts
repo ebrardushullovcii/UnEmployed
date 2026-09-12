@@ -17,7 +17,10 @@ import {
   type JobPosting,
 } from "@unemployed/contracts";
 
-import { isLikelySiteUtilityJob } from "./agent/job-extraction";
+import {
+  buildGenericJobId,
+  isLikelySiteUtilityJob,
+} from "./agent/job-extraction";
 
 // ---------------------------------------------------------------------------
 // Deterministic compact-snapshot discovery observer (ADR 0013, tier two)
@@ -65,6 +68,14 @@ export interface CaptureCompactDiscoveryObservationInput {
   /** ISO-8601 datetime (`Z`) stamped onto the observation and candidates. */
   observedAt: string;
   options?: CompactDiscoveryObserverOptions;
+  /**
+   * Card shapes (tag plus class signature) already recognized as repeated
+   * posting cards on this site during the run. The scanner adds the shapes it
+   * recognizes and accepts a lone block of a known shape as a card, so a
+   * results page holding one or two postings still reads. Owned by the run;
+   * never persisted and never shared across hosts.
+   */
+  cardShapeMemory?: Set<string>;
 }
 
 /**
@@ -120,6 +131,12 @@ export interface ScannedCardContainer {
   companyHref: string | null;
   /** Visible company name from the bound profile anchor when present. */
   companyLabel: string | null;
+  /**
+   * True when the container was recognized by shape: one of three or more
+   * same-signature siblings that each carry an internal title link. That
+   * repetition is inventory evidence on boards with no list semantics.
+   */
+  repeatedCard: boolean;
 }
 
 /** Normalized JSON-LD JobPosting record as read from the page. */
@@ -141,6 +158,8 @@ export interface CompactDiscoveryScanPayload {
   structuredPostings: ScannedStructuredPosting[];
   cardContainers: ScannedCardContainer[];
   elements: ScannedInteractiveElement[];
+  /** Shapes of the repeated-card containers recognized on this page. */
+  cardSignatures: string[];
 }
 
 interface CompactDiscoveryScanArg {
@@ -149,6 +168,8 @@ interface CompactDiscoveryScanArg {
   maxStructuredPostings: number;
   maxLinesPerContainer: number;
   maxLineChars: number;
+  /** Card shapes learned earlier in the run on this same site. */
+  knownCardSignatures?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -170,6 +191,7 @@ export function compactDiscoveryInPageScan(
     structuredPostings: [],
     cardContainers: [],
     elements: [],
+    cardSignatures: [],
   };
 
   const collapse = (value: unknown): string =>
@@ -218,7 +240,31 @@ export function compactDiscoveryInPageScan(
     }
 
     const rect = element.getBoundingClientRect();
-    return rect.width >= 1 && rect.height >= 1;
+    if (rect.width >= 1 && rect.height >= 1) {
+      return true;
+    }
+    // An inline element wrapping block children (a card link around divs)
+    // reports a zero-size box of its own while its children paint normally.
+    // Such a link is visible; judge it by its painted descendants.
+    for (const clientRect of Array.from(element.getClientRects())) {
+      if (clientRect.width >= 1 && clientRect.height >= 1) {
+        return true;
+      }
+    }
+    if (element.children.length > 0) {
+      let checked = 0;
+      for (const child of Array.from(element.children)) {
+        if (checked >= 6) {
+          break;
+        }
+        checked += 1;
+        const childRect = child.getBoundingClientRect();
+        if (childRect.width >= 1 && childRect.height >= 1) {
+          return true;
+        }
+      }
+    }
+    return false;
   };
 
   const readAccessibleName = (element: Element): string => {
@@ -245,6 +291,16 @@ export function compactDiscoveryInPageScan(
     }
 
     if (element instanceof HTMLElement) {
+      // A card link that wraps the whole card paints several lines: title,
+      // place, age. Its name is the first painted line; the other lines stay
+      // available to the card's line list, where place and age are read.
+      const paintedLines = (element.innerText ?? "")
+        .split(/\r?\n/)
+        .map((line) => collapse(line))
+        .filter((line) => line.length > 0);
+      if (paintedLines.length > 1 && element.children.length > 0) {
+        return paintedLines[0] ?? "";
+      }
       const innerText = collapse(element.innerText);
       if (innerText) {
         return innerText;
@@ -326,11 +382,94 @@ export function compactDiscoveryInPageScan(
     'article, li, tr, [role="row"], [role="listitem"], [role="article"], [role="option"]';
   const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
 
-  const containerByKey = new Map<string, { node: Element; key: string }>();
+  const containerByKey = new Map<
+    string,
+    { node: Element; key: string; repeatedCard: boolean }
+  >();
   let containerCounter = 0;
 
+  // Boards without list semantics (plain nested divs) still repeat one card
+  // shape per posting. A block whose parent holds at least three siblings of
+  // the same tag and class signature, each carrying a visible internal link
+  // with a title-like label, is such a card. This reads structure and
+  // repetition only; no class name from any list is matched. The only class
+  // signatures compared by value are the ones this run learned from this same
+  // site a moment ago (see `knownCardSignatures`).
+  const pageOrigin = window.location.origin;
+  const signatureOf = (node: Element): string =>
+    `${node.tagName}|${Array.from(node.classList).sort().join(" ")}`;
+  const isTitleLikeLink = (anchor: Element): boolean => {
+    const text = collapse(
+      (anchor as HTMLElement).innerText || anchor.textContent || "",
+    );
+    const words = text.split(" ").filter(Boolean);
+    return words.length >= 1 && words.length <= 14 && text.length <= 140;
+  };
+  const hasInternalTitleLink = (node: Element): boolean =>
+    Array.from(node.querySelectorAll("a[href]")).some((anchor) => {
+      const href = resolveAbsoluteHref(anchor);
+      if (!href) {
+        return false;
+      }
+      try {
+        const url = new URL(href);
+        return (
+          url.origin === pageOrigin &&
+          url.pathname.split("/").filter(Boolean).length >= 1 &&
+          url.pathname !== window.location.pathname &&
+          isVisible(anchor) &&
+          isTitleLikeLink(anchor)
+        );
+      } catch {
+        return false;
+      }
+    });
+  // Shapes learned earlier in this run on this site (from pages where the
+  // repetition was visible). A lone block of a known shape is still a card:
+  // a search that matches one posting renders one card, not three.
+  const knownCardSignatures = new Set(arg.knownCardSignatures ?? []);
+  const recognizedCardSignatures = new Set<string>();
+  const resolveRepeatedCardContainer = (element: Element): Element | null => {
+    let node: Element | null = element;
+    for (let depth = 0; depth < 4 && node; depth += 1) {
+      const parent: Element | null = node.parentElement;
+      if (!parent || parent === document.body) {
+        return null;
+      }
+      const signature = signatureOf(node);
+      const hasClassSignature = (signature.split("|")[1] ?? "").length > 0;
+      if (
+        hasClassSignature &&
+        knownCardSignatures.has(signature) &&
+        hasInternalTitleLink(node)
+      ) {
+        recognizedCardSignatures.add(signature);
+        return node;
+      }
+      const siblings = Array.from(parent.children).filter(
+        (sibling) => signatureOf(sibling) === signature,
+      );
+      if (
+        siblings.length >= 3 &&
+        siblings.filter((sibling) => hasInternalTitleLink(sibling)).length >= 3
+      ) {
+        if (hasClassSignature) {
+          recognizedCardSignatures.add(signature);
+        }
+        return node;
+      }
+      node = parent;
+    }
+    return null;
+  };
+
   const resolveContainerKey = (element: Element): string | null => {
-    const container = element.closest(CONTAINER_SELECTOR);
+    const semanticContainer = element.closest(CONTAINER_SELECTOR);
+    const repeatedContainer =
+      semanticContainer === null && element.tagName === "A"
+        ? resolveRepeatedCardContainer(element)
+        : null;
+    const container = semanticContainer ?? repeatedContainer;
     if (!container || !isVisible(container)) {
       return null;
     }
@@ -347,7 +486,11 @@ export function compactDiscoveryInPageScan(
 
     const key = `c${containerCounter}`;
     containerCounter += 1;
-    containerByKey.set(key, { node: container, key });
+    containerByKey.set(key, {
+      node: container,
+      key,
+      repeatedCard: repeatedContainer !== null,
+    });
     return key;
   };
 
@@ -430,7 +573,17 @@ export function compactDiscoveryInPageScan(
         continue;
       }
       try {
-        const segments = new URL(resolved).pathname
+        const resolvedUrl = new URL(resolved);
+        // Employer profile pages live on the board itself. A `/company/…`
+        // link to another host is the board's own social profile in the
+        // footer, not this card's employer.
+        if (
+          resolvedUrl.hostname.replace(/^www\./iu, "") !==
+          window.location.hostname.replace(/^www\./iu, "")
+        ) {
+          continue;
+        }
+        const segments = resolvedUrl.pathname
           .split("/")
           .map((segment) => collapse(decodeURIComponent(segment)))
           .filter(Boolean);
@@ -552,8 +705,10 @@ export function compactDiscoveryInPageScan(
         ),
       companyHref: companyBinding?.href ?? null,
       companyLabel: companyBinding?.label ?? null,
+      repeatedCard: entry.repeatedCard,
     });
   }
+  payload.cardSignatures = Array.from(recognizedCardSignatures).slice(0, 8);
 
   // JSON-LD JobPosting records, walked breadth-first through arrays/@graph.
   const scripts = Array.from(
@@ -1013,6 +1168,41 @@ function looksLikeJobPostingHref(href: string): boolean {
   }
 }
 
+/**
+ * Boards that route postings as `/{employer-slug}/{role-slug}` carry the
+ * employer only in the URL: the card shows a logo image and the title. When a
+ * repeated-card posting has no other employer evidence, the first of exactly
+ * two path segments is that employer, unless it is a routing word (a
+ * language code, "jobs", "search" and the like). Read from URL shape alone.
+ */
+function inferEmployerFromTwoSegmentPath(canonicalUrl: string): string | null {
+  try {
+    const parsed = new URL(canonicalUrl);
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => cleanText(decodeURIComponent(segment)))
+      .filter(Boolean);
+    if (segments.length !== 2) {
+      return null;
+    }
+    const [employerSlug] = segments;
+    if (
+      !employerSlug ||
+      employerSlug.length < 3 ||
+      /^[a-z]{2}(?:-[a-z]{2})?$/iu.test(employerSlug) ||
+      /^(?:jobs?|careers?|positions?|openings?|vacanc(?:y|ies)|search|results?|listings?|categor(?:y|ies)|companies|company|employers?|employer|tags?|locations?|cities|city|blog|news|press|about|contact|login|sign-?up|register|account|profile|users?|posts?|pages?|p|s|q)$/iu.test(
+        employerSlug,
+      ) ||
+      /\d{4,}/u.test(employerSlug)
+    ) {
+      return null;
+    }
+    return formatEmployerLabelFromSlug(employerSlug);
+  } catch {
+    return null;
+  }
+}
+
 function inferCompanyFromCompanyPathUrl(canonicalUrl: string): string | null {
   try {
     const parsed = new URL(canonicalUrl);
@@ -1221,7 +1411,7 @@ function buildStructuredPostingCandidates(
       sourceJobId:
         cleanText(posting.sourceJobId).slice(0, 160) ||
         deriveSourceJobIdFromUrl(canonicalUrl) ||
-        title.toLowerCase(),
+        buildGenericJobId(canonicalUrl),
       canonicalUrl,
       applicationUrl: canonicalUrl,
       title,
@@ -1261,10 +1451,17 @@ function buildStructuredPostingCandidates(
  * lines). Returns null when the container cannot form an honest candidate.
  */
 export function buildDomCardPostingCandidate(input: {
-  container: Pick<
-    ScannedCardContainer,
-    "headingText" | "lines" | "easyApplyHint" | "companyHref" | "companyLabel"
-  > | null;
+  container:
+    | (Pick<
+        ScannedCardContainer,
+        | "headingText"
+        | "lines"
+        | "easyApplyHint"
+        | "companyHref"
+        | "companyLabel"
+      > &
+        Partial<Pick<ScannedCardContainer, "repeatedCard">>)
+    | null;
   element: Pick<
     ScannedInteractiveElement,
     "href" | "accessibleName" | "jobIdHint" | "companyHref" | "companyLabel"
@@ -1279,6 +1476,7 @@ export function buildDomCardPostingCandidate(input: {
     return null;
   }
 
+  const hasRepeatedCardShape = input.container?.repeatedCard === true;
   const lines = [...(input.container?.lines ?? [])];
   if (lines.length === 0 && cleanText(input.element.accessibleName)) {
     lines.push(cleanText(input.element.accessibleName));
@@ -1380,7 +1578,20 @@ export function buildDomCardPostingCandidate(input: {
   } else if (companyHrefEmployer) {
     company = companyHrefEmployer;
   } else {
-    company = sanitizeObservedEmployerLabel(company);
+    const lineDerivedCompany = sanitizeObservedEmployerLabel(company);
+    const pathEmployer = hasRepeatedCardShape
+      ? inferEmployerFromTwoSegmentPath(canonicalUrl)
+      : null;
+    if (pathEmployer) {
+      // On a repeated card the URL names the employer; an unmarked short
+      // line the loop took for a company is then the place instead.
+      company = pathEmployer;
+      if (!location && lineDerivedCompany) {
+        location = lineDerivedCompany;
+      }
+    } else {
+      company = lineDerivedCompany;
+    }
   }
 
   const description = cleanText(descriptionPool.join(" ")).slice(
@@ -1405,6 +1616,7 @@ export function buildDomCardPostingCandidate(input: {
   if (
     !hasPostingIdentity &&
     !hasDetailRoute &&
+    !hasRepeatedCardShape &&
     ((!headingText && !location && !salaryText && !postedAtText) ||
       (!company && !location && !salaryText && !postedAtText && !description) ||
       lines.some((line) => /^(?:ad|advertisement)$/i.test(cleanText(line))))
@@ -1413,10 +1625,12 @@ export function buildDomCardPostingCandidate(input: {
   }
 
   return {
+    // A title is not an identity: two employers each hiring a "Developer"
+    // are two postings. The listing's own URL is.
     sourceJobId:
       cleanText(input.element.jobIdHint).slice(0, 160) ||
       deriveSourceJobIdFromUrl(canonicalUrl) ||
-      title.toLowerCase(),
+      buildGenericJobId(canonicalUrl),
     canonicalUrl,
     rawHref: cleanText(input.element.href) || null,
     applicationUrl: canonicalUrl,
@@ -1896,6 +2110,7 @@ async function readAccessibilitySnapshot(
 
 async function readScanPayload(
   page: Page,
+  cardShapeMemory?: Set<string>,
 ): Promise<CompactDiscoveryScanPayload | null> {
   const scanArg: CompactDiscoveryScanArg = {
     maxContainers: MAX_SCAN_CONTAINERS,
@@ -1903,6 +2118,7 @@ async function readScanPayload(
     maxStructuredPostings: MAX_SCAN_STRUCTURED_POSTINGS,
     maxLinesPerContainer: MAX_SCAN_LINES_PER_CONTAINER,
     maxLineChars: MAX_SCAN_LINE_CHARS,
+    knownCardSignatures: cardShapeMemory ? Array.from(cardShapeMemory) : [],
   };
 
   const evaluated = await page.evaluate(compactDiscoveryInPageScan, scanArg);
@@ -1915,7 +2131,19 @@ async function readScanPayload(
   }
 
   const candidate = evaluated as Partial<CompactDiscoveryScanPayload>;
+  const cardSignatures = Array.isArray(candidate.cardSignatures)
+    ? candidate.cardSignatures.filter(
+        (signature): signature is string =>
+          typeof signature === "string" && signature.length > 0,
+      )
+    : [];
+  if (cardShapeMemory) {
+    for (const signature of cardSignatures) {
+      cardShapeMemory.add(signature);
+    }
+  }
   return {
+    cardSignatures,
     structuredPostings: Array.isArray(candidate.structuredPostings)
       ? candidate.structuredPostings
       : [],
@@ -1933,6 +2161,7 @@ async function readScanPayload(
             typeof container.companyLabel === "string"
               ? container.companyLabel
               : null,
+          repeatedCard: Boolean(container.repeatedCard),
         }))
       : [],
     elements: Array.isArray(candidate.elements)
@@ -2065,7 +2294,7 @@ export async function captureCompactDiscoveryObservation(
     pageTitle = await readPageTitle(input.page);
     bodyText = await readBodyText(input.page);
     snapshot = await readAccessibilitySnapshot(input.page);
-    scanPayload = await readScanPayload(input.page);
+    scanPayload = await readScanPayload(input.page, input.cardShapeMemory);
   } catch (error) {
     captureErrorDetail = error instanceof Error ? error.name : "UnknownError";
   }

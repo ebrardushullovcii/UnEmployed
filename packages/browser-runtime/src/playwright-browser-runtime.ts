@@ -513,6 +513,13 @@ async function buildApplyVisualDiagnostics(input: {
 
 export interface BrowserAgentRuntimeOptions {
   userDataDir: string;
+  /** Host-owned pages, for example a desktop application's embedded browser. */
+  browserHost?: {
+    connect(): Promise<Browser>;
+    getOpenBrowser(): Promise<Browser | null>;
+    close(): Promise<void>;
+    assertAutomationSafe(): void | Promise<void>;
+  };
   headless?: boolean;
   maxJobsPerRun?: number;
   chromeExecutablePath?: string;
@@ -1123,7 +1130,9 @@ export function createBrowserAgentRuntime(
   let currentSessionState = BrowserSessionStateSchema.parse({
     source: "target_site",
     status: "unknown",
-    driver: "chrome_profile_agent",
+    driver: options.browserHost
+      ? "embedded_browser_agent"
+      : "chrome_profile_agent",
     label: "Browser profile not started",
     detail:
       "Open the dedicated browser profile when you want the agent to reuse a warm or authenticated browser context.",
@@ -1139,7 +1148,9 @@ export function createBrowserAgentRuntime(
     currentSessionState = BrowserSessionStateSchema.parse({
       source,
       status,
-      driver: "chrome_profile_agent",
+      driver: options.browserHost
+        ? "embedded_browser_agent"
+        : "chrome_profile_agent",
       label,
       detail,
       lastCheckedAt: new Date().toISOString(),
@@ -1306,6 +1317,10 @@ export function createBrowserAgentRuntime(
   }
 
   async function ensureBrowser(): Promise<Browser> {
+    if (options.browserHost) {
+      browserPromise = options.browserHost.connect();
+      return browserPromise;
+    }
     if (browserPromise) {
       try {
         const browser = await browserPromise;
@@ -1392,6 +1407,7 @@ export function createBrowserAgentRuntime(
   }
 
   async function getContext(): Promise<BrowserContext> {
+    await options.browserHost?.assertAutomationSafe();
     const browser = await ensureBrowser();
     const context = browser.contexts()[0];
 
@@ -1642,6 +1658,16 @@ export function createBrowserAgentRuntime(
       });
     },
     async closeSession(source) {
+      if (options.browserHost) {
+        await options.browserHost.close();
+        resetBrowserConnection();
+        return setSessionState(
+          source,
+          "unknown",
+          "Browser closed",
+          "Browser pages are closed. Saved sign-ins are kept.",
+        );
+      }
       const chromeProcess = launchedChromeProcess;
       const shouldTerminateChromeProcess = ownsChromeProcess;
       launchedChromeProcess = null;
@@ -1680,6 +1706,12 @@ export function createBrowserAgentRuntime(
     },
     async inspectSourceAccess(source, input) {
       void source;
+      if (options.browserHost) {
+        const openBrowser = await options.browserHost.getOpenBrowser();
+        if (!openBrowser)
+          return createInconclusiveSourceAccessProbeResult(input);
+        browserPromise = Promise.resolve(openBrowser);
+      }
       if (!browserPromise) {
         return createInconclusiveSourceAccessProbeResult(input);
       }
@@ -2267,12 +2299,10 @@ export function createBrowserAgentRuntime(
           warning:
             [
               result.incomplete
-                ? `Agent discovery stopped after ${result.steps} steps. Found ${result.jobs.length} jobs.`
+                ? `Stopped early with ${result.jobs.length} job${result.jobs.length === 1 ? "" : "s"} saved.`
                 : null,
               result.warning ?? null,
-              result.error
-                ? `Discovery encountered an error: ${result.error}`
-                : null,
+              result.error ?? null,
             ]
               .filter(Boolean)
               .join(" ") || null,

@@ -302,6 +302,24 @@ describe("resume workspace quality helpers", () => {
     );
   });
 
+  test("sanitizeResumeDraft drops how-the-job-ended sentences from a generated summary", () => {
+    const { profile, job } = getSeedContext();
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_summary",
+      (section) => ({
+        ...section,
+        text: "Product designer focused on reliable workflow software. Position ended in a company-wide reduction in July 2026.",
+      }),
+    );
+
+    const sanitized = sanitizeResumeDraft({ draft, job, profile });
+
+    expect(getSection(sanitized, "section_summary").text).toBe(
+      "Product designer focused on reliable workflow software.",
+    );
+  });
+
   test("sanitizeResumeDraft removes visible company and job-only skill bleed", () => {
     const { profile, job } = getSeedContext();
     const draft = updateSection(
@@ -323,6 +341,69 @@ describe("resume workspace quality helpers", () => {
     );
 
     expect(visibleSkills).toEqual(["Figma"]);
+  });
+
+  test("sanitizeResumeDraft keeps job-listing technologies in the skills section", () => {
+    const { profile, job } = getSeedContext();
+    const listingJob = {
+      ...job,
+      keySkills: [...job.keySkills, "Kubernetes"],
+      minimumQualifications: [
+        ...job.minimumQualifications,
+        "Kubernetes experience required.",
+      ],
+    };
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_skills",
+      (section) => ({
+        ...section,
+        bullets: createBullets("skill_bullet", ["Kubernetes", "Figma"]),
+      }),
+    );
+
+    const sanitized = sanitizeResumeDraft({ draft, job: listingJob, profile });
+    const visibleSkills = getSection(sanitized, "section_skills").bullets.map(
+      (bullet) => bullet.text,
+    );
+
+    expect(visibleSkills).toEqual(["Kubernetes", "Figma"]);
+  });
+
+  test("validateResumeDraft maps a job-listing skill bullet to confirm_needed", () => {
+    const { profile, job } = getSeedContext();
+    const listingJob = {
+      ...job,
+      keySkills: [...job.keySkills, "Kubernetes"],
+      description: `${job.description} Kubernetes required.`,
+    };
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_skills",
+      (section) => ({
+        ...section,
+        bullets: createBullets("skill_bullet", ["Kubernetes"]),
+      }),
+    );
+
+    const validation = validateResumeDraft({
+      draft,
+      job: listingJob,
+      profile,
+    });
+
+    expect(
+      validation.claimAssessments.find(
+        (assessment) => assessment.bulletId === "skill_bullet_1",
+      ),
+    ).toMatchObject({ status: "confirm_needed" });
+    // The same skill without the job ever asking for it stays unsupported.
+    const unsupported = validateResumeDraft({ draft, job, profile });
+    expect(
+      unsupported.claimAssessments.find(
+        (assessment) => assessment.bulletId === "skill_bullet_1",
+      ),
+    ).toMatchObject({ status: "unsupported" });
   });
 
   test("validateResumeDraft flags short job-only skill bleed that remains in a draft", () => {
@@ -550,6 +631,106 @@ describe("resume workspace quality helpers", () => {
         expect.objectContaining({
           category: "job_description_bleed",
           bulletId: "experience_section_validate_1",
+        }),
+      ]),
+    );
+  });
+
+  test("validateResumeDraft maps rounded-up years and listing technologies to confirm_needed instead of unsupported", () => {
+    const { profile, job } = getSeedContext();
+    const listingJob = {
+      ...job,
+      keySkills: [...job.keySkills, "Framer"],
+      description: `${job.description} Strong Framer prototyping and 11 years of professional experience required.`,
+      minimumQualifications: [
+        ...job.minimumQualifications,
+        "11 years of professional experience.",
+      ],
+    };
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_experience",
+      (section) => ({
+        ...section,
+        entries: section.entries.map((entry) => ({
+          ...entry,
+          bullets: createBullets("experience_relaxed", [
+            // 10 evidenced years rounded up by exactly one.
+            "Designed resilient workflow tools across 11 years of professional experience.",
+            // A listing technology the evidenced product-design stack implies.
+            "Prototyped resilient workflow systems in Framer for product teams.",
+          ]),
+        })),
+      }),
+    );
+
+    const validation = validateResumeDraft({
+      draft,
+      job: listingJob,
+      profile,
+    });
+
+    const roundedYears = validation.claimAssessments.find(
+      (assessment) => assessment.bulletId === "experience_relaxed_1",
+    );
+    const listingTerm = validation.claimAssessments.find(
+      (assessment) => assessment.bulletId === "experience_relaxed_2",
+    );
+
+    expect(roundedYears).toMatchObject({ status: "confirm_needed" });
+    expect(listingTerm).toMatchObject({ status: "confirm_needed" });
+    expect(validation.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "claim_confirmation_needed",
+          bulletId: "experience_relaxed_1",
+        }),
+        expect.objectContaining({
+          category: "claim_confirmation_needed",
+          bulletId: "experience_relaxed_2",
+        }),
+      ]),
+    );
+    // Both stay export-blocking until the user confirms them.
+    expect(hasBlockingResumeClaimAssessment({ validation, draft })).toBe(true);
+  });
+
+  test("validateResumeDraft keeps years beyond one rounding and technologies absent from the listing unsupported", () => {
+    const { profile, job } = getSeedContext();
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_experience",
+      (section) => ({
+        ...section,
+        entries: section.entries.map((entry) => ({
+          ...entry,
+          bullets: createBullets("experience_unrelaxed", [
+            // Two years past the evidenced 10 is not a rounding.
+            "Designed resilient workflow tools across 12 years of professional experience.",
+            // A technology neither the evidence nor the listing mentions.
+            "Prototyped resilient workflow systems in Framer for product teams.",
+          ]),
+        })),
+      }),
+    );
+
+    const validation = validateResumeDraft({ draft, job, profile });
+
+    expect(
+      validation.claimAssessments.find(
+        (assessment) => assessment.bulletId === "experience_unrelaxed_1",
+      ),
+    ).toMatchObject({ status: "unsupported" });
+    expect(
+      validation.claimAssessments.find(
+        (assessment) => assessment.bulletId === "experience_unrelaxed_2",
+      ),
+    ).toMatchObject({ status: "unsupported" });
+    expect(validation.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "invented_metric",
+          bulletId: "experience_unrelaxed_1",
         }),
       ]),
     );

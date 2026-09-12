@@ -96,10 +96,18 @@ export function filterGroundedVisibleSkills(
  * requirements out of generated text and the hidden keyword editor even when
  * a provider echoes them in its draft.
  */
+// Schema enums that leak in as "keywords" ("FULL_TIME", "PART_TIME",
+// "ON_SITE"): a resume never echoes them, and a suggestion built on them
+// told a candidate to write FULL_TIME into their summary.
+const SCHEMA_ENUM_KEYWORD_PATTERN =
+  /^(?:[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+|(?:full|part)[-\s]?time|contract(?:or)?|temporary|internship|remote|hybrid|on[-\s]?site)$/iu;
+
 export function filterCandidateFacingResumeKeywords(
   keywords: readonly string[],
 ): string[] {
   return uniqueStrings(keywords).filter(
-    (keyword) => !QUANTIFIED_REQUIREMENT_PATTERN.test(keyword),
+    (keyword) =>
+      !QUANTIFIED_REQUIREMENT_PATTERN.test(keyword) &&
+      !SCHEMA_ENUM_KEYWORD_PATTERN.test(keyword.trim()),
   );
 }

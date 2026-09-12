@@ -15,26 +15,24 @@ import {
 
 describe("Responses API transport", () => {
   test("keeps ordinary text and image-only defaults on separate OpenCode Go routes", () => {
-    expect(DEFAULT_OPENCODE_GO_BASE_URL).toBe(
-      "https://opencode.ai/zen/go/v1",
-    );
+    expect(DEFAULT_OPENCODE_GO_BASE_URL).toBe("https://opencode.ai/zen/go/v1");
     expect({
       model: DEFAULT_TEXT_MODEL,
       apiMode: DEFAULT_TEXT_MODEL_API_MODE,
       reasoningEffort: DEFAULT_TEXT_MODEL_REASONING_EFFORT,
     }).toEqual({
-      model: "deepseek-v4-flash",
-      apiMode: "chat_completions",
-      reasoningEffort: "max",
+      model: "muse-spark-1.3-contributor",
+      apiMode: "responses",
+      reasoningEffort: "xhigh",
     });
     expect({
       model: DEFAULT_VISION_MODEL,
       apiMode: DEFAULT_VISION_MODEL_API_MODE,
       reasoningEffort: DEFAULT_VISION_MODEL_REASONING_EFFORT,
     }).toEqual({
-      model: "gpt-5.6-luna",
+      model: "muse-spark-1.3-contributor",
       apiMode: "responses",
-      reasoningEffort: "high",
+      reasoningEffort: "xhigh",
     });
   });
 

@@ -591,6 +591,9 @@ export function JobFinderHomeRoute() {
 
   return (
     <JobSearchHomeScreen
+      activeResumeDraftCount={
+        Object.keys(context.resumeOperationStarts ?? {}).length
+      }
       activityPending={activityPending}
       campaignNotificationAllPending={context.isPending(
         jobFinderPendingActions.campaignNotificationAll(),
@@ -951,6 +954,7 @@ export function JobFinderDiscoveryRoute() {
   const navigationContext = readJobFinderNavigationContext(searchParams);
   const rapidReviewReturnRoute = readJobFinderReturnRoute(searchParams);
   const [activityPausePending, setActivityPausePending] = useState(false);
+  const [planSwitchPending, setPlanSwitchPending] = useState(false);
 
   const handleResumeActivity = () => {
     setActivityPausePending(true);
@@ -1020,15 +1024,32 @@ export function JobFinderDiscoveryRoute() {
   }
 
   if (navigationContext.jobId && !requestedJob) {
+    // Workspace search lists every job saved on this device, but Find jobs
+    // shows only the active plan's kept jobs. Say which case this is and
+    // point at the control that changes it instead of a dead "Show all jobs".
+    const savedOutsidePlan = context.workspace.discoveryJobs.some(
+      (job) => job.id === navigationContext.jobId,
+    );
     return (
       <WorkspaceStateScreen
-        action={{
-          label: "Show all jobs",
-          onClick: () => context.onNavigateSafely("/job-finder/discovery"),
-        }}
+        action={
+          savedOutsidePlan
+            ? {
+                label: "Open Search plans",
+                onClick: () => context.onNavigateSafely("/job-finder/campaigns"),
+              }
+            : {
+                label: "Show all jobs",
+                onClick: () => context.onNavigateSafely("/job-finder/discovery"),
+              }
+        }
         kicker="Find jobs"
-        message="The requested job is no longer available in the active search plan, so no other job was selected."
-        title="Job unavailable"
+        message={
+          savedOutsidePlan
+            ? "This job is saved on this device, but the active search plan keeps only its newest jobs (its \"Jobs to retain\" limit), so Find jobs cannot show it. Raise that limit in Search plans and search again to bring it back."
+            : "The requested job is no longer available in the active search plan, so no other job was selected."
+        }
+        title={savedOutsidePlan ? "Job outside this search plan" : "Job unavailable"}
       />
     );
   }
@@ -1063,6 +1084,15 @@ export function JobFinderDiscoveryRoute() {
         actionState={context.actionState}
         activityPaused={context.workspace.activityControl?.paused ?? false}
         activeRun={context.workspace.activeDiscoveryRun}
+        campaigns={context.workspace.campaigns}
+        activeCampaignId={context.workspace.activeCampaignId}
+        isPlanSwitchPending={planSwitchPending}
+        onSelectCampaign={(campaignId) => {
+          setPlanSwitchPending(true);
+          void context.onSelectCampaign(campaignId).finally(() => {
+            setPlanSwitchPending(false);
+          });
+        }}
         browserSession={context.workspace.browserSession}
         companies={context.workspace.intelligence.companies}
         discoveryRunFeedback={context.discoveryRunFeedback}
@@ -2058,6 +2088,37 @@ export function JobFinderResumeStrategiesRoute() {
   const candidateDocumentIds = context.workspace.tailoredAssets.map(
     (asset) => asset.id,
   );
+  const reviewQueue = context.workspace.reviewQueue;
+  const resumeStrategySelections = intelligence.resumeStrategySelections;
+  // Which shortlisted jobs use an approach, and which of their drafts a
+  // re-tailor may regenerate: tailored, existing, and not yet approved.
+  const strategyUsage = useCallback(
+    (strategyId: string) => {
+      const jobIds = new Set(
+        resumeStrategySelections
+          .filter((selection) => selection.strategyId === strategyId)
+          .map((selection) => selection.jobId),
+      );
+      const items = reviewQueue.filter((item) => jobIds.has(item.jobId));
+      return {
+        jobCount: jobIds.size,
+        retailorableJobIds: items
+          .filter(
+            (item) =>
+              item.resumeApplicationMode === "tailored_per_job" &&
+              item.resumeAssetId !== null &&
+              (item.resumeReview.status === "draft" ||
+                item.resumeReview.status === "needs_review" ||
+                item.resumeReview.status === "stale"),
+          )
+          .map((item) => item.jobId),
+        approvedCount: items.filter(
+          (item) => item.resumeReview.status === "approved",
+        ).length,
+      };
+    },
+    [resumeStrategySelections, reviewQueue],
+  );
 
   return (
     <JobFinderHydrationGate
@@ -2084,9 +2145,15 @@ export function JobFinderResumeStrategiesRoute() {
           jobFinderPendingActions.resumeStrategySave(),
         )}
         onDisableStrategy={context.onDisableResumeStrategy}
+        onRetailorJobs={(jobIds) => {
+          for (const jobId of jobIds) {
+            context.onRegenerateResumeDraft(jobId);
+          }
+        }}
         onSaveStrategy={context.onSaveResumeStrategy}
         onSetCampaignDefault={context.onSetCampaignResumeStrategyDefault}
         strategies={intelligence.resumeStrategies}
+        strategyUsage={strategyUsage}
       />
     </JobFinderHydrationGate>
   );

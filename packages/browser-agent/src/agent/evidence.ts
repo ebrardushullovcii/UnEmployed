@@ -678,23 +678,39 @@ function normalizeJobWorkMode(
   return validWorkModes.length > 0 ? validWorkModes : ["flexible"];
 }
 
+/**
+ * URLs that stand for a results surface rather than one posting: the same URL
+ * attached to two or more differently titled jobs (a search page whose cards
+ * have no links of their own). The same posting reached twice shares a URL
+ * too, but also a title, and that is a duplicate to merge, not a surface.
+ */
 function collectSharedSurfaceUrls(
   jobs: readonly ExtractedJobInput[],
 ): Set<string> {
-  const counts = new Map<string, number>();
+  const titlesByUrl = new Map<string, Set<string>>();
   for (const job of jobs) {
     const canonicalUrl = job.canonicalUrl.trim();
     if (!canonicalUrl) {
       continue;
     }
-    counts.set(canonicalUrl, (counts.get(canonicalUrl) ?? 0) + 1);
+    const titles = titlesByUrl.get(canonicalUrl) ?? new Set<string>();
+    titles.add(normalizeTitleForIdentity(job.title));
+    titlesByUrl.set(canonicalUrl, titles);
   }
 
   return new Set(
-    [...counts.entries()]
-      .filter(([, count]) => count >= 2)
+    [...titlesByUrl.entries()]
+      .filter(([, titles]) => titles.size >= 2)
       .map(([canonicalUrl]) => canonicalUrl),
   );
+}
+
+function normalizeTitleForIdentity(title: string | null | undefined): string {
+  return (title ?? "")
+    .toLowerCase()
+    .replace(/\([^)]*\)/gu, " ")
+    .replace(/[^a-z0-9]+/gu, " ")
+    .trim();
 }
 
 function shouldDeduplicateByCanonicalUrl(

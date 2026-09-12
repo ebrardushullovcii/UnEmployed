@@ -30,10 +30,7 @@ import {
   RouteSkeleton,
 } from "@renderer/features/job-finder/components/route-skeleton";
 import { StatusBadge } from "@renderer/features/job-finder/components/status-badge";
-import {
-  SHELL_HEADER_MASK_HEIGHT_CLASS,
-  SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
-} from "@renderer/features/job-finder/lib/job-finder-shell-gutters";
+import { SHELL_HEADER_MASK_HEIGHT_CLASS } from "@renderer/features/job-finder/lib/job-finder-shell-gutters";
 import { formatStatusLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { cn } from "@renderer/lib/cn";
 import { StartupDatabaseRecoveryNotice } from "@renderer/features/job-finder/components/startup-database-recovery-notice";
@@ -934,9 +931,8 @@ function JobFinderOpeningShell() {
       <div
         aria-hidden="true"
         className={cn(
-          "pointer-events-none fixed inset-x-0 top-[7.25rem] z-30 hidden bg-gradient-to-b from-(--shell-header-bg) to-transparent sm:block min-[1440px]:top-14 min-[1440px]:left-(--job-finder-side-width)",
+          "pointer-events-none fixed inset-x-0 top-[7.25rem] z-30 hidden bg-(--shell-header-bg) sm:block min-[1440px]:top-14 min-[1440px]:left-(--job-finder-side-width)",
           SHELL_HEADER_MASK_HEIGHT_CLASS,
-          SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
         )}
         data-job-finder-shell-header-mask
       />

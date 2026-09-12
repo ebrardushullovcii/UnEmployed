@@ -713,6 +713,20 @@
   border-color: var(--surface-panel-shell-border);
 }
 
+/*
+ * A stacked label (caption over its control) laid out as a grid sits in
+ * multi-column form rows next to siblings that carry a hint line below the
+ * control. The row stretches every label to the tallest one, and a grid with
+ * implicit rows then spreads that extra height between caption and control,
+ * so the control drifts down out of line with its neighbours. Extra height
+ * always stays at the bottom.
+ */
+@layer base {
+  label.grid {
+    align-content: start;
+  }
+}
+
 .surface-card-tint {
   background: var(--surface-card-tint);
   border-color: var(--surface-card-tint-border);

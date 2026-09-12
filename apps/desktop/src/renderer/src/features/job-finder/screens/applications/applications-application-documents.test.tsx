@@ -249,7 +249,7 @@ describe("ApplicationsApplicationDocuments", () => {
       expect(control.className).not.toContain("focus-visible:ring");
     }
     for (const select of selects) {
-      expect(select.className).toContain("h-10");
+      expect(select.className).toContain("h-11");
       expect(select.className).toContain("rounded-(--radius-field)");
     }
     expect(textareas[0]?.className).toContain("min-h-64");

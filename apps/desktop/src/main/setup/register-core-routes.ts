@@ -1,6 +1,7 @@
 import type { IpcMain } from "electron";
 import { registerSystemRouteHandlers } from "../routes/system";
 import { registerWindowRouteHandlers } from "../routes/window";
+import { registerBrowserRoutes } from "../routes/browser";
 
 export interface FeatureRoutesReadyResponse {
   readonly ready: true;
@@ -23,6 +24,7 @@ export function registerCoreDesktopRoutes(
 ) {
   registerSystemRouteHandlers(ipcMain);
   registerWindowRouteHandlers(ipcMain);
+  registerBrowserRoutes(ipcMain);
   ipcMain.handle(
     "system:job-finder-bootstrap-routes-ready",
     async (): Promise<FeatureRoutesReadyResponse> => {

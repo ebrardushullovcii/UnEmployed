@@ -1017,11 +1017,12 @@ export function DiscoveryResultsPanel({
             aria-live="polite"
             className="text-(length:--text-small) tabular-nums text-foreground-muted"
             data-testid="discovery-result-count"
-            {...(resultCountTotalLabel ? { title: resultCountTotalLabel } : {})}
           >
             {resultCountLabel}
+            {/* Visible, not sr-only: this is the sentence that reconciles the
+                banded headline with the "kept" count Home prints. */}
             {resultCountTotalLabel ? (
-              <span className="sr-only"> — {resultCountTotalLabel}</span>
+              <span> · {resultCountTotalLabel}</span>
             ) : null}
           </span>
         </div>
@@ -1286,7 +1287,7 @@ export function DiscoveryResultsPanel({
               ? { onRecoveryAction: onShowAlsoFound }
               : {})}
             recoveryActionLabel={`Show also found (${hiddenAlsoFoundCount})`}
-            recoveryActionNextStep="Open one before trusting its score, then hide them again when you are done."
+            recoveryActionNextStep="Open a job to judge it yourself; a low score alone is not a reason to skip it."
             title="Nothing scored close to your targets"
           />
         </div>

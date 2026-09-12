@@ -365,7 +365,7 @@ describe("ReviewQueueListPanel", () => {
 
     openBatchActions();
     const strip = screen.getByTestId("tailored-draft-preparation");
-    expect(within(strip).getByText("Preparing 2 of 3")).toBeTruthy();
+    expect(within(strip).getByText("Writing resume 2 of 3")).toBeTruthy();
     expect(
       within(strip).getByRole("button", { name: "Stop after current draft" }),
     ).toBeTruthy();

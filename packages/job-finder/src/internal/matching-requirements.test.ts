@@ -524,7 +524,7 @@ describe("fit recommendation rationale wording", () => {
           label: "Location: Berlin, Germany",
           status: "missing",
         },
-        "The listing location is outside the saved search areas.",
+        "This job is in Berlin, Germany, outside your saved search areas.",
       ],
       [
         {

@@ -530,6 +530,9 @@ export function registerJobFinderRouteHandlers(
     async (_event, payload: unknown) => {
       const input = SetJobFinderActivityControlInputSchema.parse(payload);
       const service = await getJobFinderWorkspaceService();
+      const { getEmbeddedBrowser } =
+        await import("../services/browser/embedded-browser");
+      getEmbeddedBrowser().syncActivityPaused(input.paused);
       return workspaceMutationResponse(await service.setActivityControl(input));
     },
   );

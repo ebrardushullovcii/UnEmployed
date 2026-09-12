@@ -166,7 +166,9 @@ describe("ResumeStrategiesScreen", () => {
       />,
     );
 
-    expect(screen.getByText("No resume approaches yet")).toBeTruthy();
+    expect(
+      screen.getByText("Save how you want your resume tailored"),
+    ).toBeTruthy();
     expect(
       screen.queryByRole("searchbox", { name: "Search approaches" }),
     ).toBeNull();
@@ -788,5 +790,45 @@ describe("ResumeStrategiesScreen", () => {
 
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+});
+
+describe("ResumeStrategiesScreen usage after an edit", () => {
+  it("says which shortlisted jobs use the saved approach and offers to re-tailor their unapproved drafts", async () => {
+    const onSaveStrategy = vi.fn().mockResolvedValue(true);
+    const onRetailorJobs = vi.fn();
+    render(
+      <ResumeStrategiesScreen
+        actionMessage={null}
+        baseResumeDocumentId="resume_1"
+        campaigns={[]}
+        candidateDocumentIds={[]}
+        isCampaignDefaultPending={() => false}
+        isDisablePending={() => false}
+        isLoading={false}
+        isSavePending={false}
+        onDisableStrategy={vi.fn()}
+        onRetailorJobs={onRetailorJobs}
+        onSaveStrategy={onSaveStrategy}
+        onSetCampaignDefault={vi.fn()}
+        strategies={[strategy()]}
+        strategyUsage={() => ({
+          jobCount: 3,
+          retailorableJobIds: ["job_1", "job_2"],
+          approvedCount: 1,
+        })}
+      />,
+    );
+
+    expect(screen.getByText("3 shortlisted jobs")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: /Save/ }));
+
+    const notice = await screen.findByTestId("resume-strategy-usage-notice");
+    expect(notice.textContent).toContain("3 shortlisted jobs use");
+    expect(notice.textContent).toContain("1 approved resume is left untouched");
+    fireEvent.click(screen.getByRole("button", { name: "Re-tailor 2 drafts" }));
+    expect(onRetailorJobs).toHaveBeenCalledWith(["job_1", "job_2"]);
+    expect(screen.queryByTestId("resume-strategy-usage-notice")).toBeNull();
   });
 });

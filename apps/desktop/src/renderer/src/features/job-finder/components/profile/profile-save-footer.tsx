@@ -54,6 +54,15 @@ export function ProfileSaveFooter({
               ? "Unsaved changes on this page."
               : "No unsaved changes."}
           </p>
+          {/* When a saved profile is felt: the next tailored draft and
+              application read it, and nothing already drafted moves. */}
+          <p
+            className="text-(length:--text-description) leading-5 text-foreground-muted"
+            data-profile-save-effect
+          >
+            Saved changes reach new tailored drafts and applications; drafts you
+            already have stay as they are until you re-tailor them.
+          </p>
           {validationMessage ? (
             <p
               aria-atomic="true"

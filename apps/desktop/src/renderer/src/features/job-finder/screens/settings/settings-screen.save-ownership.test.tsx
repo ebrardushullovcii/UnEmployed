@@ -146,7 +146,9 @@ describe("Settings section nav is real navigation", () => {
     const nav = screen.getByRole("navigation", { name: "Settings sections" });
     const current = within(nav).getByRole("link", { name: "App & device" });
     const inactive = within(nav).getByRole("link", { name: "Tracker" });
-    const dangerZone = within(nav).getByRole("link", { name: "Danger zone" });
+    const dangerZone = within(nav).getByRole("link", {
+      name: "Delete everything",
+    });
 
     // Colour alone never carries the current item: it has a fill and an
     // inset bar as well.

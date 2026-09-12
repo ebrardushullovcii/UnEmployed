@@ -130,6 +130,12 @@ function formatSourceHealthCounts(counts: {
 
 export function JobSearchHomeScreen(props: {
   activityPending: boolean;
+  /**
+   * Tailored-resume drafts the renderer is waiting on. The dashboard's own
+   * background count never includes them, so without this Home said
+   * "Nothing is running right now." while a 60-second draft ran.
+   */
+  activeResumeDraftCount?: number;
   campaignNotificationError?: string | null;
   campaignNotificationPending?: (notificationId: string) => boolean;
   campaignNotificationAllPending?: boolean;
@@ -157,6 +163,9 @@ export function JobSearchHomeScreen(props: {
   const activeApplicationCount = props.workspace.applyRuns.filter(
     (run) => run.state === "running",
   ).length;
+  const activeResumeDraftCount = props.activeResumeDraftCount ?? 0;
+  const backgroundOperationCount =
+    dashboard.backgroundOperationCount + activeResumeDraftCount;
   const profileSetupState = props.workspace.profileSetupState;
   const hasIncompleteProfileSetup = profileSetupState?.status !== "completed";
   const activeCampaign = props.workspace.campaigns.find(
@@ -237,7 +246,7 @@ export function JobSearchHomeScreen(props: {
     Boolean(props.workspace.activityControl.reason) ||
     activeApplicationCount > 0 ||
     activeBrowserCount > 0 ||
-    dashboard.backgroundOperationCount > 0 ||
+    backgroundOperationCount > 0 ||
     Boolean(props.activityPending);
   const homeDiscoveryFeedback =
     props.discoveryRunFeedback?.targetLabel === null
@@ -258,7 +267,10 @@ export function JobSearchHomeScreen(props: {
   const pipelineJobIds = selectCampaignJobIds(props.workspace);
   const pipeline = [
     {
-      label: "Jobs found",
+      // "Results", not "Jobs found": Search plans prints the plan's whole
+      // retained count under that name, and this tile counts only what Find
+      // jobs lists by default.
+      label: "Results",
       count: countDiscoveryVisibleJobs(props.workspace, pipelineJobIds),
       route: discoveryRoute,
     },
@@ -334,10 +346,16 @@ export function JobSearchHomeScreen(props: {
 
   const awaitingReview = dashboard.jobsAwaitingReview;
   // The returning user's actual next move is the search loop, so it owns the
-  // recommended slot instead of the app's own blocked item, which stays
-  // reachable from Notifications, the sidebar badge and the header chip.
+  // recommended slot — unless something is blocked on them or waiting for
+  // their approval. Then the backend's own recommendation ("Resolve what
+  // needs you") wins: sending them back to a shortlisted job that already has
+  // an approved resume and a blocked application hides the real next step.
   const searchLoopRecommendation =
-    showReturningDashboardModules && !canRunFirstSearch && awaitingReview > 0
+    showReturningDashboardModules &&
+    !canRunFirstSearch &&
+    awaitingReview > 0 &&
+    needsYouCount === 0 &&
+    dashboard.applicationsReadyForApproval === 0
       ? {
           label: `Review ${awaitingReview} shortlisted ${
             awaitingReview === 1 ? "job" : "jobs"
@@ -780,9 +798,12 @@ export function JobSearchHomeScreen(props: {
                 Background work
               </h2>
               <p className="text-sm text-foreground-soft">
-                {dashboard.backgroundOperationCount === 0
+                {backgroundOperationCount === 0
                   ? "Nothing is running right now."
-                  : `${dashboard.backgroundOperationCount} ${dashboard.backgroundOperationCount === 1 ? "operation is" : "operations are"} running.`}
+                  : activeResumeDraftCount > 0 &&
+                      activeResumeDraftCount === backgroundOperationCount
+                    ? `Writing ${activeResumeDraftCount} ${activeResumeDraftCount === 1 ? "resume" : "resumes"}.`
+                    : `${backgroundOperationCount} ${backgroundOperationCount === 1 ? "operation is" : "operations are"} running.`}
               </p>
               {props.workspace.activityControl.reason ? (
                 <p className="text-xs text-foreground-muted">
@@ -802,6 +823,7 @@ export function JobSearchHomeScreen(props: {
           errorMessage={props.campaignNotificationError ?? null}
           loading={false}
           notifications={props.campaignNotifications ?? []}
+          onNavigate={props.onNavigate}
           // Derived from the same workspace state as the sidebar badges, so a
           // finished search with work waiting can never render "Nothing here
           // yet" beside a NEEDS YOU badge. Anything already carried by
@@ -814,7 +836,7 @@ export function JobSearchHomeScreen(props: {
                     id: "needs-you",
                     label: `${needsYouCount} ${needsYouCount === 1 ? "item needs" : "items need"} you`,
                     openLabel: "Open Needs you",
-                    onOpen: () => props.onNavigate("/job-finder/action-inbox"),
+                    onOpen: () => props.onNavigate("/job-finder/actions"),
                   },
                 ]
               : []),

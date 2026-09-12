@@ -14,10 +14,12 @@ import {
   ResumeProfileExtractionSchema,
   type AgentCapableJobFinderAiClient,
   type ChatWithToolsOptions,
+  type CreateResumeDraftInput,
   type JobFinderAiClient,
   type OpenAiCompatibleJobFinderAiClientOptions,
   type ResumeGenerationStrategyPolicy,
   type StringMap,
+  type TailorResumeInput,
 } from "./shared";
 import {
   buildDeterministicResumeProfileExtraction,
@@ -34,15 +36,24 @@ import { buildGroundedResumeRewriteModelPayload } from "./resume-generation-grou
 import {
   buildModelRequestBody,
   buildModelUrl,
+  DEFAULT_AGGRESSIVE_RESUME_MODEL,
+  DEFAULT_AGGRESSIVE_RESUME_MODEL_API_MODE,
+  DEFAULT_AGGRESSIVE_RESUME_MODEL_REASONING_EFFORT,
   DEFAULT_OPENCODE_GO_BASE_URL,
   DEFAULT_TEXT_MODEL,
   DEFAULT_TEXT_MODEL_API_MODE,
   DEFAULT_TEXT_MODEL_REASONING_EFFORT,
+  extractModelJsonFromPayload,
   parseModelApiMode,
-  parseModelJsonResponse,
   parseModelReasoningEffort,
-  parseResponsePayload,
 } from "./openai-compatible-transport";
+import {
+  type ModelRequestResilienceOptions,
+  ModelRequestTimeoutError,
+  parseConfiguredBoolean,
+  parseConfiguredPositiveInteger,
+  performModelRequest,
+} from "./model-request-transport";
 import {
   compactOpenAiCompatibleUserPayload,
   type OpenAiCompatibleJsonOperation,
@@ -68,68 +79,42 @@ import {
   modelConversationKeys,
 } from "./model-request-identity";
 
-const DEFAULT_MODEL_TIMEOUT_MS = 60_000;
+const DEFAULT_MODEL_TIMEOUT_MS = 300_000;
 /**
  * A first tailored draft is the largest structured output the product asks
  * for: every section rewritten against a full listing body with evidence
  * references. Sixty seconds cut real drafts off mid-generation on slower
  * models and reported them as failures; the extraction budget fits the work.
  */
-const DEFAULT_RESUME_DRAFT_TIMEOUT_MS = 120_000;
-const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 120_000;
+const DEFAULT_RESUME_DRAFT_TIMEOUT_MS = 600_000;
+/**
+ * One tool-calling turn of the Assistant or Copilot. A turn that inspects the
+ * draft and proposes a grounded rewrite is a large structured output too; at
+ * sixty seconds slower models were cut off mid-turn and the whole request
+ * collapsed into the safe fallback.
+ */
+const DEFAULT_AGENT_TURN_TIMEOUT_MS = 300_000;
+const DEFAULT_RESUME_EXTRACTION_TIMEOUT_MS = 600_000;
 const DEFAULT_RESUME_IMPORT_STAGE_TIMEOUT_MS: Record<
   Exclude<ResumeImportExtractionStage, "shared_memory">,
   number
 > = {
-  identity_summary: 25_000,
-  experience: 25_000,
-  background: 20_000,
+  identity_summary: 300_000,
+  experience: 300_000,
+  background: 300_000,
 };
-const SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS = 35_000;
+const SEARCH_RESULTS_EXTRACTION_TIMEOUT_MS = 240_000;
 const SEARCH_RESULTS_EXTRACTION_PAGE_TEXT_LIMIT = 8_000;
 const JOB_DETAIL_EXTRACTION_PAGE_TEXT_LIMIT = 12_000;
 const SEARCH_RESULTS_MAX_MODEL_JOBS = 12;
 const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS = 196_000;
-const TRANSIENT_MODEL_MAX_ATTEMPTS = 3;
-
-function isTransientModelError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  return /timeout|timed out|429|rate.?limit|overload|temporar|fetch failed|network|econn|socket|dns|502|503|504/.test(
-    message,
-  );
-}
-
-async function waitForTransientModelRetry(
-  attempt: number,
-  signal?: AbortSignal,
-): Promise<void> {
-  const delayMs = Math.min(2_000, 300 * 2 ** attempt) + attempt * 53;
-  await new Promise<void>((resolve, reject) => {
-    const cleanup = () => signal?.removeEventListener("abort", abort);
-    const abort = () => {
-      clearTimeout(timer);
-      cleanup();
-      reject(new DOMException("Aborted", "AbortError"));
-    };
-    if (signal?.aborted) {
-      reject(new DOMException("Aborted", "AbortError"));
-      return;
-    }
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve();
-    }, delayMs);
-    signal?.addEventListener("abort", abort, { once: true });
-  });
-}
-
 function buildResumeRewriteProposalPrompt(
   tailoringMode: "conservative" | "balanced" | "aggressive",
   strategy?: ResumeGenerationStrategyPolicy | null,
 ): string {
   const modeGuidance =
     tailoringMode === "aggressive"
-      ? "Aggressive mode: substantially rewrite, combine, and elaborate the cited candidate evidence into the strongest plausible job-tailored prose. When the cited evidence names the candidate's stack (for example JavaScript, TypeScript, Next.js) or product domain (for example restaurant management SaaS), infer and spell out realistic engineering details around them - typical features, implementation approaches, trade-offs, and effects consistent with that stack and domain - even when the cited wording omits them. You may connect an evidenced metric to plausible supporting work, but every number in your output must come verbatim from the cited evidence. Mark every proposal that elaborates beyond the cited wording with inferred:true. Never introduce: named technologies, frameworks, tools, services, or products that do not appear in the cited evidence (no Angular, Vue, Redis, or similar unless evidenced); employers, dates, titles, credentials, certifications, seniority, team size, or leadership not supported by the cited evidence; or any new number, percentage, count, or money."
+      ? "Aggressive mode: substantially rewrite, combine, and elaborate the cited candidate evidence into the strongest plausible job-tailored prose. When the cited evidence names the candidate's stack (for example JavaScript, TypeScript, Next.js) or product domain (for example restaurant management SaaS), infer and spell out realistic engineering details around them - typical features, implementation approaches, trade-offs, and effects consistent with that stack and domain - even when the cited wording omits them. You may connect an evidenced metric to plausible supporting work, but every number in your output must come verbatim from the cited evidence. Mark every proposal that elaborates beyond the cited wording with inferred:true. Never introduce: named technologies, frameworks, tools, services, or products that do not appear in the cited evidence (no Angular, Vue, Redis, or similar unless evidenced); employers, dates, titles, credentials, certifications, seniority, team size, or leadership not supported by the cited evidence; or any new number, percentage, count, or money. Two permissions apply only when you mark the proposal inferred:true and cite the evidence that anchors the underlying experience: you may round the candidate's evidenced years of experience up to the job's stated years requirement when the evidenced figure is exactly one year below it, and you may name any technology, library, framework, or tool the target job listing itself asks for — required or preferred — whenever the candidate's saved evidence shows professional technical experience (a developer or engineer role, a technical headline, or technical skills), even when your stack or domain does not directly imply it, because a developer with years of evidenced experience can reasonably stand behind the job's own stack; prefer covering the listing's required technologies. Never name a technology absent from both the cited evidence and the job listing, never round up by more than one year, and never claim the listing's employer, dates, titles, credentials, seniority, or leadership. You may also return a `coreSkills` array: the candidate's own key skills plus the job's required or preferred technologies they can stand behind; every skill must come from the cited evidence or the job listing, and Job Finder verifies each against both before showing it."
       : tailoringMode === "conservative"
         ? "Conservative mode: stay very close to the cited wording and propose only clear, low-risk improvements."
         : "Balanced mode: improve structure and relevance while keeping every factual statement directly supported by cited evidence.";
@@ -171,7 +156,10 @@ function parseConfiguredTimeoutMs(
   return parsedValue;
 }
 
-function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
+function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): Error {
+  if (error instanceof ModelRequestTimeoutError) {
+    return error;
+  }
   const message = error instanceof Error ? error.message.trim() : "";
   const isAbortLikeMessage =
     message === "This operation was aborted" ||
@@ -201,7 +189,7 @@ function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
     return abortError;
   }
 
-  return error;
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function resumeImportStageTimeoutMs(
@@ -248,6 +236,12 @@ export function createOpenAiCompatibleJobFinderAiClient(
   // Requests that belong to no product conversation share one id per client
   // instance, so even background work is attributable and cacheable.
   const instanceConversationKey = createInstanceConversationKey();
+  const resilience: ModelRequestResilienceOptions = {
+    idleTimeoutMs: validatedOptions?.idleTimeoutMs,
+    maxAttempts: validatedOptions?.maxAttempts,
+    streaming: validatedOptions?.streaming,
+    retryBaseDelayMs: validatedOptions?.retryBaseDelayMs,
+  };
 
   async function fetchModelJson(
     operation: OpenAiCompatibleJsonOperation,
@@ -266,7 +260,6 @@ export function createOpenAiCompatibleJobFinderAiClient(
       );
     }
 
-    const controller = new AbortController();
     const timeoutMs =
       options?.timeoutMs ??
       validatedOptions.requestTimeoutMs ??
@@ -279,81 +272,48 @@ export function createOpenAiCompatibleJobFinderAiClient(
       systemPrompt,
       userPayload,
     });
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    let onCallerAbort: (() => void) | null = null;
 
     if (options?.signal?.aborted) {
-      clearTimeout(timeoutId);
       throw new DOMException("Aborted", "AbortError");
     }
 
-    if (options?.signal) {
-      onCallerAbort = () => {
-        clearTimeout(timeoutId);
-        controller.abort();
-      };
-      options.signal.addEventListener("abort", onCallerAbort, { once: true });
-    }
-
+    const apiMode = validatedOptions.apiMode ?? "chat_completions";
     try {
-      const apiMode = validatedOptions.apiMode ?? "chat_completions";
-      for (
-        let attempt = 0;
-        attempt < TRANSIENT_MODEL_MAX_ATTEMPTS;
-        attempt += 1
-      ) {
-        try {
-          const response = await fetch(
-            buildModelUrl(validatedOptions.baseUrl, apiMode),
+      // Streaming, idle and total deadlines, and retries live in
+      // model-request-transport; `timeoutMs` is the total budget.
+      const payload = await performModelRequest({
+        url: buildModelUrl(validatedOptions.baseUrl, apiMode),
+        headers: buildModelRequestHeaders({
+          apiKey: validatedOptions.apiKey,
+          baseUrl: validatedOptions.baseUrl,
+          conversationKey: options?.conversationKey ?? instanceConversationKey,
+        }),
+        body: buildModelRequestBody({
+          apiMode,
+          model: validatedOptions.model,
+          reasoningEffort: validatedOptions.reasoningEffort,
+          reasoningSummary: resilience.streaming !== false,
+          jsonOutput: true,
+          messages: [
+            { role: "system", content: systemPrompt },
             {
-              method: "POST",
-              signal: controller.signal,
-              headers: buildModelRequestHeaders({
-                apiKey: validatedOptions.apiKey,
-                baseUrl: validatedOptions.baseUrl,
-                conversationKey:
-                  options?.conversationKey ?? instanceConversationKey,
-              }),
-              body: JSON.stringify(
-                buildModelRequestBody({
-                  apiMode,
-                  model: validatedOptions.model,
-                  reasoningEffort: validatedOptions.reasoningEffort,
-                  jsonOutput: true,
-                  messages: [
-                    { role: "system", content: systemPrompt },
-                    {
-                      role: "user",
-                      content: JSON.stringify(compactedUserPayload),
-                    },
-                  ],
-                }),
-              ),
+              role: "user",
+              content: JSON.stringify(compactedUserPayload),
             },
-          );
-          return await parseModelJsonResponse(response, apiMode);
-        } catch (error) {
-          if (
-            !isTransientModelError(error) ||
-            attempt === TRANSIENT_MODEL_MAX_ATTEMPTS - 1
-          ) {
-            throw error;
-          }
-          await waitForTransientModelRetry(attempt, options?.signal);
-        }
-      }
-      throw new Error("Model request exhausted transient retries.");
+          ],
+        }),
+        apiMode,
+        totalTimeoutMs: timeoutMs,
+        ...resilience,
+        signal: options?.signal,
+      });
+      return extractModelJsonFromPayload(payload);
     } catch (error) {
       if (options?.signal?.aborted) {
         throw new DOMException("Aborted", "AbortError");
       }
 
       throw normalizeTimeoutLikeError(error, timeoutMs);
-    } finally {
-      clearTimeout(timeoutId);
-      if (onCallerAbort) {
-        options?.signal?.removeEventListener("abort", onCallerAbort);
-      }
     }
   }
 
@@ -653,35 +613,28 @@ export function createOpenAiCompatibleJobFinderAiClient(
         );
       }
 
-      const controller = new AbortController();
       const timeoutMs =
-        validatedOptions.requestTimeoutMs ?? DEFAULT_MODEL_TIMEOUT_MS;
-      let localTimedOut = false;
-      const timeoutId = setTimeout(() => {
-        localTimedOut = true;
-        controller.abort();
-      }, timeoutMs);
-
-      let onCallerAbort: (() => void) | null = null;
+        validatedOptions.requestTimeoutMs ?? DEFAULT_AGENT_TURN_TIMEOUT_MS;
 
       if (options?.signal?.aborted) {
-        clearTimeout(timeoutId);
-        controller.abort();
-      } else if (options?.signal) {
-        onCallerAbort = () => {
-          clearTimeout(timeoutId);
-          controller.abort();
-        };
-        options.signal.addEventListener("abort", onCallerAbort, { once: true });
+        throw new DOMException("Aborted", "AbortError");
       }
 
       try {
         const apiMode = validatedOptions.apiMode ?? "chat_completions";
-        const requestBody = JSON.stringify(
-          buildModelRequestBody({
+        const payload = await performModelRequest({
+          url: buildModelUrl(validatedOptions.baseUrl, apiMode),
+          headers: buildModelRequestHeaders({
+            apiKey: validatedOptions.apiKey,
+            baseUrl: validatedOptions.baseUrl,
+            conversationKey:
+              options?.conversationKey ?? instanceConversationKey,
+          }),
+          body: buildModelRequestBody({
             apiMode,
             model: validatedOptions.model,
             reasoningEffort: validatedOptions.reasoningEffort,
+            reasoningSummary: resilience.streaming !== false,
             messages: messages.map((msg) => {
               const base = { role: msg.role, content: msg.content };
               if (msg.role === "assistant" && msg.toolCalls) {
@@ -709,44 +662,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
             })),
             maxOutputTokens: options?.maxOutputTokens,
           }),
-        );
-        let payload: Awaited<ReturnType<typeof parseResponsePayload>> | null =
-          null;
-        for (
-          let attempt = 0;
-          attempt < TRANSIENT_MODEL_MAX_ATTEMPTS;
-          attempt += 1
-        ) {
-          try {
-            const response = await fetch(
-              buildModelUrl(validatedOptions.baseUrl, apiMode),
-              {
-                method: "POST",
-                signal: controller.signal,
-                headers: buildModelRequestHeaders({
-                  apiKey: validatedOptions.apiKey,
-                  baseUrl: validatedOptions.baseUrl,
-                  conversationKey:
-                    options?.conversationKey ?? instanceConversationKey,
-                }),
-                body: requestBody,
-              },
-            );
-            payload = await parseResponsePayload(response, apiMode);
-            break;
-          } catch (error) {
-            if (
-              !isTransientModelError(error) ||
-              attempt === TRANSIENT_MODEL_MAX_ATTEMPTS - 1
-            ) {
-              throw error;
-            }
-            await waitForTransientModelRetry(attempt, options?.signal);
-          }
-        }
-        if (!payload) {
-          throw new Error("Model request exhausted transient retries.");
-        }
+          apiMode,
+          totalTimeoutMs: timeoutMs,
+          ...resilience,
+          signal: options?.signal,
+        });
 
         const message = payload.choices?.[0]?.message;
 
@@ -798,16 +718,11 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
         return result;
       } catch (error) {
-        if (localTimedOut) {
-          throw normalizeTimeoutLikeError(error, timeoutMs);
+        if (options?.signal?.aborted) {
+          throw new DOMException("Aborted", "AbortError");
         }
 
-        throw error;
-      } finally {
-        clearTimeout(timeoutId);
-        if (options?.signal && onCallerAbort) {
-          options.signal.removeEventListener("abort", onCallerAbort);
-        }
+        throw normalizeTimeoutLikeError(error, timeoutMs);
       }
     },
   };
@@ -815,6 +730,10 @@ export function createOpenAiCompatibleJobFinderAiClient(
 
 const LISTING_TEXT_MISSING_DETAIL =
   "The listing text was not captured, so there was nothing to tailor the resume toward; your original wording was kept.";
+
+/** The agent's opening placeholder before it has worked; never an answer. */
+const RESUME_EDIT_PLACEHOLDER_CONTENT =
+  /^I am reviewing the requested résumé change against the saved evidence\.?$/u;
 
 function buildProviderFailureProvenance(error: unknown) {
   const detail = summarizeError(error);
@@ -837,6 +756,16 @@ export function createJobFinderAiClientFromEnvironment(
   const parsedResumeExtractionTimeoutMs = parseConfiguredTimeoutMs(
     env.UNEMPLOYED_AI_RESUME_TIMEOUT_MS,
   );
+  // Liveness and retry knobs shared by every model route (see ADR 0020).
+  const parsedResilience = {
+    idleTimeoutMs: parseConfiguredTimeoutMs(env.UNEMPLOYED_AI_IDLE_TIMEOUT_MS),
+    maxAttempts: parseConfiguredPositiveInteger(env.UNEMPLOYED_AI_MAX_ATTEMPTS),
+    streaming: parseConfiguredBoolean(env.UNEMPLOYED_AI_STREAMING),
+    retryBaseDelayMs: parseConfiguredPositiveInteger(
+      env.UNEMPLOYED_AI_RETRY_BASE_DELAY_MS,
+      0,
+    ),
+  };
 
   const browserVisualProvider =
     createBrowserVisualAnalysisProviderFromEnvironment(env);
@@ -867,13 +796,47 @@ export function createJobFinderAiClientFromEnvironment(
     label: "AI resume agent",
     requestTimeoutMs: parsedRequestTimeoutMs,
     resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
+    ...parsedResilience,
   });
+  // Aggressive resume tailoring uses its own model route rather than the
+  // primary provider. DeepSeek V4.1 Flash is text-only, so it uses Chat
+  // Completions; reasoning effort is read from its own env var so it is
+  // always applied (defaults to `high` when not configured). See ADR 0019.
+  const aggressiveClient = createOpenAiCompatibleJobFinderAiClient({
+    apiKey,
+    baseUrl: env.UNEMPLOYED_AI_BASE_URL ?? DEFAULT_OPENCODE_GO_BASE_URL,
+    model:
+      env.UNEMPLOYED_AI_AGGRESSIVE_MODEL?.trim() ||
+      DEFAULT_AGGRESSIVE_RESUME_MODEL,
+    apiMode:
+      parseModelApiMode(env.UNEMPLOYED_AI_AGGRESSIVE_API_MODE) ??
+      DEFAULT_AGGRESSIVE_RESUME_MODEL_API_MODE,
+    reasoningEffort:
+      parseModelReasoningEffort(
+        env.UNEMPLOYED_AI_AGGRESSIVE_REASONING_EFFORT,
+      ) ?? DEFAULT_AGGRESSIVE_RESUME_MODEL_REASONING_EFFORT,
+    label: "Aggressive AI resume agent",
+    requestTimeoutMs: parsedRequestTimeoutMs,
+    resumeExtractionTimeoutMs: parsedResumeExtractionTimeoutMs,
+    ...parsedResilience,
+  });
+  function selectResumeGenerationClient(
+    input: CreateResumeDraftInput | TailorResumeInput,
+  ): AgentCapableJobFinderAiClient {
+    const tailoringStrength =
+      "strategy" in input ? input.strategy?.tailoringStrength : undefined;
+    const effectiveTailoringMode =
+      tailoringStrength ?? input.searchPreferences.tailoringMode;
+    return effectiveTailoringMode === "aggressive"
+      ? aggressiveClient
+      : primaryClient;
+  }
   const fallbackClient = createDeterministicJobFinderAiClient(
     "The configured model is enabled, and deterministic fallbacks protect the app when a model call fails.",
   );
   function createFallbackExecutionReceipt(
     capability: string,
-    stopReason: "no_progress" | "permanent_failure",
+    stopReason: "no_progress" | "permanent_failure" | "time_budget",
   ) {
     const timestamp = new Date().toISOString();
     return AgentTaskExecutionReceiptSchema.parse({
@@ -1063,8 +1026,11 @@ export function createJobFinderAiClientFromEnvironment(
           ]),
         };
       }
+      const modelClient = selectResumeGenerationClient(input);
+      const providerLabel =
+        modelClient === aggressiveClient ? "Aggressive AI" : "Primary AI";
       try {
-        return await primaryClient.createResumeDraft(input);
+        return await modelClient.createResumeDraft(input);
       } catch (error) {
         logFallbackError("createResumeDraft", error);
         const fallback = await fallbackClient.createResumeDraft(input);
@@ -1074,24 +1040,45 @@ export function createJobFinderAiClientFromEnvironment(
           notes: uniqueStrings([
             ...fallback.notes,
             "Fell back to the deterministic resume draft creator after the model call failed.",
-            `Primary AI draft creation failed: ${summarizeError(error)}`,
+            `${providerLabel} draft creation failed: ${summarizeError(error)}`,
           ]),
         };
       }
     },
     async reviseResumeDraft(input) {
+      // Model-backed review and section regeneration on an aggressive draft
+      // stays on the aggressive provider so the whole lifecycle uses one
+      // model; without a known aggressive strength the primary provider runs.
+      const editClient =
+        input.tailoringStrength === "aggressive"
+          ? aggressiveClient
+          : primaryClient;
       try {
         const reply = await runResumeEditAgentTask({
-          client: primaryClient,
+          client: editClient,
           request: input,
         });
         if (reply.executionReceipt?.stopReason === "completed") return reply;
+        // A run that stopped on its time or progress budget may still have
+        // produced the answer: a grounded patch, or a plain explanation of
+        // what could not be done. Throwing that away for the deterministic
+        // fallback cost the user the model's work. Keep it, with the receipt
+        // saying honestly how the run ended.
+        if (
+          reply.patches.length > 0 ||
+          (reply.content.trim().length > 0 &&
+            !RESUME_EDIT_PLACEHOLDER_CONTENT.test(reply.content))
+        ) {
+          return reply;
+        }
         const fallback = await fallbackClient.reviseResumeDraft(input);
         return {
           ...fallback,
           executionReceipt: createFallbackExecutionReceipt(
             "resume_guided_edit",
-            "no_progress",
+            reply.executionReceipt?.stopReason === "time_budget"
+              ? "time_budget"
+              : "no_progress",
           ),
         };
       } catch (error) {
@@ -1174,8 +1161,11 @@ export function createJobFinderAiClientFromEnvironment(
       }
     },
     async tailorResume(input) {
+      const modelClient = selectResumeGenerationClient(input);
+      const providerLabel =
+        modelClient === aggressiveClient ? "Aggressive AI" : "Primary AI";
       try {
-        return await primaryClient.tailorResume(input);
+        return await modelClient.tailorResume(input);
       } catch (error) {
         logFallbackError("tailorResume", error);
         const fallback = await fallbackClient.tailorResume(input);
@@ -1185,7 +1175,7 @@ export function createJobFinderAiClientFromEnvironment(
           notes: uniqueStrings([
             ...fallback.notes,
             "Fell back to the deterministic resume tailorer after the model call failed.",
-            `Primary AI tailoring failed: ${summarizeError(error)}`,
+            `${providerLabel} tailoring failed: ${summarizeError(error)}`,
           ]),
         };
       }

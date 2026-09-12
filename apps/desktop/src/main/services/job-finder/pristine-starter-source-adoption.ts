@@ -64,6 +64,11 @@ export async function adoptPristineWorkspaceStarterSources(input: {
   getSearchPreferences: () => Promise<JobSearchPreferences>;
   saveSearchPreferences: (next: JobSearchPreferences) => Promise<unknown>;
 }): Promise<boolean> {
+  const starterTargets = createStarterJobDiscoveryTargets();
+  if (starterTargets.length === 0) {
+    return false;
+  }
+
   const [searchPreferences, profileSetupState, campaignState] =
     await Promise.all([
       input.getSearchPreferences(),

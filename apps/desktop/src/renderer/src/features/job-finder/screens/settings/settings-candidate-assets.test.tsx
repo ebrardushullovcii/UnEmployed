@@ -92,7 +92,7 @@ describe("SettingsCandidateAssets", () => {
     expect(importCandidateAsset).toHaveBeenCalledWith({
       kind: "work_sample",
       sensitivity: "sensitive",
-      consentScope: "private_storage_only",
+      consentScope: "job_application_attachment",
       retention: "until_deleted",
     });
     expect(document.body.textContent).toContain("case-study.pdf");
@@ -396,7 +396,11 @@ describe("SettingsCandidateAssets", () => {
       await Promise.resolve();
     });
 
-    const labels = ["Asset type", "Consent scope", "Retention"].map(
+    const labels = [
+      "What is this file?",
+      "How may Job Finder use it?",
+      "How long should it be kept?",
+    ].map(
       (text) =>
         [...document.querySelectorAll("label")].find(
           (label) => label.textContent?.trim() === text,
@@ -412,7 +416,7 @@ describe("SettingsCandidateAssets", () => {
     expect(new Set(cells.map((cell) => cell?.parentElement)).size).toBe(1);
     expect(row?.className).toContain("items-start");
     expect(cells[2]?.textContent).toContain(
-      "Timed retention starts after the import succeeds.",
+      "The countdown starts once the file finishes importing.",
     );
     expect(cells[0]?.textContent).not.toContain("Timed retention");
   });

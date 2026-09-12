@@ -14,6 +14,7 @@ import {
 } from "./deterministic";
 import {
   buildResumeGenerationEvidenceCatalog,
+  listingTextContainsTerm,
   parseEvidenceLinkedText,
   selectResumeRewrite,
   type ResumeGenerationEvidenceItem,
@@ -129,6 +130,12 @@ interface ResumeRewriteContext {
   evidenceCatalog: readonly ResumeGenerationEvidenceItem[];
   jobCompany: string;
   jobSkills: readonly string[];
+  /**
+   * Compact text of the target job listing. Only consumed by the aggressive
+   * claim relaxation (rounded-up years, listing-anchored technologies), which
+   * bounds added technologies to ones the listing itself names.
+   */
+  jobListingText: string;
   quality: ResumeGenerationQualityAccumulator;
   allowReasonableInference: boolean;
   allowExactClaims: boolean;
@@ -312,6 +319,7 @@ function selectGroundedResumeText(input: {
     allowedScope: input.allowedScope,
     jobCompany: input.rewriteContext.jobCompany,
     jobSkills: input.rewriteContext.jobSkills,
+    jobListingText: input.rewriteContext.jobListingText,
     allowReasonableInference: input.rewriteContext.allowReasonableInference,
     allowExactClaims: input.rewriteContext.allowExactClaims,
     allowParaphrasedClaims: input.rewriteContext.allowParaphrasedClaims,
@@ -383,6 +391,7 @@ function selectGroundedResumeBullets(
         allowedScope,
         jobCompany: rewriteContext.jobCompany,
         jobSkills: rewriteContext.jobSkills,
+        jobListingText: rewriteContext.jobListingText,
         allowReasonableInference: rewriteContext.allowReasonableInference,
         allowExactClaims: rewriteContext.allowExactClaims,
         allowParaphrasedClaims: rewriteContext.allowParaphrasedClaims,
@@ -771,6 +780,26 @@ export function logFallbackError(operation: string, error: unknown): void {
   }
 }
 
+function buildJobListingTextForRelaxation(job: {
+  summary: string | null;
+  description: string;
+  responsibilities: readonly string[];
+  minimumQualifications: readonly string[];
+  preferredQualifications: readonly string[];
+  keySkills: readonly string[];
+}): string {
+  return [
+    job.summary,
+    job.description,
+    ...job.responsibilities,
+    ...job.minimumQualifications,
+    ...job.preferredQualifications,
+    ...job.keySkills,
+  ]
+    .filter((entry): entry is string => Boolean(entry?.trim()))
+    .join("\n");
+}
+
 export function completeTailoredResumeDraft(
   primary: unknown,
   fallbackInput: Parameters<typeof buildDeterministicStructuredResumeDraft>[0],
@@ -820,6 +849,7 @@ export function completeTailoredResumeDraft(
     evidenceCatalog: buildResumeGenerationEvidenceCatalog(fallbackInput),
     jobCompany: fallbackInput.job.company,
     jobSkills: fallbackInput.job.keySkills,
+    jobListingText: buildJobListingTextForRelaxation(fallbackInput.job),
     quality,
     allowReasonableInference:
       (fallbackInput.strategy?.tailoringStrength ??
@@ -862,6 +892,45 @@ export function completeTailoredResumeDraft(
         orderSkillsByJobRelevance(coreSkills, fallbackInput.job),
         VISIBLE_CORE_SKILL_LIMIT,
       );
+  // Aggressive tailoring also adds the job's requested technologies to the
+  // skills section — the strongest screening signal for landing the first
+  // interview — even when the profile never recorded them. The bound stays
+  // the listing itself: job.keySkills plus any core skill the listing text
+  // names, never a technology invented from nowhere. Every added skill is
+  // named in a note so the candidate confirms each one.
+  const isAggressiveTailoring =
+    (fallbackInput.strategy?.tailoringStrength ??
+      fallbackInput.searchPreferences.tailoringMode) === "aggressive";
+  const addedListingSkills = isAggressiveTailoring
+    ? uniqueStrings([
+        ...fallbackInput.job.keySkills.filter(
+          (skill) => skill.trim().length > 0,
+        ),
+        ...coreSkills.filter((skill) =>
+          listingTextContainsTerm(rewriteContext.jobListingText, skill),
+        ),
+      ]).filter(
+        (skill) =>
+          !groundedCoreSkills.some(
+            (grounded) => grounded.toLowerCase() === skill.toLowerCase(),
+          ),
+      )
+    : [];
+  // Grounded skills keep their slots; injected listing skills only fill what
+  // is left. Ordering the merged list by relevance let a listing keyword push
+  // one of the candidate's real skills off the visible list.
+  const finalCoreSkills = isAggressiveTailoring
+    ? [
+        ...orderSkillsByJobRelevance(
+          uniqueStrings(groundedCoreSkills),
+          fallbackInput.job,
+        ),
+        ...orderSkillsByJobRelevance(
+          uniqueStrings(addedListingSkills),
+          fallbackInput.job,
+        ),
+      ].slice(0, VISIBLE_CORE_SKILL_LIMIT)
+    : groundedCoreSkills;
   const targetedKeywords = fallbackInput.strategy
     ? selectCanonicalStringList(
         sanitizedTargetedKeywords.filter((keyword) =>
@@ -895,12 +964,17 @@ export function completeTailoredResumeDraft(
   )
     .filter(
       (skill) =>
-        !groundedCoreSkills.some(
+        !finalCoreSkills.some(
           (coreSkill) => coreSkill.toLowerCase() === skill.toLowerCase(),
         ),
     )
     .slice(0, VISIBLE_ADDITIONAL_SKILL_LIMIT);
   const notes = [...fallback.notes];
+  if (addedListingSkills.length > 0) {
+    notes.push(
+      `Aggressive tailoring added ${addedListingSkills.length} job-listing ${addedListingSkills.length === 1 ? "skill" : "skills"} to your skills: ${addedListingSkills.join(", ")}. These are the technologies the job asked for — confirm each is one you can back in the interview before approving.`,
+    );
+  }
   const canonicalExperienceEvidenceByRecordId = new Map(
     fallbackInput.profile.experiences.map((experience) => [
       experience.id,
@@ -929,7 +1003,7 @@ export function completeTailoredResumeDraft(
       : fallback.projectEntries;
   if (quality.acceptedInferredRewriteCount > 0) {
     notes.push(
-      `${quality.acceptedInferredRewriteCount} AI-inferred ${quality.acceptedInferredRewriteCount === 1 ? "line" : "lines"} came from aggressive tailoring. Review and confirm each inferred line before approving the resume.`,
+      `${quality.acceptedInferredRewriteCount} AI-inferred ${quality.acceptedInferredRewriteCount === 1 ? "line" : "lines"} came from aggressive tailoring. These lines are small, deliberate stretches of your saved evidence with one purpose: clearing the job's screening and earning you the first interview. They stay bounded to what your evidence implies you can actually do — evidenced years may round up by at most one toward the job's stated ask, technologies the job asks for may be added whenever your saved experience shows you are a developer or engineer, and the job's requested technologies also join your skills section. Proving each claim happens in the interview, and that is yours alone: review every inferred line and only approve ones you can stand behind.`,
     );
   }
   const generationProvenance = describeModelDraftProvenance(quality, notes);
@@ -937,7 +1011,7 @@ export function completeTailoredResumeDraft(
     label,
     summary,
     experienceHighlights,
-    coreSkills: groundedCoreSkills,
+    coreSkills: finalCoreSkills,
     experienceEntries,
     projectEntries,
     educationEntries: fallback.educationEntries,
@@ -953,7 +1027,7 @@ export function completeTailoredResumeDraft(
     label,
     summary,
     experienceHighlights,
-    coreSkills: groundedCoreSkills,
+    coreSkills: finalCoreSkills,
     targetedKeywords,
     coverageMetadata: fallback.coverageMetadata,
     experienceEntries,
@@ -999,15 +1073,15 @@ function describeModelDraftProvenance(
     if (deterministicNoteIndex >= 0) {
       notes.splice(deterministicNoteIndex, 1);
     }
-    const detail = `Created with the configured AI model: ${accepted} of ${proposed} proposed ${proposed === 1 ? "rewrite" : "rewrites"} verified against saved evidence; the rest keeps grounded resume wording.`;
+    const detail = `Created with AI: ${accepted} of ${proposed} proposed ${proposed === 1 ? "rewrite" : "rewrites"} verified against saved evidence; the rest keeps grounded resume wording.`;
     notes.unshift(detail);
     return { method: "ai", reason: null, detail };
   }
 
   const detail =
     proposed > 0
-      ? `The configured AI model proposed ${proposed} ${proposed === 1 ? "rewrite" : "rewrites"}, but none could be verified against saved evidence.`
-      : "The configured AI model returned no usable rewrite proposals.";
+      ? `AI proposed ${proposed} ${proposed === 1 ? "rewrite" : "rewrites"}, but none could be verified against your saved evidence.`
+      : "AI could not produce usable rewrite suggestions this time.";
   if (!notes.includes(DETERMINISTIC_TAILORER_NOTE)) {
     notes.unshift(DETERMINISTIC_TAILORER_NOTE);
   }

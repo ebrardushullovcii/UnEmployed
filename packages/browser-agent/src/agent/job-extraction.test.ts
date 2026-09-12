@@ -49,6 +49,30 @@ describe("buildStructuredCandidateJobs", () => {
     ]);
   });
 
+  test("does not read a call to action ending in today as a posting date", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://jobs.example.com/search",
+      maxJobs: 5,
+      cardCandidates: [
+        {
+          canonicalUrl: "https://jobs.example.com/roles/warehouse-associate",
+          anchorText: "Warehouse Associate",
+          headingText: "Warehouse Associate",
+          lines: [
+            "Warehouse Associate",
+            "Acme Logistics",
+            "Denver, CO",
+            "Weekly pay and flexible shifts. Apply Today",
+          ],
+        },
+      ],
+    });
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.postedAtText).toBeNull();
+    expect(jobs[0]?.postedAt).toBeNull();
+  });
+
   test("infers employer from /company/{slug}/ listing URLs (Wellfound-style)", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl: "https://wellfound.com/jobs",
@@ -2095,6 +2119,39 @@ describe("shouldCanonicalizeSearchSurfaceDetailRoute", () => {
 });
 
 describe("isLikelySiteUtilityJob", () => {
+  test("flags salary explorers, collections, hubs and advice articles that boards list beside jobs", () => {
+    // Blind testers saw "Find salaries", "Cashier salaries in Waterloo, IA",
+    // "Job Collections" and "How the Local Government Hiring Process Works"
+    // ranked as jobs, one of them at 48% fit.
+    for (const [canonicalUrl, title] of [
+      ["https://www.indeed.com/career/salaries", "Find salaries"],
+      [
+        "https://www.indeed.com/career/cashier/salaries/Waterloo--IA",
+        "Cashier salaries in Waterloo, IA",
+      ],
+      [
+        "https://wellfound.com/job-collections/blockchain-startups",
+        "Blockchain Startups",
+      ],
+      ["https://example.gov/jobs/opportunities", "Job Opportunities"],
+      [
+        "https://example.gov/resources/how-the-local-government-hiring-process-works",
+        "How the Local Government Hiring Process Works",
+      ],
+      ["https://www.indeed.com/cmp/Home-Depot", "Home Depot"],
+    ] as const) {
+      expect(isLikelySiteUtilityJob({ canonicalUrl, title })).toBe(true);
+    }
+    // Real postings whose titles mention pay or process stay.
+    for (const [canonicalUrl, title] of [
+      ["https://www.indeed.com/viewjob?jk=abc123", "Salary Analyst"],
+      ["https://jobs.example.com/jobs/4421", "Payroll Specialist"],
+      ["https://jobs.example.com/jobs/4422", "Process Engineer"],
+    ] as const) {
+      expect(isLikelySiteUtilityJob({ canonicalUrl, title })).toBe(false);
+    }
+  });
+
   test("flags KosovaJob-style navigation pages", () => {
     expect(
       isLikelySiteUtilityJob({

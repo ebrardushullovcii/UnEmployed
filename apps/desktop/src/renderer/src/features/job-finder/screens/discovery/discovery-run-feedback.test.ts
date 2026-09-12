@@ -16,6 +16,37 @@ import {
 } from "./discovery-run-feedback";
 
 describe("discovery run failure recovery classification", () => {
+  it("names a human-verification wall and points at job sources, not the browser", () => {
+    const recovery = getDiscoveryRunFailureRecovery(
+      "Agent discovery stopped after 45 steps. Found 0 jobs. Discovery encountered an error: This site showed a human-verification check instead of its job listings, so nothing could be read. Verification checks cannot be passed automatically; try another job site or a company careers page.",
+    );
+
+    expect(recovery.kind).toBe("source_setup");
+    expect(recovery.headline).toContain("human verification check");
+    expect(recovery.actionLabel).toBe("Review job sources");
+  });
+
+  it("names a sign-in wall and offers the browser", () => {
+    const recovery = getDiscoveryRunFailureRecovery(
+      "This site asks you to sign in before it shows job listings, so nothing could be read automatically. Open it in the Job Finder browser, sign in there, then search again.",
+    );
+
+    expect(recovery.kind).toBe("browser_session");
+    expect(recovery.headline).toContain("sign in");
+    expect(recovery.actionLabel).toBe("Open the Job Finder browser");
+  });
+
+  it("explains a no-progress stop instead of calling it unexpected", () => {
+    const recovery = getDiscoveryRunFailureRecovery(
+      "Discovery stopped because repeated actions produced no new jobs, page evidence, or useful state changes.",
+    );
+
+    expect(recovery.kind).toBe("retry");
+    expect(recovery.headline).toBe(
+      "This source did not show any readable job listings.",
+    );
+  });
+
   it("maps a closed or unavailable browser runtime to opening the browser", () => {
     const recovery = getDiscoveryRunFailureRecovery(
       "The dedicated browser profile could not start because Chrome is not installed or is closed.",
@@ -62,7 +93,8 @@ describe("discovery run failure recovery classification", () => {
     );
 
     expect(recovery.kind).toBe("retry");
-    expect(recovery.headline).toContain("AI provider that can use tools");
+    expect(recovery.headline).toContain("Live search needs AI");
+    expect(recovery.nextStep).not.toMatch(/provider|test mode/i);
     expect(recovery.headline).not.toBe(
       "The search stopped before it could finish.",
     );
@@ -125,7 +157,7 @@ describe("discovery run interrupted feedback", () => {
       targetLabel: null,
     });
 
-    expect(feedback.recovery?.headline).toContain("AI provider");
+    expect(feedback.recovery?.headline).toContain("Live search needs AI");
     expect(feedback.recovery?.headline).not.toBe(feedback.headline);
   });
 });

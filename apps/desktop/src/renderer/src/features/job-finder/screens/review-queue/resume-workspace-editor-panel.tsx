@@ -155,8 +155,12 @@ export function ResumeWorkspaceEditorPanel(
     );
   };
   const generatedLines = props.showGeneratedLineMarkers
-    ? listGeneratedReviewLines(props.draft).filter(({ bullet }) =>
-        isGeneratedResumeOrigin(bullet.origin),
+    ? listGeneratedReviewLines(props.draft).filter(
+        ({ bullet }) =>
+          isGeneratedResumeOrigin(bullet.origin) &&
+          // A single skill word ("React") is not a generated line; counting
+          // eight of them made a "14 lines" warning read as theatre.
+          bullet.text.trim().split(/\s+/u).length >= 4,
       )
     : [];
   const generatedBulletCount = generatedLines.length;
@@ -304,8 +308,12 @@ export function ResumeWorkspaceEditorPanel(
             >
               Aggressive tailoring generated {generatedBulletCount} bullet{" "}
               {generatedBulletCount === 1 ? "line" : "lines"} in this draft
-              instead of reusing your resume wording. Marked lines below need a
-              check against your saved evidence before approval.
+              instead of reusing your resume wording. Marked lines may stretch
+              your saved evidence in small, deliberate ways — rounded years and
+              technologies the job asks for that your experience makes credible
+              — so the resume clears screening for the first interview. Each
+              stays unapproved until you check it against what you can prove in
+              the interview.
               <details className="mt-1.5">
                 <summary className="cursor-pointer text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
                   See generated lines

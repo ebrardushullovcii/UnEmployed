@@ -265,7 +265,7 @@ export function ApplicationsApplicationDocuments(props: {
         <label className="grid gap-1 text-(length:--text-small)">
           Document type
           <select
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             disabled={isWorking}
             onChange={(event) =>
               setKind(event.target.value as ApplicationDocumentKind)
@@ -279,7 +279,7 @@ export function ApplicationsApplicationDocuments(props: {
         <label className="grid gap-1 text-(length:--text-small)">
           Exact attachment question
           <select
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             disabled={isWorking}
             onChange={(event) => setQuestionId(event.target.value)}
             value={questionId}
@@ -318,7 +318,7 @@ export function ApplicationsApplicationDocuments(props: {
         <label className="grid gap-1 text-(length:--text-small)">
           Saved document
           <select
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) => setSelectedDocumentId(event.target.value)}
             value={selectedDocument?.id ?? ""}
           >

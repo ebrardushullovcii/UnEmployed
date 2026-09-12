@@ -282,7 +282,7 @@ describe("ActionsScreen", () => {
       true,
     );
     expect(getByRole("status").textContent).toContain(
-      "Automatic checks paused after 3 attempts",
+      "Job Finder checked 3 times and still saw the same page",
     );
     expect(getByRole("button", { name: "Open sign-in" })).toHaveProperty(
       "disabled",

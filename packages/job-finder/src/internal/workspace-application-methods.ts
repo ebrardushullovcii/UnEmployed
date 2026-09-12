@@ -123,6 +123,7 @@ import {
   loadUnresolvedWorkHistoryOmissionSuggestions,
   previewResumeDraft,
   renderDraftToPdf,
+  resolveResumeStrategyContextForJob,
   assertResumeProfileRevisionCurrent,
 } from "./workspace-application-resume-support";
 import {
@@ -451,7 +452,7 @@ export function createWorkspaceApplicationMethods(
   ): DirectApplyExecutionClaim {
     if (activeDirectApplyClaims.has(applicationRecordId)) {
       throw new Error(
-        `Application preparation for job '${jobId}' is already running.`,
+        "This application is already being prepared. Wait for it to finish before starting it again.",
       );
     }
 
@@ -530,7 +531,7 @@ export function createWorkspaceApplicationMethods(
     });
     if (runningRun) {
       throw new Error(
-        `Application preparation for job '${claim.jobId}' is already running in apply run '${runningRun.id}'.`,
+        "This application is already being prepared. Wait for it to finish before starting it again.",
       );
     }
   }
@@ -1827,7 +1828,9 @@ export function createWorkspaceApplicationMethods(
           if (activeSource && !keepSessionAlive) {
             await ctx.closeRunBrowserSession(activeSource);
           }
-          await ctx.openRunBrowserSession(job.source);
+          await ctx.openRunBrowserSession(job.source, {
+            purpose: "automation",
+          });
           activeSource = job.source;
           shouldCloseActiveSessionOnExit = false;
           if (await stopIfRunWasCancelled()) {
@@ -2374,14 +2377,8 @@ export function createWorkspaceApplicationMethods(
       );
     });
     if (conflictingLineage.length > 0) {
-      const conflicting = conflictingLineage[0]!;
-      const owningRunId = activeStagedApplyJobClaims.get(
-        conflicting.applicationRecordId,
-      );
       throw new Error(
-        `Application preparation for job '${conflicting.jobId}' is already running${
-          owningRunId ? ` in apply run '${owningRunId}'` : ""
-        }.`,
+        "This application is already being prepared. Wait for it to finish before starting it again.",
       );
     }
     for (const { applicationRecordId } of stagedLineage) {
@@ -2859,6 +2856,10 @@ export function createWorkspaceApplicationMethods(
       state.job,
       state.profileRevision,
     );
+    const strategyContext = await resolveResumeStrategyContextForJob(
+      ctx,
+      jobId,
+    );
     const assistantReply = await ctx.aiClient.reviseResumeDraft({
       draft,
       job: state.job,
@@ -2867,6 +2868,7 @@ export function createWorkspaceApplicationMethods(
         (
           await ctx.repository.listResumeValidationResults(draft.id)
         )[0]?.issues.map((issue) => issue.message) ?? [],
+      tailoringStrength: strategyContext?.tailoringStrength ?? null,
       researchContext: collectResearchContext(research),
     });
     // Section regeneration is review-first like Guided Edits: normalized
@@ -4430,12 +4432,17 @@ export function createWorkspaceApplicationMethods(
         workspaceState.draft.id,
       );
       const research = await fetchAndPersistResearch(ctx, workspaceState.job);
+      const strategyContext = await resolveResumeStrategyContextForJob(
+        ctx,
+        jobId,
+      );
       const assistantReply = await ctx.aiClient.reviseResumeDraft({
         draft: workspaceState.draft,
         job: workspaceState.job,
         request: content,
         validationIssues:
           validations[0]?.issues.map((issue) => issue.message) ?? [],
+        tailoringStrength: strategyContext?.tailoringStrength ?? null,
         researchContext: collectResearchContext(research),
       });
       const normalizedPatches = assistantReply.patches.map((patch) =>
@@ -4449,13 +4456,21 @@ export function createWorkspaceApplicationMethods(
           origin: "assistant",
         }),
       );
+      // A patch the model left incomplete (no replacement text, or a bullet
+      // change with no bullet named) cannot be applied. It is reported as an
+      // unusable proposal in plain words, never as the apply error it would
+      // raise later.
       const invalidReplacementPatch = normalizedPatches.find(
         (patch) =>
-          [
+          ([
             "replace_section_text",
             "replace_entry_summary",
             "update_bullet",
-          ].includes(patch.operation) && !patch.newText?.trim(),
+          ].includes(patch.operation) &&
+            !patch.newText?.trim()) ||
+          (patch.operation === "update_bullet" &&
+            (!patch.targetEntryId || !patch.targetBulletId)) ||
+          (patch.operation === "replace_entry_summary" && !patch.targetEntryId),
       );
       const reviewablePatches = invalidReplacementPatch
         ? []
@@ -4500,9 +4515,12 @@ export function createWorkspaceApplicationMethods(
           ? buildResumeProposalReplyContent({
               approvalBlockers: proposalGate.approvalBlockers,
               changeCount: reviewablePatches.length,
+              assistantNote: assistantReply.content,
             })
           : invalidReplacementPatch
-            ? "I could not produce a usable replacement for that request, so no resume change was proposed. Try asking for the exact section and outcome you want."
+            ? invalidReplacementPatch.operation === "update_bullet"
+              ? "I could not tell which bullet to change, so no resume change was proposed. Name the bullet by its first few words and the role it belongs to."
+              : "I could not produce a usable replacement for that request, so no resume change was proposed. Try asking for the exact section and outcome you want."
             : assistantReply.content;
       const assistantMessage = buildAssistantReplyMessage({
         jobId,

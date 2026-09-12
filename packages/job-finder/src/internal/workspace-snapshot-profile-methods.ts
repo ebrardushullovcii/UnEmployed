@@ -1118,7 +1118,8 @@ export function createWorkspaceSnapshotProfileMethods(
         createCampaign({
           id: "campaign_default",
           name: "My job search",
-          description: "Your existing Job Finder workspace.",
+          description:
+            "Your main search. Find jobs uses this plan's roles and places, plus the job sources enabled on Profile.",
           mode: "precision",
           searchPreferences: setupContext.searchPreferences,
           now: generatedAt,

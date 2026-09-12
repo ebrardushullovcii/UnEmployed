@@ -991,7 +991,9 @@ describe("job extraction with openai-compatible client", () => {
         maxJobs: 5,
       });
 
-      await vi.advanceTimersByTimeAsync(35000);
+      // 240s is the total budget for search-results extraction; the idle
+      // clock retries once inside it before the total deadline ends the run.
+      await vi.advanceTimersByTimeAsync(240_001);
 
       await expect(extractionPromise).resolves.toEqual([]);
       expect(errorSpy).toHaveBeenCalled();

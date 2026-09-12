@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   CandidateProfileSchema,
-  createStarterJobDiscoveryTargets,
+  createKnownJobSourceTargetsForFixtures,
   JobSearchPreferencesSchema,
   ResumeImportFieldCandidateSummarySchema,
 } from "@unemployed/contracts";
@@ -779,7 +779,7 @@ describe("profile editor application identity defaults", () => {
       companyWhitelist: [],
       discovery: {
         historyLimit: 5,
-        targets: createStarterJobDiscoveryTargets(),
+        targets: createKnownJobSourceTargetsForFixtures(),
       },
     });
 
@@ -787,7 +787,7 @@ describe("profile editor application identity defaults", () => {
       false,
     );
     expect(searchPreferences.compensation.currency).toBeNull();
-    expect(searchPreferences.discovery.targets).toHaveLength(3);
+    expect(searchPreferences.discovery.targets).toHaveLength(6);
 
     const values = createSearchPreferencesEditorValues(searchPreferences);
     expect(values.salaryCurrency).toBe("");

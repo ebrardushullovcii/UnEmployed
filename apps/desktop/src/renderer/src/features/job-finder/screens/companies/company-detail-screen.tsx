@@ -630,7 +630,7 @@ function EvidenceSection(props: {
         <label className="grid gap-1 text-sm">
           <span>Kind</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
@@ -699,7 +699,7 @@ function EvidenceSection(props: {
         <label className="grid gap-1 text-sm">
           <span>Period</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
@@ -721,7 +721,7 @@ function EvidenceSection(props: {
         <label className="grid gap-1 text-sm">
           <span>Offer status</span>
           <select
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
@@ -746,7 +746,7 @@ function EvidenceSection(props: {
           <span>Job{requiresJob ? " (required)" : " (optional)"}</span>
           <select
             aria-label="Evidence job"
-            className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+            className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
@@ -772,7 +772,7 @@ function EvidenceSection(props: {
             </span>
             <select
               aria-label="Evidence application record"
-              className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
@@ -997,7 +997,7 @@ export function CompanyDetailScreen(props: CompanyDetailScreenProps) {
             <select
               aria-describedby="company-preference-scope"
               aria-label={`Company tracking preference for ${company.canonicalName}`}
-              className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-2 text-sm outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
               disabled={props.isPreferencePending(company.id)}
               onChange={(event) =>
                 void props.onSetCompanyPreference({

@@ -50,8 +50,14 @@ export interface ResumeGenerationPathDisclosure {
   canRetryWithAi: boolean;
 }
 
+/**
+ * Read once, before and after approval, and true whatever rewrite strength the
+ * user picked. The old wording said "before approval" — which the same screen
+ * contradicts the moment the resume is approved — and named Strong/aggressive
+ * settings to users who never chose them.
+ */
 const REVIEW_SUFFIX =
-  "Strong or aggressive rewrite settings may not have fully applied — review the draft carefully before approval.";
+  "Read the draft against your own experience before you use it.";
 
 /**
  * Every sentence below is scoped to the *first* draft. Accepting an assistant
@@ -85,10 +91,12 @@ export function describeResumeGenerationPath(
   });
 
   switch (asset.generationReason) {
+    // AI ships with the product; the user never configures it. Its absence is
+    // an outage from their side, so it reads like one and stays retryable.
     case "no_provider_configured":
       return disclose(
-        `${FIRST_DRAFT_PREFIX} because no AI provider is configured.`,
-        false,
+        `${FIRST_DRAFT_PREFIX} because AI writing is not available right now.`,
+        true,
       );
     case "forced_deterministic":
       return disclose(

@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
+import { ResumeDraftSchema } from "@unemployed/contracts";
 import type { ResumeDocumentBundle } from "@unemployed/contracts";
 import {
   createJobFinderAiClientFromEnvironment,
@@ -74,6 +75,8 @@ describe("ai provider config and fallback behavior", () => {
         baseUrl: "https://example.com/v1",
         model: "test-model",
         label: "AI resume agent",
+        // A 502 is retried in production; one attempt keeps this test fast.
+        maxAttempts: 1,
       });
 
       await expect(
@@ -111,14 +114,221 @@ describe("ai provider config and fallback behavior", () => {
     });
   });
 
-  test("defaults ordinary text work to DeepSeek V4 on OpenCode Go", () => {
+  test("routes aggressive resume tailoring to DeepSeek V4.1 Flash with the configured reasoning effort", async () => {
+    const balancedCapture = mockCapturingJsonFetch({
+      choices: [{ message: { content: JSON.stringify({}) } }],
+    });
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: "test-key",
+        UNEMPLOYED_AI_MODEL: "ordinary-model",
+      });
+
+      await client.tailorResume({
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Resume text",
+      });
+
+      const balancedBody = JSON.parse(balancedCapture.getCapturedBody()) as {
+        model?: string;
+      };
+      expect(balancedBody.model).toBe("ordinary-model");
+    } finally {
+      balancedCapture.restore();
+    }
+
+    const aggressiveCapture = mockCapturingJsonFetch({
+      choices: [{ message: { content: JSON.stringify({}) } }],
+    });
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: "test-key",
+        UNEMPLOYED_AI_MODEL: "ordinary-model",
+        UNEMPLOYED_AI_AGGRESSIVE_REASONING_EFFORT: "high",
+      });
+
+      await client.tailorResume({
+        profile: createProfile(),
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "aggressive",
+        },
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Resume text",
+      });
+
+      const aggressiveBody = JSON.parse(
+        aggressiveCapture.getCapturedBody(),
+      ) as {
+        model?: string;
+        reasoning_effort?: string;
+      };
+      expect(aggressiveBody.model).toBe("deepseek-v4.1-flash");
+      // The reasoning effort comes from its own env var and is applied.
+      expect(aggressiveBody.reasoning_effort).toBe("high");
+    } finally {
+      aggressiveCapture.restore();
+    }
+  });
+
+  test("applies the configured aggressive reasoning effort even for an overridden model", async () => {
+    const capture = mockCapturingJsonFetch({
+      choices: [{ message: { content: JSON.stringify({}) } }],
+    });
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: "test-key",
+        UNEMPLOYED_AI_MODEL: "ordinary-model",
+        UNEMPLOYED_AI_AGGRESSIVE_MODEL: "custom-aggressive-model",
+        UNEMPLOYED_AI_AGGRESSIVE_REASONING_EFFORT: "high",
+      });
+
+      await client.tailorResume({
+        profile: createProfile(),
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "aggressive",
+        },
+        settings: createSettings(),
+        job: createJobPosting(),
+        resumeText: "Resume text",
+      });
+
+      const body = JSON.parse(capture.getCapturedBody()) as {
+        model?: string;
+        reasoning_effort?: string;
+      };
+      expect(body.model).toBe("custom-aggressive-model");
+      expect(body.reasoning_effort).toBe("high");
+    } finally {
+      capture.restore();
+    }
+  });
+
+  test("routes model-backed review of an aggressive draft to the aggressive model", async () => {
+    const ordinaryCapture = mockCapturingJsonFetch({
+      choices: [
+        {
+          message: {
+            tool_calls: [
+              {
+                id: "finish",
+                type: "function",
+                function: { name: "finish_task", arguments: "{}" },
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: "test-key",
+        UNEMPLOYED_AI_MODEL: "ordinary-model",
+        UNEMPLOYED_AI_AGGRESSIVE_REASONING_EFFORT: "high",
+      });
+
+      await client.reviseResumeDraft({
+        draft: ResumeDraftSchema.parse({
+          id: "draft_1",
+          jobId: "job_1",
+          templateId: "classic_ats",
+          status: "draft",
+          identity: null,
+          sections: [],
+          targetPageCount: 2,
+          generationMethod: null,
+          createdAt: "2026-08-12T12:00:00.000Z",
+          updatedAt: "2026-08-12T12:00:00.000Z",
+          approvedAt: null,
+          approvedExportId: null,
+          staleReason: null,
+        }),
+        job: createJobPosting(),
+        request: "Improve the summary without adding facts",
+      });
+
+      const ordinaryBody = JSON.parse(ordinaryCapture.getCapturedBody()) as {
+        model?: string;
+      };
+      expect(ordinaryBody.model).toBe("ordinary-model");
+    } finally {
+      ordinaryCapture.restore();
+    }
+
+    const aggressiveCapture = mockCapturingJsonFetch({
+      choices: [
+        {
+          message: {
+            tool_calls: [
+              {
+                id: "finish",
+                type: "function",
+                function: { name: "finish_task", arguments: "{}" },
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: "test-key",
+        UNEMPLOYED_AI_MODEL: "ordinary-model",
+        UNEMPLOYED_AI_AGGRESSIVE_REASONING_EFFORT: "high",
+      });
+
+      await client.reviseResumeDraft({
+        draft: ResumeDraftSchema.parse({
+          id: "draft_1",
+          jobId: "job_1",
+          templateId: "classic_ats",
+          status: "draft",
+          identity: null,
+          sections: [],
+          targetPageCount: 2,
+          generationMethod: null,
+          createdAt: "2026-08-12T12:00:00.000Z",
+          updatedAt: "2026-08-12T12:00:00.000Z",
+          approvedAt: null,
+          approvedExportId: null,
+          staleReason: null,
+        }),
+        job: createJobPosting(),
+        request: "Improve the summary without adding facts",
+        tailoringStrength: "aggressive",
+      });
+
+      const aggressiveBody = JSON.parse(
+        aggressiveCapture.getCapturedBody(),
+      ) as {
+        model?: string;
+        reasoning_effort?: string;
+      };
+      expect(aggressiveBody.model).toBe("deepseek-v4.1-flash");
+      expect(aggressiveBody.reasoning_effort).toBe("high");
+    } finally {
+      aggressiveCapture.restore();
+    }
+  });
+
+  test("defaults ordinary text work to Muse Spark 1.3 on OpenCode Go", () => {
     const client = createJobFinderAiClientFromEnvironment({
       UNEMPLOYED_AI_API_KEY: "go-test-key",
     });
 
     expect(client.getStatus()).toMatchObject({
       kind: "openai_compatible",
-      model: "deepseek-v4-flash",
+      model: "muse-spark-1.3-contributor",
       label: "AI resume agent",
     });
   });
@@ -215,32 +425,33 @@ describe("ai provider config and fallback behavior", () => {
           settled = true;
         });
 
-      await vi.advanceTimersByTimeAsync(24_999);
+      await vi.advanceTimersByTimeAsync(299_999);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
 
       const result = await resultPromise;
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      // Silent attempts are retried inside the 300s budget (idle clock 120s).
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
       expect(result.analysisProviderKind).toBe("deterministic");
       // A timed-out stage used to return with no note and no reason, which made
       // it indistinguishable from a stage the model actually answered.
       expect(result.fallback).toEqual({
         kind: "timeout",
-        reason: "Model request timed out after 25s",
+        reason: "Model request timed out after 300s",
       });
       expect(result.notes).toContain(
         "Fell back to the deterministic staged resume importer after the model call failed.",
       );
       expect(result.notes).toContain(
-        "Primary AI import stage failed: Model request timed out after 25s",
+        "Primary AI import stage failed: Model request timed out after 300s",
       );
-      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("25s"));
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("300s"));
       expect(
         result.candidates.some(
           (candidate) =>
             candidate.target.section === "identity" &&
             candidate.target.key === "fullName" &&
-            candidate.value === "CASEY ROWAN" &&
+            candidate.value === "Casey Rowan" &&
             candidate.sourceBlockIds.length > 0,
         ),
       ).toBe(true);

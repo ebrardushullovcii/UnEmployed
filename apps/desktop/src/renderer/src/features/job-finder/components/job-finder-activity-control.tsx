@@ -19,7 +19,9 @@ export function JobFinderActivityControl(props: {
   const detailId = "job-finder-activity-control-detail";
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    // The explanation sits under the control in small type, end-aligned with
+    // it, rather than running beside it at heading level like a stray caption.
+    <div className="grid justify-items-start gap-1 lg:justify-items-end">
       <Button
         aria-describedby={detailId}
         onClick={props.state.paused ? props.onResume : props.onPause}
@@ -38,7 +40,7 @@ export function JobFinderActivityControl(props: {
           : "Pause background work"}
       </Button>
       <span
-        className="text-(length:--text-small) text-foreground-muted"
+        className="max-w-[44ch] text-(length:--text-tiny) leading-4 text-foreground-muted lg:text-right"
         id={detailId}
       >
         {props.state.paused

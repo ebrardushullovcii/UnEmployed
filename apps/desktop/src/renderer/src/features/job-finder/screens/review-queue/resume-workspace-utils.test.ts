@@ -32,9 +32,9 @@ describe("describeResumeGenerationPath", () => {
     });
 
     expect(disclosure?.message).toContain(
-      "The first draft came from the built-in generator because no AI provider is configured.",
+      "The first draft came from the built-in generator because AI writing is not available right now.",
     );
-    expect(disclosure?.canRetryWithAi).toBe(false);
+    expect(disclosure?.canRetryWithAi).toBe(true);
   });
 
   it("explains a forced deterministic session without offering a retry", () => {
@@ -97,7 +97,7 @@ describe("describeResumeGenerationPath", () => {
       generationMethod: "deterministic",
       generationReason: "provider_output_unverified",
       generationDetail:
-        "The configured AI model proposed 6 rewrites, but none could be verified against saved evidence.",
+        "AI proposed 6 rewrites, but none could be verified against your saved evidence.",
       notes: [],
     });
 
@@ -238,7 +238,7 @@ describe("describeResumeDraftProvenance", () => {
     generationMethod: "deterministic",
     generationReason: "provider_output_unverified",
     generationDetail:
-      "The configured AI model returned no usable rewrite proposals",
+      "AI could not produce usable rewrite suggestions this time",
     notes: [],
   });
 
@@ -264,7 +264,7 @@ describe("describeResumeDraftProvenance", () => {
     // "1 AI edit applied" stacked above "the model returned no usable
     // rewrites" read as a contradiction; one ordered sentence pair does not.
     expect(message).toBe(
-      "The configured AI model returned no usable rewrite proposals. The first draft came from the built-in generator instead. 1 assistant edit has been applied since, and the changed lines are marked in the preview. Strong or aggressive rewrite settings may not have fully applied — review the draft carefully before approval.",
+      "AI could not produce usable rewrite suggestions this time. The first draft came from the built-in generator instead. 1 assistant edit has been applied since, and the changed lines are marked in the preview. Read the draft against your own experience before you use it.",
     );
   });
 

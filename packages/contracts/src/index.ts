@@ -1,4 +1,5 @@
 export * from "./base";
+export * from "./desktop-browser";
 export * from "./application-authority";
 export * from "./application-authority-management";
 export * from "./application-answer-snapshot";

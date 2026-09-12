@@ -99,8 +99,8 @@ describe("ApplicationsCrmViews", () => {
     );
 
     expect(screen.queryByTestId("applications-crm-view-switcher")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Table" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Kanban" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "List" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Board" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Calendar" })).toBeNull();
     // The record itself is still fully present and editable.
     expect(screen.getByText("Frontend Engineer")).toBeTruthy();
@@ -122,8 +122,8 @@ describe("ApplicationsCrmViews", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Table" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Kanban" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "List" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Board" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Calendar" })).toBeTruthy();
     expect(screen.getByText("Columns")).toBeTruthy();
     expect(screen.getByText("Saved views")).toBeTruthy();
@@ -169,9 +169,11 @@ describe("ApplicationsCrmViews", () => {
       />,
     );
 
-    expect(screen.getByText("Applied")).toBeTruthy();
+    // Both rows say "Applied"; provenance is the badge, not a suffix on the
+    // stage name.
+    expect(screen.getAllByText("Applied")).toHaveLength(2);
     expect(screen.queryByText(/historical inference/i)).toBeNull();
-    expect(screen.getByText("Applied (user recorded)")).toBeTruthy();
+    expect(screen.queryByText(/user recorded/i)).toBeNull();
     expect(
       screen.queryByText(/receipt|submission proof|externally verified/i),
     ).toBeNull();
@@ -477,7 +479,7 @@ describe("ApplicationsCrmViews", () => {
       />,
     );
 
-    const lifecycleSelect = screen.getByLabelText("Lifecycle view");
+    const lifecycleSelect = screen.getByLabelText("Show");
     expect(lifecycleSelect.className).toContain("h-9");
     expectCanonicalFieldClasses(lifecycleSelect);
   });

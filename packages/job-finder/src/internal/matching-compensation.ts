@@ -240,7 +240,14 @@ export function parseNormalizedCompensation(
     .sort((left, right) => left - right);
 
   const minAmount = parsedValues[0] ?? null;
-  const maxAmount = parsedValues.at(-1) ?? minAmount;
+  // "$100,000 or more", "from $60k", "$45/hr+" name a floor, not a range;
+  // a max equal to the min would render as a capped salary.
+  const openEnded =
+    parsedValues.length === 1 &&
+    /(?:\bor more\b|\band (?:up|above)\b|\bat least\b|\bminimum\b|\bstarting (?:at|from)\b|\bfrom\b|\bupwards?\b|\d\s*(?:k|m)?\s*\+)/iu.test(
+      salaryText,
+    );
+  const maxAmount = openEnded ? null : (parsedValues.at(-1) ?? minAmount);
   const interval = detectCompensationInterval(salaryText);
   const multiplier = interval ? (annualCompensationMultipliers[interval] ?? 1) : null;
   const currency = detectCurrencyCode(salaryText);

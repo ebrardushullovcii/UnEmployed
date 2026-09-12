@@ -456,7 +456,7 @@ describe("OutcomeAnalyticsScreen", () => {
 
     const select = screen.getByLabelText("Search plan scope");
     for (const className of [
-      "h-10",
+      "h-11",
       "w-full",
       "rounded-(--radius-field)",
       "border-(--field-border)",

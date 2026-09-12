@@ -536,6 +536,61 @@ function describeToolAction(toolName: string): string {
   }
 }
 
+/** Enough known cards to trust that the page layout was read. */
+const FULLY_COLLECTED_RESULTS_PAGE_MIN_CARDS = 10;
+
+/** How many collected postings this page names, by exact title line. */
+export function countCollectedTitlesInText(
+  state: Pick<AgentState, "collectedJobs">,
+  pageText: string,
+): number {
+  if (!pageText || state.collectedJobs.length === 0) {
+    return 0;
+  }
+  const lines = new Set(
+    pageText
+      .split(/\r?\n/u)
+      .map((line) => line.replace(/\s+/gu, " ").trim().toLowerCase())
+      .filter((line) => line.length > 0),
+  );
+  let count = 0;
+  for (const job of state.collectedJobs) {
+    const title = job.title.replace(/\s+/gu, " ").trim().toLowerCase();
+    if (title && lines.has(title)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function normalizeUrlForCollectedLookup(value: string): string | null {
+  try {
+    const parsed = new URL(value);
+    parsed.hash = "";
+    const path = parsed.pathname.replace(/\/+$/u, "");
+    return `${parsed.origin.toLowerCase()}${path}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
+/** The collected job whose canonical URL is this URL, if any. */
+export function findCollectedJobByUrl(
+  state: Pick<AgentState, "collectedJobs">,
+  url: string,
+): { title: string; canonicalUrl: string } | null {
+  const target = normalizeUrlForCollectedLookup(url);
+  if (!target) {
+    return null;
+  }
+  for (const job of state.collectedJobs) {
+    if (normalizeUrlForCollectedLookup(job.canonicalUrl) === target) {
+      return { title: job.title, canonicalUrl: job.canonicalUrl };
+    }
+  }
+  return null;
+}
+
 function buildDeferredSearchExtractionKey(pageUrl: string): string {
   try {
     const parsedUrl = new URL(pageUrl);
@@ -776,6 +831,39 @@ export async function executeToolCall(
     };
   }
 
+  // Opening the detail page of a posting already in hand costs a page load
+  // and a model extraction and yields the same posting. Listing bodies are
+  // read after the run over plain HTTP, so the answer is given without the
+  // trip.
+  if (toolName === "navigate" && typeof args.url === "string") {
+    const collected = findCollectedJobByUrl(state, args.url);
+    if (collected) {
+      onProgress?.({
+        currentUrl: state.currentUrl,
+        jobsFound: state.collectedJobs.length,
+        stepCount: state.stepCount,
+        currentAction: "navigate_skipped_collected",
+        message: `Skipped reopening "${collected.title}"; it is already kept and its listing is read after the run.`,
+        waitReason: "executing_tool",
+        targetId: null,
+        adapterKind: config.source,
+      });
+      return {
+        success: true,
+        data: {
+          skipped: true,
+          reason: "already_collected",
+          collectedJob: {
+            title: collected.title,
+            canonicalUrl: collected.canonicalUrl,
+          },
+          instruction:
+            "This posting is already collected; its detail page is read automatically after the run. Open only results pages, pagination, or postings not yet in the collected list, or finish when the results are exhausted.",
+        },
+      };
+    }
+  }
+
   const maxRetries = 3;
   const shouldRetry = tool.retryable === true;
   let hasRecoveredClosedPage = false;
@@ -936,6 +1024,47 @@ export async function executeToolCall(
         console.log(
           `[Agent] +${fastPathAddedCount} jobs (${state.collectedJobs.length} total) from structured extraction ${extractData.pageUrl.slice(0, 60)}...`,
         );
+      }
+
+      // A results page whose cards the deterministic pass read in full, and
+      // every one already kept, has nothing left for the slower model pass;
+      // that pass exists for layouts the fast path cannot read.
+      // Cards the deterministic passes could not shape still count when the
+      // page names postings already kept: the compact scan reads such pages
+      // on every batch, so the model pass would only re-read them.
+      const collectedTitlesOnPage =
+        normalizedPageType === "search_results" && fastPathAddedCount === 0
+          ? countCollectedTitlesInText(state, extractData.pageText)
+          : 0;
+      const fullyCollectedResultsPage =
+        normalizedPageType === "search_results" &&
+        fastPathAddedCount === 0 &&
+        Math.max(fastPathJobs.length, collectedTitlesOnPage) >=
+          FULLY_COLLECTED_RESULTS_PAGE_MIN_CARDS;
+      if (fullyCollectedResultsPage) {
+        const knownCount = Math.max(fastPathJobs.length, collectedTitlesOnPage);
+        onProgress?.({
+          currentUrl: extractData.pageUrl,
+          jobsFound: state.collectedJobs.length,
+          stepCount: state.stepCount,
+          currentAction: "extract_jobs_already_collected",
+          message: `The ${knownCount} job cards recognized on this results page are already kept; skipping the slower re-read.`,
+          waitReason: "extracting_jobs",
+          targetId: null,
+          adapterKind: config.source,
+        });
+        return {
+          ...result,
+          data: {
+            ...result.data,
+            jobsExtracted: 0,
+            fastPathJobsExtracted: 0,
+            totalJobs: state.collectedJobs.length,
+            alreadyCollected: knownCount,
+            instruction:
+              "Every posting on this page is already collected. Move to the next results page or finish when the results are exhausted.",
+          },
+        };
       }
 
       const shouldDeferSearchExtraction =

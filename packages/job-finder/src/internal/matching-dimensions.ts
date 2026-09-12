@@ -465,6 +465,22 @@ function buildEvidenceConfidence(
       requirement.category !== "location" &&
       requirement.category !== "work_mode",
   );
+  const unverifiedPreferences = input.requirements.filter(
+    (requirement) =>
+      (requirement.category === "location" ||
+        requirement.category === "work_mode") &&
+      requirement.status === "unknown",
+  );
+  const unverifiedPreferenceNote =
+    unverifiedPreferences.length > 0
+      ? ` Your saved ${unverifiedPreferences
+          .map((requirement) =>
+            requirement.category === "work_mode" ? "work-mode" : "location",
+          )
+          .join(
+            " and ",
+          )} preference could not be confirmed against this listing.`
+      : "";
 
   // Saved location/work-mode comparisons are preference checks, not proof that
   // the listing exposes enough role evidence for a reliable fit decision.
@@ -523,8 +539,10 @@ function buildEvidenceConfidence(
   ) {
     return {
       level: "high",
-      explanation:
-        "The full listing was read and most of its requirements could be checked. A gap that was found still counts against the fit.",
+      // Names the scope ("role requirements") and any saved preference that
+      // stayed unverified, so "5 of 5 checked" no longer reads as "remote was
+      // confirmed" when the work-mode row is the one that could not be.
+      explanation: `The listing body was read and ${counts.supportedCount + counts.partialCount + counts.missingCount + counts.conflictCount} of ${total} role requirements were checked. A gap that was found still counts against the fit.${unverifiedPreferenceNote}`,
       evidence: evidenceRows,
       ...counts,
     };

@@ -85,7 +85,7 @@ const settingsSections = [
     headingId: "settings-danger-zone-heading",
     href: "#settings-danger-zone",
     id: "settings-danger-zone",
-    label: "Danger zone",
+    label: "Delete everything",
     // The only section that can destroy work says so before it is opened.
     tone: "destructive",
   },
@@ -343,14 +343,15 @@ export function SettingsScreen(props: {
         description="Set reusable defaults for search, resumes, and applications."
         meta={
           <>
-            Imported resumes and supporting documents live in{" "}
+            Your imported resume is managed in{" "}
             <Link
               className="text-primary underline underline-offset-2 hover:text-primary/80"
-              to={JOB_FINDER_ROUTE_PATHS.documents}
+              to={JOB_FINDER_ROUTE_PATHS.profile}
             >
-              Documents
+              Profile
             </Link>
-            .
+            . Documents is for the extra files you attach to applications, like
+            a portfolio or transcript.
           </>
         }
         title="Settings"
@@ -524,7 +525,7 @@ export function SettingsScreen(props: {
           tabIndex={-1}
         >
           <h2 className="sr-only" id="settings-danger-zone-heading">
-            Danger zone
+            Delete everything
           </h2>
           <SettingsWorkspaceControls
             isWorkspaceResetPending={isWorkspaceResetPending}

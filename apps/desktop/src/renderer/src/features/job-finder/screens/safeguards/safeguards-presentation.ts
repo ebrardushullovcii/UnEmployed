@@ -228,7 +228,7 @@ function dismissalReferenceLabel(
       return safeguards.abnormalFailurePauses.some(
         (entry) => entry.id === dismissal.referenceId,
       )
-        ? "Abnormal failure pause"
+        ? "Paused after repeated failures"
         : dismissal.referenceId;
     case "batch_sample_review_pending":
       return safeguards.preparedBatchSampleReviews.some(
@@ -570,7 +570,7 @@ export function buildSafeguardsPresentationModel(
     pushRow({
       key: `pause-${pause.id}`,
       kind: "pauses",
-      title: `Abnormal failure pause (${pause.failureRatePercent.toFixed(1)}%)`,
+      title: `Paused after repeated failures (${pause.failureRatePercent.toFixed(1)}% failed)`,
       subtitle: `${pause.failuresInWindow} of ${pause.sampleSize} attempts failed since ${formatSafeguardTimestamp(pause.windowStartedAt)}`,
       explanation: pause.explanation,
       recoveryGuidance: pause.recoveryGuidance,

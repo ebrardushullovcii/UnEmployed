@@ -264,8 +264,9 @@ export function ResumeAssistantPanel(props: ResumeAssistantPanelProps) {
                       </p>
                       {message.executionAttribution?.fallbackUsed ? (
                         <p className="mt-2 text-(length:--text-tiny) text-muted-foreground">
-                          AI was unavailable, so the Assistant used the built-in
-                          safe fallback for this reply.
+                          {describeAssistantFallback(
+                            message.executionAttribution.stopReason,
+                          )}
                         </p>
                       ) : null}
                       {isAssistant &&
@@ -427,4 +428,22 @@ export function ResumeAssistantPanel(props: ResumeAssistantPanelProps) {
       </div>
     </div>
   );
+}
+
+/**
+ * Why the safe fallback answered instead of the model. "Unavailable" was the
+ * only wording before, which blamed the provider for a request the model was
+ * still working on when its time ran out.
+ */
+function describeAssistantFallback(
+  stopReason: string | null | undefined,
+): string {
+  switch (stopReason) {
+    case "time_budget":
+      return "The AI ran out of time before it finished this edit, so the Assistant answered with its built-in safe fallback. A smaller, more specific request usually completes.";
+    case "no_progress":
+      return "The AI could not turn this request into a grounded edit, so the Assistant answered with its built-in safe fallback.";
+    default:
+      return "AI was unavailable, so the Assistant used the built-in safe fallback for this reply.";
+  }
 }

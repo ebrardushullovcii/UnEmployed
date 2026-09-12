@@ -69,7 +69,7 @@ describe("createDesktopResumeVisionProvider", () => {
     const status = provider.getStatus();
 
     expect(status.kind).toBe("openai_compatible_vision");
-    expect(status.model).toBe("gpt-5.6-luna");
+    expect(status.model).toBe("muse-spark-1.3-contributor");
     expect(status.baseUrl).toBe("https://example.invalid/v1");
   });
 });

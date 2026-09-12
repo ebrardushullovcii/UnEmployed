@@ -48,6 +48,36 @@ const runOutcomeLabels: Record<
  * "9/2/2026, 9:14:02 PM" string twice, which read as machine output rather
  * than a fact about the run.
  */
+function localTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+function supportedTimeZones(): readonly string[] {
+  const withValues = Intl as typeof Intl & {
+    supportedValuesOf?: (key: "timeZone") => string[];
+  };
+  return withValues.supportedValuesOf?.("timeZone") ?? [localTimeZone()];
+}
+
+function isValidTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Why an automatic schedule cannot run yet, in the user's words. */
+function describeTimeZoneProblem(timeZone: string | null): string | null {
+  if (!timeZone?.trim()) {
+    return "Pick your time zone so the daily search knows when the start time is.";
+  }
+  return isValidTimeZone(timeZone)
+    ? null
+    : "That is not a time zone Job Finder recognises. Pick one from the list, like Europe/Belgrade.";
+}
+
 function formatDateTime(iso: string | null): string | null {
   if (!iso) return null;
   const parsed = Date.parse(iso);
@@ -182,8 +212,13 @@ function CampaignEditor(props: {
   isCurrentPlan: boolean;
   onCancel: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Makes this saved plan the one Find jobs searches with. */
+  onMakeCurrent?: () => void;
+  /** Starts a search with this saved plan right away. */
+  onRunNow?: () => void;
   onSave: (campaign: SaveJobSearchCampaignInput) => Promise<boolean>;
   pending: boolean;
+  runPending?: boolean;
 }) {
   const [initialCampaign] = useState(props.campaign);
   const [draft, setDraft] = useState(props.campaign);
@@ -235,6 +270,10 @@ function CampaignEditor(props: {
     }));
   };
 
+  const timeZoneProblem =
+    draft.schedule.enabled && draft.schedule.mode !== "manual"
+      ? describeTimeZoneProblem(draft.schedule.timeZone)
+      : null;
   const updateSchedule = (patch: Partial<JobSearchCampaignSchedule>) => {
     setDraft((current) => ({
       ...current,
@@ -335,30 +374,30 @@ function CampaignEditor(props: {
             />
           </label>
           <label className="grid gap-1 text-sm">
-            <span className="font-medium">Volume</span>
+            <span className="font-medium">How many jobs each search keeps</span>
             <select
-              aria-label="Volume"
-              className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              aria-label="How many jobs each search keeps"
+              className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
               onChange={(event) =>
                 updateMode(event.target.value as JobSearchCampaignMode)
               }
               value={draft.mode}
             >
               <option value="precision">
-                Precision — a smaller discovery pool
+                Focused — fewer jobs, closest matches
               </option>
-              <option value="scale">Scale — a larger discovery pool</option>
+              <option value="scale">Wide — more jobs, more to review</option>
             </select>
             <span className="text-xs text-foreground-muted">
               {draft.mode === "scale"
-                ? "Use Scale to discover and retain a larger pool of matching jobs."
-                : "Use Precision for a smaller discovery pool focused on the strongest matches."}
+                ? "More jobs each run, keeping more of them for review."
+                : "Fewer jobs each run, chosen for a closer match."}
             </span>
           </label>
           <label className="grid gap-1 text-sm">
             <span className="font-medium">Status</span>
             <select
-              className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+              className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
               onChange={(event) =>
                 setDraft({
                   ...draft,
@@ -392,9 +431,45 @@ function CampaignEditor(props: {
           </p>
         ) : null}
         {saveOutcome === "saved" ? (
-          <p className="text-sm text-foreground" role="status">
-            Search plan saved.
-          </p>
+          // A save is not the end of the job: the plan only matters once a
+          // search runs with it, so the confirmation says when that happens
+          // and offers the one step that makes it happen.
+          <div
+            className="flex flex-wrap items-center gap-3 rounded-(--radius-field) border border-border-subtle px-4 py-3 text-sm text-foreground"
+            role="status"
+          >
+            <span>
+              {props.isCurrentPlan
+                ? "Search plan saved. Your next search uses it."
+                : "Search plan saved. Find jobs keeps searching with your current plan until you switch to this one."}
+            </span>
+            {props.isCurrentPlan &&
+            props.onRunNow &&
+            draft.status === "active" ? (
+              <Button
+                onClick={props.onRunNow}
+                pending={props.runPending ?? false}
+                size="xs"
+                type="button"
+                variant="outline"
+              >
+                Search now with this plan
+              </Button>
+            ) : null}
+            {!props.isCurrentPlan &&
+            props.onMakeCurrent &&
+            draft.status !== "archived" ? (
+              <Button
+                onClick={props.onMakeCurrent}
+                pending={props.pending}
+                size="xs"
+                type="button"
+                variant="outline"
+              >
+                Use it in Find jobs
+              </Button>
+            ) : null}
+          </div>
         ) : null}
         <label className="grid gap-1 text-sm">
           <span className="font-medium">Plan purpose</span>
@@ -640,7 +715,7 @@ function CampaignEditor(props: {
               <label className="grid gap-1 text-sm">
                 <span>Pay interval</span>
                 <select
-                  className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                  className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
                   onChange={(event) =>
                     setDraft({
                       ...draft,
@@ -710,6 +785,11 @@ function CampaignEditor(props: {
                 type="number"
                 value={draft.limits.retainedJobTarget}
               />
+              <span className="text-xs text-foreground-muted">
+                How many of each search&apos;s results this plan keeps. Anything
+                past this number is saved on this device but not shown in Find
+                jobs.
+              </span>
             </label>
           </div>
         </section>
@@ -795,7 +875,15 @@ function CampaignEditor(props: {
                 <input
                   checked={draft.schedule.enabled}
                   onChange={(event) =>
-                    updateSchedule({ enabled: event.target.checked })
+                    updateSchedule({
+                      enabled: event.target.checked,
+                      // A blank zone silently produced no next run; start
+                      // from the machine's own zone so "8:00 AM" means
+                      // something the moment the schedule is switched on.
+                      ...(event.target.checked && !draft.schedule.timeZone
+                        ? { timeZone: localTimeZone() }
+                        : {}),
+                    })
                   }
                   type="checkbox"
                 />
@@ -804,7 +892,7 @@ function CampaignEditor(props: {
               <label className="grid gap-1 text-sm">
                 <span>Schedule mode</span>
                 <select
-                  className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                  className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
                   disabled={!draft.schedule.enabled}
                   onChange={(event) =>
                     updateSchedule({
@@ -833,15 +921,27 @@ function CampaignEditor(props: {
                 />
               </label>
               <label className="grid gap-1 text-sm">
-                <span>Time zone</span>
+                <span>Run in this time zone</span>
                 <Input
+                  aria-invalid={timeZoneProblem ? true : undefined}
                   disabled={!draft.schedule.enabled}
+                  list="campaign-schedule-time-zones"
                   onChange={(event) =>
                     updateSchedule({ timeZone: event.target.value || null })
                   }
-                  placeholder="Europe/Belgrade"
+                  placeholder={localTimeZone()}
                   value={draft.schedule.timeZone ?? ""}
                 />
+                <datalist id="campaign-schedule-time-zones">
+                  {supportedTimeZones().map((zone) => (
+                    <option key={zone} value={zone} />
+                  ))}
+                </datalist>
+                {timeZoneProblem ? (
+                  <span className="text-xs text-destructive" role="alert">
+                    {timeZoneProblem}
+                  </span>
+                ) : null}
               </label>
             </div>
             {draft.schedule.enabled &&
@@ -1255,7 +1355,7 @@ export function CampaignsScreen(props: {
             New search plan
           </Button>
         }
-        description="Organize roles, sources, discovery volume, and progress into reusable plans."
+        description="Organize roles, sources, how many jobs each search keeps, and progress into reusable plans."
         title="Search plans"
       />
 
@@ -1275,9 +1375,10 @@ export function CampaignsScreen(props: {
               Search plans are optional.
             </span>
             <span className="min-w-0 flex-1 text-foreground-soft">
-              The current default plan is already enough to use Find jobs.
-              Create another plan when you want a reusable search setup with its
-              own roles, sources, discovery volume, and progress.
+              Find jobs always searches with the current plan; switch plans from
+              the Plan chip there or with Make current here. Create another plan
+              when you want a reusable search setup with its own roles, sources,
+              how many jobs each search keeps, and progress.
             </span>
           </span>
           <span className="inline-flex w-fit items-center gap-1.5 rounded-(--radius-button) border border-(--surface-panel-border) px-2.5 py-1 text-xs font-medium text-foreground">
@@ -1315,6 +1416,15 @@ export function CampaignsScreen(props: {
             setEditorDirty(false);
           }}
           onDirtyChange={handleEditorDirtyChange}
+          {...(editing.id !== null
+            ? {
+                onMakeCurrent: () => props.onSelectCampaign(editing.id!),
+                ...(props.onRunCampaignNow
+                  ? { onRunNow: () => props.onRunCampaignNow?.(editing.id!) }
+                  : {}),
+                runPending: props.runCampaignPending?.(editing.id) ?? false,
+              }
+            : {})}
           onSave={handleEditorSave}
           pending={props.pending}
         />
@@ -1325,7 +1435,7 @@ export function CampaignsScreen(props: {
           className="flex flex-wrap items-center gap-3 rounded-(--radius-field) border border-border-subtle px-4 py-3 text-sm text-foreground"
           role="status"
         >
-          {`Search plan "${createdPlanNotice.name}" created.`}
+          {`Search plan "${createdPlanNotice.name}" created. Find jobs keeps searching with your current plan until you switch.`}
           {createdPlanNotice.resolvedId !== null ? (
             <Button
               onClick={() => {
@@ -1339,7 +1449,7 @@ export function CampaignsScreen(props: {
               type="button"
               variant="outline"
             >
-              Switch to it
+              Use it in Find jobs
             </Button>
           ) : null}
         </p>
@@ -1383,7 +1493,7 @@ export function CampaignsScreen(props: {
 
       {props.campaigns.length === 0 && view.query.trim() === "" ? (
         <EmptyState
-          description="Create a search plan to save a reusable setup for roles, sources, discovery volume, and progress."
+          description="Create a search plan to save a reusable setup for roles, sources, how many jobs each search keeps, and progress."
           title="No search plans yet"
         >
           <div className="flex justify-center">
@@ -1453,9 +1563,9 @@ export function CampaignsScreen(props: {
                       {campaign.progress.jobsRetained}
                     </strong>
                     <span className="text-xs text-foreground-muted">
-                      {campaign.progress.jobsRetained === 1
-                        ? "job kept for review"
-                        : "jobs kept for review"}
+                      {/* "Kept" means the plan's retained results on Home
+                          and Find jobs; this number is the shortlist. */}
+                      shortlisted
                     </span>
                   </div>
                 </div>
@@ -1467,7 +1577,7 @@ export function CampaignsScreen(props: {
                       "Remaining 1" explained neither. */}
                   <div>
                     <dt className="text-xs text-foreground-muted">
-                      Jobs found
+                      Jobs in this plan
                     </dt>
                     <dd>{campaign.progress.jobsFound}</dd>
                   </div>
@@ -1483,12 +1593,17 @@ export function CampaignsScreen(props: {
                     </dt>
                     <dd>{campaign.progress.blockedCount}</dd>
                   </div>
-                  <div>
-                    <dt className="text-xs text-foreground-muted">
-                      Still to review
-                    </dt>
-                    <dd>{campaign.progress.remainingQueueSize}</dd>
-                  </div>
+                  {/* This counts jobs left in a running application batch,
+                      not a review backlog; an idle plan printing "0" read as
+                      "nothing left to review" beside a shortlist of one. */}
+                  {campaign.progress.remainingQueueSize > 0 ? (
+                    <div>
+                      <dt className="text-xs text-foreground-muted">
+                        Jobs left in this batch
+                      </dt>
+                      <dd>{campaign.progress.remainingQueueSize}</dd>
+                    </div>
+                  ) : null}
                   <div className="col-span-2">
                     <dt className="text-xs text-foreground-muted">Next run</dt>
                     <dd>{describeNextRun(campaign.schedule)}</dd>

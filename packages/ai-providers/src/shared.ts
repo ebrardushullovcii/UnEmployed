@@ -29,6 +29,7 @@ import {
   ResumeStrategySkillsPolicySchema,
   ResumeTemplateIdSchema,
   TailoringModeSchema,
+  type TailoringMode,
   type Tool,
   type ToolCall,
 } from "@unemployed/contracts";
@@ -316,6 +317,13 @@ export const OpenAiCompatibleJobFinderAiClientOptionsSchema = z.object({
   contextWindowTokens: z.number().int().min(1_000).optional(),
   requestTimeoutMs: z.number().int().min(1_000).optional(),
   resumeExtractionTimeoutMs: z.number().int().min(1_000).optional(),
+  /** Longest silence tolerated on a streamed request before it is retried. */
+  idleTimeoutMs: z.number().int().min(1_000).optional(),
+  /** Attempts per logical request, including the first. */
+  maxAttempts: z.number().int().min(1).max(10).optional(),
+  /** Stream responses (server-sent events) for liveness. Default true. */
+  streaming: z.boolean().optional(),
+  retryBaseDelayMs: z.number().int().min(0).optional(),
 });
 
 export interface ExtractProfileFromResumeInput {
@@ -360,6 +368,13 @@ export interface ReviseResumeDraftInput {
   job: JobPosting;
   request: string;
   validationIssues?: readonly string[];
+  /**
+   * The job's effective tailoring strength when known. Model-backed review
+   * and section-regeneration passes route through the aggressive model for
+   * aggressive drafts so the whole lifecycle stays on one provider; when
+   * absent the primary provider is used.
+   */
+  tailoringStrength?: TailoringMode | null;
   researchContext?: {
     companyNotes: readonly string[];
     domainVocabulary: readonly string[];

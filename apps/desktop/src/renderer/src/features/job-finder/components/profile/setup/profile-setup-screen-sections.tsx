@@ -107,8 +107,9 @@ export function ProfileSetupSummaryCards(props: {
           <CardTitle>Start with the resume you already have.</CardTitle>
           <CardDescription className="max-w-2xl">
             Job Finder fills in your profile from it and asks only about the
-            gaps. The file stays on this device; if an AI provider is
-            configured, the extracted text is sent to it for analysis.
+            gaps. The file stays on this device. The text read from it is
+            sent to Job Finder&apos;s AI to fill in your profile; nothing is
+            sent anywhere else.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 pt-6">
@@ -533,9 +534,11 @@ export function ProfileSetupReviewQueueCard(props: {
                             </Badge>
                           )}
                         </div>
-                        <p className="mt-2 text-sm leading-6 text-foreground-soft">
-                          {itemCopy.reason}
-                        </p>
+                        {item.status === "pending" ? (
+                          <p className="mt-2 text-sm leading-6 text-foreground-soft">
+                            {itemCopy.reason}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                     {item.status === "pending" && item.proposedValue ? (

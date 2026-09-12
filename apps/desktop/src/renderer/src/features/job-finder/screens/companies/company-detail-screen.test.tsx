@@ -1018,7 +1018,7 @@ describe("CompanyDetailScreen", () => {
     expect(screen.queryByText("0 sources")).toBeNull();
   });
 
-  it("gives every select control the 40px form target height", () => {
+  it("gives every select control the 44px field height", () => {
     const company = makeCompany({
       salaryOfferEvidence: [
         {
@@ -1042,8 +1042,9 @@ describe("CompanyDetailScreen", () => {
     renderDetail({ company });
 
     for (const select of screen.getAllByRole("combobox")) {
-      expect(select.className).toContain("h-10");
+      expect(select.className).toContain("h-11");
       expect(select.className).not.toContain("h-9");
+      expect(select.className).not.toContain("h-10");
     }
   });
 
@@ -1133,8 +1134,8 @@ describe("CompanyDetailScreen", () => {
       expect(select.className).not.toContain("border-input");
       expect(select.className).not.toContain("--surface-panel-raised");
       expect(select.className).not.toContain("focus-visible:ring");
-      // The 40px form target height is preserved.
-      expect(select.className).toContain("h-10");
+      // Selects share the Input's 44px height so mixed rows align.
+      expect(select.className).toContain("h-11");
       expect(select.className).toContain("rounded-(--radius-field)");
     }
     expect(container.innerHTML).not.toContain("border-input");

@@ -271,7 +271,7 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
               <span className="font-medium">Use for this job only</span>
               <select
                 aria-label="Choose a resume approach for this job"
-                className="h-10 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3 outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
                 disabled={props.isPending}
                 onChange={(event) => handleSelect(event.target.value)}
                 value=""

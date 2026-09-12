@@ -877,7 +877,7 @@ describe("ResumeWorkspaceEditorPanel", () => {
         generationMethod: "deterministic",
         generationReason: "provider_output_unverified",
         generationDetail:
-          "The configured AI model returned no usable rewrite proposals",
+          "AI could not produce usable rewrite suggestions this time",
         notes: [],
       },
       undoAiEditAction: <button type="button">Undo</button>,
@@ -890,7 +890,7 @@ describe("ResumeWorkspaceEditorPanel", () => {
 
     const provenance = provenanceNotes?.[0];
     expect(provenance?.textContent).toContain(
-      "The configured AI model returned no usable rewrite proposals. The first draft came from the built-in generator instead.",
+      "AI could not produce usable rewrite suggestions this time. The first draft came from the built-in generator instead.",
     );
     expect(provenance?.textContent).toContain(
       "1 assistant edit has been applied since",
@@ -930,7 +930,7 @@ describe("ResumeWorkspaceEditorPanel", () => {
     ).toBe(false);
   });
 
-  it("hides the AI retry when no provider is configured", () => {
+  it("offers the AI retry when AI was unavailable, without blaming setup", () => {
     renderPanel(false, {
       onOpenAssistant: vi.fn(),
       tailoredAssetGeneration: {
@@ -946,8 +946,12 @@ describe("ResumeWorkspaceEditorPanel", () => {
         "[data-resume-deterministic-fallback-disclosure]",
       )?.textContent,
     ).toContain(
-      "The first draft came from the built-in generator because no AI provider is configured.",
+      "The first draft came from the built-in generator because AI writing is not available right now.",
     );
-    expect(container?.querySelector("[data-resume-open-assistant]")).toBeNull();
+    // AI ships with the product, so its absence is an outage: retryable, and
+    // never described as something the user failed to configure.
+    expect(
+      container?.querySelector("[data-resume-open-assistant]"),
+    ).toBeTruthy();
   });
 });

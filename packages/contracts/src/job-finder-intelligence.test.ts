@@ -656,6 +656,21 @@ describe("conservative company entities", () => {
     expect(isListableCompanyName("   ")).toBe(false);
   });
 
+  it("excludes job titles mis-read as employers from listable companies", () => {
+    for (const name of [
+      "Senior DevOps Engineer",
+      "Customer Service Representative",
+      "Power Platform Solutions Architect",
+      "Staff Accountant",
+      "Registered Nurse (Nights)",
+    ]) {
+      expect(isListableCompanyName(name)).toBe(false);
+    }
+    for (const name of ["Shaw Industries", "Acme Logistics", "Lead Bank"]) {
+      expect(isListableCompanyName(name)).toBe(true);
+    }
+  });
+
   it("excludes privacy-policy and site chrome shells from listable companies", () => {
     const priyaPrivacyShell = "Politikë e Privatësisë";
     expect(isLikelyUtilitySiteChromeName(priyaPrivacyShell)).toBe(true);

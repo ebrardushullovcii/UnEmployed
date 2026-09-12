@@ -16,7 +16,7 @@ type PreviewStatus = "idle" | "loading" | "ready" | "error";
  * Opens the studio's optional-suggestions disclosure and moves focus to it so
  * the preview's suggestion count is a real entry point, not a passive label.
  */
-function focusValidationSuggestions(): void {
+function focusValidationSuggestions(): boolean {
   const candidates = Array.from(
     document.querySelectorAll<HTMLElement>("[data-resume-validation-notes]"),
   );
@@ -25,7 +25,7 @@ function focusValidationSuggestions(): void {
     candidates[0] ??
     null;
   if (!target) {
-    return;
+    return false;
   }
 
   if (target instanceof HTMLDetailsElement) {
@@ -38,6 +38,7 @@ function focusValidationSuggestions(): void {
     block: "start",
   });
   focusTarget.focus({ preventScroll: true });
+  return true;
 }
 type PreviewRefreshFeedback = "pending" | "completed" | "failed";
 
@@ -50,6 +51,12 @@ interface ResumeStudioPreviewPaneProps {
     entryId: string | null;
     targetId: string | null;
   }) => void;
+  /**
+   * Called before the suggestions list is focused, so a compact layout can
+   * switch to the Tools tab that holds it. Without this the link did nothing
+   * whenever the list was not mounted, which every blind tester reported.
+   */
+  onRevealSuggestions?: () => void;
   preview: JobFinderResumePreview | null;
   previewError: string | null;
   previewStatus: PreviewStatus;
@@ -197,6 +204,10 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
   const retryPreviewDisabled =
     props.isPending || props.previewStatus === "loading";
   const warningCount = props.preview?.warnings.length ?? 0;
+  // Fallback when no suggestions list is mounted anywhere (the preview can
+  // carry warnings the validation list does not): show them right here so
+  // the count is never a dead link.
+  const [showInlineWarnings, setShowInlineWarnings] = useState(false);
 
   const requestPreviewRefresh = () => {
     refreshRequestedRef.current = true;
@@ -640,7 +651,19 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
                 <button
                   className="cursor-pointer rounded-sm text-foreground-soft underline decoration-from-font underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                   data-resume-preview-suggestions
-                  onClick={focusValidationSuggestions}
+                  onClick={() => {
+                    if (focusValidationSuggestions()) {
+                      return;
+                    }
+                    // The list lives in the Tools tab in compact layouts and
+                    // is not mounted until that tab is shown.
+                    props.onRevealSuggestions?.();
+                    requestAnimationFrame(() => {
+                      if (!focusValidationSuggestions()) {
+                        setShowInlineWarnings((current) => !current);
+                      }
+                    });
+                  }}
                   title="Show the optional suggestions"
                   type="button"
                 >
@@ -648,6 +671,16 @@ export function ResumeStudioPreviewPane(props: ResumeStudioPreviewPaneProps) {
                 </button>
               ) : null}
             </div>
+            {showInlineWarnings && warningCount > 0 ? (
+              <ul
+                className="grid gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-2 text-(length:--text-tiny) leading-4 text-foreground-soft"
+                data-resume-preview-inline-warnings
+              >
+                {(props.preview?.warnings ?? []).map((warning) => (
+                  <li key={warning.id}>{warning.message}</li>
+                ))}
+              </ul>
+            ) : null}
             {refreshFeedback ? (
               <p
                 aria-atomic="true"

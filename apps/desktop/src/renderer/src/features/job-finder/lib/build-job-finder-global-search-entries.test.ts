@@ -195,7 +195,10 @@ describe("buildJobFinderGlobalSearchEntries", () => {
     expect(companyIds).toEqual(["company-real"]);
   });
 
-  it("scopes jobs, applications, and documents to the active search plan", () => {
+  it("keeps every saved record searchable and labels the ones outside the active plan", () => {
+    // Home advertises every job saved on the device; a search box that denied
+    // 35 of 50 existed read as the app losing them. Out-of-plan rows stay
+    // findable and say where they stand.
     const entries = buildJobFinderGlobalSearchEntries(
       buildWorkspaceFixture("campaign-active"),
     );
@@ -204,20 +207,28 @@ describe("buildJobFinderGlobalSearchEntries", () => {
       entries.filter((entry) => entry.kind === kind).map((entry) => entry.id);
 
     expect(idsOf("campaign")).toEqual(["campaign-active", "campaign-other"]);
-    expect(idsOf("job")).toEqual(["job-active"]);
-    expect(idsOf("application")).toEqual(["application-active"]);
-    expect(idsOf("document")).toEqual(["asset-active", "export-active"]);
-
-    const scopedEntries = entries.filter(
-      (entry) => entry.kind !== "campaign" && entry.kind !== "company",
-    );
-    for (const entry of scopedEntries) {
-      expect(entry.campaignId).toBe("campaign-active");
-    }
+    expect(idsOf("job")).toEqual(["job-active", "job-other", "job-unassigned"]);
+    expect(idsOf("application")).toEqual([
+      "application-active",
+      "application-other",
+      "application-unassigned",
+    ]);
+    expect(idsOf("document")).toEqual([
+      "asset-active",
+      "asset-other",
+      "export-active",
+    ]);
 
     const jobEntry = entries.find((entry) => entry.id === "job-active");
+    expect(jobEntry?.campaignId).toBe("campaign-active");
     expect(jobEntry?.href).toBe("/job-finder/discovery?jobId=job-active");
     expect(jobEntry?.subtitle).toBe("Acme · Remote · Active plan");
+
+    const otherPlanJob = entries.find((entry) => entry.id === "job-other");
+    expect(otherPlanJob?.campaignId).toBeNull();
+    expect(otherPlanJob?.subtitle).toBe(
+      "Globex · Berlin · Saved on this device, not in this search plan",
+    );
   });
 
   it("includes every record when no search plan is active", () => {

@@ -283,23 +283,25 @@ function buildResolvedSelection(
   for (const [key, candidate] of scalarCandidates) {
     const value = candidate.value;
     switch (key) {
+      // Resume headers are often set in capitals; that is styling, not a
+      // spelling, and it followed people onto every form and generated PDF.
       case "identity.firstName":
         if (typeof value === "string") {
-          selection.scalarFields.firstName = value;
+          selection.scalarFields.firstName = normalizeShoutedName(value);
         }
         break;
       case "identity.lastName":
         if (typeof value === "string") {
-          selection.scalarFields.lastName = value;
+          selection.scalarFields.lastName = normalizeShoutedName(value);
         }
         break;
       case "identity.middleName":
         selection.scalarFields.middleName =
-          typeof value === "string" ? value : null;
+          typeof value === "string" ? normalizeShoutedName(value) : null;
         break;
       case "identity.fullName":
         if (typeof value === "string") {
-          selection.scalarFields.fullName = value;
+          selection.scalarFields.fullName = normalizeShoutedName(value);
         }
         break;
       case "identity.headline":
@@ -676,6 +678,28 @@ function mergeResolvedSelectionIntoWorkspace(
         searchPreferences.salaryCurrency,
     }),
   };
+}
+
+/**
+ * "DANA KIM" → "Dana Kim". Only words that are entirely upper case change;
+ * "McKay", "de la Cruz" and initials like "J." stay as written.
+ */
+export function normalizeShoutedName(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .map((word) =>
+      word.length > 1 && word === word.toUpperCase() && /\p{L}/u.test(word)
+        ? word
+            .toLowerCase()
+            .replace(
+              /(^|[-'’])(\p{L})/gu,
+              (_match: string, separator: string, letter: string) =>
+                `${separator}${letter.toUpperCase()}`,
+            )
+        : word,
+    )
+    .join(" ");
 }
 
 export function applyResolvedResumeImportCandidatesToWorkspace(input: {

@@ -225,6 +225,23 @@ export function SafeguardsScreen(props: {
 
       <SafeguardsApplicationBoundary />
 
+      {/* Limits are read when a run starts, so a change never reaches the
+          run already in progress; and the per-plan limits and stop rules
+          are edited on the plan, not here, which this page used to leave
+          unsaid. */}
+      <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+        These limits are checked on every search and application run and apply
+        from the next run you start. Per-plan limits and stop rules are edited
+        on each plan in{" "}
+        <Link
+          className="font-medium text-foreground underline underline-offset-2"
+          to="/job-finder/campaigns"
+        >
+          Search plans
+        </Link>
+        .
+      </p>
+
       {blockedCount > 0 ? (
         <div
           className="flex flex-wrap items-center gap-2 rounded-(--radius-field) border border-destructive/30 bg-destructive/10 px-3 py-2 text-(length:--text-small) text-foreground"

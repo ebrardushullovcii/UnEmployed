@@ -16,8 +16,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SHELL_HEADER_MASK_HEIGHT_CLASS,
   SHELL_HEADER_MASK_HEIGHT_PX,
-  SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
-  SHELL_HEADER_MASK_OPAQUE_STOP_FRACTION,
   SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_CLASS,
   SHELL_SCROLLING_ROUTE_TOP_GUTTER_CLASS,
   SHELL_SCROLLING_ROUTE_TOP_GUTTER_PX,
@@ -3368,15 +3366,14 @@ describe("compact navigation shares the header switcher's axis", () => {
     },
   );
 
-  it("paints the header mask opaquely across the whole scrolling gutter", () => {
+  it("paints the header mask opaquely across the scrolling gutter and nowhere else", () => {
     // Between the fixed header's bottom edge and the first row of a scrolling
     // route sits the shell's own 12px `pt-3`. A route's sticky sub-navigation
     // cannot cover that band — sticky is clamped to its containing block,
-    // which starts below the padding — so the page scrolls through it. The
-    // 4px fade that used to sit there left a readable half-line of the page
-    // floating between two chromes on Settings. The mask's opaque band must
-    // cover at least the whole gutter; the rest of it still fades so the
-    // first row at scroll 0 does not end on a hard edge.
+    // which starts below the padding — so the page scrolls through it and the
+    // mask must be opaque across all of it. It must also stop there: a fade
+    // tail past the gutter landed on the first row of every route at scroll 0
+    // and read as a shadow across its buttons and headings.
     // A scrolling route, where the shell owns both gutters.
     renderShellFor("darwin", "/job-finder/settings");
 
@@ -3385,11 +3382,11 @@ describe("compact navigation shares the header switcher's axis", () => {
     );
 
     expect(mask?.className).toContain(SHELL_HEADER_MASK_HEIGHT_CLASS);
-    expect(mask?.className).toContain(SHELL_HEADER_MASK_OPAQUE_STOP_CLASS);
-    expect(mask?.className).toContain("from-(--shell-header-bg)");
-    expect(
-      SHELL_HEADER_MASK_HEIGHT_PX * SHELL_HEADER_MASK_OPAQUE_STOP_FRACTION,
-    ).toBeGreaterThanOrEqual(SHELL_SCROLLING_ROUTE_TOP_GUTTER_PX);
+    expect(mask?.className).toContain("bg-(--shell-header-bg)");
+    expect(mask?.className).not.toContain("bg-gradient-to-b");
+    expect(SHELL_HEADER_MASK_HEIGHT_PX).toBe(
+      SHELL_SCROLLING_ROUTE_TOP_GUTTER_PX,
+    );
 
     const main = document.querySelector<HTMLElement>("main");
     expect(main?.className).toContain(SHELL_SCROLLING_ROUTE_TOP_GUTTER_CLASS);
@@ -3405,10 +3402,9 @@ describe("compact navigation shares the header switcher's axis", () => {
       "[data-job-finder-shell-header-mask]",
     );
 
-    expect(mask?.className).toContain("h-3");
+    expect(mask?.className).toContain(SHELL_HEADER_MASK_HEIGHT_CLASS);
     expect(mask?.className).toContain("bg-(--shell-header-bg)");
     expect(mask?.className).not.toContain("bg-gradient-to-b");
-    expect(mask?.className).not.toContain(SHELL_HEADER_MASK_HEIGHT_CLASS);
   });
 
   it("leaves the sub-900px reserve exactly as it was", () => {

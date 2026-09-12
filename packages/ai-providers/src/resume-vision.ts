@@ -19,6 +19,10 @@ import {
 } from "./resume-import";
 import { buildCandidateConfidenceBreakdown } from "./resume-import-helpers";
 import {
+  buildModelRequestHeaders,
+  modelConversationKeys,
+} from "./model-request-identity";
+import {
   buildModelRequestBody,
   buildModelUrl,
   DEFAULT_OPENCODE_GO_BASE_URL,
@@ -27,11 +31,17 @@ import {
   modelApiModes,
   modelReasoningEfforts,
   parseModelApiMode,
-  parseModelJsonResponse,
+  extractModelJsonFromPayload,
   parseModelReasoningEffort,
 } from "./openai-compatible-transport";
+import {
+  ModelRequestTimeoutError,
+  parseConfiguredBoolean,
+  parseConfiguredPositiveInteger,
+  performModelRequest,
+} from "./model-request-transport";
 
-const DEFAULT_RESUME_VISION_MODEL = "gpt-5.6-luna";
+const DEFAULT_RESUME_VISION_MODEL = "muse-spark-1.3-contributor";
 const DEFAULT_VISION_TIMEOUT_MS = 600_000;
 const DEFAULT_VISION_CONTEXT_WINDOW_TOKENS = 139_000;
 const DEFAULT_VISION_RESERVED_HEADROOM_TOKENS = 30_000;
@@ -47,6 +57,10 @@ export const OpenAiCompatibleResumeVisionProviderOptionsSchema = z.object({
   contextWindowTokens: z.number().int().min(1_000).optional(),
   reservedHeadroomTokens: z.number().int().min(1_000).optional(),
   requestTimeoutMs: z.number().int().min(1_000).optional(),
+  idleTimeoutMs: z.number().int().min(1_000).optional(),
+  maxAttempts: z.number().int().min(1).max(10).optional(),
+  streaming: z.boolean().optional(),
+  retryBaseDelayMs: z.number().int().min(0).optional(),
   maxPagesPerBatch: z.number().int().min(1).max(16).optional(),
 });
 export type OpenAiCompatibleResumeVisionProviderOptions = z.infer<
@@ -55,7 +69,10 @@ export type OpenAiCompatibleResumeVisionProviderOptions = z.infer<
 
 type StringMap = Record<string, string | undefined>;
 
-function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
+function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): Error {
+  if (error instanceof ModelRequestTimeoutError) {
+    return error;
+  }
   const message = error instanceof Error ? error.message.trim() : "";
   const isAbortLikeMessage =
     message === "This operation was aborted" ||
@@ -85,7 +102,7 @@ function normalizeTimeoutLikeError(error: unknown, timeoutMs: number): unknown {
     return abortError;
   }
 
-  return error;
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 function parseConfiguredNumber(value: string | undefined): number | undefined {
@@ -488,122 +505,124 @@ export function createOpenAiCompatibleResumeVisionProvider(
       );
     }
 
-    const controller = new AbortController();
-    const localTimeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
     try {
       const apiMode = validatedOptions.apiMode ?? "chat_completions";
-      const response = await fetch(
-        buildModelUrl(validatedOptions.baseUrl, apiMode),
-        {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            Authorization: `Bearer ${validatedOptions.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(
-            buildModelRequestBody({
-              apiMode,
-              model: validatedOptions.model,
-              reasoningEffort: validatedOptions.reasoningEffort,
-              jsonOutput: true,
-              messages: [
-                {
-                  role: "system",
-                  content: [
-                    "You extract structured resume import candidates from resume page images.",
-                    "Return JSON only with a candidates array and notes array.",
-                    "Use the visual layout for columns, scanned content, section grouping, and parser recovery.",
-                    "Do not invent values. Keep exact names, dates, emails, URLs, company names, and titles literal when visible.",
-                    "Each candidate must include target, label, value, evidenceText, confidence, notes, alternatives, and visualEvidence.",
-                  ].join(" "),
-                },
-                {
-                  role: "user",
-                  content: [
-                    {
-                      type: "text",
-                      text: JSON.stringify({
-                        sourceFileKind: input.visionArtifact.sourceFileKind,
-                        pageNumbers: pages.map((page) => page.pageNumber),
-                        existingProfile: input.existingProfile,
-                        existingSearchPreferences:
-                          input.existingSearchPreferences,
-                        parserQuality: input.documentBundle.quality ?? null,
-                        parserWarnings: input.documentBundle.warnings,
-                        targetContract: {
-                          identity: [
-                            "fullName",
-                            "headline",
-                            "summary",
-                            "yearsExperience",
-                          ],
-                          contact: [
-                            "email",
-                            "phone",
-                            "linkedinUrl",
-                            "portfolioUrl",
-                            "githubUrl",
-                            "personalWebsiteUrl",
-                          ],
-                          location: ["currentLocation"],
-                          experience: {
-                            key: "record",
-                            valueShape:
-                              "{ companyName, companyUrl, title, employmentType, location, workMode, startDate, endDate, isCurrent, summary, achievements, skills, domainTags, peopleManagementScope, ownershipScope }",
-                          },
-                          education: {
-                            key: "record",
-                            valueShape:
-                              "{ schoolName, degree, fieldOfStudy, location, startDate, endDate, summary }",
-                          },
-                          skill: [
-                            "skills",
-                            "skillGroups.coreSkills",
-                            "skillGroups.tools",
-                            "skillGroups.languagesAndFrameworks",
-                            "skillGroups.softSkills",
-                            "skillGroups.highlightedSkills",
-                          ],
-                          recordSections: [
-                            "certification",
-                            "link",
-                            "project",
-                            "language",
-                          ],
-                          invalidTargets: [
-                            "background",
-                            "education.institution",
-                            "education.startDate",
-                            "education.graduationDate",
-                            "education.education",
-                          ],
-                        },
-                      }),
-                    },
-                    ...pages
-                      .filter((page) => page.dataUrl)
-                      .map((page) => ({
-                        type: "image_url",
-                        image_url: {
-                          url: page.dataUrl,
-                          detail: "high",
-                        },
-                      })),
-                  ],
-                },
-              ],
-            }),
+      const payload = await performModelRequest({
+        url: buildModelUrl(validatedOptions.baseUrl, apiMode),
+        // Same conversation key as the text stages of this import: the
+        // gateway routes one import's requests together, and OpenCode Go
+        // rejects a request that carries no session header at all.
+        headers: buildModelRequestHeaders({
+          apiKey: validatedOptions.apiKey,
+          baseUrl: validatedOptions.baseUrl,
+          conversationKey: modelConversationKeys.resumeImport(
+            input.documentBundle.fullText ??
+              input.documentBundle.sourceResumeId,
           ),
-        },
-      );
+        }),
+        body: buildModelRequestBody({
+          apiMode,
+          model: validatedOptions.model,
+          reasoningEffort: validatedOptions.reasoningEffort,
+          reasoningSummary: validatedOptions.streaming !== false,
+          jsonOutput: true,
+          messages: [
+            {
+              role: "system",
+              content: [
+                "You extract structured resume import candidates from resume page images.",
+                "Return JSON only with a candidates array and notes array.",
+                "Use the visual layout for columns, scanned content, section grouping, and parser recovery.",
+                "Do not invent values. Keep exact names, dates, emails, URLs, company names, and titles literal when visible.",
+                "Each candidate must include target, label, value, evidenceText, confidence, notes, alternatives, and visualEvidence.",
+              ].join(" "),
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    sourceFileKind: input.visionArtifact.sourceFileKind,
+                    pageNumbers: pages.map((page) => page.pageNumber),
+                    existingProfile: input.existingProfile,
+                    existingSearchPreferences: input.existingSearchPreferences,
+                    parserQuality: input.documentBundle.quality ?? null,
+                    parserWarnings: input.documentBundle.warnings,
+                    targetContract: {
+                      identity: [
+                        "fullName",
+                        "headline",
+                        "summary",
+                        "yearsExperience",
+                      ],
+                      contact: [
+                        "email",
+                        "phone",
+                        "linkedinUrl",
+                        "portfolioUrl",
+                        "githubUrl",
+                        "personalWebsiteUrl",
+                      ],
+                      location: ["currentLocation"],
+                      experience: {
+                        key: "record",
+                        valueShape:
+                          "{ companyName, companyUrl, title, employmentType, location, workMode, startDate, endDate, isCurrent, summary, achievements, skills, domainTags, peopleManagementScope, ownershipScope }",
+                      },
+                      education: {
+                        key: "record",
+                        valueShape:
+                          "{ schoolName, degree, fieldOfStudy, location, startDate, endDate, summary }",
+                      },
+                      skill: [
+                        "skills",
+                        "skillGroups.coreSkills",
+                        "skillGroups.tools",
+                        "skillGroups.languagesAndFrameworks",
+                        "skillGroups.softSkills",
+                        "skillGroups.highlightedSkills",
+                      ],
+                      recordSections: [
+                        "certification",
+                        "link",
+                        "project",
+                        "language",
+                      ],
+                      invalidTargets: [
+                        "background",
+                        "education.institution",
+                        "education.startDate",
+                        "education.graduationDate",
+                        "education.education",
+                      ],
+                    },
+                  }),
+                },
+                ...pages
+                  .filter((page) => page.dataUrl)
+                  .map((page) => ({
+                    type: "image_url",
+                    image_url: {
+                      url: page.dataUrl,
+                      detail: "high",
+                    },
+                  })),
+              ],
+            },
+          ],
+        }),
+        apiMode,
+        totalTimeoutMs: timeoutMs,
+        idleTimeoutMs: validatedOptions.idleTimeoutMs,
+        maxAttempts: validatedOptions.maxAttempts,
+        streaming: validatedOptions.streaming,
+        retryBaseDelayMs: validatedOptions.retryBaseDelayMs,
+      });
 
-      return parseModelJsonResponse(response, apiMode);
+      return extractModelJsonFromPayload(payload);
     } catch (error) {
       throw normalizeTimeoutLikeError(error, timeoutMs);
-    } finally {
-      clearTimeout(localTimeoutId);
     }
   }
 
@@ -759,6 +778,13 @@ export function createResumeVisionProviderFromEnvironment(
     requestTimeoutMs:
       parseConfiguredNumber(env.UNEMPLOYED_RESUME_VISION_TIMEOUT_MS) ??
       DEFAULT_VISION_TIMEOUT_MS,
+    idleTimeoutMs: parseConfiguredNumber(env.UNEMPLOYED_AI_IDLE_TIMEOUT_MS),
+    maxAttempts: parseConfiguredPositiveInteger(env.UNEMPLOYED_AI_MAX_ATTEMPTS),
+    streaming: parseConfiguredBoolean(env.UNEMPLOYED_AI_STREAMING),
+    retryBaseDelayMs: parseConfiguredPositiveInteger(
+      env.UNEMPLOYED_AI_RETRY_BASE_DELAY_MS,
+      0,
+    ),
     contextWindowTokens:
       parseConfiguredNumber(
         env.UNEMPLOYED_RESUME_VISION_CONTEXT_WINDOW_TOKENS,

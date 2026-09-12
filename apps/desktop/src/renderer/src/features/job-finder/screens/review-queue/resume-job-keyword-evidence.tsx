@@ -336,10 +336,16 @@ export function ResumeJobKeywordEvidencePanel(props: {
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            <StatusBadge tone="positive">
+            {/* A count of zero is not good news: "0 supported" in the success
+                colour, beside a red "1 not evidenced", read as if something
+                had passed. Each badge carries its tone only when it has
+                something to report. */}
+            <StatusBadge
+              tone={supportedItems.length > 0 ? "positive" : "muted"}
+            >
               {supportedItems.length} supported
             </StatusBadge>
-            <StatusBadge tone="critical">
+            <StatusBadge tone={missingItems.length > 0 ? "critical" : "muted"}>
               {missingItems.length} not evidenced
             </StatusBadge>
           </div>

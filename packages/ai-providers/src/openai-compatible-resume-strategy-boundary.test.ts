@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { createOpenAiCompatibleJobFinderAiClient } from "./openai-compatible";
+import {
+  createJobFinderAiClientFromEnvironment,
+  createOpenAiCompatibleJobFinderAiClient,
+} from "./openai-compatible";
 import {
   ResumeGenerationStrategyPolicySchema,
   type ResumeGenerationStrategyPolicy,
@@ -222,6 +225,44 @@ describe("configured resume strategy request boundary", () => {
         acceptedRewriteCount: 0,
         rejectedRewriteCount: 1,
       });
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test("routes a strategy-selected aggressive draft to the aggressive model", async () => {
+    const fetchMock = mockCapturingJsonFetch({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({}),
+          },
+        },
+      ],
+    });
+
+    try {
+      const client = createJobFinderAiClientFromEnvironment({
+        UNEMPLOYED_AI_API_KEY: "test-key",
+        UNEMPLOYED_AI_MODEL: "ordinary-model",
+      });
+
+      await client.createResumeDraft({
+        profile: createProfile(),
+        searchPreferences: createPreferences(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          responsibilities: ["Own the design system roadmap."],
+        },
+        resumeText: "Resume text",
+        strategy: createStrategy(),
+      });
+
+      const body = JSON.parse(fetchMock.getCapturedBody()) as {
+        model?: string;
+      };
+      expect(body.model).toBe("deepseek-v4.1-flash");
     } finally {
       fetchMock.restore();
     }

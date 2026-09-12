@@ -697,7 +697,7 @@ describe("contracts profile setup schemas", () => {
     expect(state.completedAt).toBeNull();
   });
 
-  test("treats fresh-start zero years of experience as incomplete core identity", () => {
+  test("accepts fresh-start zero years of experience as complete core identity", () => {
     const readiness = evaluateProfileSetupReadiness(
       {
         id: "candidate_fresh_start",
@@ -810,9 +810,11 @@ describe("contracts profile setup schemas", () => {
     );
 
     expect(readiness.freshStart).toBe(true);
-    expect(readiness.hasCoreIdentity).toBe(false);
+    // Zero years is a true answer for a first job; it must not hide the
+    // essentials behind a gate the person cannot see.
+    expect(readiness.hasCoreIdentity).toBe(true);
     expect(readiness.hasDiscoverySource).toBe(false);
-    expect(readiness.recommendedStep).toBe("essentials");
+    expect(readiness.recommendedStep).toBe("targeting");
   });
 
   test("downgrades completed setup when new pending review items appear", () => {

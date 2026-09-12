@@ -216,6 +216,7 @@ export type SourceAccessPromptState = z.infer<
 export const browserDriverValues = [
   "catalog_seed",
   "chrome_profile_agent",
+  "embedded_browser_agent",
 ] as const;
 
 export const BrowserDriverSchema = z.enum(browserDriverValues);

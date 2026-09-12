@@ -59,6 +59,13 @@ import {
   waitForInitialPageReady,
   type ExtractionPassSummary,
 } from "./discovery-helpers";
+import {
+  buildSiteSearchQueries,
+  buildSiteSearchUrl,
+  detectSiteSearchForm,
+  titleRelatesToRoles,
+  titlesLookUnrelatedToRoles,
+} from "./site-search-form";
 
 // Deferred search pages are extracted one at a time as soon as possible so
 // kept jobs reach incremental persistence early. This does not multiply
@@ -144,6 +151,19 @@ function describeCompactObservationPageIdentity(pageUrl: string): string {
   } catch {
     return pageUrl.split(/[?#]/, 1)[0] ?? pageUrl;
   }
+}
+
+/**
+ * Plain-language stop reason for a source whose start page was an access
+ * wall and that yielded no jobs. Read by users on Home, Find jobs and the
+ * source's health line, so it names what the site did and what to do next.
+ */
+function describeAccessWallStop(reason: string): string {
+  if (reason === "auth_required") {
+    return "This site asks you to sign in before it shows job listings, so nothing could be read automatically. Open it in the Job Finder browser, sign in there, then search again.";
+  }
+
+  return "This site showed a human-verification check instead of its job listings, so nothing could be read. Verification checks cannot be passed automatically; try another job site or a company careers page.";
 }
 
 /**
@@ -756,11 +776,23 @@ export async function runAgentDiscovery(
     // summary message seeds the existing batch/model path unchanged. Capture
     // failures are represented as unsupported outcomes and always fall through
     // to the legacy path rather than aborting discovery.
+    // Whether the deterministic scanner could read the page the run works
+    // from. On a page it cannot read, the blind scroll-and-capture loop below
+    // is bounded to a few passes: 21 passes over an unreadable front page
+    // produced nothing but steps.
+    let compactScanReadable = true;
+    // An access wall seen on the start page (verification challenge, sign-in
+    // wall). When the run then ends with nothing, the stop reason names the
+    // wall instead of a generic no-progress sentence.
+    let accessWall: { reason: string } | null = null;
     if (!requiresExplicitFinish) {
       if (signal?.aborted) {
         return buildInterruptedBeforeModelWorkResult();
       }
 
+      // Card shapes recognized on this site so far in the run; lets a results
+      // page with one or two postings read as well as the busy front page.
+      const cardShapeMemory = new Set<string>();
       let observation = await captureCompactDiscoveryObservation({
         page: pageRef.current,
         targetId: buildCompactObservationTargetId(
@@ -771,6 +803,7 @@ export async function runAgentDiscovery(
         observationId: createCompactObservationId(runStartedAtMs),
         revision: 1,
         observedAt: new Date().toISOString(),
+        cardShapeMemory,
       });
 
       // Client-rendered listings can arrive just after the document settles.
@@ -802,11 +835,203 @@ export async function runAgentDiscovery(
           observationId: observation.observationId,
           revision: retry + 1,
           observedAt: new Date().toISOString(),
+          cardShapeMemory,
         });
       }
 
       if (signal?.aborted) {
         return buildInterruptedBeforeModelWorkResult();
+      }
+
+      if (
+        observation.kind === "unsupported" &&
+        (observation.reason === "site_protection" ||
+          observation.reason === "manual_step_required" ||
+          observation.reason === "auth_required")
+      ) {
+        accessWall = { reason: observation.reason };
+      }
+
+      // Search before scrolling. A board's front page is a feed of every new
+      // listing; scrolling it collects whatever is newest and rarely what the
+      // user targets, and a page the scanner cannot read at all yields
+      // nothing however long it is scrolled. When the page offers its own
+      // search box (an ordinary GET form) and the user saved target roles,
+      // open that search for each role and scan the results instead. This
+      // reads HTML form semantics only; no board is named.
+      const startPageUnfiltered =
+        observation.kind === "supported" &&
+        titlesLookUnrelatedToRoles(
+          observation.postingCandidates.map((candidate) => candidate.title),
+          config.searchPreferences.targetRoles,
+        );
+      if (
+        (observation.kind === "unsupported" || startPageUnfiltered) &&
+        config.searchPreferences.targetRoles.length > 0
+      ) {
+        const siteSearchForm = await detectSiteSearchForm(pageRef.current);
+        const queries = siteSearchForm
+          ? buildSiteSearchQueries(config.searchPreferences.targetRoles)
+          : [];
+        if (siteSearchForm && queries.length > 0) {
+          emitProgress({
+            currentAction: "site_search",
+            currentUrl: state.currentUrl,
+            jobsFound: state.collectedJobs.length,
+            stepCount: state.stepCount,
+            waitReason: "waiting_on_page",
+            message: `Found the site's own search box (${siteSearchForm.evidence}); searching it for ${queries.map((query) => `"${query}"`).join(", ")} before reading the front page.`,
+          });
+          let searchRevision = 10;
+          let searchedObservation: typeof observation | null = null;
+          let searchedObservationUrl: string | null = null;
+          let searchedObservationRecognized = 0;
+          for (const query of queries) {
+            if (signal?.aborted) {
+              return buildInterruptedBeforeModelWorkResult();
+            }
+            const searchUrl = buildSiteSearchUrl(siteSearchForm, query);
+            const navigation = await executeToolCall(
+              {
+                id: `auto_site_search_${searchRevision}`,
+                type: "function",
+                function: {
+                  name: "navigate",
+                  arguments: JSON.stringify({ url: searchUrl }),
+                },
+              },
+              pageRef,
+              state,
+              config,
+              jobExtractor,
+              onProgress,
+              signal,
+            );
+            const navigationRecord =
+              navigation && typeof navigation === "object"
+                ? (navigation as Record<string, unknown>)
+                : null;
+            if (navigationRecord?.success !== true) {
+              continue;
+            }
+            try {
+              await waitForPageContent(
+                1_000,
+                undefined,
+                signal ? { signal } : {},
+              );
+            } catch (error) {
+              if (signal?.aborted) {
+                return buildInterruptedBeforeModelWorkResult();
+              }
+              throw error;
+            }
+            searchRevision += 1;
+            const searchObservation = await captureCompactDiscoveryObservation({
+              page: pageRef.current,
+              targetId: buildCompactObservationTargetId(
+                selectedStartingUrl,
+                searchUrl,
+                config.promptContext.siteLabel,
+              ),
+              observationId: createCompactObservationId(runStartedAtMs),
+              revision: searchRevision,
+              observedAt: new Date().toISOString(),
+              cardShapeMemory,
+            });
+            const recognized =
+              searchObservation.kind === "supported"
+                ? searchObservation.postingCandidates.length
+                : 0;
+            const added =
+              searchObservation.kind === "supported"
+                ? mergeCompactPostingCandidates(
+                    searchObservation.postingCandidates,
+                  )
+                : 0;
+            if (added > 0) {
+              await saveRunCheckpoint();
+            }
+            emitProgress({
+              currentAction: "site_search",
+              currentUrl: state.currentUrl,
+              jobsFound: state.collectedJobs.length,
+              stepCount: state.stepCount,
+              waitReason: "extracting_jobs",
+              message:
+                recognized > 0
+                  ? `Site search for "${query}": ${recognized} job card${recognized === 1 ? "" : "s"} recognized, ${added} new.`
+                  : `Site search for "${query}": no job cards recognized on the results page.`,
+            });
+            // The richest results page becomes the page the rest of the run
+            // works from, so pagination and the model see results for a
+            // target role instead of the front page.
+            if (
+              searchObservation.kind === "supported" &&
+              (searchedObservation === null ||
+                recognized > searchedObservationRecognized)
+            ) {
+              searchedObservation = searchObservation;
+              searchedObservationUrl = searchUrl;
+              searchedObservationRecognized = recognized;
+            }
+            if (getThisRunCollectedJobCount() >= config.targetJobCount) {
+              break;
+            }
+          }
+          if (searchedObservation) {
+            // The front page still contributes the cards that relate to the
+            // target roles; the unrelated bulk of the feed stays out.
+            if (observation.kind === "supported") {
+              const relatedFrontPageCandidates =
+                observation.postingCandidates.filter((candidate) =>
+                  titleRelatesToRoles(
+                    candidate.title,
+                    config.searchPreferences.targetRoles,
+                  ),
+                );
+              const frontPageAdded = mergeCompactPostingCandidates(
+                relatedFrontPageCandidates,
+              );
+              if (frontPageAdded > 0) {
+                await saveRunCheckpoint();
+                emitProgress({
+                  currentAction: "site_search",
+                  currentUrl: state.currentUrl,
+                  jobsFound: state.collectedJobs.length,
+                  stepCount: state.stepCount,
+                  waitReason: "extracting_jobs",
+                  message: `Kept ${frontPageAdded} related card${frontPageAdded === 1 ? "" : "s"} from the front page as well; ${observation.postingCandidates.length - relatedFrontPageCandidates.length} unrelated listings were left out.`,
+                });
+              }
+            }
+            observation = searchedObservation;
+            if (
+              searchedObservationUrl !== null &&
+              state.currentUrl !== searchedObservationUrl
+            ) {
+              await executeToolCall(
+                {
+                  id: `auto_site_search_return`,
+                  type: "function",
+                  function: {
+                    name: "navigate",
+                    arguments: JSON.stringify({ url: searchedObservationUrl }),
+                  },
+                },
+                pageRef,
+                state,
+                config,
+                jobExtractor,
+                onProgress,
+                signal,
+              );
+              if (signal?.aborted) {
+                return buildInterruptedBeforeModelWorkResult();
+              }
+            }
+          }
+        }
       }
 
       if (observation.kind === "supported") {
@@ -858,13 +1083,13 @@ export async function runAgentDiscovery(
         role: "user",
         content: buildCompactFallbackMessage(observation),
       });
+      compactScanReadable = observation.kind === "supported";
     }
 
     if (!requiresExplicitFinish && config.targetJobCount >= 20) {
-      const maxBatchPasses = Math.min(
-        28,
-        Math.max(8, Math.ceil(config.targetJobCount / 5) + 12),
-      );
+      const maxBatchPasses = compactScanReadable
+        ? Math.min(28, Math.max(8, Math.ceil(config.targetJobCount / 5) + 12))
+        : 4;
       const maxAutomaticPageAdvances = Math.min(
         4,
         Math.max(1, Math.ceil(config.targetJobCount / 20) - 1),
@@ -1094,7 +1319,9 @@ export async function runAgentDiscovery(
         return await buildDiscoveryResult({
           incomplete: true,
           error:
-            "Discovery stopped because repeated actions produced no new jobs, page evidence, or useful state changes.",
+            accessWall && state.collectedJobs.length === 0
+              ? describeAccessWallStop(accessWall.reason)
+              : "The site showed nothing new after several tries, so the search moved on.",
           phaseCompletionMode: requiresExplicitFinish ? "interrupted" : null,
           phaseCompletionReason: requiresExplicitFinish
             ? "No measurable progress remained after repeated actions."

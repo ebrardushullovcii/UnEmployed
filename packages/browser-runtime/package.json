@@ -13,10 +13,9 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@unemployed/contracts": "workspace:*",
-    "@unemployed/browser-agent": "workspace:*",
     "@unemployed/ai-providers": "workspace:*",
-    "playwright": "^1.52.0"
+    "@unemployed/browser-agent": "workspace:*",
+    "@unemployed/contracts": "workspace:*",
+    "playwright": "^1.63.0"
   }
 }
-

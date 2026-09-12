@@ -68,3 +68,22 @@ describe("resume import common helpers", () => {
     ).toEqual(["Built the workflow dashboard.", "Reduced triage time by 30%."]);
   });
 });
+
+describe("toNarrativeStringArray bullet splitting", () => {
+  test("splits inline bullet glyphs and long multi-sentence blobs into separate entries", () => {
+    expect(
+      toNarrativeStringArray("Led the migration to Kubernetes. • Cut deploy time by 40%. • Mentored four engineers."),
+    ).toEqual([
+      "Led the migration to Kubernetes.",
+      "Cut deploy time by 40%.",
+      "Mentored four engineers.",
+    ]);
+    const blob =
+      "Designed the claims pipeline that processes two million records a night without manual intervention. " +
+      "Replaced a legacy batch job with streaming services and cut end-to-end latency from hours to minutes for every downstream team. " +
+      "Wrote the on-call runbooks that the whole platform group now follows during incidents. " +
+      "Coached two junior engineers through their first production launches.";
+    expect(toNarrativeStringArray(blob)).toHaveLength(4);
+    expect(toNarrativeStringArray("Short single bullet.")).toEqual(["Short single bullet."]);
+  });
+});

@@ -1142,7 +1142,7 @@ export function buildDeterministicTailoredResume(
         : []),
       ...(effectiveSearchPreferences.tailoringMode === "aggressive"
         ? [
-            "Aggressive tailoring may include reasonable responsibility inferences from saved evidence. Review every generated line before approval.",
+            "Aggressive tailoring may include small, deliberate stretches of saved evidence — meant to get you the first interview, and proven by you in it. Review and confirm every generated line before approval.",
           ]
         : []),
     ],

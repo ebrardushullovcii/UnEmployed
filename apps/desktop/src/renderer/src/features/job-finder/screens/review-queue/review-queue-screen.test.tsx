@@ -312,7 +312,7 @@ describe("ReviewQueueScreen tailored draft preparation (controlled)", () => {
     });
     openBatchActions();
 
-    expect(screen.getByText(/Preparing 2 of 3/)).toBeTruthy();
+    expect(screen.getByText(/Writing resume 2 of 3/)).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", { name: "Stop after current draft" }),

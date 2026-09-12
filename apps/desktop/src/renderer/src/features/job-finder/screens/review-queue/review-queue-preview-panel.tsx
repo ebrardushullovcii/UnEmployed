@@ -70,6 +70,7 @@ export function ReviewQueuePreviewPanel({
   const workflowStatus = getReviewQueueWorkflowStatus(
     selectedItem,
     selectedAsset,
+    isSelectedJobPending,
   );
   const previewTone =
     previewState === "missing" ? "critical" : workflowStatus.tone;
@@ -300,7 +301,7 @@ export function ReviewQueuePreviewPanel({
                 original imported file shown above.
               </p>
               {originalResume?.textContent ? (
-                <div className="max-h-[56vh] overflow-y-auto whitespace-pre-wrap rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 p-5 text-sm leading-7 text-foreground-soft">
+                <div className="max-h-[56vh] min-w-0 overflow-y-auto wrap-anywhere whitespace-pre-wrap rounded-(--radius-field) border border-(--surface-panel-border) bg-background/35 p-5 text-sm leading-7 text-foreground-soft">
                   {originalResume.textContent}
                 </div>
               ) : (

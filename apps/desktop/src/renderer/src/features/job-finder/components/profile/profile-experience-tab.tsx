@@ -151,7 +151,9 @@ export function ProfileExperienceTab({
       .join(" | ");
 
     if (primaryLine && detailLine) {
-      return `${primaryLine}. ${detailLine}`;
+      // A middle dot, not a full stop: "DataHub. Remote, CA | Dec 2021 to
+      // Feb 2026" read as a sentence that had ended, then carried on.
+      return `${primaryLine} · ${detailLine}`;
     }
 
     return primaryLine || detailLine || "";
@@ -302,7 +304,7 @@ export function ProfileExperienceTab({
                   <fieldset className="grid min-w-0 gap-(--gap-field)">
                     {/* Same casing as the field labels beside it. */}
                     <legend className="text-(length:--text-field-label) font-medium uppercase tracking-(--tracking-label) text-muted-foreground">
-                      Work mode
+                      Work mode at this job
                     </legend>
                     {/* A preference row, not a table header: the boxed
                         checkboxes drew a rule segment above every option. */}

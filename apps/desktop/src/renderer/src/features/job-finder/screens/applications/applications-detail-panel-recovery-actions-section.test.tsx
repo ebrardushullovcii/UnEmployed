@@ -752,7 +752,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     const status = getByTestId("manual-field-finish-status");
     expect(status.getAttribute("role")).toBe("status");
     expect(status.textContent).toMatch(
-      /Opened in the Job Finder browser\. Switch to that window/i,
+      /Opened in the Job Finder browser\. Finish the step there/i,
     );
     // Retry stays the secondary action and never fires from the finish click.
     expect(
@@ -829,7 +829,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         "opened_application_page",
       );
       expect(status.textContent).toMatch(
-        /Opened in the Job Finder browser\. Switch to that window/i,
+        /Opened in the Job Finder browser\. Finish the step there/i,
       );
       // The page is open, so the open action demotes and confirming is the
       // primary path back in.
@@ -859,7 +859,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         "this application page was not reopened",
       );
       expect(status.textContent).not.toMatch(
-        /Opened in the Job Finder browser\. Switch to that window/i,
+        /Opened in the Job Finder browser\. Finish the step there/i,
       );
       // The page still needs opening, so the open action must not demote to
       // "Reopen"; the way back into the loop stays available.
@@ -1759,12 +1759,12 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
 
     // Prepare remaining jobs as the fresh-run path forward.
     const explanation = getByText(
-      /paused this run on one of its stop rules\. It will not continue on its own/i,
+      /one of your safety limits was reached\. It will not carry on by itself/i,
     );
     expect(explanation.textContent).toContain(
-      "Use Prepare remaining jobs to finish the unfinished jobs in a fresh safe recovery run",
+      "Use Prepare remaining jobs to finish the ones it did not get to",
     );
-    expect(explanation.textContent).not.toMatch(/Resolve the consent request/i);
+    expect(explanation.textContent).not.toMatch(/Needs you/i);
 
     // Finishing stays possible through a fresh recovery run.
     const queueButton = getByRole("button", { name: "Prepare remaining jobs" });

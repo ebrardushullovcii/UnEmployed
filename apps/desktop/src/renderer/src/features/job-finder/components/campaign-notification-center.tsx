@@ -1,5 +1,6 @@
 import type { CampaignNotification } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
+import { JOB_FINDER_ROUTE_PATHS } from "../lib/job-finder-route-hrefs";
 
 const kindLabels: Record<CampaignNotification["kind"], string> = {
   digest_ready: "Digest ready",
@@ -8,6 +9,41 @@ const kindLabels: Record<CampaignNotification["kind"], string> = {
   schedule_paused: "Schedule paused",
   rule_effect_update: "Rule update",
 };
+
+const NOTIFICATION_ROUTES: Record<CampaignNotification["kind"], string> = {
+  digest_ready: "/job-finder/discovery",
+  strong_match: "/job-finder/discovery",
+  blocked_work: "/job-finder/actions",
+  schedule_paused: "/job-finder/campaigns",
+  rule_effect_update: "/job-finder/campaigns",
+};
+const NOTIFICATION_OPEN_LABELS: Record<CampaignNotification["kind"], string> = {
+  digest_ready: "Open Find jobs",
+  strong_match: "Open Find jobs",
+  blocked_work: "Open Needs you",
+  schedule_paused: "Open Search plans",
+  rule_effect_update: "Open Search plans",
+};
+
+/**
+ * Blocked work on a job source (a failed source check) lives on Profile >
+ * Job sources, not on Needs you: that screen counts application blockers,
+ * so "Open Needs you" landed on a screen that said 0 and contradicted the
+ * notification.
+ */
+function getNotificationRoute(notification: CampaignNotification): string {
+  if (notification.kind === "blocked_work" && notification.sourceTargetId) {
+    return JOB_FINDER_ROUTE_PATHS.profileSources;
+  }
+  return NOTIFICATION_ROUTES[notification.kind];
+}
+
+function getNotificationOpenLabel(notification: CampaignNotification): string {
+  if (notification.kind === "blocked_work" && notification.sourceTargetId) {
+    return "Open job sources";
+  }
+  return NOTIFICATION_OPEN_LABELS[notification.kind];
+}
 
 function compareNewestFirst(
   left: CampaignNotification,
@@ -26,7 +62,15 @@ function compareNewestFirst(
 function formatCreatedAt(createdAt: string): string {
   const parsed = Date.parse(createdAt);
   if (Number.isNaN(parsed)) return createdAt;
-  return new Date(parsed).toLocaleString();
+  // The same shape the rest of Job Finder uses. `toLocaleString()` printed
+  // "9/10/2026, 1:19:52 AM" — a numeric month/day that reads as 9 October
+  // outside the US, with seconds nobody needs.
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+  }).format(new Date(parsed));
 }
 
 export function CampaignNotificationCenter(props: {
@@ -51,6 +95,8 @@ export function CampaignNotificationCenter(props: {
   pendingNotificationId: (notificationId: string) => boolean;
   onMarkAllRead: () => void;
   onMarkRead: (notificationId: string) => void;
+  /** Where a notification's "Open" goes; the row reads as dead without it. */
+  onNavigate?: (route: string) => void;
 }) {
   const notifications = [...props.notifications].sort(compareNewestFirst);
   const unreadCount = props.notifications.filter(
@@ -108,82 +154,107 @@ export function CampaignNotificationCenter(props: {
         >
           {props.errorMessage}
         </p>
-      ) : !hasNotifications && outstandingWork.length > 0 ? (
-        <ul className="grid gap-2" data-testid="notifications-outstanding-work">
-          {outstandingWork.map((entry) => (
-            <li
-              className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-accent/40 bg-accent/5 p-3"
-              key={entry.id}
-            >
-              <span className="min-w-0 break-words text-sm text-foreground-soft">
-                {entry.label}
-              </span>
-              <Button
-                onClick={entry.onOpen}
-                size="xs"
-                type="button"
-                variant="outline"
-              >
-                {entry.openLabel}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      ) : !hasNotifications ? (
-        <p className="rounded-(--radius-field) border border-border-subtle p-4 text-sm text-foreground-soft">
-          Nothing here yet. After a search finishes, strong new matches and work
-          that needs you show up here.
-        </p>
       ) : (
-        <ul className="grid max-h-80 gap-2 overflow-y-auto pr-1">
-          {notifications.map((notification) => {
-            const pending = props.pendingNotificationId(notification.id);
-            return (
-              <li
-                className={`grid gap-1.5 rounded-(--radius-field) border p-3 ${notification.unread ? "border-accent/40 bg-accent/5" : "border-border-subtle"}`}
-                key={notification.id}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-(--text-headline)">
-                      {notification.title}
-                    </p>
-                    <p className="mt-0.5 text-xs text-foreground-muted">
-                      {kindLabels[notification.kind]} ·{" "}
-                      {formatCreatedAt(notification.createdAt)}
+        <>
+          {outstandingWork.length > 0 ? (
+            <ul
+              className="grid gap-2"
+              data-testid="notifications-outstanding-work"
+            >
+              {outstandingWork.map((entry) => (
+                <li
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-accent/40 bg-accent/5 p-3"
+                  key={entry.id}
+                >
+                  <span className="min-w-0 break-words text-sm text-foreground-soft">
+                    {entry.label}
+                  </span>
+                  <Button
+                    onClick={entry.onOpen}
+                    size="xs"
+                    type="button"
+                    variant="outline"
+                  >
+                    {entry.openLabel}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {!hasNotifications && outstandingWork.length === 0 ? (
+            <p className="rounded-(--radius-field) border border-border-subtle p-4 text-sm text-foreground-soft">
+              Nothing here yet. After a search finishes, matches scoring 86% or
+              better and work that needs you show up here.
+            </p>
+          ) : null}
+          {hasNotifications ? (
+            <ul className="grid max-h-80 gap-2 overflow-y-auto pr-1">
+              {notifications.map((notification) => {
+                const pending = props.pendingNotificationId(notification.id);
+                return (
+                  <li
+                    className={`grid gap-1.5 rounded-(--radius-field) border p-3 ${notification.unread ? "border-accent/40 bg-accent/5" : "border-border-subtle"}`}
+                    key={notification.id}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-(--text-headline)">
+                          {notification.title}
+                        </p>
+                        <p className="mt-0.5 text-xs text-foreground-muted">
+                          {kindLabels[notification.kind]} ·{" "}
+                          {formatCreatedAt(notification.createdAt)}
+                          {notification.unread ? (
+                            <span className="ml-2 rounded-full border border-accent/45 px-1.5 py-0.5 text-accent">
+                              Unread
+                            </span>
+                          ) : null}
+                        </p>
+                      </div>
                       {notification.unread ? (
-                        <span className="ml-2 rounded-full border border-accent/45 px-1.5 py-0.5 text-accent">
-                          Unread
+                        <Button
+                          disabled={pending}
+                          onClick={() => props.onMarkRead(notification.id)}
+                          pending={pending}
+                          size="xs"
+                          type="button"
+                          variant="ghost"
+                        >
+                          Mark read
+                        </Button>
+                      ) : (
+                        <span className="rounded-full border border-border-subtle px-2 py-0.5 text-xs text-foreground-muted">
+                          Read
                         </span>
-                      ) : null}
-                    </p>
-                  </div>
-                  {notification.unread ? (
-                    <Button
-                      disabled={pending}
-                      onClick={() => props.onMarkRead(notification.id)}
-                      pending={pending}
-                      size="xs"
-                      type="button"
-                      variant="ghost"
-                    >
-                      Mark read
-                    </Button>
-                  ) : (
-                    <span className="rounded-full border border-border-subtle px-2 py-0.5 text-xs text-foreground-muted">
-                      Read
-                    </span>
-                  )}
-                </div>
-                {notification.body ? (
-                  <p className="text-sm text-foreground-soft">
-                    {notification.body}
-                  </p>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+                      )}
+                    </div>
+                    {notification.body ? (
+                      <p className="text-sm text-foreground-soft">
+                        {notification.body}
+                      </p>
+                    ) : null}
+                    {props.onNavigate ? (
+                      <div>
+                        <Button
+                          onClick={() =>
+                            props.onNavigate?.(
+                              getNotificationRoute(notification),
+                            )
+                          }
+                          size="xs"
+                          type="button"
+                          variant="outline"
+                        >
+                          {getNotificationOpenLabel(notification)}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+        </>
       )}
     </section>
   );

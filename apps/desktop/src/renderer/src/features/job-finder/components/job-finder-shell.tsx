@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { BrowserPeek } from "./browser-peek";
 import {
   useCallback,
   useEffect,
@@ -72,7 +73,6 @@ import {
 } from "../lib/destination-counts";
 import {
   SHELL_HEADER_MASK_HEIGHT_CLASS,
-  SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
   SHELL_SCROLLING_ROUTE_BOTTOM_GUTTER_CLASS,
   SHELL_SCROLLING_ROUTE_TOP_GUTTER_CLASS,
 } from "../lib/job-finder-shell-gutters";
@@ -1706,6 +1706,7 @@ export function JobFinderShell({
               tailoredDraftPreparation={tailoredDraftPreparation}
               workspace={workspace}
             />
+            <BrowserPeek />
             {actionScreen ? (
               <button
                 aria-current={activeScreen === "actions" ? "page" : undefined}
@@ -1933,23 +1934,16 @@ export function JobFinderShell({
       </span>
 
       {/* Content passes under the fixed header with no seam, so a title or a
-          card sitting at the boundary paints sliced through its glyphs. On a
-          scrolling route the shell owns the 12px top gutter and can spend the
-          remaining 8px on a soft edge. Locked routes own their own nested
-          scroller and begin live controls immediately after that gutter, so
-          their mask must stop at 12px: fading beyond it literally paints over
-          the top of those controls. */}
+          card sitting at the boundary paints sliced through its glyphs. The
+          mask is opaque across exactly the shell's 12px top gutter and stops
+          there: a fade tail past the gutter sat over the first row of every
+          route at scroll 0 and read as a shadow across its buttons and text. */}
       <div
         aria-hidden="true"
         className={cn(
           "pointer-events-none fixed inset-x-0 top-[7.25rem] z-30 hidden sm:block min-[1440px]:top-14 min-[1440px]:left-(--job-finder-side-width)",
-          usesLockedScreenLayout
-            ? "h-3 bg-(--shell-header-bg)"
-            : cn(
-                "bg-gradient-to-b from-(--shell-header-bg) to-transparent",
-                SHELL_HEADER_MASK_HEIGHT_CLASS,
-                SHELL_HEADER_MASK_OPAQUE_STOP_CLASS,
-              ),
+          SHELL_HEADER_MASK_HEIGHT_CLASS,
+          "bg-(--shell-header-bg)",
         )}
         data-job-finder-shell-header-mask
       />

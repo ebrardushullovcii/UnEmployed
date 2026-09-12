@@ -613,6 +613,9 @@ async function restoreClaimedScheduledSlot(input: {
  * terminal state so the schedule advances instead of hot-looping; a concurrent
  * discovery (already-in-progress) is surfaced to the caller without committing.
  */
+const NO_ENABLED_SOURCES_MESSAGE =
+  "This plan has no sources turned on, so there is nothing to search. Turn on a source in Profile, then run it again.";
+
 async function executeCampaignRun(input: {
   ctx: WorkspaceServiceContext;
   campaign: JobSearchCampaign;
@@ -945,6 +948,15 @@ export function createWorkspaceCampaignMethods(input: {
         ctx: input.ctx,
         campaignId: request.campaignId ?? null,
       });
+      // A plan with every source switched off used to report "Search plan run
+      // started" and then do nothing; the user had no way to tell why.
+      if (
+        !campaign.searchPreferences.discovery.targets.some(
+          (target) => target.enabled,
+        )
+      ) {
+        throw new Error(NO_ENABLED_SOURCES_MESSAGE);
+      }
       await executeCampaignRun({
         ctx: input.ctx,
         campaign,

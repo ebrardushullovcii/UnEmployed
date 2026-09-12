@@ -196,9 +196,11 @@ const PROFILE_SETUP_READINESS_BLOCKER_LABELS: Record<
   string
 > = {
   background: "Add work history",
-  discovery_source: "Enable a job source",
-  eligibility_preferences: "Add a preferred location",
-  identity_contact: "Complete your essentials",
+  discovery_source: "Enable a job source (on the Job targets step)",
+  // Any one work or location answer satisfies this gate, so the label must
+  // not promise that a location was saved.
+  eligibility_preferences: "Answer one work or location detail",
+  identity_contact: "Add your name and an email or phone",
   work_mode_preference: "Pick a work mode (remote, hybrid, or onsite)",
 };
 
@@ -462,7 +464,7 @@ function humanizeRecordFieldKey(key: string): string {
     case "interviewPreference":
       return "Interview preference";
     case "workMode":
-      return "Work mode";
+      return "Work mode at this job";
     case "dateEarned":
       return "Date earned";
     default:
@@ -537,6 +539,11 @@ function normalizeComparableSummary(value: string | null): string | null {
   return value ? value.trim().replace(/\s+/g, " ").toLowerCase() : null;
 }
 
+/** Whitespace-normalised but case-preserving: "Nico" and "NICO" differ. */
+function normalizeExactSummary(value: string | null): string | null {
+  return value ? value.trim().replace(/\s+/g, " ") : null;
+}
+
 export function buildDraftAwareSetupReviewItems(input: {
   currentProfile: CandidateProfile;
   currentSearchPreferences: JobSearchPreferences;
@@ -591,17 +598,17 @@ export function buildDraftAwareSetupReviewItems(input: {
       };
     }
 
-    const proposedSummary = normalizeComparableSummary(
-      item.proposedValue ?? null,
-    );
+    // Exact match only: a person who retypes "NICO TURNER" as "Nico Turner"
+    // has edited the value. Treating that as a confirmation re-applied the
+    // imported spelling on save while the toast said "Saved".
+    const proposedExact = normalizeExactSummary(item.proposedValue ?? null);
+    const draftExact = normalizeExactSummary(summarizeValue(draftValue));
 
     return {
       ...item,
       savedStatus: item.status,
       status:
-        proposedSummary && proposedSummary === draftSummary
-          ? "confirmed"
-          : "edited",
+        proposedExact && proposedExact === draftExact ? "confirmed" : "edited",
       statusSource: "draft",
     };
   });

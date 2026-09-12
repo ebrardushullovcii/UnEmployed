@@ -424,14 +424,16 @@ describe("buildProfileSetupReviewItems", () => {
       searchPreferences: seed.searchPreferences,
     });
 
+    // Zero years is a true answer for a first job, so the item nudges but
+    // never blocks finishing setup.
     expect(
       items.find((item) => item.target.key === "yearsExperience"),
     ).toMatchObject({
-      severity: "critical",
+      severity: "recommended",
     });
     expect(
       items.find((item) => item.target.key === "yearsExperience")?.reason,
-    ).toContain("A fresh-start profile stays blocked until this is added.");
+    ).toContain("Zero is fine if this is your first job.");
   });
 
   test("keeps years of experience recommended outside the fresh-start rule", () => {

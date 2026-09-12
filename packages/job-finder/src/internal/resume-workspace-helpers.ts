@@ -1,6 +1,9 @@
 import {
   buildCandidateSkillBank,
   classifyResumeClaimGrounding,
+  extractYearsOfExperienceNumbers,
+  listingTextContainsTerm,
+  type ResumeClaimGroundingResult,
   type ResumeGenerationEvidenceItem,
   type TailoredResumeDraft,
 } from "@unemployed/ai-providers";
@@ -184,6 +187,25 @@ function buildJobPhraseBank(job: SavedJob): string[] {
       .filter((entry) => tokenize(entry).length >= 5)
       .slice(0, 12),
   ]).filter((entry) => tokenize(entry).length >= 5);
+}
+
+/**
+ * Compact listing text for the aggressive claim relaxation. The relaxation
+ * bounds added technologies to ones the listing itself names, so this text —
+ * not the classifier's judgment — is what a listing-anchored term must come
+ * from.
+ */
+function buildVerifierJobListingText(job: SavedJob): string {
+  return [
+    job.summary ?? "",
+    job.description,
+    ...job.responsibilities,
+    ...job.minimumQualifications,
+    ...job.preferredQualifications,
+    ...job.keySkills,
+  ]
+    .filter((entry) => entry.trim())
+    .join("\n");
 }
 
 function buildProfileSupportBank(
@@ -513,10 +535,38 @@ function hasUnsupportedQuantifiedClaim(
     (claim) =>
       !profileSupportBank.some(
         (evidence) =>
-          extractQuantifiedClaims(evidence).includes(claim) &&
-          calculateTokenOverlap(content, evidence) >= 0.35,
+          (extractQuantifiedClaims(evidence).includes(claim) &&
+            calculateTokenOverlap(content, evidence) >= 0.35) ||
+          hasAdjacentYearsOfExperienceEvidence(claim, evidence),
       ),
   );
+}
+
+/**
+ * The years-of-experience rounding the aggressive generation gate may admit:
+ * a claimed "N years" is anchored by an evidenced "N-1 years" from the
+ * candidate's own profile. The years unit itself is the anchor, so no token
+ * overlap with the rounded claim is required; every other quantified claim
+ * still needs verbatim evidence with relevant overlap. Bounded to exactly
+ * one year — the generation gate never admits more, and this keeps the
+ * verifier from re-rejecting accepted rounded claims.
+ */
+function hasAdjacentYearsOfExperienceEvidence(
+  claim: string,
+  evidence: string,
+): boolean {
+  const claimYears = parseYearsOfExperienceClaimValue(claim);
+  if (claimYears === null) {
+    return false;
+  }
+  return extractYearsOfExperienceNumbers(evidence).some(
+    (years) => claimYears === years + 1,
+  );
+}
+
+function parseYearsOfExperienceClaimValue(claim: string): number | null {
+  const match = /^(\d+) years?$/.exec(claim);
+  return match ? Number.parseInt(match[1] ?? "", 10) : null;
 }
 
 function looksLikeUnsupportedAbsoluteClaim(
@@ -844,6 +894,16 @@ function buildResumeClaimEvidenceBank(
   add("profile", "profile:summary", profile.summary);
   add("profile", "profile:headline", profile.headline);
   add("profile", "profile:current-location", profile.currentLocation);
+  // The profile's own years-of-experience figure is candidate evidence the
+  // aggressive relaxation rounds up from (10 evidenced years may be stated
+  // as 11); without it the verifier could not recognize the rounded figure.
+  add(
+    "profile",
+    "profile:years-experience",
+    profile.yearsExperience > 0
+      ? `${profile.yearsExperience} years of professional experience`
+      : null,
+  );
   for (const [index, role] of profile.targetRoles.entries()) {
     add("profile", `profile:target-role:${index + 1}`, role, 1);
   }
@@ -1016,6 +1076,7 @@ function claimTextIsVerbatimInSupport(
 function resolveResumeClaimAssessmentStatus(input: {
   verdict: ReturnType<typeof classifyResumeClaimGrounding>["verdict"];
   gaps: readonly { type: string }[];
+  relaxations: ResumeClaimGroundingResult["relaxations"];
   hasSupportEvidence: boolean;
   supportText: string;
   claimText: string;
@@ -1023,6 +1084,16 @@ function resolveResumeClaimAssessmentStatus(input: {
 }): ResumeClaimAssessment["status"] {
   if (input.gaps.some((gap) => resumeClaimIntegrityGapTypes.has(gap.type))) {
     return "unsupported";
+  }
+
+  // Aggressive-tailoring relaxations (years of experience rounded up to the
+  // job's requirement, technologies named by the job listing) are
+  // user-confirmation states, never silent acceptances: the generation gate
+  // admits them only flagged inferred and counted in the draft notes, and
+  // export stays blocked until the candidate explicitly confirms each one.
+  // User-authored prose keeps the informational review status.
+  if (input.relaxations.length > 0) {
+    return input.generatedClaim ? "confirm_needed" : "review";
   }
 
   if (input.verdict === "weakly_supported") {
@@ -1099,14 +1170,18 @@ function assessResumeClaims(input: {
   const evidenceRefById = new Map(
     evidenceBank.map((entry) => [entry.ref.id, entry.ref] as const),
   );
+  const jobListingText = buildVerifierJobListingText(input.job);
 
   return buildResumeClaimDescriptors(input.draft).map((claim) => {
     const support = buildRelevantResumeClaimSupport(claim.text, evidenceBank);
-    // Inference stays enabled to match the most permissive legitimate
-    // generation posture: conservative generations only emit fully covered
-    // wording (unaffected by this flag), aggressive generations emit safe
-    // elaborations that must not flip to unsupported after acceptance. Hard
-    // integrity gaps fire mode-independently either way.
+    // Inference and aggressive claim relaxation stay enabled to match the
+    // most permissive legitimate generation posture: conservative
+    // generations only emit fully covered wording (unaffected by these
+    // flags), aggressive generations emit safe elaborations and may emit
+    // relaxed claims (years rounded up to the job's requirement, technologies
+    // named by the listing) that must not flip to unsupported after
+    // acceptance — they surface as confirm_needed so the user owns them.
+    // Hard integrity gaps fire mode-independently either way.
     const grounding = classifyResumeClaimGrounding({
       text: claim.text,
       evidence: support.map((entry) => ({
@@ -1117,7 +1192,9 @@ function assessResumeClaims(input: {
       })),
       jobCompany: input.job.company,
       jobSkills: input.job.keySkills,
+      jobListingText,
       allowReasonableInference: true,
+      allowAggressiveClaimRelaxation: true,
     });
     const legacyIntegrityOverride =
       hasUnsupportedQuantifiedClaim(claim.text, input.profileSupportBank) ||
@@ -1134,6 +1211,7 @@ function assessResumeClaims(input: {
       : resolveResumeClaimAssessmentStatus({
           verdict: grounding.verdict,
           gaps: grounding.gaps,
+          relaxations: grounding.relaxations,
           hasSupportEvidence: grounding.supportEvidenceIds.length > 0,
           supportText: support
             .filter((entry) =>
@@ -1215,6 +1293,19 @@ function removeBulletDuplicatesFromSummary(
   return uniqueSentences.length > 0 ? uniqueSentences.join(" ") : null;
 }
 
+const EMPLOYMENT_END_SENTENCE_PATTERN =
+  /\b(?:laid off|lay-?offs?|reduction in force|company-wide reduction|workforce reduction|position (?:was )?(?:ended|eliminated)|role (?:was )?(?:ended|eliminated)|let go|terminated|made redundant|redundancy)\b/i;
+
+/** Drops sentences that narrate how a job ended; a summary is not the place for them. */
+export function stripEmploymentEndSentences(text: string): string {
+  return text
+    .trim()
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !EMPLOYMENT_END_SENTENCE_PATTERN.test(sentence))
+    .join(" ")
+    .trim();
+}
+
 export function sanitizeResumeDraft(input: {
   draft: ResumeDraft;
   job: SavedJob;
@@ -1223,6 +1314,7 @@ export function sanitizeResumeDraft(input: {
 }): ResumeDraft {
   const jobPhraseBank = buildJobPhraseBank(input.job);
   const profileSupportBank = buildProfileSupportBank(input.profile);
+  const listingText = buildVerifierJobListingText(input.job);
   const candidateSkillBank = uniqueStrings([
     ...buildCandidateSkillBank(input.profile),
     ...(input.sourceSkills ?? []),
@@ -1253,6 +1345,19 @@ export function sanitizeResumeDraft(input: {
           looksLikeUnsupportedAbsoluteClaim(section.text, profileSupportBank))
       ) {
         return null;
+      }
+      if (canSuppressGeneratedSummary) {
+        // A summary is the pitch. Generators copy "Position ended in a
+        // company-wide reduction" from the imported resume into it, which a
+        // candidate would never lead with; the work history keeps the dates.
+        const withoutEmploymentEnd = stripEmploymentEndSentences(section.text);
+        if (withoutEmploymentEnd !== section.text.trim()) {
+          if (!withoutEmploymentEnd) {
+            return null;
+          }
+          seenLines.add(normalizeText(withoutEmploymentEnd));
+          return withoutEmploymentEnd;
+        }
       }
       if (seenLines.has(normalizedSectionText)) {
         return null;
@@ -1298,7 +1403,12 @@ export function sanitizeResumeDraft(input: {
             ) {
               return false;
             }
-          } else if (!isGroundedVisibleSkill(bullet.text, candidateSkillBank)) {
+          } else if (
+            !isGroundedVisibleSkill(bullet.text, candidateSkillBank) &&
+            // Aggressive tailoring may add the job's own requested
+            // technologies to the skills section; the bound is the listing.
+            !listingTextContainsTerm(listingText, bullet.text)
+          ) {
             return false;
           }
         }
@@ -2016,7 +2126,7 @@ export function validateResumeDraft(input: {
         entryId: assessment.entryId,
         bulletId: assessment.bulletId,
         message:
-          "This claim goes beyond the stored candidate evidence. Confirm it is accurate and the candidate's own before export.",
+          "This claim goes beyond the stored candidate evidence — the kind of small, deliberate stretch that clears screening for a first interview. Confirm it is accurate and the candidate's own before export; only confirm what the candidate can back in the interview.",
       });
     }
     const blocksExport =
@@ -2324,17 +2434,43 @@ export function buildResumeProposalReplyContent(input: {
   approvalBlockers: readonly ResumeProposalApprovalBlocker[];
   changeCount: number;
   scopeLabel?: string | null;
+  /**
+   * The model's own note about the request, kept when it says something the
+   * standard line does not: typically which part of the request it did not
+   * do and why ("no evidence for a 60% AWS saving"). The user asked for that
+   * part and deserves the answer, not silence.
+   */
+  assistantNote?: string | null;
 }): string {
   const scope = input.scopeLabel
     ? ` for the '${input.scopeLabel}' section`
     : "";
   const plural = input.changeCount === 1 ? "" : "s";
+  const note = selectAssistantNote(input.assistantNote);
 
   if (input.approvalBlockers.length > 0) {
+    // A blocked proposal carries only the blocker: the model's own note could
+    // call the edit grounded or done, which the gate has just said it is not.
     return `I prepared ${input.changeCount} resume edit${plural}${scope}, but ${input.approvalBlockers.length === 1 ? "1 of them would block approval" : `${input.approvalBlockers.length} of them would block approval`}: the new wording is not supported by your saved evidence. Nothing changed yet; rewrite the flagged text or reject this proposal.`;
   }
 
-  return `I prepared ${input.changeCount} grounded resume edit${plural}${scope} for your review. Nothing changed yet; select the changes you want and accept them explicitly.`;
+  return `I prepared ${input.changeCount} grounded resume edit${plural}${scope} for your review. Nothing changed yet; select the changes you want and accept them explicitly.${note}`;
+}
+
+const ASSISTANT_NOTE_MAX_LENGTH = 420;
+const ASSISTANT_NOTE_BOILERPLATE =
+  /^(?:i (?:am|'m) reviewing|i prepared|i (?:have )?(?:proposed|updated|added|drafted)[^.]*\.?$|done\.?$|ok(?:ay)?\.?$)/iu;
+
+function selectAssistantNote(note: string | null | undefined): string {
+  const trimmed = note?.replace(/\s+/g, " ").trim() ?? "";
+  if (!trimmed || ASSISTANT_NOTE_BOILERPLATE.test(trimmed)) {
+    return "";
+  }
+  const clipped =
+    trimmed.length > ASSISTANT_NOTE_MAX_LENGTH
+      ? `${trimmed.slice(0, ASSISTANT_NOTE_MAX_LENGTH).replace(/\s+\S*$/u, "")}…`
+      : trimmed;
+  return ` ${clipped}`;
 }
 
 export function hasBlockingResumeIdentityMismatch(

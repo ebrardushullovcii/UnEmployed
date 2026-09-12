@@ -510,7 +510,7 @@ export async function persistApplicationUserAction(input: {
           expectedPageFingerprint: null,
         },
     title: `${copy.titleVerb} to continue the ${input.job.company} application`,
-    summary: `${describeApplicationBlockerReason(input.blocker)} Complete this ${copy.summaryStep} step in the ${JOB_FINDER_BROWSER_LABEL}, then return so Job Finder can verify the exact blocker no longer appears.`,
+    summary: `${describeApplicationBlockerReason(input.blocker)} Complete this ${copy.summaryStep} step in the ${JOB_FINDER_BROWSER_LABEL}, then come back here and confirm so Job Finder can check the page again.`,
     instructions: [
       copy.instruction,
       "Return to Needs you and confirm completion only after the browser step is complete.",
