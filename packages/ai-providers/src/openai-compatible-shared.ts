@@ -7,6 +7,7 @@ import {
   buildDeterministicStructuredResumeDraft,
   composeDeterministicFullText,
   filterGroundedVisibleSkills,
+  isSpokenLanguageResumeChrome,
   orderSkillsByJobRelevance,
   uniqueStrings,
   VISIBLE_ADDITIONAL_SKILL_LIMIT,
@@ -14,7 +15,10 @@ import {
 } from "./deterministic";
 import {
   buildResumeGenerationEvidenceCatalog,
+  collectListingRequestedSkills,
+  isInjectableListingSkillName,
   listingTextContainsTerm,
+  mergeAggressiveVisibleSkills,
   parseEvidenceLinkedText,
   selectResumeRewrite,
   type ResumeGenerationEvidenceItem,
@@ -845,10 +849,13 @@ export function completeTailoredResumeDraft(
     acceptedRewriteCharacters: 0,
     acceptedInferredRewriteCount: 0,
   };
+  const listingRequestedSkills = collectListingRequestedSkills(
+    fallbackInput.job,
+  );
   const rewriteContext: ResumeRewriteContext = {
     evidenceCatalog: buildResumeGenerationEvidenceCatalog(fallbackInput),
     jobCompany: fallbackInput.job.company,
-    jobSkills: fallbackInput.job.keySkills,
+    jobSkills: listingRequestedSkills,
     jobListingText: buildJobListingTextForRelaxation(fallbackInput.job),
     quality,
     allowReasonableInference:
@@ -895,57 +902,15 @@ export function completeTailoredResumeDraft(
   // Aggressive tailoring also adds the job's requested technologies to the
   // skills section — the strongest screening signal for landing the first
   // interview — even when the profile never recorded them. The bound stays
-  // the listing itself: job.keySkills plus any core skill the listing text
-  // names, never a technology invented from nowhere. Every added skill is
-  // named in a note so the candidate confirms each one.
+  // the listing itself: structured key skills, skill/tool keyword signals,
+  // and technologies named in qualification or skill-prompt prose, never a
+  // technology invented from nowhere. Listing-asked skills keep reserved
+  // visible slots so a full grounded list cannot drop them. Every added
+  // skill is named in a note so the candidate confirms each one.
   const isAggressiveTailoring =
     (fallbackInput.strategy?.tailoringStrength ??
       fallbackInput.searchPreferences.tailoringMode) === "aggressive";
-  const addedListingSkills = isAggressiveTailoring
-    ? uniqueStrings([
-        ...fallbackInput.job.keySkills.filter(
-          (skill) => skill.trim().length > 0,
-        ),
-        ...coreSkills.filter((skill) =>
-          listingTextContainsTerm(rewriteContext.jobListingText, skill),
-        ),
-      ]).filter(
-        (skill) =>
-          !groundedCoreSkills.some(
-            (grounded) => grounded.toLowerCase() === skill.toLowerCase(),
-          ),
-      )
-    : [];
-  // Grounded skills keep their slots; injected listing skills only fill what
-  // is left. Ordering the merged list by relevance let a listing keyword push
-  // one of the candidate's real skills off the visible list.
-  const finalCoreSkills = isAggressiveTailoring
-    ? [
-        ...orderSkillsByJobRelevance(
-          uniqueStrings(groundedCoreSkills),
-          fallbackInput.job,
-        ),
-        ...orderSkillsByJobRelevance(
-          uniqueStrings(addedListingSkills),
-          fallbackInput.job,
-        ),
-      ].slice(0, VISIBLE_CORE_SKILL_LIMIT)
-    : groundedCoreSkills;
-  const targetedKeywords = fallbackInput.strategy
-    ? selectCanonicalStringList(
-        sanitizedTargetedKeywords.filter((keyword) =>
-          fallback.targetedKeywords.some(
-            (allowedKeyword) =>
-              allowedKeyword.toLowerCase() === keyword.toLowerCase(),
-          ),
-        ),
-        fallback.targetedKeywords,
-      )
-    : selectCanonicalStringList(
-        sanitizedTargetedKeywords,
-        fallback.targetedKeywords,
-      );
-  const groundedAdditionalSkills = filterGroundedVisibleSkills(
+  const groundedAdditionalCandidates = filterGroundedVisibleSkills(
     fallbackInput.profile,
     fallbackInput.strategy
       ? sanitizedAdditionalSkills.filter((skill) =>
@@ -961,14 +926,51 @@ export function completeTailoredResumeDraft(
           )
         : fallback.additionalSkills,
     VISIBLE_ADDITIONAL_SKILL_LIMIT + VISIBLE_CORE_SKILL_LIMIT,
-  )
-    .filter(
+  );
+  const aggressiveSkills = isAggressiveTailoring
+    ? mergeAggressiveVisibleSkills({
+        groundedCoreSkills: orderSkillsByJobRelevance(
+          uniqueStrings(groundedCoreSkills),
+          fallbackInput.job,
+        ),
+        groundedAdditionalSkills: groundedAdditionalCandidates,
+        listingSkills: uniqueStrings([
+          ...listingRequestedSkills,
+          ...coreSkills.filter(
+            (skill) =>
+              listingTextContainsTerm(rewriteContext.jobListingText, skill) &&
+              isInjectableListingSkillName(skill),
+          ),
+        ]),
+        coreLimit: VISIBLE_CORE_SKILL_LIMIT,
+        additionalLimit: VISIBLE_ADDITIONAL_SKILL_LIMIT,
+      })
+    : null;
+  const addedListingSkills = aggressiveSkills?.addedListingSkills ?? [];
+  const finalCoreSkills = aggressiveSkills?.coreSkills ?? groundedCoreSkills;
+  const targetedKeywords = fallbackInput.strategy
+    ? selectCanonicalStringList(
+        sanitizedTargetedKeywords.filter((keyword) =>
+          fallback.targetedKeywords.some(
+            (allowedKeyword) =>
+              allowedKeyword.toLowerCase() === keyword.toLowerCase(),
+          ),
+        ),
+        fallback.targetedKeywords,
+      )
+    : selectCanonicalStringList(
+        sanitizedTargetedKeywords,
+        fallback.targetedKeywords,
+      );
+  const groundedAdditionalSkills = (
+    aggressiveSkills?.additionalSkills ??
+    groundedAdditionalCandidates.filter(
       (skill) =>
         !finalCoreSkills.some(
           (coreSkill) => coreSkill.toLowerCase() === skill.toLowerCase(),
         ),
     )
-    .slice(0, VISIBLE_ADDITIONAL_SKILL_LIMIT);
+  ).slice(0, VISIBLE_ADDITIONAL_SKILL_LIMIT);
   const notes = [...fallback.notes];
   if (addedListingSkills.length > 0) {
     notes.push(
@@ -1003,13 +1005,16 @@ export function completeTailoredResumeDraft(
       : fallback.projectEntries;
   if (quality.acceptedInferredRewriteCount > 0) {
     notes.push(
-      `${quality.acceptedInferredRewriteCount} AI-inferred ${quality.acceptedInferredRewriteCount === 1 ? "line" : "lines"} came from aggressive tailoring. These lines are small, deliberate stretches of your saved evidence with one purpose: clearing the job's screening and earning you the first interview. They stay bounded to what your evidence implies you can actually do — evidenced years may round up by at most one toward the job's stated ask, technologies the job asks for may be added whenever your saved experience shows you are a developer or engineer, and the job's requested technologies also join your skills section. Proving each claim happens in the interview, and that is yours alone: review every inferred line and only approve ones you can stand behind.`,
+      `${quality.acceptedInferredRewriteCount} AI-inferred ${quality.acceptedInferredRewriteCount === 1 ? "line" : "lines"} came from aggressive tailoring. These lines are small, deliberate stretches of your saved evidence with one purpose: clearing the job's screening and earning you the first interview. They stay bounded to what your evidence implies you can actually do — evidenced years may round up by at most one toward the job's stated ask, technologies the job asks for may be added when your saved experience makes them credible — including technologies named only in qualifications — and the job's requested technologies also join your skills section. Proving each claim happens in the interview, and that is yours alone: review every inferred line and only approve ones you can stand behind.`,
     );
   }
   const generationProvenance = describeModelDraftProvenance(
     quality,
     notes,
     addedListingSkills,
+  );
+  const languages = fallback.languages.filter(
+    (language) => !isSpokenLanguageResumeChrome(language),
   );
   const fullText = composeDeterministicFullText({
     label,
@@ -1021,7 +1026,7 @@ export function completeTailoredResumeDraft(
     educationEntries: fallback.educationEntries,
     certificationEntries: fallback.certificationEntries,
     additionalSkills: groundedAdditionalSkills,
-    languages: fallback.languages,
+    languages,
     targetedKeywords,
     notes,
   });
@@ -1039,7 +1044,7 @@ export function completeTailoredResumeDraft(
     educationEntries: fallback.educationEntries,
     certificationEntries: fallback.certificationEntries,
     additionalSkills: groundedAdditionalSkills,
-    languages: fallback.languages,
+    languages,
     fullText,
     compatibilityScore:
       typeof normalizedPrimary.compatibilityScore === "number"

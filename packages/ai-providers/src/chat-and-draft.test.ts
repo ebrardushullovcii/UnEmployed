@@ -8,6 +8,7 @@ import type {
   CandidateProfile,
   ProfileCopilotRelevantReviewItem,
 } from "@unemployed/contracts";
+import { ResumeGenerationStrategyPolicySchema } from "./shared";
 import {
   createEnvironment,
   createJobPosting,
@@ -2061,7 +2062,7 @@ describe("openai-compatible chat and draft behavior", () => {
         acceptedRewriteCount: 1,
       });
       expect(result.notes).toContain(
-        "1 AI-inferred line came from aggressive tailoring. These lines are small, deliberate stretches of your saved evidence with one purpose: clearing the job's screening and earning you the first interview. They stay bounded to what your evidence implies you can actually do — evidenced years may round up by at most one toward the job's stated ask, technologies the job asks for may be added whenever your saved experience shows you are a developer or engineer, and the job's requested technologies also join your skills section. Proving each claim happens in the interview, and that is yours alone: review every inferred line and only approve ones you can stand behind.",
+        "1 AI-inferred line came from aggressive tailoring. These lines are small, deliberate stretches of your saved evidence with one purpose: clearing the job's screening and earning you the first interview. They stay bounded to what your evidence implies you can actually do — evidenced years may round up by at most one toward the job's stated ask, technologies the job asks for may be added when your saved experience makes them credible — including technologies named only in qualifications — and the job's requested technologies also join your skills section. Proving each claim happens in the interview, and that is yours alone: review every inferred line and only approve ones you can stand behind.",
       );
     } finally {
       restoreFetch();
@@ -2263,6 +2264,151 @@ describe("openai-compatible chat and draft behavior", () => {
       expect(aggressive.generationProvenance?.detail).toContain(
         "confirm or remove",
       );
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("aggressive mode adds a qualification-only listing technology to the skills section", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [{ message: { content: JSON.stringify({}) } }],
+    });
+
+    try {
+      const buildClient = () =>
+        createOpenAiCompatibleJobFinderAiClient({
+          apiKey: "test-key",
+          baseUrl: "https://example.com/v1",
+          model: "test-model",
+        });
+      const draftInput = {
+        profile: createProfile(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          description:
+            "Build product interfaces for customer workflows with TypeScript.",
+          keySkills: ["TypeScript"],
+          minimumQualifications: [
+            "Hands-on experience with Terraform and CI/CD.",
+          ],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["TypeScript"],
+          keywords: [],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      };
+
+      const aggressive = await buildClient().createResumeDraft({
+        ...draftInput,
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "aggressive" as const,
+        },
+      });
+      expect(aggressive.coreSkills).toEqual(
+        expect.arrayContaining(["Terraform", "CI/CD"]),
+      );
+      expect(aggressive.notes.join(" ")).toMatch(/Terraform/);
+
+      const balanced = await buildClient().createResumeDraft({
+        ...draftInput,
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "balanced" as const,
+        },
+      });
+      expect(balanced.coreSkills).not.toEqual(
+        expect.arrayContaining(["Terraform"]),
+      );
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("a conservative strategy wins over the global aggressive default and does not add listing-only skills", async () => {
+    const restoreFetch = mockJsonFetch({
+      choices: [{ message: { content: JSON.stringify({}) } }],
+    });
+
+    try {
+      const client = createOpenAiCompatibleJobFinderAiClient({
+        apiKey: "test-key",
+        baseUrl: "https://example.com/v1",
+        model: "test-model",
+      });
+      const draftInput = {
+        profile: createProfile(),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          description:
+            "Build product interfaces for customer workflows with TypeScript.",
+          keySkills: ["TypeScript"],
+          minimumQualifications: [
+            "Hands-on experience with Terraform and CI/CD.",
+          ],
+        },
+        resumeText: "Resume text",
+        evidence: {
+          summary: [],
+          candidateSummary: [],
+          experience: [],
+          skills: ["TypeScript"],
+          keywords: [],
+        },
+        researchContext: {
+          companyNotes: [],
+          domainVocabulary: [],
+          priorityThemes: [],
+        },
+      };
+      const conservativeStrategy = ResumeGenerationStrategyPolicySchema.parse({
+        strategyId: "strategy_keep_facts",
+        strategyName: "Keep every fact",
+        roleFamily: "Frontend Engineering",
+        baseResumeDocumentId: "resume_1",
+        templateId: "classic_ats",
+        headlinePolicy: "per_job_tailored",
+        skillsPolicy: "role_family_expanded",
+        coveragePolicy: "full_tailoring",
+        tailoringStrength: "conservative",
+        evidenceBoundaries: {
+          allowExactClaims: true,
+          allowParaphrasedClaims: true,
+          maxEvidenceRefsPerBullet: 8,
+          requireVerifierPass: true,
+        },
+        effectiveSource: "selection",
+        effectiveReason: "The user selected this strategy for the posting.",
+        recommendationSource: "none",
+        recommendationReason: null,
+        selectionSource: "user",
+        selectionReason: "Keep every fact for this job.",
+      });
+
+      const result = await client.createResumeDraft({
+        ...draftInput,
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "aggressive" as const,
+        },
+        strategy: conservativeStrategy,
+      });
+
+      expect(result.coreSkills).not.toEqual(
+        expect.arrayContaining(["Terraform"]),
+      );
+      expect(result.notes.join(" ")).not.toMatch(/job-listing skill/i);
     } finally {
       restoreFetch();
     }

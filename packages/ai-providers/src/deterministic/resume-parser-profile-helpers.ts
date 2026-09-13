@@ -21,6 +21,7 @@ import {
   uniqueStrings,
 } from "./utils";
 import { inferSkills } from "./resume-parser-skills";
+import { isSpokenLanguageResumeChrome } from "./resume-skill-grounding";
 
 export function inferTimeZoneFromLocation(
   location: string | null,
@@ -613,7 +614,7 @@ export function inferSpokenLanguages(resumeText: string) {
     notes: string | null;
   }> = [];
   const motherTongueMatch = resumeText.match(
-    /Mother tongue\(s\):\s*([A-Za-z]+)/i,
+    /Mother\s+tongue(?:\(s\))?\s*[:\-–—]\s*([A-Za-z]+)/i,
   );
 
   if (motherTongueMatch?.[1]) {
@@ -655,6 +656,20 @@ export function inferSpokenLanguages(resumeText: string) {
     const proficiency = cleanLine(match?.[2] ?? "");
 
     if (!language || !proficiency || /^https?:\/\//i.test(line)) {
+      continue;
+    }
+
+    if (/mother\s*tongue/i.test(language) && /^[A-Za-z][A-Za-z .'-]*$/.test(proficiency)) {
+      entries.push({
+        language: titleCaseWords(proficiency),
+        proficiency: "Native",
+        interviewPreference: true,
+        notes: null,
+      });
+      continue;
+    }
+
+    if (isSpokenLanguageResumeChrome(language) || isSpokenLanguageResumeChrome(line)) {
       continue;
     }
 

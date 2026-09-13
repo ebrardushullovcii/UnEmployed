@@ -7,6 +7,8 @@ import {
   describeAcceptedAssistantEdits,
   describeResumeDraftProvenance,
   describeResumeGenerationPath,
+  describeResumeExportClaimBlock,
+  resumeExportClaimBlockActionLabel,
   findLatestAssistantEditRevisionId,
   getDeterministicResumeFallbackMessage,
 } from "./resume-workspace-utils";
@@ -340,5 +342,48 @@ describe("findLatestAssistantEditRevisionId", () => {
         revision("rev_1", "manual_patch", "2026-09-03T10:00:00.000Z"),
       ]),
     ).toBeNull();
+  });
+});
+
+describe("describeResumeExportClaimBlock", () => {
+  it("tells the person to confirm lines when every blocker is confirm_needed", () => {
+    expect(
+      describeResumeExportClaimBlock({
+        blockingAssessments: [
+          { status: "confirm_needed" },
+          { status: "confirm_needed" },
+        ],
+      }),
+    ).toBe(
+      "2 lines still need your confirmation before this resume can be exported.",
+    );
+    expect(
+      resumeExportClaimBlockActionLabel({
+        blockingAssessments: [{ status: "confirm_needed" }],
+      }),
+    ).toBe("Review confirmations");
+  });
+
+  it("keeps rewrite copy for unsupported claims and mixes both when needed", () => {
+    expect(
+      describeResumeExportClaimBlock({
+        blockingAssessments: [{ status: "unsupported" }],
+      }),
+    ).toBe("1 claim must be removed or rewritten before this resume can be exported.");
+    expect(
+      describeResumeExportClaimBlock({
+        blockingAssessments: [
+          { status: "confirm_needed" },
+          { status: "unsupported" },
+        ],
+      }),
+    ).toBe(
+      "1 line still needs your confirmation, and 1 claim must be removed or rewritten, before this resume can be exported.",
+    );
+    expect(
+      resumeExportClaimBlockActionLabel({
+        blockingAssessments: [{ status: "unsupported" }],
+      }),
+    ).toBe("Review blocked claims");
   });
 });

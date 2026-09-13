@@ -12,6 +12,19 @@ describe("ResumeStrategyContextPanel", () => {
     expect(markup).toBe("");
   });
 
+  it("still names the global default when no strategy is selected", () => {
+    const markup = renderToStaticMarkup(
+      <ResumeStrategyContextPanel
+        context={null}
+        effectiveTailoringStrength="aggressive"
+      />,
+    );
+
+    expect(markup).toContain("Your default:");
+    expect(markup).toContain("A fuller rewrite that may stretch, with your say-so");
+    expect(markup).toContain("clear screening for a first interview");
+  });
+
   it("keeps strategy context as a collapsed advisory accordion with safety copy", () => {
     const context = JobFinderResumeWorkspaceStrategyContextSchema.parse({
       recommendedStrategyId: "strategy_signals",
@@ -47,5 +60,25 @@ describe("ResumeStrategyContextPanel", () => {
       "User chose approach &quot;Legacy tailoring&quot;",
     );
     expect(markup).not.toContain("chose strategy");
+  });
+
+  it("names the global default when a strategy is present but does not set a strength", () => {
+    const context = JobFinderResumeWorkspaceStrategyContextSchema.parse({
+      recommendedStrategyId: null,
+      recommendedStrategyName: null,
+      recommendationSource: "none",
+      recommendationReason: "No match.",
+    });
+    const markup = renderToStaticMarkup(
+      <ResumeStrategyContextPanel
+        context={context}
+        effectiveTailoringStrength="aggressive"
+      />,
+    );
+
+    expect(markup).toContain("Your default:");
+    expect(markup).toContain(
+      "A fuller rewrite that may stretch, with your say-so",
+    );
   });
 });

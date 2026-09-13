@@ -26,8 +26,12 @@ export {
 } from "./deterministic/resume-narrative-presentation";
 export {
   buildCandidateSkillBank,
+  canonicalSkillPhrase,
   filterCandidateFacingResumeKeywords,
   filterGroundedVisibleSkills,
+  isSpokenLanguageResumeChrome,
+  looksLikeSpokenLanguageSkillEntry,
+  skillsAreEquivalent,
 } from "./deterministic/resume-skill-grounding";
 export {
   buildGenericCanonicalUrl,

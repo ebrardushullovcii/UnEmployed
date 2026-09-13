@@ -612,6 +612,25 @@ export const ResumeDraftSchema = z.object({
 });
 export type ResumeDraft = z.output<typeof ResumeDraftSchema>;
 
+/**
+ * Skills-section bullets the candidate can bulk-confirm. Years rounding and
+ * other prose stretches stay one-by-one; listing-asked technologies in the
+ * skills or keywords section share one command, each still getting its own
+ * confirmation record and the same ownership statement.
+ */
+export function isResumeSkillClaimAssessment(
+  draft: Pick<ResumeDraft, "sections">,
+  assessment: Pick<ResumeClaimAssessment, "field" | "sectionId">,
+): boolean {
+  if (assessment.field !== "section_bullet") {
+    return false;
+  }
+  const section = draft.sections.find(
+    (entry) => entry.id === assessment.sectionId,
+  );
+  return section?.kind === "skills" || section?.kind === "keywords";
+}
+
 export const ResumeDraftPatchSchema = z.object({
   id: NonEmptyStringSchema,
   draftId: NonEmptyStringSchema,

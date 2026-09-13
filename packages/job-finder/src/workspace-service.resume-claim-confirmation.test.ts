@@ -502,4 +502,188 @@ describe("resume claim confirmation commands", () => {
       /blocking candidate-claim validation issues/i,
     );
   });
+
+  test("add_many confirms listing-asked skills in one draft mutation", async () => {
+    const skills = ["Terraform", "Kubernetes"] as const;
+    const seed = createSeed();
+    seed.savedJobs = seed.savedJobs.map((job) =>
+      job.id === "job_ready"
+        ? {
+            ...job,
+            minimumQualifications: [
+              ...job.minimumQualifications,
+              `Hands-on experience with ${skills.join(" and ")}.`,
+            ],
+          }
+        : job,
+    );
+    const baseAiClient = createAiClient();
+    const { workspaceService, repository } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...baseAiClient,
+        async createResumeDraft(draftInput) {
+          const base = await baseAiClient.createResumeDraft(draftInput);
+          return {
+            ...base,
+            coreSkills: [...base.coreSkills, ...skills],
+          };
+        },
+      },
+    });
+
+    await workspaceService.generateResume("job_ready");
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    const skillAssessments = (
+      workspace.validation?.claimAssessments ?? []
+    ).filter(
+      (assessment) =>
+        assessment.status === "confirm_needed" &&
+        assessment.field === "section_bullet" &&
+        skills.some((skill) => assessment.claimText === skill),
+    );
+    expect(skillAssessments).toHaveLength(2);
+
+    const stored = await repository.getResumeDraftByJobId("job_ready");
+    await workspaceService.setResumeClaimConfirmation({
+      intent: "add_many",
+      jobId: "job_ready",
+      draftId: stored!.id,
+      expectedDraftUpdatedAt: stored!.updatedAt,
+      ownershipStatement: resumeClaimOwnershipStatement,
+      targets: skillAssessments.map((assessment) => ({
+        field: assessment.field,
+        sectionId: assessment.sectionId,
+        entryId: assessment.entryId,
+        bulletId: assessment.bulletId,
+        confirmedClaimContentHash: assessment.contentHash,
+      })),
+    });
+
+    const after = await repository.getResumeDraftByJobId("job_ready");
+    expect(after!.claimConfirmations).toHaveLength(2);
+    expect(
+      after!.claimConfirmations.map(
+        (confirmation) => confirmation.confirmedClaimContentHash,
+      ),
+    ).toEqual(
+      expect.arrayContaining(
+        skillAssessments.map((assessment) => assessment.contentHash),
+      ),
+    );
+  });
+
+  test("add_many rejects a mixed batch that includes a non-skill stretch", async () => {
+    const harness = createClaimHarness({ bullets: [WEAK_CLAIM_TEXT] });
+    const { workspaceService, repository } = harness;
+    await workspaceService.generateResume("job_ready");
+    const assessment = findConfirmNeededAssessment(
+      await workspaceService.getResumeWorkspace("job_ready"),
+    );
+    const stored = await repository.getResumeDraftByJobId("job_ready");
+
+    await expect(
+      workspaceService.setResumeClaimConfirmation({
+        intent: "add_many",
+        jobId: "job_ready",
+        draftId: stored!.id,
+        expectedDraftUpdatedAt: stored!.updatedAt,
+        ownershipStatement: resumeClaimOwnershipStatement,
+        targets: [
+          {
+            field: assessment.field,
+            sectionId: assessment.sectionId,
+            entryId: assessment.entryId,
+            bulletId: assessment.bulletId,
+            confirmedClaimContentHash: assessment.contentHash,
+          },
+        ],
+      }),
+    ).rejects.toThrow(/Bulk confirmation is only for skills/i);
+
+    expect(
+      (await repository.getResumeDraftByJobId("job_ready"))!.claimConfirmations,
+    ).toEqual([]);
+  });
+
+  test("add_many of listing skills still leaves wording stretches export-blocking", async () => {
+    const skills = ["Terraform", "Kubernetes"] as const;
+    const seed = createSeed();
+    seed.savedJobs = seed.savedJobs.map((job) =>
+      job.id === "job_ready"
+        ? {
+            ...job,
+            minimumQualifications: [
+              ...job.minimumQualifications,
+              `Hands-on experience with ${skills.join(" and ")}.`,
+            ],
+          }
+        : job,
+    );
+    const baseAiClient = createAiClient();
+    const { workspaceService, repository } = createWorkspaceServiceHarness({
+      seed,
+      aiClient: {
+        ...baseAiClient,
+        async createResumeDraft(draftInput) {
+          const base = await baseAiClient.createResumeDraft(draftInput);
+          return {
+            ...base,
+            coreSkills: [...base.coreSkills, ...skills],
+            experienceEntries: base.experienceEntries.map((entry, index) =>
+              index === 0 ? { ...entry, bullets: [WEAK_CLAIM_TEXT] } : entry,
+            ),
+          };
+        },
+      },
+    });
+
+    await workspaceService.generateResume("job_ready");
+    const workspace = await workspaceService.getResumeWorkspace("job_ready");
+    const skillAssessments = (
+      workspace.validation?.claimAssessments ?? []
+    ).filter(
+      (assessment) =>
+        assessment.status === "confirm_needed" &&
+        assessment.field === "section_bullet" &&
+        skills.some((skill) => assessment.claimText === skill),
+    );
+    const wordingAssessment = (
+      workspace.validation?.claimAssessments ?? []
+    ).find(
+      (assessment) =>
+        assessment.status === "confirm_needed" &&
+        assessment.claimText === WEAK_CLAIM_TEXT,
+    );
+    expect(skillAssessments).toHaveLength(2);
+    expect(wordingAssessment).toBeTruthy();
+
+    const stored = await repository.getResumeDraftByJobId("job_ready");
+    await workspaceService.setResumeClaimConfirmation({
+      intent: "add_many",
+      jobId: "job_ready",
+      draftId: stored!.id,
+      expectedDraftUpdatedAt: stored!.updatedAt,
+      ownershipStatement: resumeClaimOwnershipStatement,
+      targets: skillAssessments.map((assessment) => ({
+        field: assessment.field,
+        sectionId: assessment.sectionId,
+        entryId: assessment.entryId,
+        bulletId: assessment.bulletId,
+        confirmedClaimContentHash: assessment.contentHash,
+      })),
+    });
+
+    await expect(workspaceService.exportResumePdf("job_ready")).rejects.toThrow(
+      /blocking candidate-claim validation issues/i,
+    );
+    const after = await workspaceService.getResumeWorkspace("job_ready");
+    expect(
+      after.validation?.claimAssessments.some(
+        (assessment) =>
+          assessment.status === "confirm_needed" &&
+          assessment.claimText === WEAK_CLAIM_TEXT,
+      ),
+    ).toBe(true);
+  });
 });

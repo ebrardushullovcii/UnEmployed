@@ -32,7 +32,10 @@ import {
   logFallbackError,
   summarizeError,
 } from "./openai-compatible-shared";
-import { buildGroundedResumeRewriteModelPayload } from "./resume-generation-grounding";
+import {
+  buildGroundedResumeRewriteModelPayload,
+  describeAggressiveResumeEditPolicy,
+} from "./resume-generation-grounding";
 import {
   buildModelRequestBody,
   buildModelUrl,
@@ -114,7 +117,7 @@ function buildResumeRewriteProposalPrompt(
 ): string {
   const modeGuidance =
     tailoringMode === "aggressive"
-      ? "Aggressive mode: substantially rewrite, combine, and elaborate the cited candidate evidence into the strongest plausible job-tailored prose. When the cited evidence names the candidate's stack (for example JavaScript, TypeScript, Next.js) or product domain (for example restaurant management SaaS), infer and spell out realistic engineering details around them - typical features, implementation approaches, trade-offs, and effects consistent with that stack and domain - even when the cited wording omits them. You may connect an evidenced metric to plausible supporting work, but every number in your output must come verbatim from the cited evidence. Mark every proposal that elaborates beyond the cited wording with inferred:true. Never introduce: named technologies, frameworks, tools, services, or products that do not appear in the cited evidence (no Angular, Vue, Redis, or similar unless evidenced); employers, dates, titles, credentials, certifications, seniority, team size, or leadership not supported by the cited evidence; or any new number, percentage, count, or money. Two permissions apply only when you mark the proposal inferred:true and cite the evidence that anchors the underlying experience: you may round the candidate's evidenced years of experience up to the job's stated years requirement when the evidenced figure is exactly one year below it, and you may name any technology, library, framework, or tool the target job listing itself asks for — required or preferred — whenever the candidate's saved evidence shows professional technical experience (a developer or engineer role, a technical headline, or technical skills), even when your stack or domain does not directly imply it, because a developer with years of evidenced experience can reasonably stand behind the job's own stack; prefer covering the listing's required technologies. Never name a technology absent from both the cited evidence and the job listing, never round up by more than one year, and never claim the listing's employer, dates, titles, credentials, seniority, or leadership. You may also return a `coreSkills` array: the candidate's own key skills plus the job's required or preferred technologies they can stand behind; every skill must come from the cited evidence or the job listing, and Job Finder verifies each against both before showing it."
+      ? "Aggressive mode: substantially rewrite, combine, and elaborate the cited candidate evidence into the strongest plausible job-tailored prose. When the cited evidence names the candidate's stack (for example JavaScript, TypeScript, Next.js) or product domain (for example restaurant management SaaS), infer and spell out realistic engineering details around them - typical features, implementation approaches, trade-offs, and effects consistent with that stack and domain - even when the cited wording omits them. You may connect an evidenced metric to plausible supporting work, but every number in your output must come verbatim from the cited evidence. Mark every proposal that elaborates beyond the cited wording with inferred:true. Never introduce employers, dates, titles, credentials, certifications, seniority, team size, or leadership not supported by the cited evidence. Never invent a number, percentage, count, or money. Never name a technology, library, framework, tool, service, or product that appears in neither the cited evidence nor the target job listing. Two permissions apply only when you mark the proposal inferred:true and cite the evidence that anchors the underlying experience: you may round the candidate's evidenced years of experience up to the job's stated years requirement when the evidenced figure is exactly one year below it, and you may name any technology, library, framework, or tool the target job listing itself asks for — required or preferred, including technologies named only in qualifications or preferred lists rather than the structured skill list — whenever the candidate's saved evidence shows professional technical experience (a developer or engineer role, a technical headline, or technical skills), even when your stack or domain does not directly imply it, because a developer with years of evidenced experience can reasonably stand behind the job's own stack; prefer covering the listing's required technologies. The targetJob.listingRequestedSkills array is that requested stack, including technologies named only in qualifications: name those technologies in the prose and you may return them in coreSkills. Never name a technology absent from both the cited evidence and the job listing, never round up by more than one year, and never claim the listing's employer, dates, titles, credentials, seniority, or leadership. You may also return a `coreSkills` array: the candidate's own key skills plus the job's required or preferred technologies they can stand behind, including technologies named only in qualification prose; every skill must come from the cited evidence or the job listing, and Job Finder verifies each against both before showing it."
       : tailoringMode === "conservative"
         ? "Conservative mode: stay very close to the cited wording and propose only clear, low-risk improvements."
         : "Balanced mode: improve structure and relevance while keeping every factual statement directly supported by cited evidence.";
@@ -129,18 +132,27 @@ function buildResumeRewriteProposalPrompt(
       ]
     : [];
 
+  const returnGuidance =
+    tailoringMode === "aggressive"
+      ? "Return one JSON object of material improvements. Do not return {}: name every targetJob.listingRequestedSkills item that is missing from the cited evidence in inferred:true prose and in coreSkills, and round evidenced years up by one on an inferred line when the listing itself states that higher figure."
+      : "Return one JSON object containing only material improvements. Return {} when the cited evidence is already as clear and professional as you can safely make it.";
+  const jobWordingGuidance =
+    tailoringMode === "aggressive"
+      ? "Use job-description wording for technologies in targetJob.listingRequestedSkills and for work the cited evidence supports. Never copy employer language that is not a technology or a supported skill, and never add target-company claims."
+      : "Use job-description wording only when the candidate evidence supports the same skill or work. Never stuff keywords, copy employer language without evidence, or add target-company claims.";
+
   return [
     "You propose only evidence-linked prose improvements for a tailored resume; the application deterministically owns the complete resume, identity metadata, chronology, coverage, skills, and rendering.",
-    "Return one JSON object containing only material improvements. Return {} when the cited evidence is already as clear and professional as you can safely make it.",
+    returnGuidance,
     'Use this sparse shape: {"summary":{"text":"...","evidenceRefs":["..."]},"experienceEntries":[{"profileRecordId":"...","summary":{"text":"...","evidenceRefs":["..."]},"bullets":[{"text":"...","evidenceRefs":["..."],"inferred":true}]}],"projectEntries":[{"profileRecordId":"...","summary":{"text":"...","evidenceRefs":["..."]},"outcome":{"text":"...","evidenceRefs":["..."]},"bullets":[{"text":"...","evidenceRefs":["..."]}]}]}. Omit every unchanged or unused field and entry.',
     "Every proposed text must cite exact IDs from groundingEvidence.items. Experience and project proposals may cite items with the same profileRecordId; in aggressive mode they may additionally cite profile-scope items (for example profile:skills, profile:skillGroup:coreSkills, profile:summary) to anchor stack- and domain-aware wording.",
     "Outside aggressive mode, use only claims, numbers, technologies, scope, and outcomes stated in the cited evidence. In every mode, never add dates, titles, employers, credentials, seniority, causality, or absolutes, and never add leadership the cited evidence does not support.",
     "Write for the exact target job. Make the candidate's supported match obvious in the opening lines, and prioritize the job's most important supported skills and accomplishments over generic career description.",
     "Use concise accomplishment statements: action, specific work, and outcome. Keep distinctive evidence terms and exact metrics unchanged. Do not repeat the same claim or metric in multiple bullets.",
-    "Use job-description wording only when the candidate evidence supports the same skill or work. Never stuff keywords, copy employer language without evidence, or add target-company claims.",
+    jobWordingGuidance,
     modeGuidance,
     ...strategyGuidance,
-    "Do not return a full resume, identity metadata, skills lists, compatibility scores, labels, notes, explanations, or uncited text.",
+    "Do not return a full resume, identity metadata, compatibility scores, labels, notes, explanations, or uncited text. In aggressive mode return coreSkills covering the candidate's key skills plus targetJob.listingRequestedSkills.",
   ].join(" ");
 }
 
@@ -460,7 +472,8 @@ export function createOpenAiCompatibleJobFinderAiClient(
           "Return JSON only with content and typed patches.",
           "Patches must make bounded edits to the supplied draft rather than rewriting the whole resume.",
           "These patches are proposals only. Never claim they were applied; the user must explicitly approve them.",
-          "Do not invent candidate facts.",
+          describeAggressiveResumeEditPolicy(input.tailoringStrength) ??
+            "Do not invent candidate facts.",
           "Avoid touching locked content by leaving it unchanged.",
         ].join(" "),
         input,
@@ -1123,12 +1136,16 @@ export function createJobFinderAiClientFromEnvironment(
         return await modelClient.createResumeDraft(input);
       } catch (error) {
         logFallbackError("createResumeDraft", error);
-        const fallback = await fallbackClient.createResumeDraft(input);
+        // Empty model output still goes through completeTailoredResumeDraft,
+        // which is what adds listing-asked skills in aggressive mode. A thrown
+        // request must take the same path or a timeout would drop the skills
+        // the screening pass is supposed to see.
+        const completed = completeTailoredResumeDraft({}, input);
         return {
-          ...fallback,
+          ...completed,
           generationProvenance: buildProviderFailureProvenance(error),
           notes: uniqueStrings([
-            ...fallback.notes,
+            ...completed.notes,
             "Fell back to the deterministic resume draft creator after the model call failed.",
             `${providerLabel} draft creation failed: ${summarizeError(error)}`,
           ]),
@@ -1258,12 +1275,12 @@ export function createJobFinderAiClientFromEnvironment(
         return await modelClient.tailorResume(input);
       } catch (error) {
         logFallbackError("tailorResume", error);
-        const fallback = await fallbackClient.tailorResume(input);
+        const completed = completeTailoredResumeDraft({}, input);
         return {
-          ...fallback,
+          ...completed,
           generationProvenance: buildProviderFailureProvenance(error),
           notes: uniqueStrings([
-            ...fallback.notes,
+            ...completed.notes,
             "Fell back to the deterministic resume tailorer after the model call failed.",
             `${providerLabel} tailoring failed: ${summarizeError(error)}`,
           ]),

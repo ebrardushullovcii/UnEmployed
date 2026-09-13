@@ -1239,7 +1239,7 @@ describe("ResumeWorkspaceStudioShell", () => {
 
     render(
       <ResumeWorkspaceStudioShell
-        approvalBlockedReason="1 hidden work-history role is waiting on an explicit kept-omitted decision. Approval stays disabled until every entry below has one."
+        approvalBlockedReason="1 hidden role is off this resume. Leave it off, or add it back under Experience, before you can approve. You can still export a PDF."
         approvalStateLabel="Approval needs decisions"
         canApproveResume={false}
         canClearApproval={false}
@@ -1271,18 +1271,18 @@ describe("ResumeWorkspaceStudioShell", () => {
     expect(
       screen
         .getAllByRole("alert")[0]!
-        .textContent.includes("kept-omitted decision"),
+        .textContent.includes("You can still export a PDF"),
     ).toBe(true);
     expect(screen.queryByRole("button", { name: "Approve resume" })).toBeNull();
     expect(
       screen
-        .getAllByRole("button", { name: "Review work-history decisions" })
+        .getAllByRole("button", { name: "Review hidden roles" })
         .every((button) => !button.hasAttribute("disabled")),
     ).toBe(true);
 
     fireEvent.click(
       screen.getAllByRole("button", {
-        name: "Review work-history decisions",
+        name: "Review hidden roles",
       })[0]!,
     );
 
@@ -1373,7 +1373,7 @@ describe("ResumeWorkspaceStudioShell locked-pane ownership", () => {
     const { container } = render(
       <ResumeWorkspaceStudioShell
         {...buildStudioShellProps()}
-        approvalBlockedReason="2 hidden work-history roles are waiting on an explicit kept-omitted decision."
+        approvalBlockedReason="2 hidden roles are off this resume. Leave them off, or add them back under Experience, before you can approve. You can still export a PDF."
         exportBlockedReason="35 generated or unsupported claims must be removed, rewritten, or grounded in candidate evidence before this resume can be exported."
         setAsideProposalNote="1 pending suggestion was set aside."
         validationIssues={[

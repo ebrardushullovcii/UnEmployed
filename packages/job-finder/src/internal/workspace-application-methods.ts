@@ -25,6 +25,7 @@ import {
   isResumeTemplateApplyEligible,
   isResumeTemplateApprovalEligible,
   isBlockingResumeValidationIssue,
+  isResumeSkillClaimAssessment,
   type ResumeDraft,
   ResumeDraftPatchSchema,
   ResumeDraftSchema,
@@ -127,7 +128,7 @@ import {
   loadUnresolvedWorkHistoryOmissionSuggestions,
   previewResumeDraft,
   renderDraftToPdf,
-  resolveResumeStrategyContextForJob,
+  resolveEffectiveResumeTailoringStrengthForJob,
   assertResumeProfileRevisionCurrent,
 } from "./workspace-application-resume-support";
 import {
@@ -2998,10 +2999,8 @@ export function createWorkspaceApplicationMethods(
       state.job,
       state.profileRevision,
     );
-    const strategyContext = await resolveResumeStrategyContextForJob(
-      ctx,
-      jobId,
-    );
+    const tailoringStrength =
+      await resolveEffectiveResumeTailoringStrengthForJob(ctx, jobId);
     const assistantReply = await ctx.aiClient.reviseResumeDraft({
       draft,
       job: state.job,
@@ -3010,7 +3009,7 @@ export function createWorkspaceApplicationMethods(
         (
           await ctx.repository.listResumeValidationResults(draft.id)
         )[0]?.issues.map((issue) => issue.message) ?? [],
-      tailoringStrength: strategyContext?.tailoringStrength ?? null,
+      tailoringStrength,
       researchContext: collectResearchContext(research),
     });
     // Section regeneration is review-first like Guided Edits: normalized
@@ -4381,38 +4380,48 @@ export function createWorkspaceApplicationMethods(
           previousValidation,
           draft: currentDraft,
         });
-        const assessment =
-          freshValidation.claimAssessments.find(
-            (candidate) =>
-              candidate.field === parsedInput.field &&
-              candidate.sectionId === parsedInput.sectionId &&
-              candidate.entryId === parsedInput.entryId &&
-              candidate.bulletId === parsedInput.bulletId &&
-              candidate.contentHash === parsedInput.confirmedClaimContentHash,
-          ) ?? null;
+        const resolveConfirmNeededAssessment = (target: {
+          field: (typeof currentDraft.claimConfirmations)[number]["field"];
+          sectionId: string;
+          entryId: string | null;
+          bulletId: string | null;
+          confirmedClaimContentHash: string;
+        }) => {
+          const assessment =
+            freshValidation.claimAssessments.find(
+              (candidate) =>
+                candidate.field === target.field &&
+                candidate.sectionId === target.sectionId &&
+                candidate.entryId === target.entryId &&
+                candidate.bulletId === target.bulletId &&
+                candidate.contentHash === target.confirmedClaimContentHash,
+            ) ?? null;
 
-        if (!assessment) {
-          throw new Error(
-            "This claim is no longer projected for the current draft or its wording changed since it was reviewed. Reload the workspace and confirm the current claim text.",
-          );
-        }
-        if (assessment.verifier !== "deterministic_candidate_evidence_v2") {
-          throw new Error(
-            "This claim assessment predates the current verifier and must be revalidated before it can be confirmed.",
-          );
-        }
-        if (assessment.status === "unsupported") {
-          throw new Error(
-            "This claim conflicts with candidate evidence and cannot be confirmed as accurate; rewrite it instead.",
-          );
-        }
-        if (assessment.status !== "confirm_needed") {
-          throw new Error(
-            "This claim does not currently need explicit confirmation.",
-          );
-        }
-
-        const identicalConfirmation =
+          if (!assessment) {
+            throw new Error(
+              "This claim is no longer projected for the current draft or its wording changed since it was reviewed. Reload the workspace and confirm the current claim text.",
+            );
+          }
+          if (assessment.verifier !== "deterministic_candidate_evidence_v2") {
+            throw new Error(
+              "This claim assessment predates the current verifier and must be revalidated before it can be confirmed.",
+            );
+          }
+          if (assessment.status === "unsupported") {
+            throw new Error(
+              "This claim conflicts with candidate evidence and cannot be confirmed as accurate; rewrite it instead.",
+            );
+          }
+          if (assessment.status !== "confirm_needed") {
+            throw new Error(
+              "This claim does not currently need explicit confirmation.",
+            );
+          }
+          return assessment;
+        };
+        const findIdenticalConfirmation = (
+          assessment: ReturnType<typeof resolveConfirmNeededAssessment>,
+        ) =>
           currentDraft.claimConfirmations.find(
             (confirmation) =>
               confirmation.draftId === currentDraft.id &&
@@ -4422,6 +4431,63 @@ export function createWorkspaceApplicationMethods(
               confirmation.bulletId === assessment.bulletId &&
               confirmation.confirmedClaimContentHash === assessment.contentHash,
           ) ?? null;
+
+        if (parsedInput.intent === "add_many") {
+          const assessments = parsedInput.targets.map((target) =>
+            resolveConfirmNeededAssessment(target),
+          );
+          const unsupportedBulkTarget = assessments.find(
+            (assessment) =>
+              !isResumeSkillClaimAssessment(currentDraft, assessment),
+          );
+          if (unsupportedBulkTarget) {
+            throw new Error(
+              "Bulk confirmation is only for skills the job asked for. Confirm wording stretches one at a time.",
+            );
+          }
+
+          const newAssessments = assessments.filter(
+            (assessment) => findIdenticalConfirmation(assessment) === null,
+          );
+          if (newAssessments.length === 0) {
+            return ctx.getWorkspaceSnapshot();
+          }
+
+          const mutatedAt = createMonotonicTimestamp(currentDraft.updatedAt);
+          return persistResumeClaimConfirmationMutation({
+            jobId: parsedInput.jobId,
+            currentDraft,
+            mutatedAt,
+            reason: `Confirmed ${newAssessments.length} job-asked ${newAssessments.length === 1 ? "skill" : "skills"}.`,
+            nextConfirmations: [
+              ...currentDraft.claimConfirmations,
+              ...newAssessments.map((assessment) =>
+                ResumeClaimConfirmationSchema.parse({
+                  id: createUniqueId(
+                    `claim_confirmation_${assessment.sectionId}`,
+                  ),
+                  draftId: currentDraft.id,
+                  field: assessment.field,
+                  sectionId: assessment.sectionId,
+                  entryId: assessment.entryId,
+                  bulletId: assessment.bulletId,
+                  confirmedClaimContentHash: assessment.contentHash,
+                  ownershipStatement: parsedInput.ownershipStatement,
+                  confirmedAt: mutatedAt,
+                }),
+              ),
+            ],
+          });
+        }
+
+        const assessment = resolveConfirmNeededAssessment({
+          field: parsedInput.field,
+          sectionId: parsedInput.sectionId,
+          entryId: parsedInput.entryId,
+          bulletId: parsedInput.bulletId,
+          confirmedClaimContentHash: parsedInput.confirmedClaimContentHash,
+        });
+        const identicalConfirmation = findIdenticalConfirmation(assessment);
         if (identicalConfirmation) {
           // Deterministic dedupe: the exact locator and normalized content
           // hash are already confirmed, so this command is a no-op instead of
@@ -4574,17 +4640,15 @@ export function createWorkspaceApplicationMethods(
         workspaceState.draft.id,
       );
       const research = await fetchAndPersistResearch(ctx, workspaceState.job);
-      const strategyContext = await resolveResumeStrategyContextForJob(
-        ctx,
-        jobId,
-      );
+      const tailoringStrength =
+        await resolveEffectiveResumeTailoringStrengthForJob(ctx, jobId);
       const assistantReply = await ctx.aiClient.reviseResumeDraft({
         draft: workspaceState.draft,
         job: workspaceState.job,
         request: content,
         validationIssues:
           validations[0]?.issues.map((issue) => issue.message) ?? [],
-        tailoringStrength: strategyContext?.tailoringStrength ?? null,
+        tailoringStrength,
         researchContext: collectResearchContext(research),
       });
       const normalizedPatches = assistantReply.patches.map((patch) =>

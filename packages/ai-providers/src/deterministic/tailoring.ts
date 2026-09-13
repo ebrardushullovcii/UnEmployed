@@ -26,6 +26,7 @@ import {
 import {
   filterCandidateFacingResumeKeywords,
   filterGroundedVisibleSkills,
+  isSpokenLanguageResumeChrome,
 } from "./resume-skill-grounding";
 import { inferSkills } from "./resume-parser-skills";
 import { deriveResumeCoveragePlan } from "./resume-coverage";
@@ -956,7 +957,7 @@ export function buildDeterministicTailoredResume(
       .map((entry) =>
         [entry.language, entry.proficiency].filter(Boolean).join(" — "),
       )
-      .filter(Boolean),
+      .filter((value) => value && !isSpokenLanguageResumeChrome(value)),
   ).slice(0, 6);
   const roleTarget =
     strategyRoleTarget(input) ||

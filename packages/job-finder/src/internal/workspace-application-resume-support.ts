@@ -1,5 +1,6 @@
 import {
   JobFinderResumeWorkspaceSchema,
+  resolveEffectiveResumeTailoringStrength,
   type JobFinderResumeWorkspace,
   type JobFinderResumeWorkspaceStrategyContext,
   type JobFinderResumePreview,
@@ -8,6 +9,7 @@ import {
   type ResumeTemplateDefinition,
   type SavedJob,
   type TailoredAsset,
+  type TailoringMode,
   type WorkHistoryReviewSuggestion,
 } from "@unemployed/contracts";
 import { fnv1a32 } from "@unemployed/core";
@@ -144,6 +146,20 @@ export async function resolveResumeStrategyContextForJob(
       campaignState,
       jobId,
     ),
+  });
+}
+
+export async function resolveEffectiveResumeTailoringStrengthForJob(
+  ctx: WorkspaceServiceContext,
+  jobId: string,
+): Promise<TailoringMode | null> {
+  const [strategyContext, searchPreferences] = await Promise.all([
+    resolveResumeStrategyContextForJob(ctx, jobId),
+    ctx.repository.getSearchPreferences(),
+  ]);
+  return resolveEffectiveResumeTailoringStrength({
+    strategyTailoringStrength: strategyContext?.tailoringStrength ?? null,
+    searchPreferencesTailoringMode: searchPreferences.tailoringMode,
   });
 }
 
@@ -732,6 +748,7 @@ export async function buildResumeWorkspace(
     assistantMessages,
     revisions,
     strategyContext,
+    searchPreferences,
   ] = await Promise.all([
     ctx.repository.listResumeValidationResults(draft.id),
     ctx.repository.listResumeExportArtifacts({ jobId }),
@@ -739,6 +756,7 @@ export async function buildResumeWorkspace(
     ctx.repository.listResumeAssistantMessages(jobId),
     ctx.repository.listResumeDraftRevisions(draft.id),
     resolveResumeStrategyContextForJob(ctx, jobId),
+    ctx.repository.getSearchPreferences(),
   ]);
   const normalizedExports = exports.map((artifact) => ({
     ...artifact,
@@ -764,5 +782,9 @@ export async function buildResumeWorkspace(
         validation: validations[0] ?? null,
       }),
     strategyContext,
+    effectiveTailoringStrength: resolveEffectiveResumeTailoringStrength({
+      strategyTailoringStrength: strategyContext?.tailoringStrength ?? null,
+      searchPreferencesTailoringMode: searchPreferences.tailoringMode,
+    }),
   });
 }

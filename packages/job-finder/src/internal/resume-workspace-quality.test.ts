@@ -486,6 +486,201 @@ ${ownSentence}`,
     ).toMatchObject({ status: "unsupported" });
   });
 
+  test("validateResumeDraft does not ask to confirm a listing skill the profile already has under an alias", () => {
+    const { profile, job } = getSeedContext();
+    const profileWithPostgres = {
+      ...profile,
+      skills: [...profile.skills, "PostgreSQL"],
+      skillGroups: {
+        ...profile.skillGroups,
+        coreSkills: [...profile.skillGroups.coreSkills, "PostgreSQL"],
+      },
+    };
+    const listingJob = {
+      ...job,
+      keySkills: [...job.keySkills, "Postgres"],
+      description: `${job.description} Postgres required.`,
+    };
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_skills",
+      (section) => ({
+        ...section,
+        bullets: createBullets("skill_bullet", ["Postgres"]),
+      }),
+    );
+
+    const validation = validateResumeDraft({
+      draft,
+      job: listingJob,
+      profile: profileWithPostgres,
+    });
+
+    expect(
+      validation.claimAssessments.find(
+        (assessment) => assessment.bulletId === "skill_bullet_1",
+      ),
+    ).toMatchObject({ status: "exact" });
+  });
+
+  test("sanitizeResumeDraft drops Europass language chrome from skills and languages", () => {
+    const { profile, job } = getSeedContext();
+    const profileWithLanguages = {
+      ...profile,
+      spokenLanguages: [
+        ...profile.spokenLanguages,
+        {
+          id: "language_albanian",
+          language: "Albanian",
+          proficiency: "Native",
+          interviewPreference: true,
+          notes: null,
+        },
+      ],
+    };
+    const skillsDraft = updateSection(
+      createBaseDraft(),
+      "section_skills",
+      (section) => ({
+        ...section,
+        bullets: createBullets("skill_bullet", [
+          "Figma",
+          "Mother Tongue(S) — ALBANIAN",
+          "English — C2",
+        ]),
+      }),
+    );
+    const languageSection = {
+      ...getSection(skillsDraft, "section_skills"),
+      id: "section_languages",
+      label: "Languages",
+      bullets: createBullets("language_bullet", [
+        "Albanian — Native",
+        "Levels — A1 and A2: Basic user; B1 and B2: Independent user",
+      ]),
+    };
+    const draft = {
+      ...skillsDraft,
+      sections: [...skillsDraft.sections, languageSection],
+    };
+
+    const sanitized = sanitizeResumeDraft({
+      draft,
+      job,
+      profile: profileWithLanguages,
+    });
+    const visibleSkills = getSection(sanitized, "section_skills").bullets.map(
+      (bullet) => bullet.text,
+    );
+    const visibleLanguages = getSection(
+      sanitized,
+      "section_languages",
+    ).bullets.map((bullet) => bullet.text);
+
+    expect(visibleSkills).toEqual(["Figma"]);
+    expect(visibleLanguages).toEqual(["Albanian — Native"]);
+  });
+
+  test("sanitizeResumeDraft keeps a qualification-only listing technology in the skills section", () => {
+    const { profile, job } = getSeedContext();
+    const listingJob = {
+      ...job,
+      keySkills: job.keySkills,
+      minimumQualifications: [
+        ...job.minimumQualifications,
+        "Hands-on experience with Terraform.",
+      ],
+    };
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_skills",
+      (section) => ({
+        ...section,
+        bullets: createBullets("skill_bullet", ["Terraform", "Figma"]),
+      }),
+    );
+
+    const sanitized = sanitizeResumeDraft({ draft, job: listingJob, profile });
+    const visibleSkills = getSection(sanitized, "section_skills").bullets.map(
+      (bullet) => bullet.text,
+    );
+
+    expect(visibleSkills).toEqual(["Terraform", "Figma"]);
+  });
+
+  test("sanitizeResumeDraft drops listing responsibility sentences from the skills section", () => {
+    const { profile, job } = getSeedContext();
+    const profileWithReact = {
+      ...profile,
+      skills: [...profile.skills, "React", "Next.js", "TypeScript"],
+    };
+    const listingJob = {
+      ...job,
+      responsibilities: [
+        ...job.responsibilities,
+        "Own React and Next.js storefronts used by kitchen and floor staff.",
+      ],
+    };
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_skills",
+      (section) => ({
+        ...section,
+        bullets: createBullets("skill_bullet", [
+          "Terraform",
+          "TypeScript services",
+          "Own React and Next.js storefronts used by kitchen and floor staff.",
+        ]),
+      }),
+    );
+
+    const sanitized = sanitizeResumeDraft({
+      draft,
+      job: listingJob,
+      profile: profileWithReact,
+    });
+    const visibleSkills = getSection(sanitized, "section_skills").bullets.map(
+      (bullet) => bullet.text,
+    );
+
+    expect(visibleSkills).not.toContain(
+      "Own React and Next.js storefronts used by kitchen and floor staff.",
+    );
+    expect(visibleSkills).not.toContain("TypeScript services");
+  });
+
+  test("validateResumeDraft maps a qualification-only listing skill to confirm_needed", () => {
+    const { profile, job } = getSeedContext();
+    const listingJob = {
+      ...job,
+      keySkills: job.keySkills,
+      minimumQualifications: [
+        ...job.minimumQualifications,
+        "Hands-on experience with Terraform.",
+      ],
+    };
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_skills",
+      (section) => ({
+        ...section,
+        bullets: createBullets("skill_bullet", ["Terraform"]),
+      }),
+    );
+
+    const validation = validateResumeDraft({
+      draft,
+      job: listingJob,
+      profile,
+    });
+
+    expect(
+      validation.claimAssessments.find(
+        (assessment) => assessment.bulletId === "skill_bullet_1",
+      ),
+    ).toMatchObject({ status: "confirm_needed" });
+  });
+
   test("validateResumeDraft flags short job-only skill bleed that remains in a draft", () => {
     const { profile, job } = getSeedContext();
     const draft = updateSection(
@@ -772,6 +967,89 @@ ${ownSentence}`,
       ]),
     );
     // Both stay export-blocking until the user confirms them.
+    expect(hasBlockingResumeClaimAssessment({ validation, draft })).toBe(true);
+  });
+
+  test("validateResumeDraft maps a single bullet that both rounds years and names a listing technology to confirm_needed", () => {
+    const { profile, job } = getSeedContext();
+    const listingJob = {
+      ...job,
+      keySkills: [...job.keySkills, "Framer"],
+      description: `${job.description} Strong Framer prototyping and 11 years of professional experience required.`,
+      minimumQualifications: [
+        ...job.minimumQualifications,
+        "11 years of professional experience.",
+      ],
+    };
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_experience",
+      (section) => ({
+        ...section,
+        entries: section.entries.map((entry) => ({
+          ...entry,
+          bullets: createBullets("experience_combined", [
+            "Designed resilient workflow tools in Framer across 11 years of professional experience.",
+          ]),
+        })),
+      }),
+    );
+
+    const validation = validateResumeDraft({
+      draft,
+      job: listingJob,
+      profile,
+    });
+    const combined = validation.claimAssessments.find(
+      (assessment) => assessment.bulletId === "experience_combined_1",
+    );
+
+    expect(combined).toMatchObject({ status: "confirm_needed" });
+    expect(validation.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "claim_confirmation_needed",
+          bulletId: "experience_combined_1",
+        }),
+      ]),
+    );
+    expect(hasBlockingResumeClaimAssessment({ validation, draft })).toBe(true);
+  });
+
+  test("validateResumeDraft keeps an unevidenced credential the listing asks for unsupported", () => {
+    const { profile, job } = getSeedContext();
+    const listingJob = {
+      ...job,
+      preferredQualifications: [
+        ...job.preferredQualifications,
+        "AWS Certified Solutions Architect preferred.",
+      ],
+    };
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_experience",
+      (section) => ({
+        ...section,
+        entries: section.entries.map((entry) => ({
+          ...entry,
+          bullets: createBullets("experience_credential", [
+            "AWS Certified Solutions Architect.",
+          ]),
+        })),
+      }),
+    );
+
+    const validation = validateResumeDraft({
+      draft,
+      job: listingJob,
+      profile,
+    });
+    const credential = validation.claimAssessments.find(
+      (assessment) => assessment.bulletId === "experience_credential_1",
+    );
+
+    expect(credential).toMatchObject({ status: "unsupported" });
+    expect(credential?.status).not.toBe("confirm_needed");
     expect(hasBlockingResumeClaimAssessment({ validation, draft })).toBe(true);
   });
 

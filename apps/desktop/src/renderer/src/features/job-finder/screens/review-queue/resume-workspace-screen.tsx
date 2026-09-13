@@ -42,8 +42,10 @@ import { ResumeVersionHistoryPanel } from "./resume-version-history-panel";
 import {
   cloneDraft,
   describeAcceptedAssistantEdits,
+  describeResumeExportClaimBlock,
   describeResumeGenerationPath,
   findLatestAssistantEditRevisionId,
+  resumeExportClaimBlockActionLabel,
 } from "./resume-workspace-utils";
 import {
   createResumeDraftPatch,
@@ -244,21 +246,26 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       : null;
   // Exactly the rule the export/approval validator and the Guided Edits
   // proposal gate use, so the studio can never disagree with either of them.
-  const blockingClaimCount = props.workspace
+  const blockingClaimAssessments = props.workspace
     ? (props.workspace.validation?.claimAssessments.filter((assessment) =>
         isBlockingResumeClaimAssessment({
           assessment,
           draft: props.workspace!.draft,
         }),
-      ).length ?? 0)
-    : 0;
+      ) ?? [])
+    : [];
   const hasBlockingValidationIssues = Boolean(
     props.workspace?.validation?.issues.some(isBlockingResumeValidationIssue),
   );
   const exportBlockedReason =
-    !hasUnsavedChanges && blockingClaimCount > 0
-      ? `${blockingClaimCount} generated or unsupported claim${blockingClaimCount === 1 ? "" : "s"} must be removed, rewritten, or grounded in candidate evidence before this resume can be exported.`
+    !hasUnsavedChanges && blockingClaimAssessments.length > 0
+      ? describeResumeExportClaimBlock({
+          blockingAssessments: blockingClaimAssessments,
+        })
       : null;
+  const exportBlockedActionLabel = resumeExportClaimBlockActionLabel({
+    blockingAssessments: blockingClaimAssessments,
+  });
   const unresolvedWorkHistorySuggestions = props.workspace
     ? listUnresolvedWorkHistoryOmissionSuggestions({
         acknowledgments: props.workspace.draft.workHistoryReviewAcknowledgments,
@@ -269,7 +276,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
   const unresolvedWorkHistoryCount = unresolvedWorkHistorySuggestions.length;
   const approvalBlockedReason =
     unresolvedWorkHistoryCount > 0
-      ? `${unresolvedWorkHistoryCount} hidden work-history role${unresolvedWorkHistoryCount === 1 ? " is" : "s are"} waiting on an explicit kept-omitted decision. Approval stays disabled until every entry below has one.`
+      ? `${unresolvedWorkHistoryCount} hidden role${unresolvedWorkHistoryCount === 1 ? " is" : "s are"} off this resume. Leave ${unresolvedWorkHistoryCount === 1 ? "it" : "them"} off, or add ${unresolvedWorkHistoryCount === 1 ? "it" : "them"} back under Experience, before you can approve. You can still export a PDF.`
       : null;
 
   const runWithSavedDraft = useCallback(
@@ -720,7 +727,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       selectedTargetId={selectedTargetId}
       onApplyPatch={handleApplyPatch}
       showGeneratedLineMarkers={
-        props.workspace.strategyContext?.tailoringStrength === "aggressive" &&
+        props.workspace.effectiveTailoringStrength === "aggressive" &&
         (draft.generationMethod === "ai" ||
           Boolean(describeResumeGenerationPath(props.workspace.tailoredAsset)))
       }
@@ -942,6 +949,17 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
               }
             : {})}
           onReviewBlockingIssues={() => {
+            const confirmationPanel = document.querySelector(
+              "[data-resume-claim-confirmations]",
+            ) as HTMLElement | null;
+            if (confirmationPanel) {
+              confirmationPanel.scrollIntoView({
+                behavior: getJobFinderScrollBehavior(),
+                block: "start",
+              });
+              confirmationPanel.focus({ preventScroll: true });
+              return;
+            }
             const details = document.getElementById(
               "resume-proof-details",
             ) as HTMLDetailsElement | null;
@@ -954,6 +972,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
               details.querySelector("summary")?.focus();
             }
           }}
+          exportBlockedActionLabel={exportBlockedActionLabel}
           onSaveDraft={() => props.onSaveDraft(draft)}
           onSelectValidationIssue={handleValidationIssueSelection}
           onSetMobileStudioTab={setMobileStudioTab}
@@ -967,6 +986,9 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
               />
               <ResumeStrategyContextPanel
                 context={props.workspace.strategyContext ?? null}
+                effectiveTailoringStrength={
+                  props.workspace.effectiveTailoringStrength
+                }
               />
             </ResumeWorkspaceContextDisclosure>
           }

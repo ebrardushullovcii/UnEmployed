@@ -4,11 +4,48 @@ import { uniqueStrings } from "./utils";
 const QUANTIFIED_REQUIREMENT_PATTERN =
   /\b(?:a|an|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+(?:[.,]\d+)?)\s*(?:\+|plus|or\s+more)?\s+(?:years?|yrs?|months?|mos?)\b/iu;
 
+const SKILL_CANONICAL_ALIASES = new Map([
+  ["postgres", "postgresql"],
+  ["postgresql", "postgresql"],
+  ["k8s", "kubernetes"],
+  ["kubernetes", "kubernetes"],
+]);
+
 function normalizeSkillPhrase(value: string): string {
   return value
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^a-z0-9+#]+/g, " ")
     .trim();
+}
+
+export function canonicalSkillPhrase(value: string): string {
+  const normalized = normalizeSkillPhrase(value);
+  return SKILL_CANONICAL_ALIASES.get(normalized) ?? normalized;
+}
+
+export function skillsAreEquivalent(left: string, right: string): boolean {
+  const canonicalLeft = canonicalSkillPhrase(left);
+  const canonicalRight = canonicalSkillPhrase(right);
+  return Boolean(canonicalLeft && canonicalRight && canonicalLeft === canonicalRight);
+}
+
+const SPOKEN_LANGUAGE_CHROME_PATTERN =
+  /mother\s*tongues?|^(?:other\s*)?languages?$|^(?:levels?|understanding|speaking|writing|listening|reading)\b|\b(?:a1 and a2|b1 and b2|c1 and c2|basic user|independent user|proficient user|cefr)\b/iu;
+
+const SPOKEN_LANGUAGE_PROFICIENCY_LINE_PATTERN =
+  /^[A-Za-z][A-Za-z .'-]{0,40}\s+[—–-]\s+(?:native|mother\s*tongue|fluent|conversational|basic|[ABC][12])\b/iu;
+
+export function isSpokenLanguageResumeChrome(value: string): boolean {
+  const normalized = value.replace(/[()]/g, " ").replace(/\s+/g, " ").trim();
+  return normalized.length > 0 && SPOKEN_LANGUAGE_CHROME_PATTERN.test(normalized);
+}
+
+export function looksLikeSpokenLanguageSkillEntry(value: string): boolean {
+  const trimmed = value.trim();
+  return (
+    isSpokenLanguageResumeChrome(trimmed) ||
+    SPOKEN_LANGUAGE_PROFICIENCY_LINE_PATTERN.test(trimmed)
+  );
 }
 
 function tokenizeSkillPhrase(value: string): string[] {
@@ -19,8 +56,8 @@ function matchesCandidateSkill(
   candidateSkill: string,
   proposedSkill: string,
 ): boolean {
-  const normalizedCandidate = normalizeSkillPhrase(candidateSkill);
-  const normalizedProposed = normalizeSkillPhrase(proposedSkill);
+  const normalizedCandidate = canonicalSkillPhrase(candidateSkill);
+  const normalizedProposed = canonicalSkillPhrase(proposedSkill);
 
   if (!normalizedCandidate || !normalizedProposed) {
     return false;
@@ -82,6 +119,7 @@ export function filterGroundedVisibleSkills(
   }
 
   return uniqueStrings([...skills])
+    .filter((skill) => !looksLikeSpokenLanguageSkillEntry(skill))
     .filter((skill) =>
       skillBank.some((candidateSkill) =>
         matchesCandidateSkill(candidateSkill, skill),

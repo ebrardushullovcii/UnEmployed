@@ -16,13 +16,56 @@ function SourceBadge(props: { children: string }) {
   );
 }
 
+function describeEffectiveApproachLine(
+  strength: "conservative" | "balanced" | "aggressive",
+  source: "strategy" | "default",
+): string {
+  const label = resumeApproachLabels[strength];
+  return source === "default" ? `Your default: ${label}` : `This draft: ${label}`;
+}
+
 export function ResumeStrategyContextPanel(props: {
   context: JobFinderResumeWorkspaceStrategyContext | null;
+  effectiveTailoringStrength?: "conservative" | "balanced" | "aggressive" | null;
 }) {
   const { context } = props;
 
   if (!context) {
-    return null;
+    if (!props.effectiveTailoringStrength) {
+      return null;
+    }
+
+    return (
+      <details className="group min-w-0">
+        <summary className="surface-panel-shell flex min-h-12 cursor-pointer list-none items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-2 outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-[3px] focus-visible:ring-ring/40">
+          <span className="grid min-w-0 gap-0.5">
+            <span className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
+              Resume approach
+            </span>
+            <span className="min-w-0 text-(length:--text-small) leading-5 text-foreground-soft [overflow-wrap:anywhere]">
+              {describeEffectiveApproachLine(
+                props.effectiveTailoringStrength,
+                "default",
+              )}
+            </span>
+          </span>
+        </summary>
+        <div className="grid gap-3 pt-2">
+          <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+            No named resume approach is selected for this job. This draft uses
+            your default tailoring strength.
+          </p>
+          {props.effectiveTailoringStrength === "aggressive" ? (
+            <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+              That default can stretch evidenced years by one toward the job's
+              stated ask and add technologies the listing names — including in
+              qualifications — so the resume can clear screening for a first
+              interview. You confirm each stretch before export.
+            </p>
+          ) : null}
+        </div>
+      </details>
+    );
   }
 
   const hasRecommendation = Boolean(context.recommendedStrategyId);
@@ -31,16 +74,31 @@ export function ResumeStrategyContextPanel(props: {
   return (
     <details className="group min-w-0">
       <summary className="surface-panel-shell flex min-h-12 cursor-pointer list-none items-center justify-between gap-4 rounded-(--radius-field) border border-(--surface-panel-border) px-4 py-2 outline-none [&::-webkit-details-marker]:hidden focus-visible:ring-[3px] focus-visible:ring-ring/40">
-        <span className="grid min-w-0 gap-0.5">
-          <span className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
-            Resume approach
+          <span className="grid min-w-0 gap-0.5">
+            <span className="font-display text-(length:--text-label) font-bold uppercase tracking-(--tracking-caps) text-primary">
+              Resume approach
+            </span>
+            <span className="min-w-0 text-(length:--text-small) leading-5 text-foreground-soft [overflow-wrap:anywhere]">
+              {hasRecommendation
+                ? `Recommended: ${context.recommendedStrategyName ?? "an approach"}. Advisory only — it never approves this resume.`
+                : "No resume approach recommended for this job. Advisory only — it never approves this resume."}
+            </span>
+            {context.tailoringStrength ? (
+              <span className="min-w-0 text-(length:--text-small) leading-5 text-foreground-soft [overflow-wrap:anywhere]">
+                {describeEffectiveApproachLine(
+                  context.tailoringStrength,
+                  "strategy",
+                )}
+              </span>
+            ) : props.effectiveTailoringStrength ? (
+              <span className="min-w-0 text-(length:--text-small) leading-5 text-foreground-soft [overflow-wrap:anywhere]">
+                {describeEffectiveApproachLine(
+                  props.effectiveTailoringStrength,
+                  "default",
+                )}
+              </span>
+            ) : null}
           </span>
-          <span className="text-(length:--text-small) leading-5 text-foreground-soft">
-            {hasRecommendation
-              ? `Recommended: ${context.recommendedStrategyName ?? "an approach"}. Advisory only — it never approves this resume.`
-              : "No resume approach recommended for this job. Advisory only — it never approves this resume."}
-          </span>
-        </span>
       </summary>
       <div className="grid gap-3 pt-2">
         <div className="surface-panel-shell grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-4">
@@ -120,7 +178,9 @@ export function ResumeStrategyContextPanel(props: {
 
           {context.templateId ||
           context.headlinePolicy ||
-          context.evidenceBoundaries ? (
+          context.evidenceBoundaries ||
+          context.tailoringStrength ||
+          props.effectiveTailoringStrength ? (
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
               {context.templateId ? (
                 <div>
@@ -140,6 +200,16 @@ export function ResumeStrategyContextPanel(props: {
                   </dt>
                   <dd className="text-foreground-soft">
                     {resumeApproachLabels[context.tailoringStrength]}
+                  </dd>
+                </div>
+              ) : props.effectiveTailoringStrength ? (
+                <div>
+                  <dt className="text-(length:--text-tiny) uppercase tracking-(--tracking-badge) text-foreground-muted">
+                    Tailoring strength
+                  </dt>
+                  <dd className="text-foreground-soft">
+                    Your default:{" "}
+                    {resumeApproachLabels[props.effectiveTailoringStrength]}
                   </dd>
                 </div>
               ) : null}

@@ -1,8 +1,13 @@
 import {
   buildCandidateSkillBank,
   classifyResumeClaimGrounding,
+  collectListingRequestedSkills,
   extractYearsOfExperienceNumbers,
+  isInjectableListingSkillName,
+  isSpokenLanguageResumeChrome,
   listingTextContainsTerm,
+  looksLikeSpokenLanguageSkillEntry,
+  skillsAreEquivalent,
   type ResumeClaimGroundingResult,
   type ResumeGenerationEvidenceItem,
   type TailoredResumeDraft,
@@ -309,14 +314,18 @@ function isGroundedVisibleSkill(
   candidateSkillBank: readonly string[],
 ): boolean {
   const normalized = normalizeText(content);
+  const contentTokens = tokenize(content);
 
-  if (!normalized) {
+  if (!normalized || contentTokens.length === 0 || contentTokens.length > 6) {
     return false;
   }
 
   return candidateSkillBank.some((skill) => {
+    // The claim must itself be a saved skill name, including common aliases
+    // such as Postgres/PostgreSQL. A listing sentence that merely mentions
+    // React is not a grounded skill.
     return (
-      matchesWholePhrase(skill, content) || matchesWholePhrase(content, skill)
+      skillsAreEquivalent(skill, content) || matchesWholePhrase(skill, content)
     );
   });
 }
@@ -1185,6 +1194,7 @@ function assessResumeClaims(input: {
   // call it unsupported — it was flagging the candidate's own sentences back
   // at them.
   const importedResumeText = input.profile?.baseResume.textContent ?? "";
+  const candidateSkillBank = buildCandidateSkillBank(input.profile);
 
   return buildResumeClaimDescriptors(input.draft).map((claim) => {
     const support = buildRelevantResumeClaimSupport(claim.text, evidenceBank);
@@ -1205,7 +1215,7 @@ function assessResumeClaims(input: {
         profileRecordId: entry.profileRecordId,
       })),
       jobCompany: input.job.company,
-      jobSkills: input.job.keySkills,
+      jobSkills: collectListingRequestedSkills(input.job),
       jobListingText,
       allowReasonableInference: true,
       allowAggressiveClaimRelaxation: true,
@@ -1228,10 +1238,25 @@ function assessResumeClaims(input: {
     // confirmable — so the promise had nothing to attach to. A
     // listing-anchored skill is a confirmation the person owns, not a
     // verdict the product gets to make on their behalf.
-    const isListingAnchoredSkillAddition =
-      generatedClaim &&
+    const isSkillsSectionClaim =
       claim.field === "section_bullet" &&
       isSkillsResumeSection(input.draft, claim.sectionId) &&
+      !isLanguageSection(
+        input.draft.sections.find((section) => section.id === claim.sectionId) ?? {
+          kind: "skills",
+          label: "",
+        },
+      );
+    const isProfileGroundedSkill =
+      isSkillsSectionClaim &&
+      !looksLikeSpokenLanguageSkillEntry(claim.text) &&
+      candidateSkillBank.some((skill) =>
+        skillsAreEquivalent(skill, claim.text),
+      );
+    const isListingAnchoredSkillAddition =
+      generatedClaim &&
+      isSkillsSectionClaim &&
+      !isProfileGroundedSkill &&
       claimTextIsVerbatimInSupport(claim.text, jobListingText);
     // Long enough that a single shared word cannot pass as the whole line.
     const isCandidateOwnVerbatimLine =
@@ -1257,9 +1282,11 @@ function assessResumeClaims(input: {
     // the person demonstrably has keeps its own grounded verdict.
     const status = isCandidateOwnVerbatimLine
       ? ("exact" as const)
-      : baseStatus === "unsupported" && isListingAnchoredSkillAddition
-        ? ("confirm_needed" as const)
-        : baseStatus;
+      : isProfileGroundedSkill
+        ? ("exact" as const)
+        : baseStatus === "unsupported" && isListingAnchoredSkillAddition
+          ? ("confirm_needed" as const)
+          : baseStatus;
     const locator = [
       claim.field,
       claim.sectionId,
@@ -1434,18 +1461,26 @@ export function sanitizeResumeDraft(input: {
         if (seenLines.has(normalized)) {
           return false;
         }
-        if (section.kind === "skills") {
+        if (section.kind === "skills" || section.kind === "keywords") {
           if (isLanguageSection(section)) {
             if (
+              isSpokenLanguageResumeChrome(bullet.text) ||
               !isGroundedVisibleLanguage(bullet.text, candidateLanguageBank)
             ) {
               return false;
             }
+          } else if (looksLikeSpokenLanguageSkillEntry(bullet.text)) {
+            return false;
           } else if (
             !isGroundedVisibleSkill(bullet.text, candidateSkillBank) &&
             // Aggressive tailoring may add the job's own requested
-            // technologies to the skills section; the bound is the listing.
-            !listingTextContainsTerm(listingText, bullet.text)
+            // technologies to the skills section; the bound is a skill-shaped
+            // listing term, never a responsibility sentence that happens to
+            // appear in the posting.
+            !(
+              listingTextContainsTerm(listingText, bullet.text) &&
+              isInjectableListingSkillName(bullet.text)
+            )
           ) {
             return false;
           }

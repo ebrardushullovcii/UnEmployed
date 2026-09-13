@@ -195,14 +195,14 @@ export function ResumeWorkHistoryDecisions(
         </h3>
         <StatusBadge tone={unresolvedCount > 0 ? "critical" : "positive"}>
           {unresolvedCount > 0
-            ? `${unresolvedCount} need${unresolvedCount === 1 ? "s" : ""} decision`
-            : "All kept omitted"}
+            ? `${unresolvedCount} need${unresolvedCount === 1 ? "s" : ""} a choice`
+            : "All left off"}
         </StatusBadge>
       </div>
       <p aria-live="polite" role="status">
         {unresolvedCount > 0
-          ? `${unresolvedCount} of ${decisions.length} hidden roles still need an explicit kept-omitted decision before this resume can be approved.`
-          : "Every listed hidden role is kept omitted by your explicit decision."}
+          ? `${unresolvedCount} of ${decisions.length} hidden roles still need a choice before you can approve. You can still export a PDF.`
+          : "You chose to leave every listed hidden role off this resume."}
       </p>
       <ul className="grid min-w-0 grid-cols-1 gap-2">
         {resolved.map(({ suggestion, context, acknowledgment }) => (
@@ -225,7 +225,7 @@ export function ResumeWorkHistoryDecisions(
                 ) : null}
               </div>
               <StatusBadge tone={acknowledgment ? "positive" : "critical"}>
-                {acknowledgment ? "Kept omitted" : "Needs decision"}
+                  {acknowledgment ? "Left off" : "Needs a choice"}
               </StatusBadge>
             </div>
             <p className="min-w-0 [overflow-wrap:anywhere]">
@@ -233,7 +233,7 @@ export function ResumeWorkHistoryDecisions(
             </p>
             <div>
               <Button
-                aria-label={`${acknowledgment ? "Undo keep omitted" : "Keep omitted"} · ${omissionKindLabels[suggestion.kind]}: ${suggestion.message}`}
+                aria-label={`${acknowledgment ? "Undo leave-off" : "Leave this role off"} · ${omissionKindLabels[suggestion.kind]}: ${suggestion.message}`}
                 aria-describedby={`review-role-${suggestion.id}`}
                 aria-pressed={Boolean(acknowledgment)}
                 disabled={props.disabled}
@@ -247,7 +247,7 @@ export function ResumeWorkHistoryDecisions(
                 type="button"
                 variant={acknowledgment ? "secondary" : "primary"}
               >
-                {acknowledgment ? "Undo keep omitted" : "Keep omitted"}
+                {acknowledgment ? "Undo leave-off" : "Leave this role off"}
               </Button>
             </div>
           </li>

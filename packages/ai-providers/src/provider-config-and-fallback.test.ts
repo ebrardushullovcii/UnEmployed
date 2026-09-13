@@ -5,6 +5,7 @@ import {
   createJobFinderAiClientFromEnvironment,
   createOpenAiCompatibleJobFinderAiClient,
 } from "./index";
+import { ResumeGenerationStrategyPolicySchema } from "./shared";
 import {
   createEnvironment,
   createJobPosting,
@@ -168,10 +169,19 @@ describe("ai provider config and fallback behavior", () => {
       ) as {
         model?: string;
         reasoning_effort?: string;
+        messages?: { role?: string; content?: string }[];
       };
       expect(aggressiveBody.model).toBe("deepseek-v4.1-flash");
       // The reasoning effort comes from its own env var and is applied.
       expect(aggressiveBody.reasoning_effort).toBe("high");
+      const prompt = (aggressiveBody.messages ?? [])
+        .map((message) => message.content ?? "")
+        .join("\n");
+      expect(prompt).toContain("Do not return {}");
+      expect(prompt).toContain("listingRequestedSkills");
+      expect(prompt).not.toContain(
+        "Return {} when the cited evidence is already",
+      );
     } finally {
       aggressiveCapture.restore();
     }
@@ -650,6 +660,114 @@ describe("ai provider config and fallback behavior", () => {
       expect(errorSpy).toHaveBeenCalledWith(
         "[AI Provider] extractProfileFromResume failed; falling back to deterministic client. Model request timed out after 90s",
       );
+    } finally {
+      restoreFetch();
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("keeps listing-asked skills on an aggressive draft when the model call fails", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const restoreFetch = mockRejectedFetch(new Error("upstream draft failure"));
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+      const result = await client.createResumeDraft({
+        profile: createProfile(),
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "aggressive",
+        },
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          description: [
+            "Own the payments reconciliation service end to end.",
+            "Design ledger invariants, instrument settlement dashboards,",
+            "run incident response, and mentor two backend engineers.",
+            Array.from({ length: 40 }, (_, index) => `duty ${index}`).join(" "),
+          ].join(" "),
+          keySkills: ["TypeScript"],
+          minimumQualifications: ["Hands-on experience with Terraform."],
+        },
+        resumeText: "Resume text",
+      });
+
+      expect(result.generationProvenance).toMatchObject({
+        method: "deterministic",
+        reason: "provider_failed",
+      });
+      expect(result.coreSkills).toEqual(expect.arrayContaining(["Terraform"]));
+      expect(result.notes.join(" ")).toMatch(/Terraform/);
+      expect(result.notes).toContain(
+        "Fell back to the deterministic resume draft creator after the model call failed.",
+      );
+    } finally {
+      restoreFetch();
+      errorSpy.mockRestore();
+    }
+  });
+
+  test("does not add listing-only skills on provider failure when a conservative strategy is selected", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const restoreFetch = mockRejectedFetch(new Error("upstream draft failure"));
+
+    try {
+      const client =
+        createJobFinderAiClientFromEnvironment(createEnvironment());
+      const result = await client.createResumeDraft({
+        profile: createProfile(),
+        searchPreferences: {
+          ...createPreferences(),
+          tailoringMode: "aggressive",
+        },
+        strategy: ResumeGenerationStrategyPolicySchema.parse({
+          strategyId: "strategy_keep_facts",
+          strategyName: "Keep every fact",
+          roleFamily: "Frontend Engineering",
+          baseResumeDocumentId: "resume_1",
+          templateId: "classic_ats",
+          headlinePolicy: "per_job_tailored",
+          skillsPolicy: "role_family_expanded",
+          coveragePolicy: "full_tailoring",
+          tailoringStrength: "conservative",
+          evidenceBoundaries: {
+            allowExactClaims: true,
+            allowParaphrasedClaims: true,
+            maxEvidenceRefsPerBullet: 8,
+            requireVerifierPass: true,
+          },
+          effectiveSource: "selection",
+          effectiveReason: "The user selected this strategy for the posting.",
+          recommendationSource: "none",
+          recommendationReason: null,
+          selectionSource: "user",
+          selectionReason: "Keep every fact for this job.",
+        }),
+        settings: createSettings(),
+        job: {
+          ...createJobPosting(),
+          description: [
+            "Own the payments reconciliation service end to end.",
+            "Design ledger invariants, instrument settlement dashboards,",
+            "run incident response, and mentor two backend engineers.",
+            Array.from({ length: 40 }, (_, index) => `duty ${index}`).join(" "),
+          ].join(" "),
+          keySkills: ["TypeScript"],
+          minimumQualifications: ["Hands-on experience with Terraform."],
+        },
+        resumeText: "Resume text",
+      });
+
+      expect(result.coreSkills).not.toEqual(
+        expect.arrayContaining(["Terraform"]),
+      );
+      expect(result.notes.join(" ")).not.toMatch(/job-listing skill/i);
     } finally {
       restoreFetch();
       errorSpy.mockRestore();

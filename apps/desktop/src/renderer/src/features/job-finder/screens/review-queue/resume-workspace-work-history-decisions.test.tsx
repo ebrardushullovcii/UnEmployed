@@ -251,24 +251,24 @@ describe("ResumeWorkHistoryDecisions", () => {
       />,
     );
 
-    expect(screen.getAllByText("Needs decision").length).toBe(2);
+    expect(screen.getAllByText("Needs a choice").length).toBe(2);
     expect(
       screen.getByText(
         "Hidden for review: this role has a weaker career-family fit.",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("status").textContent).toContain(
-      "2 of 2 hidden roles still need an explicit kept-omitted decision",
+      "2 of 2 hidden roles still need a choice before you can approve",
     );
 
     const keepButton = screen.getByRole("button", {
-      name: "Keep omitted · Weak fit: Hidden for review: this role has a weaker career-family fit.",
+      name: "Leave this role off · Weak fit: Hidden for review: this role has a weaker career-family fit.",
     });
     expect(keepButton.getAttribute("aria-pressed")).toBe("false");
     expect(keepButton.hasAttribute("disabled")).toBe(false);
   });
 
-  it("toggles acknowledged entries to kept-omitted and removes by acknowledgment id", () => {
+  it("toggles acknowledged entries to left-off and removes by acknowledgment id", () => {
     const onAcknowledge = vi.fn();
     const onRemoveAcknowledgment = vi.fn();
 
@@ -283,13 +283,13 @@ describe("ResumeWorkHistoryDecisions", () => {
       />,
     );
 
-    expect(screen.getByText("Kept omitted")).toBeTruthy();
+    expect(screen.getAllByText("Left off").length).toBeGreaterThan(0);
     expect(screen.getByRole("status").textContent).toContain(
-      "kept omitted by your explicit decision",
+      "leave every listed hidden role off this resume",
     );
 
     const undoButton = screen.getByRole("button", {
-      name: "Undo keep omitted · Weak fit: Hidden for review: this role has a weaker career-family fit.",
+      name: "Undo leave-off · Weak fit: Hidden for review: this role has a weaker career-family fit.",
     });
     expect(undoButton.getAttribute("aria-pressed")).toBe("true");
 
@@ -323,7 +323,7 @@ describe("ResumeWorkHistoryDecisions", () => {
     expect(section?.className).not.toMatch(/w-\[\d+px\]/);
 
     const keepButton = screen.getByRole("button", {
-      name: /Keep omitted · Weak fit:/,
+      name: /Leave this role off · Weak fit:/,
     });
     // Pending keeps the control exposed but inert instead of natively
     // disabled, so focus survives the in-flight decision.

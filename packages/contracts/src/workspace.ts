@@ -926,6 +926,12 @@ export const JobFinderResumeWorkspaceSchema = z.object({
     .default([]),
   strategyContext:
     JobFinderResumeWorkspaceStrategyContextSchema.nullable().default(null),
+  /**
+   * Strength that actually ran (or will run) for this job: the named
+   * approach's tailoring strength when one is selected, otherwise the
+   * global search-preference default. Null only when neither is set.
+   */
+  effectiveTailoringStrength: TailoringModeSchema.nullable().default(null),
 });
 export type JobFinderResumeWorkspace = z.infer<
   typeof JobFinderResumeWorkspaceSchema
@@ -1018,6 +1024,33 @@ export type JobFinderAddResumeClaimConfirmationInput = z.infer<
   typeof JobFinderAddResumeClaimConfirmationInputObjectSchema
 >;
 
+const ResumeClaimConfirmationTargetSchema = z
+  .object({
+    field: ResumeClaimFieldSchema,
+    sectionId: NonEmptyStringSchema,
+    entryId: NonEmptyStringSchema.nullable(),
+    bulletId: NonEmptyStringSchema.nullable(),
+    confirmedClaimContentHash: ResumeClaimContentHashSchema,
+  })
+  .strict();
+export type ResumeClaimConfirmationTarget = z.infer<
+  typeof ResumeClaimConfirmationTargetSchema
+>;
+
+const JobFinderAddManyResumeClaimConfirmationInputObjectSchema = z
+  .object({
+    intent: z.literal("add_many"),
+    jobId: NonEmptyStringSchema,
+    draftId: NonEmptyStringSchema,
+    expectedDraftUpdatedAt: IsoDateTimeSchema,
+    ownershipStatement: ResumeClaimOwnershipStatementSchema,
+    targets: z.array(ResumeClaimConfirmationTargetSchema).min(1).max(40),
+  })
+  .strict();
+export type JobFinderAddManyResumeClaimConfirmationInput = z.infer<
+  typeof JobFinderAddManyResumeClaimConfirmationInputObjectSchema
+>;
+
 const JobFinderRemoveResumeClaimConfirmationInputObjectSchema = z
   .object({
     intent: z.literal("remove"),
@@ -1031,45 +1064,63 @@ export type JobFinderRemoveResumeClaimConfirmationInput = z.infer<
   typeof JobFinderRemoveResumeClaimConfirmationInputObjectSchema
 >;
 
+function addClaimConfirmationLocatorIssues(
+  locator: {
+    field: string;
+    entryId: string | null;
+    bulletId: string | null;
+  },
+  ctx: z.RefinementCtx,
+  pathPrefix: Array<string | number> = [],
+) {
+  const expectsEntry =
+    locator.field === "entry_summary" || locator.field === "entry_bullet";
+  const expectsBullet =
+    locator.field === "section_bullet" || locator.field === "entry_bullet";
+
+  if ((locator.entryId !== null) !== expectsEntry) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [...pathPrefix, "entryId"],
+      message:
+        "Claim confirmation locators require an entryId exactly when field is entry_summary or entry_bullet.",
+    });
+  }
+
+  if ((locator.bulletId !== null) !== expectsBullet) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [...pathPrefix, "bulletId"],
+      message:
+        "Claim confirmation locators require a bulletId exactly when field is section_bullet or entry_bullet.",
+    });
+  }
+}
+
 /**
  * Server-owned resume claim confirmation command. Clients identify the exact
  * projected `confirm_needed` assessment (add: claim locator plus normalized
- * content hash and literal ownership statement) or the stored confirmation
- * (remove: confirmation id), and never supply record ids or timestamps:
- * those are minted by the service. Only an exact explicit ownership of the
- * exact normalized claim text can unblock export; edits and removals
- * invalidate it.
+ * content hash and literal ownership statement; add_many: the same for a
+ * batch of skills-section locators) or the stored confirmation (remove:
+ * confirmation id), and never supply record ids or timestamps: those are
+ * minted by the service. Only an exact explicit ownership of the exact
+ * normalized claim text can unblock export; edits and removals invalidate it.
+ * `add_many` still mints one confirmation record per target.
  */
 export const JobFinderSetResumeClaimConfirmationInputSchema = z
   .discriminatedUnion("intent", [
     JobFinderAddResumeClaimConfirmationInputObjectSchema,
+    JobFinderAddManyResumeClaimConfirmationInputObjectSchema,
     JobFinderRemoveResumeClaimConfirmationInputObjectSchema,
   ])
   .superRefine((input, ctx) => {
-    if (input.intent !== "add") {
+    if (input.intent === "add") {
+      addClaimConfirmationLocatorIssues(input, ctx);
       return;
     }
-
-    const expectsEntry =
-      input.field === "entry_summary" || input.field === "entry_bullet";
-    const expectsBullet =
-      input.field === "section_bullet" || input.field === "entry_bullet";
-
-    if ((input.entryId !== null) !== expectsEntry) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["entryId"],
-        message:
-          "Claim confirmation locators require an entryId exactly when field is entry_summary or entry_bullet.",
-      });
-    }
-
-    if ((input.bulletId !== null) !== expectsBullet) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["bulletId"],
-        message:
-          "Claim confirmation locators require a bulletId exactly when field is section_bullet or entry_bullet.",
+    if (input.intent === "add_many") {
+      input.targets.forEach((target, index) => {
+        addClaimConfirmationLocatorIssues(target, ctx, ["targets", index]);
       });
     }
   });

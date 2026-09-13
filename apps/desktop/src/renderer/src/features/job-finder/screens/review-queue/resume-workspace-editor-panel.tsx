@@ -314,7 +314,8 @@ export function ResumeWorkspaceEditorPanel(
               instead of reusing your resume wording. Marked lines may stretch
               your saved evidence in small, deliberate ways — rounded years and
               technologies the job asks for that your experience makes credible
-              — so the resume clears screening for the first interview. Each
+              — so the resume clears screening for the first interview. Skills
+              the job asked for are listed under Claim confirmations. Each
               stays unapproved until you check it against what you can prove in
               the interview.
               <details className="mt-1.5">

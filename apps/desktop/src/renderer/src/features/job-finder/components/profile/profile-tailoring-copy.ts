@@ -38,7 +38,7 @@ export const RESUME_APPROACH_OPTIONS = [
   },
   {
     description:
-      "A fuller rewrite that may also go a little past what you wrote: it can state a number of years you have evidence for one year higher when the job asks for that figure, and name technologies the job asks for when your own experience makes them credible. Every one of those lines is shown to you to confirm before the resume can be used.",
+      "A fuller rewrite that may also go a little past what you wrote: it can state a number of years you have evidence for one year higher when the job asks for that figure, and name technologies the job asks for — including ones named only in the qualifications — when your own experience makes them credible. Every one of those lines is shown to you to confirm before the resume can be used.",
     label: "A fuller rewrite that may stretch, with your say-so",
     value: "aggressive",
   },
@@ -58,8 +58,8 @@ export const TAILORING_MODE_DESCRIPTIONS: Record<string, string> = {
   balanced:
     "More of your wording is rewritten for the job. Every fact you wrote still stays exactly as you wrote it.",
   aggressive:
-    "A fuller rewrite that may also go a little past what you wrote: it can state a number of years you have evidence for one year higher when the job asks for that figure, and name technologies the job asks for when your own experience makes them credible. Every one of those lines is shown to you to confirm before the resume can be used.",
+    "A fuller rewrite that may also go a little past what you wrote: it can state a number of years you have evidence for one year higher when the job asks for that figure, and name technologies the job asks for — including ones named only in the qualifications — when your own experience makes them credible. Every one of those lines is shown to you to confirm before the resume can be used.",
 };
 
 export const STRONG_REWRITE_WARNING =
-  "This choice can write lines that go a little past what you wrote, to get you the first interview: a number of years you have evidence for can be stated one year higher when the job asks for that figure, and technologies the job asks for can appear when your saved experience makes them credible. Those technologies are added to your skills section too. Every one of those lines and skills is marked, counted in the draft notes, and cannot be used until you confirm it yourself — the interview is where you prove each one. Job Finder never approves or sends an application on its own.";
+  "This choice can write lines that go a little past what you wrote, to get you the first interview: a number of years you have evidence for can be stated one year higher when the job asks for that figure, and technologies the job asks for can appear when your saved experience makes them credible — including technologies named only in the qualifications. Those technologies are added to your skills section too. Every one of those lines and skills is marked, counted in the draft notes, and cannot be used until you confirm it yourself — the interview is where you prove each one. Job Finder never approves or sends an application on its own.";

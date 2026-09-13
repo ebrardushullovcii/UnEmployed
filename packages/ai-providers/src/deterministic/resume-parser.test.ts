@@ -912,6 +912,42 @@ describe("buildDeterministicResumeProfileExtraction", () => {
     );
   });
 
+  test("keeps real spoken languages and drops Europass language-section chrome", () => {
+    const extraction = buildDeterministicResumeProfileExtraction(
+      {
+        existingProfile: createProfile(),
+        existingSearchPreferences: createPreferences(),
+        resumeText: [
+          "Ada Example",
+          "LANGUAGE SKILLS",
+          "Mother Tongue(S) — ALBANIAN",
+          "English — C2",
+          "Levels — A1 and A2: Basic user; B1 and B2: Independent user; C1 and C2: Proficient user",
+          "SKILLS",
+          "TypeScript, React, PostgreSQL",
+        ].join("\n"),
+      },
+      "deterministic",
+      "Test provider",
+      { preserveExistingValues: false },
+    );
+
+    expect(extraction.spokenLanguages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ language: "Albanian", proficiency: "Native" }),
+        expect.objectContaining({ language: "English", proficiency: "C2" }),
+      ]),
+    );
+    expect(
+      extraction.spokenLanguages.some((entry) =>
+        /mother tongue|levels/i.test(entry.language ?? ""),
+      ),
+    ).toBe(false);
+    expect(extraction.skills.join(" ")).not.toMatch(
+      /mother tongue|levels|albanian|english/i,
+    );
+  });
+
   test("supports title-first stacked headers and carries an employer across consecutive roles", () => {
     const extraction = buildDeterministicResumeProfileExtraction(
       {

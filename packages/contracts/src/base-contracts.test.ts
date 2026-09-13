@@ -18,6 +18,7 @@ import {
   annualizeCompensationAmount,
   applicationStatusValues,
   isPreparedApplicationStatus,
+  resolveEffectiveResumeTailoringStrength,
   sourceAccessPromptStateValues,
 } from "./index";
 
@@ -314,5 +315,26 @@ describe("contracts base schemas", () => {
     expect(
       WorkModeListSchema.parse(["on-site", "in office", "remote"]),
     ).toEqual(["onsite", "onsite", "remote"]);
+  });
+
+  test("resolves effective resume tailoring strength from strategy then preferences", () => {
+    expect(
+      resolveEffectiveResumeTailoringStrength({
+        strategyTailoringStrength: "conservative",
+        searchPreferencesTailoringMode: "aggressive",
+      }),
+    ).toBe("conservative");
+    expect(
+      resolveEffectiveResumeTailoringStrength({
+        strategyTailoringStrength: null,
+        searchPreferencesTailoringMode: "aggressive",
+      }),
+    ).toBe("aggressive");
+    expect(
+      resolveEffectiveResumeTailoringStrength({
+        strategyTailoringStrength: null,
+        searchPreferencesTailoringMode: null,
+      }),
+    ).toBeNull();
   });
 });

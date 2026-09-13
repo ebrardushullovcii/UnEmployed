@@ -1609,7 +1609,7 @@ export function createPrimaryPageActions(
         },
         decision.intent === "acknowledge"
           ? "Saved. This role stays out of the resume by your explicit decision."
-          : "Removed the kept-omitted decision for this role.",
+          : "Removed the leave-off decision for this role.",
         { scope: jobFinderPendingActions.resumeJob(jobId) },
       ),
     onImportResume: () => {

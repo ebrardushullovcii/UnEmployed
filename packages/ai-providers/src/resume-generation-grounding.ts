@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+import {
+  canonicalSkillPhrase,
+  skillsAreEquivalent,
+} from "./deterministic/resume-skill-grounding";
 import type { CreateResumeDraftInput, TailorResumeInput } from "./shared";
 
 const EvidenceReferenceSchema = z.string().trim().min(1).max(300);
@@ -468,6 +472,7 @@ export function buildGroundedResumeRewriteModelPayload(
       preferredQualifications: input.job.preferredQualifications,
       keySkills: input.job.keySkills,
       keywordSignals: input.job.keywordSignals,
+      listingRequestedSkills: collectListingRequestedSkills(input.job),
     },
     ...("researchContext" in input && input.researchContext
       ? { researchContext: input.researchContext }
@@ -1642,6 +1647,535 @@ export function listingTextContainsTerm(
     return false;
   }
   return new Set(gateUnits(listingText)).has(normalizedTerm);
+}
+
+const MAX_LISTING_REQUESTED_SKILLS = 16;
+export const MAX_AGGRESSIVE_LISTING_CORE_SKILLS = 6;
+
+/**
+ * Listing fields the aggressive skills injector may harvest. Structured
+ * `keySkills` come first; qualification and skill-prompt prose fill gaps when
+ * extraction left those fields as sentences instead of a skill list.
+ */
+export interface ListingRequestedSkillJob {
+  keySkills?: readonly string[] | null;
+  keywordSignals?: readonly { kind: string; label: string }[] | null;
+  minimumQualifications?: readonly string[] | null;
+  preferredQualifications?: readonly string[] | null;
+  responsibilities?: readonly string[] | null;
+  description?: string | null;
+  summary?: string | null;
+}
+
+const LISTING_SKILL_PROMPT_PATTERN =
+  /\b(?:experience (?:with|in|using)|proficien(?:t|cy) (?:in|with)|familiar(?:ity)? with|knowledge of|skilled (?:in|with)|expertise (?:in|with)|hands-?on (?:with|in)|work(?:s|ed|ing)? (?:with|knowledge of)|written (?:in|with)|pipelines? (?:in|with|using)|must (?:have|know)|(?:required|preferred)\s*:?|(?:including|such as)|(?:tech(?:nology)? stack|stack)\s*:?)\s+([^.;:\n]+)/giu;
+
+const LISTING_SKILL_TITLE_CASE_PATTERN =
+  /\b(?:C(?:\+\+|#)|F#|\.[A-Za-z][A-Za-z0-9+#.]{1,}|[A-Z][A-Za-z0-9+#.]*(?:[+\-/.][A-Za-z0-9+#.]+)*)(?:\b(?![+#])|(?<=[+#]))/g;
+
+const LISTING_SKILL_SHORT_TECH = new Set(["go", "qt", "c#", "f#", "c++"]);
+
+const LISTING_SKILL_HR_ACRONYMS = new Set([
+  "eeo",
+  "pto",
+  "usa",
+  "usd",
+  "uk",
+  "eu",
+  "nyc",
+  "ceo",
+  "cto",
+  "vp",
+  "hr",
+  "nda",
+  "doe",
+  "tbd",
+]);
+
+const LISTING_SKILL_FLUFF_TOKENS = new Set([
+  "a",
+  "an",
+  "and",
+  "or",
+  "the",
+  "of",
+  "in",
+  "on",
+  "to",
+  "for",
+  "with",
+  "using",
+  "via",
+  "as",
+  "at",
+  "by",
+  "from",
+  "strong",
+  "excellent",
+  "outstanding",
+  "proven",
+  "required",
+  "preferred",
+  "plus",
+  "etc",
+  "including",
+  "such",
+  "both",
+  "either",
+  "across",
+  "within",
+  "years",
+  "year",
+  "yrs",
+  "yr",
+  "bachelor",
+  "bachelors",
+  "master",
+  "masters",
+  "degree",
+  "diploma",
+  "phd",
+  "doctorate",
+  "equivalent",
+  "related",
+  "field",
+  "ability",
+  "abilities",
+  "able",
+  "must",
+  "have",
+  "has",
+  "communication",
+  "communications",
+  "teamwork",
+  "collaboration",
+  "collaborative",
+  "leadership",
+  "stakeholder",
+  "stakeholders",
+  "ownership",
+  "delivery",
+  "problem",
+  "solving",
+  "attention",
+  "detail",
+  "self",
+  "motivated",
+  "fast",
+  "paced",
+  "equal",
+  "opportunity",
+  "benefits",
+  "salary",
+  "visa",
+  "sponsorship",
+  "clearance",
+  "education",
+  "university",
+  "college",
+  "environment",
+  "passionate",
+  "passion",
+  "understanding",
+  "track",
+  "record",
+  "background",
+  "experience",
+  "experiences",
+  "knowledge",
+  "skills",
+  "skill",
+  "work",
+  "working",
+  "authorization",
+  "authorized",
+  "deep",
+  "solid",
+  "hands",
+  "minimum",
+  "bonus",
+  "nice",
+  "candidate",
+  "candidates",
+  "team",
+  "teams",
+  "people",
+  "customer",
+  "customers",
+  "business",
+  "role",
+  "position",
+  "job",
+  "our",
+  "we",
+  "you",
+  "your",
+  "english",
+  "written",
+  "verbal",
+  "oral",
+  "demonstrated",
+  "own",
+  "owning",
+  "roadmap",
+  "product",
+  "design",
+  "systems",
+  "workflow",
+  "platform",
+  "cloud",
+  "computer",
+  "science",
+  "engineering",
+  "engineer",
+  "developer",
+  "software",
+  "professional",
+  "proficient",
+  "proficiency",
+  "expertise",
+  "exposure",
+  "fluency",
+  "fluent",
+  "competency",
+  "competence",
+  "familiarity",
+  "familiar",
+  "responsibility",
+  "responsibilities",
+  "qualification",
+  "qualifications",
+  "requirement",
+  "requirements",
+  "daily",
+  "weekly",
+  "monthly",
+  "quarterly",
+]);
+
+// Verbs and bare nouns that title-case harvest must not treat as skills
+// ("Build pipelines…", "Services written in Go"). They are not affix fluff:
+// stripping them would turn "Amazon Web Services" into "Amazon Web".
+const LISTING_SKILL_STANDALONE_REJECT = new Set([
+  "build",
+  "built",
+  "building",
+  "service",
+  "services",
+  "certified",
+  "certification",
+  "certificate",
+  "architect",
+  "solutions",
+]);
+
+function isRejectedListingSkillToken(token: string): boolean {
+  return (
+    LISTING_SKILL_FLUFF_TOKENS.has(token) ||
+    LISTING_SKILL_STANDALONE_REJECT.has(token)
+  );
+}
+
+function listingSkillTokenKey(token: string): string {
+  return token.toLowerCase().replace(/[^a-z0-9+#.]+/gu, "");
+}
+
+function stripListingSkillFluffAffixes(phrase: string): string {
+  const tokens = phrase.split(/[\s,]+/u).filter(Boolean);
+  while (tokens.length > 0) {
+    const key = listingSkillTokenKey(tokens[0] ?? "");
+    if (key.length < 2 || LISTING_SKILL_FLUFF_TOKENS.has(key)) {
+      tokens.shift();
+      continue;
+    }
+    break;
+  }
+  while (tokens.length > 0) {
+    const key = listingSkillTokenKey(tokens[tokens.length - 1] ?? "");
+    if (key.length < 2 || LISTING_SKILL_FLUFF_TOKENS.has(key)) {
+      tokens.pop();
+      continue;
+    }
+    break;
+  }
+  return tokens.join(" ");
+}
+
+function uniqueListingSkillNames(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const key = canonicalSkillPhrase(trimmed) || trimmed.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    unique.push(trimmed);
+  }
+  return unique;
+}
+
+function splitListingSkillList(tail: string): string[] {
+  return tail
+    .split(/\s*(?:,|;|\band\b|\bor\b)\s*/iu)
+    .map((part) =>
+      part
+        .replace(/^(?:and|or|plus)\s+/iu, "")
+        .replace(/^[:\-–—]\s*/u, "")
+        .replace(/[.)]+$/u, "")
+        .replace(/\s+/gu, " ")
+        .trim(),
+    )
+    .filter((part) => part.length >= 2 && part.length <= 48);
+}
+
+export function isInjectableListingSkillName(phrase: string): boolean {
+  const trimmed = phrase.trim();
+  return (
+    looksLikeListingTechnology(trimmed, { fromPrompt: false }) ||
+    looksLikeCompoundListingProductName(trimmed)
+  );
+}
+
+function looksLikeCompoundListingProductName(phrase: string): boolean {
+  const trimmed = phrase
+    .replace(/^[^A-Za-z0-9+#.]+|[^A-Za-z0-9+#.]+$/gu, "")
+    .trim();
+  if (trimmed.length < 4 || trimmed.length > 48) {
+    return false;
+  }
+  const tokens = trimmed.split(/[\s,]+/u).filter(Boolean);
+  if (tokens.length < 2 || tokens.length > 4) {
+    return false;
+  }
+  const content = tokens.filter((token) => {
+    const key = listingSkillTokenKey(token);
+    return key.length >= 2 && !LISTING_SKILL_FLUFF_TOKENS.has(key);
+  });
+  if (content.length < 2) {
+    return false;
+  }
+  return content.every((token) => {
+    if (LISTING_SKILL_SHORT_TECH.has(listingSkillTokenKey(token))) {
+      return true;
+    }
+    return /^(?:[A-Z]{2,6}|[A-Z][A-Za-z0-9+#.]*)$/u.test(token);
+  });
+}
+
+function looksLikeListingTechnology(
+  phrase: string,
+  options: { fromPrompt: boolean },
+): boolean {
+  const trimmed = phrase
+    .replace(/^[^A-Za-z0-9+#.]+|[^A-Za-z0-9+#.]+$/gu, "")
+    .trim();
+  if (trimmed.length < 2 || trimmed.length > 48) {
+    return false;
+  }
+  if (/\d/u.test(trimmed) && /\byears?\b/iu.test(trimmed)) {
+    return false;
+  }
+
+  if (
+    !/\s/u.test(trimmed) &&
+    trimmed.includes("-") &&
+    !/[+#./]/u.test(trimmed)
+  ) {
+    const parts = trimmed.split("-").filter(Boolean);
+    return parts.some((part) =>
+      looksLikeListingTechnology(part, { fromPrompt: false }),
+    );
+  }
+
+  const tokens = trimmed.split(/[\s,]+/u).filter(Boolean);
+  if (tokens.length === 0 || tokens.length > 4) {
+    return false;
+  }
+  const lowerTokens = tokens.map((token) =>
+    token.toLowerCase().replace(/[^a-z0-9+#.]+/gu, ""),
+  );
+  if (
+    lowerTokens.every(
+      (token) => isRejectedListingSkillToken(token) || token.length < 2,
+    )
+  ) {
+    return false;
+  }
+  if (
+    /[+#]/u.test(trimmed) ||
+    /\./u.test(trimmed) ||
+    /\//u.test(trimmed)
+  ) {
+    return true;
+  }
+  if (tokens.length === 1 && /[A-Z][a-z]+[A-Z]/u.test(trimmed)) {
+    return true;
+  }
+  if (tokens.length === 1) {
+    const token = tokens[0] ?? "";
+    const lower = token.toLowerCase();
+    if (isRejectedListingSkillToken(lower)) {
+      return false;
+    }
+    if (LISTING_SKILL_SHORT_TECH.has(listingSkillTokenKey(token))) {
+      return true;
+    }
+    if (/^[A-Z]{2,6}$/u.test(token)) {
+      return !LISTING_SKILL_HR_ACRONYMS.has(lower);
+    }
+    return /^[A-Z][A-Za-z0-9+#.]{2,}$/u.test(token);
+  }
+  if (options.fromPrompt) {
+    return isInjectableListingSkillName(trimmed);
+  }
+  return tokens.every((token) =>
+    looksLikeListingTechnology(token, { fromPrompt: false }),
+  );
+}
+
+function collectPromptCapturedListingSkills(lines: readonly string[]): string[] {
+  const captured: string[] = [];
+  for (const line of lines) {
+    const matches = line.matchAll(LISTING_SKILL_PROMPT_PATTERN);
+    for (const match of matches) {
+      const tail = match[1];
+      if (!tail) {
+        continue;
+      }
+      for (const phrase of splitListingSkillList(tail)) {
+        const stripped = stripListingSkillFluffAffixes(phrase);
+        if (stripped && isInjectableListingSkillName(stripped)) {
+          captured.push(stripped);
+        }
+      }
+    }
+  }
+  return captured;
+}
+
+function collectTitleCaseListingSkills(lines: readonly string[]): string[] {
+  const captured: string[] = [];
+  for (const line of lines) {
+    for (const match of line.matchAll(LISTING_SKILL_TITLE_CASE_PATTERN)) {
+      const token = match[0];
+      if (looksLikeListingTechnology(token, { fromPrompt: false })) {
+        captured.push(token);
+      }
+    }
+  }
+  return captured;
+}
+
+/**
+ * Technologies the listing itself asks for, including ones that only appear
+ * in qualification prose rather than the structured `keySkills` array.
+ * Bounded and de-duplicated so screening can see the job's stack without
+ * scraping company boilerplate into the skills section.
+ */
+export function collectListingRequestedSkills(
+  job: ListingRequestedSkillJob,
+): string[] {
+  const structured = [
+    ...(job.keySkills ?? []),
+    ...(job.keywordSignals ?? [])
+      .filter((signal) => signal.kind === "skill" || signal.kind === "tool")
+      .map((signal) => signal.label),
+  ];
+  const qualificationLines = [
+    ...(job.minimumQualifications ?? []),
+    ...(job.preferredQualifications ?? []),
+  ];
+  const skillPromptLines = [
+    ...qualificationLines,
+    ...(job.responsibilities ?? []),
+    job.summary ?? "",
+    job.description ?? "",
+  ].filter((line) => line.trim().length > 0);
+
+  return uniqueListingSkillNames([
+    ...structured,
+    ...collectPromptCapturedListingSkills(skillPromptLines),
+    ...collectTitleCaseListingSkills(qualificationLines),
+  ]).slice(0, MAX_LISTING_REQUESTED_SKILLS);
+}
+
+export function mergeAggressiveVisibleSkills(input: {
+  groundedCoreSkills: readonly string[];
+  groundedAdditionalSkills: readonly string[];
+  listingSkills: readonly string[];
+  coreLimit: number;
+  additionalLimit: number;
+}): {
+  coreSkills: string[];
+  additionalSkills: string[];
+  addedListingSkills: string[];
+} {
+  const groundedCore = uniqueListingSkillNames(input.groundedCoreSkills);
+  const groundedAdditional = uniqueListingSkillNames(
+    input.groundedAdditionalSkills,
+  );
+  const alreadyGrounded = [...groundedCore, ...groundedAdditional];
+  const listingNew = uniqueListingSkillNames(input.listingSkills).filter(
+    (skill) =>
+      !alreadyGrounded.some((grounded) => skillsAreEquivalent(grounded, skill)),
+  );
+  const listingCore = listingNew.slice(
+    0,
+    Math.min(
+      listingNew.length,
+      MAX_AGGRESSIVE_LISTING_CORE_SKILLS,
+      input.coreLimit,
+    ),
+  );
+  const groundedCoreKeep = groundedCore.slice(
+    0,
+    Math.max(0, input.coreLimit - listingCore.length),
+  );
+  const coreSkills = [...groundedCoreKeep, ...listingCore];
+  const leftoverListing = listingNew.filter(
+    (skill) => !coreSkills.some((core) => skillsAreEquivalent(core, skill)),
+  );
+  const additionalGrounded = groundedAdditional.filter(
+    (skill) => !coreSkills.some((core) => skillsAreEquivalent(core, skill)),
+  );
+  const listingAdditional = leftoverListing.slice(0, input.additionalLimit);
+  const additionalGroundedKeep = additionalGrounded.slice(
+    0,
+    Math.max(0, input.additionalLimit - listingAdditional.length),
+  );
+  const additionalSkills = [...additionalGroundedKeep, ...listingAdditional];
+  return {
+    coreSkills,
+    additionalSkills,
+    addedListingSkills: uniqueListingSkillNames([
+      ...listingCore,
+      ...listingAdditional,
+    ]),
+  };
+}
+
+/**
+ * Review and section-regeneration guidance for aggressive drafts. Stating the
+ * same bounds as generation keeps a later edit from stripping listing-asked
+ * technologies the candidate still has to confirm.
+ */
+export function describeAggressiveResumeEditPolicy(
+  tailoringStrength: "conservative" | "balanced" | "aggressive" | null | undefined,
+): string | null {
+  if (tailoringStrength !== "aggressive") {
+    return null;
+  }
+  return [
+    "This draft uses aggressive tailoring to help the resume clear screening for a first interview.",
+    "Keep bounded stretches of saved evidence: you may state evidenced years of experience one year higher when the listing itself asks for that figure, and you may name any technology, library, framework, or tool the listing asks for — required or preferred, including technologies named only in qualifications — in both the prose and the skills section, whenever the saved evidence shows professional technical experience.",
+    "Never invent employers, dates, titles, credentials, seniority, leadership, or a technology absent from both the saved evidence and the job listing.",
+    "The candidate confirms every stretch before export; state what you changed plainly and do not lecture.",
+  ].join(" ");
 }
 
 export function selectResumeRewrite(input: {

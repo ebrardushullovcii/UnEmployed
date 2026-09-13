@@ -1,3 +1,4 @@
+import { looksLikeSpokenLanguageSkillEntry } from "./resume-skill-grounding";
 import {
   knownSkillPhrases,
   knownSoftSkillPhrases,
@@ -49,6 +50,7 @@ export function inferSkills(
     .flatMap((line) => line.split(/,|\||[\u2022\u25cf\u25aa\u25e6\u2023]/))
     .map(cleanLine)
     .filter((entry) => entry.length >= 2 && entry.length <= 28)
+    .filter((entry) => !looksLikeSpokenLanguageSkillEntry(entry))
     .filter((entry) => {
       const overlappingKnownSkills = knownSkillPhrases.filter((skill) =>
         containsPhrase(entry, skill),
@@ -88,7 +90,8 @@ function splitSkillLine(line: string): string[] {
   const rawEntries = line
     .split(/,|\||[\u2022\u25cf\u25aa\u25e6\u2023]| {2,}/)
     .map(cleanLine)
-    .filter((entry) => entry.length >= 2 && entry.length <= 40);
+    .filter((entry) => entry.length >= 2 && entry.length <= 40)
+    .filter((entry) => !looksLikeSpokenLanguageSkillEntry(entry));
 
   if (rawEntries.length === 0) {
     const matchedKnownSkills = inferKnownPhrases(line, knownSkillPhrases);

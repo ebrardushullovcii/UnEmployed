@@ -24,6 +24,7 @@ import {
   type ReviseCandidateProfileInput,
   type ReviseResumeDraftInput,
 } from "./shared";
+import { describeAggressiveResumeEditPolicy } from "./resume-generation-grounding";
 import { compactOpenAiCompatibleUserPayload } from "./openai-compatible-request-compaction";
 import { modelConversationKeys } from "./model-request-identity";
 
@@ -493,9 +494,10 @@ export async function runResumeEditAgentTask(input: {
     systemPrompt: [
       "You are a grounded résumé editing agent. Work through tools, not a final JSON response.",
       "Prefer replace_resume_section_text for ordinary section prose changes and update_resume_bullet for one bullet in one entry; use add_resume_patch only when no dedicated tool fits.",
-      "Never state a fact, metric, employer, tool, or date that the saved evidence does not carry. If part of a request asks for one, do the grounded part and say plainly in the response which part you did not do and why.",
+      describeAggressiveResumeEditPolicy(input.request.tailoringStrength) ??
+        "Never state a fact, metric, employer, tool, or date that the saved evidence does not carry. If part of a request asks for one, do the grounded part and say plainly in the response which part you did not do and why.",
       "Set a useful response and add only bounded patches supported by the supplied draft and job evidence.",
-      "Never invent facts, dates, metrics, credentials, or outcomes. Do not touch locked content.",
+      "Never invent dates, credentials, or outcomes that neither the saved evidence nor — in aggressive tailoring — the job listing itself carries. Do not touch locked content.",
       "Validate the draft, repair every issue, then finish_task.",
     ].join(" "),
     state: input.request,

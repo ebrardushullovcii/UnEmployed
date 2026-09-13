@@ -262,6 +262,60 @@ describe("resume claim confirmation helpers", () => {
       }),
     ).toBeNull();
   });
+
+  it("builds add_many from current confirm_needed skill locators", () => {
+    const terraform: ResumeClaimAssessment = {
+      ...confirmNeededBullet,
+      id: "claim_terraform",
+      field: "section_bullet",
+      sectionId: "section_skills",
+      entryId: null,
+      bulletId: "skill_terraform",
+      claimText: "Terraform",
+      contentHash: "fnv1a32:aaaa1111",
+    };
+    const kubernetes: ResumeClaimAssessment = {
+      ...terraform,
+      id: "claim_kubernetes",
+      bulletId: "skill_kubernetes",
+      claimText: "Kubernetes",
+      contentHash: "fnv1a32:bbbb2222",
+    };
+    const draft = buildWorkspace().draft;
+    const input = buildResumeClaimConfirmationCommandInput({
+      claimAssessments: [terraform, kubernetes],
+      draft,
+      jobId: "job_ready",
+      request: { intent: "add_many", targets: [terraform, kubernetes] },
+    });
+
+    expect(input).toEqual({
+      intent: "add_many",
+      jobId: "job_ready",
+      draftId: draft.id,
+      expectedDraftUpdatedAt: draft.updatedAt,
+      ownershipStatement: resumeClaimOwnershipStatement,
+      targets: [
+        {
+          field: "section_bullet",
+          sectionId: "section_skills",
+          entryId: null,
+          bulletId: "skill_terraform",
+          confirmedClaimContentHash: "fnv1a32:aaaa1111",
+        },
+        {
+          field: "section_bullet",
+          sectionId: "section_skills",
+          entryId: null,
+          bulletId: "skill_kubernetes",
+          confirmedClaimContentHash: "fnv1a32:bbbb2222",
+        },
+      ],
+    });
+    expect(() =>
+      JobFinderSetResumeClaimConfirmationInputSchema.parse(input),
+    ).not.toThrow();
+  });
 });
 
 describe("ResumeClaimConfirmationPanel", () => {
@@ -322,9 +376,15 @@ describe("ResumeClaimConfirmationPanel", () => {
         `Required confirmation: “${resumeClaimOwnershipStatement}”`,
       ),
     ).toBeTruthy();
-    expect(screen.getByText("Evidence incomplete")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain(
-      "1 of 1 claims still need your explicit confirmation",
+    expect(screen.getByText("Needs your confirmation")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "1 of 1 still need your confirmation before this resume can be exported.",
+      ),
+    ).toBeTruthy();
+    expect(container.textContent).toMatch(/first interview/);
+    expect(container.textContent).not.toMatch(
+      /\b(lie|lies|lying|liar|dishonest|unethical|fraud)\b/i,
     );
     expect(container.textContent).not.toContain("claim_assessment_bullet");
     expect(container.textContent).not.toContain("fnv1a32");
@@ -505,5 +565,172 @@ describe("ResumeClaimConfirmationPanel", () => {
         "These checks describe the last saved draft. Save your edits to refresh claim evidence.",
       ),
     ).toBeTruthy();
+  });
+
+  it("groups listing-asked skills, offers bulk confirm for two or more, and keeps wording one-by-one", async () => {
+    const terraform: ResumeClaimAssessment = {
+      ...confirmNeededBullet,
+      id: "claim_terraform",
+      field: "section_bullet",
+      sectionId: "section_skills",
+      entryId: null,
+      bulletId: "skill_terraform",
+      claimText: "Terraform",
+      contentHash: "fnv1a32:aaaa1111",
+    };
+    const kubernetes: ResumeClaimAssessment = {
+      ...terraform,
+      id: "claim_kubernetes",
+      bulletId: "skill_kubernetes",
+      claimText: "Kubernetes",
+      contentHash: "fnv1a32:bbbb2222",
+    };
+    const workspace = buildWorkspace();
+    const draft = JobFinderResumeWorkspaceSchema.parse({
+      ...workspace,
+      draft: {
+        ...workspace.draft,
+        sections: [
+          ...workspace.draft.sections,
+          {
+            id: "section_skills",
+            kind: "skills",
+            label: "Core Skills",
+            text: null,
+            bullets: [
+              {
+                id: "skill_terraform",
+                text: "Terraform",
+                origin: "ai_generated",
+                locked: false,
+                included: true,
+                sourceRefs: [],
+                updatedAt: workspace.draft.updatedAt,
+              },
+              {
+                id: "skill_kubernetes",
+                text: "Kubernetes",
+                origin: "ai_generated",
+                locked: false,
+                included: true,
+                sourceRefs: [],
+                updatedAt: workspace.draft.updatedAt,
+              },
+            ],
+            entries: [],
+            origin: "ai_generated",
+            locked: false,
+            included: true,
+            sortOrder: workspace.draft.sections.length,
+            entryOrderMode: "chronology",
+            profileRecordId: null,
+            sourceRefs: [],
+            updatedAt: workspace.draft.updatedAt,
+          },
+        ],
+      },
+    }).draft;
+    const onSetResumeClaimConfirmation = vi.fn().mockResolvedValue({});
+
+    render(
+      <ResumeClaimConfirmationPanel
+        claimAssessments={[terraform, kubernetes, confirmNeededBullet]}
+        draft={draft}
+        hasUnsavedChanges={false}
+        isWorkspacePending={false}
+        jobId="job_ready"
+        onSetResumeClaimConfirmation={onSetResumeClaimConfirmation}
+      />,
+    );
+
+    expect(screen.getByText("Skills the job asked for · 2")).toBeTruthy();
+    expect(screen.getByText("Wording that stretches saved evidence")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Confirm all 2 skills/ }),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Confirm this skill/ })).toHaveLength(
+      2,
+    );
+    expect(
+      screen.getByRole("button", { name: /Confirm this wording · / }),
+    ).toBeTruthy();
+
+    await actAndFlush(() => {
+      fireEvent.click(
+        screen.getByRole("button", { name: /Confirm all 2 skills/ }),
+      );
+    });
+    expect(onSetResumeClaimConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intent: "add_many",
+        targets: [
+          expect.objectContaining({ bulletId: "skill_terraform" }),
+          expect.objectContaining({ bulletId: "skill_kubernetes" }),
+        ],
+      }),
+    );
+  });
+
+  it("does not offer bulk confirm for a single skill", () => {
+    const terraform: ResumeClaimAssessment = {
+      ...confirmNeededBullet,
+      id: "claim_terraform",
+      field: "section_bullet",
+      sectionId: "section_skills",
+      entryId: null,
+      bulletId: "skill_terraform",
+      claimText: "Terraform",
+      contentHash: "fnv1a32:aaaa1111",
+    };
+    const workspace = buildWorkspace();
+    const draft = JobFinderResumeWorkspaceSchema.parse({
+      ...workspace,
+      draft: {
+        ...workspace.draft,
+        sections: [
+          ...workspace.draft.sections,
+          {
+            id: "section_skills",
+            kind: "skills",
+            label: "Core Skills",
+            text: null,
+            bullets: [
+              {
+                id: "skill_terraform",
+                text: "Terraform",
+                origin: "ai_generated",
+                locked: false,
+                included: true,
+                sourceRefs: [],
+                updatedAt: workspace.draft.updatedAt,
+              },
+            ],
+            entries: [],
+            origin: "ai_generated",
+            locked: false,
+            included: true,
+            sortOrder: workspace.draft.sections.length,
+            entryOrderMode: "chronology",
+            profileRecordId: null,
+            sourceRefs: [],
+            updatedAt: workspace.draft.updatedAt,
+          },
+        ],
+      },
+    }).draft;
+
+    render(
+      <ResumeClaimConfirmationPanel
+        claimAssessments={[terraform]}
+        draft={draft}
+        hasUnsavedChanges={false}
+        isWorkspacePending={false}
+        jobId="job_ready"
+        onSetResumeClaimConfirmation={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /Confirm all / })).toBeNull();
+    expect(screen.getByRole("button", { name: /Confirm this skill/ })).toBeTruthy();
   });
 });

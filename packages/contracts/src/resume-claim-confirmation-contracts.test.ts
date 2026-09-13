@@ -6,6 +6,7 @@ import {
   ResumeDraftSchema,
   ResumeValidationIssueSchema,
   ResumeValidationResultSchema,
+  isResumeSkillClaimAssessment,
   resumeClaimAssessmentStatusValues,
   resumeClaimOwnershipStatement,
   resumeDraftStatusValues,
@@ -410,5 +411,50 @@ describe("contracts resume claim confirmation schemas", () => {
         updatedAt: ISO_TIMESTAMP,
       }),
     ).toThrow();
+  });
+
+  test("identifies skills-section locators for bulk confirmation", () => {
+    const draft = ResumeDraftSchema.parse({
+      ...legacyDraftInput,
+      sections: [
+        {
+          id: "section_skills",
+          kind: "skills",
+          label: "Core Skills",
+          origin: "ai_generated",
+          sortOrder: 0,
+          updatedAt: ISO_TIMESTAMP,
+          bullets: [
+            {
+              id: "skill_terraform",
+              text: "Terraform",
+              origin: "ai_generated",
+              updatedAt: ISO_TIMESTAMP,
+            },
+          ],
+        },
+        {
+          id: "section_experience",
+          kind: "experience",
+          label: "Experience",
+          origin: "ai_generated",
+          sortOrder: 1,
+          updatedAt: ISO_TIMESTAMP,
+        },
+      ],
+    });
+
+    expect(
+      isResumeSkillClaimAssessment(draft, {
+        field: "section_bullet",
+        sectionId: "section_skills",
+      }),
+    ).toBe(true);
+    expect(
+      isResumeSkillClaimAssessment(draft, {
+        field: "entry_bullet",
+        sectionId: "section_experience",
+      }),
+    ).toBe(false);
   });
 });

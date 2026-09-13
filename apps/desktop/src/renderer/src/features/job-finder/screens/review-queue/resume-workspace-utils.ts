@@ -1,5 +1,6 @@
 import type {
   ResumeAssistantMessage,
+  ResumeClaimAssessment,
   ResumeDraft,
   ResumeDraftBullet,
   ResumeDraftOrigin,
@@ -358,6 +359,53 @@ export function formatOptionalDate(
   }
 
   return fallback ?? "Unknown";
+}
+
+/**
+ * Export stays blocked until confirm_needed rows are owned and unsupported
+ * rows are gone. The copy says that plainly so the studio never asks the
+ * person to "ground" a line they are meant to confirm.
+ */
+export function describeResumeExportClaimBlock(input: {
+  blockingAssessments: readonly Pick<ResumeClaimAssessment, "status">[];
+}): string | null {
+  if (input.blockingAssessments.length === 0) {
+    return null;
+  }
+
+  const confirmCount = input.blockingAssessments.filter(
+    (assessment) => assessment.status === "confirm_needed",
+  ).length;
+  const rewriteCount = input.blockingAssessments.length - confirmCount;
+  const confirmLabel =
+    confirmCount === 1
+      ? "1 line still needs your confirmation"
+      : `${confirmCount} lines still need your confirmation`;
+  const rewriteLabel =
+    rewriteCount === 1
+      ? "1 claim must be removed or rewritten"
+      : `${rewriteCount} claims must be removed or rewritten`;
+
+  if (rewriteCount === 0) {
+    return `${confirmLabel} before this resume can be exported.`;
+  }
+  if (confirmCount === 0) {
+    return `${rewriteLabel} before this resume can be exported.`;
+  }
+  return `${confirmLabel}, and ${rewriteLabel}, before this resume can be exported.`;
+}
+
+export function resumeExportClaimBlockActionLabel(input: {
+  blockingAssessments: readonly Pick<ResumeClaimAssessment, "status">[];
+}): string {
+  const confirmCount = input.blockingAssessments.filter(
+    (assessment) => assessment.status === "confirm_needed",
+  ).length;
+  const rewriteCount = input.blockingAssessments.length - confirmCount;
+  if (confirmCount > 0 && rewriteCount === 0) {
+    return "Review confirmations";
+  }
+  return "Review blocked claims";
 }
 
 export function cloneDraft(draft: ResumeDraft): ResumeDraft {

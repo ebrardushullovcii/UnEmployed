@@ -6,6 +6,7 @@ import {
 } from "@unemployed/contracts";
 
 import {
+  createAggressiveTailoringDriveState,
   createApplyQueueDemoState,
   createResumeWorkspaceDemoState,
 } from "./job-finder-demo-state";
@@ -194,6 +195,7 @@ describe("job finder demo state", () => {
     for (const factory of [
       createApplyQueueDemoState,
       createResumeWorkspaceDemoState,
+      createAggressiveTailoringDriveState,
     ]) {
       const parsed = JobFinderRepositoryStateSchema.safeParse(factory());
       expect(parsed.success).toBe(true);

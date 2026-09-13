@@ -21,6 +21,7 @@ export interface ResumeStudioAttentionPanelProps {
   attentionItemCount: number;
   claimConfirmationPanel?: ReactNode;
   exportBlockedReason: string | null;
+  exportBlockedActionLabel?: string;
   focusAnnouncement: string | null;
   onDismissSetAsideProposalNote?: () => void;
   onReviewBlockingIssues: () => void;
@@ -132,7 +133,7 @@ export function ResumeStudioAttentionPanel(
             type="button"
             variant="secondary"
           >
-            Review blocked claims
+            {props.exportBlockedActionLabel ?? "Review blocked claims"}
           </Button>
         </div>
       ) : null}
@@ -149,7 +150,7 @@ export function ResumeStudioAttentionPanel(
             type="button"
             variant="secondary"
           >
-            Review work-history decisions
+            Review hidden roles
           </Button>
         </div>
       ) : null}

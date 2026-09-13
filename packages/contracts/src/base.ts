@@ -124,6 +124,21 @@ export const tailoringModeValues = [
 export const TailoringModeSchema = z.enum(tailoringModeValues);
 export type TailoringMode = z.infer<typeof TailoringModeSchema>;
 
+/**
+ * The strength that actually runs for a draft: a named resume approach
+ * overrides the global preference; otherwise the preference is the default.
+ */
+export function resolveEffectiveResumeTailoringStrength(input: {
+  strategyTailoringStrength?: TailoringMode | null;
+  searchPreferencesTailoringMode?: TailoringMode | null;
+}): TailoringMode | null {
+  return (
+    input.strategyTailoringStrength ??
+    input.searchPreferencesTailoringMode ??
+    null
+  );
+}
+
 export const resumeApplicationModeValues = [
   "tailored_per_job",
   "original_resume",

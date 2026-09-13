@@ -23,6 +23,35 @@ function buildValidAddInput(
   };
 }
 
+function buildValidAddManyInput(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    intent: "add_many",
+    jobId: "job_1",
+    draftId: "resume_draft_1",
+    expectedDraftUpdatedAt: "2026-03-20T10:02:30.000Z",
+    ownershipStatement: resumeClaimOwnershipStatement,
+    targets: [
+      {
+        field: "section_bullet",
+        sectionId: "section_skills",
+        entryId: null,
+        bulletId: "skill_bullet_1",
+        confirmedClaimContentHash: "fnv1a32:5678efab",
+      },
+      {
+        field: "section_bullet",
+        sectionId: "section_skills",
+        entryId: null,
+        bulletId: "skill_bullet_2",
+        confirmedClaimContentHash: "fnv1a32:9abc0001",
+      },
+    ],
+    ...overrides,
+  };
+}
+
 const validRemove = {
   intent: "remove" as const,
   jobId: "job_1",
@@ -54,6 +83,46 @@ describe("contracts resume claim confirmation command schema", () => {
       intent: "remove",
       confirmationId: "claim_confirmation_section_experience_abc",
     });
+  });
+
+  test("parses add_many with one ownership statement and per-skill locators", () => {
+    const added = JobFinderSetResumeClaimConfirmationInputSchema.parse(
+      buildValidAddManyInput(),
+    );
+    expect(added).toMatchObject({
+      intent: "add_many",
+      ownershipStatement: resumeClaimOwnershipStatement,
+    });
+    if (added.intent !== "add_many") {
+      throw new Error("Expected add_many");
+    }
+    expect(added.targets).toHaveLength(2);
+    expect(added.targets[0]).toMatchObject({
+      field: "section_bullet",
+      bulletId: "skill_bullet_1",
+      entryId: null,
+    });
+
+    expect(() =>
+      JobFinderSetResumeClaimConfirmationInputSchema.parse(
+        buildValidAddManyInput({ targets: [] }),
+      ),
+    ).toThrow();
+    expect(() =>
+      JobFinderSetResumeClaimConfirmationInputSchema.parse(
+        buildValidAddManyInput({
+          targets: [
+            {
+              field: "section_bullet",
+              sectionId: "section_skills",
+              entryId: "experience_1",
+              bulletId: "skill_bullet_1",
+              confirmedClaimContentHash: "fnv1a32:5678efab",
+            },
+          ],
+        }),
+      ),
+    ).toThrow(/entryId/);
   });
 
   test("parses every claim field with correctly shaped locators", () => {
@@ -141,6 +210,11 @@ describe("contracts resume claim confirmation command schema", () => {
           ...forged,
         }),
       ).toThrow();
+      expect(() =>
+        JobFinderSetResumeClaimConfirmationInputSchema.parse(
+          buildValidAddManyInput(forged),
+        ),
+      ).toThrow();
     }
 
     // Cross-intent fields never parse: remove carries only the confirmation
@@ -193,7 +267,7 @@ describe("contracts resume claim confirmation command schema", () => {
     const assertCommand = (
       command: JobFinderSetResumeClaimConfirmationInput,
     ): void => {
-      if (command.intent === "add") {
+      if (command.intent === "add" || command.intent === "add_many") {
         expect(command.ownershipStatement).toBe(resumeClaimOwnershipStatement);
         return;
       }
@@ -203,6 +277,11 @@ describe("contracts resume claim confirmation command schema", () => {
     assertCommand(validRemove);
     assertCommand(
       JobFinderSetResumeClaimConfirmationInputSchema.parse(buildValidAddInput()),
+    );
+    assertCommand(
+      JobFinderSetResumeClaimConfirmationInputSchema.parse(
+        buildValidAddManyInput(),
+      ),
     );
   });
 });

@@ -1051,3 +1051,112 @@ export function createApplyQueueDemoState(): JobFinderRepositoryState {
     userActionRequests: [demoBrowserStepUserActionRequest],
   });
 }
+
+/**
+ * Isolated Electron drive seed for aggressive tailoring. Same synthetic Alex
+ * Vanguard workspace as the apply-queue demo, with listing-asked skills and
+ * wording stretches already on the ready draft so the studio can be driven
+ * without a live model call.
+ */
+export function createAggressiveTailoringDriveState(): JobFinderRepositoryState {
+  const base = createApplyQueueDemoState();
+  const listingSkills = ["Terraform", "Kubernetes"] as const;
+  const now = "2026-03-20T10:04:00.000Z";
+
+  return JobFinderRepositoryStateSchema.parse({
+    ...base,
+    searchPreferences: {
+      ...base.searchPreferences,
+      tailoringMode: "aggressive",
+    },
+    savedJobs: base.savedJobs.map((job) =>
+      job.id === "job_ready"
+        ? {
+            ...job,
+            keySkills: [...job.keySkills, ...listingSkills],
+            description: `${job.description} You'll work with Terraform daily. Strong Framer prototyping and 11 years of professional experience required.`,
+            minimumQualifications: [
+              ...job.minimumQualifications,
+              "Hands-on experience with Terraform and Kubernetes.",
+              "11 years of professional experience.",
+            ],
+          }
+        : job,
+    ),
+    resumeDrafts: base.resumeDrafts.map((draft) =>
+      draft.jobId === "job_ready"
+        ? {
+            ...draft,
+            status: "draft",
+            approvedAt: null,
+            approvedExportId: null,
+            generationMethod: "ai",
+            sections: [
+              ...draft.sections.map((section) =>
+                section.id === "section_experience"
+                  ? {
+                      ...section,
+                      entries: section.entries.map((entry) =>
+                        entry.id === "entry_signal_systems"
+                          ? {
+                              ...entry,
+                              origin: "ai_generated",
+                              bullets: [
+                                {
+                                  id: "bullet_signal_rollout",
+                                  text: "Championed resilient delivery improvements across organizations.",
+                                  origin: "ai_generated",
+                                  locked: false,
+                                  included: true,
+                                  sourceRefs: [],
+                                  lastGeneratedContentHash: null,
+                                  updatedAt: now,
+                                },
+                                {
+                                  id: "bullet_years_framer",
+                                  text: "Designed resilient workflow tools in Framer across 11 years of professional experience.",
+                                  origin: "ai_generated",
+                                  locked: false,
+                                  included: true,
+                                  sourceRefs: [],
+                                  lastGeneratedContentHash: null,
+                                  updatedAt: now,
+                                },
+                              ],
+                            }
+                          : entry,
+                      ),
+                    }
+                  : section,
+              ),
+              {
+                id: "section_skills",
+                kind: "skills",
+                label: "Core Skills",
+                text: null,
+                bullets: listingSkills.map((skill) => ({
+                  id: `skill_${skill.toLowerCase()}`,
+                  text: skill,
+                  origin: "ai_generated",
+                  locked: false,
+                  included: true,
+                  sourceRefs: [],
+                  lastGeneratedContentHash: null,
+                  updatedAt: now,
+                })),
+                entries: [],
+                origin: "ai_generated",
+                locked: false,
+                included: true,
+                sortOrder: 3,
+                entryOrderMode: "chronology",
+                profileRecordId: null,
+                sourceRefs: [],
+                updatedAt: now,
+              },
+            ],
+          }
+        : draft,
+    ),
+  });
+}

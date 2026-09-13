@@ -53,6 +53,7 @@ interface ResumeWorkspaceStudioShellProps {
   claimConfirmationPanel?: ReactNode;
   editorPanel: ReactNode;
   exportBlockedReason: string | null;
+  exportBlockedActionLabel?: string;
   hasUnsavedChanges: boolean;
   historyPanel: ReactNode;
   /** Native PDF export is pending without invalidating a ready workspace. */
@@ -724,6 +725,9 @@ export function ResumeWorkspaceStudioShell(
         ? { claimConfirmationPanel: props.claimConfirmationPanel }
         : {})}
       exportBlockedReason={props.exportBlockedReason}
+      {...(props.exportBlockedActionLabel
+        ? { exportBlockedActionLabel: props.exportBlockedActionLabel }
+        : {})}
       focusAnnouncement={validationFocusAnnouncement}
       {...(props.onDismissSetAsideProposalNote
         ? {
@@ -828,7 +832,7 @@ export function ResumeWorkspaceStudioShell(
                 : approvalBlockedByValidation
                   ? "Fix the first validation error before approval."
                   : approvalBlockedByDecisions
-                    ? "Decide whether each hidden work-history role stays omitted before approving."
+                    ? "Choose whether to leave each hidden role off this resume before approving."
                     : props.exportBlockedReason
                       ? "Resolve the blocked claims before approval."
                       : "Choose an apply-safe template before approval."}
@@ -938,7 +942,7 @@ export function ResumeWorkspaceStudioShell(
                   : approvalBlockedByValidation
                     ? "Fix approval blocker"
                     : approvalBlockedByDecisions
-                      ? "Review work-history decisions"
+                      ? "Review hidden roles"
                       : "Choose an apply-safe template"}
               <ArrowRight className="size-4" />
             </Button>

@@ -1665,7 +1665,7 @@ describe("ResumeWorkspaceScreen", () => {
       "Sales Operations Associate",
     );
     expect(decisionContext?.textContent).toMatch(/Bright Market.*2019.*2020/);
-    expect(screen.getAllByText("Needs decision").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Needs a choice").length).toBeGreaterThan(0);
 
     const decisionsSection = document.querySelector(
       "[data-resume-work-history-decisions]",
@@ -1684,7 +1684,7 @@ describe("ResumeWorkspaceScreen", () => {
     ).not.toBe(0);
 
     const keepButtons = screen.getAllByRole("button", {
-      name: `Keep omitted · Weak fit: ${hiddenRoleMessage}`,
+      name: `Leave this role off · Weak fit: ${hiddenRoleMessage}`,
     });
     expect(keepButtons.length).toBeGreaterThan(0);
     for (const button of keepButtons) {
@@ -1703,7 +1703,7 @@ describe("ResumeWorkspaceScreen", () => {
 
     fireEvent.click(
       screen.getAllByRole("button", {
-        name: `Keep omitted · Weak fit: ${hiddenRoleMessage}`,
+        name: `Leave this role off · Weak fit: ${hiddenRoleMessage}`,
       })[0]!,
     );
     await act(async () => {
@@ -1757,10 +1757,10 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    expect(screen.getAllByText("Kept omitted").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Left off").length).toBeGreaterThan(0);
 
     const undoButtons = screen.getAllByRole("button", {
-      name: `Undo keep omitted · Weak fit: ${hiddenRoleMessage}`,
+      name: `Undo leave-off · Weak fit: ${hiddenRoleMessage}`,
     });
     expect(undoButtons.length).toBeGreaterThan(0);
     expect(undoButtons[0]!.getAttribute("aria-pressed")).toBe("true");
@@ -1807,9 +1807,9 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    expect(screen.getAllByText("Needs decision").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Needs a choice").length).toBeGreaterThan(0);
     expect(
-      screen.getAllByText(/waiting on an explicit kept-omitted decision/)
+      screen.getAllByText(/You can still export a PDF/)
         .length,
     ).toBeGreaterThan(0);
   });
@@ -1854,7 +1854,7 @@ describe("ResumeWorkspaceScreen", () => {
     });
 
     const keepButtons = screen.getAllByRole("button", {
-      name: `Keep omitted · Weak fit: ${hiddenRoleMessage}`,
+      name: `Leave this role off · Weak fit: ${hiddenRoleMessage}`,
     });
     expect(keepButtons.length).toBeGreaterThan(0);
     for (const button of keepButtons) {
@@ -1898,7 +1898,7 @@ describe("ResumeWorkspaceScreen", () => {
     });
 
     expect(
-      screen.getAllByText(/waiting on an explicit kept-omitted decision/)
+      screen.getAllByText(/You can still export a PDF/)
         .length,
     ).toBeGreaterThan(0);
     expect(
@@ -1911,7 +1911,7 @@ describe("ResumeWorkspaceScreen", () => {
     ).toBeNull();
 
     const reviewDecisionButtons = screen.getAllByRole("button", {
-      name: "Review work-history decisions",
+      name: "Review hidden roles",
     });
     expect(reviewDecisionButtons.length).toBeGreaterThanOrEqual(2);
 
@@ -1960,11 +1960,11 @@ describe("ResumeWorkspaceScreen", () => {
 
     expect(screen.queryByText("Work-history decisions")).toBeNull();
     expect(
-      screen.queryByText(/waiting on an explicit kept-omitted decision/),
+      screen.queryByText(/You can still export a PDF/),
     ).toBeNull();
   });
 
-  it("saves unsaved edits before recording a kept-omitted decision", () => {
+  it("saves unsaved edits before recording a leave-off decision", () => {
     const onSaveDraftAndThen = vi.fn();
     renderScreen({ onSaveDraftAndThen });
 
@@ -1974,7 +1974,7 @@ describe("ResumeWorkspaceScreen", () => {
 
     fireEvent.click(
       screen.getAllByRole("button", {
-        name: `Keep omitted · Weak fit: ${hiddenRoleMessage}`,
+        name: `Leave this role off · Weak fit: ${hiddenRoleMessage}`,
       })[0]!,
     );
 

@@ -253,6 +253,7 @@ function arrayLimitForPath(path: readonly string[], level: number, value: readon
     key === "companyWhitelist" ||
     key === "experienceHighlights" ||
     key === "coreSkills" ||
+    key === "listingRequestedSkills" ||
     key === "targetedKeywords" ||
     key === "additionalSkills" ||
     key === "languages" ||
