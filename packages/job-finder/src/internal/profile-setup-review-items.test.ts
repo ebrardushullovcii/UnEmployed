@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  ProfileSetupStateSchema,
   ResumeImportFieldCandidateSchema,
   createFreshStartCandidateProfile,
   type ResumeImportFieldCandidate,
@@ -67,6 +68,45 @@ describe("buildProfileSetupReviewItems", () => {
     expect(
       items.find((item) => item.label === "Work history")?.reason,
     ).toContain("Add at least one meaningful work-history role");
+  });
+
+  test("keeps a dismissed missing-field item dismissed", () => {
+    const seed = createSeed();
+    const emptyHistoryProfile = {
+      ...seed.profile,
+      experiences: [],
+      projects: [],
+    };
+    const buildInput = {
+      documentBundle: null,
+      now: createdAt,
+      profile: emptyHistoryProfile,
+      candidates: [],
+      searchPreferences: seed.searchPreferences,
+    };
+    const items = buildProfileSetupReviewItems({
+      ...buildInput,
+      currentState: null,
+    });
+    const workHistory = items.find((item) => item.label === "Work history");
+    expect(workHistory?.status).toBe("pending");
+
+    const dismissed = items.map((item) =>
+      item.id === workHistory?.id
+        ? { ...item, status: "dismissed" as const }
+        : item,
+    );
+    const rebuilt = buildProfileSetupReviewItems({
+      ...buildInput,
+      currentState: ProfileSetupStateSchema.parse({
+        status: "in_progress",
+        reviewItems: dismissed,
+      }),
+    });
+
+    expect(rebuilt.find((item) => item.label === "Work history")?.status).toBe(
+      "dismissed",
+    );
   });
 
   test("keeps an existing role's missing work mode as an imported review item", () => {
@@ -194,6 +234,45 @@ describe("buildProfileSetupReviewItems", () => {
     });
 
     expect(items.map((item) => item.label)).toContain("Field of study");
+  });
+
+  test("clears the location item when the structured fields carry a place", () => {
+    const seed = createSeed();
+    const emptyLocation = {
+      ...seed.profile,
+      currentLocation: "",
+      currentCity: null,
+      currentRegion: null,
+      currentCountry: null,
+    };
+
+    expect(
+      buildProfileSetupReviewItems({
+        currentState: null,
+        documentBundle: null,
+        now: createdAt,
+        profile: emptyLocation,
+        candidates: [],
+        searchPreferences: seed.searchPreferences,
+      }).map((item) => item.label),
+    ).toContain("Location");
+
+    // Profile Basics writes city and country; guided setup writes one line.
+    // Either one answers the question.
+    expect(
+      buildProfileSetupReviewItems({
+        currentState: null,
+        documentBundle: null,
+        now: createdAt,
+        profile: {
+          ...emptyLocation,
+          currentCity: "Budapest",
+          currentCountry: "Hungary",
+        },
+        candidates: [],
+        searchPreferences: seed.searchPreferences,
+      }).map((item) => item.label),
+    ).not.toContain("Location");
   });
 
   test("omits saved suggestions and resolves an older pending item once its value is saved", () => {

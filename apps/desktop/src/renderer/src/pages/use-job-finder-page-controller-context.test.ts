@@ -13,6 +13,7 @@ import type {
   ReviewQueueItem,
 } from "@unemployed/contracts";
 import type { TailoredDraftPreparationViewState } from "@renderer/features/job-finder/screens/review-queue/review-queue-status";
+import type { DiscoveryRunFeedback } from "@renderer/features/job-finder/screens/discovery/discovery-run-feedback";
 import { buildJobFinderTaskCenterModel } from "@renderer/features/job-finder/components/task-center/job-finder-task-center-model";
 import { createJobFinderSaveCoordinator } from "./job-finder-save-state";
 import { runJobFinderApplicationBrowserHandoff } from "./job-finder-page-routes";
@@ -42,6 +43,7 @@ function buildContext(overrides: {
   const actionMessages: (string | null)[] = [];
   let pendingActionState: PendingActionState = {};
   let tailoredDraftPreparation = createIdleTailoredDraftPreparation();
+  let discoveryRunFeedback: DiscoveryRunFeedback | null = null;
   let tailoredDraftPreparationWriteCount = 0;
   const workspace =
     overrides.workspace ??
@@ -60,6 +62,12 @@ function buildContext(overrides: {
   const setPendingActionState = (next: SetStateAction<PendingActionState>) => {
     pendingActionState =
       typeof next === "function" ? next(pendingActionState) : next;
+  };
+  const setDiscoveryRunFeedback = (
+    next: SetStateAction<DiscoveryRunFeedback | null>,
+  ) => {
+    discoveryRunFeedback =
+      typeof next === "function" ? next(discoveryRunFeedback) : next;
   };
   const saveCoordinator = createJobFinderSaveCoordinator({
     onStateChange: vi.fn(),
@@ -100,6 +108,7 @@ function buildContext(overrides: {
     selectedTailoredAsset: null,
     setPendingActionState,
     setActionState,
+    setDiscoveryRunFeedback,
     setLiveDiscoveryEvents: vi.fn(),
     setOptimisticProfileCopilotMessages: vi.fn(),
     setProfileCopilotBusy: vi.fn(),
@@ -130,6 +139,7 @@ function buildContext(overrides: {
     getActionState: () => actionState,
     getActionMessages: () => actionMessages,
     getPendingActionState: () => pendingActionState,
+    getDiscoveryRunFeedback: () => discoveryRunFeedback,
     getTailoredDraftPreparation: () => tailoredDraftPreparation,
     getTailoredDraftPreparationWriteCount: () =>
       tailoredDraftPreparationWriteCount,
@@ -170,6 +180,40 @@ describe("buildJobFinderPageContext campaign schedule and notifications", () => 
     await context.onRunCampaignNow();
 
     expect(runCampaignNow).toHaveBeenCalledWith(undefined);
+  });
+
+  it("freezes campaign-run feedback from that plan's own completed ledger", async () => {
+    const runCampaignNow = vi
+      .fn<JobFinderShellActions["runCampaignNow"]>()
+      .mockResolvedValue({
+        recentDiscoveryRuns: [
+          {
+            id: "run_campaign_b",
+            campaignId: "campaign_b",
+            state: "completed",
+            startedAt: "2026-09-12T10:00:00.000Z",
+            summary: {
+              report: {
+                measuredAt: "2026-09-12T10:01:00.000Z",
+                found: 5,
+                new: 0,
+                retained: 15,
+                duplicates: 5,
+                worthOpening: 5,
+              },
+            },
+          },
+        ],
+      } as unknown as JobFinderWorkspaceSnapshot);
+    const { context, getDiscoveryRunFeedback } = buildContext({
+      actions: { runCampaignNow },
+    });
+
+    await context.onRunCampaignNow("campaign_b");
+
+    expect(getDiscoveryRunFeedback()?.headline).toContain(
+      "5 found · 0 new · 15 kept",
+    );
   });
 
   it("keeps the campaign-run scope pending while the action runs", async () => {
@@ -607,6 +651,39 @@ describe("buildJobFinderPageContext tailored draft batch", () => {
       (message) => message !== null && /stopped after/i.test(message),
     );
     expect(batchMessage).toMatch(/Stopped after 1 completed draft/);
+  });
+
+  it("accepts Stop from a remounted controller whose refs are fresh", async () => {
+    let resolveFirst: (() => void) | undefined;
+    const generateResume = vi
+      .fn<JobFinderShellActions["generateResume"]>()
+      .mockImplementation(
+        () =>
+          new Promise<JobFinderWorkspaceSnapshot>((resolve) => {
+            resolveFirst = () => resolve({} as JobFinderWorkspaceSnapshot);
+          }),
+      );
+    const workspace = createBatchWorkspace([
+      createReviewQueueItem("job_1"),
+      createReviewQueueItem("job_2"),
+    ]);
+    const started = buildContext({ actions: { generateResume }, workspace });
+
+    started.context.onPrepareTailoredDrafts();
+    expect(generateResume).toHaveBeenCalledTimes(1);
+
+    // A remount builds a controller with its own refs, all back to false. The
+    // batch is still running on the module-level guard, so its Stop has to
+    // reach it: testers saw preparation advance to "Writing resume 8 of 10"
+    // forty-five seconds after pressing Stop.
+    const remounted = buildContext({ actions: { generateResume }, workspace });
+    remounted.context.onStopTailoredDraftPreparation();
+    resolveFirst?.();
+
+    await vi.waitFor(() =>
+      expect(started.getTailoredDraftPreparation().status).toBe("stopped"),
+    );
+    expect(generateResume).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the batch alive across route changes: the task center tracks it away from Shortlisted and Stop from any route finishes only the current job", async () => {

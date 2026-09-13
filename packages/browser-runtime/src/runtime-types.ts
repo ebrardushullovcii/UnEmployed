@@ -15,6 +15,7 @@ import type {
   JobPosting,
   JobSearchPreferences,
   JobSource,
+  ParkedBrowserTabReference,
   ApplicationResumeArtifact,
   ApplicationQuestionKind,
   BrowserAgentRunCheckpoint,
@@ -143,6 +144,11 @@ export interface BrowserSessionRuntime {
     options?: OpenBrowserSessionOptions,
   ): Promise<BrowserSessionState>;
   closeSession(source: JobSource): Promise<BrowserSessionState>;
+  /** Close one parked handoff tab without taking control of other live work. */
+  closeParkedTab?(
+    source: JobSource,
+    tab: ParkedBrowserTabReference,
+  ): Promise<void>;
   inspectSourceAccess?(
     source: JobSource,
     input: BrowserSourceAccessProbeInput,
@@ -209,6 +215,8 @@ export interface AgentDiscoveryOptions {
     checkpoint: BrowserAgentRunCheckpoint,
   ) => Promise<void> | void;
   startingUrls: string[];
+  /** Pages parked for unresolved user action; discovery must not reuse or close them. */
+  protectedPages?: ParkedBrowserTabReference[];
   agentHints?: {
     widenReviewBudget?: boolean;
   };

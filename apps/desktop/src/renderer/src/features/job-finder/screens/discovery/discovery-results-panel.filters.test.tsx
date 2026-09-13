@@ -123,6 +123,110 @@ afterEach(() => {
 });
 
 describe("DiscoveryResultsPanel triage filters", () => {
+  it("shows a one-view note when listing evidence changes the score", () => {
+    const base = createJob("rescored", "strong_fit", ["remote"], primarySource);
+    const rescored: SavedJob = {
+      ...base,
+      latestMatchAssessmentAudit: {
+        version: 1,
+        recordedAt: "2026-08-23T10:05:00.000Z",
+        status: "assessment_changed",
+        causeConfidence: "known",
+        rankingSignalChanged: true,
+        summary: "The captured listing changed the fit score.",
+        reasons: ["More listing evidence became available."],
+        previousMetadata: {
+          scorerVersion: 4,
+          contextFingerprint: "match_context_candidate",
+          postingFingerprint: "match_posting_title_only",
+        },
+        currentMetadata: {
+          scorerVersion: 4,
+          contextFingerprint: "match_context_candidate",
+          postingFingerprint: "match_posting_captured",
+        },
+        inputChanges: [
+          {
+            code: "listing_evidence_changed",
+            scope: "listing_evidence",
+            certainty: "known",
+            title: "Listing evidence changed",
+            detail: "The full listing was captured.",
+            previousValue: "match_posting_title_only",
+            currentValue: "match_posting_captured",
+          },
+        ],
+        previousRank: 2,
+        currentRank: 1,
+        outputChanges: [
+          {
+            code: "score_changed",
+            subject: "score",
+            title: "Fit score changed",
+            detail: "The fit score changed after the listing was read.",
+            previousValue: "71",
+            currentValue: "84",
+          },
+        ],
+      },
+    };
+    const { container } = renderResults([rescored]);
+
+    expect(screen.getByText("Rescored after reading the listing")).toBeTruthy();
+    const row = container.querySelector<HTMLButtonElement>(
+      'button[data-job-result-id="rescored"]',
+    );
+    expect(row).not.toBeNull();
+    fireEvent.click(row as HTMLButtonElement);
+    expect(
+      screen.queryByText("Rescored after reading the listing"),
+    ).toBeNull();
+  });
+
+  it("shortlists selected rows and every shown row with keyboard-operable controls", () => {
+    const jobs = [
+      createJob("one", "strong_fit", ["remote"], primarySource),
+      createJob("two", "review_before_applying", ["hybrid"], longSource),
+    ];
+    const onShortlistJobs = vi.fn();
+    const { unmount } = render(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        discoveryTargets={[primarySource, longSource]}
+        hasCompletedSearch
+        jobs={jobs}
+        onSelectJob={vi.fn()}
+        onShortlistJobs={onShortlistJobs}
+        selectedJob={null}
+      />,
+    );
+
+    const first = screen.getByRole("checkbox", { name: "Select Engineer one" });
+    first.focus();
+    fireEvent.keyDown(first, { key: " " });
+    fireEvent.click(first);
+    fireEvent.click(screen.getByRole("button", { name: "Shortlist selected" }));
+    expect(onShortlistJobs).toHaveBeenCalledWith(["one"]);
+
+    unmount();
+    onShortlistJobs.mockClear();
+    render(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        discoveryTargets={[primarySource, longSource]}
+        hasCompletedSearch
+        jobs={jobs}
+        onSelectJob={vi.fn()}
+        onShortlistJobs={onShortlistJobs}
+        selectedJob={null}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Shortlist all 2 shown" }),
+    );
+    expect(onShortlistJobs).toHaveBeenCalledWith(["one", "two"]);
+  });
+
   it("combines categories with AND and selections within a category with OR", () => {
     const jobs = [
       createJob("strong-remote", "strong_fit", ["remote"], primarySource),
@@ -432,9 +536,10 @@ describe("DiscoveryResultsPanel facet persistence", () => {
     expect(screen.queryByLabelText(/active filters?/u)).toBeNull();
     // With no query or filters left, the header returns to the plain count.
     // Neither fixture row carries a bound, evidenced assessment, so both sit
-    // in the title-only band and the headline recommends nothing.
+    // in the not-yet-scored band, which the headline leads with instead of
+    // opening on a zero.
     expect(
-      screen.getByText("0 worth opening · 2 title matches · 0 also found"),
+      screen.getByText("2 matched your role, not scored yet · 0 also found"),
     ).toBeTruthy();
   });
 

@@ -444,6 +444,44 @@ describe("filterSafeguardRows", () => {
     };
   }
 
+  it("lists the application pause the Tasks card names, and counts it", () => {
+    const model = buildSafeguardsPresentationModel({
+      safeguards: emptySafeguards(),
+      workspace: workspaceWith({
+        applyRuns: [
+          {
+            id: "apply_run_paused",
+            state: "paused_for_user_review",
+            jobIds: ["job_ready"],
+            totalJobs: 3,
+            pendingJobs: 2,
+            updatedAt: now,
+            summary: "Paused by one of your safety limits.",
+            detail:
+              "Job Finder stopped after your search plan's safety rule was reached.",
+          },
+        ] as unknown as JobFinderWorkspaceSnapshot["applyRuns"],
+      }),
+    });
+
+    const row = model.rows.find((entry) =>
+      entry.key.startsWith("apply-run-pause-"),
+    );
+    expect(row?.title).toBe("Applications paused by a safety limit");
+    expect(row?.explanation).toBe(
+      "Job Finder stopped after your search plan's safety rule was reached.",
+    );
+    expect(row?.recoveryGuidance).toContain("Prepare remaining jobs");
+    expect(row?.recoveryLink).toEqual({
+      href: "/job-finder/applications",
+      label: "Open Applications",
+    });
+    // The counters must agree with the Tasks card instead of reading zero.
+    expect(model.counts.blockers).toBe(1);
+    expect(model.counts.pauses).toBe(1);
+    expect(model.counts.total).toBe(1);
+  });
+
   it("filters by tab and search text", () => {
     const rows = [
       sampleRow(),

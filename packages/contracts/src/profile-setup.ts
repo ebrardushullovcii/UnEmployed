@@ -271,6 +271,8 @@ export function getProfileSetupReadinessBlockers(
 
 export interface DeriveProfileSetupStateOptions {
   currentState?: ProfileSetupState | null;
+  /** At least one search attempt is recorded for this workspace. */
+  hasRunSearch?: boolean;
   now?: string | null;
 }
 
@@ -630,7 +632,15 @@ export function deriveProfileSetupState(
     !hasBlockingPendingReviewItems(pendingReviewItems);
 
   let status: ProfileSetupStatus = "not_started";
-  if (canBeCompleted && currentState?.status !== "in_progress") {
+  // An explicit Finish stays authoritative. A materially ready setup also
+  // stops nagging once the person has used it for a real search, even if an
+  // older setup state was left in progress by Save and continue.
+  const hasCompletionEvidence =
+    currentState?.status === "completed" || options.hasRunSearch === true;
+  if (
+    canBeCompleted &&
+    (currentState?.status !== "in_progress" || hasCompletionEvidence)
+  ) {
     status = "completed";
   } else if (
     readiness.started ||

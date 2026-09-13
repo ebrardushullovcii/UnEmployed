@@ -1,3 +1,4 @@
+import { isFinishedDiscoveryTargetExecutionState } from "@unemployed/contracts";
 import type {
   DiscoveryActivityEvent,
   DiscoveryRunRecord,
@@ -190,15 +191,16 @@ export function buildLiveRunRecord(
   }
 
   const targetExecutions = [...executions.values()];
-  const targetsCompleted = targetExecutions.filter(
-    (execution) =>
-      execution.state !== "planned" && execution.state !== "running",
+  const targetsCompleted = targetExecutions.filter((execution) =>
+    isFinishedDiscoveryTargetExecutionState(execution.state),
   ).length;
   const sourceHealth = targetExecutions.map((execution) => ({
     targetId: execution.targetId,
+    // Same rule the service applies: completing with nothing found is not a
+    // healthy source.
     health:
       execution.state === "completed"
-        ? execution.warning
+        ? execution.warning || execution.jobsFound === 0
           ? ("warning" as const)
           : ("healthy" as const)
         : execution.state === "failed"
@@ -221,6 +223,9 @@ export function buildLiveRunRecord(
     id: runId,
     campaignId: null,
     state: "running",
+    // A synthesised record for a run the service has not committed yet: it is
+    // in flight by construction, never "complete".
+    runPhase: "in_progress" as const,
     scope: isSingleTargetRun ? "single_target" : "run_all",
     startedAt: firstEvent.timestamp,
     completedAt: null,
@@ -255,6 +260,7 @@ export function buildLiveRunRecord(
       ),
       outcome: "running",
       browserCloseout: null,
+      report: null,
       timing: null,
     },
   };

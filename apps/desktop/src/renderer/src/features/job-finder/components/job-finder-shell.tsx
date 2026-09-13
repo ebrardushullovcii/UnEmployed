@@ -35,8 +35,8 @@ import type {
   GroupedManualAnswerDecision,
   JobFinderWorkspaceSnapshot,
   ResumeImportProgressEvent,
+  SuiteModule,
 } from "@unemployed/contracts";
-import { suiteModules } from "@unemployed/contracts";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@renderer/components/ui/button";
 import { Count } from "@renderer/components/ui/count";
@@ -85,10 +85,7 @@ import {
 import { isImeComposingEvent } from "../lib/job-finder-shortcuts";
 import { useJobFinderOverlayOwnership } from "../lib/job-finder-overlay-ownership";
 import { useJobFinderShellShortcuts } from "../lib/use-job-finder-shell-shortcuts";
-import {
-  formatStatusLabel,
-  getDefaultProfileRoute,
-} from "../lib/job-finder-utils";
+import { getDefaultProfileRoute } from "../lib/job-finder-utils";
 import { JobFinderShellBrand } from "./job-finder-shell-brand";
 import {
   BoundedFloatingSurfaceScrollHint,
@@ -107,9 +104,10 @@ interface JobFinderShellProps {
   isResumeImportPending?: boolean;
   liveDiscoveryEvents?: readonly DiscoveryActivityEvent[];
   onCancelApplyRun?: (runId: string) => Promise<boolean>;
-  onCancelDiscovery?: () => void;
+  onCancelDiscovery?: (runId: string) => Promise<boolean>;
   onDismissSavedStatus?: () => void;
   onNavigate?: (path: string) => void;
+  onPrepareRemainingJobs?: (jobIds: readonly string[]) => void | Promise<unknown>;
   onRetrySave?: () => void;
   onStopTailoredDraftPreparation?: () => void;
   platform: "darwin" | "linux" | "win32";
@@ -277,34 +275,20 @@ export const SHELL_HEADER_CLASS =
   "relative z-50 overflow-visible border-b border-(--surface-panel-shell-border) bg-(--shell-header-bg) backdrop-blur-sm sm:fixed sm:inset-x-0 sm:top-0 min-[1440px]:h-14";
 export const SHELL_HEADER_GRID_CLASS =
   "job-finder-shell-grid grid grid-rows-[3.5rem_auto_auto] items-stretch overflow-visible pl-2 pr-2 sm:grid-rows-[3.5rem_3.75rem] sm:pl-3 sm:pr-3 min-[1440px]:!grid-rows-[3.5rem]";
+/**
+ * The module switcher is the subtitle of the brand lockup in the header
+ * (`JobFinderShellBrand`), so there is exactly one instance at every width and
+ * the sidebar, the compact destination card and the collapsed rail carry none.
+ */
 export const SHELL_BRAND_ROW_CLASS = cn(
-  // Three header regions on one row: wordmark left, module switcher centred,
-  // native window-control inset right. The two side tracks are
-  // `minmax(0,1fr)`, so they are always exactly equal and the middle track
-  // sits on the window centre line — never absolute positioning, which fought
-  // the macOS traffic-light inset and the right-hand utilities.
-  "col-start-1 row-start-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-6",
-  // At the wide layout column 1 is the 17rem sidebar column. The wordmark fits
-  // there; the wordmark plus the module switcher does not, and it wrapped onto
-  // a second line that spilled out of the 3.5rem header and under the page
-  // title. The brand row therefore spans the sidebar column and the content
-  // column (col-end-3, never the col-span shorthand, which would reset
-  // col-start) so the switcher stays on one line in the top bar.
+  "col-start-1 row-start-1 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6",
+  // At the wide layout column 1 is the 17rem sidebar column, and it narrows to
+  // 4rem when the rail collapses. The wordmark does not fit there, and it
+  // wrapped onto a second line that spilled out of the 3.5rem header and under
+  // the page title. The brand row therefore spans the sidebar column and the
+  // content column (col-end-3, never the col-span shorthand, which would reset
+  // col-start) so the lockup stays on one line in the top bar.
   "min-[1440px]:col-end-3",
-);
-export const SHELL_MODULE_NAV_CLASS = cn(
-  "col-start-2 hidden h-14 items-center justify-center justify-self-center",
-  // The switcher owns the centre track: it is sized by its content (`auto`),
-  // so the two side regions give way first and it never wraps or runs under
-  // the page title.
-  "min-[900px]:flex",
-);
-export const SHELL_MODULE_LABEL_CLASS =
-  "whitespace-nowrap text-[14px] font-semibold tracking-(--tracking-badge) text-(--text-headline) sm:text-[15px]";
-export const SHELL_MODULE_LINK_CLASS = cn(
-  "h-auto whitespace-nowrap rounded-sm border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) shadow-none outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[15px]",
-  "cursor-pointer hover:text-foreground",
-  "text-muted-foreground",
 );
 export const SHELL_SIDEBAR_CLASS =
   "fixed bottom-0 left-0 top-14 z-40 hidden w-(--job-finder-side-width) overflow-hidden border-r border-(--surface-panel-shell-border) bg-(--shell-header-bg) min-[1440px]:block";
@@ -519,6 +503,7 @@ export function JobFinderShell({
   onCancelDiscovery,
   onDismissSavedStatus,
   onNavigate,
+  onPrepareRemainingJobs,
   onRetrySave,
   onStopTailoredDraftPreparation,
   platform,
@@ -995,6 +980,21 @@ export function JobFinderShell({
     void navigate(nextPath);
   }
 
+  // The switch's only destination: the other module. Selecting the module the
+  // user is already in is a no-op inside the control itself.
+  function handleModuleSelect(moduleName: SuiteModule) {
+    if (moduleName === "job-finder") {
+      return;
+    }
+
+    if (onNavigate) {
+      onNavigate("/interview-helper");
+      return;
+    }
+
+    void navigate("/interview-helper");
+  }
+
   function closeMoreMenuAndMoveFocus(direction: -1 | 1) {
     const trigger = moreButtonRef.current;
     const focusableElements = getFocusableElements(moreMenuRef.current);
@@ -1117,6 +1117,24 @@ export function JobFinderShell({
         } as CSSProperties
       }
     >
+      {/* The first thing Tab reaches, and the only way past the chrome
+          without walking it. Tabbing forward from the end of a route wrapped
+          straight onto Minimize / Restore / Close; from here one keypress
+          lands in the route instead. Visible only while focused, so it costs
+          a pointer user nothing. */}
+      <button
+        className="sr-only z-[100] rounded-(--radius-button) bg-(--surface-panel-raised) px-4 py-2 text-(length:--text-small) font-medium text-foreground shadow-xl outline-none focus-visible:not-sr-only focus-visible:fixed focus-visible:left-3 focus-visible:top-3 focus-visible:ring-[3px] focus-visible:ring-ring/45"
+        data-job-finder-skip-to-content
+        onClick={() => {
+          const main = mainRef.current;
+          if (!main) return;
+          main.focus();
+          main.scrollTo?.({ top: 0 });
+        }}
+        type="button"
+      >
+        Skip to the page
+      </button>
       <header
         data-job-finder-shell-header
         className={SHELL_HEADER_CLASS}
@@ -1130,8 +1148,11 @@ export function JobFinderShell({
               ...dragRegionStyle,
               // Keep clear of visible macOS traffic lights in normal and
               // maximized windows, then reclaim the space in native fullscreen.
-              // The same reserve is mirrored on the trailing edge so reserving
-              // it cannot push the centred middle track off the window centre.
+              // This is the reserve the sidebar header inherits: the wordmark
+              // and the module switch below it both sit inside this row's
+              // leading track, so neither can land under the traffic lights.
+              // The trailing edge mirrors the reserve so the row still reads
+              // straight against the caption buttons.
               paddingInlineStart:
                 isMac && !windowControlsState.isFullScreen
                   ? MACOS_TRAFFIC_LIGHT_INSET
@@ -1146,72 +1167,22 @@ export function JobFinderShell({
               className="col-start-1 flex min-w-0 items-center justify-self-start"
               data-desktop-brand-region
             >
-              <JobFinderShellBrand />
+              <JobFinderShellBrand
+                moduleSwitch={{
+                  onSelectModule: handleModuleSelect,
+                  style: noDragRegionStyle,
+                }}
+              />
             </div>
-
-            <nav
-              aria-label="UnEmployed modules"
-              className={SHELL_MODULE_NAV_CLASS}
-              data-desktop-module-navigation
-              style={dragRegionStyle}
-            >
-              <div
-                className="flex flex-nowrap items-center gap-6"
-                role="list"
-                style={noDragRegionStyle}
-              >
-                {suiteModules.map((moduleName, index) => (
-                  <div
-                    key={moduleName}
-                    className="flex items-center gap-6"
-                    role="listitem"
-                  >
-                    {index > 0 ? (
-                      <span
-                        aria-hidden="true"
-                        className="h-4 w-px bg-border/50"
-                      />
-                    ) : null}
-                    {moduleName === "job-finder" ? (
-                      // The current module is where the user already is: it
-                      // must not be a focusable button that does nothing.
-                      // aria-current carries the state; styling is unchanged.
-                      <span
-                        aria-current="page"
-                        className={SHELL_MODULE_LABEL_CLASS}
-                      >
-                        {formatStatusLabel(moduleName)}
-                      </span>
-                    ) : (
-                      <button
-                        aria-label="Open Interview Helper"
-                        onClick={() => {
-                          if (onNavigate) {
-                            onNavigate("/interview-helper");
-                          } else {
-                            void navigate("/interview-helper");
-                          }
-                        }}
-                        className={SHELL_MODULE_LINK_CLASS}
-                        type="button"
-                      >
-                        {formatStatusLabel(moduleName)}
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </nav>
 
             {/* Trailing region. Windows paints its caption buttons over this
                 edge (the window is frameless, so there is no Window Controls
                 Overlay to measure); reserving their exact width here keeps
-                header content out from under them without moving the centred
-                switcher, because the reserve lives inside the right track
-                rather than as padding on the row. */}
+                header content out from under them, and the reserve lives
+                inside the right track rather than as padding on the row. */}
             <div
               aria-hidden="true"
-              className="col-start-3 min-w-0 justify-self-end"
+              className="col-start-2 min-w-0 justify-self-end"
               data-desktop-header-window-control-inset
               style={{
                 ...dragRegionStyle,
@@ -1637,40 +1608,23 @@ export function JobFinderShell({
                     )
                   : null}
               </div>
-              <a
-                aria-label="Open Interview Helper"
-                className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-(--radius-button) border border-(--control-border) bg-(--surface-panel-raised) px-2.5 py-2 text-(length:--text-small) font-medium text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:min-h-9 min-[900px]:hidden"
-                href="#/interview-helper"
-                onClick={(event) => {
-                  if (
-                    event.button !== 0 ||
-                    event.metaKey ||
-                    event.ctrlKey ||
-                    event.shiftKey ||
-                    event.altKey
-                  ) {
-                    return;
-                  }
-                  event.preventDefault();
-                  if (onNavigate) {
-                    onNavigate("/interview-helper");
-                  } else {
-                    void navigate("/interview-helper");
-                  }
-                }}
-              >
-                Interview Helper
-              </a>
             </div>
           </nav>
 
           <div
             aria-label="Notifications and actions"
             className={cn(
-              "col-span-2 col-start-1 row-start-3 flex min-w-0 items-center justify-center gap-1.5 pr-2 max-[899px]:gap-1 max-[899px]:pr-1 sm:absolute sm:z-10 sm:w-auto sm:justify-end min-[1440px]:gap-2",
+              // `sm:absolute sm:z-10` made this group its own stacking
+              // context at layer 10, and the Tasks popover inside it declares
+              // `z-40` precisely so it can sit over the page. Nested in a
+              // z-10 ancestor that declaration could never take effect below
+              // 1440px, where the group is not `static`. The group now sits on
+              // the same layer the wide breakpoint already used, so the
+              // popover hit-tests where it paints at every width.
+              "col-span-2 col-start-1 row-start-3 flex min-w-0 items-center justify-center gap-1.5 pr-2 max-[899px]:gap-1 max-[899px]:pr-1 sm:absolute sm:z-40 sm:w-auto sm:justify-end min-[1440px]:gap-2 min-[1440px]:!static min-[1440px]:col-span-1 min-[1440px]:col-start-3 min-[1440px]:row-start-1",
               isMac
                 ? "sm:right-0 sm:top-14 sm:h-[3.75rem] min-[900px]:!top-0 min-[900px]:!h-14"
-                : "sm:right-0 sm:top-14 sm:h-[3.75rem] min-[1440px]:!right-36 min-[1440px]:!top-0 min-[1440px]:!h-14 min-[1440px]:!z-40",
+                : "sm:right-0 sm:top-14 sm:h-[3.75rem] min-[1440px]:mr-36 min-[1440px]:!h-14 min-[1440px]:!z-40",
             )}
             role="group"
             style={noDragRegionStyle}
@@ -1701,12 +1655,13 @@ export function JobFinderShell({
                   void navigate(path);
                 }
               }}
+              onPrepareRemainingJobs={onPrepareRemainingJobs}
               onStopTailoredDraftPreparation={onStopTailoredDraftPreparation}
               resumeImportProgress={resumeImportProgress}
               tailoredDraftPreparation={tailoredDraftPreparation}
               workspace={workspace}
             />
-            <BrowserPeek />
+            <BrowserPeek hasUnresolvedAttention={countNeedsYou(workspace) > 0} />
             {actionScreen ? (
               <button
                 aria-current={activeScreen === "actions" ? "page" : undefined}
@@ -1725,7 +1680,7 @@ export function JobFinderShell({
                 {/* A bare bell and a number read as an unlabelled glyph pill
                     beside the task-center pill. The compact navigation row
                     reserves the width this label needs. */}
-                <span className="hidden whitespace-nowrap min-[900px]:inline">
+                <span className="hidden whitespace-nowrap min-[900px]:inline max-[1099px]:!hidden">
                   Needs you
                 </span>
                 {actionScreen.count !== null ? (

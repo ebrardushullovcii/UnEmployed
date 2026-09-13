@@ -469,7 +469,9 @@ export function mergeInteractiveElementCandidates(
         continue;
       }
 
-      const sourceCounts = new Array(candidateLists.length).fill(0);
+      const sourceCounts = Array.from<number>({
+        length: candidateLists.length,
+      }).fill(0);
       sourceCounts[listIndex] = nextCount;
       merged.set(key, { role, name, counts: sourceCounts, order });
       order += 1;
@@ -896,14 +898,18 @@ export async function readComboboxSelection(
   locator: Locator,
 ): Promise<{ selectedLabel: string | null; selectedValue: string | null }> {
   return locator.evaluate((element) => {
+    // Narrowed at runtime rather than asserted: querySelector's declared type
+    // already covers this selector, so the assertion changed nothing while
+    // still promising more than the DOM guarantees.
+    const nested = element.querySelector("input, textarea");
     const input =
       element instanceof HTMLInputElement ||
       element instanceof HTMLTextAreaElement
         ? element
-        : (element.querySelector("input, textarea") as
-            | HTMLInputElement
-            | HTMLTextAreaElement
-            | null);
+        : nested instanceof HTMLInputElement ||
+            nested instanceof HTMLTextAreaElement
+          ? nested
+          : null;
 
     const activeDescendantId =
       input?.getAttribute("aria-activedescendant") ??

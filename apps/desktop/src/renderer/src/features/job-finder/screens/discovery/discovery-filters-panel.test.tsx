@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   JobSearchPreferences,
@@ -18,6 +18,16 @@ import {
   DISCOVERY_OFFLINE_CATALOG_NOTICE,
   DISCOVERY_OFFLINE_SETUP_NOTICE,
 } from "./discovery-search-readiness";
+
+function CurrentPath() {
+  const location = useLocation();
+  return (
+    <span data-testid="current-path">
+      {location.pathname}
+      {location.search}
+    </span>
+  );
+}
 
 describe("DiscoveryFiltersPanel", () => {
   afterEach(() => {
@@ -53,31 +63,49 @@ describe("DiscoveryFiltersPanel", () => {
       discovery: { historyLimit: 5, targets: [] },
     };
 
-    const { container, getAllByRole, getByRole, queryByRole, queryByText } =
+    const {
+      container,
+      getAllByRole,
+      getByRole,
+      getByText,
+      queryByRole,
+      queryByText,
+    } =
       render(
-        <MemoryRouter>
-          <DiscoveryFiltersPanel
-            activeRun={null}
-            browserSession={{
-              source: "target_site",
-              status: "unknown",
-              driver: "catalog_seed",
-              label: "Browser optional",
-              detail: "The browser is only needed for sign-in.",
-              lastCheckedAt: "2026-03-20T10:00:00.000Z",
-            }}
-            discoverySessions={[]}
-            isBrowserSessionPending={false}
-            isBrowserSessionPendingForTarget={() => false}
-            isDiscoveryAllPending={false}
-            isTargetPending={() => false}
-            onOpenBrowserSession={vi.fn()}
-            onOpenBrowserSessionForTarget={vi.fn()}
-            onRunAgentDiscovery={vi.fn()}
-            onViewProgress={vi.fn()}
-            searchPreferences={searchPreferences}
-            sourceAccessPrompts={[]}
-          />
+        <MemoryRouter initialEntries={["/job-finder/discovery"]}>
+          <Routes>
+            <Route
+              path="*"
+              element={
+                <>
+                  <DiscoveryFiltersPanel
+                    activeRun={null}
+                    browserSession={{
+                      source: "target_site",
+                      status: "unknown",
+                      driver: "catalog_seed",
+                      label: "Browser optional",
+                      detail: "The browser is only needed for sign-in.",
+                      lastCheckedAt: "2026-03-20T10:00:00.000Z",
+                    }}
+                    discoverySessions={[]}
+                    isBrowserSessionPending={false}
+                    isBrowserSessionPendingForTarget={() => false}
+                    isDiscoveryAllPending={false}
+                    isTargetPending={() => false}
+                    planEditorHref="/job-finder/campaigns?campaignId=plan-a"
+                    onOpenBrowserSession={vi.fn()}
+                    onOpenBrowserSessionForTarget={vi.fn()}
+                    onRunAgentDiscovery={vi.fn()}
+                    onViewProgress={vi.fn()}
+                    searchPreferences={searchPreferences}
+                    sourceAccessPrompts={[]}
+                  />
+                  <CurrentPath />
+                </>
+              }
+            />
+          </Routes>
         </MemoryRouter>,
       );
 
@@ -98,10 +126,10 @@ describe("DiscoveryFiltersPanel", () => {
     const searchButtons = getAllByRole("button", { name: "Search jobs" });
     expect(searchButtons).toHaveLength(1);
     expect(searchButtons[0]?.getAttribute("data-variant")).toBe("secondary");
-    const addSourceLinks = getAllByRole("link", { name: "Add sources" });
+    const addSourceActions = getAllByRole("button", { name: "Add sources" });
     expect(
-      addSourceLinks.some(
-        (link) => link.getAttribute("data-variant") === "primary",
+      addSourceActions.some(
+        (action) => action.getAttribute("data-variant") === "primary",
       ),
     ).toBe(true);
     expect(
@@ -119,6 +147,11 @@ describe("DiscoveryFiltersPanel", () => {
       container.querySelector("[data-slot='badge'] svg[aria-hidden='true']"),
     ).not.toBeNull();
     expect(queryByText(/^Other active criteria/)).toBeNull();
+
+    fireEvent.click(
+      getByRole("button", { name: "Edit this plan's places" }),
+    );
+    expect(getByText("/job-finder/campaigns?campaignId=plan-a")).toBeTruthy();
   });
 
   it("describes complete filters as review-only when the runtime is catalog-only", () => {
@@ -235,10 +268,12 @@ describe("DiscoveryFiltersPanel", () => {
     };
     const criteria = getDiscoveryOtherActiveCriteria(searchPreferences);
 
+    // Hours are no longer folded in here: they have their own labelled row on
+    // the open panel, so this disclosure holds only the criteria that stay
+    // secondary.
     expect(criteria.preferences.map(({ label }) => label)).toEqual([
-      "Job families",
+      "Kinds of role",
       "Seniority",
-      "Employment types",
       "Industries",
       "Company stages",
       "Preferred companies",
@@ -281,7 +316,7 @@ describe("DiscoveryFiltersPanel", () => {
 
     const disclosure = container.querySelector("details");
     const summary = getByText(
-      "Other active criteria (12, including 3 hard exclusions)",
+      "Other active criteria (11, including 3 hard exclusions)",
     );
     expect(disclosure?.open).toBe(false);
     expect(summary.tagName).toBe("SUMMARY");
@@ -307,16 +342,18 @@ describe("DiscoveryFiltersPanel", () => {
     const longSource =
       "https://careers.example.test/this-is-an-extremely-long-source-label-without-spaces";
     const { container } = render(
-      <DiscoverySearchSections
-        sectionHeadingPrefix="discovery-filter"
-        sections={[
-          {
-            empty: "No sources",
-            label: "Sources",
-            values: [longSource, "Greenhouse"],
-          },
-        ]}
-      />,
+      <MemoryRouter>
+        <DiscoverySearchSections
+          sectionHeadingPrefix="discovery-filter"
+          sections={[
+            {
+              empty: "No sources",
+              label: "Sources",
+              values: [longSource, "Greenhouse"],
+            },
+          ]}
+        />
+      </MemoryRouter>,
     );
 
     // Saved values are inert facts, not controls: one plain text summary with
@@ -354,10 +391,193 @@ describe("DiscoveryFiltersPanel", () => {
     expect(section?.className).toContain("py-2.5");
     expect(section?.className).not.toContain("py-4");
     expect(section?.textContent).toContain("No roles added yet.");
-    const editLink = getByRole("link", { name: "Add roles" });
-    expect(editLink.getAttribute("href")).toBe(
-      "/job-finder/profile?section=preferences&focus=target-roles",
+    // A real button, so Enter and Space activate it the way the browser
+    // activates every other control in the panel.
+    const editAction = getByRole("button", { name: "Add roles" });
+    expect(editAction.tagName).toBe("BUTTON");
+    expect(editAction.getAttribute("type")).toBe("button");
+  });
+
+  it("opens the role editor from the keyboard-activatable Add roles control", () => {
+    function LocationProbe() {
+      const location = useLocation();
+      return (
+        <span data-test-location>{`${location.pathname}${location.search}`}</span>
+      );
+    }
+
+    const { container, getByRole } = render(
+      <MemoryRouter initialEntries={["/job-finder/discovery"]}>
+        <LocationProbe />
+        <Routes>
+          <Route
+            element={
+              <DiscoverySearchSections
+                sectionHeadingPrefix="discovery-filter"
+                sections={[
+                  {
+                    editAction: {
+                      href: "/job-finder/profile?section=preferences&focus=target-roles",
+                      label: "Add roles",
+                    },
+                    empty: "No roles added yet.",
+                    label: "Roles",
+                    values: [],
+                  },
+                ]}
+              />
+            }
+            path="/job-finder/discovery"
+          />
+          <Route element={<span>Profile</span>} path="/job-finder/profile" />
+        </Routes>
+      </MemoryRouter>,
     );
+
+    fireEvent.click(getByRole("button", { name: "Add roles" }));
+
+    expect(
+      container.querySelector("[data-test-location]")?.textContent,
+    ).toBe("/job-finder/profile?section=preferences&focus=target-roles");
+  });
+
+  it("gives hours their own labelled row instead of hiding them in the disclosure", () => {
+    const searchPreferences: JobSearchPreferences = {
+      targetRoles: ["Software Engineer"],
+      jobFamilies: [],
+      locations: ["Chicago, IL"],
+      excludedLocations: [],
+      workModes: ["hybrid"],
+      seniorityLevels: [],
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: ["Part-time", "Contract"],
+      minimumSalaryUsd: null,
+      targetSalaryUsd: null,
+      salaryCurrency: "USD",
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "inherited",
+      },
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      companyBlacklist: [],
+      companyWhitelist: [],
+      discovery: { historyLimit: 5, targets: [] },
+    };
+
+    // The stored preference is the one Preferences writes; nothing is
+    // recomputed or duplicated for this row.
+    expect(
+      getDiscoveryOtherActiveCriteria(searchPreferences).preferences.map(
+        ({ label }) => label,
+      ),
+    ).not.toContain("Full-time or part-time");
+
+    const { getByRole, queryByText } = render(
+      <MemoryRouter>
+        <DiscoveryFiltersPanel
+          activeRun={null}
+          browserSession={{
+            source: "target_site",
+            status: "unknown",
+            driver: "catalog_seed",
+            label: "Browser optional",
+            detail: "The browser is only needed for sign-in.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          discoverySessions={[]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isTargetPending={() => false}
+          onOpenBrowserSession={vi.fn()}
+          onOpenBrowserSessionForTarget={vi.fn()}
+          onRunAgentDiscovery={vi.fn()}
+          onViewProgress={vi.fn()}
+          searchPreferences={searchPreferences}
+          sourceAccessPrompts={[]}
+        />
+      </MemoryRouter>,
+    );
+
+    const hours = getByRole("region", { name: "Full-time or part-time" });
+    expect(hours.textContent).toContain("Part-time");
+    expect(hours.textContent).toContain("Contract");
+    expect(
+      within(hours).getByRole("button", { name: "Edit hours" }),
+    ).toBeTruthy();
+    // The old trade name is gone from the panel entirely.
+    expect(queryByText("Employment types")).toBeNull();
+  });
+
+  it("says unset hours are not a missing setup step", () => {
+    const searchPreferences: JobSearchPreferences = {
+      targetRoles: ["Software Engineer"],
+      jobFamilies: [],
+      locations: ["Chicago, IL"],
+      excludedLocations: [],
+      workModes: ["hybrid"],
+      seniorityLevels: [],
+      targetIndustries: [],
+      targetCompanyStages: [],
+      employmentTypes: [],
+      minimumSalaryUsd: null,
+      targetSalaryUsd: null,
+      salaryCurrency: "USD",
+      compensation: {
+        minimum: null,
+        maximum: null,
+        interval: "year",
+        currency: "USD",
+        currencyStatus: "inherited",
+      },
+      approvalMode: "review_before_submit",
+      tailoringMode: "balanced",
+      companyBlacklist: [],
+      companyWhitelist: [],
+      discovery: { historyLimit: 5, targets: [] },
+    };
+
+    const { getByRole } = render(
+      <MemoryRouter>
+        <DiscoveryFiltersPanel
+          activeRun={null}
+          browserSession={{
+            source: "target_site",
+            status: "unknown",
+            driver: "catalog_seed",
+            label: "Browser optional",
+            detail: "The browser is only needed for sign-in.",
+            lastCheckedAt: "2026-03-20T10:00:00.000Z",
+          }}
+          discoverySessions={[]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isTargetPending={() => false}
+          onOpenBrowserSession={vi.fn()}
+          onOpenBrowserSessionForTarget={vi.fn()}
+          onRunAgentDiscovery={vi.fn()}
+          onViewProgress={vi.fn()}
+          searchPreferences={searchPreferences}
+          sourceAccessPrompts={[]}
+        />
+      </MemoryRouter>,
+    );
+
+    const hours = getByRole("region", { name: "Full-time or part-time" });
+    expect(hours.textContent).toContain(
+      "Not set — results can be full-time or part-time.",
+    );
+    expect(
+      within(hours)
+        .getByRole("button", { name: "Set hours" })
+        .getAttribute("data-variant"),
+    ).toBe("secondary");
   });
 
   it("surfaces inline recovery actions for every empty setup section", () => {
@@ -415,41 +635,29 @@ describe("DiscoveryFiltersPanel", () => {
       </MemoryRouter>,
     );
 
-    expect(
-      (
-        getByRole("link", { name: "Add roles" }) as HTMLAnchorElement
-      ).getAttribute("href"),
-    ).toBe("/job-finder/profile?section=preferences&focus=target-roles");
+    expect(getByRole("button", { name: "Add roles" }).tagName).toBe("BUTTON");
     // Only the first empty section is the primary start; the rest are
     // secondary so the column has one obvious next step.
     expect(
-      getByRole("link", { name: "Add roles" }).getAttribute("data-variant"),
+      getByRole("button", { name: "Add roles" }).getAttribute("data-variant"),
     ).toBe("primary");
     expect(
-      getByRole("link", { name: "Add locations" }).getAttribute("data-variant"),
-    ).toBe("secondary");
-    expect(
-      getByRole("link", { name: "Set work modes" }).getAttribute(
+      getByRole("button", { name: "Edit this plan's places" }).getAttribute(
         "data-variant",
       ),
     ).toBe("secondary");
     expect(
-      (
-        getByRole("link", { name: "Set work modes" }) as HTMLAnchorElement
-      ).getAttribute("href"),
-    ).toBe("/job-finder/profile?section=preferences&focus=work-modes");
-    expect(getByRole("link", { name: "Add locations" })).toBeTruthy();
-    expect(getByRole("link", { name: "Set work modes" })).toBeTruthy();
-    const addSourceLinks = getAllByRole("link", { name: "Add sources" }).map(
-      (link) => (link as HTMLAnchorElement).getAttribute("href"),
-    );
-    expect(addSourceLinks.length).toBeGreaterThan(0);
-    expect(
-      addSourceLinks.every(
-        (href) =>
-          href === "/job-finder/profile?section=sources&focus=job-sources",
+      getByRole("button", { name: "Set work modes" }).getAttribute(
+        "data-variant",
       ),
-    ).toBe(true);
+    ).toBe("secondary");
+    expect(
+      getByRole("button", { name: "Edit this plan's places" }),
+    ).toBeTruthy();
+    expect(getByRole("button", { name: "Set work modes" })).toBeTruthy();
+    expect(
+      getAllByRole("button", { name: "Add sources" }).length,
+    ).toBeGreaterThan(0);
 
     // Sources saved but all disabled must not read as "no sources added yet".
     cleanup();
@@ -505,15 +713,12 @@ describe("DiscoveryFiltersPanel", () => {
       );
 
     expect(getDisabledText("1 source saved, none enabled yet.")).toBeTruthy();
-    const enableSourceLinks = getDisabledAllByRole("link", {
+    const enableSourceActions = getDisabledAllByRole("button", {
       name: "Enable sources",
-    }).map((link) => (link as HTMLAnchorElement).getAttribute("href"));
-    expect(enableSourceLinks.length).toBeGreaterThan(0);
+    });
+    expect(enableSourceActions.length).toBeGreaterThan(0);
     expect(
-      enableSourceLinks.every(
-        (href) =>
-          href === "/job-finder/profile?section=sources&focus=job-sources",
-      ),
+      enableSourceActions.every((action) => action.tagName === "BUTTON"),
     ).toBe(true);
   });
 
@@ -1027,6 +1232,8 @@ describe("DiscoveryFiltersPanel", () => {
                 contextFingerprint: null,
                 postingFingerprint: null,
                 score: 92,
+                scoreIsUpperBound: false,
+                locationReach: "unknown",
                 compensationFit: {
                   state: "not_requested",
                   confidence: "unavailable",
@@ -1187,7 +1394,9 @@ describe("DiscoveryFiltersPanel", () => {
     );
 
     expect(getByText("No matches from this search")).toBeTruthy();
-    expect(getByRole("link", { name: "Broaden search" })).toBeTruthy();
+    expect(
+      getByRole("link", { name: "Edit this plan's places" }),
+    ).toBeTruthy();
     expect(queryByText("Ready for your first search")).toBeNull();
   });
 

@@ -13,6 +13,7 @@ import type {
   JobSearchPreferences,
   JobDiscoveryTarget,
   JobSource,
+  ParkedBrowserTabReference,
   SavedJob,
   SourceDebugRunRecord,
   UserActionRequest,
@@ -46,6 +47,12 @@ export interface MutableRef<T> {
 export interface ApplicationPreparationCapacityToken {
   localDate: string;
   remainingJobs: number;
+  /**
+   * The jobs this reservation covers. The day's counter needs them by id so a
+   * job whose application record already exists is not charged again while its
+   * own reservation is still held.
+   */
+  jobIds: readonly string[];
 }
 
 export interface WorkspaceServiceContext {
@@ -58,6 +65,14 @@ export interface WorkspaceServiceContext {
   researchAdapter?: ResumeResearchAdapter;
   repository: JobFinderRepository;
   activeDiscoveryAbortControllerRef: MutableRef<AbortController | null>;
+  /**
+   * The run id the in-flight discovery pipeline belongs to. A stop request
+   * arrives while the run record may not be persisted yet, so matching on the
+   * stored state alone let the request be acknowledged without ever reaching
+   * the pipeline — the search kept working and the toolbar kept saying
+   * "Stopping".
+   */
+  activeDiscoveryRunIdRef: MutableRef<string | null>;
   activeDiscoveryPromiseRef: MutableRef<Promise<unknown> | null>;
   activeSourceDebugExecutionIdRef: MutableRef<string | null>;
   activeSourceDebugAbortControllerRef: MutableRef<AbortController | null>;
@@ -80,6 +95,16 @@ export interface WorkspaceServiceContext {
   getWorkspaceSnapshot: () => Promise<JobFinderWorkspaceSnapshot>;
   getActiveCampaignId: () => Promise<string | null>;
   resumeApplicationUserAction: (request: UserActionRequest) => Promise<void>;
+  /**
+   * Reads one source again after the person cleared whatever stopped it (a
+   * sign-in page, a human-verification check, a full-page message). The search
+   * that hit the wall ended at that source, so clearing it has to continue the
+   * search rather than leave the person to start a whole new one.
+   */
+  continueDiscoveryForSource: (
+    targetId: string,
+    discoveryRunId: string,
+  ) => Promise<DiscoveryContinuationResult>;
   runSourceDebugWorkflow: (
     targetId: string,
     signal?: AbortSignal,
@@ -111,6 +136,11 @@ export interface WorkspaceServiceContext {
     options?: OpenBrowserSessionOptions,
   ) => Promise<void>;
   closeRunBrowserSession: (source: JobSource) => Promise<void>;
+  closeParkedBrowserTab: (
+    source: JobSource,
+    tab: ParkedBrowserTabReference,
+  ) => Promise<void>;
+  hasActiveBrowserWorkflow: () => boolean;
   /**
    * Plain-HTTP page reader for listing bodies (see
    * `listing-detail-enrichment.ts`). Optional so tests inject a fake and the
@@ -122,3 +152,7 @@ export interface WorkspaceServiceContext {
     updater: (job: SavedJob) => SavedJob,
   ) => Promise<void>;
 }
+
+export type DiscoveryContinuationResult =
+  | { status: "continued" }
+  | { status: "origin_removed"; message: string };

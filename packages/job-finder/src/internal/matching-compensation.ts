@@ -54,26 +54,59 @@ const salaryNumberPattern = /(\d[\d,]*(?:\.\d+)?)(?:\s*([km])\b)?/gi;
 const secondaryCompensationBeforePattern = /\b(bonus|commission|sign[- ]?on|equity|ote)\b/i;
 const secondaryCompensationAfterPattern = /^(?:[:-]\s*)?(bonus|commission|sign[- ]?on|equity|ote)\b/i;
 
+/** Currency codes a listing may state beside its numbers. */
+const STATED_CURRENCY_CODE_PATTERN =
+  /\b(USD|EUR|GBP|CAD|AUD|NZD|CHF|JPY|INR|SGD|HKD|SEK|NOK|DKK|PLN|CZK|BRL|MXN|ZAR|AED|ILS)\b/iu;
+
+/** Dollar signs that carry their own country marker. */
+const PREFIXED_DOLLAR_CURRENCIES: readonly (readonly [RegExp, string])[] = [
+  [/(?:\bCA|\bC)\s?\$/iu, "CAD"],
+  [/(?:\bAU|\bA)\s?\$/iu, "AUD"],
+  [/\bNZ\s?\$/iu, "NZD"],
+  [/\bSG\s?\$/iu, "SGD"],
+  [/\bHK\s?\$/iu, "HKD"],
+  [/\bR\$/u, "BRL"],
+];
+
+const CURRENCY_SYMBOLS: readonly (readonly [string, string])[] = [
+  ["€", "EUR"],
+  ["£", "GBP"],
+  ["¥", "JPY"],
+  ["₹", "INR"],
+  ["₪", "ILS"],
+];
+
+/**
+ * The currency the listing actually stated.
+ *
+ * A code the listing wrote wins over a bare "$": "$170-250K CAD" is Canadian
+ * dollars, and relabelling it "USD 170,000 - USD 250,000" reported a number
+ * the employer never offered. Only a dollar sign with nothing else to go on
+ * falls back to USD.
+ */
 function detectCurrencyCode(salaryText: string | null): string | null {
   if (!salaryText) {
     return null;
   }
 
-  const normalized = salaryText.toLowerCase();
-
-  if (normalized.includes("usd") || salaryText.includes("$")) {
-    return "USD";
+  const statedCode = STATED_CURRENCY_CODE_PATTERN.exec(salaryText)?.[1];
+  if (statedCode) {
+    return statedCode.toUpperCase();
   }
 
-  if (normalized.includes("eur") || salaryText.includes("€")) {
-    return "EUR";
+  for (const [pattern, code] of PREFIXED_DOLLAR_CURRENCIES) {
+    if (pattern.test(salaryText)) {
+      return code;
+    }
   }
 
-  if (normalized.includes("gbp") || salaryText.includes("£")) {
-    return "GBP";
+  for (const [symbol, code] of CURRENCY_SYMBOLS) {
+    if (salaryText.includes(symbol)) {
+      return code;
+    }
   }
 
-  return null;
+  return salaryText.includes("$") ? "USD" : null;
 }
 
 function detectCompensationInterval(
@@ -392,4 +425,140 @@ export function evaluateCompensationFit(
     listingCurrency: normalized.currency,
     explanation: `The listing minimum is below the saved ${preferenceCurrency} minimum after normalizing both to annual amounts.`,
   };
+}
+
+/**
+ * Site furniture that looks like pay.
+ *
+ * Some boards print one house salary band in the page chrome — a banner, a
+ * filter summary, a footer — and a card-level extraction picks it up for every
+ * result on the page. One run then stamped the same "$80000 - 150000" on
+ * unrelated jobs, including one whose own listing body read "Pay: $22.00 per
+ * hour". A per-board rule for that is exactly what ADR 0007 forbids, so the
+ * test is statistical and generic: a band that repeats across most of one
+ * run's results and is not written anywhere in the job's own text is the
+ * page's furniture, not that job's pay, and is dropped.
+ *
+ * It is deliberately conservative. A small run proves nothing, and a band the
+ * listing body itself states is that listing's pay however many neighbours
+ * share it.
+ */
+const SITE_FURNITURE_SALARY_MIN_RESULTS = 4;
+const SITE_FURNITURE_SALARY_SHARE = 0.6;
+
+function comparableSalaryText(value: string | null | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "")
+    .trim();
+}
+
+const BODY_SALARY_RANGE_PATTERN =
+  /\b(?:salary|compensation|pay(?:\s+range)?)\b[^.!?]{0,90}?((?:(?:USD|CAD|AUD|EUR|GBP)\s*)?(?:CA\$|A\$|\$|€|£)?\s*\d[\d,.]*(?:\s*[kK])?(?:\s*(?:-|–|—|to)\s*(?:(?:USD|CAD|AUD|EUR|GBP)\s*)?(?:CA\$|A\$|\$|€|£)?\s*\d[\d,.]*(?:\s*[kK])?)?(?:\s*(?:USD|CAD|AUD|EUR|GBP))?(?:\s*(?:\/|per\s+)?(?:hourly|daily|weekly|monthly|yearly|annually|hour|hours|hr|day|week|month|year|yr))?)/iu;
+
+const BODY_SALARY_MONEY_MARKER_PATTERN =
+  /(?:(?:(?:USD|CAD|AUD|EUR|GBP)\s*|(?:CA\$|A\$|\$|€|£)\s*)\d|\d[\d,.]*\s*(?:[kK]\b|(?:USD|CAD|AUD|EUR|GBP)\b|(?:\/\s*|per\s+)(?:hour|hr|day|week|month|year)\b|annually\b))/iu;
+
+/**
+ * Returns the explicit pay range nearest a salary/compensation/pay label in
+ * the listing body. It is deliberately cue-bound: arbitrary years, user
+ * counts and performance percentages elsewhere in the page are not pay.
+ */
+export function extractSalaryRangeFromListingBody(
+  description: string,
+): string | null {
+  const candidate = BODY_SALARY_RANGE_PATTERN.exec(description)?.[1]?.trim();
+  return candidate && BODY_SALARY_MONEY_MARKER_PATTERN.test(candidate)
+    ? candidate
+    : null;
+}
+
+/**
+ * The listing body is stronger evidence than a separate extracted cell when
+ * the two disagree. This repairs malformed structured data such as a stored
+ * "$200000 - 500000" beside body copy that says "$100k-$500k USD yearly",
+ * without inventing or converting a currency.
+ */
+export function reconcileSalaryTextWithListingBody(
+  salaryText: string | null | undefined,
+  description: string,
+): string | null {
+  const stated = extractSalaryRangeFromListingBody(description);
+  if (!stated) return salaryText ?? null;
+  if (!salaryText) return stated;
+  return isSalaryTextStatedInBody(description, salaryText)
+    ? salaryText
+    : stated;
+}
+
+/** Digit groups in the band, so "$80,000" is found inside "80000 - 150000". */
+function salaryDigitGroups(value: string): string[] {
+  return [...value.matchAll(/\d[\d,.]*/gu)]
+    .map((match) => match[0].replace(/[,.]/gu, ""))
+    .filter((digits) => digits.length >= 2);
+}
+
+/** Whether this job's own body contains every number in its salary band. */
+export function isSalaryTextStatedInBody(
+  description: string,
+  salaryText: string | null | undefined,
+): boolean {
+  const body = description.replace(/[,.]/gu, "");
+  const groups = salaryDigitGroups(salaryText ?? "");
+  return groups.length > 0 && groups.every((digits) => body.includes(digits));
+}
+
+export interface SalaryFurnitureCandidate {
+  description: string;
+  salaryText: string | null;
+}
+
+/**
+ * The salary strings in this run that are the page's furniture rather than any
+ * one job's pay. Compare a job's `salaryText` against the returned set before
+ * storing or printing it.
+ */
+export function findSiteFurnitureSalaryTexts(
+  postings: readonly SalaryFurnitureCandidate[],
+): ReadonlySet<string> {
+  const furniture = new Set<string>();
+  if (postings.length < SITE_FURNITURE_SALARY_MIN_RESULTS) {
+    return furniture;
+  }
+
+  const byBand = new Map<string, { count: number; statedInBody: number }>();
+  for (const posting of postings) {
+    const key = comparableSalaryText(posting.salaryText);
+    if (!key) {
+      continue;
+    }
+    const entry = byBand.get(key) ?? { count: 0, statedInBody: 0 };
+    entry.count += 1;
+    if (isSalaryTextStatedInBody(posting.description, posting.salaryText)) {
+      entry.statedInBody += 1;
+    }
+    byBand.set(key, entry);
+  }
+
+  const threshold = Math.max(
+    SITE_FURNITURE_SALARY_MIN_RESULTS,
+    Math.ceil(postings.length * SITE_FURNITURE_SALARY_SHARE),
+  );
+  for (const [key, entry] of byBand) {
+    // A band most of the run shares AND that almost none of the listing
+    // bodies actually state is the page's, not the jobs'.
+    if (entry.count >= threshold && entry.statedInBody * 2 < entry.count) {
+      furniture.add(key);
+    }
+  }
+  return furniture;
+}
+
+/** Whether one job's salary string is in the furniture set for its run. */
+export function isSiteFurnitureSalaryText(
+  salaryText: string | null | undefined,
+  furniture: ReadonlySet<string>,
+): boolean {
+  const key = comparableSalaryText(salaryText);
+  return key.length > 0 && furniture.has(key);
 }

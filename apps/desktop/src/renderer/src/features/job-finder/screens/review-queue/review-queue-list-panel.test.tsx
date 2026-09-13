@@ -249,7 +249,7 @@ describe("ReviewQueueListPanel", () => {
     );
 
     openBatchActions();
-    expect(screen.getByText("1 eligible · 1 ready to prepare")).toBeTruthy();
+    expect(screen.getByText("1 job needs a first draft · 1 ready to prepare")).toBeTruthy();
     expect(
       screen.getByText(/nothing was approved, queued, submitted, or sent/i),
     ).toBeTruthy();
@@ -323,7 +323,7 @@ describe("ReviewQueueListPanel", () => {
       name: "Prepare up to 10 drafts (review required)",
     });
     expect(
-      within(strip).getByText("1 eligible · 1 ready to prepare"),
+      within(strip).getByText("1 job needs a first draft · 1 ready to prepare"),
     ).toBeTruthy();
 
     fireEvent.click(action);
@@ -673,7 +673,7 @@ describe("ReviewQueueListPanel", () => {
     openBatchActions();
     const strip = screen.getByTestId("tailored-draft-preparation");
     expect(
-      within(strip).getByText("12 eligible · 0 ready to prepare"),
+      within(strip).getByText("12 jobs need a first draft · 0 ready to prepare"),
     ).toBeTruthy();
     expect(
       within(strip).getByRole("button", {
@@ -776,12 +776,17 @@ describe("ReviewQueueListPanel", () => {
     openBatchActions();
     const strip = screen.getByTestId("tailored-draft-preparation");
     expect(
-      within(strip).getByText("0 eligible · 2 ready to prepare"),
+      within(strip).getByText("0 jobs need a first draft · 2 ready to prepare"),
     ).toBeTruthy();
     const prepareButton = within(strip).getByRole("button", {
       name: "Prepare up to 10 drafts (review required)",
     });
     expect(prepareButton).toHaveProperty("disabled", true);
+    // A greyed control now names what would make a job eligible.
+    expect(
+      within(strip).getByTestId("tailored-draft-preparation-blocker")
+        .textContent,
+    ).toContain("already has a draft");
     expect(within(strip).queryByRole("status")).toBeNull();
   });
 
@@ -805,7 +810,7 @@ describe("ReviewQueueListPanel", () => {
     openBatchActions();
     const strip = screen.getByTestId("tailored-draft-preparation");
     expect(
-      within(strip).getByText("10 eligible · 0 ready to prepare"),
+      within(strip).getByText("10 jobs need a first draft · 0 ready to prepare"),
     ).toBeTruthy();
     expect(
       within(strip).getByRole("button", {

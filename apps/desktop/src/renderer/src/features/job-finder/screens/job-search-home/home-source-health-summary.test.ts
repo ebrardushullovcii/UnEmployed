@@ -135,20 +135,43 @@ describe("summarizeDiscoveryRunSourceProblems", () => {
     const summary = summarizeDiscoveryRunSourceProblems(run(sources));
 
     expect(summary).not.toBeNull();
-    expect(summary?.total).toBe(25);
+    // R11: the three sources the person stopped are their own outcome, not
+    // problems, so they are not in this total.
+    expect(summary?.total).toBe(22);
+    expect(summary?.userStopped).toBe(3);
     // Disjoint by construction: one health state per source, so the group
     // counts must sum exactly to the reported total.
     expect(
       summary?.groups.reduce((total, group) => total + group.count, 0),
-    ).toBe(25);
+    ).toBe(22);
     expect(summary?.groups).toEqual([
       { category: "unreadable", count: 18, label: "couldn't be read" },
-      { category: "stopped", count: 3, label: "stopped early" },
       { category: "no_results", count: 4, label: "found nothing" },
     ]);
     expect(formatDiscoveryRunSourceProblemSummary(run(sources))).toBe(
-      "25 sources had a problem in the last search · 18 couldn't be read · 3 stopped early · 4 found nothing",
+      "You stopped the last search, so 3 sources did not finish. 22 sources had a problem in the last search · 18 couldn't be read · 4 found nothing",
     );
+  });
+
+  // R11: "'1 HEALTHY' badge, and directly beneath it '1 source had a problem
+  // in the last search · 1 stopped early' ... I pressed pause myself."
+  it("names a stop the person pressed as theirs, never as a source problem", () => {
+    const line = formatDiscoveryRunSourceProblemSummary(
+      run([
+        { health: "healthy", targetId: "ok" },
+        {
+          health: "cancelled",
+          targetId: "stopped",
+          warnings: ["Discovery was cancelled before this target finished."],
+        },
+      ]),
+    );
+
+    expect(line).toBe(
+      "You stopped the last search, so 1 source did not finish.",
+    );
+    expect(line).not.toContain("problem");
+    expect(line).not.toContain("stopped early");
   });
 
   it("omits zero categories instead of printing them", () => {
@@ -183,6 +206,25 @@ describe("summarizeDiscoveryRunSourceProblems", () => {
       ),
     ).toBeNull();
     expect(formatDiscoveryRunSourceProblemSummary(null)).toBeNull();
+  });
+
+  it("does not invent a Home failure for a completed run with two productive sources", () => {
+    const completed = run([
+      {
+        health: "healthy",
+        jobsFound: 50,
+        targetId: "we-work-remotely",
+      },
+      {
+        health: "healthy",
+        jobsFound: 47,
+        targetId: "remote-ok",
+        warnings: ["Collection stopped after results stopped changing."],
+      },
+    ]);
+
+    expect(summarizeDiscoveryRunSourceProblems(completed)).toBeNull();
+    expect(formatDiscoveryRunSourceProblemSummary(completed)).toBeNull();
   });
 
   it("leaves a card-only source to its own line instead of counting it twice", () => {

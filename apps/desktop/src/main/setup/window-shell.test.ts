@@ -737,19 +737,22 @@ describe("createMainWindow zoom wiring order", () => {
       .map((registration) => registration.listener);
   }
 
-  function dispatchMacZoomIn(instance: RecordedMainWindow): void {
-    // createMainWindow passes process.platform, so keyboard zoom uses Command
-    // on this runner; the shortcut binder prevents default Chromium handling.
+  function dispatchZoomIn(instance: RecordedMainWindow): void {
+    // createMainWindow passes process.platform, so the accelerator is Command
+    // on macOS and Control everywhere else; sending the wrong one makes the
+    // binder ignore the key and the zoom never moves. The shortcut binder
+    // prevents default Chromium handling either way.
+    const usesCommand = process.platform === "darwin";
     instance.emitWebContents(
       "before-input-event",
       { preventDefault: () => {} },
       {
         alt: false,
         code: "Equal",
-        control: false,
+        control: !usesCommand,
         isComposing: false,
         key: "=",
-        meta: true,
+        meta: usesCommand,
         type: "keyDown",
       },
     );
@@ -787,7 +790,7 @@ describe("createMainWindow zoom wiring order", () => {
 
     // The user zooms with the keyboard mid-session: the owned session factor
     // becomes theirs from now on.
-    dispatchMacZoomIn(instance);
+    dispatchZoomIn(instance);
     expect(instance.currentZoomFactor()).toBe(1.35);
 
     // Role-pin every did-finish-load listener in REGISTRATION order against a

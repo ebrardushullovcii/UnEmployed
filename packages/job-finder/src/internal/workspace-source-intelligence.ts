@@ -22,6 +22,7 @@ import {
 } from "./matching";
 import { isExplicitSearchProbeDisproof } from "./source-instruction-evidence";
 import { normalizeText, uniqueStrings } from "./shared";
+import { CLOSED_LISTING_BODY_PATTERN } from "./listing-activity";
 
 const technicalRoleSignalPatterns = [
   /\bsoftware\b/,
@@ -2042,11 +2043,6 @@ export async function collectPublicProviderJobs(input: {
     };
   }
 }
-
-// The listing's own text says it is over; the app stored that sentence and
-// still ranked the job as open.
-const CLOSED_LISTING_BODY_PATTERN =
-  /\b(?:no longer accepting applications|no longer available|this (?:job|position|role|listing) (?:has been|is|was) (?:filled|closed|removed|archived|expired)|(?:job|position|listing) has (?:closed|expired)|applications? (?:are|is) (?:now )?closed|this posting has expired|we are no longer hiring for this)\b/iu;
 
 const ACCOUNT_WALL_BODY_PATTERN =
   /\b(?:sign in to (?:continue|view|see|apply|access)|log in to (?:continue|view|see|apply)|join now|welcome back|create (?:an|your|a free) account|get notified about new [^.\n]{0,80}\bjobs\b|by clicking (?:continue|agree|join)|forgot password|new to [a-z]+\? join now)\b/iu;

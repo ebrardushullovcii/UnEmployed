@@ -19,7 +19,32 @@ export const PROFILE_SETUP_FINISH_LABEL = "Finish setup and find jobs";
  * The finish action lives on Job targets — the last required step — and stays
  * available on the optional Extras step. Every other step keeps its plain
  * "save and continue" primary, so there is exactly one primary per step.
+ *
+ * On Job targets the finish action takes the primary slot the moment the last
+ * required detail lands, which used to delete the continue action mid-step: a
+ * button read as "Save and continue to Extras" and, after one more field was
+ * filled, the same slot finished setup and opened Find jobs. The continue
+ * action now survives as a secondary, so a button never does something other
+ * than what it says.
  */
+export function getProfileSetupStepFooterContinue(input: {
+  canFinishSetup: boolean;
+  currentStep: ProfileSetupStep;
+  onSaveAndGoToStep: (step: ProfileSetupStep) => void;
+}): { label: string; onContinue: () => void } | null {
+  const currentStep = normalizeProfileSetupStep(input.currentStep);
+  if (currentStep !== "targeting" || !input.canFinishSetup) {
+    return null;
+  }
+
+  const nextStep = getNextProfileSetupStep(currentStep);
+  return {
+    label: CONTINUE_LABEL_BY_STEP[currentStep] ?? "Save and continue",
+    onContinue: () => input.onSaveAndGoToStep(nextStep ?? "extras"),
+  };
+}
+
+
 export function getProfileSetupStepFooterPrimary(input: {
   canFinishSetup: boolean;
   currentStep: ProfileSetupStep;
@@ -106,6 +131,11 @@ export function ProfileSetupStepFooter(props: {
     onSaveAndFinish: props.onSaveAndFinish,
     onSaveAndGoToStep: props.onSaveAndGoToStep,
   });
+  const continueAction = getProfileSetupStepFooterContinue({
+    canFinishSetup: props.canFinishSetup,
+    currentStep: props.currentStep,
+    onSaveAndGoToStep: props.onSaveAndGoToStep,
+  });
   const readinessMessage = formatProfileSetupFinishReadiness({
     canFinishSetup: props.canFinishSetup,
     remainingBlockerLabels: props.remainingBlockerLabels ?? [],
@@ -183,6 +213,17 @@ export function ProfileSetupStepFooter(props: {
         >
           Save changes
         </Button>
+        {continueAction ? (
+          <Button
+            disabled={props.isProfileSetupPending}
+            onClick={continueAction.onContinue}
+            pending={props.isProfileSetupPending}
+            type="button"
+            variant="secondary"
+          >
+            {continueAction.label}
+          </Button>
+        ) : null}
         <Button
           aria-describedby={
             primary.disabled

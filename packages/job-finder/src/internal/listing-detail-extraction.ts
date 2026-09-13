@@ -24,6 +24,10 @@ export interface ExtractedListingDetail {
   location: string | null;
   /** Plain text with paragraphs separated by blank lines and "• " bullets. */
   description: string;
+  /** Length before this reader's safety cap was applied. */
+  descriptionSourceLength?: number;
+  /** The captured text ended at a cap or in a likely word fragment. */
+  descriptionLikelyTruncated?: boolean;
   salaryText: string | null;
   employmentType: string | null;
   /** ISO timestamp when the record carried a parseable posting date. */
@@ -31,6 +35,19 @@ export interface ExtractedListingDetail {
   validThrough: string | null;
   workModeHints: string[];
   directApplyUrl: string | null;
+}
+
+const LIKELY_MID_WORD_ENDING_PATTERN =
+  /\b(?:th|thi|wit|fro|ac|acr|bec|req|qual|responsibilit|experienc|developm|engineer)\s*$/iu;
+
+function isLikelyTruncatedDescription(
+  description: string,
+  sourceLength: number,
+): boolean {
+  return (
+    description.length < sourceLength ||
+    LIKELY_MID_WORD_ENDING_PATTERN.test(description.trimEnd())
+  );
 }
 
 export interface ExtractListingDetailInput {
@@ -385,10 +402,8 @@ function extractJobPostingFromJsonLd(
 
   const descriptionHtml =
     typeof node.description === "string" ? node.description : "";
-  const description = truncateText(
-    htmlToPlainText(descriptionHtml),
-    MAX_DESCRIPTION_LENGTH,
-  );
+  const fullDescription = htmlToPlainText(descriptionHtml);
+  const description = truncateText(fullDescription, MAX_DESCRIPTION_LENGTH);
   if (!description) {
     return null;
   }
@@ -405,6 +420,11 @@ function extractJobPostingFromJsonLd(
     company: readOrganizationName(node.hiringOrganization),
     location,
     description,
+    descriptionSourceLength: fullDescription.length,
+    descriptionLikelyTruncated: isLikelyTruncatedDescription(
+      description,
+      fullDescription.length,
+    ),
     salaryText: readSalary(node),
     employmentType: readEmploymentType(node.employmentType),
     postedAt: readIsoDate(node.datePosted),
@@ -514,13 +534,11 @@ function extractListingDetailFromPageText(
   input: ExtractListingDetailInput,
 ): ExtractedListingDetail | null {
   const bodyHtml = selectMainContentHtml(html);
-  const text = truncateText(
-    trimLeadingChromeBeforeTitle(
-      htmlToPlainText(bodyHtml),
-      input.expectedTitle,
-    ),
-    MAX_PAGE_TEXT_LENGTH,
+  const fullText = trimLeadingChromeBeforeTitle(
+    htmlToPlainText(bodyHtml),
+    input.expectedTitle,
   );
+  const text = truncateText(fullText, MAX_PAGE_TEXT_LENGTH);
   const wordCount = text.split(/\s+/u).filter(Boolean).length;
   if (wordCount < MIN_PAGE_TEXT_WORDS) {
     return null;
@@ -554,6 +572,11 @@ function extractListingDetailFromPageText(
     company: null,
     location: null,
     description: text,
+    descriptionSourceLength: fullText.length,
+    descriptionLikelyTruncated: isLikelyTruncatedDescription(
+      text,
+      fullText.length,
+    ),
     salaryText: null,
     employmentType: null,
     postedAt: null,
@@ -612,9 +635,124 @@ const NAMED_ENTITIES: Record<string, string> = {
   uuml: "ü",
   ouml: "ö",
   auml: "ä",
+  aacute: "á",
+  iacute: "í",
+  oacute: "ó",
+  uacute: "ú",
+  agrave: "à",
+  ccedil: "ç",
+  ntilde: "ñ",
+  aring: "å",
+  oslash: "ø",
+  szlig: "ß",
+  laquo: "«",
+  raquo: "»",
+  sbquo: "‚",
+  bdquo: "„",
+  dagger: "†",
+  deg: "°",
+  plusmn: "±",
+  times: "×",
+  divide: "÷",
+  frac12: "½",
+  frac14: "¼",
+  frac34: "¾",
+  euro: "€",
+  pound: "£",
+  yen: "¥",
+  cent: "¢",
+  sect: "§",
+  para: "¶",
+  shy: "",
+  ensp: " ",
+  emsp: " ",
+  thinsp: " ",
 };
 
-export function decodeHtmlEntities(value: string): string {
+// Emoji and pictographs a board prints inside a scraped field: a colour
+// location pin before the place, a sparkle before the role, a flag beside a
+// country. Only symbol and pictograph code points are listed — no letter of
+// any script falls in these ranges, so a Cyrillic, Arabic, Greek or CJK name
+// passes through untouched.
+const PICTOGRAPH_GLYPH_PATTERN =
+  // Written as alternatives rather than one class: variation selectors, the
+  // zero-width joiner and the keycap mark are combining characters, and a
+  // character class mixing them with base characters is misleading.
+  /[\u{1F000}-\u{1FAFF}]|[\u2600-\u27BF]|[\u2B00-\u2BFF]|[\u203C\u2049\u2122\u2139\u2934\u2935\u3030\u303D\u3297\u3299]|\uFE0E|\uFE0F|\u200D|\u20E3/gu;
+
+/**
+ * Removes emoji and pictographs from a short scraped field and settles the
+ * space they leave, so a colour location pin never reaches the company line.
+ * Letters are never removed: only symbol and pictograph ranges are listed.
+ */
+export function stripPictographGlyphs<T extends string | null | undefined>(
+  value: T,
+): T {
+  if (typeof value !== "string") return value;
+  const stripped = value
+    .replace(PICTOGRAPH_GLYPH_PATTERN, " ")
+    .replace(/[ \t]{2,}/gu, " ")
+    .trim();
+  if (stripped === value) return value;
+  // A field that was nothing but pictographs keeps its original text rather
+  // than becoming empty.
+  return (stripped.length > 0 ? stripped : value) as T;
+}
+
+// Structured-data descriptions arrive as HTML on some boards ("<strong>Job
+// Title<br></strong>Regional Manager"). Stored text must be plain so every
+// screen reads it the same way.
+const HTML_MARKUP_PATTERN = /<\/?[a-z][^>]*>/i;
+
+// Characters that carry no text: the replacement glyph a broken byte leaves
+// behind (written out by some boards as the literal entity "&#65533;"), the
+// two non-characters at the end of the BMP, and C0 controls other than tab and
+// newline. Whatever they once were is already lost, so printing a black
+// diamond in the middle of a job title only makes the loss visible.
+// Control characters are exactly what this pattern exists to remove.
+const UNDECODABLE_TEXT_PATTERN =
+  // eslint-disable-next-line no-control-regex
+  /[\uFFFD\uFFFE\uFFFF\u0000-\u0008\u000B\u000C\u000E-\u001F]/gu;
+
+/**
+ * Drops characters that decode to nothing and tidies the gap they leave: the
+ * spaces either side collapse and a separator stranded at an edge comes off,
+ * so "Sales Development Representative Attribut<U+FFFD>" reads as a title rather
+ * than as a decoding accident.
+ */
+function dropUndecodableCharacters(value: string): string {
+  return value
+    .replace(UNDECODABLE_TEXT_PATTERN, "")
+    .replace(/[ \t]{2,}/gu, " ")
+    .replace(/^[\s,;:•·|–—-]+/u, "")
+    .replace(/[\s,;:•·|–—-]+$/u, "");
+}
+
+/**
+ * The text to store for one listing field: markup stripped, HTML entities
+ * decoded and undecodable characters dropped, so an employer written
+ * "Rose, Klein &amp; Marias" is stored — and read back on every screen — as
+ * "Rose, Klein & Marias", and no replacement glyph ever reaches a title.
+ */
+export function normalizeListingText<T extends string | null | undefined>(
+  value: T,
+): T {
+  if (typeof value !== "string") return value;
+  const decoded = HTML_MARKUP_PATTERN.test(value)
+    ? htmlToPlainText(value)
+    : decodeHtmlEntities(value);
+  const normalized = dropUndecodableCharacters(decoded);
+  // Required listing fields must stay non-empty: keep the original text rather
+  // than normalizing a value away entirely.
+  return (normalized.trim().length > 0 ? normalized : value) as T;
+}
+
+const ENTITY_PATTERN = /&(?:#x[0-9a-f]+|#\d+|[a-z]+);/iu;
+// Three passes is enough for every double-encoding seen in practice
+// ("&amp;amp;" → "&amp;" → "&") and keeps a hostile page from looping.
+const MAX_ENTITY_DECODE_PASSES = 3;
+
+function decodeHtmlEntitiesOnce(value: string): string {
   return value
     .replace(/&#x([0-9a-f]+);/giu, (_match, hex: string) =>
       safeFromCodePoint(Number.parseInt(hex, 16)),
@@ -628,9 +766,40 @@ export function decodeHtmlEntities(value: string): string {
     });
 }
 
+/**
+ * Decodes HTML entities to a fixed point.
+ *
+ * A single pass left double-encoded text as an entity in the store, which is
+ * how "Transportation Partners &amp;amp; Logistics" reached a company name and
+ * was drawn on screen as "Transportation Partners &amp; Logistics". Decoding
+ * repeats while the text still changes and still looks like an entity, so the
+ * name is stored once, decoded, and every screen reading it shows the same
+ * thing.
+ */
+export function decodeHtmlEntities(value: string): string {
+  let decoded = value;
+  for (let pass = 0; pass < MAX_ENTITY_DECODE_PASSES; pass += 1) {
+    if (!ENTITY_PATTERN.test(decoded)) {
+      return decoded;
+    }
+    const next = decodeHtmlEntitiesOnce(decoded);
+    if (next === decoded) {
+      return decoded;
+    }
+    decoded = next;
+  }
+  return decoded;
+}
+
 function safeFromCodePoint(codePoint: number): string {
+  // 0xFFFD is the replacement glyph: a board writing "&#65533;" is telling us
+  // the character was already lost, so decoding it back into a black diamond
+  // only prints the loss into a job title.
+  if (!Number.isFinite(codePoint) || codePoint === 0xfffd) {
+    return "";
+  }
   try {
-    return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : "";
+    return String.fromCodePoint(codePoint);
   } catch {
     return "";
   }

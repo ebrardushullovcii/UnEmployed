@@ -24,7 +24,31 @@ describe("JobFinderShellBrand token classes", () => {
 
     expect(wordmark?.className).toContain("text-(--headline-primary)");
     expect(subtitle?.className).toContain("tracking-(--tracking-caps)");
-    expect(subtitle?.className).toContain("sm:text-(length:--text-tiny)");
+    expect(subtitle?.className).toContain("text-[0.72rem]");
+    expect(subtitle?.className).toContain("sm:text-[0.78rem]");
+  });
+
+  it("renders the module switch as the subtitle when one is supplied", () => {
+    const { container } = render(
+      <JobFinderShellBrand moduleSwitch={{ onSelectModule: () => {} }} />,
+    );
+
+    const subtitle = container.querySelector("[data-desktop-brand-subtitle]");
+    expect(subtitle).not.toBeNull();
+
+    // The switcher replaces the static caption in the same slot, so the module
+    // name stays one line under the wordmark whether or not it is interactive.
+    const trigger = subtitle?.querySelector("[data-module-switch-trigger]");
+    expect(trigger).not.toBeNull();
+    expect(trigger?.getAttribute("aria-label")).toBe(
+      "Job Finder, switch module",
+    );
+    expect(trigger?.querySelector("span")?.className).toContain(
+      "tracking-(--tracking-caps)",
+    );
+    expect(trigger?.querySelector("span")?.className).toContain(
+      "sm:text-[0.78rem]",
+    );
   });
 
   it("ships no var()-wrapped custom-property class on any brand node", () => {

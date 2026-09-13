@@ -15,7 +15,6 @@ import type {
   InterviewTranscriptSource,
   InterviewWorkspaceSnapshot,
 } from "@unemployed/contracts";
-import { suiteModules } from "@unemployed/contracts";
 import {
   Archive,
   Camera,
@@ -39,6 +38,7 @@ import {
 } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@renderer/components/ui/button";
+import { ModuleSwitch } from "@renderer/components/module-switch";
 import { cn } from "@renderer/lib/cn";
 import { AnswerCueOverlay, TranscriptOverlay } from "./interview-overlays";
 import { InterviewAnswerPopup } from "./interview-answer-popup";
@@ -112,13 +112,6 @@ function Panel(props: {
 
 function getTargetLabel(workspace: InterviewWorkspaceSnapshot) {
   return workspace.setup.targetContext?.label ?? "General interview";
-}
-
-function formatModuleLabel(moduleName: string) {
-  return moduleName
-    .split("-")
-    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
-    .join(" ");
 }
 
 function getInitialInterviewTab(workspace: InterviewWorkspaceSnapshot) {
@@ -778,58 +771,25 @@ export function InterviewHelperPage() {
               >
                 UNEMPLOYED
               </Link>
-              <span className="hidden text-[0.72rem] uppercase tracking-(--tracking-caps) text-muted-foreground sm:block sm:text-(length:--text-tiny)">
-                Interview Helper
-              </span>
-            </div>
-          </div>
-
-          <div
-            className="col-start-2 row-start-1 hidden items-center justify-center lg:absolute lg:inset-x-0 lg:top-0 lg:z-10 lg:flex lg:h-10"
-            data-desktop-module-navigation
-            style={dragRegionStyle}
-          >
-            <div
-              className="flex items-center gap-6"
-              role="list"
-              style={noDragRegionStyle}
-            >
-              {suiteModules.map((moduleName, index) => (
-                <div
-                  key={moduleName}
-                  className="flex items-center gap-6"
-                  role="listitem"
-                >
-                  {index > 0 ? (
-                    <span
-                      aria-hidden="true"
-                      className="h-4 w-px bg-border/50"
-                    />
-                  ) : null}
-                  {moduleName === "interview-helper" ? (
-                    // Mirrors the Job Finder shell: the current module is a
-                    // non-interactive aria-current marker, not a dead button.
-                    <span
-                      aria-current="page"
-                      className="text-[14px] font-semibold tracking-(--tracking-badge) text-(--text-headline) sm:text-[15px]"
-                    >
-                      {formatModuleLabel(moduleName)}
-                    </span>
-                  ) : (
-                    <button
-                      className="h-auto cursor-pointer rounded-none border-0 bg-transparent px-0 py-0 text-[14px] font-semibold tracking-(--tracking-badge) text-muted-foreground shadow-none outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 sm:text-[15px]"
-                      onClick={() => {
-                        if (moduleName === "job-finder") {
-                          void navigate(jobFinderReturnRoute);
-                        }
-                      }}
-                      type="button"
-                    >
-                      {formatModuleLabel(moduleName)}
-                    </button>
-                  )}
-                </div>
-              ))}
+              {/* Mirrors the Job Finder shell: the module switch sits
+                  directly under the wordmark, at the head of the module's own
+                  navigation surface, instead of floating in the caption row.
+                  It replaces the caption that used to name the module here.
+                  Icons are dropped here as they are in the Job Finder rail —
+                  the two names carry the meaning, and they are what has to fit.
+                  This header stays a single row rather than stacking: it is a
+                  2.5rem caption row below the wide layout, so vertical space is
+                  the scarce axis here, and the control sizes to its content
+                  instead of to a 17rem rail, which is why both names fit
+                  side by side. */}
+              <ModuleSwitch
+                activeModule="interview-helper"
+                className="mt-1 hidden sm:inline-flex"
+                onSelectModule={() => {
+                  void navigate(jobFinderReturnRoute);
+                }}
+                style={noDragRegionStyle}
+              />
             </div>
           </div>
 

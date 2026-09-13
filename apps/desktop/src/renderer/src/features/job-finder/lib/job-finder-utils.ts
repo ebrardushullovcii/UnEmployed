@@ -49,39 +49,63 @@ export function formatOptionalDateOnly(
 }
 
 /**
+ * Text that can honestly be shown where a posting date belongs: it carries a
+ * number, a month name, or a relative-time word.
+ *
+ * A board's posted slot is matched by position, so whatever sits there travels
+ * with the listing — a card once arrived with `postedAtText: "NOPE"` and the
+ * card printed "POSTED NOPE" beside siblings reading "POSTED 04 SEPT 2026".
+ * A token that says nothing about time is not a date and is dropped.
+ */
+const POSTED_DATE_TEXT_PATTERN =
+  /\d|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b|\b(?:today|yesterday|now|ago|posted|recently)\b/iu;
+
+export function isPostedDateText(value: string): boolean {
+  return POSTED_DATE_TEXT_PATTERN.test(value);
+}
+
+/**
  * Truthful date labeling for job postings: a known posting date (or visible
  * posted label) is always "Posted", while a provider-only last-update time
  * (e.g. Greenhouse boards that never expose the original publish date) must be
  * labeled "Updated" rather than passed off as a posting date.
+ *
+ * Returns `null` when the listing carries no date worth printing, so a caller
+ * renders nothing instead of a bare "Updated — Unknown" or a stray token.
  */
 export function getPostedDateLabel(input: {
   postedAt: string | null;
   postedAtText: string | null;
   providerUpdatedAt: string | null;
-}): { label: "Posted" | "Updated"; value: string } {
+}): { label: "Posted" | "Updated"; value: string } | null {
   // A site's own text often already says "Posted 3 days ago"; printing the
   // label in front of it read "POSTED POSTED 3 DAYS AGO".
-  const visibleText = input.postedAtText
-    ?.replace(/^\s*(posted|updated|published)\s*:?\s*/iu, "")
-    .trim();
+  const visibleText =
+    input.postedAtText
+      ?.replace(/^\s*(posted|updated|published)\s*:?\s*/iu, "")
+      .trim() || null;
+  const datedVisibleText =
+    visibleText && isPostedDateText(visibleText) ? visibleText : null;
   // A board's own text can be a machine timestamp ("2026-08-18T16:00:22+00:00");
   // show it as a date, never as the loudest thing on the card.
   const isMachineTimestamp =
-    Boolean(visibleText) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/u.test(visibleText ?? "");
+    datedVisibleText !== null &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/u.test(datedVisibleText);
   const postedValue =
-    (isMachineTimestamp ? formatDateOnly(visibleText ?? "") : visibleText || null) ??
+    (isMachineTimestamp && datedVisibleText
+      ? formatDateOnly(datedVisibleText)
+      : datedVisibleText) ??
     (input.postedAt ? formatDateOnly(input.postedAt) : null);
 
   if (postedValue) {
     return { label: "Posted", value: postedValue };
   }
 
-  return {
-    label: "Updated",
-    value: input.providerUpdatedAt
-      ? formatDateOnly(input.providerUpdatedAt)
-      : "Unknown",
-  };
+  if (input.providerUpdatedAt) {
+    return { label: "Updated", value: formatDateOnly(input.providerUpdatedAt) };
+  }
+
+  return null;
 }
 
 /**

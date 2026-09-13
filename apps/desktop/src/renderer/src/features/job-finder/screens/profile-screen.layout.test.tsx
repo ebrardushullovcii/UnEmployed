@@ -171,6 +171,47 @@ describe("ProfileScreen ready-state density and save-bar footprint", () => {
     vi.unstubAllGlobals();
   });
 
+  it("raises the resume identity choice as soon as the Basics name changes", () => {
+    const onSaveAll = vi.fn();
+    renderProfileScreen({
+      onSaveAll,
+      profile: CandidateProfileSchema.parse({
+        ...profile,
+        firstName: "Casey",
+        lastName: "Rowan",
+        fullName: "Casey Rowan",
+        baseResume: {
+          ...profile.baseResume,
+          textContent: "CASEY ROWAN\nMarketing Manager",
+        },
+      }),
+    });
+
+    expect(screen.queryByTestId("resume-identity-choice")).toBeNull();
+    fireEvent.change(screen.getByLabelText("First name"), {
+      target: { value: "Jordan" },
+    });
+    fireEvent.change(screen.getByLabelText("Last name"), {
+      target: { value: "Vance" },
+    });
+
+    expect(screen.getByTestId("resume-identity-choice").textContent).toContain(
+      "Preparation is paused because the imported resume says “CASEY ROWAN” while your profile says “Jordan Vance”",
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Use my profile name for this resume",
+      }),
+    );
+    expect(onSaveAll).toHaveBeenCalledTimes(1);
+    expect(onSaveAll.mock.calls[0]?.[0]).toMatchObject({
+      fullName: "Jordan Vance",
+      resumeIdentityOwnership: {
+        acknowledgedSourceFullName: "CASEY ROWAN",
+      },
+    });
+  });
+
   it("renders the compact section panel with a reduced save-bar footprint", () => {
     renderProfileScreen();
 

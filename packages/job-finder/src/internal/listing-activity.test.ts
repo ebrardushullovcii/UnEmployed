@@ -8,7 +8,10 @@ import {
 import { describe, expect, test } from "vitest";
 
 import { createSeed } from "../workspace-service.test-support";
-import { projectDiscoveryJobViews } from "./listing-activity";
+import {
+  findClosedListingPhrase,
+  projectDiscoveryJobViews,
+} from "./listing-activity";
 
 const hour = (value: number) =>
   `2026-08-23T${String(value).padStart(2, "0")}:00:00.000Z`;
@@ -203,5 +206,66 @@ describe("listing activity projection", () => {
         listingSignals: [],
       }).map((view) => view.listingActivity.status),
     ).toEqual(["unknown", "unknown"]);
+  });
+});
+
+describe("closure phrases in the listing's own text", () => {
+  test.each([
+    "This position has been filled.",
+    "We are no longer accepting applications for this role.",
+    "This job has expired.",
+    "This job is closed.",
+  ])("closes a listing whose description says %j", (sentence) => {
+    const closed = job({
+      id: "job-closed-text",
+      description: `About the team. ${sentence} Thanks for your interest.`,
+      lastSeenAt: hour(11),
+    });
+
+    const [view] = projectDiscoveryJobViews({
+      jobs: [closed],
+      discoveryLedger: [],
+      listingSignals: [],
+    });
+
+    expect(view?.listingActivity.status).toBe("closed");
+    expect(findClosedListingPhrase(closed)).toBeTruthy();
+  });
+
+  test("leaves an open listing active", () => {
+    const open = job({
+      id: "job-open",
+      description: "We are hiring a backend engineer. Apply today.",
+      lastSeenAt: hour(11),
+    });
+
+    const [view] = projectDiscoveryJobViews({
+      jobs: [open],
+      discoveryLedger: [],
+      listingSignals: [],
+    });
+
+    expect(view?.listingActivity.status).toBe("active");
+  });
+
+  test.each([
+    "Applications will be reviewed until the position is filled.",
+    "This position will remain open until the position is filled.",
+    "Once the position is filled, applicants will be notified.",
+  ])("does not treat conditional or future wording as closure: %j", (sentence) => {
+    const open = job({
+      id: "job-open-conditional",
+      description: sentence,
+      lastSeenAt: hour(11),
+    });
+
+    const [view] = projectDiscoveryJobViews({
+      jobs: [open],
+      discoveryLedger: [],
+      listingSignals: [],
+    });
+
+    expect(findClosedListingPhrase(open)).toBeNull();
+    expect(view?.listingActivity.status).toBe("active");
   });
 });

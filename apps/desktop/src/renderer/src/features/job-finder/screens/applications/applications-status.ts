@@ -1,4 +1,4 @@
-import type { ApplicationRecord } from "@unemployed/contracts";
+import type { ApplicationRecord, ApplyJobResult } from "@unemployed/contracts";
 import {
   formatStatusLabel,
   getApplicationTone,
@@ -105,6 +105,7 @@ export function getApplicationLatestActivityLabel(
 export function getApplicationSubmissionAnswer(
   record: ApplicationRecord,
   employerName?: string | null,
+  applyResult?: ApplyJobResult | null,
 ): { headline: string; detail: string; submitted: boolean } {
   const employer = employerName?.trim() || record.company?.trim() || null;
   const submitted =
@@ -118,6 +119,24 @@ export function getApplicationSubmissionAnswer(
         ? `Job Finder never sends an application — this is the outcome you recorded after sending it to ${employer} yourself.`
         : "Job Finder never sends an application — this is the outcome you recorded after sending it yourself.",
       submitted: true,
+    };
+  }
+
+  if (applyResult) {
+    const writes = applyResult.privacyReceipt?.externalWrites ?? [];
+    const writeFact =
+      writes.length === 0
+        ? "Nothing was recorded as written to the site."
+        : `${writes.length} prepared ${writes.length === 1 ? "field or file was" : "fields or files were"} recorded as written to the site.`;
+    const didNotFinish = ["blocked", "failed", "skipped"].includes(
+      applyResult.state,
+    );
+    return {
+      headline: didNotFinish ? "Preparation did not finish." : "Not submitted.",
+      detail: employer
+        ? `${writeFact} This application has not been sent to ${employer}. Review the facts below before continuing in the Job Finder browser.`
+        : `${writeFact} This application has not been sent. Review the facts below before continuing in the Job Finder browser.`,
+      submitted: false,
     };
   }
 
@@ -207,6 +226,29 @@ export function getApplicationStagePresentation(record: ApplicationRecord): {
     label: formatStatusLabel(record.status),
     tone: getApplicationTone(record.status),
   };
+}
+
+/** The exact words the Needs-you population and the row badge share. */
+export const APPLICATION_NEEDS_YOU_STAGE_LABEL = "Needs you";
+
+/**
+ * One selector for "this application is waiting on the person".
+ *
+ * The Applications row badged an application NEEDS YOU while the global
+ * "Needs you: 0 unresolved" counted only live browser-step requests, so the
+ * same screen answered its own question two ways. Both now read this, derived
+ * from the stage presentation itself, so a new stage rule cannot make them
+ * drift apart again.
+ */
+export function applicationRecordAwaitsUser(record: ApplicationRecord): boolean {
+  if (!shouldPresentConsentState(record)) return false;
+  if (record.lastAttemptState !== "paused") return false;
+  const consent = record.consentSummary.status;
+  if (consent === "declined") return false;
+  // A requested consent with nothing saved to do next reads as "Waiting on
+  // consent", not as work waiting on the person.
+  if (consent === "requested" && !record.nextActionLabel) return false;
+  return true;
 }
 
 export function getApplicationNextStepLabel(record: ApplicationRecord): string {

@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type {
-  JobPosting,
-  MatchAssessment,
-  SavedJob,
+import {
+  SavedJobSchema,
+  type JobPosting,
+  type MatchAssessment,
+  type SavedJob,
 } from "@unemployed/contracts";
 import { createSavedJob } from "../workspace-service.test-fixtures";
 import {
@@ -98,11 +99,25 @@ const assess = vi.fn(
 );
 
 describe("jobNeedsListingDetail", () => {
-  it("reads only fetchable, un-enriched jobs that were not tried too recently", () => {
+  it("reads fetchable jobs until this stage has captured their complete page", () => {
     expect(jobNeedsListingDetail(cardOnlyJob(), NOW)).toBe(true);
     expect(
       jobNeedsListingDetail(
         cardOnlyJob({ detailQuality: "detail_enriched" }),
+        NOW,
+      ),
+    ).toBe(true);
+    expect(
+      jobNeedsListingDetail(
+        cardOnlyJob({
+          detailQuality: "detail_enriched",
+          listingDetailFetch: {
+            attemptedAt: "2026-09-05T09:30:00.000Z",
+            outcome: "enriched",
+            method: "json_ld",
+            detail: "Read the complete listing page.",
+          },
+        }),
         NOW,
       ),
     ).toBe(false);
@@ -144,6 +159,34 @@ describe("jobNeedsListingDetail", () => {
 });
 
 describe("enrichSavedJobListingDetails", () => {
+  it("retries a body that ends mid-word once and records partial listing text", async () => {
+    const job = cardOnlyJob();
+    const incompleteDescription = `${"Build reliable TypeScript services with a senior product team. ".repeat(12)}Coordinate delivery across th`;
+    const html = `<script type="application/ld+json">${JSON.stringify({
+      "@type": "JobPosting",
+      title: job.title,
+      description: incompleteDescription,
+    })}</script>`;
+    const fetchHtml = vi.fn<ListingHtmlFetcher>((url) =>
+      Promise.resolve({ status: 200, html, finalUrl: url }),
+    );
+
+    const result = await enrichSavedJobListingDetails({
+      jobs: [job],
+      fetchHtml,
+      assess,
+      now: () => NOW,
+    });
+
+    expect(fetchHtml).toHaveBeenCalledTimes(2);
+    expect(result.jobs[0]?.detailQuality).toBe("partial_detail");
+    expect(result.jobs[0]?.listingDetailFetch).toMatchObject({
+      outcome: "partial",
+      detail:
+        "Read partial listing text; the page response ended before the description was complete.",
+    });
+  });
+
   it("reads the page, fills the card's gaps, upgrades quality and re-scores", async () => {
     const job = cardOnlyJob();
     const fetchHtml = fakeFetcher({
@@ -179,7 +222,40 @@ describe("enrichSavedJobListingDetails", () => {
     expect(next.summary).toMatch(/^Garner is building tools/u);
     expect(next.summary?.length ?? 0).toBeLessThan(430);
     expect(next.matchAssessment.score).toBe(82);
+    const scoringInput = SavedJobSchema.parse(assess.mock.calls.at(-1)?.[0]);
+    expect(scoringInput.listingDetailCapture).toMatchObject({
+      state: "captured",
+    });
+    expect(scoringInput.description).toContain(
+      "5+ years with .NET Core and REST APIs",
+    );
     expect(result.summary).toMatchObject({ attempted: 1, enriched: 1 });
+  });
+
+  it("uses the salary stated in the body when a separate cell doubled the floor", () => {
+    const applied = applyListingDetailToJob({
+      job: cardOnlyJob({ salaryText: "$200000 - 500000" }),
+      detail: {
+        method: "page_text",
+        title: null,
+        company: null,
+        location: null,
+        description:
+          "Highly Competitive Salary: - $100k-$500k USD yearly. Candidate Requirements: - Proven campaign leadership and paid ads experience across multiple channels.",
+        salaryText: null,
+        employmentType: null,
+        postedAt: null,
+        validThrough: null,
+        workModeHints: ["remote"],
+        directApplyUrl: null,
+      },
+      attemptedAt: NOW,
+      assess,
+    });
+
+    expect(applied.job.salaryText).toBe("$100k-$500k USD yearly");
+    expect(applied.job.normalizedCompensation.minAnnualUsd).toBe(100_000);
+    expect(applied.job.normalizedCompensation.maxAnnualUsd).toBe(500_000);
   });
 
   it("keeps a real employer and location the card already carried", async () => {
@@ -263,6 +339,12 @@ describe("enrichSavedJobListingDetails", () => {
     const enriched = cardOnlyJob({
       id: "job_done",
       detailQuality: "detail_enriched",
+      listingDetailFetch: {
+        attemptedAt: "2026-09-05T09:30:00.000Z",
+        outcome: "enriched",
+        method: "json_ld",
+        detail: "Read the complete listing page.",
+      },
     });
     const first = cardOnlyJob({
       id: "job_1",
@@ -295,7 +377,7 @@ describe("enrichSavedJobListingDetails", () => {
     ]);
   });
 
-  it("stops starting reads once the time budget is spent", async () => {
+  it("gives every queued listing its own request budget", async () => {
     const jobs = [1, 2, 3].map((index) =>
       cardOnlyJob({
         id: `job_${index}`,
@@ -315,12 +397,13 @@ describe("enrichSavedJobListingDetails", () => {
       assess,
       now: () => NOW,
       concurrency: 1,
-      timeBudgetMs: 20,
+      perRequestTimeoutMs: 100,
     });
 
-    expect(ticks).toBe(1);
-    expect(result.summary.attempted).toBe(1);
-    expect(result.summary.skipped).toBe(2);
+    expect(ticks).toBe(3);
+    expect(result.summary.attempted).toBe(3);
+    expect(result.summary.enriched).toBe(3);
+    expect(result.summary.skipped).toBe(0);
   });
 });
 

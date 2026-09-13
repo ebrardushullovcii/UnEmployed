@@ -697,6 +697,29 @@ describe("contracts profile setup schemas", () => {
     expect(state.completedAt).toBeNull();
   });
 
+  test("completes a materially ready setup after the first search has run", () => {
+    const completedAt = "2026-04-11T10:35:00.000Z";
+    const state = deriveProfileSetupState(
+      completeProfileFixture,
+      completeSearchPreferencesFixture,
+      {
+        currentState: {
+          status: "in_progress",
+          currentStep: "targeting",
+          completedAt: null,
+          reviewItems: [],
+          lastResumedAt: "2026-04-11T10:20:00.000Z",
+        },
+        hasRunSearch: true,
+        now: completedAt,
+      },
+    );
+
+    expect(state.status).toBe("completed");
+    expect(state.currentStep).toBe("targeting");
+    expect(state.completedAt).toBe(completedAt);
+  });
+
   test("accepts fresh-start zero years of experience as complete core identity", () => {
     const readiness = evaluateProfileSetupReadiness(
       {

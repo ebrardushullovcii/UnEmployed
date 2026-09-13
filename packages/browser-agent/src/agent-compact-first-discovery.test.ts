@@ -46,24 +46,24 @@ function createCompactFirstFakePage(options: FakePageOptions = {}): Page {
   let scanIndex = 0;
   const landingUrl = options.url ?? "https://www.linkedin.com/jobs/search/";
   const bodyLocator = {
-    async innerText() {
-      return (
+    innerText() {
+      return Promise.resolve(
         options.bodyText ??
-        "Primary target search page with visible job listing content."
+          "Primary target search page with visible job listing content.",
       );
     },
     ...(options.snapshot === undefined
       ? {}
-      : { ariaSnapshot: async () => options.snapshot ?? "" }),
+      : { ariaSnapshot: () => Promise.resolve(options.snapshot ?? "") }),
   };
 
   return {
-    async goto() {
-      return null as never;
+    goto() {
+      return Promise.resolve(null as never);
     },
     url: () => landingUrl,
-    async title() {
-      return "Primary target";
+    title() {
+      return Promise.resolve("Primary target");
     },
     locator(selector: string) {
       if (selector !== "body") {
@@ -71,7 +71,7 @@ function createCompactFirstFakePage(options: FakePageOptions = {}): Page {
       }
       return bodyLocator;
     },
-    async evaluate(fn: unknown) {
+    evaluate(fn: unknown) {
       options.onEvaluate?.();
       if (
         typeof fn === "function" &&
@@ -79,14 +79,14 @@ function createCompactFirstFakePage(options: FakePageOptions = {}): Page {
       ) {
         const payload =
           options.scanPayloadSequence?.[scanIndex++] ?? options.scanPayload;
-        if (!payload) return null;
-        return {
+        if (!payload) return Promise.resolve(null);
+        return Promise.resolve({
           structuredPostings: payload.structuredPostings ?? [],
           cardContainers: payload.cardContainers ?? [],
           elements: payload.elements ?? [],
-        };
+        });
       }
-      return [];
+      return Promise.resolve([]);
     },
   } as unknown as Page;
 }
@@ -125,12 +125,13 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
     const progressActions: Array<string | undefined> = [];
     const llmClient: LLMClient = { chatWithTools: vi.fn() };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
 
     const config = createOrdinaryConfig({ targetJobCount: 2 });
-    config.onCheckpoint = async (checkpoint) => {
+    config.onCheckpoint = (checkpoint) => {
       journal.push({ kind: "checkpoint", revision: checkpoint.revision });
+      return Promise.resolve();
     };
 
     const result = await runAgentDiscovery(
@@ -193,7 +194,7 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
     expect(keptProgressIndex).toBeGreaterThan(checkpointIndex);
     expect(journal[keptProgressIndex]).toMatchObject({
       kind: "progress",
-      message: expect.stringContaining("kept 2 new jobs"),
+      message: expect.stringContaining("kept 2 new jobs") as unknown,
     });
     expect(
       progressActions.filter((action) => action === "compact_page_observation"),
@@ -235,11 +236,11 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
     let llmCallCount = 0;
     const firstLlmMessages: AgentMessage[] = [];
     const llmClient: LLMClient = {
-      chatWithTools: async (messages) => {
+      chatWithTools: (messages) => {
         llmCallCount += 1;
         if (llmCallCount === 1) {
           firstLlmMessages.push(...messages);
-          return {
+          return Promise.resolve({
             content: "verify the recognized posting surface",
             toolCalls: [
               createToolCall(
@@ -248,9 +249,9 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
                 "tool_extract_after_compact",
               ),
             ],
-          };
+          });
         }
-        return {
+        return Promise.resolve({
           content: "finishing after verification",
           toolCalls: [
             createToolCall(
@@ -259,28 +260,30 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
               "tool_finish_after_compact",
             ),
           ],
-        };
+        });
       },
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => [
-        {
-          sourceJobId: "438900010",
-          canonicalUrl: "https://www.linkedin.com/jobs/view/438900010",
-          title: "Frontend Engineer",
-          company: "Acme",
-          location: "Remote",
-          workMode: ["remote" as const],
-          applyPath: "unknown" as const,
-          postedAt: null,
-          salaryText: null,
-          summary: "Duplicate of the compact-retained composite.",
-          description: "Duplicate of the compact-retained composite.",
-          easyApplyEligible: false,
-          keySkills: ["React"],
-          responsibilities: [],
-        },
-      ]),
+      extractJobsFromPage: vi.fn(() =>
+        Promise.resolve([
+          {
+            sourceJobId: "438900010",
+            canonicalUrl: "https://www.linkedin.com/jobs/view/438900010",
+            title: "Frontend Engineer",
+            company: "Acme",
+            location: "Remote",
+            workMode: ["remote" as const],
+            applyPath: "unknown" as const,
+            postedAt: null,
+            salaryText: null,
+            summary: "Duplicate of the compact-retained composite.",
+            description: "Duplicate of the compact-retained composite.",
+            easyApplyEligible: false,
+            keySkills: ["React"],
+            responsibilities: [],
+          },
+        ]),
+      ),
     };
 
     const config = createOrdinaryConfig({ targetJobCount: 2 });
@@ -350,12 +353,14 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
 
   test("keeps checkpointed compact jobs as a truthful partial result when model expansion is unavailable", async () => {
     const llmClient: LLMClient = {
-      chatWithTools: vi.fn(async () => {
-        throw new Error("AI client does not support tool calling");
+      chatWithTools: vi.fn(() => {
+        return Promise.reject(
+          new Error("AI client does not support tool calling"),
+        );
       }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
 
     const result = await runAgentDiscovery(
@@ -393,8 +398,10 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
 
   test("keeps model expansion failure fatal when compact discovery retained no jobs", async () => {
     const llmClient: LLMClient = {
-      chatWithTools: vi.fn(async () => {
-        throw new Error("AI client does not support tool calling");
+      chatWithTools: vi.fn(() => {
+        return Promise.reject(
+          new Error("AI client does not support tool calling"),
+        );
       }),
     };
 
@@ -402,7 +409,7 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
       createCompactFirstFakePage({ scanPayload: { elements: [] } }),
       createOrdinaryConfig({ targetJobCount: 50 }),
       llmClient,
-      { extractJobsFromPage: vi.fn(async () => []) },
+      { extractJobsFromPage: vi.fn(() => Promise.resolve([])) },
     );
 
     expect(llmClient.chatWithTools).toHaveBeenCalledTimes(1);
@@ -414,9 +421,9 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
   test("unsupported observation falls back instead of failing and its summary stays bounded and sanitized", async () => {
     let llmCallCount = 0;
     const llmClient: LLMClient = {
-      chatWithTools: async () => {
+      chatWithTools: () => {
         llmCallCount += 1;
-        return {
+        return Promise.resolve({
           content: "handing control back after the wall was detected",
           toolCalls: [
             createToolCall(
@@ -425,11 +432,11 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
               "tool_finish_unsupported_compact",
             ),
           ],
-        };
+        });
       },
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
 
     const result = await runAgentDiscovery(
@@ -445,6 +452,8 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
     expect(llmCallCount).toBe(1);
     expect(result.error).toBeUndefined();
     expect(result.jobs).toHaveLength(0);
+    expect(result.accessBlockerReason).toBe("auth_required");
+    expect(result.parkedPageUrl).toBe("https://www.linkedin.com/jobs/search/");
 
     const compactLine =
       result.reviewTranscript?.find((line) =>
@@ -470,8 +479,9 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
     };
 
     const firstRunConfig = createOrdinaryConfig({ targetJobCount: 1 });
-    firstRunConfig.onCheckpoint = async (checkpoint) => {
+    firstRunConfig.onCheckpoint = (checkpoint) => {
       checkpointHolder.current = checkpoint;
+      return Promise.resolve();
     };
     await runAgentDiscovery(
       createCompactFirstFakePage({
@@ -489,7 +499,7 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
       }),
       firstRunConfig,
       { chatWithTools: vi.fn() },
-      { extractJobsFromPage: vi.fn(async () => []) },
+      { extractJobsFromPage: vi.fn(() => Promise.resolve([])) },
     );
     expect(checkpointHolder.current).not.toBeNull();
 
@@ -512,9 +522,9 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
       }),
       resumedConfig,
       {
-        chatWithTools: async () => {
+        chatWithTools: () => {
           secondRunLlmCalls += 1;
-          return {
+          return Promise.resolve({
             content: "finishing after confirming the resumed inventory",
             toolCalls: [
               createToolCall(
@@ -523,10 +533,10 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
                 "tool_finish_resume_compact",
               ),
             ],
-          };
+          });
         },
       },
-      { extractJobsFromPage: vi.fn(async () => []) },
+      { extractJobsFromPage: vi.fn(() => Promise.resolve([])) },
     );
 
     expect(resumedResult.jobs).toHaveLength(1);
@@ -555,9 +565,9 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
       }),
       createConfig(), // Default fixture carries promptContext.taskPacket.
       {
-        chatWithTools: async () => {
+        chatWithTools: () => {
           llmCallCount += 1;
-          return {
+          return Promise.resolve({
             content: "phase goal proven",
             toolCalls: [
               createToolCall(
@@ -574,10 +584,10 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
                 "tool_finish_source_debug_compact_skip",
               ),
             ],
-          };
+          });
         },
       },
-      { extractJobsFromPage: vi.fn(async () => []) },
+      { extractJobsFromPage: vi.fn(() => Promise.resolve([])) },
       (progress) => {
         compactProgressActions.push(progress.currentAction);
       },
@@ -610,7 +620,7 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
       }),
       createOrdinaryConfig(),
       { chatWithTools: vi.fn() },
-      { extractJobsFromPage: vi.fn(async () => []) },
+      { extractJobsFromPage: vi.fn(() => Promise.resolve([])) },
       (progress) => {
         progressActions.push(progress.currentAction);
       },
@@ -648,12 +658,12 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
       }),
       createOrdinaryConfig(),
       {
-        chatWithTools: async () => {
+        chatWithTools: () => {
           llmCallCount += 1;
-          return { content: "should never be asked" };
+          return Promise.resolve({ content: "should never be asked" });
         },
       },
-      { extractJobsFromPage: vi.fn(async () => []) },
+      { extractJobsFromPage: vi.fn(() => Promise.resolve([])) },
       (progress) => {
         progressActions.push(progress.currentAction);
       },
@@ -672,7 +682,7 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
     const journal: JournalEntry[] = [];
     const llmClient: LLMClient = { chatWithTools: vi.fn() };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
 
     const config = createOrdinaryConfig({ targetJobCount: 2 });
@@ -683,8 +693,9 @@ describe("runAgentDiscovery compact-first deterministic observation", () => {
       allowedHostnames: ["wellfound.com", "www.wellfound.com"],
     };
     config.promptContext = { siteLabel: "Wellfound" };
-    config.onCheckpoint = async (checkpoint) => {
+    config.onCheckpoint = (checkpoint) => {
       journal.push({ kind: "checkpoint", revision: checkpoint.revision });
+      return Promise.resolve();
     };
 
     const result = await runAgentDiscovery(
@@ -742,7 +753,7 @@ describe("runAgentDiscovery card-only evidence honesty", () => {
   test("warns once at run level when every retained posting is card-only, naming the source from run data", async () => {
     const llmClient: LLMClient = { chatWithTools: vi.fn() };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
 
     const result = await runAgentDiscovery(
@@ -793,7 +804,7 @@ describe("runAgentDiscovery card-only evidence honesty", () => {
   test("stays silent when at least one retained posting carries listing detail", async () => {
     const llmClient: LLMClient = { chatWithTools: vi.fn() };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
 
     const result = await runAgentDiscovery(
@@ -842,16 +853,18 @@ describe("runAgentDiscovery card-only evidence honesty", () => {
 
   test("leaves a run that retained nothing exactly as it was", async () => {
     const llmClient: LLMClient = {
-      chatWithTools: vi.fn(async () => ({
-        content: "handing control back after the wall was detected",
-        toolCalls: [
-          createToolCall(
-            "finish",
-            { reason: "Auth wall detected deterministically." },
-            "tool_finish_no_retained_jobs",
-          ),
-        ],
-      })),
+      chatWithTools: vi.fn(() =>
+        Promise.resolve({
+          content: "handing control back after the wall was detected",
+          toolCalls: [
+            createToolCall(
+              "finish",
+              { reason: "Auth wall detected deterministically." },
+              "tool_finish_no_retained_jobs",
+            ),
+          ],
+        }),
+      ),
     };
 
     const result = await runAgentDiscovery(
@@ -861,7 +874,7 @@ describe("runAgentDiscovery card-only evidence honesty", () => {
       }),
       createOrdinaryConfig(),
       llmClient,
-      { extractJobsFromPage: vi.fn(async () => []) },
+      { extractJobsFromPage: vi.fn(() => Promise.resolve([])) },
     );
 
     expect(result.jobs).toHaveLength(0);

@@ -1044,4 +1044,171 @@ describe("workspace campaign preparation capacity", () => {
       expect(input.accountCreationAuthorized).toBe(false);
     }
   });
+
+  // R2: "Prepare remaining jobs" did nothing, three times, because the batch
+  // charged today's quota twice — once for its own reservation and again for
+  // every job it began — so the daily safeguard refused it before the first
+  // job opened, and the staged run was left parked in its paused state.
+  test("a batch that reuses an existing approval charges today's limit once and begins every job", async () => {
+    const seed = createCapacitySeed();
+    seedBegunPreparations(seed, 18);
+    seed.applyRuns.push(
+      applyRunFixture({
+        id: "run_first_batch",
+        campaignId: "campaign_default",
+        jobIds: ["job_ready", "job_generating"],
+        state: "paused_for_consent",
+        pendingJobs: 2,
+        submitApprovalId: "approval_first_batch",
+      }),
+    );
+    seed.applySubmitApprovals = [
+      ApplySubmitApprovalSchema.parse({
+        ...applyApprovalFixture({
+          id: "approval_first_batch",
+          runId: "run_first_batch",
+          jobIds: ["job_ready", "job_generating"],
+          status: "approved",
+        }),
+        batchId: "apply_batch_first",
+        batchCampaignId: "campaign_default",
+      }),
+    ];
+    const baseRuntime = createBrowserRuntime();
+    const executeApplicationFlow = vi.fn(
+      (...args: Parameters<typeof baseRuntime.executeApplicationFlow>) =>
+        baseRuntime.executeApplicationFlow(...args),
+    );
+    const harness = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: { ...baseRuntime, executeApplicationFlow },
+    });
+    await seedActiveCampaign(harness);
+
+    const snapshot = await harness.workspaceService.startAutoApplyQueueRun([
+      "job_ready",
+      "job_generating",
+    ]);
+
+    expect(executeApplicationFlow).toHaveBeenCalledTimes(2);
+    expect(
+      snapshot.applyJobResults.filter(
+        (result) => result.applicationPreparationStartedAt !== null,
+      ).length,
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  test("a retry preserves the original approval deadline and asks again after it", async () => {
+    const seed = createCapacitySeed();
+    const originalApprovedAt = new Date(
+      FIXED_NOW.getTime() - 23 * 60 * 60 * 1_000,
+    ).toISOString();
+    const originalExpiresAt = new Date(
+      FIXED_NOW.getTime() + 60 * 60 * 1_000,
+    ).toISOString();
+    seed.applyRuns.push(
+      applyRunFixture({
+        id: "run_original_deadline",
+        campaignId: "campaign_default",
+        jobIds: ["job_ready"],
+        state: "paused_for_consent",
+        submitApprovalId: "approval_original_deadline",
+      }),
+    );
+    seed.applySubmitApprovals = [
+      ApplySubmitApprovalSchema.parse({
+        ...applyApprovalFixture({
+          id: "approval_original_deadline",
+          runId: "run_original_deadline",
+          jobIds: ["job_ready"],
+          status: "approved",
+        }),
+        approvedAt: originalApprovedAt,
+        expiresAt: originalExpiresAt,
+        batchId: "apply_batch_deadline",
+        batchCampaignId: "campaign_default",
+      }),
+    ];
+    const harness = createWorkspaceServiceHarness({ seed });
+    await seedActiveCampaign(harness);
+
+    await harness.workspaceService.startAutoApplyQueueRun([
+      "job_ready",
+    ]);
+    const inherited = (
+      await harness.repository.listApplySubmitApprovals()
+    ).find(
+      (candidate) =>
+        candidate.reusedFromApprovalId === "approval_original_deadline",
+    );
+    expect(inherited).toMatchObject({
+      status: "approved",
+      approvedAt: originalApprovedAt,
+      expiresAt: originalExpiresAt,
+    });
+
+    try {
+      vi.setSystemTime(new Date(Date.parse(originalExpiresAt) + 1));
+      await harness.workspaceService.startAutoApplyQueueRun(["job_ready"]);
+      const newest = [
+        ...(await harness.repository.listApplySubmitApprovals()),
+      ].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+      expect(newest).toMatchObject({
+        status: "pending",
+        approvedAt: null,
+        reusedFromApprovalId: null,
+      });
+    } finally {
+      vi.setSystemTime(FIXED_NOW);
+    }
+  });
+
+  // The same staged run must never be left parked when the start is refused:
+  // the paused task card would keep offering the button and every press would
+  // leave one more paused run behind, with nothing saying why.
+  test("a batch that cannot start closes with a plain sentence instead of staying paused", async () => {
+    const seed = createCapacitySeed();
+    seed.applyRuns.push(
+      applyRunFixture({
+        id: "run_first_batch",
+        campaignId: "campaign_default",
+        jobIds: ["job_ready"],
+        state: "paused_for_consent",
+        pendingJobs: 1,
+        submitApprovalId: "approval_first_batch",
+      }),
+    );
+    seed.applySubmitApprovals = [
+      ApplySubmitApprovalSchema.parse({
+        ...applyApprovalFixture({
+          id: "approval_first_batch",
+          runId: "run_first_batch",
+          jobIds: ["job_ready"],
+          status: "approved",
+        }),
+        batchId: "apply_batch_first",
+        batchCampaignId: "campaign_default",
+      }),
+    ];
+    const baseRuntime = createBrowserRuntime();
+    const browserRuntime: BrowserSessionRuntime = { ...baseRuntime };
+    delete (browserRuntime as { executeApplicationFlow?: unknown })
+      .executeApplicationFlow;
+    const harness = createWorkspaceServiceHarness({ seed, browserRuntime });
+    await seedActiveCampaign(harness);
+
+    await expect(
+      harness.workspaceService.startAutoApplyQueueRun(["job_ready"]),
+    ).rejects.toThrow();
+
+    const runs = await harness.repository.listApplyRuns();
+    const staged = runs.find((run) => run.id !== "run_first_batch");
+    expect(staged?.state).toBe("failed");
+    expect(staged?.summary).toBe(
+      "Job Finder could not start preparing these jobs, so nothing was opened or filled. Try again, and if it keeps happening prepare one job at a time.",
+    );
+    expect(
+      runs.filter((run) => run.state === "paused_for_user_review"),
+    ).toEqual([]);
+  });
 });

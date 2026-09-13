@@ -2256,6 +2256,13 @@ describe("openai-compatible chat and draft behavior", () => {
       expect(balanced.coreSkills).not.toEqual(
         expect.arrayContaining(["Kubernetes"]),
       );
+
+      // The line that says nothing could be verified has to name the skill
+      // that is nonetheless sitting in the draft, waiting to be confirmed.
+      expect(aggressive.generationProvenance?.detail).toContain("Kubernetes");
+      expect(aggressive.generationProvenance?.detail).toContain(
+        "confirm or remove",
+      );
     } finally {
       restoreFetch();
     }

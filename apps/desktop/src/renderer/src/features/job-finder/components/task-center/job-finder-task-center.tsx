@@ -12,6 +12,7 @@ import { useJobFinderOverlayOwnership } from "../../lib/job-finder-overlay-owner
 import type { TailoredDraftPreparationViewState } from "../../screens/review-queue/review-queue-status";
 import {
   buildJobFinderTaskCenterModel,
+  describeTaskCenterCounts,
   type JobFinderTaskCenterItem,
 } from "./job-finder-task-center-model";
 
@@ -29,14 +30,17 @@ interface JobFinderTaskCenterProps {
     | ((runId: string) => boolean | void | Promise<boolean | void>)
     | undefined;
   onCancelDiscovery?:
-    | (() => boolean | void | Promise<boolean | void>)
+    | ((runId: string) => boolean | void | Promise<boolean | void>)
     | undefined;
   onStopTailoredDraftPreparation?: (() => void) | undefined;
   onNavigate?: ((path: string) => void | Promise<void>) | undefined;
+  onPrepareRemainingJobs?:
+    | ((jobIds: readonly string[]) => void | Promise<unknown>)
+    | undefined;
 }
 
 function taskTone(status: JobFinderTaskCenterItem["status"]) {
-  if (status === "active") {
+  if (status === "active" || status === "stopping") {
     return "active" as const;
   }
   if (status === "completed") {
@@ -51,12 +55,14 @@ function taskTone(status: JobFinderTaskCenterItem["status"]) {
 function statusLabel(status: JobFinderTaskCenterItem["status"]): string {
   return status === "active"
     ? "In progress"
+    : status === "stopping"
+      ? "Stopping"
     : status === "paused"
       ? "Paused"
       : status === "completed"
         ? "Complete"
-        : status === "cancelled"
-          ? "Cancelled"
+          : status === "cancelled"
+          ? "Stopped"
           : status === "failed"
             ? "Failed"
             : "Interrupted";
@@ -171,6 +177,8 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
       const cancelOperation =
         item.cancelKind === "discovery"
           ? props.onCancelDiscovery
+            ? () => props.onCancelDiscovery?.(item.id)
+            : undefined
           : item.cancelKind === "tailored_drafts"
             ? props.onStopTailoredDraftPreparation
               ? () => props.onStopTailoredDraftPreparation?.()
@@ -223,6 +231,23 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
     }
   }
 
+  async function runResumeAction(item: JobFinderTaskCenterItem) {
+    if (item.applyRecoveryJobIds?.length && props.onPrepareRemainingJobs) {
+      await props.onPrepareRemainingJobs(item.applyRecoveryJobIds);
+      setIsPanelOpen(false);
+      return;
+    }
+    await navigateToTask(item);
+  }
+
+  async function navigateToReview(item: JobFinderTaskCenterItem) {
+    if (!item.reviewRoute || !props.onNavigate) return;
+    await props.onNavigate(item.reviewRoute);
+    setIsPanelOpen(false);
+  }
+
+  const taskCountsLabel = describeTaskCenterCounts(model);
+
   return (
     <details
       className="group relative z-40 shrink-0"
@@ -230,7 +255,7 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
       ref={detailsRef}
     >
       <summary
-        aria-label={`Tasks: ${model.activeCount} active`}
+        aria-label={taskCountsLabel ? `Tasks: ${taskCountsLabel}` : "Tasks"}
         className="inline-flex h-10 min-h-10 min-w-10 cursor-pointer list-none items-center justify-center gap-2 rounded-(--radius-button) border border-(--control-border) bg-(--surface-panel) px-2.5 py-2 text-(length:--text-small) font-medium text-muted-foreground outline-none transition-colors hover:border-primary/50 hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 xl:px-4 xl:text-(length:--text-small) [&::-webkit-details-marker]:hidden"
         onClick={(event) => {
           // The panel state owns openness so overlay ownership and shell
@@ -239,12 +264,12 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
           setIsPanelOpen((open) => !open);
         }}
         ref={summaryRef}
-        title={`Tasks: ${model.activeCount} active`}
+        title={taskCountsLabel ? `Tasks: ${taskCountsLabel}` : "Tasks"}
       >
         <ListChecks aria-hidden="true" className="size-4 shrink-0" />
         {/* One name at every width. The header said "Tasks" compact and
             "Task center" at 1440, so the same destination read as two. */}
-        <span className="hidden whitespace-nowrap min-[900px]:inline">
+        <span className="hidden whitespace-nowrap min-[900px]:inline max-[1099px]:!hidden">
           Tasks
         </span>
         {/* One zero rule for every count in the shell: a badge never renders
@@ -252,16 +277,21 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
             screenshot of every round — and the one count that rendered zero
             was the one that means "nothing is happening". The accessible name
             on the summary still states the active count at any value. */}
-        {model.activeCount > 0 ? (
+        {taskCountsLabel ? (
           <span className="inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-(--input) px-1.5 text-(length:--text-tiny) text-foreground tabular-nums">
-            {model.activeCount}
+            {taskCountsLabel}
           </span>
         ) : null}
       </summary>
 
+      {/* Anchored under its own trigger at every width. As a `fixed` sheet it
+          resolved against the header — the header paints a backdrop filter,
+          which makes it the containing block — so at the minimum window size
+          the panel opened upward over the title bar, clipped its own heading
+          off the top of the window, and swallowed clicks on the toolbar. */}
       <section
         aria-label="Tasks"
-        className="surface-popover-solid fixed inset-x-4 bottom-4 grid max-h-[calc(100vh-14rem)] gap-3 overflow-y-auto rounded-(--radius-panel) border border-(--surface-panel-border) p-4 shadow-(--modal-shadow) xl:absolute xl:inset-x-auto xl:bottom-auto xl:right-0 xl:top-12 xl:max-h-[min(38rem,calc(100vh-8rem))] xl:w-[min(34rem,calc(100vw-2rem))]"
+        className="surface-popover-solid absolute right-0 top-12 grid max-h-[min(38rem,calc(100vh-8rem))] w-[min(34rem,calc(100vw-2rem))] gap-3 overflow-x-hidden overflow-y-auto rounded-(--radius-panel) border border-(--surface-panel-border) p-4 shadow-(--modal-shadow)"
       >
         <div className="flex items-start justify-between gap-3">
           <div className="grid gap-1">
@@ -291,11 +321,15 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
           <div className="grid gap-3">
             {model.items.map((item) => {
               const cancellationRequested = cancelRequestedTaskIds.has(item.id);
+              const visibleStatus =
+                cancellationRequested && item.cancelKind === "discovery"
+                  ? "stopping"
+                  : item.status;
               return (
                 <article
                   className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3"
                   data-task-kind={item.kind}
-                  data-task-status={item.status}
+                  data-task-status={visibleStatus}
                   key={item.id}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
@@ -307,14 +341,18 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
                         {item.sourceLabel}
                       </p>
                     </div>
-                    <StatusBadge tone={taskTone(item.status)}>
-                      {statusLabel(item.status)}
+                    <StatusBadge tone={taskTone(visibleStatus)}>
+                      {statusLabel(visibleStatus)}
                     </StatusBadge>
                   </div>
 
                   <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-(length:--text-small) leading-5">
                     <dt className="text-foreground-muted">Stage</dt>
-                    <dd className="text-foreground">{item.stageLabel}</dd>
+                    <dd className="text-foreground">
+                      {visibleStatus === "stopping"
+                        ? "Stopping"
+                        : item.stageLabel}
+                    </dd>
                     <dt className="text-foreground-muted">Progress</dt>
                     <dd className="text-foreground">{item.countLabel}</dd>
                     {item.historyEstimateLabel ? (
@@ -333,12 +371,22 @@ export function JobFinderTaskCenter(props: JobFinderTaskCenterProps) {
                     <div className="flex flex-wrap justify-end gap-2">
                       {item.resumeRoute && item.resumeActionLabel ? (
                         <Button
-                          onClick={() => void navigateToTask(item)}
+                          onClick={() => void runResumeAction(item)}
                           size="sm"
                           type="button"
                           variant="secondary"
                         >
                           {item.resumeActionLabel}
+                        </Button>
+                      ) : null}
+                      {item.reviewRoute && item.reviewActionLabel ? (
+                        <Button
+                          onClick={() => void navigateToReview(item)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          {item.reviewActionLabel}
                         </Button>
                       ) : null}
                       {item.canCancel ? (

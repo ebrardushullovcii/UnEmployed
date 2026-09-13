@@ -17,7 +17,10 @@ import {
   overlayTouchedPendingJobs,
   rebaseRunLedgerOntoPersisted,
 } from "./internal/workspace-discovery-state-helpers";
-import { createJobFinderWorkspaceService } from "./index";
+import {
+  DiscoveryRunAlreadyActiveError,
+  createJobFinderWorkspaceService,
+} from "./index";
 import {
   createAiClient,
   createBrowserRuntime,
@@ -464,7 +467,11 @@ describe("paired completion commits", () => {
       expect(snapshot.recentDiscoveryRuns[0]?.summary.outcome).toBe(
         "completed",
       );
-      expect(pairedDeltaCount).toBe(3);
+      // The fourth paired commit records final per-plan membership together
+      // with the frozen retention counts. It is deliberately not a bare job
+      // write: readers must never see membership without the run report that
+      // explains it.
+      expect(pairedDeltaCount).toBe(4);
       expect(bareDeltaCount).toBe(0);
     } finally {
       harness.cleanup();
@@ -721,5 +728,44 @@ describe("overlayTouchedPendingJobs removal guard", () => {
     expect(
       overlayTouchedPendingJobs([], [removed], new Set([removed.id])),
     ).toEqual([removed]);
+  });
+});
+
+describe("second-run guard", () => {
+  test("a second search over the same plan returns the live run id, not a new run", async () => {
+    const harness = createRaceHarness(
+      createInMemoryJobFinderRepository(createRaceSeed()),
+    );
+    try {
+      const runPromise = harness.workspaceService.runAgentDiscovery((event) =>
+        harness.events.push(event),
+      );
+      await vi.waitFor(() => {
+        expect(completedTargetIds(harness.events)).toContain(
+          "target_fast_board",
+        );
+      });
+
+      const second = await harness.workspaceService
+        .runAgentDiscovery()
+        .then(() => null)
+        .catch((error: unknown) => error);
+
+      expect(second).toBeInstanceOf(DiscoveryRunAlreadyActiveError);
+      const guard = second as DiscoveryRunAlreadyActiveError;
+      expect(guard.message).toBe("A search is already running for this plan.");
+      expect(guard.activeRunId).toMatch(/^discovery_run/);
+
+      harness.finishRun();
+      await runPromise;
+
+      const state = await harness.repository.getDiscoveryState();
+      // One run started, so exactly one run record exists for it.
+      expect(
+        state.recentRuns.filter((run) => run.id === guard.activeRunId),
+      ).toHaveLength(1);
+    } finally {
+      harness.cleanup();
+    }
   });
 });

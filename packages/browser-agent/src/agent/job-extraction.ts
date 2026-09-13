@@ -109,6 +109,17 @@ const EASY_APPLY_PATTERN =
 const APPLY_PATTERN = /\bapply\b/i;
 const POSTED_PATTERN =
   /\b(posted|ago|today|yesterday|just posted|sot|dje|\d+\s*(?:day|days|week|weeks|month|months|hour|hours|hr|hrs|dit[eë]?|jav[eë]?|jave|muaj(?:sh)?|ore?))\b/iu;
+/**
+ * Text that can honestly be reported as a posting date: it carries a number, a
+ * month name, or a relative-time word.
+ *
+ * Structured data and learned card shapes hand back whatever sits in the slot
+ * they matched, so a card once reported `postedAtText: "NOPE"` and the app
+ * printed it where a posting date belongs. A token that says nothing about
+ * time is dropped instead of travelling with the listing.
+ */
+const POSTED_AT_DATE_TEXT_PATTERN =
+  /\d|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b|\b(?:today|yesterday|now|ago|posted|sot|dje|recently)\b/iu;
 const SALARY_PATTERN =
   /(\$|€|£)\s?\d[\d,.]*(?:\s?[kKmM])?(?:\s?(?:-|–|to)\s?(?:\$|€|£)?\s?\d[\d,.]*(?:\s?[kKmM])?)?(?:\s?\/?\s?(?:yr|year|month|mo|week|wk|day|hour|hr))?/;
 const COMPANY_NOISE_PATTERN =
@@ -326,6 +337,84 @@ const SITE_UTILITY_INFO_TITLE_PATTERN =
 // potential with Remote OK Premium ★★★★★").
 const SITE_PROMO_TITLE_PATTERN =
   /^(?:unlock|upgrade|get exclusive|be the first|try|go)\b.*\b(?:premium|pro|plus|membership|subscription)\b|\bpremium\b.*\b(?:access|career|jobs?)\b|[★⭐]{2,}|\b(?:\d+[,.]?\d*k?\+? remote jobs)\b/iu;
+// Board self-promotion written as an instruction to the reader rather than a
+// role: "Post a Remote Job", "Hire developers", "Advertise your job". A
+// posting title never opens by telling the reader to post or hire.
+const SITE_CALL_TO_ACTION_TITLE_PATTERN =
+  /^(?:post|hire|advertise|promote|sponsor|upgrade|subscribe|claim)\b(?:\s+(?:a|an|your|the|our|more|now))?\s+\S/i;
+// Marketing that sells a salary band instead of naming one role: "Remote Tech
+// Jobs Paying $130k to $250k", "Jobs from $80,000 - $150,000". The tell is a
+// plural "jobs" heading joined to a pay range or a "paying" clause; a single
+// posting states its own title and carries salary in its own field.
+const SITE_SALARY_MARKETING_TITLE_PATTERN =
+  /\bjobs\b[^$]*\bpaying\b|\bjobs\b[^$]*\$\s?\d[\d,.]*\s?k?\s*(?:to|-|\u2013|\u2014)\s*\$?\s?\d/i;
+// A listing index that carries its own freshness line once the card is
+// flattened: "Remote Data Science JobsLatest post about 3 hours ago". The
+// freshness phrase belongs to the index, never to one posting.
+const LISTING_INDEX_FRESHNESS_TITLE_PATTERN =
+  /\bjobs\s*(?:latest|newest|last)\s+(?:post|posting|job|update)\b|\bjobs\s*updated\s+(?:about\s+)?\d/i;
+// Category routes rendered as cards: "<Role> Jobs in <City> & <City>",
+// "Remote Jobs in Europe". "Jobs in ..." is a place-scoped index; a posting
+// puts its location in its own field.
+const LISTING_INDEX_LOCATION_TITLE_PATTERN = /\bjobs\s+in\s+\S/i;
+// A bare category heading: "Prishtina Jobs", "Remote Python Jobs". Up to four
+// words ending in "Jobs" has the shape of an index label \u2014 but only the shape:
+// "Director of Green Jobs" is a real posting, so the shape alone never drops a
+// record (see isListingIndexCategoryTitle).
+const LISTING_INDEX_CATEGORY_TITLE_PATTERN =
+  /^(?<lead>(?:[\p{L}\d.&'\u2019/+-]+\s+){0,3})jobs$/iu;
+// Role nouns that make "<words> Jobs" a posting title rather than a category
+// route. Shape rules only: this is not a taxonomy, just the common heads.
+const LISTING_INDEX_ROLE_NOUN_PATTERN =
+  /\b(?:director|manager|engineer|assistant|nurse|developer|analyst|clerk|technician|specialist|coordinator|representative|lead)s?\b/iu;
+// A category route names a place, an industry or a category and stops:
+// "Remote Python Jobs". A connector word means the words before "Jobs" are
+// describing a role instead ("Director of Green Jobs", "Head for Jobs").
+const LISTING_INDEX_TITLE_CONNECTOR_PATTERN =
+  /(?:^|\s)(?:of|for|and|at|with|to|in|on|the)(?:\s|$)|&/iu;
+
+/**
+ * True when a "<words> Jobs" title is a category route rather than a posting.
+ * The shape alone is not enough: the words before "Jobs" have to read as a
+ * place, industry or category \u2014 no role noun and no connector \u2014 or the record
+ * has to carry nothing a posting would (no employer and no description).
+ */
+function isListingIndexCategoryTitle(
+  title: string,
+  record: { hasDescription: boolean; hasEmployer: boolean },
+): boolean {
+  const match = LISTING_INDEX_CATEGORY_TITLE_PATTERN.exec(title);
+  if (!match) {
+    return false;
+  }
+  // Nothing an employer would publish: no company, no body text.
+  if (!record.hasEmployer && !record.hasDescription) {
+    return true;
+  }
+  const lead = cleanLine(match.groups?.lead ?? "");
+  if (!lead) {
+    return true;
+  }
+  return (
+    !LISTING_INDEX_ROLE_NOUN_PATTERN.test(title) &&
+    !LISTING_INDEX_TITLE_CONNECTOR_PATTERN.test(lead)
+  );
+}
+// Page chrome whose accessible name carries its own control hint:
+// "Accessibility Statement (opens in new tab)", "Privacy (opens in a new
+// window)". Anything announcing where it opens is navigation.
+const SITE_UTILITY_CHROME_TITLE_PATTERN =
+  /\(opens?\s+in\s+(?:a\s+)?new\s+(?:tab|window)\)|^(?:accessibility|cookie|modern slavery|sitemap)\b.*\b(?:statement|preferences|settings|notice|map)\b/i;
+const PAGINATION_TITLE_PATTERN =
+  /^(?:(?:go\s+to\s+)?page\s+\d+|next(?:\s+page)?|previous(?:\s+page)?)$/iu;
+const ABSENT_EMPLOYER_PATTERN =
+  /^(?:employer|company|organization|organisation)?\s*(?:not\s+(?:listed|stated|available)|unknown|unavailable|n\/?a)?$/iu;
+const DETAIL_QUERY_KEY_PATTERN =
+  /^(?:id|job|jobid|job_id|posting|position|requisition|req)$/iu;
+const DETAIL_PATH_ID_PATTERN =
+  /(?:^[0-9a-f]{8}-[0-9a-f-]{27,}$|\d{4,}|^(?=[^]*\d)(?=[^]*[a-z])[a-z0-9]{8,}$)/iu;
+const ROLE_TITLE_NOUN_PATTERN =
+  /\b(?:engineer|developer|manager|analyst|designer|specialist|coordinator|assistant|technician|consultant|administrator|scientist|officer|clerk|recruiter|nurse|driver|cashier|representative|director|lead|intern)\b/iu;
 const SITE_UTILITY_INFO_PATH_SEGMENTS = new Set([
   "salaries",
   "salary",
@@ -1548,14 +1637,209 @@ function trimMalformedTrailingRoleRepeat(value: string): string {
   return cleanLine(tokens.slice(0, -1).join(" "));
 }
 
+// Placement and ranking badges a board prints beside the employer. Flattened
+// into one line they read as part of the company name ("Boosted listing Toggl
+// Boosted Featured Top 100 Full-Time"), so they are removed before the
+// employer is shown. Shape rules only: no board is named.
+// Placement badges never belong to a company name, whichever board printed
+// them. Each entry is a phrase written as its whitespace-separated tokens.
+const COMPANY_MARKETING_BADGE_PHRASES: readonly (readonly string[])[] = [
+  ["boosted", "listing"],
+  ["boosted"],
+  ["featured", "listing"],
+  ["featured"],
+  ["promoted"],
+  ["sponsored"],
+  ["highlighted"],
+  ["urgently", "hiring"],
+  ["urgent"],
+  ["hot"],
+  ["new", "listing"],
+  ["verified", "job"],
+  ["verified", "employer"],
+  ["actively", "hiring"],
+  ["hiring", "now"],
+];
+
+// Employment-type badges, which a real company name can legitimately contain
+// ("Contract Furniture Company", "Temporary Staffing Group"), so they are only
+// removed at an edge of the line or beside another badge \u2014 never mid-name.
+const COMPANY_EMPLOYMENT_BADGE_PHRASES: readonly (readonly string[])[] = [
+  ["full-time"],
+  ["fulltime"],
+  ["full", "time"],
+  ["part-time"],
+  ["parttime"],
+  ["part", "time"],
+  ["contract"],
+  ["temporary"],
+  ["freelance"],
+  ["internship"],
+  ["intern"],
+];
+
+const COMPANY_RANKING_BADGE_LEAD_TOKENS = new Set(["top", "no.", "no", "rank"]);
+
+type CompanyBadgeKind = "employment" | "marketing";
+
+function normalizeBadgeToken(token: string): string {
+  return token
+    .toLowerCase()
+    .replace(/[\u2010-\u2015]/gu, "-")
+    .replace(/^[^\p{L}\p{N}#]+|[^\p{L}\p{N}#]+$/gu, "");
+}
+
+function matchPhrase(
+  tokens: readonly string[],
+  index: number,
+  phrases: readonly (readonly string[])[],
+): number {
+  let best = 0;
+  for (const phrase of phrases) {
+    if (phrase.length <= best || index + phrase.length > tokens.length) {
+      continue;
+    }
+    const matches = phrase.every(
+      (word, offset) =>
+        normalizeBadgeToken(tokens[index + offset] ?? "") === word,
+    );
+    if (matches) {
+      best = phrase.length;
+    }
+  }
+  return best;
+}
+
+/** The badge phrase starting at `index`, longest match wins, or null. */
+function matchCompanyBadgeAt(
+  tokens: readonly string[],
+  index: number,
+): { kind: CompanyBadgeKind; length: number } | null {
+  const token = normalizeBadgeToken(tokens[index] ?? "");
+  if (!token) {
+    return null;
+  }
+  // "Top 100" / "#1" style ranking badges.
+  if (/^#\d+$/.test(token)) {
+    return { kind: "marketing", length: 1 };
+  }
+  if (
+    COMPANY_RANKING_BADGE_LEAD_TOKENS.has(token) &&
+    /^#?\d+$/.test(normalizeBadgeToken(tokens[index + 1] ?? ""))
+  ) {
+    return { kind: "marketing", length: 2 };
+  }
+
+  const marketing = matchPhrase(tokens, index, COMPANY_MARKETING_BADGE_PHRASES);
+  if (marketing > 0) {
+    return { kind: "marketing", length: marketing };
+  }
+  const employment = matchPhrase(
+    tokens,
+    index,
+    COMPANY_EMPLOYMENT_BADGE_PHRASES,
+  );
+  return employment > 0 ? { kind: "employment", length: employment } : null;
+}
+
+/** Length in tokens of the badge run starting at `index`, and what it holds. */
+function measureBadgeRun(
+  tokens: readonly string[],
+  index: number,
+): { hasMarketing: boolean; length: number } {
+  let cursor = index;
+  let hasMarketing = false;
+  while (cursor < tokens.length) {
+    const match = matchCompanyBadgeAt(tokens, cursor);
+    if (!match) {
+      break;
+    }
+    hasMarketing ||= match.kind === "marketing";
+    cursor += match.length;
+  }
+  return { hasMarketing, length: cursor - index };
+}
+
+/** The token index where the trailing badge run of `tokens` begins. */
+function findTrailingBadgeRunStart(tokens: readonly string[]): number {
+  for (let start = 0; start < tokens.length; start += 1) {
+    const run = measureBadgeRun(tokens, start);
+    if (run.length > 0 && start + run.length === tokens.length) {
+      return start;
+    }
+  }
+  return tokens.length;
+}
+
+/**
+ * Removes badge tokens from a candidate employer line. Badges only come off at
+ * an edge: a whole punctuation-delimited segment that is nothing but badges, a
+ * leading run that includes a placement badge, or the trailing run. Words in
+ * the middle of a name are left alone, and identical neighbouring words are
+ * never collapsed ("Pizza Pizza" is a real employer). Returns the input
+ * unchanged when stripping would leave nothing: an unreadable employer is
+ * better than an empty one.
+ */
+export function stripCompanyMarketingBadges(value: string): string {
+  const normalized = cleanLine(value);
+  if (!normalized) {
+    return normalized;
+  }
+
+  // Split only on separators a board uses between chips. A hyphen inside a
+  // word belongs to the name ("Mid-Level", "Jean-Luc") and is never touched.
+  const segments = normalized
+    .split(/\s*[,\u2022\u00b7|]\s*|\s+[\u2013\u2014-]+\s+/u)
+    .map((segment) => cleanLine(segment))
+    .filter(Boolean);
+
+  const keptSegments = segments.filter((segment) => {
+    const tokens = segment.split(/\s+/).filter(Boolean);
+    const run = measureBadgeRun(tokens, 0);
+    return run.length !== tokens.length;
+  });
+  if (keptSegments.length === 0) {
+    return normalized;
+  }
+
+  let tokens = keptSegments.join(" ").split(/\s+/).filter(Boolean);
+
+  // A leading run comes off only when it carries a placement badge, so
+  // "Contract Furniture Company" keeps its first word.
+  const leading = measureBadgeRun(tokens, 0);
+  if (leading.hasMarketing && leading.length < tokens.length) {
+    tokens = tokens.slice(leading.length);
+  }
+
+  const trailingStart = findTrailingBadgeRunStart(tokens);
+  if (trailingStart > 0) {
+    tokens = tokens.slice(0, trailingStart);
+  }
+
+  const stripped = cleanLine(tokens.join(" "));
+  return stripped || normalized;
+}
+
+/**
+ * The employer label as it reaches a card: badge tokens removed first, then
+ * the shared chrome/URL-derived guard applied.
+ */
+function sanitizeEmployerLabelWithoutBadges(
+  value: string | null | undefined,
+): string | null {
+  const stripped = stripCompanyMarketingBadges(value ?? "");
+  return stripped ? sanitizeObservedEmployerLabel(stripped) : null;
+}
+
 function normalizePotentialCompanyCandidate(value: string): string {
   const normalized = cleanLine(value);
   if (!normalized) {
     return "";
   }
 
-  const withoutAtPrefix = cleanLine(normalized.replace(/^at\s+/i, ""))
-    .replace(/[\s•·|–—-]+$/u, "")
+  const withoutBadges = stripCompanyMarketingBadges(normalized);
+  const withoutAtPrefix = cleanLine(withoutBadges.replace(/^at\s+/i, ""))
+    .replace(/[\s\u2022\u00b7|\u2013\u2014-]+$/u, "")
     .trim();
   return withoutAtPrefix || normalized;
 }
@@ -2535,6 +2819,11 @@ function findSalaryText(lines: readonly string[]): string | null {
   return null;
 }
 
+/** Keeps only posted text that reads as a date. See the pattern's note. */
+function keepPostedAtDateText(value: string | null): string | null {
+  return value && POSTED_AT_DATE_TEXT_PATTERN.test(value) ? value : null;
+}
+
 function findPostedAtText(lines: readonly string[]): string | null {
   for (const line of lines) {
     const normalized = cleanLine(line);
@@ -2548,7 +2837,11 @@ function findPostedAtText(lines: readonly string[]): string | null {
 
     const compositePostedAtText =
       stripTrailingPostedAtText(normalized).postedAtText;
-    return compositePostedAtText ?? normalized;
+    const postedAtText = compositePostedAtText ?? normalized;
+    const datedPostedAtText = keepPostedAtDateText(postedAtText);
+    if (datedPostedAtText) {
+      return datedPostedAtText;
+    }
   }
 
   return null;
@@ -2572,7 +2865,11 @@ function stripTrailingPostedAtText(value: string): {
 
   // "Apply today", "Start today", "Join us today" are calls to action, not
   // posting dates. Keep them in the content and report no posted text.
-  if (POSTED_SUFFIX_CALL_TO_ACTION_PREFIX_PATTERN.test(normalized.slice(0, match.index))) {
+  if (
+    POSTED_SUFFIX_CALL_TO_ACTION_PREFIX_PATTERN.test(
+      normalized.slice(0, match.index),
+    )
+  ) {
     return { content: normalized, postedAtText: null };
   }
 
@@ -3257,7 +3554,9 @@ export function isLikelyJobListingHubUrl(canonicalUrl: string): boolean {
       segments[0] === "jobs" &&
       segments.length >= 2 &&
       segments.length <= 4 &&
-      segments.slice(1).every((segment) => JOB_HUB_CATEGORY_SEGMENT_PATTERN.test(segment))
+      segments
+        .slice(1)
+        .every((segment) => JOB_HUB_CATEGORY_SEGMENT_PATTERN.test(segment))
     ) {
       return true;
     }
@@ -3270,16 +3569,111 @@ export function isLikelyJobListingHubUrl(canonicalUrl: string): boolean {
 const JOB_HUB_CATEGORY_SEGMENT_PATTERN =
   /^(?:search|browse|category|categories|all|remote|hybrid|onsite|dev-engineering|engineering|software|developer|front-?end|back-?end|full-?stack|mobile|devops|data(?:-science)?|design|product|marketing|sales|finance|hr|people|operations|support|customer-success|security|qa|it|legal|internships?|new-grad|entry-level|senior|junior|management|executive)$/u;
 
+/**
+ * The board's own brand, taken from its hostname: "remotive.com" ->
+ * "remotive". A record whose employer is the site it was read from is the
+ * site advertising itself, not an employer hiring.
+ */
+function getSiteBrandFromUrl(canonicalUrl: string): string | null {
+  try {
+    const host = new URL(canonicalUrl).hostname.toLowerCase();
+    const labels = host
+      .replace(/^www\./, "")
+      .split(".")
+      .filter(Boolean);
+    // Drop the public suffix; a two-label host leaves its own first label.
+    const brand = labels.length > 1 ? labels[labels.length - 2] : labels[0];
+    return brand && brand.length > 1 ? brand : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeBrandText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * File extensions a link points at when it is a document to download rather
+ * than a page to apply on. Generic file-type vocabulary, no board.
+ */
+const DOCUMENT_ATTACHMENT_EXTENSION_PATTERN =
+  /\.(?:pdf|docx?|rtf|odt|xlsx?|csv|pptx?|odp|ods|zip|gz|tar|txt|epub)$/i;
+
+/**
+ * Whether this record is a document a page linked to rather than a job.
+ *
+ * "applicant rights under Federal Employment Laws.pdf" was saved as a job and
+ * given a Shortlist button, because the link sat among the postings and the
+ * extraction judged it by title alone. A document is recognisable by shape:
+ * the address (or the title, when the link text kept the filename) ends in a
+ * document extension, nobody is named as the employer, and there is no job
+ * body. All three are required — a real posting served as a PDF with an
+ * employer and a body still passes.
+ */
+export function isLikelyDocumentAttachmentJob(input: {
+  canonicalUrl: string;
+  title?: string | null;
+  company?: string | null;
+  description?: string | null;
+}): boolean {
+  const title = cleanLine(input.title ?? "");
+  let pathname = "";
+  try {
+    pathname = new URL(input.canonicalUrl).pathname;
+  } catch {
+    pathname = input.canonicalUrl;
+  }
+  const looksLikeDocument =
+    DOCUMENT_ATTACHMENT_EXTENSION_PATTERN.test(pathname.replace(/\/+$/u, "")) ||
+    DOCUMENT_ATTACHMENT_EXTENSION_PATTERN.test(title);
+  if (!looksLikeDocument) {
+    return false;
+  }
+  const hasEmployer = cleanLine(input.company ?? "").length > 0;
+  const body = cleanLine(input.description ?? "");
+  // A title repeated into the description is not a job body.
+  const hasJobBody =
+    body.length > 0 && body.toLowerCase() !== title.toLowerCase();
+  return !hasEmployer && !hasJobBody;
+}
+
 export function isLikelySiteUtilityJob(input: {
   canonicalUrl: string;
   title?: string | null;
+  company?: string | null;
+  description?: string | null;
   captureMeta?: SearchResultCardCaptureMeta | null;
+  /**
+   * The record's address is the results surface it was read from, not an
+   * address of its own: the card's anchor carried no link, so the extractor
+   * fell back to the page URL. The URL then says nothing about this record —
+   * every result on a search page would share the search page's shape — so
+   * only the record's own text may decide whether it is site furniture.
+   */
+  addressIsReadSurface?: boolean;
 }): boolean {
   if (input.captureMeta?.inNavigation || input.captureMeta?.inHeader) {
     return true;
   }
 
+  if (isLikelyDocumentAttachmentJob(input)) {
+    return true;
+  }
+
   const title = cleanLine(input.title ?? "");
+  if (PAGINATION_TITLE_PATTERN.test(title)) {
+    return true;
+  }
+  if (
+    title &&
+    isListingIndexCategoryTitle(title, {
+      hasDescription: Boolean(cleanLine(input.description ?? "")),
+      hasEmployer: Boolean(cleanLine(input.company ?? "")),
+    })
+  ) {
+    return true;
+  }
   if (
     title &&
     (SITE_UTILITY_TITLE_PATTERN.test(title) ||
@@ -3287,9 +3681,59 @@ export function isLikelySiteUtilityJob(input: {
       SITE_UTILITY_TITLE_PREFIX_PATTERN.test(title) ||
       SITE_UTILITY_OPEN_POSITIONS_TITLE_PATTERN.test(title) ||
       SITE_UTILITY_INFO_TITLE_PATTERN.test(title) ||
-      SITE_PROMO_TITLE_PATTERN.test(title))
+      SITE_PROMO_TITLE_PATTERN.test(title) ||
+      SITE_CALL_TO_ACTION_TITLE_PATTERN.test(title) ||
+      SITE_SALARY_MARKETING_TITLE_PATTERN.test(title) ||
+      LISTING_INDEX_FRESHNESS_TITLE_PATTERN.test(title) ||
+      LISTING_INDEX_LOCATION_TITLE_PATTERN.test(title) ||
+      SITE_UTILITY_CHROME_TITLE_PATTERN.test(title))
   ) {
     return true;
+  }
+
+  // Past this point every rule reads the address. A record that borrowed the
+  // read surface's address has none of its own to read, so it is judged on
+  // its text alone and passes.
+  if (input.addressIsReadSurface) {
+    return false;
+  }
+
+  const company = cleanLine(input.company ?? "");
+  const body = cleanLine(input.description ?? "");
+  const hasEmployer =
+    company.length > 0 && !ABSENT_EMPLOYER_PATTERN.test(company);
+  const hasBody =
+    body.length > 0 && body.toLocaleLowerCase() !== title.toLocaleLowerCase();
+  if (!hasEmployer && !hasBody) {
+    try {
+      const parsed = new URL(input.canonicalUrl);
+      const hasDetailQuery = [...parsed.searchParams].some(
+        ([key, value]) =>
+          DETAIL_QUERY_KEY_PATTERN.test(key) && value.trim().length > 0,
+      );
+      const hasDetailPath = parsed.pathname
+        .split("/")
+        .map((segment) => decodeURIComponent(segment).trim())
+        .filter(Boolean)
+        .some((segment) => DETAIL_PATH_ID_PATTERN.test(segment));
+      const hasRoleShapedPath =
+        ROLE_TITLE_NOUN_PATTERN.test(title) &&
+        (parsed.pathname.split("/").filter(Boolean).length >= 2 ||
+          parsed.searchParams.size > 0);
+      if (!hasDetailQuery && !hasDetailPath && !hasRoleShapedPath) {
+        return true;
+      }
+    } catch {
+      return true;
+    }
+  }
+
+  // The employer is the board itself, so nobody is hiring here.
+  if (company) {
+    const brand = getSiteBrandFromUrl(input.canonicalUrl);
+    if (brand && normalizeBrandText(company) === normalizeBrandText(brand)) {
+      return true;
+    }
   }
 
   if (isLikelyJobListingHubUrl(input.canonicalUrl)) {
@@ -3324,7 +3768,12 @@ export function isLikelySiteUtilityJob(input: {
       return true;
     }
 
-    const companyIndex = segments.indexOf("company");
+    // Company profile hubs under either spelling: `/company/{slug}` and
+    // `/companies/{slug}` are pages about an employer, not postings.
+    const companyIndex =
+      segments.indexOf("company") >= 0
+        ? segments.indexOf("company")
+        : segments.indexOf("companies");
     if (companyIndex >= 0) {
       const rest = segments.slice(companyIndex + 2);
       // `/company/{slug}` hubs and `/company/{slug}/jobs` indexes are chrome.
@@ -3344,6 +3793,7 @@ export function isLikelySiteUtilityJob(input: {
 
 function isCompleteJob(
   job: ExtractedJobInput | undefined,
+  evidence?: LearnedSearchSurfaceRouteEvidence,
 ): job is ExtractedJobInput {
   return Boolean(
     job &&
@@ -3356,6 +3806,11 @@ function isCompleteJob(
     !isLikelySiteUtilityJob({
       canonicalUrl: job.canonicalUrl,
       title: job.title,
+      company: job.company,
+      description: job.description,
+      addressIsReadSurface: evidence
+        ? isSharedLearnedSurfaceUrl(job.canonicalUrl, evidence)
+        : false,
     }),
   );
 }
@@ -3390,6 +3845,8 @@ function buildJobFromStructuredData(
     isLikelySiteUtilityJob({
       canonicalUrl,
       title,
+      company,
+      description,
     })
   ) {
     return null;
@@ -3407,7 +3864,7 @@ function buildJobFromStructuredData(
     salaryText: trimToNull(candidate.salaryText),
     summary: trimToNull(candidate.summary) ?? description.slice(0, 280),
     postedAt: toIsoDateTimeOrNull(candidate.postedAt),
-    postedAtText: trimToNull(candidate.postedAtText),
+    postedAtText: keepPostedAtDateText(trimToNull(candidate.postedAtText)),
     providerUpdatedAt: toIsoDateTimeOrNull(candidate.providerUpdatedAt),
     workMode,
     applyPath: candidate.applyPath ?? "unknown",
@@ -3466,7 +3923,12 @@ function buildJobFromCardCandidate(
     isLikelySiteUtilityJob({
       canonicalUrl,
       title: candidate.anchorText ?? candidate.headingText,
+      company: candidate.companyText ?? null,
+      description: candidate.lines.join(" "),
       captureMeta: candidate.captureMeta ?? null,
+      addressIsReadSurface:
+        hasUnprovenSearchSurfaceRoute &&
+        isSharedLearnedSurfaceUrl(canonicalUrl, evidence),
     })
   ) {
     return null;
@@ -3548,8 +4010,8 @@ function buildJobFromCardCandidate(
     candidate.companyHref,
   );
   const initialCompany =
-    sanitizeObservedEmployerLabel(trimToNull(candidate.companyText)) ??
-    sanitizeObservedEmployerLabel(compositeMetadata?.company) ??
+    sanitizeEmployerLabelWithoutBadges(trimToNull(candidate.companyText)) ??
+    sanitizeEmployerLabelWithoutBadges(compositeMetadata?.company) ??
     companyHrefEmployer ??
     urlCompanySlug ??
     inferCompany(
@@ -3575,7 +4037,7 @@ function buildJobFromCardCandidate(
     ) ??
     verificationMetadata?.location;
   const company =
-    sanitizeObservedEmployerLabel(
+    sanitizeEmployerLabelWithoutBadges(
       initialCompany ??
         inferCompany(
           metadataLines.filter(
@@ -3693,6 +4155,55 @@ export function scoreSearchResultCardTitleForPreferences(input: {
   return scoreJobTitleForPreferences(job, input.searchPreferences);
 }
 
+/**
+ * How many distinct sibling detail links a page must carry before it counts
+ * as an index of jobs rather than one job.
+ */
+const LISTING_INDEX_MIN_SIBLING_LINKS = 3;
+
+function toUrlIdentityKey(value: string): string | null {
+  try {
+    const parsed = new URL(value);
+    return `${parsed.host.toLowerCase()}${parsed.pathname.replace(/\/+$/u, "").toLowerCase()}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a record is the index page it was read from rather than a posting on
+ * it.
+ *
+ * Board landing pages used to be scraped like any other page and then have
+ * their records dropped afterwards by title, which meant the decision rested
+ * on how a board happened to word its headings — a per-board rule by another
+ * name (ADR 0007). The shape of the page answers it instead, and generically:
+ * the record's address is the page's own address, the page carries several
+ * distinct sibling links to job detail pages, and there is no single job body
+ * on it. Anything that has a body of its own is a posting and passes.
+ */
+export function isListingIndexPageRecord(input: {
+  canonicalUrl: string;
+  pageUrl: string;
+  siblingDetailUrlCount: number;
+  description?: string | null;
+  title?: string | null;
+}): boolean {
+  if (input.siblingDetailUrlCount < LISTING_INDEX_MIN_SIBLING_LINKS) {
+    return false;
+  }
+  const recordKey = toUrlIdentityKey(input.canonicalUrl);
+  const pageKey = toUrlIdentityKey(input.pageUrl);
+  if (!recordKey || !pageKey || recordKey !== pageKey) {
+    return false;
+  }
+  const title = cleanLine(input.title ?? "");
+  const body = cleanLine(input.description ?? "");
+  const hasJobBody =
+    body.length > 0 && body.toLowerCase() !== title.toLowerCase();
+  return !hasJobBody;
+}
+
 export function buildStructuredCandidateJobs(input: {
   pageUrl: string;
   maxJobs: number;
@@ -3719,6 +4230,22 @@ export function buildStructuredCandidateJobs(input: {
     ),
   });
   const isSearchSurface = learnedEvidence.sharedSurfaceUrls.size > 0;
+  // How many distinct sibling job links this page carries. It is the one
+  // signal that decides — before anything is extracted — whether a record
+  // sharing the page's own address is the index rather than a posting.
+  const pageIdentityKey = toUrlIdentityKey(input.pageUrl);
+  const siblingDetailUrlCount = new Set(
+    [
+      ...(input.cardCandidates ?? []).map(
+        (candidate) => candidate.canonicalUrl,
+      ),
+      ...(input.structuredDataCandidates ?? []).map(
+        (candidate) => candidate.canonicalUrl,
+      ),
+    ]
+      .map((url) => (url ? toUrlIdentityKey(url) : null))
+      .filter((key): key is string => Boolean(key) && key !== pageIdentityKey),
+  ).size;
   const effectiveMaxJobs = Math.max(1, input.maxJobs);
   const targetCardCandidateBudget = isSearchSurface
     ? Math.max(96, effectiveMaxJobs * 8)
@@ -3730,7 +4257,16 @@ export function buildStructuredCandidateJobs(input: {
       input.pageUrl,
       learnedEvidence,
     );
-    if (!job) {
+    if (
+      !job ||
+      isListingIndexPageRecord({
+        canonicalUrl: job.canonicalUrl,
+        pageUrl: input.pageUrl,
+        siblingDetailUrlCount,
+        description: job.description,
+        title: job.title,
+      })
+    ) {
       continue;
     }
 
@@ -3749,7 +4285,16 @@ export function buildStructuredCandidateJobs(input: {
       input.pageUrl,
       learnedEvidence,
     );
-    if (!job) {
+    if (
+      !job ||
+      isListingIndexPageRecord({
+        canonicalUrl: job.canonicalUrl,
+        pageUrl: input.pageUrl,
+        siblingDetailUrlCount,
+        description: job.description,
+        title: job.title,
+      })
+    ) {
       continue;
     }
 
@@ -3772,7 +4317,7 @@ export function buildStructuredCandidateJobs(input: {
 
   const rankedJobs = [...jobsByKey.entries()]
     .flatMap(([mergeKey, job], index) => {
-      if (!isCompleteJob(job)) {
+      if (!isCompleteJob(job, learnedEvidence)) {
         return [];
       }
 

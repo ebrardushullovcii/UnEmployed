@@ -6,7 +6,10 @@ import type {
   ResumeStrategySkillsPolicy,
   ResumeTemplateId,
 } from "@unemployed/contracts";
-import type { TailoringMode } from "@unemployed/contracts";
+import type {
+  ResumeApplicationMode,
+  TailoringMode,
+} from "@unemployed/contracts";
 
 // The same names the resume picker shows (job-finder-resume-catalog); a
 // second vocabulary here made one template look like two.
@@ -50,10 +53,29 @@ export const resumeCoveragePolicyLabels: Record<
 
 export const resumeTailoringStrengthLabels: Record<TailoringMode, string> = {
   // Same names the setup screen uses; "Conservative" and "Aggressive" were a
-  // second vocabulary for one setting.
-  conservative: "Light edit",
-  balanced: "Balanced rewrite",
-  aggressive: "Strong rewrite",
+  // second vocabulary for one setting. The names say what happens to the
+  // person's own words rather than grading an invisible effort.
+  conservative: "Light edits that keep every fact",
+  balanced: "A fuller rewrite that keeps every fact",
+  aggressive: "A fuller rewrite that may stretch, with your say-so",
+};
+
+/**
+ * Every resume approach a person can choose, tailoring strengths and the
+ * unchanged original together.
+ *
+ * The original-file choice used to exist only in Settings, so a list of the
+ * three strengths read as the complete set of options. It is one vocabulary:
+ * guided setup, Preferences, Settings, and the per-job choice all name it the
+ * same way.
+ */
+export const resumeApproachLabels: Record<
+  ResumeApplicationMode | TailoringMode,
+  string
+> = {
+  original_resume: "Keep my resume as it is",
+  tailored_per_job: "Tailor a resume for each job",
+  ...resumeTailoringStrengthLabels,
 };
 
 export function describeEvidenceBoundaries(

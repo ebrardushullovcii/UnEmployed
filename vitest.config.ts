@@ -25,9 +25,22 @@ export default defineConfig({
         currentDir,
         "packages/job-finder/src/discovery-ordering.ts",
       ),
+      "@unemployed/job-finder/discovery-result-bands": path.resolve(
+        currentDir,
+        "packages/job-finder/src/discovery-result-bands.ts",
+      ),
       "@unemployed/job-finder/resume-record-identity": path.resolve(
         currentDir,
         "packages/job-finder/src/resume-record-identity.ts",
+      ),
+      "@unemployed/job-finder/plan-safeguard-pauses": path.resolve(currentDir, "packages/job-finder/src/plan-safeguard-pauses.ts"),
+      "@unemployed/job-finder/resume-identity": path.resolve(
+        currentDir,
+        "packages/job-finder/src/internal/resume-identity.ts",
+      ),
+      "@unemployed/job-finder/apply-run-recovery": path.resolve(
+        currentDir,
+        "packages/job-finder/src/internal/workspace-apply-run-recovery.ts",
       ),
       "@unemployed/job-finder/source-health": path.resolve(
         currentDir,

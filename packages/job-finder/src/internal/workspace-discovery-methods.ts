@@ -1,4 +1,5 @@
 import {
+  DISCOVERY_RUN_ALREADY_ACTIVE_MESSAGE,
   DiscoveryRunRecordSchema,
   JobPostingSchema,
   SavedJobSchema,
@@ -15,8 +16,10 @@ import {
   type JobPosting,
   type JobSearchPreferences,
   type JobSource,
+  type ParkedBrowserTabReference,
   type SavedJob,
   type SourceIntelligenceProviderKey,
+  deriveListingDetailCapture,
   stripDiscoveryCardOnlyEvidenceWarning,
 } from "@unemployed/contracts";
 import {
@@ -30,6 +33,7 @@ import {
   summarizeProgressAction,
   updateTargetExecution,
 } from "./discovery-state";
+import { persistDiscoveryRunBlockerUserAction } from "./workspace-source-user-action";
 import {
   createMatchAssessment,
   enrichDiscoveredPosting,
@@ -101,20 +105,93 @@ import {
   enrichSavedJobListingDetails,
   jobNeedsListingDetail,
 } from "./listing-detail-enrichment";
-import { htmlToPlainText } from "./listing-detail-extraction";
+import {
+  countDiscoveryListingCapture,
+  describeDiscoveryListingCapture,
+} from "./discovery-listing-capture";
+import {
+  correctRemoteOnlyLocationAlignment,
+  describeRemoteOnlySourceMismatch,
+} from "./discovery-location-alignment";
+import {
+  findSiteFurnitureSalaryTexts,
+  isSalaryTextStatedInBody,
+  isSiteFurnitureSalaryText,
+  reconcileSalaryTextWithListingBody,
+} from "./matching-compensation";
+import {
+  normalizeListingText,
+  stripPictographGlyphs,
+} from "./listing-detail-extraction";
+
+// `normalizeListingText` moved beside the other text-boundary helpers in
+// `listing-detail-extraction` so the detail-read stage can use it without
+// importing this module back. Re-exported here because discovery callers and
+// its own tests already reach for it at this path.
+export { normalizeListingText };
+import {
+  collapseRepeatedLocationTokens,
+  isTruncatedLocationFragment,
+  looksLikePlaceValue,
+} from "./listing-field-shapes";
 
 const EMPLOYER_ABSENCE_LABEL = "Employer not stated";
 
-// Structured-data descriptions arrive as HTML on some boards ("<strong>Job
-// Title<br></strong>Regional Manager"). Stored text must be plain so every
-// screen reads it the same way.
-const HTML_MARKUP_PATTERN = /<\/?[a-z][^>]*>|&(?:amp|lt|gt|nbsp|quot|#\d+);/i;
+/** Letters and digits only, for comparing two names people would call equal. */
+function toComparableName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
 
-function normalizeListingText<T extends string | null | undefined>(value: T): T {
-  if (typeof value === "string" && HTML_MARKUP_PATTERN.test(value)) {
-    return htmlToPlainText(value) as T;
-  }
-  return value;
+/**
+ * The employer to store for one listing.
+ *
+ * A card that repeated the job title in its employer slot is not naming a
+ * hirer. Empty values and repeated titles become the absence placeholder every
+ * screen already knows to hide, so the Companies list stays useful.
+ */
+export function resolveListingEmployer(
+  company: string | null | undefined,
+  title: string,
+): string {
+  // A colour location pin or a flag beside the name is decoration the board
+  // drew, not part of who is hiring.
+  const normalized = stripPictographGlyphs(
+    normalizeListingText(company ?? ""),
+  ).trim();
+  const comparable = toComparableName(normalized);
+  if (comparable.length === 0) return EMPLOYER_ABSENCE_LABEL;
+  if (comparable === toComparableName(title)) return EMPLOYER_ABSENCE_LABEL;
+  // A place is not a hirer. When an extraction read the wrong cell — a whole
+  // source once recorded "United States" as the employer — the honest answer
+  // is that the employer was not stated, not a country printed under
+  // "Company".
+  if (looksLikePlaceValue(normalized)) return EMPLOYER_ABSENCE_LABEL;
+  return normalized;
+}
+
+const LOCATION_ABSENCE_LABEL = "Location not stated";
+
+/**
+ * The location to store for one listing.
+ *
+ * A fragment that trails off mid-phrase ("Security Remote in") never named a
+ * place, and the same mis-read that produced it is what put a country in the
+ * employer cell. Storing the absence placeholder keeps the pair honest: the
+ * screen says the location was not stated instead of printing half a sentence
+ * where a city belongs.
+ */
+export function resolveListingLocation(
+  location: string | null | undefined,
+): string {
+  const normalized = stripPictographGlyphs(
+    normalizeListingText(location ?? ""),
+  ).trim();
+  if (normalized.length === 0) return LOCATION_ABSENCE_LABEL;
+  if (isTruncatedLocationFragment(normalized)) return LOCATION_ABSENCE_LABEL;
+  return collapseRepeatedLocationTokens(normalized) || LOCATION_ABSENCE_LABEL;
 }
 
 const DISCOVERY_ACTIVITY_SAMPLE_LIMIT = 3;
@@ -742,9 +819,15 @@ function getDiscoveryCheckpointPostingKey(posting: JobPosting): string {
  * idempotent.
  */
 function normalizeCollectedCheckpointPosting(posting: JobPosting): JobPosting {
+  const detailQuality = assessJobPostingDetailQuality(posting);
   return JobPostingSchema.parse({
     ...posting,
-    detailQuality: assessJobPostingDetailQuality(posting),
+    detailQuality,
+    listingDetailCapture: deriveListingDetailCapture({
+      description: posting.description,
+      detailQuality,
+      listingDetailFetch: posting.listingDetailFetch,
+    }),
   });
 }
 
@@ -780,6 +863,7 @@ function toProviderAwarePosting(input: {
   adapterKind: JobSource;
 }): JobPosting {
   const provider = input.intelligence.provider;
+  const normalizedDescription = normalizeListingText(input.posting.description);
   const detailQuality = assessJobPostingDetailQuality(input.posting);
 
   return JobPostingSchema.parse({
@@ -787,12 +871,37 @@ function toProviderAwarePosting(input: {
     source: input.posting.source ?? input.adapterKind,
     discoveryMethod: input.discoveryMethod,
     collectionMethod: input.collectionMethod,
-    // A source label ("Indeed", "Example Board") is not an employer. When
-    // extraction found no company, store the absence placeholder that every
-    // screen already knows to hide instead of naming the board as the hirer.
-    company: input.posting.company || EMPLOYER_ABSENCE_LABEL,
-    description: normalizeListingText(input.posting.description),
-    summary: normalizeListingText(input.posting.summary),
+    // A source label ("Indeed", "Example Board") or a repeat of the job title
+    // is not an employer. When extraction found no usable company, store the
+    // absence placeholder that every screen already knows to hide instead of
+    // naming the board, or the role, as the hirer.
+    company: resolveListingEmployer(
+      input.posting.company,
+      normalizeListingText(input.posting.title),
+    ),
+    // Titles and places are short scraped fields a board decorates with emoji;
+    // the body text keeps whatever punctuation the employer wrote.
+    title: stripPictographGlyphs(normalizeListingText(input.posting.title)),
+    location: resolveListingLocation(input.posting.location),
+    description: normalizedDescription,
+    // Every short scraped field a screen prints as a fact gets the same
+    // treatment as the title: a board's decorative glyph is not part of the
+    // pay line, the team name or the seniority label. The body keeps whatever
+    // punctuation the employer wrote.
+    summary: stripPictographGlyphs(normalizeListingText(input.posting.summary)),
+    salaryText: stripPictographGlyphs(
+      normalizeListingText(input.posting.salaryText),
+    ),
+    employmentType: stripPictographGlyphs(
+      normalizeListingText(input.posting.employmentType),
+    ),
+    seniority: stripPictographGlyphs(
+      normalizeListingText(input.posting.seniority),
+    ),
+    department: stripPictographGlyphs(
+      normalizeListingText(input.posting.department),
+    ),
+    team: stripPictographGlyphs(normalizeListingText(input.posting.team)),
     providerKey: input.posting.providerKey ?? provider?.key ?? null,
     providerBoardToken:
       input.posting.providerBoardToken ?? provider?.boardToken ?? null,
@@ -801,6 +910,14 @@ function toProviderAwarePosting(input: {
     atsProvider: input.posting.atsProvider ?? provider?.label ?? null,
     sourceIntelligence: input.intelligence,
     detailQuality,
+    // One capture state per job, set the moment the posting is normalized, so
+    // "was the listing text read?" has an answer for every retained row from
+    // the first commit onward instead of only after a detail read.
+    listingDetailCapture: deriveListingDetailCapture({
+      description: normalizedDescription ?? "",
+      detailQuality,
+      listingDetailFetch: input.posting.listingDetailFetch,
+    }),
   });
 }
 
@@ -828,6 +945,7 @@ async function collectTargetJobs(input: {
   ) => Promise<void>;
   signal?: AbortSignal;
   openedSessionSources: Set<JobSource>;
+    protectedPages: Map<string, ParkedBrowserTabReference>;
   useAgentRuntime: boolean;
   prefetchedPublicApiResult?: Promise<SettledPublicProviderJobsResult>;
 }): Promise<{
@@ -1006,6 +1124,7 @@ async function collectTargetJobs(input: {
       onCheckpoint: (checkpoint) =>
         input.onAgentCheckpoint(target.id, checkpoint),
       startingUrls,
+      protectedPages: [...input.protectedPages.values()],
       agentHints: {
         widenReviewBudget: adapter.kind === "target_site",
       },
@@ -1101,6 +1220,21 @@ async function collectTargetJobs(input: {
   };
 }
 
+/**
+ * Raised when a second discovery run is asked for while one is still active.
+ * It carries the live run's id so the caller can follow that run instead of
+ * starting a new one, and its message is the plain sentence the person reads.
+ */
+export class DiscoveryRunAlreadyActiveError extends Error {
+  readonly activeRunId: string | null;
+
+  constructor(activeRunId: string | null) {
+    super(DISCOVERY_RUN_ALREADY_ACTIVE_MESSAGE);
+    this.name = "DiscoveryRunAlreadyActiveError";
+    this.activeRunId = activeRunId;
+  }
+}
+
 export function createWorkspaceDiscoveryMethods(
   ctx: WorkspaceServiceContext,
 ): Pick<
@@ -1109,6 +1243,11 @@ export function createWorkspaceDiscoveryMethods(
 > & {
   runCampaignDiscovery(
     campaign: CampaignRunContext,
+    onActivity?: (event: DiscoveryActivityEvent) => void,
+  ): Promise<JobFinderWorkspaceSnapshot>;
+  runCampaignDiscoveryForTarget(
+    campaign: CampaignRunContext,
+    targetId: string,
   ): Promise<JobFinderWorkspaceSnapshot>;
 } {
   function trackDiscoveryPromise<T>(promise: Promise<T>): Promise<T> {
@@ -1127,8 +1266,13 @@ export function createWorkspaceDiscoveryMethods(
     options: DiscoveryTargetPipelineOptions,
   ) {
     if (ctx.activeDiscoveryAbortControllerRef.current) {
-      throw new Error(
-        "A discovery run is already in progress. Wait for it to finish or cancel it before starting another run.",
+      // Second-run guard. A Stop that has not finished yet still holds this
+      // controller, so the UI can re-enable "Search now" before the first
+      // pipeline is really done; starting a second run over the same plan
+      // would double-write the same sources. The caller gets the live run's
+      // id and one plain sentence instead of a new run.
+      throw new DiscoveryRunAlreadyActiveError(
+        ctx.activeDiscoveryRunIdRef.current,
       );
     }
 
@@ -1147,6 +1291,7 @@ export function createWorkspaceDiscoveryMethods(
         ctx.activeDiscoveryAbortControllerRef.current === executionController
       ) {
         ctx.activeDiscoveryAbortControllerRef.current = null;
+        ctx.activeDiscoveryRunIdRef.current = null;
       }
     };
 
@@ -1158,12 +1303,14 @@ export function createWorkspaceDiscoveryMethods(
       settings,
       startingSavedJobs,
       startingDiscovery,
+      startingUserActionRequests,
     ] = await Promise.all([
       ctx.repository.getProfile(),
       ctx.repository.getSearchPreferences(),
       ctx.repository.getSettings(),
       ctx.repository.listSavedJobs(),
       ctx.repository.getDiscoveryState(),
+      ctx.repository.listUserActionRequests({ scopeType: "discovery_source" }),
     ]).catch((error: unknown) => {
       clearActiveController();
       throw error;
@@ -1184,6 +1331,12 @@ export function createWorkspaceDiscoveryMethods(
       searchPreferences: enrichedPreferences,
       calculate: createMatchAssessment,
     });
+    const assessDiscoveryPosting = (posting: JobPosting) =>
+      correctRemoteOnlyLocationAlignment(
+        posting,
+        assessmentSession.assess(posting),
+        enrichedPreferences,
+      );
     const selectedTargets = selectTargets(enrichedPreferences, options);
 
     if (selectedTargets.length === 0) {
@@ -1201,9 +1354,10 @@ export function createWorkspaceDiscoveryMethods(
     // persisted assessment; any relevant change misses safely and recomputes.
     let workingSavedJobs = startingSavedJobs.map((job) => ({
       ...job,
-      matchAssessment: assessmentSession.assessPersisted(
+      matchAssessment: correctRemoteOnlyLocationAlignment(
         job,
-        job.matchAssessment,
+        assessmentSession.assessPersisted(job, job.matchAssessment),
+        enrichedPreferences,
       ),
     }));
     const savedJobsAtLastCommitById = new Map(
@@ -1212,9 +1366,10 @@ export function createWorkspaceDiscoveryMethods(
     let workingPendingJobs = startingDiscovery.pendingDiscoveryJobs.map(
       (job) => ({
         ...job,
-        matchAssessment: assessmentSession.assessPersisted(
+        matchAssessment: correctRemoteOnlyLocationAlignment(
           job,
-          job.matchAssessment,
+          assessmentSession.assessPersisted(job, job.matchAssessment),
+          enrichedPreferences,
         ),
       }),
     );
@@ -1271,6 +1426,26 @@ export function createWorkspaceDiscoveryMethods(
       }
     };
     const openedSessionSources = new Set<JobSource>();
+    const parkedSessionSources = new Set<JobSource>();
+    const protectedPages = new Map(
+      startingUserActionRequests.flatMap((request) => {
+        if (
+          request.scope.type !== "discovery_source" ||
+          !request.scope.parkedTab ||
+          ["resolved", "skipped", "cancelled", "expired", "superseded"].includes(
+            request.state,
+          )
+        ) {
+          return [];
+        }
+        return [
+          [
+            request.scope.parkedTab.tabId ?? request.scope.parkedTab.url,
+            request.scope.parkedTab,
+          ] as const,
+        ];
+      }),
+    );
     const sourceInstructionArtifacts = await ctx.repository
       .listSourceInstructionArtifacts()
       .catch((error: unknown) => {
@@ -1304,6 +1479,9 @@ export function createWorkspaceDiscoveryMethods(
       throw error;
     }
     const keepSessionAlive = settings.keepSessionAlive;
+    // Publish the in-flight run id before any work starts, so a stop request
+    // that arrives before the run record is persisted still aborts it.
+    ctx.activeDiscoveryRunIdRef.current = runId;
     let activeRun = createInitialRunRecord({
       id: runId,
       campaignId:
@@ -1325,28 +1503,27 @@ export function createWorkspaceDiscoveryMethods(
       publishActivity(event);
     };
 
-    emitActivity(
-      createDiscoveryEvent({
-        runId,
-        timestamp: new Date().toISOString(),
-        kind: "info",
-        stage: "planning",
-        waitReason: "waiting_on_ai",
-        targetId: null,
-        adapterKind: null,
-        resolvedAdapterKind: null,
-        message:
-          options.scope === "single_target"
-            ? `Planning discovery for ${targets[0]?.label ?? "selected source"}`
-            : `Planning ${targets.length} discovery target${targets.length === 1 ? "" : "s"}`,
-        url: null,
-        jobsFound: 0,
-        jobsPersisted: 0,
-        jobsStaged: 0,
-        duplicatesMerged: 0,
-        invalidSkipped: 0,
-      }),
-    );
+    const planningEvent = createDiscoveryEvent({
+      runId,
+      timestamp: new Date().toISOString(),
+      kind: "info",
+      stage: "planning",
+      waitReason: "waiting_on_ai",
+      targetId: null,
+      adapterKind: null,
+      resolvedAdapterKind: null,
+      message:
+        options.scope === "single_target"
+          ? `Planning discovery for ${targets[0]?.label ?? "selected source"}`
+          : `Planning ${targets.length} discovery target${targets.length === 1 ? "" : "s"}`,
+      url: null,
+      jobsFound: 0,
+      jobsPersisted: 0,
+      jobsStaged: 0,
+      duplicatesMerged: 0,
+      invalidSkipped: 0,
+    });
+    recordActivity(planningEvent);
 
     await ctx
       .persistDiscoveryState((current) => ({
@@ -1370,6 +1547,7 @@ export function createWorkspaceDiscoveryMethods(
         clearActiveController();
         throw error;
       });
+    publishActivity(planningEvent);
 
     // Public inventories are independent network reads, but starting hundreds
     // at once can starve Electron's main process and retain every response until
@@ -1796,7 +1974,7 @@ export function createWorkspaceDiscoveryMethods(
             searchPreferences: enrichedPreferences,
             limit: remainingBudget,
             preferredCanonicalUrls: [target.startingUrl],
-            assessPosting: assessmentSession.assess,
+            assessPosting: assessDiscoveryPosting,
           });
           checkpointState.budgetedCount += budgetedNewPostings.length;
           checkpointState.reviewedCount +=
@@ -1830,7 +2008,7 @@ export function createWorkspaceDiscoveryMethods(
                 titleTriageOutcome: posting.titleTriageOutcome,
               }),
             executionSignal,
-            assessmentSession.assess,
+            assessDiscoveryPosting,
           );
           resumeAffectingChangedJobIds.push(
             ...collectResumeAffectingChangedJobIds(
@@ -2183,6 +2361,7 @@ export function createWorkspaceDiscoveryMethods(
             },
             signal: executionSignal,
             openedSessionSources,
+            protectedPages,
             useAgentRuntime: options.useAgentRuntime ?? false,
             ...(prefetchedPublicApiResult ? { prefetchedPublicApiResult } : {}),
           });
@@ -2275,7 +2454,18 @@ export function createWorkspaceDiscoveryMethods(
           compactionUsedFallbackTrigger:
             collected.result.agentMetadata?.compactionUsedFallbackTrigger ??
             false,
+          accessBlockerReason:
+            collected.result.agentMetadata?.accessBlockerReason ?? null,
+          parkedTab: collected.result.agentMetadata?.parkedTab ?? null,
         }));
+        if (
+          collected.result.agentMetadata?.accessBlockerReason &&
+          collected.result.agentMetadata.parkedTab
+        ) {
+          parkedSessionSources.add(collected.adapterKind);
+          const parkedTab = collected.result.agentMetadata.parkedTab;
+          protectedPages.set(parkedTab.tabId ?? parkedTab.url, parkedTab);
+        }
 
         emitActivity(
           createDiscoveryEvent({
@@ -2579,6 +2769,18 @@ export function createWorkspaceDiscoveryMethods(
             enrichedPreferences,
           ),
         );
+        const completedExecution = activeRun.targetExecutions.find(
+          (execution) => execution.targetId === target.id,
+        );
+        if (completedExecution) {
+          await persistDiscoveryRunBlockerUserAction({
+            repository: ctx.repository,
+            runId,
+            target,
+            execution: completedExecution,
+            occurredAt: targetCompletedAt,
+          });
+        }
         publishActivity(targetCompletedEvent);
 
         // Persistence and matching above can resolve entirely through
@@ -2587,16 +2789,54 @@ export function createWorkspaceDiscoveryMethods(
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
 
-      // Read the listing bodies the compact scan did not. Every job this run
-      // retained as a card gets one plain-HTTP read of its own page, then a
+      // Read the listing bodies the compact scan did not. Current-run jobs go
+      // first, followed by older uncaptured jobs, so the per-run count cap is
+      // a retry queue rather than permanent starvation. Discovery-only jobs
+      // live in the pending collection and must be included here too.
+      // Every retained card gets one plain-HTTP read of its own page, then a
       // fresh score from the same assessment session, before the run is
       // declared finished: "Search finished" should mean the results are
-      // scored, not that a list of titles arrived. Bounded (count, time,
-      // concurrency) and never fatal: a page that will not read stays a
+      // scored, not that a list of titles arrived. Bounded (per-job time,
+      // count, concurrency) and never fatal: a page that will not read stays a
       // title match with the attempt recorded on the job.
-      const enrichmentCandidates = workingSavedJobs.filter(
-        (job) => runRetainedJobIds.has(job.id) && jobNeedsListingDetail(job),
-      );
+      const enrichmentCandidates = mergeSavedJobs(
+        workingSavedJobs,
+        workingPendingJobs,
+      )
+        .filter((job) => jobNeedsListingDetail(job))
+        .sort(
+          (left, right) =>
+            Number(runRetainedJobIds.has(right.id)) -
+              Number(runRetainedJobIds.has(left.id)) ||
+            compareMatchRecommendationPriority(
+              left.matchAssessment,
+              right.matchAssessment,
+            ) ||
+            compareMatchRoleSuitabilityPriority(
+              left.matchAssessment,
+              right.matchAssessment,
+            ) ||
+            compareMatchScores(left.matchAssessment, right.matchAssessment),
+        );
+      const readEvent = (message: string) =>
+        createDiscoveryEvent({
+          runId,
+          timestamp: new Date().toISOString(),
+          kind: "info",
+          stage: "extraction",
+          waitReason: "extracting_jobs",
+          targetId: null,
+          adapterKind: null,
+          resolvedAdapterKind: null,
+          message,
+          url: null,
+          jobsFound:
+            activeRun.summary.jobsPersisted + activeRun.summary.jobsStaged,
+          jobsPersisted: activeRun.summary.jobsPersisted,
+          jobsStaged: activeRun.summary.jobsStaged,
+          duplicatesMerged: activeRun.summary.duplicatesMerged,
+          invalidSkipped: activeRun.summary.invalidSkipped,
+        });
       // No reader configured means no reads: the desktop composes the
       // plain-HTTP reader in; tests and other hosts opt in explicitly so a
       // fixture URL is never fetched for real.
@@ -2606,25 +2846,6 @@ export function createWorkspaceDiscoveryMethods(
         !executionSignal.aborted
       ) {
         const fetchListingHtml = ctx.fetchListingHtml;
-        const readEvent = (message: string) =>
-          createDiscoveryEvent({
-            runId,
-            timestamp: new Date().toISOString(),
-            kind: "info",
-            stage: "extraction",
-            waitReason: "extracting_jobs",
-            targetId: null,
-            adapterKind: null,
-            resolvedAdapterKind: null,
-            message,
-            url: null,
-            jobsFound:
-              activeRun.summary.jobsPersisted + activeRun.summary.jobsStaged,
-            jobsPersisted: activeRun.summary.jobsPersisted,
-            jobsStaged: activeRun.summary.jobsStaged,
-            duplicatesMerged: activeRun.summary.duplicatesMerged,
-            invalidSkipped: activeRun.summary.invalidSkipped,
-          });
         const readsThisRun = Math.min(
           enrichmentCandidates.length,
           LISTING_DETAIL_READS_PER_RUN,
@@ -2642,7 +2863,7 @@ export function createWorkspaceDiscoveryMethods(
           const enrichment = await enrichSavedJobListingDetails({
             jobs: enrichmentCandidates,
             fetchHtml: fetchListingHtml,
-            assess: assessmentSession.assess,
+            assess: assessDiscoveryPosting,
             signal: executionSignal,
           });
           if (enrichment.changedJobIds.length > 0) {
@@ -2652,13 +2873,23 @@ export function createWorkspaceDiscoveryMethods(
             workingSavedJobs = workingSavedJobs.map(
               (job) => enrichedById.get(job.id) ?? job,
             );
+            workingPendingJobs = workingPendingJobs.map(
+              (job) => enrichedById.get(job.id) ?? job,
+            );
+            const pendingJobIds = new Set(
+              workingPendingJobs.map((job) => job.id),
+            );
             for (const jobId of enrichment.changedJobIds) {
-              touchedSavedJobIds.add(jobId);
+              if (pendingJobIds.has(jobId)) {
+                touchedPendingJobIds.add(jobId);
+              } else {
+                touchedSavedJobIds.add(jobId);
+              }
             }
             // The scan-time "only cards were read" warning stops being true
             // for a target once any of its retained jobs has a body.
             const targetsWithBodies = new Set(
-              workingSavedJobs
+              mergeSavedJobs(workingSavedJobs, workingPendingJobs)
                 .filter(
                   (job) =>
                     runRetainedJobIds.has(job.id) &&
@@ -2707,6 +2938,112 @@ export function createWorkspaceDiscoveryMethods(
         }
       }
 
+      // A run does not get to finish quietly over jobs it never opened. Every
+      // job this run kept now has one capture state — read, refused, or still
+      // to read — and the run says out loud how many are in each, so the
+      // result screen and the scoring panel are reading a number the run
+      // recorded rather than each inferring one.
+      let correctedSalaryCount = 0;
+      const reconcileCapturedSalary = (
+        job: SavedJob,
+        touchedJobIds: Set<string>,
+      ): SavedJob => {
+        if (!runRetainedJobIds.has(job.id)) return job;
+        const salaryText = reconcileSalaryTextWithListingBody(
+          job.salaryText,
+          job.description,
+        );
+        if (salaryText === job.salaryText) return job;
+        correctedSalaryCount += 1;
+        touchedJobIds.add(job.id);
+        const correctedJob = SavedJobSchema.parse({
+          ...job,
+          salaryText,
+          normalizedCompensation: {},
+        });
+        return SavedJobSchema.parse({
+          ...correctedJob,
+          matchAssessment: assessDiscoveryPosting(correctedJob),
+        });
+      };
+      workingSavedJobs = workingSavedJobs.map((job) =>
+        reconcileCapturedSalary(job, touchedSavedJobIds),
+      );
+      workingPendingJobs = workingPendingJobs.map((job) =>
+        reconcileCapturedSalary(job, touchedPendingJobIds),
+      );
+      if (correctedSalaryCount > 0) {
+        await persistWorkingSavedJobs();
+      }
+
+      const retainedRunJobs = mergeSavedJobs(
+        workingSavedJobs,
+        workingPendingJobs,
+      ).filter((job) => runRetainedJobIds.has(job.id));
+      if (retainedRunJobs.length > 0) {
+        emitActivity(
+          readEvent(
+            describeDiscoveryListingCapture(
+              countDiscoveryListingCapture(retainedRunJobs),
+            ),
+          ),
+        );
+
+        // One house pay band printed in a page's chrome was picked up as the
+        // salary of every result on that page, so unrelated jobs carried the
+        // same "$80000 - 150000" — one of them over its own body reading
+        // "Pay: $22.00 per hour". A band most of this run shares and almost
+        // none of the listing bodies state is the page's furniture; it is
+        // dropped so the row says the pay was not stated rather than stating
+        // someone else's.
+        const furnitureSalaries = findSiteFurnitureSalaryTexts(
+          retainedRunJobs.map((job) => ({
+            description: job.description,
+            salaryText: job.salaryText,
+          })),
+        );
+        if (furnitureSalaries.size > 0) {
+          let droppedSalaryCount = 0;
+          const sanitizeFurnitureSalary = (
+            job: SavedJob,
+            touchedJobIds: Set<string>,
+          ): SavedJob => {
+            if (
+              !runRetainedJobIds.has(job.id) ||
+              !isSiteFurnitureSalaryText(job.salaryText, furnitureSalaries) ||
+              isSalaryTextStatedInBody(job.description, job.salaryText)
+            ) {
+              return job;
+            }
+            droppedSalaryCount += 1;
+            touchedJobIds.add(job.id);
+            const sanitizedJob = SavedJobSchema.parse({
+              ...job,
+              salaryText: null,
+              normalizedCompensation: {},
+            });
+            return SavedJobSchema.parse({
+              ...sanitizedJob,
+              matchAssessment: assessDiscoveryPosting(sanitizedJob),
+            });
+          };
+          workingSavedJobs = workingSavedJobs.map((job) =>
+            sanitizeFurnitureSalary(job, touchedSavedJobIds),
+          );
+          workingPendingJobs = workingPendingJobs.map((job) =>
+            sanitizeFurnitureSalary(job, touchedPendingJobIds),
+          );
+          if (droppedSalaryCount > 0) {
+            await persistWorkingSavedJobs();
+            emitActivity(
+              readEvent(
+                `The same pay band appeared on ${droppedSalaryCount} of this source's results whose listings did not state it, so it was treated as part of the page rather than as their pay.`,
+              ),
+            );
+          }
+        }
+      }
+
       const completedTargets = activeRun.targetExecutions.filter(
         (target) => target.state === "completed",
       ).length;
@@ -2733,6 +3070,13 @@ export function createWorkspaceDiscoveryMethods(
     } finally {
       if (!keepSessionAlive) {
         for (const source of openedSessionSources) {
+          // `closeRunBrowserSession` closes the shared browser host, not just
+          // this run's page. Any unresolved parked handoff loaded before this
+          // run therefore protects the host just as much as a blocker created
+          // by this run.
+          if (parkedSessionSources.has(source) || protectedPages.size > 0) {
+            continue;
+          }
           await ctx.closeRunBrowserSession(source).catch(() => {});
         }
       }
@@ -2747,7 +3091,11 @@ export function createWorkspaceDiscoveryMethods(
         if (session) {
           activeRun = updateRunSummary(activeRun, {
             browserCloseout: {
-              ...describeCloseoutMode(keepSessionAlive),
+              ...describeCloseoutMode(
+                keepSessionAlive ||
+                  parkedSessionSources.has(representativeSource) ||
+                  protectedPages.size > 0,
+              ),
               status: session.status,
               driver: session.driver,
               occurredAt: browserCloseoutOccurredAt,
@@ -2757,6 +3105,23 @@ export function createWorkspaceDiscoveryMethods(
       }
 
       clearActiveController();
+    }
+
+    const retainedJobsForRun = mergeSavedJobs(
+      workingSavedJobs,
+      workingPendingJobs,
+    ).filter((job) => runRetainedJobIds.has(job.id));
+    const remoteOnlySourceWarning = describeRemoteOnlySourceMismatch(
+      retainedJobsForRun,
+      enrichedPreferences,
+    );
+    if (remoteOnlySourceWarning) {
+      activeRun = updateRunSummary(activeRun, {
+        warnings: uniqueStrings([
+          ...activeRun.summary.warnings,
+          remoteOnlySourceWarning,
+        ]),
+      });
     }
 
     activeRun = finalizeDiscoveryRun(
@@ -2854,7 +3219,7 @@ export function createWorkspaceDiscoveryMethods(
         }),
       );
     },
-    async runCampaignDiscovery(campaign) {
+    async runCampaignDiscovery(campaign, onActivity) {
       // Campaign runs are discovery-only and always cover every enabled target
       // of the supplied campaign using that campaign's own preferences. The
       // run record is tagged with the campaign id while the active campaign and
@@ -2867,7 +3232,19 @@ export function createWorkspaceDiscoveryMethods(
         executeDiscoveryPipeline({
           scope: "run_all",
           campaign,
+          ...(onActivity ? { onActivity } : {}),
           allowInactiveMarking: true,
+          useAgentRuntime: true,
+        }),
+      );
+    },
+    async runCampaignDiscoveryForTarget(campaign, targetId) {
+      return trackDiscoveryPromise(
+        executeDiscoveryPipeline({
+          scope: "single_target",
+          targetId,
+          campaign,
+          allowInactiveMarking: false,
           useAgentRuntime: true,
         }),
       );

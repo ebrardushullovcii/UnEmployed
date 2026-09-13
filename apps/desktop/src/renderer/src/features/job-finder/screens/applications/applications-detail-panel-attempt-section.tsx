@@ -3,9 +3,14 @@ import {
   formatDuration,
   formatStatusLabel,
 } from "@renderer/features/job-finder/lib/job-finder-utils";
+import { APPLICATION_BLOCKER_LABELS } from "../../lib/status-copy";
 import { StatusBadge } from "../../components/status-badge";
 import { cn } from "@renderer/lib/utils";
-import { getCustomerFacingApplyText } from "./applications-detail-panel-helpers";
+import {
+  getApplyBlockedAttemptDetail,
+  getCustomerFacingApplyText,
+  TECHNICAL_DETAILS_LABEL,
+} from "./applications-detail-panel-helpers";
 import { APPLICATION_DETAIL_FACT_LABEL_CLASS } from "./applications-detail-fact-strip";
 
 const executionTimingLabels: Record<
@@ -24,6 +29,21 @@ export function ApplicationsDetailPanelAttemptSection(props: {
   const { selectedAttempt } = props;
   const attemptSummary = getCustomerFacingApplyText(selectedAttempt?.summary);
   const attemptDetail = getCustomerFacingApplyText(selectedAttempt?.detail);
+  // Kept, not printed in the sentence: what the page actually tried when the
+  // runtime stopped it. Engineers need it; a person reading "what do I do
+  // now?" does not need a request line in the middle of the answer.
+  const blockedAttemptDetails = [
+    ...new Set(
+      [
+        selectedAttempt?.summary,
+        selectedAttempt?.detail,
+        selectedAttempt?.blocker?.summary,
+        selectedAttempt?.blocker?.detail,
+      ]
+        .map((value) => getApplyBlockedAttemptDetail(value))
+        .filter((detail): detail is string => Boolean(detail)),
+    ),
+  ];
 
   if (!selectedAttempt) {
     return (
@@ -59,7 +79,11 @@ export function ApplicationsDetailPanelAttemptSection(props: {
       ) : null}
       {selectedAttempt.blocker ? (
         <div className="grid gap-1 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">
-          <strong>{formatStatusLabel(selectedAttempt.blocker.code)}</strong>
+          {/* The shared label table, not the enum name: "requires manual
+              review" is the code, not something a person says. */}
+          <strong>
+            {APPLICATION_BLOCKER_LABELS[selectedAttempt.blocker.code]}
+          </strong>
           <p className="text-(length:--text-small) leading-6 text-foreground-soft">
             {getCustomerFacingApplyText(selectedAttempt.blocker.summary)}
           </p>
@@ -69,6 +93,21 @@ export function ApplicationsDetailPanelAttemptSection(props: {
             </p>
           ) : null}
         </div>
+      ) : null}
+      {blockedAttemptDetails.length > 0 ? (
+        <details className="min-w-0">
+          <summary className="cursor-pointer text-(length:--text-small) text-muted-foreground">
+            {TECHNICAL_DETAILS_LABEL}
+          </summary>
+          <ul
+            className="mt-1 grid gap-1 break-all text-(length:--text-small) leading-5 text-muted-foreground"
+            role="list"
+          >
+            {blockedAttemptDetails.map((detail) => (
+              <li key={detail}>{detail}</li>
+            ))}
+          </ul>
+        </details>
       ) : null}
       {selectedAttempt.executionTimings.length ? (
         <div className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/40 px-3 py-3">

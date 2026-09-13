@@ -4,31 +4,23 @@ import type {
   EvidenceConfidenceLevel,
   JobRequirementAssessment,
   JobRequirementEvidenceStatus,
+  ListingDetailCaptureState,
   MatchAssessment,
   MatchDimensionEvidence,
   PreferenceAlignmentState,
-  RoleSuitabilityState,
 } from "@unemployed/contracts";
+import { useId, useState } from "react";
 import type { BadgeTone } from "../lib/job-finder-types";
 import {
   fitRecommendationCopy,
   getFitEvidenceDepth,
+  getRoleAndRequirementsStatus,
 } from "../lib/match-assessment-presentation";
 import {
   scrubJobAbsencePlaceholders,
   scrubJobAbsencePlaceholdersList,
 } from "../lib/job-employer-location-display";
 import { StatusBadge } from "./status-badge";
-
-const roleSuitabilityCopy: Record<
-  RoleSuitabilityState,
-  { label: string; tone: BadgeTone }
-> = {
-  unknown: { label: "Unknown", tone: "neutral" },
-  exact: { label: "Strong match", tone: "positive" },
-  adjacent: { label: "Partial match", tone: "active" },
-  conflict: { label: "Role conflict", tone: "critical" },
-};
 
 const preferenceAlignmentCopy: Record<
   PreferenceAlignmentState,
@@ -88,6 +80,14 @@ interface DimensionRowProps {
   explanation: string;
   id: string;
   label: string;
+  /**
+   * What actually happened when Job Finder tried to read this listing. The
+   * scorer's stored depth label is not that fact: a job whose page was walled
+   * or never opened still carries "card only", which the panel then narrated
+   * as "Only the listing summary was available" — a summary the app never
+   * had. The capture state is the field of record, so it wins here.
+   */
+  listingCapture?: ListingDetailCaptureState | null;
   status: { label: string; tone: BadgeTone };
 }
 
@@ -98,15 +98,22 @@ interface DimensionRowProps {
  */
 function presentDimensionEvidence(
   primaryEvidence: MatchDimensionEvidence,
+  listingCapture?: ListingDetailCaptureState | null,
 ): string {
   const label = scrubJobAbsencePlaceholders(primaryEvidence.label);
   const detail = scrubJobAbsencePlaceholders(primaryEvidence.detail);
   if (label === "Listing detail depth") {
+    if (listingCapture === "blocked") {
+      return "Job Finder could not read this listing.";
+    }
+    if (listingCapture === "not_attempted") {
+      return "Job Finder could not read this listing. It has not opened the listing page yet.";
+    }
     switch (detail) {
       case "card only":
         return "Only the listing summary was available.";
       case "partial detail":
-        return "Part of the listing detail was available.";
+        return "Scored from partial listing text.";
       case "detail enriched":
         return "The full listing detail was available.";
       default:
@@ -121,12 +128,13 @@ function DimensionRow({
   explanation,
   id,
   label,
+  listingCapture,
   status,
 }: DimensionRowProps) {
   const primaryEvidence = evidence[0];
   const scrubbedExplanation = scrubJobAbsencePlaceholders(explanation);
   const presentedEvidence = primaryEvidence
-    ? presentDimensionEvidence(primaryEvidence)
+    ? presentDimensionEvidence(primaryEvidence, listingCapture)
     : "";
 
   return (
@@ -157,6 +165,44 @@ function DimensionRow({
       </dd>
     </div>
   );
+}
+
+/**
+ * A requirement row only earns its space when it carries evidence from one
+ * side or the other.
+ *
+ * Most listings reached the screen with their text uncaptured, so the
+ * disclosure filled with rows that named a requirement and then said nothing
+ * about it on either side — the panel's "requirement rows are empty for most
+ * jobs". One sentence naming them is the honest, readable version.
+ */
+function hasRequirementEvidence(
+  requirement: JobRequirementAssessment,
+): boolean {
+  // An "unknown" status means nothing was decided, and with no resume
+  // evidence beside it there is no comparison left for the row to print —
+  // only a label, a badge and a line saying nothing was found.
+  return requirement.status !== "unknown" || requirement.resumeEvidence.length > 0;
+}
+
+function describeUnevidencedRequirements(
+  requirements: readonly JobRequirementAssessment[],
+): string {
+  const labels = requirements
+    .map((requirement) => requirement.label.trim())
+    .filter((label) => label.length > 0)
+    .slice(0, 4);
+  const named =
+    labels.length > 0
+      ? `${labels.join(", ")}${requirements.length > labels.length ? " and others" : ""}`
+      : "";
+  const subject =
+    requirements.length === 1
+      ? "1 requirement was not checked"
+      : `${requirements.length} requirements were not checked`;
+  return named
+    ? `${subject} — ${named}. Neither the listing nor your resume gave anything to compare.`
+    : `${subject}. Neither the listing nor your resume gave anything to compare.`;
 }
 
 function RequirementRow({
@@ -249,6 +295,13 @@ export {
 interface MatchEvidenceMatrixProps {
   assessment: MatchAssessment;
   /**
+   * The job's own listing-capture state, when the caller has the job. One
+   * state drives both the "About this job" sentence and this breakdown, so
+   * the two halves of one screen can never disagree about whether the listing
+   * was read.
+   */
+  listingCapture?: ListingDetailCaptureState | null;
+  /**
    * The qualified score sentence for this breakdown. This is the only place a
    * withheld percentage may appear, so callers that know the job's binding
    * state pass their own label; the default is derived from the assessment's
@@ -260,9 +313,12 @@ interface MatchEvidenceMatrixProps {
 
 export function MatchEvidenceMatrix({
   assessment,
+  listingCapture,
   scoreLabel,
   showRecommendation = true,
 }: MatchEvidenceMatrixProps) {
+  const [requirementsOpen, setRequirementsOpen] = useState(false);
+  const requirementsPanelId = useId();
   const requirements = assessment.requirements ?? [];
   const recommendation =
     fitRecommendationCopy[
@@ -276,6 +332,10 @@ export function MatchEvidenceMatrix({
       requirement.importance === "required" &&
       requirement.status !== "supported",
   ).length;
+  const evidencedRequirements = requirements.filter(hasRequirementEvidence);
+  const unevidencedRequirements = requirements.filter(
+    (requirement) => !hasRequirementEvidence(requirement),
+  );
   const evidenceDepth = getFitEvidenceDepth(assessment);
   const resolvedScoreLabel =
     scoreLabel === undefined
@@ -331,7 +391,12 @@ export function MatchEvidenceMatrix({
           explanation: roleSuitability.explanation,
           id: "role-suitability",
           label: "Role and requirements",
-          status: roleSuitabilityCopy[roleSuitability.state],
+          // Derived from the requirement evidence printed right below it, so
+          // the headline can never claim more than that evidence supports.
+          status: getRoleAndRequirementsStatus(
+            roleSuitability.state,
+            requirements,
+          ),
         },
     preferenceAlignment.state === "unknown" ||
     preferenceAlignment.state === "not_configured"
@@ -368,7 +433,9 @@ export function MatchEvidenceMatrix({
           evidence: evidenceConfidence.evidence,
           explanation: evidenceConfidence.explanation,
           id: "evidence-confidence",
-          label: "Evidence coverage",
+          // "Evidence coverage" is a scoring term, not something a person
+          // reading about one job has any reason to decode.
+          label: "How much could be checked",
           status: evidenceConfidenceCopy[evidenceConfidence.level],
         },
   ].filter((dimension) => dimension !== null);
@@ -474,6 +541,7 @@ export function MatchEvidenceMatrix({
               id={dimension.id}
               key={dimension.id}
               label={dimension.label}
+              listingCapture={listingCapture ?? null}
               status={dimension.status}
             />
           ))}
@@ -501,17 +569,40 @@ export function MatchEvidenceMatrix({
       ) : null}
 
       {requirements.length > 0 ? (
-        <details className="min-w-0 rounded-(--radius-small) border border-(--surface-panel-border) px-3 py-3">
-          <summary className="cursor-pointer text-(length:--text-small) font-medium text-foreground-soft">
+        <div className="min-w-0 rounded-(--radius-small) border border-(--surface-panel-border) px-3 py-3">
+          <button
+            aria-controls={requirementsPanelId}
+            aria-expanded={requirementsOpen}
+            className="w-full cursor-pointer text-left text-(length:--text-small) font-medium text-foreground-soft outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30"
+            onClick={() => setRequirementsOpen((open) => !open)}
+            type="button"
+          >
             Review requirement evidence — {supportedCount} of{" "}
             {requirements.length} supported
-          </summary>
-          <ul className="m-0 mt-4 grid list-none p-0">
-            {requirements.map((requirement) => (
-              <RequirementRow key={requirement.id} requirement={requirement} />
-            ))}
-          </ul>
-        </details>
+          </button>
+          {requirementsOpen ? (
+            <div id={requirementsPanelId}>
+              {evidencedRequirements.length > 0 ? (
+                <ul className="m-0 mt-4 grid list-none p-0">
+                  {evidencedRequirements.map((requirement) => (
+                    <RequirementRow
+                      key={requirement.id}
+                      requirement={requirement}
+                    />
+                  ))}
+                </ul>
+              ) : null}
+              {unevidencedRequirements.length > 0 ? (
+                <p
+                  className="mt-4 text-(length:--text-small) leading-6 text-foreground-muted"
+                  data-testid="fit-requirements-unchecked"
+                >
+                  {describeUnevidencedRequirements(unevidencedRequirements)}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
       ) : evidenceDepth.isTitleOnly ? null : (
         <p className="text-(length:--text-small) leading-6 text-foreground-muted">
           Requirement-by-requirement evidence is unavailable for this listing.

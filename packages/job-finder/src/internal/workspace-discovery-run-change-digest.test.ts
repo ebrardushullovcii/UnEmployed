@@ -32,6 +32,9 @@ describe("discovery run change digest", () => {
       "2026-07-31T10:00:03.000Z",
       {
         state: "completed",
+        // A source that completed with nothing found is graded as a warning,
+        // so this one has to have actually found something to read as healthy.
+        jobsFound: 3,
         changeDigest: {
           new: 3,
           unchanged: 4,
@@ -87,6 +90,44 @@ describe("discovery run change digest", () => {
     ]);
     expect(allComplete.summary.warnings).toEqual([
       "The source stopped responding.",
+    ]);
+  });
+
+  it("keeps a productive completed source healthy when it has an informational stop note", () => {
+    const run = DiscoveryRunRecordSchema.parse({
+      id: "run-productive-warning",
+      state: "running",
+      startedAt: "2026-09-12T10:00:00.000Z",
+      targetIds: ["source-one"],
+      targetExecutions: [
+        {
+          targetId: "source-one",
+          adapterKind: "auto",
+          state: "running",
+          startedAt: "2026-09-12T10:00:00.000Z",
+        },
+      ],
+    });
+
+    const completed = completeTargetExecution(
+      run,
+      "source-one",
+      "2026-09-12T10:01:00.000Z",
+      {
+        state: "completed",
+        jobsFound: 50,
+        warning: "Stopped early after repeated listings; 50 jobs were kept.",
+      },
+    );
+
+    expect(completed.summary.sourceHealth).toEqual([
+      expect.objectContaining({
+        targetId: "source-one",
+        health: "healthy",
+        warnings: [
+          "Stopped early after repeated listings; 50 jobs were kept.",
+        ],
+      }),
     ]);
   });
 });

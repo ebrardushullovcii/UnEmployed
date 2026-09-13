@@ -4,6 +4,8 @@ import type {
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
 import { listSourceAttentionReasons } from "@unemployed/job-finder/source-health";
+import { projectPlanSafeguardPauses } from "@unemployed/job-finder/plan-safeguard-pauses";
+import { PlanSafeguardPauseCards } from "../../components/plan-safeguard-pause-cards";
 import { Button } from "@renderer/components/ui/button";
 import { PageHeader } from "../../components/page-header";
 import { JobFinderActivityControl } from "../../components/job-finder-activity-control";
@@ -20,9 +22,12 @@ import {
 } from "../../lib/destination-counts";
 import {
   formatDiscoveryRunCountLabel,
+  formatDiscoveryRunReportLabel,
   formatLastSearchSummarySentence,
   formatSearchFinishedStatusLine,
   getDiscoveryRunCountEvidence,
+  getDiscoveryRunReportCounts,
+  hasDiscoveryRunReportCounts,
 } from "../../lib/discovery-run-count-label";
 import type { JobFinderGlobalSearchEntry } from "../../lib/job-finder-global-search";
 import { DISCOVERY_OFFLINE_SETUP_NOTICE } from "../discovery/discovery-search-readiness";
@@ -87,7 +92,8 @@ function countHomeNeedsYou(workspace: JobFinderWorkspaceSnapshot): number {
   const unrepresentedRequests = unresolved.filter(
     (request) => !representedRequestIds.has(request.id),
   );
-  return unrepresentedRequests.length + pendingDecisions.length;
+  return unrepresentedRequests.length + pendingDecisions.length +
+    projectPlanSafeguardPauses(workspace.intelligence?.safeguards, workspace.campaigns).length;
 }
 
 /**
@@ -156,6 +162,7 @@ export function JobSearchHomeScreen(props: {
 }) {
   const { dashboard } = props.workspace;
   const needsYouCount = countHomeNeedsYou(props.workspace);
+  const safeguardPauses = projectPlanSafeguardPauses(props.workspace.intelligence?.safeguards, props.workspace.campaigns);
   const globalEntries = buildJobFinderGlobalSearchEntries(props.workspace);
   const activeBrowserCount =
     (props.workspace.activeDiscoveryRun?.state === "running" ? 1 : 0) +
@@ -209,9 +216,18 @@ export function JobSearchHomeScreen(props: {
   // `total` is the enabled count and can never distinguish "none saved" from
   // "saved but all switched off". The saved list is the only place that fact
   // lives, and Find jobs already separates the two; Home must agree.
+  const liveSourceTargets = props.workspace.searchPreferences.discovery.targets;
   const savedSourceCount =
-    props.workspace.searchPreferences.discovery.targets.length;
-  const hasNoEnabledSources = dashboard.sourceHealth.total === 0;
+    liveSourceTargets.length > 0
+      ? liveSourceTargets.length
+      : dashboard.sourceHealth.total;
+  const enabledSourceCount =
+    liveSourceTargets.length > 0
+      ? liveSourceTargets.filter(
+      (target) => target.enabled,
+        ).length
+      : dashboard.sourceHealth.total;
+  const hasNoEnabledSources = enabledSourceCount === 0;
   const hasSavedSourcesAllDisabled =
     hasNoEnabledSources && savedSourceCount > 0;
   const hasCatalogRows = props.workspace.discoveryJobs.some(
@@ -237,25 +253,20 @@ export function JobSearchHomeScreen(props: {
   const showResultsPane = Boolean(
     dashboard.responseRate || dashboard.interviewRate,
   );
-  // `Pause background work` is a rare maintenance control, so it no longer
-  // owns Home's strongest slot while nothing is running. It appears only when
-  // there is real background activity to pause or resume.
-  const hasOperationalActivity =
-    props.workspace.activityControl.paused ||
-    Boolean(props.workspace.activityControl.pausedAt) ||
-    Boolean(props.workspace.activityControl.reason) ||
-    activeApplicationCount > 0 ||
-    activeBrowserCount > 0 ||
-    backgroundOperationCount > 0 ||
-    Boolean(props.activityPending);
+  // `Pause background work` used to appear only while something was running,
+  // which made it unfindable: people looking for a way to stop background work
+  // could not find one, and the control vanished the moment they resumed. It
+  // now always states whether background work is paused, and always offers the
+  // switch.
+  const newestRun = newestDiscoveryRun(props.workspace);
   const homeDiscoveryFeedback =
-    props.discoveryRunFeedback?.targetLabel === null
+    props.discoveryRunFeedback?.targetLabel === null &&
+    (props.discoveryRunFeedback.status === "started" || newestRun === null)
       ? props.discoveryRunFeedback
       : null;
   // A finished search is a status fact, not a second next action. It reads as
   // one line inside the recommended card instead of a green banner plus its
   // own button outranking the card.
-  const searchSucceeded = homeDiscoveryFeedback?.status === "succeeded";
 
   const profileJobSourcesRoute =
     "/job-finder/profile?section=sources&focus=job-sources#profile-job-sources";
@@ -307,16 +318,24 @@ export function JobSearchHomeScreen(props: {
   // One canonical number for one search. The shared helper owns both the
   // count and the vocabulary, so Home can never claim a "found" volume that
   // Find jobs and Search history do not recognise.
-  const countEvidence = getDiscoveryRunCountEvidence(
-    newestDiscoveryRun(props.workspace),
-    null,
-  );
+  const searchSucceeded = newestRun
+    ? newestRun.state === "completed"
+    : hasSearchHistory;
+  const countEvidence = getDiscoveryRunCountEvidence(newestRun, null);
   const hasCountEvidence =
     countEvidence.distinctJobsRetained > 0 ||
     countEvidence.duplicatesMerged > 0;
-  const lastSearchCountLabel = hasCountEvidence
-    ? formatDiscoveryRunCountLabel(countEvidence)
-    : null;
+  // A run that froze its own report is quoted verbatim: "N found · M new ·
+  // K kept" is the same sentence Find jobs, Search history, the plan card and
+  // Tasks print for that run, so the five screens cannot disagree. Only runs
+  // recorded before the report existed fall back to the older label.
+  const runReport = getDiscoveryRunReportCounts(newestRun);
+  const hasRunReport = hasDiscoveryRunReportCounts(runReport);
+  const lastSearchCountLabel = hasRunReport
+    ? formatDiscoveryRunReportLabel(runReport)
+    : hasCountEvidence
+      ? formatDiscoveryRunCountLabel(countEvidence)
+      : null;
   // Find jobs lists the active plan's jobs, not everything a run saved, so
   // Home reads the same population before it prints a number about it — and
   // it must be the *same* population, not just the same plan. `jobIds` is the
@@ -337,11 +356,15 @@ export function JobSearchHomeScreen(props: {
   // so the card can never print the identical sentence twice in a row.
   const lastSearchSentence =
     lastSearchCountLabel && !searchSucceeded
-      ? formatLastSearchSummarySentence({
-          runCountLabel: lastSearchCountLabel,
-          savedByRun: countEvidence.distinctJobsRetained,
-          keptInPlan: keptInActivePlan,
-        })
+      ? hasRunReport
+        ? // The frozen label already names all three populations, so nothing
+          // is reconciled against current inventory here.
+          `Your last search: ${lastSearchCountLabel}.`
+        : formatLastSearchSummarySentence({
+            runCountLabel: lastSearchCountLabel,
+            savedByRun: countEvidence.distinctJobsRetained,
+            keptInPlan: keptInActivePlan,
+          })
       : null;
 
   const awaitingReview = dashboard.jobsAwaitingReview;
@@ -367,7 +390,9 @@ export function JobSearchHomeScreen(props: {
         }
       : null;
 
-  const effectiveRecommendedNext = showProfileSetupBlocker
+  const effectiveRecommendedNext = safeguardPauses[0] ? {
+    label: "Open Safeguards", detail: safeguardPauses[0].explanation, route: safeguardPauses[0].route,
+  } : showProfileSetupBlocker
     ? {
         label: profileSetupCardLabel,
         detail: isFreshProfileSetup
@@ -411,11 +436,13 @@ export function JobSearchHomeScreen(props: {
         // total alone read as a contradiction of the smaller "kept in this
         // search plan" count that Find jobs prints for the same search. While
         // this line is showing it is the card's only carrier of those numbers.
-        formatSearchFinishedStatusLine({
-          runCountLabel: lastSearchCountLabel,
-          savedByRun: countEvidence.distinctJobsRetained,
-          keptInPlan: keptInActivePlan,
-        })
+        (hasRunReport
+          ? `Search finished · ${lastSearchCountLabel}.`
+          : formatSearchFinishedStatusLine({
+              runCountLabel: lastSearchCountLabel,
+              savedByRun: countEvidence.distinctJobsRetained,
+              keptInPlan: keptInActivePlan,
+            }))
       : "Search finished · nothing new was saved, and nothing was deleted."
     : null;
 
@@ -518,19 +545,17 @@ export function JobSearchHomeScreen(props: {
     <section className="grid min-w-0 gap-5 pb-8">
       <PageHeader
         actions={
-          hasOperationalActivity ? (
-            <JobFinderActivityControl
-              onPause={props.onPauseActivity}
-              onResume={props.onResumeActivity}
-              state={{
-                activeApplicationCount,
-                activeBrowserCount,
-                paused: props.workspace.activityControl.paused,
-                pausedAt: props.workspace.activityControl.pausedAt,
-                pending: props.activityPending,
-              }}
-            />
-          ) : null
+          <JobFinderActivityControl
+            onPause={props.onPauseActivity}
+            onResume={props.onResumeActivity}
+            state={{
+              activeApplicationCount,
+              activeBrowserCount,
+              paused: props.workspace.activityControl.paused,
+              pausedAt: props.workspace.activityControl.pausedAt,
+              pending: props.activityPending,
+            }}
+          />
         }
         description="See progress, open tasks, and the best next step."
         title="Home"
@@ -555,7 +580,7 @@ export function JobSearchHomeScreen(props: {
               ? `${savedSourceCount} saved source${savedSourceCount === 1 ? "" : "s"} • Turn one on in Profile`
               : hasNoEnabledSources
                 ? "No job sources yet • Add one in Profile"
-                : `${dashboard.sourceHealth.total} enabled source${dashboard.sourceHealth.total === 1 ? "" : "s"}`}
+                : `${enabledSourceCount} enabled source${enabledSourceCount === 1 ? "" : "s"}`}
         </span>
         {/* Gated with the badge and the summary line: during setup the user
             has not met the word "source" yet, so a lone review action would
@@ -665,6 +690,10 @@ export function JobSearchHomeScreen(props: {
         </nav>
       ) : null}
 
+      <PlanSafeguardPauseCards
+        pauses={safeguardPauses}
+        onNavigate={props.onNavigate}
+      />
       {/* One recommended action, full width. Home used to put a second card
           of plan controls beside it, so the page opened with two competing
           places to act. */}

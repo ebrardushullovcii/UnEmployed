@@ -168,6 +168,14 @@ interface ResumeClaimConfirmationPanelProps {
   onSetResumeClaimConfirmation: (
     input: JobFinderSetResumeClaimConfirmationInput,
   ) => Promise<unknown>;
+  /**
+   * The other half of the decision. ADR 0018 promises each stretch is
+   * confirmed one by one; the panel offered only "confirm", so a person who
+   * did not want an unverified line on their resume had to hunt for it in the
+   * editor. Present only for a line the draft patch schema can remove — a
+   * bullet, including every added core skill.
+   */
+  onRejectClaim?: (assessment: ResumeClaimAssessment) => void;
 }
 
 function buildAddRequestKey(
@@ -367,6 +375,22 @@ export function ResumeClaimConfirmationPanel(
                   ? "Undo confirmation"
                   : "Confirm this wording"}
               </Button>
+              {!row.confirmation &&
+              props.onRejectClaim &&
+              row.assessment.bulletId ? (
+                <Button
+                  aria-label={`Remove this line · ${row.targetLabel}`}
+                  className="ml-2"
+                  data-resume-claim-reject={row.requestKey}
+                  disabled={requestInFlight}
+                  onClick={() => props.onRejectClaim?.(row.assessment)}
+                  size="compact"
+                  type="button"
+                  variant="secondary"
+                >
+                  Remove this line
+                </Button>
+              ) : null}
             </div>
           </li>
         ))}

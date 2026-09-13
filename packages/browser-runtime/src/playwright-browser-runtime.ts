@@ -878,6 +878,7 @@ async function resolveAutomationPageForContext(
     bringToFront?: boolean;
     closeOtherPages?: boolean;
     reuseExistingPage?: boolean;
+    protectedPageUrls?: readonly string[];
     onPageResolved?: (page: Page) => void;
   } = {},
 ): Promise<Page> {
@@ -885,14 +886,22 @@ async function resolveAutomationPageForContext(
     typeof options.targetUrl === "string" ? options.targetUrl.trim() : "";
   const currentPages = context.pages();
   const openPages = currentPages.filter((page) => !page.isClosed());
+  const protectedPages = new Set(
+    openPages.filter((page) =>
+      (options.protectedPageUrls ?? []).some((url) =>
+        areStructurallyEquivalentHttpUrls(page.url(), url),
+      ),
+    ),
+  );
+  const selectablePages = openPages.filter((page) => !protectedPages.has(page));
   const exactTargetPage = isHttpUrlLike(normalizedTargetUrl)
-    ? openPages.find((page) =>
+    ? selectablePages.find((page) =>
         areStructurallyEquivalentHttpUrls(page.url(), normalizedTargetUrl),
       )
     : null;
   const blankPage =
-    openPages.find((page) => !isHttpUrlLike(page.url())) ?? null;
-  const reusableLivePage = selectLiveHttpPage(openPages);
+    selectablePages.find((page) => !isHttpUrlLike(page.url())) ?? null;
+  const reusableLivePage = selectLiveHttpPage(selectablePages);
   const page =
     options.reuseExistingPage === false
       ? await context.newPage()
@@ -905,7 +914,9 @@ async function resolveAutomationPageForContext(
   if (options.closeOtherPages && options.reuseExistingPage !== false) {
     await Promise.allSettled(
       openPages
-        .filter((candidate) => candidate !== page)
+        .filter(
+          (candidate) => candidate !== page && !protectedPages.has(candidate),
+        )
         .map(async (candidate) => candidate.close()),
     );
   }
@@ -927,6 +938,7 @@ async function prepareAutomationPageForTarget(
     acceptTargetOriginAfterTimeout?: boolean;
     closeOtherPages?: boolean;
     reuseExistingPage?: boolean;
+    protectedPageUrls?: readonly string[];
     signal?: AbortSignal;
     onPageResolved?: (page: Page) => void;
   },
@@ -944,6 +956,9 @@ async function prepareAutomationPageForTarget(
       : {}),
     ...(options.closeOtherPages !== undefined
       ? { closeOtherPages: options.closeOtherPages }
+      : {}),
+    ...(options.protectedPageUrls
+      ? { protectedPageUrls: options.protectedPageUrls }
       : {}),
     ...(options.onPageResolved
       ? { onPageResolved: options.onPageResolved }
@@ -1017,6 +1032,30 @@ async function getPrimaryPageIfReady(context: BrowserContext): Promise<Page> {
   const currentPages = context.pages();
   const liveHttpPage = selectLiveHttpPage(currentPages);
   return liveHttpPage ?? getPrimaryPage(context);
+}
+
+/** Binds Stop to the currently resolved page, including during navigation. */
+export function createDiscoveryPageAbortBinding(signal?: AbortSignal): {
+  dispose: () => void;
+  onPageResolved: (page: Page) => void;
+} {
+  let page: Page | null = null;
+  const closePageOnAbort = () => {
+    if (page && !page.isClosed()) {
+      void page.close().catch(() => undefined);
+    }
+  };
+  signal?.addEventListener("abort", closePageOnAbort, { once: true });
+
+  return {
+    dispose: () => signal?.removeEventListener("abort", closePageOnAbort),
+    onPageResolved: (resolvedPage) => {
+      page = resolvedPage;
+      if (signal?.aborted) {
+        closePageOnAbort();
+      }
+    },
+  };
 }
 
 export function createBrowserAgentRuntime(
@@ -1439,6 +1478,7 @@ export function createBrowserAgentRuntime(
   async function getAgentRunPage(
     source: JobSource,
     agentOptions: AgentDiscoveryOptions,
+    onPageResolved?: (page: Page) => void,
   ): Promise<Page> {
     const navigationTarget =
       agentOptions.startingUrls.find((url) => isHttpUrlLike(url)) ?? null;
@@ -1452,6 +1492,15 @@ export function createBrowserAgentRuntime(
       targetUrl: navigationTarget,
       bringToFront: currentSessionState.status !== "ready",
       closeOtherPages: true,
+      ...(agentOptions.protectedPages
+        ? {
+            protectedPageUrls: agentOptions.protectedPages.map(
+              (protectedPage) => protectedPage.url,
+            ),
+          }
+        : {}),
+      ...(agentOptions.signal ? { signal: agentOptions.signal } : {}),
+      ...(onPageResolved ? { onPageResolved } : {}),
       setBlockedState: (detail) => {
         setSessionState(source, "blocked", "Browser navigation failed", detail);
       },
@@ -2088,9 +2137,15 @@ export function createBrowserAgentRuntime(
       );
 
       let page: Page | null = null;
+      const pageAbortBinding = createDiscoveryPageAbortBinding(
+        agentOptions.signal,
+      );
 
       try {
-        page = await getAgentRunPage(source, agentOptions);
+        page = await getAgentRunPage(source, agentOptions, (resolvedPage) => {
+          page = resolvedPage;
+          pageAbortBinding.onPageResolved(resolvedPage);
+        });
 
         if (
           !isWarmPageReusable({ pageUrl: page.url(), options: agentOptions })
@@ -2298,8 +2353,16 @@ export function createBrowserAgentRuntime(
           ),
           warning:
             [
+              // Never states a SAVED count. What the runtime holds is the
+              // volume it read off the site; what a search keeps is decided
+              // afterwards, by the run that dedupes and retains. Reporting
+              // the first number as the second is how one screen carried
+              // "Stopped early with 24 jobs saved" beside its own "15
+              // results" — three numbers for one population, and at most one
+              // of them true. The kept count belongs to the run report, and
+              // this sentence points at it instead of guessing.
               result.incomplete
-                ? `Stopped early with ${result.jobs.length} job${result.jobs.length === 1 ? "" : "s"} saved.`
+                ? `Stopped early after reading ${result.jobs.length} listing${result.jobs.length === 1 ? "" : "s"} from this site. How many were kept is shown with this search's results.`
                 : null,
               result.warning ?? null,
               result.error ?? null,
@@ -2320,6 +2383,14 @@ export function createBrowserAgentRuntime(
             phaseCompletionReason: result.phaseCompletionReason ?? null,
             phaseEvidence: result.phaseEvidence ?? null,
             debugFindings: result.debugFindings ?? null,
+            accessBlockerReason: result.accessBlockerReason ?? null,
+            parkedTab: result.parkedPageUrl
+              ? {
+                  tabId: null,
+                  url: result.parkedPageUrl,
+                  title: null,
+                }
+              : null,
           },
         });
       } catch (error) {
@@ -2350,7 +2421,8 @@ export function createBrowserAgentRuntime(
           agentMetadata: null,
         });
       } finally {
-        if (page) {
+        pageAbortBinding.dispose();
+        if (page && !page.isClosed() && !agentOptions.signal?.aborted) {
           setSessionState(
             source,
             "ready",

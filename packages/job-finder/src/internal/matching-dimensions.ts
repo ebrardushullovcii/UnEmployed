@@ -1,8 +1,9 @@
-import type {
-  JobRequirementAssessment,
-  JobSearchPreferences,
-  MatchDimensionEvidence,
-  MatchDimensionsAssessment,
+import {
+  assessJobPostingDetailQuality,
+  type JobRequirementAssessment,
+  type JobSearchPreferences,
+  type MatchDimensionEvidence,
+  type MatchDimensionsAssessment,
 } from "@unemployed/contracts";
 
 import type { MatchAssessmentPostingInput } from "./match-assessment-posting-input";
@@ -11,6 +12,7 @@ import type {
   WorkModeCompatibilityState,
 } from "./matching";
 import { isAbsentFieldText, normalizeText } from "./shared";
+import { collapseRepeatedLocationTokens } from "./listing-field-shapes";
 
 export type BuildMatchDimensionsAssessmentInput = {
   posting: MatchAssessmentPostingInput;
@@ -29,6 +31,42 @@ export type BuildMatchDimensionsAssessmentInput = {
   isPreferredCompany: boolean;
 };
 
+/**
+ * How much of the listing this panel may claim was read.
+ *
+ * `assessJobPostingDetailQuality` is the one shared rule for that question, so
+ * the depth row states what the posting's own fields support rather than
+ * repeating a stored label that may have been written before the body was
+ * (or was not) fetched. The wording stays the existing three-value
+ * vocabulary the score panel already turns into sentences.
+ */
+function describeListingDetailDepth(
+  posting: MatchAssessmentPostingInput,
+): string {
+  const assessed = assessJobPostingDetailQuality({
+    title: posting.title,
+    company: posting.company,
+    description: posting.description,
+    keySkills: posting.keySkills,
+    responsibilities: posting.responsibilities,
+    minimumQualifications: posting.minimumQualifications,
+    preferredQualifications: posting.preferredQualifications,
+    benefits: posting.benefits,
+  });
+  // Never claims more than the stored label, and never more than the text
+  // supports: the weaker of the two wins.
+  const order: Record<string, number> = {
+    card_only: 0,
+    partial_detail: 1,
+    detail_enriched: 2,
+  };
+  const claimed =
+    (order[assessed] ?? 0) <= (order[posting.detailQuality] ?? 0)
+      ? assessed
+      : posting.detailQuality;
+  return claimed.replaceAll("_", " ");
+}
+
 // Absence placeholders are shared across boards, so both labels use the one
 // source-generic rule instead of a per-phrase pattern.
 function displayEmployerLabel(company: string): string | null {
@@ -38,7 +76,14 @@ function displayEmployerLabel(company: string): string | null {
 
 function displayLocationLabel(location: string): string | null {
   const trimmed = location.trim();
-  return isAbsentFieldText(trimmed) ? null : trimmed;
+  if (isAbsentFieldText(trimmed)) {
+    return null;
+  }
+  // "Anywhere, Anywhere, Anywhere compared with Philadelphia, PA: aligned."
+  // is one place stated three times. The repeats carry nothing and made the
+  // comparison read as though the listing named three separate areas, so the
+  // sentence is built from the distinct parts in their original order.
+  return collapseRepeatedLocationTokens(trimmed) || null;
 }
 
 function clip(value: string, limit: number): string {
@@ -156,11 +201,16 @@ function buildRoleSuitability(
   }
 
   if (input.matchesRole) {
+    const listingBodyWasRead =
+      input.posting.detailQuality !== "card_only" &&
+      assessJobPostingDetailQuality(input.posting) !== "card_only";
     return {
       state: "adjacent",
       explanation: unsupportedRequiredCore
         ? `The title matches, but your saved profile does not yet show ${unsupportedRequiredCore.label.toLowerCase()}.`
-        : "The title matches, but the listing text was not captured, so nothing beyond the title could be checked.",
+        : listingBodyWasRead
+          ? "The title matches and the listing body was read, but it did not state a required core skill clearly enough to compare."
+          : "The title matches, but the listing text was not captured, so nothing beyond the title could be checked.",
       evidence: unsupportedRequiredCore
         ? withRequirementEvidence(unsupportedRequiredCore)
         : roleEvidence,
@@ -511,7 +561,13 @@ function buildEvidenceConfidence(
     evidence(
       "listing",
       "Listing detail depth",
-      input.posting.detailQuality.replaceAll("_", " "),
+      // Re-derived from the text actually in hand rather than echoed from the
+      // stored label. A row whose `detailQuality` was set optimistically
+      // upstream printed "The full listing detail was available." directly
+      // above "the listing text was not captured"; the depth this panel
+      // claims is now the same reading of the same body the capture state
+      // makes, so the two lines cannot contradict each other.
+      describeListingDetailDepth(input.posting),
     ),
     evidence(
       "derived",
@@ -543,6 +599,16 @@ function buildEvidenceConfidence(
       // stayed unverified, so "5 of 5 checked" no longer reads as "remote was
       // confirmed" when the work-mode row is the one that could not be.
       explanation: `The listing body was read and ${counts.supportedCount + counts.partialCount + counts.missingCount + counts.conflictCount} of ${total} role requirements were checked. A gap that was found still counts against the fit.${unverifiedPreferenceNote}`,
+      evidence: evidenceRows,
+      ...counts,
+    };
+  }
+
+  if (input.posting.detailQuality === "detail_enriched" && total === 0) {
+    return {
+      level: "moderate",
+      explanation:
+        "The listing body was read, but it did not expose structured requirements to compare one by one. The fit still uses the readable role and listing evidence; nothing missing is assumed.",
       evidence: evidenceRows,
       ...counts,
     };

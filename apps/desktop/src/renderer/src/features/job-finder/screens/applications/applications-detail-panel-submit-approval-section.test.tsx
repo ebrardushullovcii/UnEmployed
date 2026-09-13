@@ -3,7 +3,10 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ApplyRunDetails } from "@unemployed/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApplicationsDetailPanelSubmitApprovalSection } from "./applications-detail-panel-submit-approval-section";
+import {
+  ApplicationsDetailPanelSubmitApprovalSection,
+  isAwaitingPreparationApproval,
+} from "./applications-detail-panel-submit-approval-section";
 
 afterEach(cleanup);
 
@@ -42,6 +45,9 @@ function createAwaitingApprovalDetails(): ApplyRunDetails {
       approvedAt: null,
       revokedAt: null,
       expiresAt: null,
+      batchId: null,
+      batchCampaignId: null,
+      reusedFromApprovalId: null,
       detail: "Preparation only.",
     },
     questionRecords: [],
@@ -97,6 +103,42 @@ describe("ApplicationsDetailPanelSubmitApprovalSection", () => {
       jobId: "job-1",
       applicationRecordId: "application-1",
     });
+  });
+
+  it("hands the approve control to the panel footer without repeating it", () => {
+    // The approval was reachable only by tabbing into the pane at the panel's
+    // smallest height, so the panel pins it; the section must not then draw a
+    // second Approve button for the same decision.
+    const details = createAwaitingApprovalDetails();
+    expect(isAwaitingPreparationApproval(details)).toBe(true);
+    expect(
+      isAwaitingPreparationApproval({
+        ...details,
+        run: { ...details.run, state: "running" },
+      }),
+    ).toBe(false);
+
+    render(
+      <ApplicationsDetailPanelSubmitApprovalSection
+        approvalScopeEntries={[{ jobId: "job_1", label: "Engineer at Acme" }]}
+        isApplyRunPending={() => false}
+        isSelectedRunPending={false}
+        onApproveApplyRun={vi.fn()}
+        onCancelApplyRun={vi.fn()}
+        onRevokeApplyRunApproval={vi.fn()}
+        selectedApplyRunDetails={details}
+        selectedApplicationTarget={{
+          jobId: "job-1",
+          applicationRecordId: "application-1",
+        }}
+        showApproveAction={false}
+      />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /Approve safe preparation/ }),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel run" })).toBeTruthy();
   });
 
   it("never teaches submit-approval or copilot wording at the approval decision point", () => {

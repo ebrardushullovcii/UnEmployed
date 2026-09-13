@@ -24,6 +24,29 @@ function buildAssessment(
 }
 
 describe("MatchEvidenceMatrix required-gap summary", () => {
+  it("labels a truncated capture as partial listing text", () => {
+    const assessment = MatchAssessmentSchema.parse({
+      ...buildAssessment([]),
+      dimensions: {
+        evidenceConfidence: {
+          level: "moderate",
+          explanation: "Some listing evidence was available.",
+          evidence: [
+            {
+              source: "listing",
+              label: "Listing detail depth",
+              detail: "partial detail",
+            },
+          ],
+        },
+      },
+    });
+    const view = render(<MatchEvidenceMatrix assessment={assessment} />);
+
+    expect(view.getByText("Scored from partial listing text.")).toBeTruthy();
+    expect(view.queryByText("The full listing detail was available.")).toBeNull();
+  });
+
   it("reads as a grammatical sentence for one and for several gaps", () => {
     const gap = (id: string) => ({
       id,
@@ -170,7 +193,7 @@ describe("MatchEvidenceMatrix", () => {
       "Your preferences",
       "Compensation",
       "Application effort",
-      "Evidence coverage",
+      "How much could be checked",
     ]);
     expect(
       within(view.getByTestId("fit-dimension-role-suitability")).getByText(
@@ -203,13 +226,13 @@ describe("MatchEvidenceMatrix", () => {
     expect(dimensions.className).toContain("min-w-0");
     expect(dimensions.className).not.toContain("grid-cols");
 
-    const summary = view.getByText(
-      "Review requirement evidence — 1 of 2 supported",
-    );
-    const disclosure = summary.closest("details") as HTMLDetailsElement;
-    expect(disclosure.open).toBe(false);
+    const summary = view.getByRole("button", {
+      name: "Review requirement evidence — 1 of 2 supported",
+    });
+    expect(summary.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(summary);
-    expect(disclosure.open).toBe(true);
+    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    const disclosure = summary.parentElement!;
     expect(
       within(disclosure).getByText(
         /Production FastAPI experience is required\./,
@@ -313,5 +336,66 @@ describe("MatchEvidenceMatrix", () => {
     expect(view.queryByTestId("fit-title-only-note")).toBeNull();
     expect(view.getByText("Score and evidence")).toBeTruthy();
     expect(view.getByTestId("fit-breakdown-score").textContent).toBe("64% fit");
+  });
+});
+
+describe("MatchEvidenceMatrix requirement rows", () => {
+  it("collapses requirements with no evidence on either side into one sentence", () => {
+    // The panel found the disclosure full of rows that named a requirement
+    // and then said nothing about it: no listing quote, no resume evidence.
+    const assessment = buildAssessment([
+      {
+        id: "skill_excel",
+        category: "skill",
+        label: "Excel",
+        importance: "required",
+        status: "unknown",
+        jobEvidence: "The listing text was not captured.",
+        resumeEvidence: [],
+        explanation: "The listing text was not captured.",
+      },
+      {
+        id: "skill_workday",
+        category: "skill",
+        label: "Workday",
+        importance: "preferred",
+        status: "unknown",
+        jobEvidence: "The listing text was not captured.",
+        resumeEvidence: [],
+        explanation: "The listing text was not captured.",
+      },
+      {
+        id: "skill_figma",
+        category: "skill",
+        label: "Figma",
+        importance: "required",
+        status: "supported",
+        jobEvidence: "Figma is used daily.",
+        resumeEvidence: [],
+        explanation: "The resume shows Figma evidence.",
+      },
+    ]);
+
+    const { container } = render(<MatchEvidenceMatrix assessment={assessment} />);
+    fireEvent.click(
+      within(container).getByRole("button", {
+        name: "Review requirement evidence — 1 of 3 supported",
+      }),
+    );
+
+    expect(
+      within(container).getByTestId("fit-requirements-unchecked").textContent,
+    ).toBe(
+      "2 requirements were not checked — Excel, Workday. Neither the listing nor your resume gave anything to compare.",
+    );
+    // The one requirement that does carry evidence keeps its full row.
+    expect(within(container).getByText("Figma")).toBeTruthy();
+    expect(within(container).queryByText("Excel")).toBeNull();
+    // The count above the disclosure still describes every requirement.
+    expect(
+      within(container).getByText(
+        "Review requirement evidence — 1 of 3 supported",
+      ),
+    ).toBeTruthy();
   });
 });

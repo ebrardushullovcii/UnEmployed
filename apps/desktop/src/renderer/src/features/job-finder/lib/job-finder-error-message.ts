@@ -37,6 +37,10 @@ const INTERNAL_DETAIL_PATTERNS = [
   /\bUnable to find bullet\b/i,
   /\bextraction branches failed\b/i,
   /\btiming summary was not retained\b/i,
+  // A schema rejection: the validator's own JSON report of issue codes and
+  // field paths, which reached people as a raw blob in a toast and a dialog.
+  /"code"\s*:\s*"[a-z_]+"/i,
+  /"path"\s*:\s*\[/i,
 ];
 
 /**

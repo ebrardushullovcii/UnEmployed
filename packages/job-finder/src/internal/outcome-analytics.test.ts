@@ -8,6 +8,7 @@ import {
   type OutcomeBucketDimension,
   type OutcomeEvent,
   OutcomeEventSchema,
+  UNKNOWN_JOB_SOURCE_BUCKET_KEY,
 } from "@unemployed/contracts";
 import { describe, expect, it } from "vitest";
 import {
@@ -197,7 +198,7 @@ describe("deriveOutcomeAnalytics", () => {
         id: `large-${index}`,
         jobId: `large-job-${index}`,
         campaignId: `large-campaign-${index % 4}`,
-        source: `source-${String(index % 100).padStart(3, "0")}`,
+        sourceTargetId: `source-${String(index % 100).padStart(3, "0")}`,
         company: `Company ${index % 25}`,
         jobTitle: `Role ${index % 10}`,
         resumeStrategyId: `strategy-${index % 5}`,
@@ -239,7 +240,7 @@ describe("deriveOutcomeAnalytics", () => {
         event({
           id: `a-${index}`,
           campaignId: "campaign-a",
-          source: "source-x",
+          sourceTargetId: "source-x",
           jobTitle: "Engineer",
           company: "Acme",
           resumeStrategyId: "strategy-1",
@@ -249,7 +250,7 @@ describe("deriveOutcomeAnalytics", () => {
         event({
           id: `b-${index}`,
           campaignId: "campaign-b",
-          source: "source-y",
+          sourceTargetId: "source-y",
           jobTitle: "Designer",
           company: "Beta",
           resumeStrategyId: "strategy-2",
@@ -538,14 +539,14 @@ describe("deriveOutcomeAnalytics", () => {
         event({
           id: `ord-a-${index}`,
           campaignId: "campaign-a",
-          source: "zeta",
+          sourceTargetId: "zeta",
         }),
       ),
       ...Array.from({ length: 3 }, (_, index) =>
         event({
           id: `ord-b-${index}`,
           campaignId: "campaign-b",
-          source: "zeta",
+          sourceTargetId: "zeta",
         }),
       ),
     ];
@@ -560,11 +561,34 @@ describe("deriveOutcomeAnalytics", () => {
     expect(sources.map((b) => b.key)).toEqual(["zeta"]);
   });
 
+  it("groups outcomes by their saved source and names the unknown rest", () => {
+    // The recorded source enum has one value, so the source dimension was a
+    // single bucket holding every outcome ever recorded.
+    const events = [
+      event({ id: "s-1", sourceTargetId: "target_boards" }),
+      event({ id: "s-2", sourceTargetId: "target_boards" }),
+      event({ id: "s-3", sourceTargetId: "target_company" }),
+      event({ id: "s-4" }),
+    ];
+    const overview = deriveOutcomeAnalytics({ events, generatedAt: now });
+    const sources = overview.buckets.filter((b) => b.dimension === "source");
+
+    expect(sources.map((b) => b.key)).toEqual([
+      "target_boards",
+      "target_company",
+      UNKNOWN_JOB_SOURCE_BUCKET_KEY,
+    ]);
+    // Nothing is hidden: the buckets still add up to the events recorded.
+    expect(sources.reduce((total, b) => total + b.sampleSize, 0)).toBe(
+      events.length,
+    );
+  });
+
   it("breaks equal-sample ties by key ascending", () => {
     const events = [
-      event({ id: "tie-1", source: "zeta" }),
-      event({ id: "tie-2", source: "alpha" }),
-      event({ id: "tie-3", source: "alpha" }),
+      event({ id: "tie-1", sourceTargetId: "zeta" }),
+      event({ id: "tie-2", sourceTargetId: "alpha" }),
+      event({ id: "tie-3", sourceTargetId: "alpha" }),
     ];
     const overview = deriveOutcomeAnalytics({ events, generatedAt: now });
     const sources = overview.buckets.filter((b) => b.dimension === "source");
@@ -669,7 +693,7 @@ describe("deriveOutcomeAnalytics", () => {
     const slowSource = Array.from({ length: 30 }, (_, index) =>
       event({
         id: `slow-${index}`,
-        source: "slow-source",
+        sourceTargetId: "slow-source",
         jobId: `slow-job-${index}`,
         outcome: index < 2 ? "employer_response" : "applied",
       }),
@@ -677,7 +701,7 @@ describe("deriveOutcomeAnalytics", () => {
     const healthySource = Array.from({ length: 30 }, (_, index) =>
       event({
         id: `ok-${index}`,
-        source: "healthy-source",
+        sourceTargetId: "healthy-source",
         jobId: `ok-job-${index}`,
         outcome: index < 25 ? "employer_response" : "applied",
       }),
@@ -711,11 +735,11 @@ describe("deriveOutcomeAnalytics", () => {
         event({
           id: `${dimension}-stale-${index}`,
           jobId: `${dimension}-stale-job-${index}`,
-          source: "healthy-source",
+          sourceTargetId: "healthy-source",
           company: "Healthy Corp",
           jobTitle: "Healthy Engineer",
           outcome: index < 2 ? "employer_response" : "applied",
-          ...(dimension === "source" ? { source: key } : {}),
+          ...(dimension === "source" ? { sourceTargetId: key } : {}),
           ...(dimension === "company" ? { company: key } : {}),
           ...(dimension === "job_title" ? { jobTitle: key } : {}),
           ...(dimension === "resume_strategy" ? { resumeStrategyId: key } : {}),
@@ -725,7 +749,7 @@ describe("deriveOutcomeAnalytics", () => {
         event({
           id: `${dimension}-healthy-${index}`,
           jobId: `${dimension}-healthy-job-${index}`,
-          source: "other-source",
+          sourceTargetId: "other-source",
           company: "Other Corp",
           jobTitle: "Other Engineer",
           outcome: index < 25 ? "employer_response" : "applied",

@@ -3,8 +3,11 @@ import {
   buildStructuredCandidateJobs,
   inferEmployerFromCompanyProfileHref,
   isJobPreferenceAligned,
+  isLikelyDocumentAttachmentJob,
   isLikelyJobListingHubUrl,
   isLikelySiteUtilityJob,
+  isListingIndexPageRecord,
+  stripCompanyMarketingBadges,
   observeLearnedSearchSurfaceRoutes,
   shouldCanonicalizeSearchSurfaceDetailRoute,
   type SearchResultCardCandidate,
@@ -71,6 +74,54 @@ describe("buildStructuredCandidateJobs", () => {
     expect(jobs).toHaveLength(1);
     expect(jobs[0]?.postedAtText).toBeNull();
     expect(jobs[0]?.postedAt).toBeNull();
+  });
+
+  test("drops a structured posted value that is not a date", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://jobs.example.com/search",
+      maxJobs: 5,
+      structuredDataCandidates: [
+        {
+          canonicalUrl: "https://jobs.example.com/roles/support-lead",
+          sourceJobId: "job_schema_nope",
+          title: "Support Lead",
+          company: "Acme",
+          location: "Remote",
+          description: "Lead the customer support team.",
+          summary: "Lead support.",
+          postedAtText: "NOPE",
+          applyPath: "unknown",
+          easyApplyEligible: false,
+        },
+      ],
+    });
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.postedAtText).toBeNull();
+  });
+
+  test("keeps a structured posted value that reads as a date", () => {
+    const jobs = buildStructuredCandidateJobs({
+      pageUrl: "https://jobs.example.com/search",
+      maxJobs: 5,
+      structuredDataCandidates: [
+        {
+          canonicalUrl: "https://jobs.example.com/roles/support-lead",
+          sourceJobId: "job_schema_dated",
+          title: "Support Lead",
+          company: "Acme",
+          location: "Remote",
+          description: "Lead the customer support team.",
+          summary: "Lead support.",
+          postedAtText: "04 Sept 2026",
+          applyPath: "unknown",
+          easyApplyEligible: false,
+        },
+      ],
+    });
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.postedAtText).toBe("04 Sept 2026");
   });
 
   test("infers employer from /company/{slug}/ listing URLs (Wellfound-style)", () => {
@@ -2119,6 +2170,27 @@ describe("shouldCanonicalizeSearchSurfaceDetailRoute", () => {
 });
 
 describe("isLikelySiteUtilityJob", () => {
+  test("rejects pagination and empty site-section records before extraction", () => {
+    for (const title of ["Go to page 1000", "Next", "Previous", "Page 12"]) {
+      expect(
+        isLikelySiteUtilityJob({
+          canonicalUrl: "https://example.com/jobs?page=12",
+          company: "Employer not listed",
+          description: "",
+          title,
+        }),
+      ).toBe(true);
+    }
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://example.com/content/descriptions",
+        company: "Employer not listed",
+        description: "",
+        title: "Content Descriptions",
+      }),
+    ).toBe(true);
+  });
+
   test("flags salary explorers, collections, hubs and advice articles that boards list beside jobs", () => {
     // Blind testers saw "Find salaries", "Cashier salaries in Waterloo, IA",
     // "Job Collections" and "How the Local Government Hiring Process Works"
@@ -2150,6 +2222,67 @@ describe("isLikelySiteUtilityJob", () => {
     ] as const) {
       expect(isLikelySiteUtilityJob({ canonicalUrl, title })).toBe(false);
     }
+  });
+
+  test("rejects board self-promotion, salary marketing and listing indexes", () => {
+    // Exact strings blind testers saw saved as jobs. Every rule below is a
+    // shape rule: no site name appears in the gate.
+    for (const [canonicalUrl, title] of [
+      ["https://remotive.com/remote-jobs", "Post a Remote Job"],
+      ["https://example-board.com/pricing", "Hire developers fast"],
+      [
+        "https://example-board.com/collections/high-paying",
+        "Remote Tech Jobs Paying $130k to $250k",
+      ],
+      [
+        "https://example-board.com/remote-data-science",
+        "Remote Data Science JobsLatest post about 3 hours ago",
+      ],
+      [
+        "https://example-board.com/frontend-berlin-munich",
+        "Frontend Developer Jobs in Berlin & Munich",
+      ],
+      [
+        "https://example-board.com/accessibility",
+        "Accessibility Statement (opens in new tab)",
+      ],
+      ["https://example-board.com/prishtina", "Prishtina Jobs"],
+      [
+        "https://www.ycombinator.com/companies/stripe",
+        "Stripe: payments infrastructure",
+      ],
+    ] as const) {
+      expect(isLikelySiteUtilityJob({ canonicalUrl, title })).toBe(true);
+    }
+
+    // A record whose employer is the board itself is the board advertising.
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://remotive.com/remote-jobs/software-dev/1234",
+        title: "Senior Backend Engineer",
+        company: "Remotive",
+      }),
+    ).toBe(true);
+
+    // Real postings with nearby wording stay.
+    for (const [canonicalUrl, title] of [
+      ["https://example-board.com/jobs/4421", "Postal Operations Manager"],
+      ["https://example-board.com/jobs/4422", "Hiring Manager, EMEA"],
+      [
+        "https://example-board.com/jobs/4423",
+        "Senior Data Scientist, Payments",
+      ],
+      ["https://example-board.com/jobs/4424", "Director of Jobs Marketplace"],
+    ] as const) {
+      expect(isLikelySiteUtilityJob({ canonicalUrl, title })).toBe(false);
+    }
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://remotive.com/remote-jobs/software-dev/1234",
+        title: "Senior Backend Engineer",
+        company: "Stripe",
+      }),
+    ).toBe(false);
   });
 
   test("flags KosovaJob-style navigation pages", () => {
@@ -2218,6 +2351,44 @@ describe("isLikelySiteUtilityJob", () => {
       isLikelySiteUtilityJob({
         canonicalUrl: "https://kosovajob.com/politike-e-privatesise",
         title: "Politike e Privatesise",
+      }),
+    ).toBe(true);
+  });
+
+  test("keeps a posting whose title happens to end in Jobs", () => {
+    // The category shape alone must not drop a real role.
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://example-board.com/jobs/9912",
+        title: "Director of Green Jobs",
+        company: "City of Portland",
+        description: "Lead the city's green workforce programme.",
+      }),
+    ).toBe(false);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://example-board.com/jobs/9913",
+        title: "Coordinator Youth Jobs",
+        company: "Bright Futures",
+        description: "Run the youth placement programme.",
+      }),
+    ).toBe(false);
+  });
+
+  test("still drops a category route card", () => {
+    // A place or category label with nothing an employer would publish.
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://example-board.com/remote-python",
+        title: "Remote Python Jobs",
+        company: "Example Board",
+        description: "Browse the newest openings.",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://example-board.com/jobs/9914",
+        title: "Director of Green Jobs",
       }),
     ).toBe(true);
   });
@@ -2350,5 +2521,148 @@ describe("isLikelySiteUtilityJob", () => {
     });
 
     expect(jobs).toEqual([]);
+  });
+});
+
+describe("stripCompanyMarketingBadges", () => {
+  test("drops placement badges that flatten into the employer line", () => {
+    // Testers saw this exact string printed as the company on a result card.
+    expect(
+      stripCompanyMarketingBadges(
+        "Boosted listing Toggl Boosted Featured Top 100 Full-Time",
+      ),
+    ).toBe("Toggl");
+    expect(stripCompanyMarketingBadges("Promoted Acme Corp Part-time")).toBe(
+      "Acme Corp",
+    );
+  });
+
+  test("leaves a real employer name alone, hyphens included", () => {
+    expect(stripCompanyMarketingBadges("MKY Treuhandpartner GmbH")).toBe(
+      "MKY Treuhandpartner GmbH",
+    );
+    expect(stripCompanyMarketingBadges("Jean-Luc & Partners")).toBe(
+      "Jean-Luc & Partners",
+    );
+  });
+
+  test("keeps an unreadable line rather than emptying the employer", () => {
+    expect(stripCompanyMarketingBadges("Featured Promoted")).toBe(
+      "Featured Promoted",
+    );
+  });
+
+  test("keeps employment words that belong to the company name", () => {
+    expect(stripCompanyMarketingBadges("Contract Furniture Company")).toBe(
+      "Contract Furniture Company",
+    );
+    expect(stripCompanyMarketingBadges("Temporary Staffing Group")).toBe(
+      "Temporary Staffing Group",
+    );
+    expect(stripCompanyMarketingBadges("Freelance Collective GmbH")).toBe(
+      "Freelance Collective GmbH",
+    );
+  });
+
+  test("never collapses a repeated word of a real employer name", () => {
+    expect(stripCompanyMarketingBadges("Pizza Pizza")).toBe("Pizza Pizza");
+    expect(stripCompanyMarketingBadges("Boosted Pizza Pizza Featured")).toBe(
+      "Pizza Pizza",
+    );
+  });
+
+  test("drops a badge chip separated by punctuation", () => {
+    expect(stripCompanyMarketingBadges("Acme Inc · Full-Time")).toBe(
+      "Acme Inc",
+    );
+    expect(
+      stripCompanyMarketingBadges("Contract Furniture Company • Contract"),
+    ).toBe("Contract Furniture Company");
+  });
+});
+
+describe("isLikelyDocumentAttachmentJob", () => {
+  test("rejects a linked policy document saved among the postings", () => {
+    expect(
+      isLikelyDocumentAttachmentJob({
+        canonicalUrl: "https://careers.example.test/files/applicant-rights.pdf",
+        title: "applicant rights under Federal Employment Laws.pdf",
+        company: "",
+        description: "",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelySiteUtilityJob({
+        canonicalUrl: "https://careers.example.test/files/applicant-rights.pdf",
+        title: "applicant rights under Federal Employment Laws.pdf",
+        company: "",
+        description: "",
+      }),
+    ).toBe(true);
+  });
+
+  test("keeps a real posting that happens to be served as a document", () => {
+    expect(
+      isLikelyDocumentAttachmentJob({
+        canonicalUrl: "https://careers.example.test/roles/warehouse-lead.pdf",
+        title: "Warehouse Lead",
+        company: "Example Logistics",
+        description:
+          "You will run the night shift, own the pick schedule and report to the site manager.",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("isListingIndexPageRecord", () => {
+  const pageUrl = "https://boards.example.test/jobs";
+
+  test("treats a bodyless record at the page's own address as the index", () => {
+    expect(
+      isListingIndexPageRecord({
+        canonicalUrl: pageUrl,
+        pageUrl,
+        siblingDetailUrlCount: 12,
+        title: "Jobs at Example",
+        description: "",
+      }),
+    ).toBe(true);
+  });
+
+  test("keeps a record that carries a job body of its own", () => {
+    expect(
+      isListingIndexPageRecord({
+        canonicalUrl: pageUrl,
+        pageUrl,
+        siblingDetailUrlCount: 12,
+        title: "Warehouse Lead",
+        description:
+          "You will run the night shift and own the pick schedule for the site.",
+      }),
+    ).toBe(false);
+  });
+
+  test("claims nothing about a page with too few sibling links to be an index", () => {
+    expect(
+      isListingIndexPageRecord({
+        canonicalUrl: pageUrl,
+        pageUrl,
+        siblingDetailUrlCount: 1,
+        title: "Jobs at Example",
+        description: "",
+      }),
+    ).toBe(false);
+  });
+
+  test("never demotes a posting at its own address", () => {
+    expect(
+      isListingIndexPageRecord({
+        canonicalUrl: "https://boards.example.test/jobs/4677969",
+        pageUrl,
+        siblingDetailUrlCount: 12,
+        title: "Warehouse Lead",
+        description: "",
+      }),
+    ).toBe(false);
   });
 });

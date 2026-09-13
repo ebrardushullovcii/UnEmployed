@@ -205,7 +205,10 @@ function buildResetIntentEntries(token: string): JobFinderResetIntentEntry[] {
 }
 
 async function syncFilePath(filePath: string) {
-  const handle = await open(filePath, "r");
+  // Opened for update, not for reading: Windows refuses fsync on a read-only
+  // handle with EPERM, which aborted every workspace reset there before a
+  // single file had been moved. POSIX is happy either way.
+  const handle = await open(filePath, "r+");
   try {
     await handle.sync();
   } finally {

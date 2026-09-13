@@ -1120,9 +1120,11 @@ describe("Playwright prepare-only application flow", () => {
     const {
       installPrepareOnlyMutationGuardInPage,
       readPrepareOnlyMutationGuardInPage,
+      registerPrepareOnlyPreparedValueInPage,
       setPrepareOnlyIntermediateMutationWindowInPage,
     } = await import("./playwright-application-flow");
     installPrepareOnlyMutationGuardInPage();
+    registerPrepareOnlyPreparedValueInPage("alex@example.com");
 
     const form = new FakeHtmlFormElement();
     form.submit();
@@ -1134,8 +1136,15 @@ describe("Playwright prepare-only application flow", () => {
         "https://apply.example.com/jobs/job_prepare_runtime/beacon",
         "payload",
       ),
+    ).toBe(true);
+    expect(originalSendBeacon).toHaveBeenCalledOnce();
+    expect(
+      fakeNavigator.sendBeacon(
+        "https://apply.example.com/cdn-cgi/rum",
+        "email=alex%40example.com",
+      ),
     ).toBe(false);
-    expect(originalSendBeacon).not.toHaveBeenCalled();
+    expect(originalSendBeacon).toHaveBeenCalledOnce();
 
     await expect(
       fakeWindow.fetch(
@@ -1149,13 +1158,26 @@ describe("Playwright prepare-only application flow", () => {
         { method: "GET" },
       ),
     ).rejects.toMatchObject({ name: "AbortError" });
+    await expect(
+      fakeWindow.fetch(
+        "https://apply.example.com/applications/collect/answers",
+        { method: "POST", body: "email=alex%40example.com" },
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
     expect(originalFetch).not.toHaveBeenCalled();
     // A queryless safe read carries nothing prepared; the page may render.
     await fakeWindow.fetch(
       "https://apply.example.com/jobs/job_prepare_runtime/form.json",
       { method: "GET" },
     );
-    expect(originalFetch).toHaveBeenCalledTimes(1);
+    await fakeWindow.fetch("https://apply.example.com/cdn-cgi/rum", {
+      method: "POST",
+      body: "opaque-rum-payload",
+    });
+    await fakeWindow.fetch("https://apply.example.com/analytics/collect", {
+      method: "GET",
+    });
+    expect(originalFetch).toHaveBeenCalledTimes(3);
 
     expect(
       () =>
@@ -1208,12 +1230,8 @@ describe("Playwright prepare-only application flow", () => {
     expect(guard.installed).toBe(true);
     expect(guard.blockedAttempts.map((attempt) => attempt.kind)).toEqual(
       expect.arrayContaining([
-        "form_submit",
-        "form_request_submit",
-        "send_beacon",
         "fetch",
         "xhr",
-        "dom_submit",
         "websocket",
         "eventsource",
         "window_open",
@@ -1265,10 +1283,12 @@ describe("Playwright prepare-only application flow", () => {
     form.requestSubmit();
     expect(originalFormSubmitCalls).toBe(0);
     expect(originalRequestSubmitCalls).toBe(0);
-    // One queryless read plus one authorized autosave; one queryless XHR read
+    // Three clean reads plus one authorized autosave; one queryless XHR read
     // plus one authorized draft PATCH.
-    expect(originalFetch).toHaveBeenCalledTimes(2);
-    expect(originalSendBeacon).not.toHaveBeenCalled();
+    expect(originalFetch).toHaveBeenCalledTimes(4);
+    // The telemetry beacon was allowed silently; the later progress write was
+    // blocked silently because it carried no value Job Finder prepared.
+    expect(originalSendBeacon).toHaveBeenCalledOnce();
     expect(originalXhrSendCalls).toBe(2);
     expect(originalWindowOpen).not.toHaveBeenCalled();
   });
@@ -1600,7 +1620,7 @@ describe("Playwright prepare-only application flow", () => {
 
       expect(state.clickedLabels).toEqual([]);
       expect(result.summary).toBe(
-        "Application preparation needs manual navigation",
+        "Finish this application step yourself",
       );
       expect(result.blocker?.code).toBe("requires_manual_review");
       expect(result.submittedAt).toBeNull();
@@ -3606,9 +3626,10 @@ describe("Playwright prepare-only application flow", () => {
     },
   );
 
-  test("never follows an Apply link or a manual-entry choice once a form or final-page evidence is on screen", async () => {
+  test("never follows an Apply link over a visible form, but treats exact links on form-free pages as navigation", async () => {
     for (const step of [
       {
+        shouldFollow: false,
         bodyText: "Application details",
         controls: [{ label: "Resume", inputType: "file", required: true }],
         actions: [
@@ -3621,6 +3642,7 @@ describe("Playwright prepare-only application flow", () => {
         ],
       },
       {
+        shouldFollow: true,
         bodyText: "Review your application before you submit",
         actions: [
           {
@@ -3637,7 +3659,11 @@ describe("Playwright prepare-only application flow", () => {
         steps: [step],
       });
       expect(state.clickedLabels).toEqual([]);
-      expect(state.gotoUrls).not.toContain("https://jobs.example.test/apply");
+      if (step.shouldFollow) {
+        expect(state.gotoUrls).toContain("https://jobs.example.test/apply");
+      } else {
+        expect(state.gotoUrls).not.toContain("https://jobs.example.test/apply");
+      }
       expect(result.state).toBe("paused");
     }
   });
@@ -3667,7 +3693,7 @@ describe("Playwright prepare-only application flow", () => {
       "Paused without a safe advance control",
     );
     expect(result.summary).toBe(
-      "Application preparation needs manual navigation",
+      "Finish this application step yourself",
     );
   });
 

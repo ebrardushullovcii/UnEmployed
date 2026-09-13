@@ -1,15 +1,8 @@
 import type { ReviewQueueItem, TailoredAsset } from "@unemployed/contracts";
 import { ChevronRight } from "lucide-react";
-import { Checkbox } from "@renderer/components/ui/checkbox";
-import {
-  Button,
-  ProgressBar,
-  SelectableRow,
-  SelectableRowLine,
-} from "@renderer/components/ui";
+import { Button } from "@renderer/components/ui";
 import { cn } from "@renderer/lib/cn";
 import {
-  useCallback,
   useDeferredValue,
   useEffect,
   useId,
@@ -29,18 +22,10 @@ import {
 } from "../../components/collection-search-toolbar";
 import { EmptyState } from "../../components/empty-state";
 import { formatJobEmployerLocationLine } from "../../lib/job-employer-location-display";
-import {
-  jobFinderListRegionClassName,
-  jobFinderListRowBadgeSlotClassName,
-  jobFinderListRowClassName,
-  jobFinderListRowLinesClassName,
-  jobFinderListRowMetaClassName,
-  jobFinderListRowStatusClassName,
-  jobFinderListRowTitleClassName,
-  jobFinderListRowTitleLineClassName,
-} from "../../components/list-row";
-import { StatusBadge } from "../../components/status-badge";
+import { jobFinderListRegionClassName } from "../../components/list-row";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
+import { useStableCallback } from "../../hooks/use-stable-callback";
+import { ReviewQueueRow } from "./review-queue-list-row";
 import {
   focusCollectionItem,
   getAdjacentCollectionItemId,
@@ -52,6 +37,7 @@ import {
   TAILORED_DRAFT_PREPARATION_LIMIT,
   countQueueStageReady,
   countTailoredDraftPreparationEligible,
+  describeTailoredDraftPreparationBlocker,
   getReviewQueueResumePolicyCaption,
   getReviewQueueWorkflowStatus,
   getTailoredDraftPreparationResultMessage,
@@ -67,6 +53,11 @@ interface ReviewQueueListPanelProps {
   onSelectItem: (jobId: string) => void;
   onStopTailoredDraftPreparation?: () => void;
   onToggleQueueSelection: (jobId: string, checked: boolean) => void;
+  /**
+   * Jobs whose application is already prepared. They stop counting as ready
+   * to prepare and stop being offered for batch selection.
+   */
+  preparedJobIds?: ReadonlySet<string>;
   queue: readonly ReviewQueueItem[];
   queueSelection: readonly string[];
   selectedItem: ReviewQueueItem | null;
@@ -88,6 +79,7 @@ export function ReviewQueueListPanel({
   onSelectItem,
   onStopTailoredDraftPreparation = () => undefined,
   onToggleQueueSelection,
+  preparedJobIds,
   queue,
   queueSelection,
   selectedItem,
@@ -110,11 +102,15 @@ export function ReviewQueueListPanel({
           item.company,
           item.location,
           item.resumeApplicationMode,
-          getReviewQueueWorkflowStatus(item, assetsByJobId.get(item.jobId))
-            .label,
+          getReviewQueueWorkflowStatus(
+            item,
+            assetsByJobId.get(item.jobId),
+            false,
+            preparedJobIds,
+          ).label,
         ]),
       ),
-    [assetsByJobId, deferredQuery, queue],
+    [assetsByJobId, deferredQuery, preparedJobIds, queue],
   );
   const [queuePage, setQueuePage] = useState(1);
   const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
@@ -175,7 +171,7 @@ export function ReviewQueueListPanel({
           )
           .map((item) => item.jobId),
       ),
-    [queue, queueSelectionSet],
+    [preparedJobIds, queue, queueSelectionSet],
   );
   const queueSelectionLimitReached =
     selectedReadyQueueIds.size >= APPLICATION_PREPARATION_BATCH_LIMIT;
@@ -183,17 +179,28 @@ export function ReviewQueueListPanel({
     () => [
       ...new Set(
         visibleQueue
-          .filter((item) => isQueueStageReady(item))
+          .filter((item) => isQueueStageReady(item, preparedJobIds))
           .map((item) => item.jobId),
       ),
     ],
-    [visibleQueue],
+    [preparedJobIds, visibleQueue],
   );
+  // One population, read once: both numbers on this card, and the button
+  // beside them, come off the same queue plus the same prepared-job set the
+  // application records give. They used to be computed from two different
+  // pools, so the card could print "0 eligible · 12 ready to prepare".
   const draftEligibleCount = useMemo(
-    () => countTailoredDraftPreparationEligible(queue),
-    [queue],
+    () => countTailoredDraftPreparationEligible(queue, preparedJobIds),
+    [preparedJobIds, queue],
   );
-  const readyToStageCount = useMemo(() => countQueueStageReady(queue), [queue]);
+  const draftPreparationBlocker = useMemo(
+    () => describeTailoredDraftPreparationBlocker(queue, preparedJobIds),
+    [preparedJobIds, queue],
+  );
+  const readyToStageCount = useMemo(
+    () => countQueueStageReady(queue, preparedJobIds),
+    [preparedJobIds, queue],
+  );
   const isDraftPreparationRunning = draftPreparation.status === "running";
   const overDraftPreparationLimit =
     draftEligibleCount > TAILORED_DRAFT_PREPARATION_LIMIT;
@@ -210,7 +217,11 @@ export function ReviewQueueListPanel({
     isDraftPreparationRunning || draftEligibleCount < 2
       ? null
       : `${draftEligibleCount} jobs still need their first tailored draft`;
-  const handleListKeyDown = useCallback(
+  // The three row handlers keep one identity for the life of the panel. Each
+  // closes over the queue, so a `useCallback` on it would be rebuilt whenever
+  // any job changed and every row would re-render with it — which is exactly
+  // what memoising the rows is meant to stop.
+  const handleListKeyDown = useStableCallback(
     (event: KeyboardEvent<HTMLButtonElement>, jobId: string) => {
       const nextId = getAdjacentCollectionItemId(
         visibleQueue.map((item) => item.jobId),
@@ -227,7 +238,14 @@ export function ReviewQueueListPanel({
       onSelectItem(nextId);
       setPendingFocusId(nextId);
     },
-    [currentQueuePage, onSelectItem, visibleQueue],
+  );
+  const selectItem = useStableCallback((jobId: string) => {
+    onSelectItem(jobId);
+  });
+  const toggleQueueSelection = useStableCallback(
+    (jobId: string, checked: boolean) => {
+      onToggleQueueSelection(jobId, checked);
+    },
   );
 
   return (
@@ -299,8 +317,14 @@ export function ReviewQueueListPanel({
                     (review required)
                   </strong>
                   <p className="m-0">
-                    {draftEligibleCount} eligible · {readyToStageCount} ready to
-                    prepare
+                    {/* Two different things, said in words that cannot be
+                        read as one: a job needing its first draft is not a
+                        job whose resume is finished and waiting. */}
+                    {draftEligibleCount}{" "}
+                    {draftEligibleCount === 1
+                      ? "job needs a first draft"
+                      : "jobs need a first draft"}{" "}
+                    · {readyToStageCount} ready to prepare
                   </p>
                   <p className="m-0 text-foreground-muted">
                     Each resume takes about a minute, so a full batch of{" "}
@@ -346,7 +370,7 @@ export function ReviewQueueListPanel({
                     ) : null}
                     <Button
                       className="w-fit whitespace-normal text-sm font-medium normal-case tracking-normal"
-                      disabled={draftEligibleCount === 0}
+                      disabled={draftPreparationBlocker !== null}
                       onClick={onPrepareTailoredDrafts}
                       size="sm"
                       type="button"
@@ -355,6 +379,17 @@ export function ReviewQueueListPanel({
                       Prepare up to {TAILORED_DRAFT_PREPARATION_LIMIT} drafts
                       (review required)
                     </Button>
+                    {/* A greyed control with no reason beside it is the whole
+                        defect: the person could not tell whether the app was
+                        broken or they had already done the thing. */}
+                    {draftPreparationBlocker ? (
+                      <p
+                        className="m-0 text-xs text-foreground-muted"
+                        data-testid="tailored-draft-preparation-blocker"
+                      >
+                        {draftPreparationBlocker}
+                      </p>
+                    ) : null}
                   </div>
                 )}
               </div>
@@ -435,15 +470,18 @@ export function ReviewQueueListPanel({
           ref={queueListRegionRef}
         >
           {pagedVisibleQueue.map((item) => {
+            // Every value the row renders is derived here and handed over as a
+            // string or a boolean, so a step that changes one job's status
+            // leaves the other rows' props identical and they skip the render.
             const isPending = isJobPending(item.jobId);
             const workflowStatus = getReviewQueueWorkflowStatus(
               item,
               assetsByJobId.get(item.jobId),
               isPending,
+              preparedJobIds,
             );
-            const showProgress =
-              isResumeGenerationInProgress(item) || isPending;
-            const queueReady = isQueueStageReady(item);
+            const queueReady = isQueueStageReady(item, preparedJobIds);
+            const alreadyPrepared = Boolean(preparedJobIds?.has(item.jobId));
             const selectedForQueue = queueSelectionSet.has(item.jobId);
             const queueSelectionDisabled =
               !selectedForQueue && (!queueReady || queueSelectionLimitReached);
@@ -451,129 +489,42 @@ export function ReviewQueueListPanel({
             const queueDisabledReasonId = `${queueCheckboxId}-disabled-reason`;
 
             return (
-              // Selection is a tint plus an inset accent bar owned by the
-              // shared primitive. The row's padding, margin and border-width
-              // are identical in both states, so selecting a row can no longer
-              // resize it or move every row below it.
-              <SelectableRow
-                as="div"
+              <ReviewQueueRow
+                batchSelectionVisible={batchActionsOpen}
+                checkboxId={queueCheckboxId}
+                disabledReasonId={queueDisabledReasonId}
+                employerLocationLine={formatJobEmployerLocationLine({
+                  company: item.company,
+                  location: item.location,
+                  separator: " • ",
+                })}
+                jobId={item.jobId}
                 key={item.jobId}
-                className={cn(jobFinderListRowClassName, "text-foreground")}
+                onSelect={selectItem}
+                onSelectionKeyDown={handleListKeyDown}
+                onToggleSelection={toggleQueueSelection}
+                resumePolicyCaption={getReviewQueueResumePolicyCaption(
+                  item,
+                  assetsByJobId.get(item.jobId),
+                )}
                 selected={selectedItem?.jobId === item.jobId}
-              >
-                {batchActionsOpen ? (
-                  <label
-                    htmlFor={queueCheckboxId}
-                    className={cn(
-                      "inline-flex items-center gap-2 text-(length:--text-tiny) uppercase tracking-(--tracking-badge)",
-                      !queueSelectionDisabled
-                        ? "text-foreground-soft"
-                        : "text-muted-foreground",
-                    )}
-                  >
-                    <Checkbox
-                      aria-describedby={
-                        queueSelectionDisabled
-                          ? queueDisabledReasonId
-                          : undefined
-                      }
-                      id={queueCheckboxId}
-                      checked={selectedForQueue}
-                      disabled={queueSelectionDisabled}
-                      onCheckedChange={(value) => {
-                        const checked = value === true;
-                        if (
-                          checked &&
-                          !selectedForQueue &&
-                          queueSelectionLimitReached
-                        ) {
-                          return;
-                        }
-                        onToggleQueueSelection(item.jobId, checked);
-                      }}
-                    />
-                    Select for batch
-                  </label>
-                ) : null}
-                <button
-                  aria-current={
-                    selectedItem?.jobId === item.jobId ? "true" : undefined
-                  }
-                  aria-keyshortcuts="ArrowUp ArrowDown Home End"
-                  className={cn(
-                    jobFinderListRowLinesClassName,
-                    "w-full text-left outline-none transition-colors hover:bg-transparent focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                  )}
-                  data-collection-item-id={item.jobId}
-                  onClick={() => onSelectItem(item.jobId)}
-                  onKeyDown={(event) => handleListKeyDown(event, item.jobId)}
-                  type="button"
-                >
-                  {/* Title line, with the one badge slot trailing it - the
-                      same slot Find jobs and Applications use. The badge
-                      renders for every row, selected or not: hiding it on the
-                      selected row made that row look stripped of its state
-                      rather than merely selected. */}
-                  <div className={jobFinderListRowTitleLineClassName}>
-                    <strong className={jobFinderListRowTitleClassName}>
-                      {item.title}
-                    </strong>
-                    <div className={jobFinderListRowBadgeSlotClassName}>
-                      <SelectableRowLine className="flex justify-end">
-                        <StatusBadge
-                          className="max-w-none shrink-0 whitespace-nowrap"
-                          tone={workflowStatus.tone}
-                        >
-                          {workflowStatus.label}
-                        </StatusBadge>
-                      </SelectableRowLine>
-                    </div>
-                  </div>
-                  {(() => {
-                    const employerLocationLine = formatJobEmployerLocationLine({
-                      company: item.company,
-                      location: item.location,
-                      separator: " • ",
-                    });
-                    return employerLocationLine ? (
-                      <span className={jobFinderListRowMetaClassName}>
-                        {employerLocationLine}
-                      </span>
-                    ) : null;
-                  })()}
-                  {/* The resume-state caption renders on every row too, so a
-                      selected row keeps the same shape as its neighbours. */}
-                  <SelectableRowLine
-                    className={cn(
-                      jobFinderListRowStatusClassName,
-                      "font-medium text-foreground-soft",
-                    )}
-                  >
-                    {getReviewQueueResumePolicyCaption(item)}
-                  </SelectableRowLine>
-                  {batchActionsOpen && queueSelectionDisabled ? (
-                    <span
-                      className="block w-full text-(length:--text-small) leading-5 text-muted-foreground"
-                      id={queueDisabledReasonId}
-                    >
-                      {!queueReady
-                        ? "Batch preparation needs a ready resume file: an approved tailored PDF or unchanged original resume."
-                        : `Each employer-application batch can include up to ${APPLICATION_PREPARATION_BATCH_LIMIT} jobs. Deselect a job before choosing another.`}
-                    </span>
-                  ) : null}
-                  {showProgress ? (
-                    <div className="grid min-w-0 w-full gap-1.5">
-                      {/* Row-level progress had no real percentage behind it
-                          either; it only needs to say "this one is running". */}
-                      <ProgressBar
-                        ariaLabel="Resume preparation in progress"
-                        className="h-1.5 w-full overflow-hidden rounded-full bg-(--surface-progress-track)"
-                        indeterminate
-                      />
-                    </div>
-                  ) : null}
-                </button>
-              </SelectableRow>
+                selectedForBatch={selectedForQueue}
+                selectionDisabled={queueSelectionDisabled}
+                selectionDisabledReason={
+                  batchActionsOpen && queueSelectionDisabled
+                    ? !queueReady
+                      ? alreadyPrepared
+                        ? "An application is already prepared for this job. Open it from Applications to continue."
+                        : "Batch preparation needs a ready resume file: an approved tailored PDF or unchanged original resume."
+                      : `Each employer-application batch can include up to ${APPLICATION_PREPARATION_BATCH_LIMIT} jobs. Deselect a job before choosing another.`
+                    : null
+                }
+                selectionLimitReached={queueSelectionLimitReached}
+                showProgress={isResumeGenerationInProgress(item) || isPending}
+                statusLabel={workflowStatus.label}
+                statusTone={workflowStatus.tone}
+                title={item.title}
+              />
             );
           })}
         </div>

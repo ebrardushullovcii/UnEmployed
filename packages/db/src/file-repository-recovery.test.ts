@@ -11,7 +11,7 @@ import { existsSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { SavedJobSchema } from "@unemployed/contracts";
 
 import { createFileJobFinderRepository } from "./index";
@@ -25,13 +25,22 @@ import {
   type WorkspaceRecoveryValidationOverrides,
 } from "./file-repository-recovery";
 import { getWorkspaceDatabaseBackupPaths } from "./file-repository-backup";
-import { runMigrations } from "./internal/migrations";
+import { openDatabaseFile, runMigrations } from "./internal/migrations";
 import { hasPersistedState, listValues } from "./internal/state";
 import { createSeed } from "./test-fixtures";
 import {
   cleanupTempDirectoryWithRetry,
   createSavedJob,
 } from "./file-repository.test-support";
+
+// Windows pays for every one of these tests twice: VACUUM INTO snapshots and
+// rotation renames are slower there, and removing a temporary directory has to
+// retry until the OS releases the last handle. Under a parallel run that
+// outgrows vitest's 5s default and the suite fails on the clock rather than on
+// behaviour. POSIX keeps the default, so a real hang still fails fast there.
+if (process.platform === "win32") {
+  vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+}
 
 const DETECTED_AT = new Date("2026-08-23T09:30:00.000Z");
 const DETECTED_AT_ISO = "2026-08-23T09:30:00.000Z";
@@ -109,10 +118,16 @@ async function corruptWithNotDatabaseContent(
 }
 
 function captureOpenError(databasePath: string): unknown {
+  // Opened through the repository's own helper so the failed open releases
+  // its handle: on Windows a leaked handle keeps the suspect file locked and
+  // the recovery under test can no longer rename it aside.
   try {
-    const database = new DatabaseSync(databasePath);
-    database.exec("PRAGMA schema_version");
-    database.close();
+    const database = openDatabaseFile(databasePath);
+    try {
+      database.exec("PRAGMA schema_version");
+    } finally {
+      database.close();
+    }
   } catch (error) {
     return error;
   }

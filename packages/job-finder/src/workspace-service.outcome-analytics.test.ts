@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   ApplicationRecordSchema,
+  UNKNOWN_JOB_SOURCE_BUCKET_KEY,
   type OutcomeAnalyticsOverview,
 } from "@unemployed/contracts";
 
@@ -91,7 +92,14 @@ describe("workspace outcome analytics end to end", () => {
       offer: 0,
     });
     expect(campaignBucket.interviewRate).toBeNull();
-    const sourceBucket = bucketOf(overview, "source", "target_site");
+    // Outcomes group by the saved source the job came from. These fixture
+    // jobs carry no discovery lineage, so they group under the named
+    // unknown-source bucket instead of disappearing from the breakdown.
+    const sourceBucket = bucketOf(
+      overview,
+      "source",
+      UNKNOWN_JOB_SOURCE_BUCKET_KEY,
+    );
     expect(sourceBucket.sampleSize).toBe(2);
   });
 
@@ -212,8 +220,11 @@ describe("workspace outcome analytics end to end", () => {
       ).sampleSize,
     ).toBe(1);
     expect(
-      bucketOf(snapshot.intelligence.outcomeAnalytics, "source", "target_site")
-        .sampleSize,
+      bucketOf(
+        snapshot.intelligence.outcomeAnalytics,
+        "source",
+        UNKNOWN_JOB_SOURCE_BUCKET_KEY,
+      ).sampleSize,
     ).toBe(2);
   });
 

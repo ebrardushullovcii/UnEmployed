@@ -140,7 +140,9 @@ function createSavedJob(
 
 describe("discovered posting detail-quality merges", () => {
   test("a thinner recrawl keeps richer saved detail and does not stale approved resumes", () => {
-    const existing = createSavedJob(createRecrawl());
+    const existing = createSavedJob(createRecrawl(), {
+      campaignIds: ["campaign_first", "campaign_second"],
+    });
     const merged = mergeDiscoveredJob(
       existing.matchAssessment,
       createThinRecrawl(),
@@ -173,6 +175,10 @@ describe("discovered posting detail-quality merges", () => {
     expect(merged.firstSeenAt).toBe(existing.firstSeenAt);
     expect(merged.lastSeenAt).toBe("2026-03-21T10:00:00.000Z");
     expect(merged.lastVerifiedActiveAt).toBe("2026-03-21T10:00:00.000Z");
+    expect(merged.campaignIds).toEqual([
+      "campaign_first",
+      "campaign_second",
+    ]);
     // No resume-affecting regression means approved exports stay valid.
     expect(collectResumeAffectingChangedJobIds([existing], [merged])).toEqual(
       [],
@@ -456,5 +462,30 @@ describe("mergeDiscoveredPostings detail-quality monotonicity", () => {
     expect(
       collectResumeAffectingChangedJobIds([existing], result.mergedJobs),
     ).toEqual([]);
+  });
+
+  test("never persists pagination or an empty non-detail site section", () => {
+    const result = mergeWithExisting(
+      [],
+      [
+        createRecrawl({
+          sourceJobId: "page_1000",
+          canonicalUrl: "https://example.com/jobs?page=1000",
+          title: "Go to page 1000",
+          company: "Employer not listed",
+          description: "Go to page 1000",
+        }),
+        createRecrawl({
+          sourceJobId: "content_descriptions",
+          canonicalUrl: "https://example.com/content/descriptions",
+          title: "Content Descriptions",
+          company: "Employer not listed",
+          description: "Content Descriptions",
+        }),
+      ],
+    );
+
+    expect(result.mergedJobs).toEqual([]);
+    expect(result.invalidSkipped).toBe(2);
   });
 });

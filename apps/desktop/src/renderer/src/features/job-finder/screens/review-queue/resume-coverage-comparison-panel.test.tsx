@@ -135,3 +135,143 @@ describe("ResumeCoverageComparisonPanel", () => {
     expect(onRestoreClaim).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("reworded lines in the coverage comparison", () => {
+  afterEach(cleanup);
+
+  const comparisonWithRewording: ResumeCoverageComparison = {
+    ...baseComparison,
+    removedClaimCount: 3,
+    addedClaimCount: 2,
+    roles: [
+      {
+        ...baseComparison.roles[0]!,
+        status: "rewritten",
+        originalClaimCount: 3,
+        retainedClaimCount: 0,
+        addedClaims: [
+          {
+            field: "bullet",
+            text: "Led the payments platform migration and cut checkout latency by 40 percent.",
+            restorable: false,
+          },
+        ],
+        removedClaims: [
+          {
+            field: "bullet",
+            text: "Led the payments platform migration.",
+            restorable: true,
+          },
+          {
+            field: "bullet",
+            text: "Cut checkout latency by 40 percent.",
+            restorable: true,
+          },
+          {
+            field: "bullet",
+            text: "Mentored two interns through their first release.",
+            restorable: true,
+          },
+        ],
+      },
+    ],
+  };
+
+  it("counts only lines with no wording left on the page", () => {
+    render(
+      <ResumeCoverageComparisonPanel
+        comparison={comparisonWithRewording}
+        disabled={false}
+        onRestoreClaim={vi.fn()}
+        onRestoreRole={vi.fn()}
+      />,
+    );
+
+    // Two of the three originals were merged into one sentence that is on the
+    // page; only the mentoring line is genuinely gone.
+    expect(screen.getByText("1 line removed")).toBeTruthy();
+    expect(screen.queryByText("3 lines removed")).toBeNull();
+  });
+
+  it("pairs a merged rewrite into one before/after row and never lists it as missing", () => {
+    render(
+      <ResumeCoverageComparisonPanel
+        comparison={comparisonWithRewording}
+        disabled={false}
+        onRestoreClaim={vi.fn()}
+        onRestoreRole={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("Before: Led the payments platform migration."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Before: Cut checkout latency by 40 percent."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Now: Led the payments platform migration and cut checkout latency by 40 percent.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("− Mentored two interns through their first release."),
+    ).toBeTruthy();
+    // The reworded originals never appear under the "not on the page" list.
+    expect(
+      screen.queryByText("− Led the payments platform migration."),
+    ).toBeNull();
+  });
+});
+
+describe("lines the tailored resume moved to another role", () => {
+  afterEach(cleanup);
+
+  it("does not call a line missing when it is on the page under another role", () => {
+    const movedLine =
+      "Mentored two interns through their first production release.";
+    const comparison: ResumeCoverageComparison = {
+      ...baseComparison,
+      removedClaimCount: 1,
+      addedClaimCount: 1,
+      roles: [
+        {
+          ...baseComparison.roles[0]!,
+          status: "rewritten",
+          originalClaimCount: 1,
+          retainedClaimCount: 0,
+          addedClaims: [],
+          removedClaims: [
+            { field: "bullet", text: movedLine, restorable: true },
+          ],
+        },
+        {
+          ...baseComparison.roles[0]!,
+          profileRecordId: "experience_second",
+          title: "Staff Engineer",
+          employer: "Northwind",
+          originalIndex: 1,
+          status: "rewritten",
+          originalClaimCount: 0,
+          retainedClaimCount: 0,
+          addedClaims: [
+            { field: "bullet", text: movedLine, restorable: false },
+          ],
+          removedClaims: [],
+        },
+      ],
+    };
+
+    render(
+      <ResumeCoverageComparisonPanel
+        comparison={comparison}
+        disabled={false}
+        onRestoreClaim={vi.fn()}
+        onRestoreRole={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByText("1 line removed")).toBeNull();
+    expect(screen.queryByText(`− ${movedLine}`)).toBeNull();
+  });
+});

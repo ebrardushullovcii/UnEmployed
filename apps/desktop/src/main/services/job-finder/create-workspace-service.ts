@@ -57,6 +57,7 @@ import {
   isEnabled,
 } from "./test-api";
 import { migrateLegacyResumeSource } from "./migrate-resume-source";
+import { recoverInterruptedDiscoveryRuns } from "./recover-interrupted-discovery-runs";
 import { recoverPendingJobFinderWorkspaceReset } from "./reset-workspace";
 import { getCandidateAssetLibrary } from "./candidate-asset-library-instance";
 import type {
@@ -550,6 +551,12 @@ export async function createJobFinderWorkspaceServiceAsync(
     now: new Date().toISOString(),
   });
   clearBlockedStartupDatabaseRecoveryIncident();
+  // A search that was still running when the app closed leaves a run record
+  // claiming to be running with nothing driving it. Left alone it made the
+  // app report the whole search as saved and then say "Nothing was deleted"
+  // over a shorter list. Recording the interruption here, before anything
+  // reads the workspace, lets every screen say what the run actually kept.
+  await recoverInterruptedDiscoveryRuns(jobFinderRepository);
   await recoverPendingJobFinderWorkspaceReset(jobFinderRepository);
   await migrateLegacyResumeSource({
     documentsDirectory: getJobFinderDocumentsDirectory(),

@@ -484,6 +484,23 @@ function resolveAssetPath(
   return path.join(workspaceRoot, manifest.assetRoot, assetPath);
 }
 
+/**
+ * Reads a seed text asset with one newline spelling.
+ *
+ * These fixtures are text files git may check out with CRLF on Windows, and
+ * the pinned digests are over their content, not over the checkout's line
+ * endings. Normalising here keeps one seed corpus meaning one digest on every
+ * machine; the bytes on POSIX are unchanged, so the recorded digests still
+ * hold.
+ */
+async function readSeedTextAsset(
+  manifest: BlindPersonaManifest,
+  assetPath: string,
+): Promise<string> {
+  const raw = await readFile(resolveAssetPath(manifest, assetPath), "utf8");
+  return raw.replace(/\r\n/gu, "\n");
+}
+
 export async function calculateBlindPersonaDigest(
   manifest: BlindPersonaManifest,
 ): Promise<{ assetPaths: string[]; digestSha256: string }> {
@@ -496,9 +513,7 @@ export async function calculateBlindPersonaDigest(
   const assets = await Promise.all(
     assetPaths.map(async (assetPath) => ({
       path: assetPath,
-      sha256: sha256(
-        await readFile(resolveAssetPath(manifest, assetPath), "utf8"),
-      ),
+      sha256: sha256(await readSeedTextAsset(manifest, assetPath)),
     })),
   );
   const manifestWithoutDigest = { ...manifest } as unknown as Record<
@@ -525,7 +540,7 @@ export async function loadBlindPersonaSeedData(): Promise<LoadedBlindPersonaSeed
     manifest.visualReviewTemplate,
   );
   const jobCorpora = parseJson<BlindPersonaJobCorpora>(
-    await readFile(resolveAssetPath(manifest, manifest.jobCorpusPath), "utf8"),
+    await readSeedTextAsset(manifest, manifest.jobCorpusPath),
     "Blind persona job corpora",
   );
   const corpusBindings = parseBlindPersonaCorpusBindings(

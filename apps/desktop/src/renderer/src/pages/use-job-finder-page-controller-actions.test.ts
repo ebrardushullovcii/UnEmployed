@@ -111,6 +111,51 @@ describe("createActionRunners", () => {
     expect(pendingActionState).toEqual({});
   });
 
+  it("releases a stuck command button with an honest timeout message", async () => {
+    vi.useFakeTimers();
+    try {
+      let actionState: ActionState = { message: null };
+      let pendingActionState: PendingActionState = {};
+      let resolveAction!: (value: string) => void;
+      const scope = jobFinderPendingActions.userAction("request_1");
+      const { runAction } = createActionRunners({
+        setActionState: (next) => {
+          actionState = typeof next === "function" ? next(actionState) : next;
+        },
+        setPendingActionState: (next) => {
+          pendingActionState =
+            typeof next === "function" ? next(pendingActionState) : next;
+        },
+      });
+      const pendingResult = new Promise<string>((resolve) => {
+        resolveAction = resolve;
+      });
+      const actionPromise = runAction(
+        () => pendingResult,
+        () => undefined,
+        "Saved",
+        {
+          scope,
+          releasePendingAfterMs: 90_000,
+          pendingTimeoutMessage:
+            "This took too long to confirm. Check its status before trying again.",
+        },
+      );
+
+      await vi.advanceTimersByTimeAsync(90_000);
+      expect(pendingActionState).toEqual({});
+      expect(actionState.message).toBe(
+        "This took too long to confirm. Check its status before trying again.",
+      );
+
+      resolveAction("done");
+      await actionPromise;
+      expect(actionState.message).toBe("Saved");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not let a stale finally clear a newer operation after navigation cleanup", async () => {
     let actionState: ActionState = { message: null };
     let pendingActionState: PendingActionState = {};

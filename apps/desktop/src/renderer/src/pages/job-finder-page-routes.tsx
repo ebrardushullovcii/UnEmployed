@@ -1,4 +1,5 @@
 import { lazy, useCallback, useEffect, useMemo, useState } from "react";
+import { projectPlanSafeguardPauses } from "@unemployed/job-finder/plan-safeguard-pauses";
 import type { ReactNode } from "react";
 import { jobFinderPendingActions } from "./job-finder-pending-actions";
 import { Button } from "@renderer/components/ui/button";
@@ -759,10 +760,14 @@ export function JobFinderCampaignsRoute() {
       workspace={context.workspace}
     >
       <CampaignsScreen
+        safeguardPauses={projectPlanSafeguardPauses(context.workspace.intelligence?.safeguards, context.workspace.campaigns)}
         activeCampaignId={context.workspace.activeCampaignId}
+        activeDiscoveryRun={context.workspace.activeDiscoveryRun ?? null}
         campaignRuleFunnel={funnelProjection}
         campaignRulePending={rulePending}
         campaigns={context.workspace.campaigns}
+        profile={context.workspace.profile}
+        discoveryRuns={context.workspace.recentDiscoveryRuns}
         onDeleteCampaign={context.onDeleteCampaign}
         onDeleteCampaignRule={handleDeleteCampaignRule}
         onRefreshCampaignRuleFunnel={refreshCampaignRuleFunnel}
@@ -870,6 +875,12 @@ export function JobFinderProfileRoute() {
       discoveryRuns={context.workspace.recentDiscoveryRuns}
       recentSourceDebugRuns={context.workspace.recentSourceDebugRuns}
       searchPreferences={context.workspace.searchPreferences}
+      resumeApplicationMode={
+        context.workspace.settings.resumeApplicationMode ?? "tailored_per_job"
+      }
+      onSelectResumeApplicationMode={(resumeApplicationMode) => {
+        void context.onUpdateApplicationDefaults({ resumeApplicationMode });
+      }}
       sourceAccessPrompts={context.workspace.sourceAccessPrompts}
       sourceInstructionArtifacts={context.workspace.sourceInstructionArtifacts}
     />
@@ -930,6 +941,7 @@ export function JobFinderProfileSetupRoute() {
         context.onRejectProfileCopilotPatchGroup
       }
       onResumeSetup={context.onResumeProfileSetup}
+      onRunSourceDebug={context.onRunSourceDebug}
       onSaveSetupStep={context.onSaveSetupStep}
       onSendProfileCopilotMessage={context.onSendProfileCopilotMessage}
       onUndoProfileRevision={context.onUndoProfileRevision}
@@ -937,6 +949,7 @@ export function JobFinderProfileSetupRoute() {
       profileCopilotMessages={context.workspace.profileCopilotMessages}
       profileRevisions={context.workspace.profileRevisions}
       profileSetupState={context.workspace.profileSetupState}
+      recentSourceDebugRuns={context.workspace.recentSourceDebugRuns}
       {...(context.workspace.settings.resumeApplicationMode
         ? {
             resumeApplicationMode:
@@ -1084,7 +1097,13 @@ export function JobFinderDiscoveryRoute() {
         actionState={context.actionState}
         activityPaused={context.workspace.activityControl?.paused ?? false}
         activeRun={context.workspace.activeDiscoveryRun}
+        applicationRecords={context.workspace.applicationRecords}
+        reviewQueue={context.workspace.reviewQueue}
         campaigns={context.workspace.campaigns}
+        safeguardPauses={projectPlanSafeguardPauses(
+          context.workspace.intelligence?.safeguards,
+          context.workspace.campaigns,
+        )}
         activeCampaignId={context.workspace.activeCampaignId}
         isPlanSwitchPending={planSwitchPending}
         onSelectCampaign={(campaignId) => {
@@ -1145,6 +1164,10 @@ export function JobFinderDiscoveryRoute() {
         onOpenCompany={(companyId) =>
           context.onNavigateSafely(`/job-finder/companies/${companyId}`)
         }
+        onOpenApplication={(recordId) => {
+          context.onSelectApplicationRecord(recordId);
+          context.onNavigateSafely("/job-finder/applications");
+        }}
         onQueueJob={context.onQueueJob}
         onRunAgentDiscovery={context.onRunAgentDiscovery}
         {...(context.onCancelDiscovery
@@ -1348,11 +1371,18 @@ function JobFinderReviewQueueRouteContent() {
           context.onSelectDiscoveryJob(jobId);
           context.onNavigateSafely("/job-finder/discovery");
         }}
+        onOpenApplication={(recordId) => {
+          context.onSelectApplicationRecord(recordId);
+          context.onNavigateSafely("/job-finder/applications");
+        }}
         onOpenProfile={context.onOpenProfile}
+        onClaimResumeIdentity={context.onClaimResumeIdentity}
+        onKeepResumeIdentity={context.onKeepResumeIdentity}
         onRemoveReviewJob={context.onRemoveReviewJob}
         onSetJobResumeApplicationMode={context.onSetJobResumeApplicationMode}
         onSelectItem={handleSelectItem}
         originalResume={context.workspace.profile.baseResume}
+        profile={context.workspace.profile}
         queue={queue}
         resumeStrategies={context.workspace.intelligence.resumeStrategies}
         resumeStrategySelections={
@@ -1416,6 +1446,9 @@ export function JobFinderResumeWorkspaceRoute() {
     >
       <ResumeWorkspaceScreen
         actionMessage={context.actionState.message}
+        actionSavedFilePath={context.actionState.savedFilePath ?? null}
+        onClaimResumeIdentity={context.onClaimResumeIdentity}
+        onRevealSavedFile={context.onRevealSavedFile}
         assistantMessages={context.resumeAssistantMessages}
         availableResumeTemplates={context.workspace.availableResumeTemplates}
         assistantPending={context.resumeAssistantPending}
@@ -1962,6 +1995,7 @@ export function JobFinderActionsRoute() {
       workspace={context.workspace}
     >
       <ActionsScreen
+        safeguardPauses={projectPlanSafeguardPauses(context.workspace.intelligence?.safeguards, context.workspace.campaigns)}
         applicationAttempts={context.workspace.applicationAttempts}
         applicationRecords={context.workspace.applicationRecords}
         discoveryJobs={context.workspace.discoveryJobs}
@@ -2026,6 +2060,7 @@ export function JobFinderAnalyticsRoute() {
         onSetOutcomeSuggestionEnabled={context.onSetOutcomeSuggestionEnabled}
         overview={scope.overview}
         resumeStrategies={scope.resumeStrategies}
+        sourceTargets={context.workspace.searchPreferences.discovery.targets}
       />
     </JobFinderHydrationGate>
   );

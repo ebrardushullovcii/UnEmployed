@@ -1,5 +1,7 @@
 import { chmod, copyFile, rename, rm, stat } from "node:fs/promises";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+
+import { openDatabaseFile } from "./internal/migrations";
 
 export type WorkspaceDatabaseBackupStatus =
   | { status: "created"; backupPath: string }
@@ -153,7 +155,7 @@ function validateSqliteSnapshot(
 ): SqliteSnapshotValidation {
   let candidate: DatabaseSync;
   try {
-    candidate = new DatabaseSync(candidatePath, { readOnly: true });
+    candidate = openDatabaseFile(candidatePath, { readOnly: true });
   } catch (error) {
     return { valid: false, reason: error };
   }

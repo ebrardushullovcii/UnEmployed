@@ -45,6 +45,7 @@ import {
 import { useApplicationsApplyRunDetails } from "./use-applications-apply-run-details";
 import { ApplicationsRecordsPanel } from "./applications-records-panel";
 import { StatusBadge } from "../../components/status-badge";
+import { countApplicationLedgerEntries } from "../../lib/needs-you-count";
 import {
   ApplicationsCrmViews,
   type ApplicationCrmView,
@@ -573,7 +574,7 @@ export function ApplicationsScreen(props: {
             description={
               workspaceView === "crm"
                 ? "Stages you record yourself, plus notes, reminders and export. Recording a stage is a local note; it never submits anything."
-                : "Review progress, resolve blockers, and continue applications."
+                : `${countApplicationLedgerEntries(applicationRecords)} applications. Review progress, resolve blockers, and continue applications.`
             }
             title={workspaceView === "crm" ? "Tracker" : "Applications"}
           />

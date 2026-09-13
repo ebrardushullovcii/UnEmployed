@@ -14,6 +14,12 @@ import {
 } from "../../lib/job-finder-browser-handoff-copy";
 import { formatApplicationEmployerAriaLabel } from "../../lib/job-employer-location-display";
 import { formatStatusLabel } from "../../lib/job-finder-utils";
+import {
+  splitBlockedAttemptNote,
+  TECHNICAL_DETAILS_LABEL,
+} from "../../lib/describe-failure";
+
+export { TECHNICAL_DETAILS_LABEL };
 
 export type QueueEntry = {
   jobId: string;
@@ -27,8 +33,12 @@ const APPLY_TRANSPORT_LANGUAGE =
 
 const SERVICE_WORKER_BLOCK_PATTERN = /service worker/i;
 
+// "could not tell which control is safe" is the navigation pause: the page
+// offered nothing Job Finder could press without risking a send. It ends the
+// same way as a field conflict — the person opens the page and finishes the
+// step — so it belongs on the same recovery path instead of being a dead end.
 const MANUAL_FIELD_FINISH_PATTERN =
-  /prefilled application values need manual review|conflicting (?:application )?fields|mismatched prefilled|could not safely save (?:a |this )?prepared (?:field|step)|complete the affected step manually|review the conflicting|finish (?:this |the )?application(?: step)? yourself|finish .+ manually in the open application/i;
+  /prefilled application values need manual review|conflicting (?:application )?fields|mismatched prefilled|could not safely save (?:a |this )?prepared (?:field|step)|complete the affected step manually|review the conflicting|finish (?:this |the )?application(?: step)? yourself|finish .+ manually in the open application|could not tell which control|choose the next application step manually|needs manual navigation/i;
 
 /**
  * A prepare-only autosave / intermediate-write pause: the job site tried to
@@ -286,11 +296,23 @@ export function getVerifiedExternalWriteRecoveryText(
   return `Job Finder recorded writes to the employer page for ${verifiedCategories.join(", ")}. That does not confirm what the site kept — review the page before retrying.`;
 }
 
+/**
+ * The recorded blocked-attempt line ("Blocked: xhr POST https://…") that the
+ * runtime appends to a stop's detail. It is deliberate evidence and stays in
+ * the record; every visible surface leads with the plain sentence and offers
+ * this behind a {@link TECHNICAL_DETAILS_LABEL} disclosure instead.
+ */
+export function getApplyBlockedAttemptDetail(
+  value: string | null | undefined,
+): string | null {
+  return splitBlockedAttemptNote(value).technicalDetails;
+}
+
 export function getCustomerFacingApplyText(
   value: string | null | undefined,
   receipt?: ApplicationPrivacyReceipt | null,
 ): string | null {
-  const text = value?.trim() ?? "";
+  const text = splitBlockedAttemptNote(value).message;
   if (!text) {
     return null;
   }
@@ -518,6 +540,7 @@ export function getQueueStateExplanation(
     skippedJobCount: number;
     failedJobCount: number;
     completedJobCount: number;
+    unfinishedJobCount: number;
   } | null,
 ) {
   if (!input) {
@@ -531,7 +554,9 @@ export function getQueueStateExplanation(
   // A stop-rule pause holds no pending decision to resolve, so the run can
   // never resume; finishing the remaining jobs requires a fresh recovery run.
   if (input.runState === "paused_for_user_review") {
-    return "Job Finder paused because one of your safety limits was reached. It will not carry on by itself, and nothing is waiting on your decision. Use Prepare remaining jobs to finish the ones it did not get to.";
+    return input.unfinishedJobCount > 0
+      ? "Job Finder paused because one of your safety limits was reached and will not carry on by itself. Review the prepared sample in Safeguards. Use Prepare remaining jobs to finish the ones it did not get to."
+      : "Job Finder paused because one of your safety limits was reached and will not carry on by itself. Review the completed outcomes in Safeguards.";
   }
 
   if (input.runState === "awaiting_submit_approval") {

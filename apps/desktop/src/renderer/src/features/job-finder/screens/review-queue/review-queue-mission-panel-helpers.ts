@@ -149,7 +149,7 @@ export function getApplicationReadinessFacts(input: {
     {
       label: "Destination",
       value: getDestinationLabel(selectedJob),
-      detail: `${safeDestinationUrl} | ${selectedJob.atsProvider ?? "ATS provider not identified"}`,
+      detail: `${safeDestinationUrl} | ${selectedJob.atsProvider ?? "Application system not identified"}`,
     },
     {
       label: "Sign-in or account",
@@ -162,7 +162,7 @@ export function getApplicationReadinessFacts(input: {
         "Unsupported or missing answers pause the run for your review instead of being invented.",
     },
     {
-      label: "Site writes",
+      label: "What gets typed into the site",
       value: "Fills fields, never submits",
       detail:
         "Job Finder may enter your confirmed answers, attach the selected resume, and let the site autosave. It never clicks the final submit; you do that yourself.",

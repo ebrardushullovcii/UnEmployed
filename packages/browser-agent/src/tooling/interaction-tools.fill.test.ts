@@ -1,11 +1,15 @@
 import type { Page } from "playwright";
 import { describe, expect, test, vi } from "vitest";
-import { buildInteractionContext, getInteractionTool } from "./interaction-tools.test-helpers";
+import {
+  buildInteractionContext,
+  getInteractionTool,
+} from "./interaction-tools.test-helpers";
 
 describe("fill", () => {
   test("blocks repeated fill failures across truncated searchbox-name variants", async () => {
+    const getByRole = vi.fn();
     const page = {
-      getByRole: vi.fn(),
+      getByRole,
       url: vi.fn(() => "https://example.com/jobs"),
     } as unknown as Page;
 
@@ -23,7 +27,8 @@ describe("fill", () => {
             "fill::searchbox::search by title skill or com::0",
             {
               count: 2,
-              lastError: 'No textbox matched accessible name "Search by title, skill, or company".',
+              lastError:
+                'No textbox matched accessible name "Search by title, skill, or company".',
             },
           ],
         ]),
@@ -38,9 +43,9 @@ describe("fill", () => {
         role: "searchbox",
         index: 0,
         errorType: "repeated_fill_blocked",
-      }),
+      }) as unknown,
     });
-    expect(page.getByRole).not.toHaveBeenCalled();
+    expect(getByRole).not.toHaveBeenCalled();
   });
 
   test("records disallowed-url submit failures so repeated unsafe fills can be blocked", async () => {
@@ -54,24 +59,28 @@ describe("fill", () => {
     locator.nth.mockReturnValue(locator);
 
     let currentUrl = "https://example.com/jobs";
+    const getByRole = vi.fn(() => locator);
     const page = {
       evaluate: vi.fn().mockResolvedValue([]),
-      getByRole: vi.fn(() => locator),
-      goBack: vi.fn(async () => {
+      getByRole,
+      goBack: vi.fn(() => {
         currentUrl = "https://example.com/jobs";
-        return null;
+        return Promise.resolve(null);
       }),
       waitForTimeout: vi.fn().mockResolvedValue(undefined),
       url: vi.fn(() => currentUrl),
     } as unknown as Page;
 
     const state = {
-      failedInteractionAttempts: new Map<string, { count: number; lastError: string }>(),
+      failedInteractionAttempts: new Map<
+        string,
+        { count: number; lastError: string }
+      >(),
     };
 
-    locator.press.mockImplementationOnce(async () => {
+    locator.press.mockImplementationOnce(() => {
       currentUrl = "https://malicious.example.net/phish";
-      return undefined;
+      return Promise.resolve(undefined);
     });
 
     const result = await getInteractionTool("fill").execute(
@@ -87,7 +96,8 @@ describe("fill", () => {
 
     expect(result).toEqual({
       success: false,
-      error: "Navigation went to disallowed URL: https://malicious.example.net/phish",
+      error:
+        "Navigation went to disallowed URL: https://malicious.example.net/phish",
       data: expect.objectContaining({
         role: "searchbox",
         name: "Search jobs",
@@ -95,11 +105,14 @@ describe("fill", () => {
         errorType: "fill_failed",
         repeatedFailureCount: 1,
         recovered: true,
-      }),
+      }) as unknown,
     });
-    expect(state.failedInteractionAttempts.get("fill::searchbox::search jobs::0")).toEqual({
+    expect(
+      state.failedInteractionAttempts.get("fill::searchbox::search jobs::0"),
+    ).toEqual({
       count: 1,
-      lastError: "Navigation went to disallowed URL: https://malicious.example.net/phish",
+      lastError:
+        "Navigation went to disallowed URL: https://malicious.example.net/phish",
     });
   });
 
@@ -119,24 +132,30 @@ describe("fill", () => {
     };
     overlayButton.first.mockReturnValue(overlayButton);
 
-    const page = {
-      evaluate: vi.fn().mockResolvedValue([{ label: 'X', role: 'button' }]),
-      getByRole: vi.fn((role: string, options?: { name?: string; exact?: boolean }) => {
-        if (role === 'button' && String(options?.name ?? '').toLowerCase() === 'x') {
+    const getByRole = vi.fn(
+      (role: string, options?: { name?: string; exact?: boolean }) => {
+        if (
+          role === "button" &&
+          String(options?.name ?? "").toLowerCase() === "x"
+        ) {
           return overlayButton;
         }
 
         return locator;
-      }),
+      },
+    );
+    const page = {
+      evaluate: vi.fn().mockResolvedValue([{ label: "X", role: "button" }]),
+      getByRole,
       waitForTimeout: vi.fn().mockResolvedValue(undefined),
-      url: vi.fn(() => 'https://example.com/jobs'),
+      url: vi.fn(() => "https://example.com/jobs"),
     } as unknown as Page;
 
-    const result = await getInteractionTool('fill').execute(
+    const result = await getInteractionTool("fill").execute(
       {
-        role: 'searchbox',
-        name: 'Search jobs',
-        text: 'frontend engineer',
+        role: "searchbox",
+        name: "Search jobs",
+        text: "frontend engineer",
         index: 0,
         submit: false,
       },
@@ -145,10 +164,15 @@ describe("fill", () => {
 
     expect(result).toEqual({
       success: true,
-      data: { role: 'searchbox', name: 'Search jobs', index: 0, submitted: false },
+      data: {
+        role: "searchbox",
+        name: "Search jobs",
+        index: 0,
+        submitted: false,
+      },
     });
     expect(overlayButton.click).toHaveBeenCalled();
-    expect(locator.fill).toHaveBeenCalledWith('frontend engineer');
+    expect(locator.fill).toHaveBeenCalledWith("frontend engineer");
     expect(overlayButton.click.mock.invocationCallOrder[0]).toBeLessThan(
       locator.fill.mock.invocationCallOrder[0],
     );

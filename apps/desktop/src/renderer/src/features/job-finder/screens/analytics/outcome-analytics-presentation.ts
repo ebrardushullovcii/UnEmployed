@@ -10,6 +10,9 @@ import {
   outcomeBucketDimensionValues,
 } from "@unemployed/contracts";
 
+import { recordedJobSourceName } from "../../lib/job-source-display-name";
+import { UNKNOWN_JOB_SOURCE_BUCKET_KEY } from "@unemployed/contracts";
+
 /**
  * Pure presentation derivation for campaign-scoped outcome analytics.
  *
@@ -498,13 +501,16 @@ export function formatSampleSize(sampleSize: number): string {
 /**
  * Resolves a bucket's display label: campaign and resume-strategy buckets are
  * keyed by id, so the screen maps them to their human names when available and
- * falls back to the raw id otherwise (never fabricating a label).
+ * falls back to the raw id otherwise (never fabricating a label). Source
+ * buckets are keyed by the stored source value, which is never shown as-is.
  */
 export function bucketDisplayLabel(
   bucket: OutcomeAnalyticsBucket,
   resolvers: {
     campaignName: (campaignId: string) => string | null;
     resumeStrategyName: (strategyId: string) => string | null;
+    /** The label the person gave the source this outcome came from. */
+    sourceName?: (sourceTargetId: string) => string | null;
   },
 ): string {
   if (bucket.dimension === "campaign") {
@@ -514,6 +520,15 @@ export function bucketDisplayLabel(
     return (
       resolvers.resumeStrategyName(bucket.key) ?? bucket.label ?? bucket.key
     );
+  }
+  if (bucket.dimension === "source") {
+    // Outcomes are bucketed by the originating source id now, so the name a
+    // person gave that site is the label; only the unattributed bucket and a
+    // legacy row keyed by the stored enum fall back.
+    if (bucket.key === UNKNOWN_JOB_SOURCE_BUCKET_KEY) {
+      return "Unknown source";
+    }
+    return resolvers.sourceName?.(bucket.key) ?? recordedJobSourceName(bucket.key);
   }
   return bucket.label ?? bucket.key;
 }

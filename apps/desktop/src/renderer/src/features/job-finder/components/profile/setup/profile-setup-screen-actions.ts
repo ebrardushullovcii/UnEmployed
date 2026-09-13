@@ -92,12 +92,30 @@ export function buildProfileSetupPayload(
     return profileResult;
   }
 
-  // The compact field is not authoritative when it was not edited. Preserve
-  // the stored display value even if legacy structured fields would otherwise
-  // cause the generic editor builder to expand it on an unrelated save.
+  // Preserve the stored display line only while the person left every field
+  // it is built from alone. Guided setup now edits city, region and country
+  // directly, and testing the retired compact field on its own made that test
+  // always true: a typed "Austin, TX" was composed correctly and then
+  // overwritten with the old stored line, so "Save and continue" reported a
+  // save and showed the previous value back.
+  const locationPartUnchanged = (
+    draft: string,
+    stored: string | null | undefined,
+  ) => draft.trim() === (stored?.trim() ?? "");
   const locationUnchanged =
-    values.identity.currentLocation.trim() ===
-    (profile.currentLocation?.trim() ?? "");
+    locationPartUnchanged(
+      values.identity.currentLocation,
+      profile.currentLocation,
+    ) &&
+    locationPartUnchanged(values.identity.currentCity, profile.currentCity) &&
+    locationPartUnchanged(
+      values.identity.currentRegion,
+      profile.currentRegion,
+    ) &&
+    locationPartUnchanged(
+      values.identity.currentCountry,
+      profile.currentCountry,
+    );
   if (!locationUnchanged) {
     return profileResult;
   }

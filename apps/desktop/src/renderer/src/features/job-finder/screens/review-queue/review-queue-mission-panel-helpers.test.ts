@@ -98,8 +98,8 @@ describe("getApplicationReadinessFacts", () => {
       }),
     );
     expect(factsText).toMatch(/without clicking submit/);
-    expect(factsText).toMatch(/the site controls its own behavior/i);
-    expect(factsText).toMatch(/never performs a final-submit action/i);
+    expect(factsText).toMatch(/treat an unexpected completed state as site behavior/i);
+    expect(factsText).toMatch(/never clicks the final submit/i);
     expect(factsText).not.toMatch(/No application was submitted/i);
   });
 
@@ -511,7 +511,7 @@ describe("getApplicationReadinessFacts", () => {
       .map((fact) => `${fact.value} ${fact.detail}`)
       .join(" ");
 
-    expect(factsText).toMatch(/never performs a final-submit action/i);
+    expect(factsText).toMatch(/never clicks the final submit/i);
     expect(factsText).not.toMatch(/will submit|submits your application/i);
   });
 
@@ -532,7 +532,7 @@ describe("getApplicationReadinessFacts", () => {
     expect(secondary.map((fact) => fact.label)).toEqual([
       "Sign-in or account",
       "Required answers",
-      "Site writes",
+      "What gets typed into the site",
     ]);
   });
 });

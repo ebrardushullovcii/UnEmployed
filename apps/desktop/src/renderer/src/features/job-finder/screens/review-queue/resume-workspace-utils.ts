@@ -69,6 +69,66 @@ const REVIEW_SUFFIX =
 const FIRST_DRAFT_PREFIX = "The first draft came from the built-in generator";
 
 /**
+ * A draft that kept the person's own wording because the listing body was
+ * never captured is not a tailored resume, whatever the job's saved resume
+ * choice says. Calling it "tailored" while the same panel explains that
+ * nothing could be tailored asked the user to trust two opposite statements,
+ * so every surface routes this case to the original-resume presentation.
+ */
+export interface UntailorableListingPresentation {
+  /** Short label for the badge that would otherwise read as tailored. */
+  badgeLabel: string;
+  /** Why the original wording is what gets sent. */
+  reason: string;
+  /** One sentence for the approval action. */
+  approvalMessage: string;
+}
+
+/**
+ * What approving actually does, in one sentence.
+ *
+ * "Approving sends your resume" stopped a tester dead — "'Sends' made me stop.
+ * I do not want anything sent anywhere" — and the job was left sitting at
+ * NEEDS APPROVAL. Nothing is ever sent: approving lets Job Finder fill the
+ * form on screen, and the person presses the final button themselves.
+ */
+export const APPROVAL_FILLS_NOTHING_SENT_MESSAGE =
+  "Approving lets Job Finder fill the application form with this resume, on your screen. Nothing is sent or submitted — you press the final button yourself. Read the listing on the job site before you apply.";
+
+export function describeUntailorableListing(
+  asset: ResumeGenerationPathInput | null | undefined,
+): UntailorableListingPresentation | null {
+  if (!asset || asset.generationMethod !== "deterministic") {
+    return null;
+  }
+
+  if (asset.generationReason === "listing_text_missing") {
+    return {
+      badgeLabel: "Your original wording",
+      reason:
+        "This job's listing text was not captured, so nothing could be written for it and the resume keeps your original wording.",
+      approvalMessage:
+        APPROVAL_FILLS_NOTHING_SENT_MESSAGE,
+    };
+  }
+
+  // A body that says nothing specific about the job is the same outcome: a
+  // draft the job did not shape is not tailored, and two unrelated jobs were
+  // getting the same "tailored" resume because of it.
+  if (asset.generationReason === "listing_text_not_distinguishing") {
+    return {
+      badgeLabel: "Your original wording",
+      reason:
+        "This listing says almost nothing about the job itself, so there was nothing to tailor toward and the resume keeps your original wording.",
+      approvalMessage:
+        APPROVAL_FILLS_NOTHING_SENT_MESSAGE,
+    };
+  }
+
+  return null;
+}
+
+/**
  * Explains why the built-in generator wrote the first draft. Prefers the
  * structured reason recorded by the AI boundary; the note-prose match remains
  * only for assets saved before the structured reason existed.
@@ -122,6 +182,17 @@ export function describeResumeGenerationPath(
           "This listing's text was not captured, so the resume could not be tailored to it and keeps your original wording. Read the listing before applying, or apply with your original resume.",
         originSentence:
           "This listing's text was not captured, so the resume could not be tailored to it and keeps your original wording.",
+      };
+    case "listing_text_not_distinguishing":
+      // Not a model failure and not retryable either: the listing carries
+      // nothing the AI could tailor toward, so a retry produces the same
+      // draft.
+      return {
+        canRetryWithAi: false,
+        message:
+          "This listing says almost nothing about the job itself, so the resume could not be tailored to it and keeps your original wording. Read the listing before applying, or apply with your original resume.",
+        originSentence:
+          "This listing says almost nothing about the job itself, so the resume could not be tailored to it and keeps your original wording.",
       };
     case "provider_output_unverified":
       return disclose(

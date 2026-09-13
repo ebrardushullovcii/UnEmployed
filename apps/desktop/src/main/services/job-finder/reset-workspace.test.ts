@@ -47,7 +47,29 @@ const {
   mockResetWorkspace: vi.fn(),
 }));
 
-const userDataRoot = "/user-data";
+// Resolved so the fake root is native on both platforms. On Windows the code
+// under test builds its paths with path.join/path.resolve, which turn a
+// "/user-data" root into "D:\user-data"; expectations spelled with "/" then
+// matched nothing and the whole suite failed on separators rather than on
+// behaviour.
+const userDataRoot = path.resolve("/user-data");
+const trashPathSegment = `${path.sep}trash${path.sep}`;
+
+/** A path under the fake workspace root, spelled the way this platform does. */
+function workspacePath(...segments: string[]): string {
+  return path.join(userDataRoot, ...segments);
+}
+
+/**
+ * The quarantined marker keeps its name and place; only the separator differs
+ * by platform, so this asserts the shape without pinning one.
+ */
+function expectQuarantinedInvalidMarkerPath(value: string): void {
+  expect(
+    value.startsWith(workspacePath("job-finder-reset-intent.invalid-")),
+  ).toBe(true);
+  expect(value.endsWith(".json")).toBe(true);
+}
 const documentsRelativePath = "documents/resumes";
 const candidateAssetsRelativePath = "documents/candidate-assets";
 const applicationDocumentsRelativePath = "documents/application-documents";
@@ -58,11 +80,11 @@ const allResetSourceRelativePaths = [
   applicationDocumentsRelativePath,
   browserProfileRelativePath,
 ];
-const intentMarkerPath = `${userDataRoot}/job-finder-reset-intent.json`;
+const intentMarkerPath = workspacePath("job-finder-reset-intent.json");
 const maxMarkerBytes = 64 * 1024;
 
 function trashDirectoryPath(token: string) {
-  return `${userDataRoot}/trash/job-finder-reset-${token}`;
+  return workspacePath("trash", `job-finder-reset-${token}`);
 }
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -122,25 +144,25 @@ const defaultResetToken = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 function installDefaultPathMocks() {
   mockGetJobFinderUserDataDirectory.mockReturnValue(userDataRoot);
   mockGetJobFinderDocumentsDirectory.mockReturnValue(
-    `${userDataRoot}/${documentsRelativePath}`,
+    workspacePath(documentsRelativePath),
   );
   mockGetCandidateAssetsDirectory.mockReturnValue(
-    `${userDataRoot}/${candidateAssetsRelativePath}`,
+    workspacePath(candidateAssetsRelativePath),
   );
   mockGetApplicationDocumentsDirectory.mockReturnValue(
-    `${userDataRoot}/${applicationDocumentsRelativePath}`,
+    workspacePath(applicationDocumentsRelativePath),
   );
   mockGetBrowserAgentProfileDirectory.mockReturnValue(
-    `${userDataRoot}/${browserProfileRelativePath}`,
+    workspacePath(browserProfileRelativePath),
   );
   mockGetJobFinderResetIntentFilePath.mockReturnValue(intentMarkerPath);
   mockGetJobFinderResetInvalidIntentMarkerFilePath.mockImplementation(
     (suffix: string) =>
-      `${userDataRoot}/job-finder-reset-intent.invalid-${suffix}.json`,
+      workspacePath(`job-finder-reset-intent.invalid-${suffix}.json`),
   );
   mockGetJobFinderResetTrashDirectory.mockImplementation(trashDirectoryPath);
   mockGetJobFinderResetTrashRootDirectory.mockReturnValue(
-    `${userDataRoot}/trash`,
+    workspacePath("trash"),
   );
   mockResolveJobFinderWorkspaceRelativePath.mockImplementation(
     (relativePath: string) => path.resolve(userDataRoot, relativePath),
@@ -215,7 +237,7 @@ function installTrackingFileSystemMocks(input?: {
   mockRm.mockImplementation((target: string) => {
     if (
       input?.rmErrorForTokenizedTrash &&
-      String(target).startsWith(`${userDataRoot}/trash/`)
+      String(target).startsWith(workspacePath("trash") + path.sep)
     ) {
       return Promise.reject(input.rmErrorForTokenizedTrash);
     }
@@ -240,7 +262,7 @@ function installOrderedResetMoveMocks(input: {
       return Promise.resolve();
     }
 
-    if (toPath.includes("/trash/")) {
+    if (toPath.includes(trashPathSegment)) {
       const shouldFail =
         input.failOnMoveIndex !== null && moveIndex === input.failOnMoveIndex;
       moveIndex += 1;
@@ -251,7 +273,7 @@ function installOrderedResetMoveMocks(input: {
       return Promise.resolve();
     }
 
-    if (fromPath.includes("/trash/")) {
+    if (fromPath.includes(trashPathSegment)) {
       if (input.failRollback) {
         return Promise.reject(input.moveFailure);
       }
@@ -341,7 +363,7 @@ describe("resetJobFinderWorkspace", () => {
       }
       const [, destination] = event.split("->");
       return (
-        !destination!.includes("/trash/") &&
+        !destination!.includes(trashPathSegment) &&
         allResetSourceRelativePaths.some((sourcePath) =>
           destination!.endsWith(sourcePath),
         )
@@ -401,7 +423,7 @@ describe("resetJobFinderWorkspace", () => {
       intentMarkerPath,
       ...allResetSourceRelativePaths.map(
         (sourcePath) =>
-          `${userDataRoot}/trash/job-finder-reset-${markerPayload.token}/${sourcePath}`,
+          workspacePath("trash", `job-finder-reset-${markerPayload.token}`, sourcePath),
       ),
     ]);
 
@@ -555,12 +577,16 @@ describe("resetJobFinderWorkspace", () => {
     );
     expect(mockRm).toHaveBeenCalledWith(intentMarkerPath, { force: true });
     const rollbackRenameDestinations = fileSystemEventLog
-      .filter((event) => /^rename:.*\/trash\/.*->/.test(event))
+      .filter(
+        (event) =>
+          event.startsWith("rename:") &&
+          event.slice(0, event.indexOf("->")).includes(trashPathSegment),
+      )
       .map((event) => event.split("->")[1]);
     expect(rollbackRenameDestinations).toEqual([
-      `${userDataRoot}/${applicationDocumentsRelativePath}`,
-      `${userDataRoot}/${candidateAssetsRelativePath}`,
-      `${userDataRoot}/${documentsRelativePath}`,
+      workspacePath(applicationDocumentsRelativePath),
+      workspacePath(candidateAssetsRelativePath),
+      workspacePath(documentsRelativePath),
     ]);
   });
 
@@ -577,7 +603,14 @@ describe("resetJobFinderWorkspace", () => {
     expect(mockRm).toHaveBeenCalledWith(intentMarkerPath, { force: true });
     expect(
       fileSystemEventLog.filter((event) =>
-        /^rename:.*\/trash\/.*->.*\/(documents|browser-agent)/.test(event),
+        event.startsWith("rename:") &&
+        event.slice(0, event.indexOf("->")).includes(trashPathSegment) &&
+        (event
+          .slice(event.indexOf("->"))
+          .includes(`${path.sep}documents${path.sep}`) ||
+          event
+            .slice(event.indexOf("->"))
+            .includes(`${path.sep}browser-agent${path.sep}`)),
       ),
     ).toHaveLength(1);
   });
@@ -700,7 +733,7 @@ describe("recoverPendingJobFinderWorkspaceReset", () => {
     expect(renameDestinations).toEqual(
       allResetSourceRelativePaths.map(
         (sourcePath) =>
-          `${userDataRoot}/trash/job-finder-reset-${defaultResetToken}/${sourcePath}`,
+          workspacePath("trash", `job-finder-reset-${defaultResetToken}`, sourcePath),
       ),
     );
     expect(repository.reset).toHaveBeenCalledTimes(1);
@@ -756,9 +789,7 @@ describe("recoverPendingJobFinderWorkspaceReset", () => {
         (call) => String(call[1]) !== intentMarkerPath,
       );
       expect(quarantineCall?.[0]).toBe(intentMarkerPath);
-      expect(String(quarantineCall?.[1])).toMatch(
-        /^\/user-data\/job-finder-reset-intent\.invalid-.+\.json$/,
-      );
+      expectQuarantinedInvalidMarkerPath(String(quarantineCall?.[1]));
 
       expect(String(warnSpy.mock.calls[0]?.[0])).toContain("oversized");
       expect(String(warnSpy.mock.calls[0]?.[0])).toContain(
@@ -828,9 +859,7 @@ describe("recoverPendingJobFinderWorkspaceReset", () => {
         });
 
         const lastRenameCall = (mockRename.mock.calls as unknown[][]).at(-1);
-        expect(String(lastRenameCall?.[1])).toMatch(
-          /^\/user-data\/job-finder-reset-intent\.invalid-.+\.json$/,
-        );
+        expectQuarantinedInvalidMarkerPath(String(lastRenameCall?.[1]));
       }
 
       expect(repository.reset).not.toHaveBeenCalled();
@@ -904,7 +933,7 @@ describe("recoverPendingJobFinderWorkspaceReset", () => {
     });
     const pendingTrashName = "job-finder-reset-pending001";
     mockReaddir.mockImplementation((target: string) => {
-      if (String(target) === `${userDataRoot}/trash`) {
+      if (String(target) === workspacePath("trash")) {
         return Promise.resolve([direntFor(pendingTrashName)]);
       }
       if (String(target) === userDataRoot) {
@@ -1044,7 +1073,7 @@ describe("startup recovery database reset failures", () => {
         fileSystemEventLog.push(`rename:${String(from)}->${toPath}`);
         return Promise.resolve();
       }
-      if (toPath.includes("/trash/")) {
+      if (toPath.includes(trashPathSegment)) {
         fileSystemEventLog.push(`rename:${String(from)}->${toPath}`);
         return Promise.resolve();
       }
@@ -1098,7 +1127,7 @@ describe("sweepStaleJobFinderResetArtifacts", () => {
 
     mockReadFile.mockResolvedValue(buildValidMarkerRaw({ token: activeToken }));
     mockReaddir.mockImplementation((target: string) => {
-      if (String(target) === `${userDataRoot}/trash`) {
+      if (String(target) === workspacePath("trash")) {
         return Promise.resolve([
           dirent(`job-finder-reset-${staleToken}`),
           dirent(`job-finder-reset-${activeToken}`),
@@ -1127,15 +1156,15 @@ describe("sweepStaleJobFinderResetArtifacts", () => {
 
     expect(mockRm).toHaveBeenCalledTimes(2);
     expect(mockRm).toHaveBeenCalledWith(
-      `${userDataRoot}/trash/job-finder-reset-${staleToken}`,
+      workspacePath("trash", `job-finder-reset-${staleToken}`),
       { recursive: true, force: true },
     );
     expect(mockRm).toHaveBeenCalledWith(
-      `${userDataRoot}/job-finder-reset-intent.json.${staleToken}.tmp`,
+      workspacePath(`job-finder-reset-intent.json.${staleToken}.tmp`),
       { recursive: true, force: true },
     );
     expect(mockRm).not.toHaveBeenCalledWith(
-      `${userDataRoot}/trash/job-finder-reset-${activeToken}`,
+      workspacePath("trash", `job-finder-reset-${activeToken}`),
       expect.anything(),
     );
   });
@@ -1149,7 +1178,7 @@ describe("sweepStaleJobFinderResetArtifacts", () => {
 
     mockReadFile.mockRejectedValue(enoentError());
     mockReaddir.mockImplementation((target: string) => {
-      if (String(target) === `${userDataRoot}/trash`) {
+      if (String(target) === workspacePath("trash")) {
         return Promise.resolve([
           dirent(`job-finder-reset-${freshToken}`),
           dirent(`job-finder-reset-${stuckToken}`),
@@ -1185,7 +1214,7 @@ describe("sweepStaleJobFinderResetArtifacts", () => {
       "job-finder-reset-intent.invalid-2026-08-23T10-00-00-000Z.json.pending-trash.json";
 
     mockReadFile.mockImplementation((target: string) => {
-      if (String(target) === `${userDataRoot}/${sidecarName}`) {
+      if (String(target) === workspacePath(sidecarName)) {
         return Promise.resolve(
           `${JSON.stringify({
             version: 1,
@@ -1197,7 +1226,7 @@ describe("sweepStaleJobFinderResetArtifacts", () => {
       return Promise.reject(enoentError());
     });
     mockReaddir.mockImplementation((target: string) => {
-      if (String(target) === `${userDataRoot}/trash`) {
+      if (String(target) === workspacePath("trash")) {
         return Promise.resolve([dirent(heldTrashName), dirent(staleTrashName)]);
       }
       if (String(target) === userDataRoot) {
@@ -1212,15 +1241,15 @@ describe("sweepStaleJobFinderResetArtifacts", () => {
 
     expect(mockRm).toHaveBeenCalledTimes(1);
     expect(mockRm).toHaveBeenCalledWith(
-      `${userDataRoot}/trash/${staleTrashName}`,
+      workspacePath("trash", staleTrashName),
       { recursive: true, force: true },
     );
     expect(mockRm).not.toHaveBeenCalledWith(
-      `${userDataRoot}/trash/${heldTrashName}`,
+      workspacePath("trash", heldTrashName),
       expect.anything(),
     );
     expect(mockRm).not.toHaveBeenCalledWith(
-      `${userDataRoot}/${sidecarName}`,
+      workspacePath(sidecarName),
       expect.anything(),
     );
   });
@@ -1231,7 +1260,7 @@ describe("sweepStaleJobFinderResetArtifacts", () => {
 
     mockReadFile.mockRejectedValue(enoentError());
     mockReaddir.mockImplementation((target: string) => {
-      if (String(target) === `${userDataRoot}/trash`) {
+      if (String(target) === workspacePath("trash")) {
         return Promise.reject(enoentError());
       }
       if (String(target) === userDataRoot) {
@@ -1247,7 +1276,7 @@ describe("sweepStaleJobFinderResetArtifacts", () => {
     await sweepStaleJobFinderResetArtifacts();
 
     expect(mockRm).toHaveBeenCalledWith(
-      `${userDataRoot}/${abandonedTempName}`,
+      workspacePath(abandonedTempName),
       {
         recursive: true,
         force: true,

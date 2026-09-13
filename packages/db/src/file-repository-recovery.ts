@@ -1,10 +1,10 @@
 import { existsSync, readdirSync } from "node:fs";
 import { chmod, copyFile, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 
 import { getWorkspaceDatabaseBackupPaths } from "./file-repository-backup";
-import { runMigrations } from "./internal/migrations";
+import { openDatabaseFile, runMigrations } from "./internal/migrations";
 import { hasPersistedState } from "./internal/state";
 
 export type WorkspaceRecoveryCandidateKind = "backup" | "backup-prev";
@@ -101,7 +101,7 @@ function resolveRecoveryIo(
     chmod: overrides?.chmod ?? chmod,
     openDatabase:
       overrides?.openDatabase ??
-      ((databasePath: string) => new DatabaseSync(databasePath)),
+      ((databasePath: string) => openDatabaseFile(databasePath)),
   };
 }
 

@@ -1,6 +1,9 @@
 import type { Page } from "playwright";
 import { describe, expect, test, vi } from "vitest";
-import { buildInteractionContext, getInteractionTool } from "./interaction-tools.test-helpers";
+import {
+  buildInteractionContext,
+  getInteractionTool,
+} from "./interaction-tools.test-helpers";
 
 describe("click", () => {
   test("fails fast when no matching role and name are present", async () => {
@@ -12,8 +15,12 @@ describe("click", () => {
       count: vi.fn().mockResolvedValue(0),
       nth: vi.fn(),
     };
+    const getByRole = vi.fn(
+      (_role: string, options?: { exact?: boolean; name?: string }) =>
+        options?.exact ? exactLocator : looseLocator,
+    );
     const page = {
-      getByRole: vi.fn((_role, options) => (options?.exact ? exactLocator : looseLocator)),
+      getByRole,
       url: vi.fn(() => "https://example.com/jobs"),
     } as unknown as Page;
 
@@ -34,7 +41,7 @@ describe("click", () => {
         name: "Senior Next.js Developer",
         index: 0,
         errorType: "click_failed",
-      }),
+      }) as unknown,
     });
   });
 
@@ -50,12 +57,14 @@ describe("click", () => {
     hiddenLocator.nth.mockReturnValue(hiddenLocator);
 
     let currentUrl = "https://example.com/jobs";
+    const getByRole = vi.fn(() => hiddenLocator);
+    const goto = vi.fn((url: string) => {
+      currentUrl = url;
+      return Promise.resolve(null);
+    });
     const page = {
-      getByRole: vi.fn(() => hiddenLocator),
-      goto: vi.fn(async (url: string) => {
-        currentUrl = url;
-        return null;
-      }),
+      getByRole,
+      goto,
       url: vi.fn(() => currentUrl),
       waitForTimeout: vi.fn().mockResolvedValue(undefined),
     } as unknown as Page;
@@ -68,7 +77,8 @@ describe("click", () => {
           "click::clickable::customer experience specialist::0",
           {
             count: 1,
-            lastError: 'No link matched accessible name "Customer Experience Specialist".',
+            lastError:
+              'No link matched accessible name "Customer Experience Specialist".',
           },
         ],
       ]),
@@ -83,7 +93,7 @@ describe("click", () => {
       buildInteractionContext(page, state),
     );
 
-    expect(page.goto).toHaveBeenCalledWith("https://example.com/jobs/123", {
+    expect(goto).toHaveBeenCalledWith("https://example.com/jobs/123", {
       waitUntil: "domcontentloaded",
       timeout: 5000,
     });
@@ -93,7 +103,7 @@ describe("click", () => {
         navigated: true,
         newUrl: "https://example.com/jobs/123",
         navigationMethod: "href_fallback",
-      }),
+      }) as unknown,
     });
     expect(state.currentUrl).toBe("https://example.com/jobs/123");
     expect(state.failedInteractionAttempts.size).toBe(0);
@@ -111,19 +121,22 @@ describe("click", () => {
     hiddenLocator.nth.mockReturnValue(hiddenLocator);
 
     let currentUrl = "https://example.com/jobs";
+    const getByRole = vi.fn(() => hiddenLocator);
+    const goto = vi.fn((url: string) => {
+      currentUrl =
+        url === "https://example.com/jobs/redirector"
+          ? "https://malicious.example.net/phish"
+          : url;
+      return Promise.resolve(null);
+    });
+    const goBack = vi.fn(() => {
+      currentUrl = "https://example.com/jobs";
+      return Promise.resolve(null);
+    });
     const page = {
-      getByRole: vi.fn(() => hiddenLocator),
-      goto: vi.fn(async (url: string) => {
-        currentUrl =
-          url === "https://example.com/jobs/redirector"
-            ? "https://malicious.example.net/phish"
-            : url;
-        return null;
-      }),
-      goBack: vi.fn(async () => {
-        currentUrl = "https://example.com/jobs";
-        return null;
-      }),
+      getByRole,
+      goto,
+      goBack,
       url: vi.fn(() => currentUrl),
       waitForTimeout: vi.fn().mockResolvedValue(undefined),
     } as unknown as Page;
@@ -143,14 +156,15 @@ describe("click", () => {
       buildInteractionContext(page, state),
     );
 
-    expect(page.goto).toHaveBeenCalledWith("https://example.com/jobs/redirector", {
+    expect(goto).toHaveBeenCalledWith("https://example.com/jobs/redirector", {
       waitUntil: "domcontentloaded",
       timeout: 5000,
     });
-    expect(page.goBack).toHaveBeenCalledTimes(1);
+    expect(goBack).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       success: false,
-      error: "Navigation went to disallowed URL: https://malicious.example.net/phish",
+      error:
+        "Navigation went to disallowed URL: https://malicious.example.net/phish",
       data: expect.objectContaining({
         role: "link",
         name: "Customer Experience Specialist",
@@ -158,18 +172,24 @@ describe("click", () => {
         invalidUrl: "https://malicious.example.net/phish",
         recovered: true,
         navigationMethod: "href_fallback",
-      }),
+      }) as unknown,
     });
     expect(state.currentUrl).toBe("https://example.com/jobs");
-    expect(state.failedInteractionAttempts.get("click::link::customer experience specialist::0")).toEqual({
+    expect(
+      state.failedInteractionAttempts.get(
+        "click::link::customer experience specialist::0",
+      ),
+    ).toEqual({
       count: 1,
-      lastError: "Navigation went to disallowed URL: https://malicious.example.net/phish",
+      lastError:
+        "Navigation went to disallowed URL: https://malicious.example.net/phish",
     });
   });
 
   test("blocks repeated disallowed-url click failures after the threshold is reached", async () => {
+    const getByRole = vi.fn();
     const page = {
-      getByRole: vi.fn(),
+      getByRole,
       url: vi.fn(() => "https://example.com/jobs"),
     } as unknown as Page;
 
@@ -185,7 +205,8 @@ describe("click", () => {
             "click::link::customer experience specialist::0",
             {
               count: 2,
-              lastError: "Navigation went to disallowed URL: https://malicious.example.net/phish",
+              lastError:
+                "Navigation went to disallowed URL: https://malicious.example.net/phish",
             },
           ],
         ]),
@@ -201,15 +222,18 @@ describe("click", () => {
         name: "Customer Experience Specialist",
         index: 0,
         errorType: "repeated_click_blocked",
-      }),
+      }) as unknown,
     });
-    expect(page.getByRole).not.toHaveBeenCalled();
+    expect(getByRole).not.toHaveBeenCalled();
   });
 
   test("falls back to clicking the associated checkbox label when the input intercepts pointer events", async () => {
     const inputLocator = {
       count: vi.fn().mockResolvedValue(1),
-      isChecked: vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true),
+      isChecked: vi
+        .fn()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true),
     };
     const labelLocator = {
       count: vi.fn().mockResolvedValue(1),
@@ -223,7 +247,9 @@ describe("click", () => {
       count: vi.fn().mockResolvedValue(1),
       nth: vi.fn(),
       isVisible: vi.fn().mockResolvedValue(true),
-      getAttribute: vi.fn().mockResolvedValue("advanced-filter-workplaceType-2"),
+      getAttribute: vi
+        .fn()
+        .mockResolvedValue("advanced-filter-workplaceType-2"),
       textContent: vi.fn().mockResolvedValue(null),
       click: vi
         .fn()
@@ -249,8 +275,9 @@ describe("click", () => {
     checkboxLocator.nth.mockReturnValue(checkboxLocator);
 
     const currentUrl = "https://example.com/jobs";
+    const getByRole = vi.fn(() => checkboxLocator);
     const page = {
-      getByRole: vi.fn(() => checkboxLocator),
+      getByRole,
       locator: vi.fn(() => ({ first: () => labelLocator })),
       url: vi.fn(() => currentUrl),
       waitForTimeout: vi.fn().mockResolvedValue(undefined),
@@ -276,7 +303,7 @@ describe("click", () => {
         name: "Filter by Remote",
         index: 0,
         navigated: false,
-      }),
+      }) as unknown,
     });
   });
 
@@ -289,8 +316,12 @@ describe("click", () => {
       count: vi.fn().mockResolvedValue(0),
       nth: vi.fn(),
     };
+    const getByRole = vi.fn(
+      (_role: string, options?: { exact?: boolean; name?: string }) =>
+        options?.exact ? exactLocator : looseLocator,
+    );
     const page = {
-      getByRole: vi.fn((_role, options) => (options?.exact ? exactLocator : looseLocator)),
+      getByRole,
       url: vi.fn(() => "https://example.com/jobs"),
     } as unknown as Page;
 
@@ -306,7 +337,8 @@ describe("click", () => {
             "click::link::senior next js developer::0",
             {
               count: 2,
-              lastError: 'No link matched accessible name "Senior Next.js Developer".',
+              lastError:
+                'No link matched accessible name "Senior Next.js Developer".',
             },
           ],
         ]),
@@ -322,9 +354,9 @@ describe("click", () => {
         name: "Senior Next.js Developer",
         index: 0,
         errorType: "repeated_click_blocked",
-      }),
+      }) as unknown,
     });
-    expect(page.getByRole).not.toHaveBeenCalled();
+    expect(getByRole).not.toHaveBeenCalled();
   });
 
   test("does not block button attempts from a prior link failure key", async () => {
@@ -336,8 +368,12 @@ describe("click", () => {
       count: vi.fn().mockResolvedValue(0),
       nth: vi.fn(),
     };
+    const getByRole = vi.fn(
+      (_role: string, options?: { exact?: boolean; name?: string }) =>
+        options?.exact ? exactLocator : looseLocator,
+    );
     const page = {
-      getByRole: vi.fn((_role, options) => (options?.exact ? exactLocator : looseLocator)),
+      getByRole,
       url: vi.fn(() => "https://example.com/jobs"),
     } as unknown as Page;
 
@@ -353,7 +389,8 @@ describe("click", () => {
             "click::link::senior next js developer::0",
             {
               count: 2,
-              lastError: 'No link matched accessible name "Senior Next.js Developer".',
+              lastError:
+                'No link matched accessible name "Senior Next.js Developer".',
             },
           ],
         ]),
@@ -368,14 +405,15 @@ describe("click", () => {
         role: "button",
         index: 0,
         errorType: "click_failed",
-      }),
+      }) as unknown,
     });
-    expect(page.getByRole).toHaveBeenCalled();
+    expect(getByRole).toHaveBeenCalled();
   });
 
   test("blocks repeated pointer-interception click failures after the threshold is reached", async () => {
+    const getByRole = vi.fn();
     const page = {
-      getByRole: vi.fn(),
+      getByRole,
       url: vi.fn(() => "https://example.com/jobs"),
     } as unknown as Page;
 
@@ -407,8 +445,8 @@ describe("click", () => {
         role: "checkbox",
         index: 0,
         errorType: "repeated_click_blocked",
-      }),
+      }) as unknown,
     });
-    expect(page.getByRole).not.toHaveBeenCalled();
+    expect(getByRole).not.toHaveBeenCalled();
   });
 });

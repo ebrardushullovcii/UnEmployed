@@ -1,3 +1,4 @@
+import { PlanSafeguardPauseCards } from "../../components/plan-safeguard-pause-cards";
 import {
   CONFIRM_STEP_DONE_ACTION,
   JOB_FINDER_BROWSER_NAME,
@@ -7,6 +8,7 @@ import type {
   ApplicationAttemptQuestion,
   ApplyGroupedManualAnswerInput,
   CandidateProfile,
+  PlanSafeguardPause,
   GroupedManualAnswerDecision,
   JobFinderWorkspaceSnapshot,
   ProjectGroupedManualAnswerCommand,
@@ -23,7 +25,14 @@ import {
   COLLECTION_PAGE_SIZE,
 } from "../../components/collection-pagination";
 import { formatDateOnly } from "../../lib/job-finder-utils";
+import { stripScrapedGlyphs } from "../../lib/scraped-glyphs";
+import {
+  splitBlockedAttemptNote,
+  TECHNICAL_DETAILS_LABEL,
+} from "../../lib/describe-failure";
 import { buildJobFinderContextRoute } from "../../lib/job-finder-context-navigation";
+import { listApplicationsAwaitingUser } from "../../lib/needs-you-count";
+import { getApplicationNextStepLabel } from "../applications/applications-status";
 import {
   CollectionNoMatches,
   CollectionSearchToolbar,
@@ -191,7 +200,9 @@ export function toActionableInstructions(
   instructions: readonly string[],
 ): readonly string[] {
   return instructions
-    .map((instruction) => instruction.trim())
+    // A site's own decoration travels into these lines through the labels they
+    // quote; a colour pin in the middle of a step is noise, not an instruction.
+    .map((instruction) => stripScrapedGlyphs(instruction).trim())
     .filter(
       (instruction) =>
         instruction.length > 0 && !SAFETY_ONLY_INSTRUCTION.test(instruction),
@@ -255,6 +266,25 @@ function ActionCard(props: {
   const missingBrowserLinkDescriptionId = `${request.id}-missing-browser-link`;
   const cancelConsequenceId = `${request.id}-cancel-consequence`;
   const actionableInstructions = toActionableInstructions(request.instructions);
+  // The runtime records what the page tried to do when it was blocked. It is
+  // kept, because it tells an engineer what happened — but it is a request
+  // log, so it sits behind a disclosure instead of inside the step a person
+  // is being asked to carry out.
+  const instructionParts = actionableInstructions.map((instruction) =>
+    splitBlockedAttemptNote(instruction),
+  );
+  const instructionTechnicalDetails = instructionParts
+    .map((part) => part.technicalDetails)
+    .filter((detail): detail is string => Boolean(detail));
+  const summaryParts = splitBlockedAttemptNote(request.summary);
+  // The same recorded line often repeats across summary and steps; it is one
+  // fact, so it is listed once.
+  const technicalDetails = [
+    ...new Set([
+      ...(summaryParts.technicalDetails ? [summaryParts.technicalDetails] : []),
+      ...instructionTechnicalDetails,
+    ]),
+  ];
 
   return (
     <article className="grid gap-4 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5">
@@ -277,10 +307,10 @@ function ActionCard(props: {
             </Badge>
           </div>
           <h3 className="font-semibold text-(--text-headline)">
-            {request.title}
+            {stripScrapedGlyphs(request.title)}
           </h3>
           <p className="max-w-3xl text-sm leading-6 text-foreground-soft">
-            {request.summary}
+            {stripScrapedGlyphs(summaryParts.message)}
           </p>
         </div>
         <Button
@@ -305,12 +335,27 @@ function ActionCard(props: {
           Page: {request.actionUrl ?? request.displayOrigin}
         </p>
       ) : null}
-      {actionableInstructions.length > 0 ? (
+      {instructionParts.length > 0 ? (
         <ol className="grid list-decimal gap-1 pl-5 text-sm leading-6 text-foreground-soft">
-          {actionableInstructions.map((instruction) => (
-            <li key={instruction}>{instruction}</li>
+          {instructionParts.map((part) => (
+            <li key={part.message}>{part.message}</li>
           ))}
         </ol>
+      ) : null}
+      {technicalDetails.length > 0 ? (
+        <details className="min-w-0">
+          <summary className="cursor-pointer text-xs text-muted-foreground">
+            {TECHNICAL_DETAILS_LABEL}
+          </summary>
+          <ul
+            className="mt-1 grid gap-1 break-all text-xs leading-5 text-muted-foreground"
+            role="list"
+          >
+            {technicalDetails.map((detail) => (
+              <li key={detail}>{detail}</li>
+            ))}
+          </ul>
+        </details>
       ) : null}
 
       {request.kind === "manual_answer" && profile && question ? (
@@ -649,6 +694,7 @@ function GroupedDecisionCard(props: {
 }
 
 export function ActionsScreen(props: {
+  safeguardPauses?: readonly PlanSafeguardPause[];
   applicationAttempts?: JobFinderWorkspaceSnapshot["applicationAttempts"];
   applicationRecords?: JobFinderWorkspaceSnapshot["applicationRecords"];
   discoveryJobs: JobFinderWorkspaceSnapshot["discoveryJobs"];
@@ -686,6 +732,18 @@ export function ActionsScreen(props: {
   );
   const snoozedDecisions = pendingDecisions.filter(
     (decision) => decision.snooze !== null,
+  );
+  // An application the Applications screen badges "Needs you" with no live
+  // browser-step request behind it used to be invisible here, so this page
+  // said "Nothing needs you right now" about work the other screen was
+  // flagging. Both read the one selector.
+  const applicationsAwaitingUser = useMemo(
+    () =>
+      listApplicationsAwaitingUser({
+        applicationRecords: props.applicationRecords ?? [],
+        requests: props.requests,
+      }),
+    [props.applicationRecords, props.requests],
   );
   const view = usePersistedCollectionView("needs-you", "comfortable");
   const deferredQuery = useDeferredValue(view.query);
@@ -778,6 +836,59 @@ export function ActionsScreen(props: {
         />
       ) : null}
 
+      <PlanSafeguardPauseCards pauses={props.safeguardPauses ?? []} onNavigate={props.onNavigate} />
+      {applicationsAwaitingUser.length > 0 ? (
+        <section
+          aria-labelledby="applications-awaiting-you-heading"
+          className="grid gap-3"
+        >
+          <div className="flex items-center gap-2">
+            <h2
+              className="font-semibold text-(--text-headline)"
+              id="applications-awaiting-you-heading"
+            >
+              Applications waiting on you
+            </h2>
+            <Badge variant="section">{applicationsAwaitingUser.length}</Badge>
+          </div>
+          {applicationsAwaitingUser.map((record) => (
+            <article
+              className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5"
+              key={record.id}
+            >
+              <div className="grid gap-1">
+                <h3 className="font-semibold text-(--text-headline)">
+                  {stripScrapedGlyphs(record.title)}
+                </h3>
+                <p className="text-sm text-foreground-soft">
+                  {stripScrapedGlyphs(record.company)}
+                </p>
+                <p className="text-sm leading-6 text-foreground-soft">
+                  {stripScrapedGlyphs(getApplicationNextStepLabel(record))}
+                </p>
+              </div>
+              <div>
+                <Button
+                  onClick={() =>
+                    props.onNavigate(
+                      buildJobFinderContextRoute("/job-finder/applications", {
+                        applicationRecordId: record.id,
+                        jobId: record.jobId,
+                        targetId: null,
+                      }),
+                    )
+                  }
+                  size="compact"
+                  type="button"
+                  variant="secondary"
+                >
+                  <ArrowUpRight aria-hidden="true" /> Open this application
+                </Button>
+              </div>
+            </article>
+          ))}
+        </section>
+      ) : null}
       {activeDecisions.length > 0 ? (
         <section
           aria-labelledby="reusable-answers-heading"
@@ -844,7 +955,10 @@ export function ActionsScreen(props: {
         </section>
       ) : null}
 
-      {unresolved.length === 0 && !hasPendingDecisionCards ? (
+      {unresolved.length === 0 &&
+      !hasPendingDecisionCards &&
+      applicationsAwaitingUser.length === 0 &&
+      !props.safeguardPauses?.length ? (
         <div className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel) p-5">
           <div className="grid gap-2" role="status">
             <h2 className="font-semibold text-(--text-headline)">

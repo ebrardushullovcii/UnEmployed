@@ -1,5 +1,5 @@
 import { chmod } from "node:fs/promises";
-import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import {
   JobSearchPreferencesSchema,
   getDefaultCampaignConfiguration,
@@ -89,6 +89,42 @@ const APPLICATION_ANSWER_SNAPSHOT_REQUIRED_COLUMNS: readonly string[] = [
   "approved_at",
   "value",
 ];
+
+/**
+ * Opens a workspace database file, releasing the OS handle when the open
+ * fails.
+ *
+ * `new DatabaseSync(path)` opens the file inside the constructor, so a throw
+ * leaves the caller with no object to close. On Windows that orphaned handle
+ * keeps the file locked, and the very next thing corruption recovery does is
+ * rename the suspect file aside — which then fails with EBUSY and turns a
+ * recoverable workspace into "quarantine-incomplete". Deferring the open with
+ * `{ open: false }` gives us an object we can always close, so the handle is
+ * gone before recovery touches the file. POSIX never held the lock and is
+ * unaffected.
+ */
+export function openDatabaseFile(
+  filePath: string,
+  options: { readOnly?: boolean } = {},
+): DatabaseSync {
+  const database = new DatabaseSync(filePath, {
+    open: false,
+    ...(options.readOnly === undefined ? {} : { readOnly: options.readOnly }),
+  });
+
+  try {
+    database.open();
+  } catch (error) {
+    try {
+      database.close();
+    } catch {
+      // A database that never opened has nothing to close.
+    }
+    throw error;
+  }
+
+  return database;
+}
 
 export function secureDatabaseFile(filePath: string): Promise<void> {
   if (process.platform === "win32") {
@@ -671,6 +707,57 @@ export function runMigrations(database: DatabaseSync): void {
     return true;
   }
 
+  /**
+   * Materializes the inverse campaign/job relationship on each shared job.
+   * Campaign jobIds remain the authoritative retained order; this field lets
+   * every job record answer which plans retain it without copying content.
+   */
+  function backfillSavedJobCampaignIds(): void {
+    const campaignRow = database
+      .prepare("SELECT value FROM singleton_state WHERE key = ?")
+      .get("campaign_state") as { value?: unknown } | undefined;
+    const memberships = new Map<string, Set<string>>();
+    if (typeof campaignRow?.value === "string") {
+      const state = JSON.parse(campaignRow.value) as unknown;
+      if (state && typeof state === "object" && "campaigns" in state) {
+        const campaigns = (state as { campaigns?: unknown }).campaigns;
+        if (Array.isArray(campaigns)) {
+          for (const campaign of campaigns) {
+            if (!campaign || typeof campaign !== "object") continue;
+            const id = (campaign as { id?: unknown }).id;
+            const jobIds = (campaign as { jobIds?: unknown }).jobIds;
+            if (typeof id !== "string" || !Array.isArray(jobIds)) continue;
+            for (const jobId of jobIds) {
+              if (typeof jobId !== "string") continue;
+              const plans = memberships.get(jobId) ?? new Set<string>();
+              plans.add(id);
+              memberships.set(jobId, plans);
+            }
+          }
+        }
+      }
+    }
+
+    const rows = database
+      .prepare("SELECT id, value FROM saved_jobs")
+      .all() as Array<{ id: string; value: string }>;
+    const update = database.prepare(
+      "UPDATE saved_jobs SET value = ? WHERE id = ?",
+    );
+    for (const row of rows) {
+      const job = parseMigrationObject("saved_jobs", row.id, row.value);
+      const existing = Array.isArray(job.campaignIds)
+        ? job.campaignIds.filter(
+            (value): value is string => typeof value === "string",
+          )
+        : [];
+      const campaignIds = [
+        ...new Set([...existing, ...(memberships.get(row.id) ?? [])]),
+      ].sort();
+      update.run(JSON.stringify({ ...job, campaignIds }), row.id);
+    }
+  }
+
   function ensureResumeImportTables(): void {
     database.exec(`
       CREATE TABLE IF NOT EXISTS resume_import_runs (
@@ -878,6 +965,93 @@ export function runMigrations(database: DatabaseSync): void {
       }
     } catch {
       // Leave unrelated malformed state untouched; schema loading will surface it.
+    }
+  }
+
+  /**
+   * Backfills `sourceTargetId` on stored outcome events.
+   *
+   * Outcomes recorded the source *kind*, which has one value for every job,
+   * so the Outcomes screen's "source" breakdown was a single bucket holding
+   * everything. The job's own discovery provenance names the saved source it
+   * came from; where that lineage exists it is copied onto the event, and
+   * where it does not the field stays null so the event groups under the
+   * unknown-source bucket rather than disappearing.
+   */
+  function backfillOutcomeEventSourceTargetIds(): void {
+    if (!hasTable("singleton_state") || !hasTable("saved_jobs")) return;
+
+    const row = database
+      .prepare("SELECT value FROM singleton_state WHERE key = ?")
+      .get("intelligence_state") as { value?: string } | undefined;
+    if (!row?.value) return;
+
+    try {
+      const intelligence = JSON.parse(row.value) as unknown;
+      if (
+        !intelligence ||
+        typeof intelligence !== "object" ||
+        Array.isArray(intelligence) ||
+        !Array.isArray((intelligence as { outcomeEvents?: unknown }).outcomeEvents)
+      ) {
+        return;
+      }
+
+      const lineageByJobId = new Map<string, string>();
+      const jobRows = database
+        .prepare("SELECT id, value FROM saved_jobs")
+        .all() as Array<{ id?: unknown; value?: unknown }>;
+      for (const jobRow of jobRows) {
+        if (typeof jobRow.value !== "string") continue;
+        try {
+          const job = JSON.parse(jobRow.value) as unknown;
+          if (!job || typeof job !== "object" || Array.isArray(job)) continue;
+          const record = job as Record<string, unknown>;
+          const id = typeof record.id === "string" ? record.id : null;
+          if (!id) continue;
+          const provenance = Array.isArray(record.provenance)
+            ? record.provenance
+            : [];
+          for (const entry of provenance) {
+            if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+              continue;
+            }
+            const targetId = (entry as Record<string, unknown>).targetId;
+            if (typeof targetId === "string" && targetId.trim().length > 0) {
+              lineageByJobId.set(id, targetId);
+              break;
+            }
+          }
+        } catch {
+          // A malformed saved job contributes no lineage; schema loading
+          // surfaces it separately.
+        }
+      }
+
+      let changed = false;
+      for (const event of (intelligence as { outcomeEvents: unknown[] })
+        .outcomeEvents) {
+        if (!event || typeof event !== "object" || Array.isArray(event)) {
+          continue;
+        }
+        const eventRecord = event as Record<string, unknown>;
+        if (typeof eventRecord.sourceTargetId === "string") continue;
+        const jobId =
+          typeof eventRecord.jobId === "string" ? eventRecord.jobId : null;
+        const targetId = jobId ? (lineageByJobId.get(jobId) ?? null) : null;
+        if (eventRecord.sourceTargetId === targetId) continue;
+        eventRecord.sourceTargetId = targetId;
+        changed = true;
+      }
+
+      if (changed) {
+        database
+          .prepare("UPDATE singleton_state SET value = ? WHERE key = ?")
+          .run(JSON.stringify(intelligence), "intelligence_state");
+      }
+    } catch {
+      // Leave unrelated malformed state untouched; schema loading will
+      // surface it.
     }
   }
 
@@ -1572,6 +1746,9 @@ export function runMigrations(database: DatabaseSync): void {
       "application_answer_snapshots_profile_revision_idx",
     );
     const needsApplicationAnswerSnapshotMigration = !appliedVersions.has(16);
+    const needsOutcomeSourceLineageMigration = !appliedVersions.has(17);
+    const needsSavedJobCampaignMembershipMigration =
+      !appliedVersions.has(18);
 
     if (
       resumeImportTablesMissing ||
@@ -1600,7 +1777,9 @@ export function runMigrations(database: DatabaseSync): void {
       applicationAnswerSnapshotTablesMissing ||
       applicationAnswerSnapshotColumnsMissing ||
       applicationAnswerSnapshotIndexMissing ||
-      needsApplicationAnswerSnapshotMigration
+      needsApplicationAnswerSnapshotMigration ||
+      needsOutcomeSourceLineageMigration ||
+      needsSavedJobCampaignMembershipMigration
     ) {
       database.exec("BEGIN IMMEDIATE");
       try {
@@ -1771,6 +1950,24 @@ export function runMigrations(database: DatabaseSync): void {
               "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
             )
             .run(16, "approved_application_answer_snapshots");
+        }
+
+        if (needsOutcomeSourceLineageMigration) {
+          backfillOutcomeEventSourceTargetIds();
+          database
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
+            .run(17, "outcome_event_source_lineage");
+        }
+
+        if (needsSavedJobCampaignMembershipMigration) {
+          backfillSavedJobCampaignIds();
+          database
+            .prepare(
+              "INSERT INTO schema_migrations (version, name) VALUES (?, ?)",
+            )
+            .run(18, "saved_job_campaign_membership");
         }
 
         database.exec("COMMIT");
@@ -2028,6 +2225,21 @@ export function runMigrations(database: DatabaseSync): void {
       database
         .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
         .run(16, "approved_application_answer_snapshots");
+    }
+
+    if (currentVersion < 17) {
+      backfillOutcomeEventSourceTargetIds();
+
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(17, "outcome_event_source_lineage");
+    }
+
+    if (currentVersion < 18) {
+      backfillSavedJobCampaignIds();
+      database
+        .prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .run(18, "saved_job_campaign_membership");
     }
 
     assertApplicationAuthorityTableShape();

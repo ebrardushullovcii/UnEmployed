@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
+  JobDiscoveryTarget,
   JobSearchCampaign,
   OutcomeAnalyticsBucket,
   OutcomeAnalyticsOverview,
@@ -9,6 +10,7 @@ import type {
   SetOutcomeSuggestionEnabledInput,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
+import { jobSourceLabel } from "../../lib/job-source-display-name";
 import { Input } from "@renderer/components/ui/input";
 import { EmptyState } from "../../components/empty-state";
 import { Link } from "react-router-dom";
@@ -200,7 +202,12 @@ function BucketCard(props: {
         : "critical";
 
   return (
-    <article className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-4">
+    <article
+      // Identity for this bucket's card. Stored keys never reach the visible
+      // copy, so this attribute is how a test tells one card from another.
+      data-outcome-bucket-key={bucket.key}
+      className="grid gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) p-4"
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -261,6 +268,9 @@ function BucketCard(props: {
   );
 }
 
+const EMPTY_SOURCE_TARGETS: readonly Pick<JobDiscoveryTarget, "id" | "label">[] =
+  [];
+
 export function OutcomeAnalyticsScreen(props: {
   actionMessage: string | null;
   activeCampaignId: string;
@@ -280,6 +290,8 @@ export function OutcomeAnalyticsScreen(props: {
   ) => Promise<boolean>;
   overview: OutcomeAnalyticsOverview | null;
   resumeStrategies: readonly ResumeStrategy[];
+  /** The saved job sources, so a source bucket prints its own name. */
+  sourceTargets?: readonly Pick<JobDiscoveryTarget, "id" | "label">[];
 }) {
   const [scope, setScope] = useState<OutcomeScope>({
     kind: "campaign",
@@ -290,6 +302,7 @@ export function OutcomeAnalyticsScreen(props: {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
 
+  const sourceTargets = props.sourceTargets ?? EMPTY_SOURCE_TARGETS;
   const campaignById = useMemo(
     () => new Map(props.campaigns.map((campaign) => [campaign.id, campaign])),
     [props.campaigns],
@@ -307,8 +320,10 @@ export function OutcomeAnalyticsScreen(props: {
         campaignById.get(campaignId)?.name ?? null,
       resumeStrategyName: (strategyId: string) =>
         strategyById.get(strategyId)?.name ?? null,
+      sourceName: (sourceTargetId: string) =>
+        jobSourceLabel(sourceTargetId, sourceTargets),
     }),
-    [campaignById, strategyById],
+    [campaignById, sourceTargets, strategyById],
   );
 
   // If the selected campaign no longer exists (for example the active

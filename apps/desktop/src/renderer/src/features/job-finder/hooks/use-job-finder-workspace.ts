@@ -134,6 +134,7 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
   const performanceRunRef = useRef(0);
   const workspaceRef = useRef<JobFinderWorkspaceSnapshot | null>(null);
   const workspaceRevisionRef = useRef<WorkspaceRevision>(0);
+  const workspaceCommitVersionRef = useRef(0);
   // Progress belongs to the import invocation that registered its callback.
   // A native file picker may settle after a route change or a renderer reload;
   // request identity keeps a late event from repainting a newer import.
@@ -168,6 +169,7 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
 
   const commitWorkspace = useCallback(
     (workspace: JobFinderWorkspaceSnapshot) => {
+      workspaceCommitVersionRef.current += 1;
       workspaceRef.current = workspace;
       setWorkspaceState((currentState) =>
         currentState.status === "ready"
@@ -345,6 +347,85 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
     recoverFullWorkspaceOnce,
   ]);
 
+  // Main may publish an update before the mutation that caused it returns.
+  // Notification refreshes therefore use their own fence: they never advance
+  // the mutation request sequence, and they commit only if no other response
+  // has committed since this refresh began.
+  const syncWorkspaceFromUpdate = useCallback(async () => {
+    if (!workspaceRef.current) return null;
+    const commitVersion = workspaceCommitVersionRef.current;
+    const baseRevision = workspaceRevisionRef.current || null;
+
+    try {
+      const result =
+        await window.unemployed.jobFinder.syncWorkspace(baseRevision);
+      if (workspaceCommitVersionRef.current !== commitVersion) {
+        return workspaceRef.current;
+      }
+
+      if (result.kind === "snapshot") {
+        workspaceRevisionRef.current = result.currentRevision;
+        commitWorkspace(result.snapshot);
+        return result.snapshot;
+      }
+
+      const workspace = workspaceRef.current;
+      if (workspace) {
+        const applied = applyJobFinderWorkspaceDelta({
+          revision: workspaceRevisionRef.current,
+          workspace,
+          delta: result.delta,
+        });
+        if (applied.status === "applied") {
+          workspaceRevisionRef.current = applied.revision;
+          commitWorkspace(applied.workspace);
+          return applied.workspace;
+        }
+      }
+    } catch {
+      // Fall through to the legacy full-snapshot recovery below.
+    }
+
+    const workspace = await window.unemployed.jobFinder.getWorkspace();
+    if (workspaceCommitVersionRef.current !== commitVersion) {
+      return workspaceRef.current ?? workspace;
+    }
+    workspaceRevisionRef.current = 0;
+    commitWorkspace(workspace);
+    return workspace;
+  }, [commitWorkspace]);
+
+  useEffect(() => {
+    let disposed = false;
+    let syncing = false;
+    let queued = false;
+    const converge = () => {
+      if (disposed) return;
+      if (syncing) {
+        queued = true;
+        return;
+      }
+      syncing = true;
+      void syncWorkspaceFromUpdate().finally(() => {
+        syncing = false;
+        if (queued) {
+          queued = false;
+          converge();
+        }
+      });
+    };
+    const subscribe = window.unemployed.jobFinder.onWorkspaceUpdate;
+    // Test hosts and a renderer that survived a development preload refresh
+    // can briefly expose the earlier bridge shape. The next mount subscribes;
+    // this mount keeps its ordinary mutation-driven convergence.
+    if (typeof subscribe !== "function") return;
+    const unsubscribe = subscribe(converge);
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [syncWorkspaceFromUpdate]);
+
   const runWorkspaceEntityMutation = useCallback(
     async (mutation: JobFinderWorkspaceEntityMutation) => {
       assertWorkspaceHydrated();
@@ -457,9 +538,13 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         jobId: string,
         intent: ResumePdfExportIntent = "download",
       ) =>
-        runWorkspaceAction(() =>
+        runWorkspaceResultAction(() =>
           window.unemployed.jobFinder.exportResumePdf(jobId, intent),
         ),
+      // Reveal is not a workspace mutation: it selects the written file in the
+      // OS file manager and returns what happened, so it never refreshes.
+      revealSavedFile: (path: string) =>
+        window.unemployed.jobFinder.revealSavedFile(path),
       approveResume: (jobId: string, exportId: string) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.approveResume(jobId, exportId),
@@ -616,12 +701,21 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceResultAction(() =>
           window.unemployed.jobFinder.runAgentDiscovery(onProgress, targetId),
         ),
+      cancelAgentDiscovery: (input) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.cancelAgentDiscovery(input),
+        ),
       runSourceDebug: (
         targetId: string,
         onProgress?: (event: SourceDebugProgressEvent) => void,
+        options?: { readabilityTimeoutMs?: number },
       ) =>
         runWorkspaceAction(() =>
-          window.unemployed.jobFinder.runSourceDebug(targetId, onProgress),
+          window.unemployed.jobFinder.runSourceDebug(
+            targetId,
+            onProgress,
+            options,
+          ),
         ),
       getSourceDebugRunDetails: (runId: string) =>
         window.unemployed.jobFinder.getSourceDebugRunDetails(runId),

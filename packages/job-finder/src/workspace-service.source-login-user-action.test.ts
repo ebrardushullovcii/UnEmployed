@@ -1,11 +1,26 @@
-import { SourceDebugRunRecordSchema } from "@unemployed/contracts";
-import { describe, expect, test } from "vitest";
+import {
+  DiscoveryRunResultSchema,
+  DiscoveryRunRecordSchema,
+  DiscoveryTargetExecutionSchema,
+  SourceDebugRunRecordSchema,
+  type JobSearchCampaign,
+  type SaveJobSearchCampaignInput,
+} from "@unemployed/contracts";
+import type {
+  AgentDiscoveryOptions,
+  BrowserSessionRuntime,
+} from "@unemployed/browser-runtime";
+import { describe, expect, test, vi } from "vitest";
 
-import { persistDiscoveryLoginUserAction } from "./internal/workspace-source-user-action";
+import {
+  persistDiscoveryLoginUserAction,
+  persistDiscoveryRunBlockerUserAction,
+} from "./internal/workspace-source-user-action";
 import {
   createSeed,
   createWorkspaceServiceHarness,
 } from "./workspace-service.test-support";
+import { createBrowserRuntime } from "./workspace-service.test-runtimes";
 
 function createPausedRun(summary: string) {
   return SourceDebugRunRecordSchema.parse({
@@ -36,7 +51,420 @@ function createPausedRun(summary: string) {
   });
 }
 
+function toCampaignInput(
+  campaign: JobSearchCampaign,
+  overrides: Partial<SaveJobSearchCampaignInput> = {},
+): SaveJobSearchCampaignInput {
+  return {
+    id: campaign.id,
+    name: campaign.name,
+    description: campaign.description,
+    mode: campaign.mode,
+    status: campaign.status,
+    searchPreferences: campaign.searchPreferences,
+    sourceTargetIds: campaign.sourceTargetIds,
+    minimumFitScore: campaign.minimumFitScore,
+    limits: campaign.limits,
+    stopRules: campaign.stopRules,
+    applicationPolicy: campaign.applicationPolicy,
+    rules: campaign.rules,
+    schedule: campaign.schedule,
+    latestDigest: campaign.latestDigest,
+    ...overrides,
+  };
+}
+
 describe("discovery source login UserActionRequest adoption", () => {
+  test("a later source opens a new page without reusing or closing a parked page", async () => {
+    const seed = createSeed();
+    seed.settings.keepSessionAlive = false;
+    const firstTarget = seed.searchPreferences.discovery.targets[0];
+    if (!firstTarget) throw new Error("Expected a saved source.");
+    const secondTarget = {
+      ...firstTarget,
+      id: "target_second_source",
+      label: "Second source",
+      startingUrl: "https://second.example.com/jobs",
+    };
+    seed.searchPreferences.discovery.targets = [firstTarget, secondTarget];
+    const pages = new Set<string>();
+    const protectedInputs: Array<
+      NonNullable<AgentDiscoveryOptions["protectedPages"]>
+    > = [];
+    const baseRuntime = createBrowserRuntime();
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery: (source, options) => {
+        protectedInputs.push([...(options.protectedPages ?? [])]);
+        const targetUrl = options.startingUrls[0];
+        if (!targetUrl) throw new Error("Expected a target URL.");
+        if (pages.size === 0) {
+          pages.add(targetUrl);
+          return Promise.resolve(
+            DiscoveryRunResultSchema.parse({
+              source,
+              startedAt: "2026-09-12T10:00:00.000Z",
+              completedAt: "2026-09-12T10:00:01.000Z",
+              querySummary: firstTarget.label,
+              warning: "The source stopped at a sign-in page.",
+              inventoryCompleteness: "partial",
+              jobs: [],
+              agentMetadata: {
+                accessBlockerReason: "auth_required",
+                parkedTab: { tabId: "tab_parked", url: targetUrl, title: null },
+              },
+            }),
+          );
+        }
+
+        for (const existingPage of [...pages]) {
+          if (
+            !options.protectedPages?.some(
+              (protectedPage) => protectedPage.url === existingPage,
+            )
+          ) {
+            pages.delete(existingPage);
+          }
+        }
+        pages.add(targetUrl);
+        return Promise.resolve(
+          DiscoveryRunResultSchema.parse({
+            source,
+            startedAt: "2026-09-12T10:00:02.000Z",
+            completedAt: "2026-09-12T10:00:03.000Z",
+            querySummary: secondTarget.label,
+            warning: null,
+            inventoryCompleteness: "complete",
+            jobs: [],
+          }),
+        );
+      },
+    };
+    const harness = createWorkspaceServiceHarness({ seed, browserRuntime });
+
+    await harness.workspaceService.runAgentDiscovery();
+
+    expect(protectedInputs).toEqual([
+      [],
+      [
+        {
+          tabId: "tab_parked",
+          url: firstTarget.startingUrl,
+          title: null,
+        },
+      ],
+    ]);
+    expect(pages).toEqual(
+      new Set([firstTarget.startingUrl, secondTarget.startingUrl]),
+    );
+  });
+
+  test("a later run does not close an unresolved handoff from an earlier run", async () => {
+    const seed = createSeed();
+    seed.settings.keepSessionAlive = false;
+    const firstTarget = seed.searchPreferences.discovery.targets[0];
+    if (!firstTarget) throw new Error("Expected a saved source.");
+    const secondTarget = {
+      ...firstTarget,
+      id: "target_later_run",
+      label: "Later source",
+      startingUrl: "https://later.example.com/jobs",
+    };
+    seed.searchPreferences.discovery.targets = [firstTarget, secondTarget];
+    const pages = new Set<string>();
+    const baseRuntime = createBrowserRuntime();
+    const closeSession = vi.fn<BrowserSessionRuntime["closeSession"]>(
+      async (source) => {
+        pages.clear();
+        return baseRuntime.closeSession(source);
+      },
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      closeSession,
+      runAgentDiscovery: (source, options) => {
+        const targetUrl = options.startingUrls[0];
+        if (!targetUrl) throw new Error("Expected a target URL.");
+        pages.add(targetUrl);
+        return Promise.resolve(
+          DiscoveryRunResultSchema.parse({
+            source,
+            startedAt: "2026-09-12T10:00:00.000Z",
+            completedAt: "2026-09-12T10:00:01.000Z",
+            querySummary: options.siteLabel,
+            warning:
+              targetUrl === firstTarget.startingUrl
+                ? "The source stopped at a sign-in page."
+                : null,
+            inventoryCompleteness:
+              targetUrl === firstTarget.startingUrl ? "partial" : "complete",
+            jobs: [],
+            ...(targetUrl === firstTarget.startingUrl
+              ? {
+                  agentMetadata: {
+                    accessBlockerReason: "auth_required",
+                    parkedTab: {
+                      tabId: "tab_earlier_handoff",
+                      url: targetUrl,
+                      title: firstTarget.label,
+                    },
+                  },
+                }
+              : {}),
+          }),
+        );
+      },
+    };
+    const harness = createWorkspaceServiceHarness({ seed, browserRuntime });
+
+    await expect(
+      harness.workspaceService.runAgentDiscovery(
+        undefined,
+        undefined,
+        firstTarget.id,
+      ),
+    ).rejects.toThrow("sign-in page");
+    await harness.workspaceService.runAgentDiscovery(
+      undefined,
+      undefined,
+      secondTarget.id,
+    );
+
+    expect(closeSession).not.toHaveBeenCalled();
+    expect(pages.has(firstTarget.startingUrl)).toBe(true);
+    expect(
+      (await harness.repository.listUserActionRequests()).some(
+        (request) =>
+          request.scope.type === "discovery_source" &&
+          request.scope.parkedTab?.tabId === "tab_earlier_handoff" &&
+          request.state === "pending",
+      ),
+    ).toBe(true);
+  });
+
+  test("keeps a wall tab open until its Needs you item is dismissed", async () => {
+    const seed = createSeed();
+    seed.settings.keepSessionAlive = false;
+    const target = seed.searchPreferences.discovery.targets[0];
+    if (!target) throw new Error("Expected a saved source.");
+    const baseRuntime = createBrowserRuntime();
+    const closeSession = vi.fn<BrowserSessionRuntime["closeSession"]>(
+      (source) => baseRuntime.closeSession(source),
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      closeSession,
+      runAgentDiscovery: (source) =>
+        Promise.resolve(
+          DiscoveryRunResultSchema.parse({
+            source,
+            startedAt: "2026-09-12T10:00:00.000Z",
+            completedAt: "2026-09-12T10:00:01.000Z",
+            querySummary: target.label,
+            warning: "The source stopped at a human-verification page.",
+            inventoryCompleteness: "partial",
+            jobs: [],
+            agentMetadata: {
+              accessBlockerReason: "site_protection",
+              parkedTab: {
+                tabId: "tab_parked",
+                url: target.startingUrl,
+                title: target.label,
+              },
+            },
+          }),
+        ),
+    };
+    const harness = createWorkspaceServiceHarness({ seed, browserRuntime });
+
+    await expect(
+      harness.workspaceService.runAgentDiscovery(
+        undefined,
+        undefined,
+        target.id,
+      ),
+    ).rejects.toThrow("human-verification page");
+    const stopped = await harness.workspaceService.getWorkspaceSnapshot();
+    const request = stopped.userActionRequests[0];
+    if (!request) throw new Error("Expected a parked-tab action.");
+    expect(request.scope).toMatchObject({
+      type: "discovery_source",
+      parkedTab: { tabId: "tab_parked" },
+    });
+    expect(closeSession).not.toHaveBeenCalled();
+    expect(
+      stopped.recentDiscoveryRuns[0]?.summary.browserCloseout?.mode,
+    ).toBe("kept_alive");
+
+    await harness.workspaceService.performUserAction({
+      action: "cancel",
+      requestId: request.id,
+      commandId: "dismiss_live_parked_discovery_tab",
+      expectedRevision: request.revision,
+      reason: "User dismissed the item.",
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+
+    expect(closeSession).toHaveBeenCalledOnce();
+    expect(closeSession).toHaveBeenCalledWith("target_site");
+  });
+
+  test("closes only the dismissed handoff tab until the final handoff is gone", async () => {
+    const seed = createSeed();
+    const firstTarget = seed.searchPreferences.discovery.targets[0];
+    if (!firstTarget) throw new Error("Expected a saved source.");
+    const secondTarget = {
+      ...firstTarget,
+      id: "target_second_pending_handoff",
+      label: "Second pending handoff",
+      startingUrl: "https://second.example.com/jobs",
+    };
+    seed.searchPreferences.discovery.targets = [firstTarget, secondTarget];
+
+    const openTabs = new Set(["tab_first_handoff", "tab_second_handoff"]);
+    const baseRuntime = createBrowserRuntime();
+    const closeParkedTab = vi.fn<
+      NonNullable<BrowserSessionRuntime["closeParkedTab"]>
+    >((_source, tab) => {
+      if (tab.tabId) openTabs.delete(tab.tabId);
+      return Promise.resolve();
+    });
+    const closeSession = vi.fn<BrowserSessionRuntime["closeSession"]>(
+      (source) => baseRuntime.closeSession(source),
+    );
+    const harness = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: { ...baseRuntime, closeParkedTab, closeSession },
+    });
+
+    for (const [runId, target, tabId] of [
+      ["run_first_handoff", firstTarget, "tab_first_handoff"],
+      ["run_second_handoff", secondTarget, "tab_second_handoff"],
+    ] as const) {
+      await persistDiscoveryRunBlockerUserAction({
+        repository: harness.repository,
+        runId,
+        target,
+        execution: DiscoveryTargetExecutionSchema.parse({
+          targetId: target.id,
+          adapterKind: target.adapterKind,
+          state: "failed",
+          accessBlockerReason: "site_protection",
+          parkedTab: { tabId, url: target.startingUrl, title: target.label },
+        }),
+        occurredAt: "2026-09-12T10:01:00.000Z",
+      });
+    }
+
+    const requests = await harness.repository.listUserActionRequests();
+    const firstRequest = requests.find(
+      (request) =>
+        request.scope.type === "discovery_source" &&
+        request.scope.targetId === firstTarget.id,
+    );
+    const secondRequest = requests.find(
+      (request) =>
+        request.scope.type === "discovery_source" &&
+        request.scope.targetId === secondTarget.id,
+    );
+    if (!firstRequest || !secondRequest) {
+      throw new Error("Expected two pending handoffs.");
+    }
+
+    await harness.workspaceService.performUserAction({
+      action: "cancel",
+      requestId: firstRequest.id,
+      commandId: "dismiss_first_pending_handoff",
+      expectedRevision: firstRequest.revision,
+      reason: "Dismiss the first handoff.",
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+
+    expect(openTabs).toEqual(new Set(["tab_second_handoff"]));
+    expect(closeSession).not.toHaveBeenCalled();
+
+    await harness.workspaceService.performUserAction({
+      action: "cancel",
+      requestId: secondRequest.id,
+      commandId: "dismiss_second_pending_handoff",
+      expectedRevision: secondRequest.revision,
+      reason: "Dismiss the second handoff.",
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+
+    expect(openTabs).toEqual(new Set());
+    expect(closeParkedTab).toHaveBeenCalledTimes(2);
+    expect(closeSession).toHaveBeenCalledOnce();
+  });
+
+  test("creates one run-scoped item for a source that stopped at a parked verification tab", async () => {
+    const seed = createSeed();
+    const target = seed.searchPreferences.discovery.targets[0];
+    if (!target) throw new Error("Expected a saved source.");
+    const harness = createWorkspaceServiceHarness({ seed });
+    const closeSession = vi.spyOn(harness.browserRuntime, "closeSession");
+    const execution = DiscoveryTargetExecutionSchema.parse({
+      targetId: target.id,
+      adapterKind: target.adapterKind,
+      state: "failed",
+      accessBlockerReason: "site_protection",
+      parkedTab: {
+        tabId: "tab_parked",
+        url: target.startingUrl,
+        title: target.label,
+      },
+    });
+
+    await persistDiscoveryRunBlockerUserAction({
+      repository: harness.repository,
+      runId: "discovery_run_1",
+      target,
+      execution,
+      occurredAt: "2026-07-30T08:01:00.000Z",
+    });
+    await persistDiscoveryRunBlockerUserAction({
+      repository: harness.repository,
+      runId: "discovery_run_1",
+      target,
+      execution,
+      occurredAt: "2026-07-30T08:01:00.000Z",
+    });
+
+    const requests = await harness.repository.listUserActionRequests();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      kind: "captcha",
+      title: `Finish the check on ${target.label}`,
+      scope: {
+        type: "discovery_source",
+        discoveryRunId: "discovery_run_1",
+        parkedTab: { tabId: "tab_parked", url: target.startingUrl },
+      },
+    });
+
+    const request = requests[0];
+    if (!request) throw new Error("Expected a parked-tab action.");
+    await harness.workspaceService.performUserAction({
+      action: "cancel",
+      requestId: request.id,
+      commandId: "dismiss_parked_discovery_tab",
+      expectedRevision: request.revision,
+      reason: "User dismissed the item.",
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+
+    expect(closeSession).toHaveBeenCalledOnce();
+    expect(closeSession).toHaveBeenCalledWith("target_site");
+  });
+
   test("persists one strict browser-owned request for a login-required source prompt", async () => {
     const harness = createWorkspaceServiceHarness({ seed: createSeed() });
     const run = createPausedRun("Please sign in first.");
@@ -114,5 +542,275 @@ describe("discovery source login UserActionRequest adoption", () => {
     const requests = await harness.repository.listUserActionRequests();
     expect(requests).toHaveLength(1);
     expect(requests[0]?.state).toBe("cancelled");
+  });
+});
+
+describe("continuing a search after the person clears a wall", () => {
+  test("reads the source again once its Needs you item is resolved", async () => {
+    const seed = createSeed();
+    const target = seed.searchPreferences.discovery.targets[0];
+    if (!target) throw new Error("Expected a saved source.");
+    const baseRuntime = createBrowserRuntime();
+    const expectedOrigin = new URL(target.startingUrl).origin;
+    const runAgentDiscovery = vi.fn(
+      (source: Parameters<NonNullable<BrowserSessionRuntime["runAgentDiscovery"]>>[0]) =>
+        Promise.resolve(
+          DiscoveryRunResultSchema.parse({
+            source,
+            startedAt: "2026-09-12T10:00:00.000Z",
+            completedAt: "2026-09-12T10:00:01.000Z",
+            querySummary: target.label,
+            inventoryCompleteness: "partial",
+            jobs: [],
+          }),
+        ),
+    );
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      runAgentDiscovery,
+      inspectSourceAccess: () =>
+        Promise.resolve({
+          state: "authenticated" as const,
+          currentOrigin: `${expectedOrigin}/`,
+          checkedAt: "2026-09-12T10:05:00.000Z",
+          signals: ["account_menu_control" as const],
+        }),
+    };
+    const harness = createWorkspaceServiceHarness({ seed, browserRuntime });
+    const initialized = await harness.workspaceService.getWorkspaceSnapshot();
+    const campaignId = initialized.activeCampaignId;
+    if (!campaignId) throw new Error("Expected an active search plan.");
+    await harness.repository.commitDiscoveryStateUpdate((current) => ({
+      ...current,
+      recentRuns: [
+        DiscoveryRunRecordSchema.parse({
+          id: "discovery_run_blocked",
+          campaignId,
+          state: "failed",
+          scope: "single_target",
+          startedAt: "2026-09-12T10:00:00.000Z",
+          completedAt: "2026-09-12T10:01:00.000Z",
+          targetIds: [target.id],
+        }),
+        ...current.recentRuns,
+      ],
+    }));
+
+    await persistDiscoveryRunBlockerUserAction({
+      repository: harness.repository,
+      runId: "discovery_run_blocked",
+      target,
+      execution: DiscoveryTargetExecutionSchema.parse({
+        targetId: target.id,
+        adapterKind: target.adapterKind,
+        state: "failed",
+        accessBlockerReason: "site_protection",
+        parkedTab: {
+          tabId: "tab_parked",
+          url: target.startingUrl,
+          title: target.label,
+        },
+      }),
+      occurredAt: "2026-09-12T10:01:00.000Z",
+    });
+
+    const [request] = await harness.repository.listUserActionRequests();
+    if (!request) throw new Error("Expected a parked-tab action.");
+    expect(runAgentDiscovery).not.toHaveBeenCalled();
+
+    await harness.workspaceService.performUserAction({
+      action: "confirm_done",
+      requestId: request.id,
+      commandId: "confirm_cleared_discovery_wall",
+      expectedRevision: request.revision,
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+
+    // The search that stopped at the wall picks up on that source rather than
+    // leaving the person to start a whole new one.
+    await vi.waitFor(() => {
+      expect(runAgentDiscovery).toHaveBeenCalled();
+    });
+    const resolved = await harness.repository.getUserActionRequest(request.id);
+    expect(resolved?.state).toBe("resolved");
+  });
+
+  test("continues a blocked run with its non-active plan preferences and retention", async () => {
+    const seed = createSeed();
+    const baseRuntime = createBrowserRuntime();
+    const capturedRoles: string[][] = [];
+    const browserRuntime: BrowserSessionRuntime = {
+      ...baseRuntime,
+      inspectSourceAccess: (_source, input) =>
+        Promise.resolve({
+          state: "authenticated" as const,
+          currentOrigin: input.expectedOrigin,
+          checkedAt: "2026-09-12T10:05:00.000Z",
+          signals: ["account_menu_control" as const],
+        }),
+      runAgentDiscovery: async (source, options) => {
+        capturedRoles.push([...options.searchPreferences.targetRoles]);
+        return baseRuntime.runAgentDiscovery!(source, options);
+      },
+    };
+    const harness = createWorkspaceServiceHarness({ seed, browserRuntime });
+    const initial = await harness.workspaceService.getWorkspaceSnapshot();
+    const active = initial.campaigns.find(
+      (campaign) => campaign.id === initial.activeCampaignId,
+    );
+    if (!active) throw new Error("Expected an active search plan.");
+
+    const originPreferences = structuredClone(active.searchPreferences);
+    originPreferences.targetRoles = ["Principal UX Engineer"];
+    originPreferences.locations = ["Remote"];
+    const created = await harness.workspaceService.saveCampaign(
+      toCampaignInput(active, {
+        id: null,
+        name: "Originating non-active plan",
+        searchPreferences: originPreferences,
+      }),
+    );
+    const originatingPlan = created.campaigns.find(
+      (campaign) => campaign.name === "Originating non-active plan",
+    );
+    if (!originatingPlan) throw new Error("Expected the originating plan.");
+    await harness.workspaceService.selectCampaign(active.id);
+    const target = originatingPlan.searchPreferences.discovery.targets[0];
+    if (!target) throw new Error("Expected a source in the originating plan.");
+
+    await harness.repository.commitDiscoveryStateUpdate((current) => ({
+      ...current,
+      recentRuns: [
+        DiscoveryRunRecordSchema.parse({
+          id: "discovery_run_non_active_plan",
+          campaignId: originatingPlan.id,
+          state: "failed",
+          scope: "single_target",
+          startedAt: "2026-09-12T10:00:00.000Z",
+          completedAt: "2026-09-12T10:01:00.000Z",
+          targetIds: [target.id],
+        }),
+        ...current.recentRuns,
+      ],
+    }));
+    await persistDiscoveryRunBlockerUserAction({
+      repository: harness.repository,
+      runId: "discovery_run_non_active_plan",
+      target,
+      execution: DiscoveryTargetExecutionSchema.parse({
+        targetId: target.id,
+        adapterKind: target.adapterKind,
+        state: "failed",
+        accessBlockerReason: "site_protection",
+        parkedTab: {
+          tabId: "tab_non_active_plan",
+          url: target.startingUrl,
+          title: target.label,
+        },
+      }),
+      occurredAt: "2026-09-12T10:01:00.000Z",
+    });
+    const [request] = await harness.repository.listUserActionRequests();
+    if (!request) throw new Error("Expected a blocked source handoff.");
+
+    await harness.workspaceService.performUserAction({
+      action: "confirm_done",
+      requestId: request.id,
+      commandId: "continue_non_active_plan",
+      expectedRevision: request.revision,
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+
+    expect(capturedRoles).toEqual([["Principal UX Engineer"]]);
+    const finalSnapshot = await harness.workspaceService.getWorkspaceSnapshot();
+    expect(finalSnapshot.activeCampaignId).toBe(active.id);
+    const updatedOrigin = finalSnapshot.campaigns.find(
+      (campaign) => campaign.id === originatingPlan.id,
+    );
+    expect(
+      updatedOrigin?.history.some((entry) => entry.kind === "discovery_run"),
+    ).toBe(true);
+    expect(updatedOrigin?.latestDigest?.discoveryRunId).not.toBeNull();
+  });
+
+  test("keeps the handoff visible with plain copy when its search plan was removed", async () => {
+    const seed = createSeed();
+    const target = seed.searchPreferences.discovery.targets[0];
+    if (!target) throw new Error("Expected a saved source.");
+    const baseRuntime = createBrowserRuntime();
+    const runAgentDiscovery = vi.fn(
+      (...args: Parameters<NonNullable<BrowserSessionRuntime["runAgentDiscovery"]>>) =>
+        baseRuntime.runAgentDiscovery!(...args),
+    );
+    const harness = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: {
+        ...baseRuntime,
+        runAgentDiscovery,
+        inspectSourceAccess: (_source, input) =>
+          Promise.resolve({
+            state: "authenticated" as const,
+            currentOrigin: input.expectedOrigin,
+            checkedAt: "2026-09-12T10:05:00.000Z",
+            signals: ["account_menu_control" as const],
+          }),
+      },
+    });
+    await harness.workspaceService.getWorkspaceSnapshot();
+    await harness.repository.commitDiscoveryStateUpdate((current) => ({
+      ...current,
+      recentRuns: [
+        DiscoveryRunRecordSchema.parse({
+          id: "discovery_run_removed_plan",
+          campaignId: "campaign_removed",
+          state: "failed",
+          scope: "single_target",
+          startedAt: "2026-09-12T10:00:00.000Z",
+          completedAt: "2026-09-12T10:01:00.000Z",
+          targetIds: [target.id],
+        }),
+        ...current.recentRuns,
+      ],
+    }));
+    await persistDiscoveryRunBlockerUserAction({
+      repository: harness.repository,
+      runId: "discovery_run_removed_plan",
+      target,
+      execution: DiscoveryTargetExecutionSchema.parse({
+        targetId: target.id,
+        adapterKind: target.adapterKind,
+        state: "failed",
+        accessBlockerReason: "site_protection",
+        parkedTab: {
+          tabId: "tab_removed_plan",
+          url: target.startingUrl,
+          title: target.label,
+        },
+      }),
+      occurredAt: "2026-09-12T10:01:00.000Z",
+    });
+    const [request] = await harness.repository.listUserActionRequests();
+    if (!request) throw new Error("Expected a blocked source handoff.");
+
+    await harness.workspaceService.performUserAction({
+      action: "confirm_done",
+      requestId: request.id,
+      commandId: "continue_removed_plan",
+      expectedRevision: request.revision,
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+
+    const stillVisible = await harness.repository.getUserActionRequest(request.id);
+    expect(stillVisible).toMatchObject({
+      state: "still_blocked",
+      summary: "This search plan was removed; run the plan again",
+    });
+    expect(runAgentDiscovery).not.toHaveBeenCalled();
   });
 });

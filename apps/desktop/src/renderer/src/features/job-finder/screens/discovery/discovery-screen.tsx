@@ -9,6 +9,7 @@ import {
 import { Link } from "react-router-dom";
 import type {
   BrowserSessionState,
+  ApplicationRecord,
   CompanyEntity,
   DiscoveryAdapterSessionState,
   DiscoveryActivityEvent,
@@ -17,6 +18,8 @@ import type {
   DiscoveryRunRecord,
   JobSearchCampaign,
   JobSearchPreferences,
+  PlanSafeguardPause,
+  ReviewQueueItem,
   SourceAccessPrompt,
   SavedJob,
 } from "@unemployed/contracts";
@@ -27,14 +30,24 @@ import {
   DISCOVERY_PAUSED_SEARCH_REASON,
   getDiscoveryRuntimeProjection,
 } from "./discovery-search-readiness";
+import {
+  createDiscoveryRunCancelledFeedback,
+  createDiscoveryRunInterruptedFeedback,
+  createDiscoveryRunSafeguardPausedFeedback,
+  createDiscoveryRunStartedFeedback,
+  createDiscoveryRunSucceededFeedback,
+} from "./discovery-run-feedback";
 import { LockedScreenLayout } from "@renderer/features/job-finder/components/locked-screen-layout";
 import { PageHeaderStack } from "@renderer/features/job-finder/components/page-header";
 import { OPEN_JOB_FINDER_BROWSER_ACTION } from "@renderer/features/job-finder/lib/job-finder-browser-handoff-copy";
 import { JOB_FINDER_ROUTE_PATHS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
 import { formatCountLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
 import {
+  formatDiscoveryRunReportLabel,
   formatDiscoveryRunCountLabel,
+  getDiscoveryRunReportCounts,
   getDiscoveryRunCountEvidence,
+  hasDiscoveryRunReportCounts,
 } from "@renderer/features/job-finder/lib/discovery-run-count-label";
 import { settleJobFinderRouteHeaderScroll } from "@renderer/features/job-finder/lib/job-finder-scroll-reveal";
 import { DiscoveryHistoryModal } from "./discovery-activity-panel";
@@ -58,6 +71,8 @@ import {
   type DiscoveryRunFeedback,
 } from "./discovery-run-feedback";
 import { compareDiscoveryFitOrder } from "./discovery-results-sort";
+import { useDiscoveryStopState } from "@renderer/features/job-finder/lib/discovery-stop-state";
+import { DISCOVERY_STOP_UNACKNOWLEDGED_LABEL } from "@renderer/features/job-finder/lib/status-copy";
 import { getDiscoverySearchReadiness } from "./discovery-search-readiness";
 import type { JobFinderQueuedJobOutcome } from "@renderer/features/job-finder/lib/job-finder-types";
 import { cn } from "@renderer/lib/cn";
@@ -96,11 +111,26 @@ export {
   isDiscoveryClearMismatch,
 } from "./discovery-result-groups";
 
+export function getNewestRunForCampaign(
+  recentRuns: readonly DiscoveryRunRecord[],
+  campaignId: string | null,
+): DiscoveryRunRecord | null {
+  return (
+    [...recentRuns]
+      .filter((run) => run.campaignId === campaignId)
+      .sort(
+        (left, right) =>
+          Date.parse(right.startedAt) - Date.parse(left.startedAt),
+      )[0] ?? null
+  );
+}
+
 export function getDiscoveryResultVisibility(
   jobs: readonly SavedJob[],
   selectedJob: SavedJob | null,
   showAlsoFound: boolean,
   preserveSelectedJob = false,
+  stableOrderIds?: readonly string[],
 ): {
   alsoFoundCount: number;
   hiddenAlsoFoundCount: number;
@@ -124,7 +154,21 @@ export function getDiscoveryResultVisibility(
   // Ordering is the canonical Best-match chain (see compareDiscoveryFitOrder),
   // so the visible sequence always equals the rediscovery rank-audit sequence
   // for the same candidate set instead of depending on arrival order.
-  const visibleJobs = displayCandidates.slice().sort(compareDiscoveryFitOrder);
+  const stableOrder = stableOrderIds
+    ? new Map(stableOrderIds.map((id, index) => [id, index]))
+    : null;
+  const visibleJobs = displayCandidates.slice().sort((left, right) => {
+    if (stableOrder) {
+      const leftIndex = stableOrder.get(left.id);
+      const rightIndex = stableOrder.get(right.id);
+      if (leftIndex !== undefined || rightIndex !== undefined) {
+        if (leftIndex === undefined) return 1;
+        if (rightIndex === undefined) return -1;
+        if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+      }
+    }
+    return compareDiscoveryFitOrder(left, right);
+  });
   const visibleSelectedJob =
     selectedJob && visibleJobs.some((job) => job.id === selectedJob.id)
       ? selectedJob
@@ -139,6 +183,62 @@ export function getDiscoveryResultVisibility(
       .length,
     jobs: visibleJobs,
     selectedJob: visibleSelectedJob,
+  };
+}
+
+export interface StableDiscoveryRunSnapshot {
+  runId: string;
+  jobIds: readonly string[];
+  jobsById: ReadonlyMap<string, SavedJob>;
+}
+
+/**
+ * Freezes rows already shown during a run and appends only genuinely new
+ * rows. The terminal render receives the current objects once, so rescoring
+ * and band changes happen together after the run rather than flickering while
+ * listing pages are still being read.
+ */
+export function updateStableDiscoveryRunSnapshot(input: {
+  current: StableDiscoveryRunSnapshot | null;
+  jobs: readonly SavedJob[];
+  runId: string | null;
+}): { jobs: readonly SavedJob[]; snapshot: StableDiscoveryRunSnapshot | null } {
+  if (!input.runId) {
+    return { jobs: input.jobs, snapshot: null };
+  }
+
+  if (input.current?.runId !== input.runId) {
+    const ordered = input.jobs.slice().sort(compareDiscoveryFitOrder);
+    return {
+      jobs: ordered,
+      snapshot: {
+        runId: input.runId,
+        jobIds: ordered.map((job) => job.id),
+        jobsById: new Map(ordered.map((job) => [job.id, job])),
+      },
+    };
+  }
+
+  const appended = input.jobs.filter(
+    (job) => !input.current?.jobsById.has(job.id),
+  );
+  const snapshot =
+    appended.length === 0
+      ? input.current
+      : {
+          runId: input.runId,
+          jobIds: [...input.current.jobIds, ...appended.map((job) => job.id)],
+          jobsById: new Map([
+            ...input.current.jobsById,
+            ...appended.map((job) => [job.id, job] as const),
+          ]),
+        };
+  return {
+    jobs: snapshot.jobIds.flatMap((id) => {
+      const job = snapshot.jobsById.get(id);
+      return job ? [job] : [];
+    }),
+    snapshot,
   };
 }
 
@@ -209,8 +309,15 @@ export function DiscoveryScreen(props: {
   actionState: { message: string | null };
   activityPaused?: boolean;
   activeRun: DiscoveryRunRecord | null;
+  applicationRecords?: readonly ApplicationRecord[];
+  /**
+   * Shortlisted rows, so the inspector's readiness badge reads the same value
+   * Shortlisted renders instead of deriving a second one from the job status.
+   */
+  reviewQueue?: readonly ReviewQueueItem[];
   /** Search plans the page can switch between; Search now runs the current one. */
   campaigns?: readonly JobSearchCampaign[];
+  safeguardPauses?: readonly PlanSafeguardPause[];
   activeCampaignId?: string | null;
   isPlanSwitchPending?: boolean;
   onSelectCampaign?: (campaignId: string) => void;
@@ -229,7 +336,7 @@ export function DiscoveryScreen(props: {
   liveEvents: readonly DiscoveryActivityEvent[];
   onBackToRapidReview?: () => void;
   /** Cancels the active run through the same fenced request the Task Center uses. */
-  onCancelDiscovery?: () => void;
+  onCancelDiscovery?: (runId: string) => Promise<boolean>;
   onResumeActivity?: () => void;
   onDismissJob: (
     jobId: string,
@@ -248,6 +355,7 @@ export function DiscoveryScreen(props: {
   onOpenBrowserSession: () => void;
   onOpenBrowserSessionForTarget: (targetId: string) => void;
   onOpenCompany?: (companyId: string) => void;
+  onOpenApplication?: (recordId: string) => void;
   onQueueJob: (jobId: string) => void | Promise<JobFinderQueuedJobOutcome>;
   onRunAgentDiscovery: (() => void) | undefined;
   onRunDiscoveryForTarget?: (targetId: string) => void;
@@ -263,7 +371,10 @@ export function DiscoveryScreen(props: {
     actionState,
     activityPaused = false,
     activeRun,
+    applicationRecords = [],
+    reviewQueue = [],
     campaigns,
+    safeguardPauses = [],
     activeCampaignId = null,
     isPlanSwitchPending = false,
     onSelectCampaign,
@@ -290,6 +401,7 @@ export function DiscoveryScreen(props: {
     onOpenBrowserSession,
     onOpenBrowserSessionForTarget,
     onOpenCompany,
+    onOpenApplication,
     onQueueJob,
     onRunAgentDiscovery,
     onSelectJob,
@@ -300,8 +412,16 @@ export function DiscoveryScreen(props: {
     selectedSourceTargetId,
     sourceAccessPrompts,
   } = props;
+  const activeCampaignMode =
+    campaigns?.find((campaign) => campaign.id === activeCampaignId)?.mode ??
+    "precision";
   const [showHistory, setShowHistory] = useState(false);
-  const [showAlsoFound, setShowAlsoFound] = useState(false);
+  const [showAlsoFound, setShowAlsoFound] = useState(
+    () => activeCampaignMode === "scale",
+  );
+  useEffect(() => {
+    setShowAlsoFound(activeCampaignMode === "scale");
+  }, [activeCampaignId, activeCampaignMode]);
   // What the results panel actually displays on its current filtered and
   // paginated page. Null state means "not reported yet"; an explicit null
   // jobId means the panel is showing no results at all.
@@ -355,14 +475,76 @@ export function DiscoveryScreen(props: {
     jobs.length === 0 ? "roles" : null,
   );
   const isSetupOpen = openSetupChipId !== null;
+  const selectedPlanLatestRun = useMemo(
+    () => getNewestRunForCampaign(recentRuns, activeCampaignId),
+    [activeCampaignId, recentRuns],
+  );
+  const selectedPlanSafeguardRoute =
+    safeguardPauses.find((pause) => pause.campaignId === activeCampaignId)
+      ?.route ?? null;
+  const selectedPlanRunReportLabel = useMemo(() => {
+    if (selectedPlanLatestRun?.state !== "completed") return null;
+    const counts = getDiscoveryRunReportCounts(selectedPlanLatestRun);
+    return hasDiscoveryRunReportCounts(counts)
+      ? formatDiscoveryRunReportLabel(counts)
+      : null;
+  }, [selectedPlanLatestRun]);
+  const selectedPlanRunFeedback = useMemo(() => {
+    if (
+      activeRun?.state === "running" &&
+      activeRun.campaignId === activeCampaignId
+    ) {
+      return createDiscoveryRunStartedFeedback();
+    }
+    if (!selectedPlanLatestRun) return null;
+    if (selectedPlanLatestRun.state === "completed") {
+      if (selectedPlanSafeguardRoute) {
+        return createDiscoveryRunSafeguardPausedFeedback(
+          selectedPlanSafeguardRoute,
+        );
+      }
+      return createDiscoveryRunSucceededFeedback(
+        null,
+        selectedPlanRunReportLabel ??
+          formatDiscoveryRunCountLabel(
+            getDiscoveryRunCountEvidence(selectedPlanLatestRun, null),
+          ),
+      );
+    }
+    if (selectedPlanLatestRun.state === "cancelled") {
+      return createDiscoveryRunCancelledFeedback({
+        savedJobCount: selectedPlanLatestRun.summary.validJobsFound,
+      });
+    }
+    if (selectedPlanLatestRun.state === "failed") {
+      return createDiscoveryRunInterruptedFeedback({
+        detail: selectedPlanLatestRun.summary.warnings.at(-1) ?? null,
+      });
+    }
+    return null;
+  }, [
+    activeCampaignId,
+    activeRun,
+    selectedPlanLatestRun,
+    selectedPlanRunReportLabel,
+    selectedPlanSafeguardRoute,
+  ]);
+  const visibleDiscoveryRunFeedback =
+    discoveryRunFeedback &&
+    (discoveryRunFeedback.status === "failed" ||
+      selectedPlanLatestRun === null ||
+      (discoveryRunFeedback.status === "started" &&
+        (activeRun == null || activeRun.campaignId === activeCampaignId)))
+      ? discoveryRunFeedback
+      : selectedPlanRunFeedback;
   // A search that starts while setup is open would finish behind the setup
   // panel: the completion banner and results were invisible until the user
   // happened to close it. Starting a run closes setup.
   useEffect(() => {
-    if (discoveryRunFeedback?.status === "started") {
+    if (visibleDiscoveryRunFeedback?.status === "started") {
       setOpenSetupChipId(null);
     }
-  }, [discoveryRunFeedback?.status]);
+  }, [visibleDiscoveryRunFeedback?.status]);
   // The wait belongs beside the control that started it, in the same
   // vocabulary Home and Search history use for the finished run.
   const liveSearchProgressLabel = useMemo(() => {
@@ -436,15 +618,36 @@ export function DiscoveryScreen(props: {
     const frame = window.requestAnimationFrame(settleRouteHeader);
     return () => window.cancelAnimationFrame(frame);
   }, [jobs.length, setWorkspaceMode, workspaceMode]);
+  const stableReadStageSnapshotRef = useRef<StableDiscoveryRunSnapshot | null>(
+    null,
+  );
+  const stableReadStage = updateStableDiscoveryRunSnapshot({
+    current: stableReadStageSnapshotRef.current,
+    jobs,
+    runId: activeRun?.state === "running" ? activeRun.id : null,
+  });
+  stableReadStageSnapshotRef.current = stableReadStage.snapshot;
+  const stableJobs = stableReadStage.jobs;
+  const stableSelectedJob = selectedJob
+    ? (stableJobs.find((job) => job.id === selectedJob.id) ?? selectedJob)
+    : null;
   const resultVisibility = useMemo(
     () =>
       getDiscoveryResultVisibility(
-        jobs,
-        selectedJob,
+        stableJobs,
+        stableSelectedJob,
         showAlsoFound,
         preserveSelectedJob,
+        stableReadStage.snapshot?.jobIds,
       ),
-    [jobs, selectedJob, showAlsoFound, preserveSelectedJob],
+    [
+      activeRun?.id,
+      activeRun?.state,
+      stableJobs,
+      stableSelectedJob,
+      showAlsoFound,
+      preserveSelectedJob,
+    ],
   );
   const inspectedJob = getDiscoveryInspectedJob(
     resultVisibility.jobs,
@@ -596,7 +799,18 @@ export function DiscoveryScreen(props: {
   // Search now control must refuse a concurrent click instead of relying on
   // the main process to reject it. Paused activity refuses for the same
   // reason: the run would be rejected, so the controls say so up front.
-  const isActiveRunRunning = activeRun?.state === "running";
+  const liveRunId = isDiscoveryAllPending ? liveEvents.at(-1)?.runId : null;
+  // A stop request the search never answered must not hold the screen. Once
+  // the release window passes the run is reported as stopped and every
+  // control it was disabling — the plan dropdown included — comes back.
+  const stopState = useDiscoveryStopState(activeRun);
+  const isStopUnacknowledged = stopState === "unacknowledged";
+  const activeRunId = isStopUnacknowledged
+    ? null
+    : activeRun?.state === "running"
+      ? activeRun.id
+      : (liveRunId ?? null);
+  const isActiveRunRunning = activeRunId !== null;
   // Leaving the running state always re-arms stop for the next run, whether
   // the run completed, failed, or honoured the cancellation request.
   useEffect(() => {
@@ -604,15 +818,37 @@ export function DiscoveryScreen(props: {
       setIsStopSearchRequested(false);
     }
   }, [isActiveRunRunning]);
+  const activeRetainedJobTarget = campaigns?.find(
+    (campaign) => campaign.id === (activeRun?.campaignId ?? activeCampaignId),
+  )?.limits.retainedJobTarget;
   const handleStopSearch = useCallback(() => {
     if (!onCancelDiscovery || !isActiveRunRunning || isStopSearchRequested) {
       return;
     }
+    if (
+      activeRetainedJobTarget &&
+      !window.confirm(
+        `Job Finder keeps the ${activeRetainedJobTarget} best matches per this plan's rule; jobs beyond that limit are not kept as result rows. Stop this search?`,
+      )
+    ) {
+      return;
+    }
     setIsStopSearchRequested(true);
-    onCancelDiscovery();
-  }, [isActiveRunRunning, isStopSearchRequested, onCancelDiscovery]);
+    void onCancelDiscovery(activeRunId).then((accepted) => {
+      if (!accepted) {
+        setIsStopSearchRequested(false);
+      }
+    });
+  }, [
+    activeRetainedJobTarget,
+    activeRunId,
+    isActiveRunRunning,
+    isStopSearchRequested,
+    onCancelDiscovery,
+  ]);
   const isAnyDiscoveryRunActive =
-    activeRun?.state === "running" || isDiscoveryAllPending;
+    !isStopUnacknowledged &&
+    (activeRun?.state === "running" || isDiscoveryAllPending);
   const isSearchUnavailable = activityPaused || isAnyDiscoveryRunActive;
   const savedSourceCount = searchPreferences.discovery.targets.length;
   const searchSetupBlocker =
@@ -708,6 +944,11 @@ export function DiscoveryScreen(props: {
       isBrowserSessionPendingForTarget={isBrowserSessionPendingForTarget}
       isDiscoveryAllPending={isDiscoveryAllPending}
       isTargetPending={isTargetPending}
+      planEditorHref={
+        activeCampaignId
+          ? `${JOB_FINDER_ROUTE_PATHS.campaigns}?campaignId=${encodeURIComponent(activeCampaignId)}`
+          : JOB_FINDER_ROUTE_PATHS.campaigns
+      }
       onOpenBrowserSession={onOpenBrowserSession}
       onOpenBrowserSessionForTarget={onOpenBrowserSessionForTarget}
       // The search bar above owns the single Search command, so the setup
@@ -828,14 +1069,34 @@ export function DiscoveryScreen(props: {
             discoveryRunFeedback?.status === "started"
           }
           hiddenAlsoFoundCount={hiddenJobCount}
+          focusedHiddenCount={showAlsoFound ? 0 : hiddenJobCount}
+          inAreaJobCount={stableJobs.filter(
+            (job) => job.matchAssessment.locationReach === "in_area",
+          ).length}
           jobs={resultVisibility.jobs}
+          latestRun={selectedPlanLatestRun}
+          latestRunReportLabel={selectedPlanRunReportLabel}
           latestRunVerdict={latestRunVerdict}
+          preferredLocations={searchPreferences.locations}
+          remoteIncluded={searchPreferences.workModes.includes("remote")}
+          totalLocationJobCount={stableJobs.length}
+          editPlanHref={
+            activeCampaignId
+              ? `${JOB_FINDER_ROUTE_PATHS.campaigns}?campaignId=${encodeURIComponent(activeCampaignId)}`
+              : JOB_FINDER_ROUTE_PATHS.campaigns
+          }
+          onSearchAgain={onRunAgentDiscovery ?? null}
           onDisplayedSelectedJobIdChange={(jobId) =>
             setDisplayedSelection({ jobId })
           }
           onShowAlsoFound={() => setShowAlsoFound(true)}
           onToggleAlsoFound={() => setShowAlsoFound((current) => !current)}
           onSelectJob={onSelectJob}
+          onShortlistJobs={(jobIds) => {
+            for (const jobId of jobIds) {
+              handleQueueJob(jobId);
+            }
+          }}
           searchSetupBlocker={searchSetupBlocker}
           selectedJob={resultVisibility.selectedJob}
           {...recoveryActionProps}
@@ -844,6 +1105,8 @@ export function DiscoveryScreen(props: {
       {hasInspectableJob ? (
         <div className="min-h-0 min-w-0">
           <DiscoveryDetailPanel
+            applicationRecords={applicationRecords}
+            reviewQueue={reviewQueue}
             discoveryTargets={searchPreferences.discovery.targets}
             isJobPending={isJobPending}
             onDismissJob={onDismissJob}
@@ -851,6 +1114,7 @@ export function DiscoveryScreen(props: {
               ? { onPreviewEmployerExclusion }
               : {})}
             {...(onOpenCompany ? { onOpenCompany } : {})}
+            onOpenApplication={onOpenApplication ?? (() => undefined)}
             onQueueJob={handleQueueJob}
             queueFeedback={inspectedJobQueueFeedback}
             selectedJob={inspectedJob}
@@ -903,11 +1167,26 @@ export function DiscoveryScreen(props: {
                   }
                   isSearchPending={isDiscoveryAllPending}
                   isSearchRunning={isActiveRunRunning}
+                  resultScope={showAlsoFound ? "wide" : "focused"}
+                  hiddenResultCount={showAlsoFound ? 0 : hiddenJobCount}
                   isSetupOpen={isSetupOpen}
                   openSetupChipId={openSetupChipId}
-                  isStopPending={isStopSearchRequested}
+                  isStopPending={
+                    !isStopUnacknowledged &&
+                    (isStopSearchRequested ||
+                      (activeRun?.id === activeRunId &&
+                        Boolean(activeRun.cancellationRequestedAt)))
+                  }
+                  stoppedNotice={
+                    isStopUnacknowledged
+                      ? DISCOVERY_STOP_UNACKNOWLEDGED_LABEL
+                      : null
+                  }
                   onOpenBrowserSession={onOpenBrowserSession}
                   onRunAgentDiscovery={onRunAgentDiscovery}
+                  onToggleResultScope={() =>
+                    setShowAlsoFound((current) => !current)
+                  }
                   onToggleSetup={setOpenSetupChipId}
                   searchActionDescribedBy={
                     activityPaused
@@ -938,16 +1217,16 @@ export function DiscoveryScreen(props: {
                 search-setup editor is open there are no results on screen, so
                 only feedback that still needs the user — a failure, a
                 cancellation, a run in flight — stays visible. */}
-            {discoveryRunFeedback &&
-            (!isSetupOpen || discoveryRunFeedback.status !== "succeeded") ? (
+            {visibleDiscoveryRunFeedback &&
+            (!isSetupOpen || visibleDiscoveryRunFeedback.status !== "succeeded") ? (
               <DiscoveryRunFeedbackCallout
-                feedback={discoveryRunFeedback}
+                feedback={visibleDiscoveryRunFeedback}
                 isRecoveryPending={isBrowserSessionPending}
                 // A run in flight has recorded nothing yet, so an earlier
                 // run's evidence warning must not sit under "Search started"
                 // where it would read as a claim about the live attempt.
                 notices={
-                  discoveryRunFeedback.status === "started"
+                  visibleDiscoveryRunFeedback.status === "started"
                     ? []
                     : latestRunNotices
                 }
@@ -960,7 +1239,7 @@ export function DiscoveryScreen(props: {
                 refusal stays visible in every mode. It renders below the
                 paused banner and run feedback so a stale message can never
                 mask the pause truth or the newest run verdict. */}
-            {actionState.message && !discoveryRunFeedback ? (
+            {actionState.message && !visibleDiscoveryRunFeedback ? (
               <p
                 aria-atomic="true"
                 aria-live="polite"

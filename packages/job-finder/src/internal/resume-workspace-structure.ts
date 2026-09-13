@@ -843,40 +843,59 @@ function mergeEntryBullets(
         .split(/[^\p{L}\p{N}+#.]+/u)
         .filter((token) => token.length >= 3 && !ignoredClaimTokens.has(token)),
     );
-  const isCoveredByTailoredClaim = (profileClaim: string) => {
-    const normalizedProfileClaim = normalizeText(profileClaim);
-    const profileTokens = claimTokens(profileClaim);
+  const claimIsCoveredBy = (claim: string, cover: string) => {
+    const normalizedClaim = normalizeText(claim);
+    const normalizedCover = normalizeText(cover);
+    if (normalizedCover === normalizedClaim) {
+      return true;
+    }
+    if (
+      normalizedClaim.length >= 36 &&
+      (normalizedCover.includes(normalizedClaim) ||
+        normalizedClaim.includes(normalizedCover))
+    ) {
+      return true;
+    }
+    const tokens = claimTokens(claim);
+    if (tokens.size < 4) {
+      return false;
+    }
 
-    return normalizedTailoredBullets.some((tailoredClaim) => {
-      const normalizedTailoredClaim = normalizeText(tailoredClaim);
-      if (normalizedTailoredClaim === normalizedProfileClaim) {
-        return true;
-      }
-      if (
-        normalizedProfileClaim.length >= 36 &&
-        (normalizedTailoredClaim.includes(normalizedProfileClaim) ||
-          normalizedProfileClaim.includes(normalizedTailoredClaim))
-      ) {
-        return true;
-      }
-      if (profileTokens.size < 4) {
-        return false;
-      }
-
-      const tailoredTokens = claimTokens(tailoredClaim);
-      const sharedTokenCount = [...profileTokens].filter((token) =>
-        tailoredTokens.has(token),
-      ).length;
-      return sharedTokenCount / profileTokens.size >= 0.67;
-    });
+    const coverTokens = claimTokens(cover);
+    const sharedTokenCount = [...tokens].filter((token) =>
+      coverTokens.has(token),
+    ).length;
+    return sharedTokenCount / tokens.size >= 0.67;
   };
+  // A provider that merges two achievements into one line often returns the
+  // merged line AND the two it was built from, so the same two claims read
+  // back twice within four lines. A claim a longer sibling already covers is
+  // dropped; the longest wording wins, and order is otherwise untouched.
+  const orderedByLengthDescending = [...normalizedTailoredBullets].sort(
+    (left, right) => right.length - left.length,
+  );
+  const coveringTailoredBullets: string[] = [];
+  for (const bullet of orderedByLengthDescending) {
+    if (
+      !coveringTailoredBullets.some((kept) => claimIsCoveredBy(bullet, kept))
+    ) {
+      coveringTailoredBullets.push(bullet);
+    }
+  }
+  const keptTailoredBullets = normalizedTailoredBullets.filter((bullet) =>
+    coveringTailoredBullets.includes(bullet),
+  );
+  const isCoveredByTailoredClaim = (profileClaim: string) =>
+    keptTailoredBullets.some((tailoredClaim) =>
+      claimIsCoveredBy(profileClaim, tailoredClaim),
+    );
   // Keep canonical details that the provider returned too thinly, but do not
   // append an original claim immediately after a grounded rewrite of it.
   const uncoveredProfileBullets = normalizedProfileBullets.filter(
     (bullet) => !isCoveredByTailoredClaim(bullet),
   );
   const canonicalBullets = uniqueStrings([
-    ...normalizedTailoredBullets,
+    ...keptTailoredBullets,
     ...uncoveredProfileBullets,
   ]);
   const narrativeBullets = canonicalBullets.filter(

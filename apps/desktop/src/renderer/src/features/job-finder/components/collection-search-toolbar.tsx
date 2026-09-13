@@ -626,6 +626,13 @@ export function CollectionColumnPicker(props: {
 }
 
 export function CollectionNoMatches(props: {
+  /**
+   * Replaces the generic advice line when the surface knows something better
+   * to say — most importantly how many results the search DID find. "No jobs
+   * match 'Akron'" printed over eleven kept results read as "we found you
+   * nothing", which was false.
+   */
+  description?: string;
   noun: string;
   onClear: () => void;
   query: string;
@@ -635,7 +642,10 @@ export function CollectionNoMatches(props: {
     // the no-match state on all eleven toolbar routes looked unlike every
     // other empty state in the app — including ones on the same screen.
     <EmptyState
-      description="Try a company, role, location, status, or a shorter phrase. Your other filters and selections have not changed."
+      description={
+        props.description ??
+        "Try a company, role, location, status, or a shorter phrase. Your other filters and selections have not changed."
+      }
       title={`No ${props.noun} match “${props.query.trim()}”`}
     >
       <div className="flex justify-center">

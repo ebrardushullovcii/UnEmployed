@@ -11,7 +11,12 @@ import {
   type ApplicationAttemptQuestion,
   type CandidateProfile,
 } from "@unemployed/contracts";
-import { isPageOwnedReadRequest } from "./application-read-request-policy";
+import {
+  carriesPreparedValue,
+  isPageOwnedReadRequest,
+  isTelemetryRequestUrl,
+  requestUrlCarriesPreparedValue,
+} from "./application-read-request-policy";
 import {
   classifyIntermediateMutationRequest,
   INTERMEDIATE_MUTATION_WINDOW_DURATION_MS,
@@ -77,6 +82,10 @@ const APPLICATION_ACTION_CONTROL_SELECTOR = [
   "input[type='submit']",
   "[role='button']",
   "a[role='button']",
+  // Job boards commonly style ordinary links as their Apply controls. They
+  // are inspected so an exact, labelled navigation can be opened by URL;
+  // generic links are never clicked as application actions.
+  "a[href]",
 ].join(", ");
 
 const MAX_APPLICATION_PREPARATION_STEPS = 8;
@@ -137,16 +146,26 @@ const PREPARE_ONLY_READ_RESOURCE_TYPES = new Set(["fetch", "xhr"]);
  * Network-layer view of a page-owned read: the page guard has already
  * refused anything carrying a form value, so this only re-checks the shape.
  */
-function isNetworkLayerPageOwnedRead(request: Request): boolean {
-  return (
-    PREPARE_ONLY_READ_RESOURCE_TYPES.has(request.resourceType()) &&
-    isPageOwnedReadRequest({
-      method: request.method(),
-      url: request.url(),
-      bodyText: request.postData(),
-      preparedValues: [],
-    })
-  );
+function isNetworkLayerPageOwnedRead(
+  request: Request,
+  preparedValues: readonly string[],
+): boolean {
+  const telemetry = isTelemetryRequestUrl(request.url());
+  if (
+    !telemetry &&
+    !PREPARE_ONLY_READ_RESOURCE_TYPES.has(request.resourceType())
+  ) {
+    return false;
+  }
+  return isPageOwnedReadRequest({
+    method: request.method(),
+    url: request.url(),
+    bodyText: request.postData(),
+    bodyIsFormData: /\bmultipart\/form-data\b/iu.test(
+      request.headers()["content-type"] ?? "",
+    ),
+    preparedValues,
+  });
 }
 
 export interface PrepareOnlyGuardSnapshot {
@@ -158,6 +177,7 @@ const prepareOnlyNetworkGuardStates = new WeakMap<
   Page,
   {
     blockedAttempts: PrepareOnlyBlockedAttempt[];
+    preparedValues: Set<string>;
     allowedIntermediateRequests: WeakSet<Request>;
     verifiedIntermediateWriteCount: number;
     intermediateMutationsAuthorized: boolean;
@@ -178,6 +198,7 @@ export function installPrepareOnlyMutationGuardInPage(
   intermediateMutationsAuthorized = false,
 ): void {
   interface InternalGuardState extends PrepareOnlyGuardSnapshot {
+    preparedValues: string[];
     intermediateMutationsAuthorized: boolean;
     intermediateMutationWindow: IntermediateMutationWindowSnapshot | null;
     submitListenerInstalled: boolean;
@@ -203,6 +224,7 @@ export function installPrepareOnlyMutationGuardInPage(
   const state: InternalGuardState = existingState ?? {
     installed: true,
     blockedAttempts: [],
+    preparedValues: [],
     intermediateMutationsAuthorized,
     intermediateMutationWindow: null,
     submitListenerInstalled: false,
@@ -219,6 +241,7 @@ export function installPrepareOnlyMutationGuardInPage(
     windowOpenWrapper: null,
   };
   state.intermediateMutationsAuthorized = intermediateMutationsAuthorized;
+  state.preparedValues ??= [];
   pageWindow["__unemployedPrepareOnlyMutationGuardV1"] = state;
 
   const normalizeMethod = (value: string | null | undefined): string =>
@@ -251,16 +274,6 @@ export function installPrepareOnlyMutationGuardInPage(
     });
     state.blockedAttempts = state.blockedAttempts.slice(-32);
   };
-  const PREPARED_VALUE_SKIP_TYPES = new Set([
-    "hidden",
-    "checkbox",
-    "radio",
-    "submit",
-    "button",
-    "file",
-    "image",
-    "reset",
-  ]);
   const readFieldValues = (
     root: {
       querySelectorAll?: (selector: string) => ArrayLike<unknown>;
@@ -277,18 +290,17 @@ export function installPrepareOnlyMutationGuardInPage(
       value?: unknown;
       textContent?: string | null;
     }>) {
-      if (
-        typeof element.type === "string" &&
-        PREPARED_VALUE_SKIP_TYPES.has(element.type)
-      ) {
-        continue;
-      }
       const value =
         typeof element.value === "string"
           ? element.value
           : (element.textContent ?? "");
       const trimmed = value.trim();
-      if (trimmed.length >= 3) values.push(trimmed);
+      if (
+        trimmed.length >= 3 &&
+        state.preparedValues.includes(trimmed)
+      ) {
+        values.push(trimmed);
+      }
     }
     return values;
   };
@@ -305,17 +317,26 @@ export function installPrepareOnlyMutationGuardInPage(
   // into the page and cannot import. A page-owned read (safe method, or a
   // GraphQL query) is allowed unless it carries a value that is currently in
   // a form field, which is the only way a read could send a prepared answer.
-  const collectPreparedValues = (): string[] =>
-    readFieldValues(typeof document === "undefined" ? null : document);
+  const collectPreparedValues = (): string[] => [...state.preparedValues];
   const requestCarriesPreparedValue = (
     url: string | null,
     bodyText: string | null,
   ): boolean => {
     const preparedValues = collectPreparedValues();
-    return (
-      carriesPreparedValue(url, preparedValues) ||
-      carriesPreparedValue(bodyText, preparedValues)
-    );
+    let urlCarriesValue = false;
+    if (url) {
+      try {
+        const parsed = new URL(url, window.location.href);
+        urlCarriesValue =
+          carriesPreparedValue(parsed.pathname, preparedValues) ||
+          [...parsed.searchParams.values()].some((queryValue) =>
+            carriesPreparedValue(queryValue, preparedValues),
+          );
+      } catch {
+        urlCarriesValue = false;
+      }
+    }
+    return urlCarriesValue || carriesPreparedValue(bodyText, preparedValues);
   };
   const carriesPreparedValue = (
     text: string | null,
@@ -353,21 +374,116 @@ export function installPrepareOnlyMutationGuardInPage(
       );
     });
   };
+  const carriesApplicationFormFields = (bodyText: string | null): boolean => {
+    if (!bodyText) return false;
+    const isApplicationFieldName = (value: string): boolean =>
+      /(?:address|answer|city|country|email|firstname|fullname|lastname|name|phone|postal|question|resume|telephone|zipcode)/u.test(
+        value.toLowerCase().replace(/[^a-z0-9]+/gu, ""),
+      );
+    if (/content-disposition\s*:\s*form-data/iu.test(bodyText)) {
+      return true;
+    }
+    try {
+      const containsApplicationField = (value: unknown): boolean => {
+        if (Array.isArray(value)) {
+          return value.some(containsApplicationField);
+        }
+        if (typeof value !== "object" || value === null) {
+          return false;
+        }
+        return Object.entries(value).some(
+          ([key, nested]) =>
+            isApplicationFieldName(key) || containsApplicationField(nested),
+        );
+      };
+      if (containsApplicationField(JSON.parse(bodyText))) {
+        return true;
+      }
+    } catch {
+      // A non-JSON telemetry payload may still be safe by shape below.
+    }
+    if (!bodyText.includes("=")) return false;
+    try {
+      return [...new URLSearchParams(bodyText).keys()].some(
+        isApplicationFieldName,
+      );
+    } catch {
+      return false;
+    }
+  };
+  const isTelemetryRequest = (value: string | null): boolean => {
+    if (!value) return false;
+    let parsed: URL;
+    try {
+      parsed = new URL(value, window.location.href);
+    } catch {
+      return false;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+    const telemetrySubdomain =
+      /^(?:analytics|beacon|metrics|rum|sa|telemetry)\./u.test(hostname);
+    const trackingPixel = /(?:^|\/)(?:pixel|simple)(?:\.gif)?$/u.test(
+      pathname,
+    );
+    const pageViewSignal =
+      parsed.searchParams.has("page_id") ||
+      parsed.searchParams.get("type")?.toLowerCase() === "pageview";
+    const hostSuffixes = [
+      "google-analytics.com",
+      "doubleclick.net",
+      "segment.io",
+      "mixpanel.com",
+      "hotjar.com",
+    ];
+    if (
+      hostSuffixes.some(
+        (suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`),
+      )
+    ) {
+      return true;
+    }
+    if (
+      (hostname === "sentry.io" || hostname.endsWith(".sentry.io")) &&
+      /(?:^|\/)(?:api\/\d+\/)?(?:envelope|store|minidump|security)(?:\/|$)/u.test(
+        pathname,
+      )
+    ) {
+      return true;
+    }
+    return (
+      pathname === "/cdn-cgi/rum" ||
+      pathname === "/cdn-cgi/beacon" ||
+      (telemetrySubdomain && (trackingPixel || pageViewSignal)) ||
+      /(?:^|\/)(?:analytics|beacon|ping|rum)(?:\/|$)/u.test(
+        pathname,
+      )
+    );
+  };
   const isPageOwnedRead = (
     method: string,
     url: string | null,
     bodyText: string | null,
+    bodyIsFormData = false,
   ): boolean => {
     const normalized = normalizeMethod(method);
+    const carriesPrepared = requestCarriesPreparedValue(url, bodyText);
+    if (carriesPrepared) {
+      return false;
+    }
     if (["GET", "HEAD", "OPTIONS"].includes(normalized)) {
-      return !carriesPreparedValue(url, collectPreparedValues());
+      return true;
     }
     if (normalized === "POST" && isGraphQlReadBody(bodyText)) {
-      const preparedValues = collectPreparedValues();
-      return (
-        !carriesPreparedValue(url, preparedValues) &&
-        !carriesPreparedValue(bodyText, preparedValues)
-      );
+      return true;
+    }
+    if (
+      normalized === "POST" &&
+      isTelemetryRequest(url) &&
+      !bodyIsFormData &&
+      !carriesApplicationFormFields(bodyText)
+    ) {
+      return true;
     }
     return false;
   };
@@ -423,12 +539,14 @@ export function installPrepareOnlyMutationGuardInPage(
       (event) => {
         const form =
           event.target instanceof HTMLFormElement ? event.target : null;
-        recordBlockedAttempt(
-          "dom_submit",
-          form?.method ?? "FORM",
-          normalizeUrl(form?.action ?? window.location.href),
-          formCarriesPreparedValue(form),
-        );
+        if (formCarriesPreparedValue(form) === true) {
+          recordBlockedAttempt(
+            "dom_submit",
+            form?.method ?? "FORM",
+            normalizeUrl(form?.action ?? window.location.href),
+            true,
+          );
+        }
         event.preventDefault();
         event.stopImmediatePropagation();
       },
@@ -440,12 +558,14 @@ export function installPrepareOnlyMutationGuardInPage(
   if (HTMLFormElement.prototype.submit !== state.formSubmitWrapper) {
     const guardedFormSubmit: typeof HTMLFormElement.prototype.submit =
       function guardedFormSubmit(this: HTMLFormElement): void {
-        recordBlockedAttempt(
-          "form_submit",
-          this.method || "FORM",
-          normalizeUrl(this.action || window.location.href),
-          formCarriesPreparedValue(this),
-        );
+        if (formCarriesPreparedValue(this) === true) {
+          recordBlockedAttempt(
+            "form_submit",
+            this.method || "FORM",
+            normalizeUrl(this.action || window.location.href),
+            true,
+          );
+        }
       };
     HTMLFormElement.prototype.submit = guardedFormSubmit;
     state.formSubmitWrapper = guardedFormSubmit;
@@ -456,12 +576,14 @@ export function installPrepareOnlyMutationGuardInPage(
   ) {
     const guardedRequestSubmit: typeof HTMLFormElement.prototype.requestSubmit =
       function guardedRequestSubmit(this: HTMLFormElement): void {
-        recordBlockedAttempt(
-          "form_request_submit",
-          this.method || "FORM",
-          normalizeUrl(this.action || window.location.href),
-          formCarriesPreparedValue(this),
-        );
+        if (formCarriesPreparedValue(this) === true) {
+          recordBlockedAttempt(
+            "form_request_submit",
+            this.method || "FORM",
+            normalizeUrl(this.action || window.location.href),
+            true,
+          );
+        }
       };
     HTMLFormElement.prototype.requestSubmit = guardedRequestSubmit;
     state.formRequestSubmitWrapper = guardedRequestSubmit;
@@ -471,6 +593,7 @@ export function installPrepareOnlyMutationGuardInPage(
     typeof navigator.sendBeacon === "function" &&
     navigator.sendBeacon !== state.sendBeaconWrapper
   ) {
+    const originalSendBeacon = navigator.sendBeacon.bind(navigator);
     const guardedSendBeacon: typeof navigator.sendBeacon = (url, data) => {
       const beaconUrl = normalizeUrl(url);
       const beaconText =
@@ -480,14 +603,19 @@ export function installPrepareOnlyMutationGuardInPage(
               data instanceof URLSearchParams
             ? data.toString()
             : null;
-      recordBlockedAttempt(
-        "send_beacon",
-        "POST",
-        beaconUrl,
+      const carriesPrepared =
         data != null && beaconText === null
           ? undefined
-          : requestCarriesPreparedValue(beaconUrl, beaconText),
-      );
+          : requestCarriesPreparedValue(beaconUrl, beaconText);
+      const bodyIsFormData =
+        (typeof FormData !== "undefined" && data instanceof FormData) ||
+        (typeof File !== "undefined" && data instanceof File);
+      if (isPageOwnedRead("POST", beaconUrl, beaconText, bodyIsFormData)) {
+        return originalSendBeacon(url, data);
+      }
+      if (carriesPrepared === true) {
+        recordBlockedAttempt("send_beacon", "POST", beaconUrl, true);
+      }
       return false;
     };
     Object.defineProperty(navigator, "sendBeacon", {
@@ -521,8 +649,11 @@ export function installPrepareOnlyMutationGuardInPage(
       // A body the guard cannot read (FormData, Blob, a stream) may carry
       // anything, so its attempt is judged as unknown rather than clean.
       const bodyOpaque = init?.body != null && bodyText === null;
+      const bodyIsFormData =
+        (typeof FormData !== "undefined" && init?.body instanceof FormData) ||
+        (typeof File !== "undefined" && init?.body instanceof File);
       if (
-        !isPageOwnedRead(method, url, bodyText) &&
+        !isPageOwnedRead(method, url, bodyText, bodyIsFormData) &&
         !canAllowIntermediateRequest({
           bodyText,
           kind: "fetch",
@@ -530,12 +661,12 @@ export function installPrepareOnlyMutationGuardInPage(
           url,
         })
       ) {
-        recordBlockedAttempt(
-          "fetch",
-          method,
-          url,
-          bodyOpaque ? undefined : requestCarriesPreparedValue(url, bodyText),
-        );
+        const carriesPrepared = bodyOpaque
+          ? undefined
+          : requestCarriesPreparedValue(url, bodyText);
+        if (carriesPrepared === true) {
+          recordBlockedAttempt("fetch", method, url, true);
+        }
         return Promise.reject(
           new DOMException(
             "Prepare-only mode blocked a new network request while field mutations were unauthorized.",
@@ -594,8 +725,17 @@ export function installPrepareOnlyMutationGuardInPage(
               ? body.toString()
               : null;
         const bodyOpaque = body != null && bodyText === null;
+        const bodyIsFormData =
+          (typeof FormData !== "undefined" && body instanceof FormData) ||
+          (typeof File !== "undefined" && body instanceof File) ||
+          (typeof Document !== "undefined" && body instanceof Document);
         if (
-          !isPageOwnedRead(request.method, request.url, bodyText) &&
+          !isPageOwnedRead(
+            request.method,
+            request.url,
+            bodyText,
+            bodyIsFormData,
+          ) &&
           !canAllowIntermediateRequest({
             bodyText,
             kind: "xhr",
@@ -603,14 +743,12 @@ export function installPrepareOnlyMutationGuardInPage(
             url: request.url,
           })
         ) {
-          recordBlockedAttempt(
-            "xhr",
-            request.method,
-            request.url,
-            bodyOpaque
-              ? undefined
-              : requestCarriesPreparedValue(request.url, bodyText),
-          );
+          const carriesPrepared = bodyOpaque
+            ? undefined
+            : requestCarriesPreparedValue(request.url, bodyText);
+          if (carriesPrepared === true) {
+            recordBlockedAttempt("xhr", request.method, request.url, true);
+          }
           throw new DOMException(
             "Prepare-only mode blocked a new XMLHttpRequest while field mutations were unauthorized.",
             "AbortError",
@@ -769,6 +907,21 @@ export function setPrepareOnlyIntermediateMutationWindowInPage(
   state.intermediateMutationWindow = mutationWindow
     ? { ...mutationWindow }
     : null;
+}
+
+/** Runs inside an application page before Job Finder fills one grounded value. */
+export function registerPrepareOnlyPreparedValueInPage(value: string): void {
+  const pageWindow = window as unknown as Record<string, unknown>;
+  const state = pageWindow["__unemployedPrepareOnlyMutationGuardV1"] as
+    | { preparedValues?: string[] }
+    | undefined;
+  const normalized = value.trim();
+  if (!state || normalized.length < 3) return;
+  state.preparedValues ??= [];
+  if (!state.preparedValues.includes(normalized)) {
+    state.preparedValues.push(normalized);
+    state.preparedValues = state.preparedValues.slice(-64);
+  }
 }
 
 /** Runs inside the application page and returns only serializable guard data. */
@@ -1100,6 +1253,7 @@ export async function ensurePrepareOnlyMutationGuard(
   if (!networkGuardState) {
     networkGuardState = {
       blockedAttempts: [],
+      preparedValues: new Set<string>(),
       allowedIntermediateRequests: new WeakSet<Request>(),
       verifiedIntermediateWriteCount: 0,
       intermediateMutationsAuthorized,
@@ -1139,7 +1293,9 @@ export async function ensurePrepareOnlyMutationGuard(
             PREPARE_ONLY_QUERY_GUARDED_RESOURCE_TYPES.has(resourceType) &&
             request.url().includes("?")
           )) ||
-        isNetworkLayerPageOwnedRead(request)
+        isNetworkLayerPageOwnedRead(request, [
+          ...networkGuardState!.preparedValues,
+        ])
       ) {
         await route.continue();
         return;
@@ -1165,6 +1321,17 @@ export async function ensurePrepareOnlyMutationGuard(
         return;
       }
 
+      const requestCarriesPrepared =
+        requestUrlCarriesPreparedValue(request.url(), [
+          ...networkGuardState!.preparedValues,
+        ]) ||
+        carriesPreparedValue(request.postData(), [
+          ...networkGuardState!.preparedValues,
+        ]);
+      if (!requestCarriesPrepared) {
+        await route.abort("blockedbyclient");
+        return;
+      }
       await denyRequest();
     });
   }
@@ -1297,6 +1464,27 @@ export async function closePrepareOnlyIntermediateMutationWindow(
   await setPrepareOnlyIntermediateMutationWindow(page, null);
 }
 
+async function registerPrepareOnlyPreparedValue(
+  page: Page,
+  value: string,
+): Promise<void> {
+  const normalized = value.trim();
+  if (normalized.length < 3) return;
+  const networkGuardState = prepareOnlyNetworkGuardStates.get(page);
+  if (!networkGuardState) {
+    throw new Error("Prepare-only network guard is not installed.");
+  }
+  networkGuardState.preparedValues.add(normalized);
+  for (const frame of page.frames()) {
+    try {
+      await frame.evaluate(registerPrepareOnlyPreparedValueInPage, normalized);
+    } catch {
+      // A frame may disappear between enumeration and evaluation. The
+      // network guard still holds the exact value and remains authoritative.
+    }
+  }
+}
+
 function getVerifiedIntermediateWriteCount(page: Page): number {
   return (
     prepareOnlyNetworkGuardStates.get(page)?.verifiedIntermediateWriteCount ?? 0
@@ -1329,6 +1517,7 @@ export function recordPrepareOnlyRunInterruption(
   if (!ledgerState) {
     const createdState = {
       blockedAttempts: [],
+      preparedValues: new Set<string>(),
       allowedIntermediateRequests: new WeakSet<Request>(),
       verifiedIntermediateWriteCount: 0,
       intermediateMutationsAuthorized: false,
@@ -1723,12 +1912,8 @@ export function createApplicationRunServiceWorkerSentinel(input: {
     const resourceType = request.resourceType();
     const allowed =
       (PREPARE_ONLY_SAFE_METHODS.has(method) &&
-        !PREPARE_ONLY_DENIED_RESOURCE_TYPES.has(resourceType) &&
-        !(
-          PREPARE_ONLY_QUERY_GUARDED_RESOURCE_TYPES.has(resourceType) &&
-          request.url().includes("?")
-        )) ||
-      isNetworkLayerPageOwnedRead(request);
+        !PREPARE_ONLY_DENIED_RESOURCE_TYPES.has(resourceType)) ||
+      isNetworkLayerPageOwnedRead(request, []);
     if (!allowed) {
       recordInterruption({
         kind: "network_request",
@@ -3253,6 +3438,8 @@ async function clickCurrentSafeActionBySignature(input: {
       const inputElement = element instanceof HTMLInputElement ? element : null;
       const buttonElement =
         element instanceof HTMLButtonElement ? element : null;
+      const anchorElement =
+        element instanceof HTMLAnchorElement ? element : null;
       const style = window.getComputedStyle(htmlElement);
 
       return {
@@ -3275,6 +3462,10 @@ async function clickCurrentSafeActionBySignature(input: {
         disabled:
           Boolean(inputElement?.disabled ?? buttonElement?.disabled) ||
           element.getAttribute("aria-disabled") === "true",
+        href:
+          anchorElement && /^https?:\/\//iu.test(anchorElement.href)
+            ? anchorElement.href
+            : null,
       };
     },
     action.index,
@@ -4091,7 +4282,7 @@ function hasFinalApplicationPageEvidence(
       .filter((value): value is string => Boolean(value))
       .join(" "),
   );
-  return /\b(?:review (?:your )?application|application review|ready to submit|final (?:application )?step|before (?:you )?submit|submit your application)\b/u.test(
+  return /\b(?:review (?:your )?application|application review|ready to submit|final (?:application )?step|before (?:you )?submit)\b/u.test(
     pageSignal,
   );
 }
@@ -4148,7 +4339,10 @@ function isApplicationEntryPage(
 function findApplicationEntryLink(
   inspection: ApplicationPageInspection,
 ): InspectedActionControl | null {
-  if (!isApplicationEntryPage(inspection)) {
+  // Exact labelled links are pure navigation. Job-description copy often
+  // mentions reviewing or submitting an application, so body wording alone
+  // cannot turn a form-free posting into a final application page.
+  if (hasVisibleApplicationForm(inspection)) {
     return null;
   }
   // A manual-entry choice that is itself a link is followed by URL as well:
@@ -4172,6 +4366,11 @@ function isFinalApplicationAction(
   action: InspectedActionControl,
   inspection: ApplicationPageInspection,
 ): boolean {
+  // A link can only navigate. Application-entry links are handled separately
+  // by exact URL, and no link is treated as a submit control.
+  if (action.href) {
+    return false;
+  }
   if (hasFinalApplicationWording(action)) {
     return true;
   }
@@ -4195,6 +4394,7 @@ function isSafeApplicationAdvance(
   inspection: ApplicationPageInspection,
 ): boolean {
   if (
+    action.href ||
     action.type === "submit" ||
     hasFinalApplicationWording(action) ||
     isFinalApplicationAction(action, inspection)
@@ -4247,18 +4447,37 @@ function createInspectionSignature(
   });
 }
 
+/**
+ * What the attempt actually wrote to the site, and nothing else.
+ *
+ * These cards used to be derived from the questions the runtime had ANSWERS
+ * for, which is a statement about what Job Finder knew, not about what
+ * reached the page. A run blocked before it typed anything therefore printed
+ * "Only exact identity, contact, location, and portfolio field matches were
+ * filled" two cards above its own receipt saying nothing was written. The
+ * write receipt is the only evidence of a write, so it is the only thing that
+ * may claim one.
+ */
 function createPreparationConsentDecisions(input: {
   jobId: string;
   now: string;
   questions: readonly ApplicationAttemptQuestion[];
   usesOriginalResume: boolean;
   manualDecisionLabel?: string;
+  externalWrites?: readonly ApplicationAttemptExternalWriteEvidence[];
 }) {
+  const externalWrites = input.externalWrites ?? [];
+  // The resume card records consent to USE a document, which the attempt's
+  // own answered resume question settles.
   const resumeAttached = input.questions.some(
     (question) => question.kind === "resume" && question.status === "answered",
   );
-  const profileAutofilled = input.questions.some(
-    (question) => question.kind !== "resume" && question.status === "answered",
+  // The autofill card claims values reached the employer's form, and only the
+  // write receipt can support that claim.
+  const profileAutofilled = externalWrites.some(
+    (write) =>
+      write.category === "profile_field" ||
+      write.category === "application_answer",
   );
 
   return [
@@ -4348,6 +4567,7 @@ export function buildPreparationResult(input: {
       questions,
       usesOriginalResume:
         input.executionInput.resumeArtifact.source === "original_upload",
+      ...(input.externalWrites ? { externalWrites: input.externalWrites } : {}),
       ...(input.manualDecisionLabel
         ? { manualDecisionLabel: input.manualDecisionLabel }
         : {}),
@@ -4861,6 +5081,21 @@ export async function runGenericApplicationPreparation(input: {
       mismatchedQuestions.push(mismatchQuestion);
     }
     if (mismatchedQuestions.length > 0) {
+      // What the page is beats what the fields hold. A Cloudflare "Verify you
+      // are human" wall has no form and no prefilled values at all, yet the
+      // person was told "Some prefilled values on the job site do not match
+      // your saved profile" — a description of a page they were not looking
+      // at. When the page is a wall, the wall is the stop reason.
+      const blockerOverPrefill = detectPageBlocker(inspection);
+      if (blockerOverPrefill) {
+        return buildManualSafetyStop({
+          summary: blockerOverPrefill.summary,
+          detail: blockerOverPrefill.detail,
+          checkpointLabel: "Paused at a manual application gate",
+          nextActionLabel: blockerOverPrefill.nextActionLabel,
+          lastUrl: inspection.url,
+        });
+      }
       const detail =
         "One or more known application fields already contain values that do not match the exact saved candidate profile. The runtime preserved those values, captured the conflicts for review, and stopped before advancing.";
       return buildManualSafetyStop({
@@ -4974,6 +5209,10 @@ export async function runGenericApplicationPreparation(input: {
       let fillResult: GroundedControlFillResult | null = null;
       const verifiedExternalWritesBefore =
         getVerifiedIntermediateWriteCount(currentPage);
+      await registerPrepareOnlyPreparedValue(
+        currentPage,
+        answer.fileName ?? answer.value,
+      );
       // From the first fill attempt on, a blocked request may be the site
       // reacting to the runtime's own input, so tolerance ends here.
       runtimeHasMutatedPage = true;
@@ -5147,6 +5386,7 @@ export async function runGenericApplicationPreparation(input: {
             valueAfterRemovingSelectedCode !== inspectedControl.value &&
             normalizeControlSignal(valueAfterRemovingSelectedCode) ===
               normalizeControlSignal(answer.value);
+          await registerPrepareOnlyPreparedValue(currentPage, answer.value);
           await fillGroundedControlWithinPolicy({
             page: currentPage,
             control: canCorrectDuplicatedPhoneCode
@@ -5252,6 +5492,19 @@ export async function runGenericApplicationPreparation(input: {
     }
 
     if (mismatchedQuestions.length > 0) {
+      // Same rule after autofill: a wall that appeared since the last check
+      // is what stopped the run, not the values a form no longer on screen
+      // was holding.
+      const blockerOverPrefill = detectPageBlocker(inspection);
+      if (blockerOverPrefill) {
+        return buildManualSafetyStop({
+          summary: blockerOverPrefill.summary,
+          detail: blockerOverPrefill.detail,
+          checkpointLabel: "Paused at a manual application gate",
+          nextActionLabel: blockerOverPrefill.nextActionLabel,
+          lastUrl: inspection.url,
+        });
+      }
       const detail =
         "One or more known application fields already contain values that do not match the exact saved candidate profile. The runtime preserved those values, captured the conflicts for review, and stopped before advancing.";
       return buildManualSafetyStop({
@@ -5477,16 +5730,20 @@ export async function runGenericApplicationPreparation(input: {
       continue;
     }
     if (!safeAdvance) {
+      // One plain sentence first: what happened and what the person does
+      // next. The old wording named the runtime and its control taxonomy and
+      // then stopped, which read as a dead end.
       const detail =
-        "The page exposes no clearly non-final Next, Continue, or Review control. The runtime stopped instead of guessing which action is safe.";
+        "Job Finder could not tell which control moves this application forward without sending it, so it stopped rather than guess. Open the application and finish this step yourself.";
       return buildCurrentPreparationResult({
         executionInput,
-        summary: "Application preparation needs manual navigation",
+        summary: "Finish this application step yourself",
         detail,
         questions: [...questions.values()],
         blocker: {
           code: "requires_manual_review",
-          summary: "No clearly safe non-final control is available.",
+          summary:
+            "Job Finder stopped here because it could not tell which control is safe to press. Finish this application step yourself in the open application.",
           detail,
           questionIds: [],
           sourceDebugEvidenceRefIds: [],

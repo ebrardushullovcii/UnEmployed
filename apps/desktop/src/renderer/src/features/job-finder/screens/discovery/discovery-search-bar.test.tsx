@@ -129,6 +129,23 @@ describe("getDiscoverySearchChips", () => {
 });
 
 describe("DiscoverySearchBar", () => {
+  it("shows the focused scope and widens the kept set without starting a search", () => {
+    const onToggleResultScope = vi.fn();
+    const { onRunAgentDiscovery } = renderBar({
+      hiddenResultCount: 42,
+      onToggleResultScope,
+      resultScope: "focused",
+    });
+
+    const toggle = screen.getByRole("button", {
+      name: "Focused search. Show wider results (42 hidden)",
+    });
+    expect(toggle.textContent).toBe("Focused search · Show wider results");
+    fireEvent.click(toggle);
+    expect(onToggleResultScope).toHaveBeenCalledTimes(1);
+    expect(onRunAgentDiscovery).not.toHaveBeenCalled();
+  });
+
   it("opens the setup editor in place from any chip, with no route change", () => {
     const { onToggleSetup } = renderBar();
 

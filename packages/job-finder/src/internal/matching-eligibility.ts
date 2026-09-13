@@ -121,6 +121,7 @@ const countryDefinitions: readonly CountryDefinition[] = [
   defineCountry("New Zealand", "apac"),
   defineCountry("Singapore", "apac"),
   defineCountry("South Korea", "apac", ["Republic of Korea"]),
+  defineCountry("Thailand", "apac"),
 ];
 
 type Residence = {
@@ -346,8 +347,11 @@ function compareGeography(
   geography: ParsedGeography,
   residence: Residence,
 ): EligibilityState {
+  const restrictiveTokens = geography.tokens.filter(
+    (token) => token !== "worldwide",
+  );
   if (
-    geography.tokens.includes("worldwide") ||
+    (geography.tokens.includes("worldwide") && restrictiveTokens.length === 0) ||
     matchesDirectCountry(geography, residence)
   ) {
     return "supported";
@@ -365,14 +369,11 @@ function compareGeography(
     return "unknown";
   }
 
-  const outcomes = geography.tokens.map((token): EligibilityState => {
+  const outcomes = restrictiveTokens.map((token): EligibilityState => {
     if (token.startsWith("country:")) {
       return token === `country:${residence.country!.id}`
         ? "supported"
         : "conflict";
-    }
-    if (token === "worldwide") {
-      return "supported";
     }
     return compareRegion(
       token as RegionGeographyToken,
@@ -471,8 +472,10 @@ export function assessRemoteGeographyRequirement(input: {
   const geographyEvidence =
     posting.screeningHints.remoteGeographies.length > 0
       ? posting.screeningHints.remoteGeographies
-      : /\bremote\b/iu.test(posting.location) &&
-          !/^\s*remote\s*$/iu.test(posting.location)
+      : posting.location.trim().length > 0 &&
+          !/^\s*(?:remote|anywhere|worldwide|global)\s*$/iu.test(
+            posting.location,
+          )
         ? [posting.location]
         : [];
   const residence = getResidence(profile);

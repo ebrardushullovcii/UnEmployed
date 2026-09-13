@@ -44,6 +44,19 @@ const GUIDED_EDITS_NO_COVER_SELECTORS = [
 ] as const;
 
 /**
+ * Surfaces the panel may never cover from below.
+ *
+ * The Assistant tells people to press Undo, and Undo sits in the tools
+ * column's provenance row — directly under where this panel rests. Closing the
+ * panel that told you to undo was the only way to reach the button, so the
+ * panel now floats above that row the same way it floats below the header.
+ */
+const GUIDED_EDITS_BOTTOM_NO_COVER_SELECTORS = [
+  "[data-resume-draft-provenance]",
+  "[data-resume-assistant-quick-actions]",
+] as const;
+
+/**
  * Tall enough that a one-change proposal card shows its header, its change
  * rows, and its Accept/Reject controls above the composer. The shared layout
  * helper still clamps it to the viewport.
@@ -162,6 +175,9 @@ export function ResumeGuidedEditsPopup(props: {
   const isCoveredByModal = useHasOpenJobFinderModal();
   const isDesktopStudio = useDesktopStudioLayout();
   const [safeTopOffset, setSafeTopOffset] = useState(COPILOT_NAV_SAFE_OFFSET);
+  const [safeBottomOffset, setSafeBottomOffset] = useState(
+    COPILOT_BOTTOM_OFFSET,
+  );
   // The row that owns this screen's actions, resolved from the DOM because the
   // studio shell renders it, not this component's parent.
   const launcherSlot = useStudioLauncherSlot();
@@ -237,7 +253,7 @@ export function ResumeGuidedEditsPopup(props: {
   };
   const panelDimensions = getCopilotPanelDimensions(
     safeTopOffset,
-    COPILOT_BOTTOM_OFFSET,
+    safeBottomOffset,
     panelSizeLimits,
   );
   const viewportInset =
@@ -281,13 +297,53 @@ export function ResumeGuidedEditsPopup(props: {
     // be re-queried when the studio crosses that breakpoint.
   }, [isDesktopStudio]);
 
+  useLayoutEffect(() => {
+    const readBottomSources = () =>
+      GUIDED_EDITS_BOTTOM_NO_COVER_SELECTORS.flatMap((selector) => [
+        ...document.querySelectorAll<HTMLElement>(selector),
+      ]);
+    const updateSafeBottomOffset = () => {
+      const sources = readBottomSources();
+      setSafeBottomOffset(
+        sources.length === 0
+          ? COPILOT_BOTTOM_OFFSET
+          : Math.max(
+              COPILOT_BOTTOM_OFFSET,
+              ...sources.map((element) => {
+                const rect = element.getBoundingClientRect();
+                // A row scrolled off the bottom of the window asks for
+                // nothing; only what is actually on screen lifts the panel.
+                if (rect.height === 0 || rect.top >= window.innerHeight) {
+                  return COPILOT_BOTTOM_OFFSET;
+                }
+                return Math.ceil(window.innerHeight - rect.top + 16);
+              }),
+            ),
+      );
+    };
+    const observer = new ResizeObserver(updateSafeBottomOffset);
+
+    updateSafeBottomOffset();
+    readBottomSources().forEach((element) => observer.observe(element));
+    window.addEventListener("resize", updateSafeBottomOffset);
+    window.addEventListener("scroll", updateSafeBottomOffset, true);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateSafeBottomOffset);
+      window.removeEventListener("scroll", updateSafeBottomOffset, true);
+    };
+    // The tools column only exists above the studio breakpoint, so the set is
+    // re-queried when the studio crosses it.
+  }, [isDesktopStudio, isOpen]);
+
   useEffect(() => {
     setPosition((current) =>
       clampCopilotPosition({
         x: current.x,
         y: current.y,
         isOpen,
-        minBottomOffset: COPILOT_BOTTOM_OFFSET,
+        minBottomOffset: safeBottomOffset,
         minTopOffset: safeTopOffset,
         panelSizeLimits: {
           maxHeight: panelMaxHeight,
@@ -295,7 +351,13 @@ export function ResumeGuidedEditsPopup(props: {
         },
       }),
     );
-  }, [isOpen, panelMaxHeight, panelMaxWidth, safeTopOffset]);
+  }, [
+    isOpen,
+    panelMaxHeight,
+    panelMaxWidth,
+    safeBottomOffset,
+    safeTopOffset,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -309,7 +371,7 @@ export function ResumeGuidedEditsPopup(props: {
           x: current.x,
           y: current.y,
           isOpen,
-          minBottomOffset: COPILOT_BOTTOM_OFFSET,
+          minBottomOffset: safeBottomOffset,
           minTopOffset: safeTopOffset,
           panelSizeLimits: {
             maxHeight: panelMaxHeight,
@@ -322,7 +384,13 @@ export function ResumeGuidedEditsPopup(props: {
     handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
-  }, [isOpen, panelMaxHeight, panelMaxWidth, safeTopOffset]);
+  }, [
+    isOpen,
+    panelMaxHeight,
+    panelMaxWidth,
+    safeBottomOffset,
+    safeTopOffset,
+  ]);
 
   // The pill and the panel are different sizes, and the pill is a labelled
   // control rather than the shared 48px square, so the exact corner is settled
@@ -356,7 +424,7 @@ export function ResumeGuidedEditsPopup(props: {
         x: corner.right - rect.width,
         y: corner.bottom - rect.height,
         isOpen,
-        minBottomOffset: COPILOT_BOTTOM_OFFSET,
+        minBottomOffset: safeBottomOffset,
         minTopOffset: safeTopOffset,
         panelSizeLimits,
       }),
@@ -382,7 +450,7 @@ export function ResumeGuidedEditsPopup(props: {
           x: current.x,
           y: current.y,
           isOpen: true,
-          minBottomOffset: COPILOT_BOTTOM_OFFSET,
+          minBottomOffset: safeBottomOffset,
           minTopOffset: safeTopOffset,
           panelSizeLimits: {
             maxHeight: panelMaxHeight,
@@ -396,7 +464,13 @@ export function ResumeGuidedEditsPopup(props: {
     observer.observe(panel);
 
     return () => observer.disconnect();
-  }, [isOpen, panelMaxHeight, panelMaxWidth, safeTopOffset]);
+  }, [
+    isOpen,
+    panelMaxHeight,
+    panelMaxWidth,
+    safeBottomOffset,
+    safeTopOffset,
+  ]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -514,7 +588,7 @@ export function ResumeGuidedEditsPopup(props: {
         x: right - nextWidth,
         y: bottom - nextHeight,
         isOpen: nextOpen,
-        minBottomOffset: COPILOT_BOTTOM_OFFSET,
+        minBottomOffset: safeBottomOffset,
         minTopOffset: safeTopOffset,
         panelSizeLimits,
       }),
@@ -583,7 +657,7 @@ export function ResumeGuidedEditsPopup(props: {
         x: dragState.startX + deltaX,
         y: dragState.startY + deltaY,
         isOpen,
-        minBottomOffset: COPILOT_BOTTOM_OFFSET,
+        minBottomOffset: safeBottomOffset,
         minTopOffset: safeTopOffset,
         panelSizeLimits,
       }),
@@ -728,7 +802,7 @@ export function ResumeGuidedEditsPopup(props: {
             width: `${panelDimensions.expandedWidth}px`,
             height: `${panelDimensions.expandedHeight}px`,
             maxWidth: `calc(100vw - ${viewportInset * 2}px)`,
-            maxHeight: `calc(100vh - ${safeTopOffset + COPILOT_BOTTOM_OFFSET}px)`,
+            maxHeight: `calc(100vh - ${safeTopOffset + safeBottomOffset}px)`,
           }}
         >
           <ResumeAssistantPanel

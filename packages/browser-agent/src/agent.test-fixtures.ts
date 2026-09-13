@@ -146,45 +146,47 @@ export function createPage(): Pick<
 > {
   let currentUrl = "about:blank";
   const bodyLocator = {
-    async innerText() {
-      return [
-        "Search by title, skill, or company",
-        "Workflow Engineer",
-        "Signal Systems",
-        "Remote",
-        "Apply",
-        "Job description",
-        "Build resilient automation workflows for distributed teams.",
-        "Responsibilities include search, filters, routing, and job discovery.",
-        "Qualifications include React, TypeScript, automation, browser tooling, and workflow design.",
-        "Benefits include remote work, health coverage, learning budget, and flexible hours.",
-        "Use the search filters and recommendation collections to find relevant jobs quickly.",
-        "This listing is part of a reusable jobs flow with visible controls and detail pages.",
-      ]
-        .join("\n")
-        .repeat(3);
+    innerText() {
+      return Promise.resolve(
+        [
+          "Search by title, skill, or company",
+          "Workflow Engineer",
+          "Signal Systems",
+          "Remote",
+          "Apply",
+          "Job description",
+          "Build resilient automation workflows for distributed teams.",
+          "Responsibilities include search, filters, routing, and job discovery.",
+          "Qualifications include React, TypeScript, automation, browser tooling, and workflow design.",
+          "Benefits include remote work, health coverage, learning budget, and flexible hours.",
+          "Use the search filters and recommendation collections to find relevant jobs quickly.",
+          "This listing is part of a reusable jobs flow with visible controls and detail pages.",
+        ]
+          .join("\n")
+          .repeat(3),
+      );
     },
   };
 
   return {
-    async goto(url: string) {
+    goto(url: string) {
       currentUrl = url;
-      return null as never;
+      return Promise.resolve(null as never);
     },
-    async waitForTimeout() {
-      return undefined;
+    waitForTimeout() {
+      return Promise.resolve(undefined);
     },
     url() {
       return currentUrl;
     },
-    async title() {
-      return "Primary target";
+    title() {
+      return Promise.resolve("Primary target");
     },
     locator() {
       return bodyLocator as never;
     },
-    async evaluate() {
-      return [];
+    evaluate() {
+      return Promise.resolve([]);
     },
   };
 }

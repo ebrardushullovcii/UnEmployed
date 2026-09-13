@@ -23,9 +23,19 @@ import {
  * evidence line, the location requirement, and `getBroadLocationCompatibility`
  * all changed answers for those profiles. Measured against the previous build,
  * an identical placeholder-only input scored 68 before and 71 after.
+ *
+ * Revision 9 (scorer version 10): the assessment now records `locationReach`,
+ * the listing's standing against the saved areas, so Best-match ordering can
+ * keep an on-site role outside every saved area below in-area and remote roles
+ * of the same title fit. Scores are unchanged; assessments written before this
+ * revision carry no reach and must be recalculated to gain one.
+ *
+ * Revision 10 (scorer version 11): occupation, career-stage, explicit hours,
+ * and travel-evidence scoring changed. Returning workspaces must not reuse a
+ * version-10 score just because the profile and posting text are unchanged.
  */
-export const MATCH_ASSESSMENT_SCORER_VERSION = 9;
-const MATCH_ASSESSMENT_LOGIC_REVISION = 8;
+export const MATCH_ASSESSMENT_SCORER_VERSION = 11;
+const MATCH_ASSESSMENT_LOGIC_REVISION = 10;
 
 function stableSerialize(value: unknown): string {
   if (value === null || typeof value !== "object") {

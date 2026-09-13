@@ -57,7 +57,7 @@ const provenanceSourceLabels: Record<
 > = {
   user: "You",
   profile_import: "Profile import",
-  campaign_template: "Campaign template",
+  campaign_template: "Search plan template",
   learning_suggestion: "Learning suggestion",
 };
 
@@ -337,7 +337,7 @@ export function CampaignRuleBuilder(props: {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-muted">
-            Campaign rules
+            Search plan rules
           </p>
           <h2 className="mt-1 font-semibold text-(--text-headline)">
             {props.campaign.name}
@@ -354,52 +354,33 @@ export function CampaignRuleBuilder(props: {
 
       <section className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-4">
         <h3 className="text-xs font-bold uppercase tracking-(--tracking-label) text-foreground-muted">
-          Measured funnel (saved jobs only)
+          What these rules did to your saved jobs
         </h3>
+        {/* Six labelled counts under an eyebrow reading "MEASURED FUNNEL
+            (SAVED JOBS ONLY)" was a report, not an answer. One sentence says
+            the same numbers in the order a person asks for them. */}
         {!funnel ? (
           <p className="text-sm text-foreground-soft">
-            Loading the current funnel… counts appear only after this search
-            plan retains real jobs.
+            Counting… numbers appear once this search plan has kept some jobs.
           </p>
         ) : !hasSample ? (
           <p className="text-sm text-foreground-soft">
-            This campaign has no retained jobs yet, so no funnel is projected.
-            After a discovery run retains real jobs here, you will see measured
-            remove, downgrade, and uncertainty counts — never invented ones.
+            This search plan has not kept any jobs yet, so there is nothing to
+            count. Once a search keeps real jobs here, this line says how many
+            these rules removed, downgraded, and left uncertain — measured,
+            never estimated.
           </p>
         ) : (
-          <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-            <div>
-              <dt className="text-xs text-foreground-muted">Sample</dt>
-              <dd>{funnel.sampleSize}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-foreground-muted">Retained</dt>
-              <dd>{funnel.retainedCount}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-foreground-muted">
-                Hard exclusions applied
-              </dt>
-              <dd>{funnel.hardRemovedCount}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-foreground-muted">
-                Prefer downgraded
-              </dt>
-              <dd>{funnel.preferDowngradedCount}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-foreground-muted">Uncertain</dt>
-              <dd>{funnel.uncertainCount}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-foreground-muted">
-                Confirmed matches kept
-              </dt>
-              <dd>{funnel.confirmedRetainedCount}</dd>
-            </div>
-          </dl>
+          <p className="text-sm text-foreground-soft">
+            Of {funnel.sampleSize} saved {funnel.sampleSize === 1 ? "job" : "jobs"},
+            these rules kept {funnel.retainedCount}, removed{" "}
+            {funnel.hardRemovedCount}, and ranked {funnel.preferDowngradedCount}{" "}
+            lower. {funnel.uncertainCount}{" "}
+            {funnel.uncertainCount === 1 ? "job was" : "jobs were"} kept because
+            the listing did not say enough to judge, and{" "}
+            {funnel.confirmedRetainedCount} matched on evidence the listing
+            stated.
+          </p>
         )}
       </section>
 
@@ -528,8 +509,8 @@ export function CampaignRuleBuilder(props: {
               Rules · {props.campaign.rules.length}
             </h3>
             <p className="mt-0.5 text-xs text-foreground-muted">
-              Enabled rules are evaluated during discovery and in the funnel
-              above. Disabled rules are kept but never applied.
+              Enabled rules are applied during a search and counted above.
+              Disabled rules are kept but never applied.
             </p>
           </div>
           <label className="grid gap-1 text-sm">
@@ -572,7 +553,7 @@ export function CampaignRuleBuilder(props: {
             ? ""
             : `“${describeRule(ruleRemovalCandidate)}” will be permanently removed from ${props.campaign.name}. Jobs it excluded or downgraded will no longer be affected. This cannot be undone.`
         }
-        eyebrow="Campaign rule"
+        eyebrow="Search plan rule"
         onCancel={() => setRuleRemovalCandidateId(null)}
         onConfirm={() => {
           if (ruleRemovalCandidate === null) {

@@ -10,8 +10,30 @@ import type {
   CandidateAssetRetention,
   ResumeDraftPatchOperation,
   ResumeExtractionStatus,
+  DiscoveryRunState,
   WorkMode,
 } from "@unemployed/contracts";
+
+/** Where a job search stands, without exposing the stored run-state names. */
+export const DISCOVERY_RUN_STATE_LABELS = {
+  idle: "Not started",
+  running: "Searching",
+  completed: "Completed",
+  cancelled: "Stopped",
+  failed: "Stopped with a problem",
+} as const satisfies Record<DiscoveryRunState, string>;
+
+export const DISCOVERY_STOPPING_LABEL = "Stopping";
+
+/**
+ * What a search that never answered Stop is called.
+ *
+ * The app cannot see inside a search it has lost hold of, so it says so
+ * instead of counting "Stopping" upward forever. Everything the stop request
+ * was holding disabled is released at the same moment.
+ */
+export const DISCOVERY_STOP_UNACKNOWLEDGED_LABEL =
+  "Stopped, some work may have finished in the background";
 
 /**
  * One status vocabulary for Job Finder.
@@ -200,6 +222,7 @@ export const RESUME_PATCH_OPERATION_LABELS = {
  * that no entry has drifted back into a stored identifier.
  */
 export const STATUS_COPY_TABLES = {
+  DISCOVERY_RUN_STATE_LABELS,
   APPLICATION_BLOCKER_LABELS,
   APPLY_RUN_STATE_LABELS,
   APPLY_RUN_MODE_LABELS,

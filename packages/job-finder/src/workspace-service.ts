@@ -4,7 +4,9 @@ import type {
 } from "@unemployed/browser-runtime";
 import { randomUUID } from "node:crypto";
 import {
+  ACTIVITY_PAUSED_MESSAGE,
   ApplicationRecordSchema,
+  JobFinderDiscoveryCancellationInputSchema,
   JobFinderActivityControlSchema,
   JobSearchCampaignCollectionSchema,
   SetJobFinderActivityControlInputSchema,
@@ -38,6 +40,7 @@ import {
   hasResumeAffectingJobChange,
 } from "./internal/resume-workspace-staleness";
 import {
+  type CampaignRunContext,
   type CreateJobFinderWorkspaceServiceOptions,
   type JobFinderWorkspaceService,
   type JobFinderWorkspaceResetOptions,
@@ -173,6 +176,7 @@ export function createJobFinderWorkspaceService(
   const activeDiscoveryAbortControllerRef = {
     current: null as AbortController | null,
   };
+  const activeDiscoveryRunIdRef = { current: null as string | null };
   const activeDiscoveryPromiseRef = {
     current: null as Promise<unknown> | null,
   };
@@ -298,6 +302,7 @@ export function createJobFinderWorkspaceService(
     ...(exportFileVerifier ? { exportFileVerifier } : {}),
     repository,
     activeDiscoveryAbortControllerRef,
+    activeDiscoveryRunIdRef,
     activeDiscoveryPromiseRef,
     activeSourceDebugExecutionIdRef,
     activeSourceDebugAbortControllerRef,
@@ -340,6 +345,10 @@ export function createJobFinderWorkspaceService(
     resumeApplicationUserAction: () =>
       Promise.reject(
         new Error("Application user action resumer not initialized."),
+      ),
+    continueDiscoveryForSource: () =>
+      Promise.reject(
+        new Error("Discovery source continuation not initialized."),
       ),
     runSourceDebugWorkflow: () =>
       Promise.reject(new Error("Source debug workflow not initialized.")),
@@ -529,6 +538,16 @@ export function createJobFinderWorkspaceService(
       const session = await browserRuntime.closeSession(source);
       await context.persistBrowserSessionState(session);
     },
+    async closeParkedBrowserTab(source, tab): Promise<void> {
+      await browserRuntime.closeParkedTab?.(source, tab);
+    },
+    hasActiveBrowserWorkflow: () =>
+      activeDiscoveryAbortControllerRef.current !== null ||
+      activeDiscoveryPromiseRef.current !== null ||
+      activeSourceDebugAbortControllerRef.current !== null ||
+      activeSourceDebugPromiseRef.current !== null ||
+      activeApplyRunAbortControllers.size > 0 ||
+      activeApplyRunPromises.size > 0,
     async updateJob(
       jobId: string,
       updater: (job: SavedJob) => SavedJob,
@@ -659,15 +678,16 @@ export function createJobFinderWorkspaceService(
   const campaignMethods = createWorkspaceCampaignMethods({
     ctx: context,
     getWorkspaceSnapshot,
-    runCampaignDiscovery: async (campaignContext) => {
+    runCampaignDiscovery: async (campaignContext, onActivity) => {
       await requireDiscoverySafeguardClearance();
-      return discoveryMethods.runCampaignDiscovery(campaignContext);
+      return discoveryMethods.runCampaignDiscovery(campaignContext, onActivity);
     },
     afterCampaignRun: () => intelligenceMethods.refreshCompanyIntelligence(),
   });
 
   async function runCampaignScopedDiscovery(
-    executor: () => Promise<JobFinderWorkspaceSnapshot>,
+    executor: (campaign: CampaignRunContext) => Promise<JobFinderWorkspaceSnapshot>,
+    requestedCampaignId?: string,
   ) {
     await requireDiscoverySafeguardClearance();
     let [campaignState, savedJobs, discoveryState] = await Promise.all([
@@ -675,6 +695,9 @@ export function createJobFinderWorkspaceService(
       repository.listSavedJobs(),
       repository.getDiscoveryState(),
     ]);
+    if (!campaignState && requestedCampaignId) {
+      throw new Error("This search plan was removed; run the plan again");
+    }
     if (!campaignState) {
       // The stale missing-read only nominates this path: state is re-read
       // inside one campaign transition and the default is created only if it
@@ -693,18 +716,27 @@ export function createJobFinderWorkspaceService(
         repository.getDiscoveryState(),
       ]);
     }
-    const campaignId = campaignState.activeCampaignId;
+    const campaignId = requestedCampaignId ?? campaignState.activeCampaignId;
     const campaign = campaignState.campaigns.find(
       (candidate) => candidate.id === campaignId,
     );
     if (!campaign) {
-      throw new Error("The active job search campaign is unavailable.");
+      throw new Error(
+        requestedCampaignId
+          ? "This search plan was removed; run the plan again"
+          : "The active job search campaign is unavailable.",
+      );
     }
     assertCampaignCanRun(campaign);
-    await executor();
+    await executor({
+      campaignId: campaign.id,
+      searchPreferences: campaign.searchPreferences,
+      runJobBudget: campaign.limits.discoveryRunJobBudget ?? null,
+    });
     await recordCampaignDiscoveryResult({
       ctx: context,
       campaignId,
+      beforeCampaignJobIds: campaign.jobIds,
       beforeJobProvenanceFingerprints: new Map(
         [...savedJobs, ...discoveryState.pendingDiscoveryJobs].map((job) => [
           job.id,
@@ -715,8 +747,48 @@ export function createJobFinderWorkspaceService(
     return intelligenceMethods.refreshCompanyIntelligence();
   }
 
-  const ACTIVITY_PAUSED_MESSAGE =
-    "Browser and application activity is paused. Resume it from the Job Finder command center before starting new work.";
+  context.continueDiscoveryForSource = async (targetId, discoveryRunId) => {
+    const discoveryState = await repository.getDiscoveryState();
+    const originatingRun = [
+      discoveryState.activeRun,
+      ...discoveryState.recentRuns,
+    ].find((candidate) => candidate?.id === discoveryRunId);
+    if (!originatingRun?.campaignId) {
+      return {
+        status: "origin_removed",
+        message: "This search plan was removed; run the plan again",
+      };
+    }
+
+    const campaignState = await repository.getCampaignState();
+    if (
+      !campaignState?.campaigns.some(
+        (campaign) => campaign.id === originatingRun.campaignId,
+      )
+    ) {
+      return {
+        status: "origin_removed",
+        message: "This search plan was removed; run the plan again",
+      };
+    }
+
+    try {
+      await runCampaignScopedDiscovery(
+        (campaign) =>
+          discoveryMethods.runCampaignDiscoveryForTarget(campaign, targetId),
+        originatingRun.campaignId,
+      );
+      return { status: "continued" };
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "This search plan was removed; run the plan again"
+      ) {
+        return { status: "origin_removed", message: error.message };
+      }
+      throw error;
+    }
+  };
 
   async function requireActivityEnabled(): Promise<void> {
     if ((await repository.getActivityControl()).paused) {
@@ -782,18 +854,23 @@ export function createJobFinderWorkspaceService(
   async function requireGlobalDailyPreparationCapacity(
     prospectiveJobIds: readonly string[],
     reservedJobs: number,
+    reservedJobIds: readonly string[] = [],
   ): Promise<void> {
     const uniqueProspectiveJobIds = uniqueStrings(prospectiveJobIds);
     if (uniqueProspectiveJobIds.length === 0) {
       return;
     }
-    const [applyRuns, applyJobResults] = await Promise.all([
+    const [applyRuns, applyJobResults, applicationRecords] = await Promise.all([
       repository.listApplyRuns(),
       repository.listApplyJobResults(),
+      repository.listApplicationRecords(),
     ]);
     const capacity = deriveGlobalDailyApplicationPreparationCapacity({
       applyRuns,
       applyJobResults,
+      applicationRecords,
+      // Reserved jobs are already charged through `reservedJobs` below.
+      reservedJobIds: [...reservedJobIds, ...uniqueProspectiveJobIds],
     });
     if (
       capacity.used +
@@ -812,6 +889,7 @@ export function createJobFinderWorkspaceService(
     jobIds: readonly string[],
     run: ApplyRun | null = null,
     reservedJobs = 0,
+    reservedJobIds: readonly string[] = [],
   ): Promise<void> {
     const scopedJobIds = run?.jobIds ?? jobIds;
     if (
@@ -825,7 +903,11 @@ export function createJobFinderWorkspaceService(
     if (campaign) {
       assertCampaignPreparationScope(campaign, scopedJobIds);
     }
-    await requireGlobalDailyPreparationCapacity(jobIds, reservedJobs);
+    await requireGlobalDailyPreparationCapacity(
+      jobIds,
+      reservedJobs,
+      reservedJobIds,
+    );
   }
 
   async function requireApplicationSafeguardClearance(
@@ -847,9 +929,15 @@ export function createJobFinderWorkspaceService(
     jobIds: readonly string[],
     run: ApplyRun | null = null,
     reservedJobs = 0,
+    reservedJobIds: readonly string[] = [],
   ): Promise<void> {
     await requireActivityEnabled();
-    await requireEmployerApplicationCapacity(jobIds, run, reservedJobs);
+    await requireEmployerApplicationCapacity(
+      jobIds,
+      run,
+      reservedJobs,
+      reservedJobIds,
+    );
     await requireApplicationSafeguardClearance(jobIds);
   }
 
@@ -870,17 +958,26 @@ export function createJobFinderWorkspaceService(
       async (capacityState) => {
         const scope = await resolveScope();
         const localDate = localDateKey(new Date());
-        const reservedJobs = [...capacityState.tokens]
-          .filter((candidate) => candidate.localDate === localDate)
-          .reduce((total, candidate) => total + candidate.remainingJobs, 0);
+        const todaysTokens = [...capacityState.tokens].filter(
+          (candidate) => candidate.localDate === localDate,
+        );
+        const reservedJobs = todaysTokens.reduce(
+          (total, candidate) => total + candidate.remainingJobs,
+          0,
+        );
+        const reservedJobIds = todaysTokens.flatMap((candidate) => [
+          ...candidate.jobIds,
+        ]);
         await requireApplicationPreparationGuards(
           scope.jobIds,
           scope.run,
           reservedJobs,
+          reservedJobIds,
         );
         const created = {
           localDate,
           remainingJobs: uniqueStrings(scope.jobIds).length,
+          jobIds: uniqueStrings(scope.jobIds),
         } satisfies ApplicationPreparationCapacityToken;
         capacityState.tokens.add(created);
         return created;
@@ -917,13 +1014,18 @@ export function createJobFinderWorkspaceService(
       const now = new Date();
       const startedAt = now.toISOString();
       const startedLocalDate = localDateKey(now);
-      const reservedToday = [...state.tokens]
-        .filter((candidate) => candidate.localDate === startedLocalDate)
-        .reduce((total, candidate) => total + candidate.remainingJobs, 0);
+      const tokensToday = [...state.tokens].filter(
+        (candidate) => candidate.localDate === startedLocalDate,
+      );
+      const reservedToday = tokensToday.reduce(
+        (total, candidate) => total + candidate.remainingJobs,
+        0,
+      );
       if (!token || token.localDate !== startedLocalDate) {
         await requireGlobalDailyPreparationCapacity(
           [input.jobId],
           reservedToday,
+          tokensToday.flatMap((candidate) => [...candidate.jobIds]),
         );
       }
       if (token) {
@@ -1192,13 +1294,13 @@ export function createJobFinderWorkspaceService(
       return snapshotProfileMethods.openBrowserSession(input);
     },
     ...campaignMethods,
-    runCampaignNow: (input) =>
+    runCampaignNow: (input, onActivity) =>
       trackWorkspaceOperation("discovery", () =>
-        campaignMethods.runCampaignNow(input),
+        campaignMethods.runCampaignNow(input, onActivity),
       ),
-    runDueScheduledCampaigns: (now) =>
+    runDueScheduledCampaigns: (now, onActivity) =>
       trackWorkspaceOperation("discovery", () =>
-        campaignMethods.runDueScheduledCampaigns(now),
+        campaignMethods.runDueScheduledCampaigns(now, onActivity),
       ),
     ...intelligenceMethods,
     setActivityControl,
@@ -1232,6 +1334,37 @@ export function createJobFinderWorkspaceService(
         return runCampaignScopedDiscovery(() =>
           discoveryMethods.runDiscoveryForTarget(targetId, onActivity, signal),
         );
+      }),
+    cancelDiscoveryRun: (runId) =>
+      trackWorkspaceOperation("discovery cancellation", async () => {
+        const input = JobFinderDiscoveryCancellationInputSchema.parse({ runId });
+        const requestedAt = new Date().toISOString();
+        let accepted = false;
+        await context.persistDiscoveryState((current) => {
+          if (
+            current.activeRun?.id !== input.runId ||
+            current.activeRun.state !== "running"
+          ) {
+            return current;
+          }
+          accepted = true;
+          return {
+            ...current,
+            activeRun: {
+              ...current.activeRun,
+              cancellationRequestedAt:
+                current.activeRun.cancellationRequestedAt ?? requestedAt,
+            },
+          };
+        });
+        // Abort whenever this is the run actually in flight, even when the
+        // stored state has not caught up (the run record is written after the
+        // pipeline starts). Matching only on stored state let a stop be
+        // accepted as a request and never reach the pipeline.
+        if (accepted || activeDiscoveryRunIdRef.current === input.runId) {
+          activeDiscoveryAbortControllerRef.current?.abort();
+        }
+        return getWorkspaceSnapshot();
       }),
     ...sourceDebugMethods,
     runSourceDebug: (targetId, signal, onProgress) =>
@@ -1316,7 +1449,11 @@ export function createJobFinderWorkspaceService(
       trackWorkspaceOperation("application preparation", async () => {
         return withApplicationPreparationReservation(
           () => ({ jobIds, run: null }),
-          () => applicationMethods.startAutoApplyQueueRun(jobIds),
+          // The batch's own reservation already charges today's quota for
+          // every job in it. Without the token each job the batch begins is
+          // charged a second time, so the daily safeguard refuses partway
+          // through and the batch stalls with nothing on screen.
+          (token) => applicationMethods.startAutoApplyQueueRun(jobIds, token),
         );
       }),
     approveApplyRun: (runId) =>

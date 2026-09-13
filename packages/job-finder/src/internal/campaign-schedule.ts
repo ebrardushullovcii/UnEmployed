@@ -253,6 +253,69 @@ export function computeNextScheduledRunAt(input: {
   return null;
 }
 
+/** True when two schedules would fire at exactly the same instants. */
+function hasSameScheduleTiming(
+  left: JobSearchCampaignSchedule,
+  right: JobSearchCampaignSchedule,
+): boolean {
+  return (
+    left.enabled === right.enabled &&
+    left.mode === right.mode &&
+    left.localStartTime === right.localStartTime &&
+    left.timeZone === right.timeZone &&
+    [...left.daysOfWeek].sort().join(",") ===
+      [...right.daysOfWeek].sort().join(",")
+  );
+}
+
+/**
+ * Resolves the run facts to persist when a schedule is saved, so the saved
+ * plan states its concrete next run straight away instead of reading "not
+ * scheduled yet" until the next app start rebuilds the schedule.
+ *
+ * A next run is filled in when the save carries none, and a due instant the
+ * save merely echoes back from storage is recomputed once the plan starts
+ * firing at different times. A caller that states a new instant keeps it, so
+ * an unrelated edit never moves a claimed slot. A schedule that cannot produce
+ * a due time — disabled, manual, or a plan that is not running — reports no
+ * next run at all.
+ */
+export function resolveSavedScheduleRunFacts(input: {
+  schedule: JobSearchCampaignSchedule;
+  /** The schedule as it was persisted, or `null` for a new plan. */
+  previousSchedule: JobSearchCampaignSchedule | null;
+  /** False while the plan is paused, completed, or archived. */
+  isScheduledPlan: boolean;
+  now: string;
+}): CampaignRunFacts {
+  const { schedule } = input;
+  if (
+    !input.isScheduledPlan ||
+    !schedule.enabled ||
+    schedule.mode === "manual"
+  ) {
+    return CampaignRunFactsSchema.parse({
+      ...schedule.runFacts,
+      nextRunAt: null,
+    });
+  }
+
+  const previous = input.previousSchedule;
+  const carried = schedule.runFacts.nextRunAt;
+  const echoesStoredInstant =
+    carried !== null && carried === (previous?.runFacts.nextRunAt ?? null);
+  const firesAtTheSameTimes =
+    previous === null || hasSameScheduleTiming(previous, schedule);
+  if (carried !== null && (firesAtTheSameTimes || !echoesStoredInstant)) {
+    return CampaignRunFactsSchema.parse(schedule.runFacts);
+  }
+
+  return CampaignRunFactsSchema.parse({
+    ...schedule.runFacts,
+    nextRunAt: computeNextScheduledRunAt({ schedule, now: input.now }),
+  });
+}
+
 /**
  * Returns `true` when `at` falls inside any enabled pause window, using
  * inclusive-start and exclusive-end boundaries:

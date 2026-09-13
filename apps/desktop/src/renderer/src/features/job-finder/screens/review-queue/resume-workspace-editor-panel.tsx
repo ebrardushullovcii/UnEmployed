@@ -33,6 +33,12 @@ type DraftAcknowledgments = ResumeDraft["workHistoryReviewAcknowledgments"];
 
 interface ResumeWorkspaceEditorPanelProps {
   actionMessage: string | null;
+  /**
+   * The file the message names, when an export just wrote one. C6 landed the
+   * path sentence and left the person to find the file by hand.
+   */
+  actionSavedFilePath?: string | null;
+  onOpenSavedFolder?: (path: string) => void;
   coverageComparison: ResumeCoverageComparison | null;
   draft: ResumeDraft;
   hasUnsavedChanges: boolean;
@@ -240,21 +246,18 @@ export function ResumeWorkspaceEditorPanel(
         tabIndex={-1}
       >
         <div className="grid gap-1 border-b border-(--surface-panel-border) pb-2">
-          <div className="grid gap-0.5">
-            {/* No size override: the published scale owns `h2`. Forcing this
-                to 14px put it *under* its own 16px `h3` section headings. */}
-            <h2 className="font-display text-(--text-headline)">Edit resume</h2>
-            <p className="text-(length:--text-description) leading-5 text-foreground-soft xl:hidden">
-              Change the schema-safe content behind the preview without leaving
-              this draft.
-            </p>
-          </div>
-          <p className="text-(length:--text-small) leading-5 text-foreground-soft xl:hidden">
+          {/* No size override: the published scale owns `h2`. Forcing this
+              to 14px put it *under* its own 16px `h3` section headings.
+              The subtitle that used to sit here said the heading again in
+              schema words; the helper line below is the one that carries a
+              fact. */}
+          <h2 className="font-display text-(--text-headline)">Edit resume</h2>
+          <p className="text-(length:--text-body) leading-6 text-foreground xl:hidden">
             {helperMessage}
           </p>
           {props.draft.generationMethod === "ai" ? (
             <div
-              className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-2 text-(length:--text-small) leading-5 text-foreground-soft"
+              className="rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-2 text-(length:--text-body) leading-6 text-foreground"
               data-resume-ai-assistance-disclosure
               role="note"
             >
@@ -266,8 +269,8 @@ export function ResumeWorkspaceEditorPanel(
             <div
               className={
                 deterministicFallbackMessage
-                  ? "flex flex-wrap items-start justify-between gap-x-3 gap-y-2 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-5 text-(--warning-text)"
-                  : "flex flex-wrap items-start justify-between gap-x-3 gap-y-2 rounded-(--radius-field) border border-primary/30 bg-primary/10 px-3 py-2 text-(length:--text-small) leading-5 text-foreground"
+                  ? "flex flex-wrap items-start justify-between gap-x-3 gap-y-2 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-body) leading-6 text-(--warning-text)"
+                  : "flex flex-wrap items-start justify-between gap-x-3 gap-y-2 rounded-(--radius-field) border border-primary/30 bg-primary/10 px-3 py-2 text-(length:--text-body) leading-6 text-foreground"
               }
               data-resume-draft-provenance
               {...(deterministicFallbackMessage
@@ -302,7 +305,7 @@ export function ResumeWorkspaceEditorPanel(
           ) : null}
           {props.showGeneratedLineMarkers && generatedBulletCount > 0 ? (
             <div
-              className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-5 text-(--warning-text)"
+              className="rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-body) leading-6 text-(--warning-text)"
               data-resume-inference-disclosure
               role="note"
             >
@@ -422,11 +425,31 @@ export function ResumeWorkspaceEditorPanel(
         />
       </div>
 
-      <div className="border-t border-(--surface-panel-border) px-2.5 py-1.5">
+      {/* The outcome of an export or a save is announced, not just drawn:
+          a person who cannot see this strip was told nothing at all. */}
+      <div
+        aria-live="polite"
+        className="border-t border-(--surface-panel-border) px-2.5 py-1.5"
+        role="status"
+      >
         {props.actionMessage ? (
-          <p className="text-(length:--text-small) leading-5 text-primary">
-            {props.actionMessage}
-          </p>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <p className="min-w-0 break-words text-(length:--text-small) leading-5 text-primary">
+              {props.actionMessage}
+            </p>
+            {props.actionSavedFilePath && props.onOpenSavedFolder ? (
+              <Button
+                onClick={() => {
+                  props.onOpenSavedFolder?.(props.actionSavedFilePath ?? "");
+                }}
+                size="compact"
+                type="button"
+                variant="outline"
+              >
+                Open folder
+              </Button>
+            ) : null}
+          </div>
         ) : (
           <div className="h-action-message" />
         )}

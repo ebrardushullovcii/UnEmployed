@@ -1191,6 +1191,38 @@ export const JobFinderAgentDiscoveryResultSchema: z.ZodType<
   })
   .strict();
 
+/**
+ * What happened to a resume PDF export, beside the snapshot it produced.
+ *
+ * The export used to return only a workspace snapshot, so a cancelled save
+ * dialog was indistinguishable from a written file: the app said "PDF
+ * exported for review." either way, and a person who cancelled — or whose
+ * dialog never opened — was told a file existed that did not. `outputPath` is
+ * the folder location the person chose; it is null when no location was
+ * chosen and the PDF stayed inside Job Finder.
+ */
+export type JobFinderResumePdfExportResult = {
+  outcome: "saved" | "cancelled";
+  outputPath: string | null;
+  snapshot: JobFinderWorkspaceSnapshot;
+};
+type JobFinderResumePdfExportResultInput = {
+  outcome: "saved" | "cancelled";
+  outputPath?: string | null | undefined;
+  snapshot: z.input<typeof JobFinderWorkspaceSnapshotSchema>;
+};
+export const JobFinderResumePdfExportResultSchema: z.ZodType<
+  JobFinderResumePdfExportResult,
+  z.ZodTypeDef,
+  JobFinderResumePdfExportResultInput
+> = z
+  .object({
+    outcome: z.enum(["saved", "cancelled"]),
+    outputPath: NonEmptyStringSchema.nullable().default(null),
+    snapshot: JobFinderWorkspaceSnapshotSchema,
+  })
+  .strict();
+
 export const WorkspaceRevisionSchema = z.number().int().nonnegative();
 export type WorkspaceRevision = z.infer<typeof WorkspaceRevisionSchema>;
 

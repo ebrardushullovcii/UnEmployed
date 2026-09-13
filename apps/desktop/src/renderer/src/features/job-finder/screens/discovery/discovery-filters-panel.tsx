@@ -38,6 +38,7 @@ interface DiscoveryFiltersPanelProps {
   isBrowserSessionPendingForTarget: (targetId: string) => boolean;
   isDiscoveryAllPending: boolean;
   isTargetPending: (targetId: string) => boolean;
+  planEditorHref?: string;
   onOpenBrowserSession: () => void;
   onOpenBrowserSessionForTarget: (targetId: string) => void;
   onRunAgentDiscovery: (() => void) | undefined;
@@ -82,9 +83,12 @@ export function getDiscoveryOtherActiveCriteria(
     }
   };
 
-  addList(preferences, "Job families", searchPreferences.jobFamilies);
+  // Trade names, renamed to what a job seeker would say. Hours are gone from
+  // this list entirely: they have their own row above (see HOURS_SECTION_LABEL)
+  // because "part-time" is often the single most important thing about a
+  // search, and folding it in here hid it behind a collapsed disclosure.
+  addList(preferences, "Kinds of role", searchPreferences.jobFamilies);
   addList(preferences, "Seniority", searchPreferences.seniorityLevels);
-  addList(preferences, "Employment types", searchPreferences.employmentTypes);
   addList(preferences, "Industries", searchPreferences.targetIndustries);
   addList(preferences, "Company stages", searchPreferences.targetCompanyStages);
   addList(
@@ -195,6 +199,7 @@ export function DiscoveryFiltersPanel({
   isBrowserSessionPendingForTarget,
   isDiscoveryAllPending,
   isTargetPending,
+  planEditorHref = JOB_FINDER_ROUTE_PATHS.campaigns,
   onOpenBrowserSession,
   onOpenBrowserSessionForTarget,
   onRunAgentDiscovery,
@@ -218,6 +223,8 @@ export function DiscoveryFiltersPanel({
       empty: string;
       editAction?: {
         label: string;
+        /** Overrides the derived "Edit <label>" wording on a filled row. */
+        filledLabel?: string;
         href: string;
         variant?: "primary" | "secondary";
       };
@@ -248,11 +255,29 @@ export function DiscoveryFiltersPanel({
           ? {}
           : {
               editAction: {
-                label: "Add locations",
-                href: JOB_FINDER_ROUTE_PATHS.profile,
+                label: "Edit this plan's places",
+                filledLabel: "Edit this plan's places",
+                href: planEditorHref,
                 variant: "primary" as const,
               },
             }),
+      },
+      {
+        // Hours used to sit inside the collapsed "Other active criteria"
+        // disclosure under a trade name, so a search that was only worth
+        // running part-time showed nothing about hours on the open panel.
+        // Preferences gave hours their own control; this is the matching row.
+        label: "Full-time or part-time",
+        values: searchPreferences.employmentTypes,
+        empty: "Not set — results can be full-time or part-time.",
+        editAction: {
+          label: "Set hours",
+          filledLabel: "Edit hours",
+          href: JOB_FINDER_ROUTE_PATHS.profileTargetRoles,
+          // Leaving hours unset is a real answer, not a missing setup step,
+          // so this row never competes for the panel's one primary action.
+          variant: "secondary",
+        },
       },
       {
         label: "Work modes",
@@ -287,7 +312,7 @@ export function DiscoveryFiltersPanel({
         },
       },
     ],
-    [isRemoteOnlySearch, searchPreferences, totalSourceCount],
+    [isRemoteOnlySearch, planEditorHref, searchPreferences, totalSourceCount],
   );
   // One primary at a time: on a blank workspace every section is empty, and
   // four primary buttons in a column read as four competing starts. The first

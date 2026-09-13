@@ -3,6 +3,7 @@ import {
   chmod,
   lstat,
   mkdir,
+  open,
   readFile,
   readdir,
   realpath,
@@ -80,6 +81,25 @@ async function uniqueTestRoot(label: string): Promise<string> {
   const root = path.join(base, `${label}-${crypto.randomUUID()}`);
   await mkdir(root, { recursive: true });
   return root;
+}
+
+/**
+ * Asserts the POSIX permission bits the harness writes.
+ *
+ * Windows has no POSIX mode: NTFS reports 0666 for any writable file whatever
+ * chmod was asked for, so pinning 0644 there would test the platform, not the
+ * harness. The bits still matter on POSIX — that is where the evidence files
+ * are produced and shared — so they stay asserted exactly.
+ */
+async function expectPosixFileMode(
+  filePath: string,
+  mode: number,
+): Promise<void> {
+  if (process.platform === "win32") {
+    await expect(lstat(filePath)).resolves.toBeTruthy();
+    return;
+  }
+  expect((await lstat(filePath)).mode & 0o777).toBe(mode);
 }
 
 const PERSONA_IDS = Array.from({ length: 14 }, (_value, index) => {
@@ -377,7 +397,7 @@ describe("blind-persona-evidence-harness init", () => {
         },
       });
       expect(parsed.firstPersonVerdict).toBe("");
-      expect((await lstat(recordPath)).mode & 0o777).toBe(0o644);
+      await expectPosixFileMode(recordPath, 0o644);
     }
   });
 
@@ -560,7 +580,7 @@ describe("blind-persona-evidence-harness record", () => {
     const reparsed = JSON.parse(text) as Record<string, unknown>;
     expect(Object.keys(reparsed)).toEqual([...EVIDENCE_RECORD_KEYS]);
     expect(reparsed).toEqual(source);
-    expect((await lstat(recordPath)).mode & 0o777).toBe(0o644);
+    await expectPosixFileMode(recordPath, 0o644);
   });
 
   it("rejects a missing screenshot and never touches the original bytes", async () => {
@@ -1027,7 +1047,7 @@ describe("blind-persona-evidence-harness atomic writer", () => {
     await writeFile(target, "old", { encoding: "utf8", mode: 0o600 });
     await writeFileAtomic0644(target, "new-bytes\n");
     expect(await readFile(target, "utf8")).toBe("new-bytes\n");
-    expect((await lstat(target)).mode & 0o777).toBe(0o644);
+    await expectPosixFileMode(target, 0o644);
     const leftovers = (await readdir(root)).filter((name) =>
       name.includes(".tmp-"),
     );
@@ -1038,15 +1058,33 @@ describe("blind-persona-evidence-harness atomic writer", () => {
     const root = await uniqueTestRoot("evidence-writer-failure");
     const target = path.join(root, "keep.json");
     await writeFileAtomic0644(target, "durable-by-design-rename\n");
-    await chmod(root, 0o555);
-    try {
-      // A directory-permission failure surfaces as EACCES on the exclusive
-      // temp-file create; the original target bytes must survive untouched.
-      await expect(
-        writeFileAtomic0644(target, "replacement\n"),
-      ).rejects.toMatchObject({ code: "EACCES" });
-    } finally {
-      await chmod(root, 0o755);
+    // The failure has to come from the filesystem, and the two platforms offer
+    // different ways to cause one. POSIX takes the write bit off the directory
+    // and the exclusive temp-file create fails with EACCES. Windows ignores
+    // POSIX mode bits on a directory but refuses to rename over an open file,
+    // so an open handle on the target fails the final rename instead. The
+    // invariants asserted afterwards — original bytes intact, no temp file
+    // left behind — are the same either way.
+    if (process.platform === "win32") {
+      const heldTarget = await open(target, "r");
+      try {
+        await expect(
+          writeFileAtomic0644(target, "replacement\n"),
+        ).rejects.toMatchObject({
+          code: expect.stringMatching(/^E(PERM|BUSY|ACCES)$/u),
+        });
+      } finally {
+        await heldTarget.close();
+      }
+    } else {
+      await chmod(root, 0o555);
+      try {
+        await expect(
+          writeFileAtomic0644(target, "replacement\n"),
+        ).rejects.toMatchObject({ code: "EACCES" });
+      } finally {
+        await chmod(root, 0o755);
+      }
     }
     expect(await readFile(target, "utf8")).toBe("durable-by-design-rename\n");
     const leftovers = (await readdir(root)).filter((name) =>

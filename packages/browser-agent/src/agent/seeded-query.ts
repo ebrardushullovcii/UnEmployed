@@ -67,10 +67,21 @@ export function looksLikeSeededSearchSurfacePath(pathname: string): boolean {
   );
 }
 
-export function getSeededQueryRuleParams(_hostname: string): {
+/**
+ * The query parameters a seeded search may drop and the ones that carry a
+ * location, for any site.
+ *
+ * The hostname is accepted so call sites read as "the rules for this page",
+ * and is deliberately never consulted: shared orchestration recognises these
+ * parameters by shape, never by board (ADR 0007). Reading it here would be
+ * the first step back to a per-board table.
+ */
+export function getSeededQueryRuleParams(hostname: string): {
   ignoredParams: Set<string>;
   locationParams: Set<string>;
 } {
+  void hostname;
+
   return {
     ignoredParams: new ShapeMatchedParamNameSet(
       [...SEEDED_QUERY_BASE_IGNORED_PARAMS],

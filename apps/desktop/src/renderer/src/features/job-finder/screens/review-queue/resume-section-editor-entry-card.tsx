@@ -58,6 +58,9 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
   const moveUpDisabled = rowLocked || entryIndex <= 0;
   const moveDownDisabled =
     rowLocked || entryIndex >= section.entries.length - 1;
+  // A selected card is the one being edited, and a locked card has to keep its
+  // own way back out, so both keep the secondary actions painted.
+  const showSecondaryActions = isSelected || entry.locked;
   const previousEndDateByEntryIdRef = useRef(new Map<string, string | null>());
   const reviewHeading =
     section.kind === "experience"
@@ -82,10 +85,15 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
   return (
     <article
       className={cn(
-        "surface-card grid gap-2.5 rounded-(--radius-field) border border-(--surface-panel-border) p-2.5 transition-colors",
+        "group surface-card grid gap-2.5 rounded-(--radius-field) border border-(--surface-panel-border) p-2.5 transition-colors",
         isSelected && "border-primary/35 bg-primary/5",
+        // A hidden entry used to look exactly like a kept one, so Hide entry
+        // and Show entry both appeared to do nothing: the only thing that
+        // moved was the button's own label.
+        !entry.included && "border-dashed opacity-60",
       )}
       data-resume-editor-entry={entry.id}
+      data-resume-editor-entry-hidden={entry.included ? "false" : "true"}
       onFocusCapture={handleEntryFocusCapture}
       onMouseDownCapture={() => onSelectEntry(section.id, entry.id)}
       ref={(node) => {
@@ -94,6 +102,14 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
       tabIndex={-1}
     >
       <div className="grid min-w-0 gap-2">
+        {entry.included ? null : (
+          <p
+            className="text-(length:--text-body) leading-6 text-foreground"
+            data-resume-editor-entry-hidden-note
+          >
+            Hidden — this entry stays in your draft but is left off the resume.
+          </p>
+        )}
         <Field className="min-w-0">
           <FieldLabel htmlFor={`${controlIdPrefix}_entry_title_${entry.id}`}>
             Title
@@ -135,106 +151,123 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
                 `${entry.included ? "Hidden" : "Shown"} entry`,
               );
             }}
+            aria-label={`${entry.included ? "Hide" : "Show"} ${entry.title?.trim() || "this entry"}`}
             aria-pressed={entry.included}
             type="button"
             variant="secondary"
           >
             {entry.included ? "Hide entry" : "Show entry"}
           </Button>
-          <Button
-            className="h-8"
-            disabled={disabled || section.locked}
-            onClick={() =>
-              onPatch(
-                createResumeDraftPatch({
-                  entryId: entry.id,
-                  idPrefix: `resume_patch_entry_lock_${entry.id}`,
-                  newLocked: !entry.locked,
-                  operation: "set_lock",
-                  sectionId: section.id,
-                }),
-                `${entry.locked ? "Unlocked" : "Locked"} entry`,
-              )
-            }
-            aria-pressed={entry.locked}
-            type="button"
-            variant="secondary"
-          >
-            {entry.locked ? (
-              <LockOpen className="size-4" />
-            ) : (
-              <Lock className="size-4" />
+          {/* One primary action per entry line. Lock and the two reorder
+              controls made every row four competing buttons wide, so they
+              recede until this card is the one being worked on. They stay
+              mounted, enabled and in the tab order at all times: hovering the
+              card or moving focus into the group paints them, and a card that
+              is selected or locked shows them outright, so nothing is ever
+              only reachable with a mouse. */}
+          <div
+            className={cn(
+              "flex flex-wrap items-center gap-1.5",
+              !showSecondaryActions &&
+                "opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none",
             )}
-            {entry.locked ? "Unlock" : "Lock"}
-          </Button>
-          <Button
-            aria-label={`Move ${entry.title ?? "entry"} up`}
-            className="h-8"
-            disabled={moveUpDisabled}
-            onClick={() => {
-              const anchor =
-                entryIndex > 0 ? section.entries[entryIndex - 1] : null;
-              if (!anchor) {
-                return;
-              }
-
-              onPatch(
-                createResumeDraftPatch({
-                  anchorEntryId: anchor.id,
-                  entryId: entry.id,
-                  idPrefix: `resume_patch_entry_up_${entry.id}`,
-                  operation: "move_entry",
-                  position: "before",
-                  sectionId: section.id,
-                }),
-                "Moved entry up",
-              );
-            }}
-            type="button"
-            variant="secondary"
+            data-resume-editor-entry-secondary-actions
           >
-            <MoveUp className="size-4" />
-          </Button>
-          <Button
-            aria-label={`Move ${entry.title ?? "entry"} down`}
-            className="h-8"
-            disabled={moveDownDisabled}
-            onClick={() => {
-              const anchor = section.entries[entryIndex + 1] ?? null;
-              if (!anchor) {
-                return;
+            <Button
+              className="h-8"
+              disabled={disabled || section.locked}
+              onClick={() =>
+                onPatch(
+                  createResumeDraftPatch({
+                    entryId: entry.id,
+                    idPrefix: `resume_patch_entry_lock_${entry.id}`,
+                    newLocked: !entry.locked,
+                    operation: "set_lock",
+                    sectionId: section.id,
+                  }),
+                  `${entry.locked ? "Unlocked" : "Locked"} entry`,
+                )
               }
+              aria-pressed={entry.locked}
+              type="button"
+              variant="secondary"
+            >
+              {entry.locked ? (
+                <LockOpen className="size-4" />
+              ) : (
+                <Lock className="size-4" />
+              )}
+              {entry.locked ? "Unlock" : "Lock"}
+            </Button>
+            <Button
+              aria-label={`Move ${entry.title ?? "entry"} up`}
+              className="h-8"
+              disabled={moveUpDisabled}
+              onClick={() => {
+                const anchor =
+                  entryIndex > 0 ? section.entries[entryIndex - 1] : null;
+                if (!anchor) {
+                  return;
+                }
 
-              onPatch(
-                createResumeDraftPatch({
-                  anchorEntryId: anchor.id,
-                  entryId: entry.id,
-                  idPrefix: `resume_patch_entry_down_${entry.id}`,
-                  operation: "move_entry",
-                  position: "after",
-                  sectionId: section.id,
-                }),
-                "Moved entry down",
-              );
-            }}
-            type="button"
-            variant="secondary"
-          >
-            <MoveDown className="size-4" />
-          </Button>
+                onPatch(
+                  createResumeDraftPatch({
+                    anchorEntryId: anchor.id,
+                    entryId: entry.id,
+                    idPrefix: `resume_patch_entry_up_${entry.id}`,
+                    operation: "move_entry",
+                    position: "before",
+                    sectionId: section.id,
+                  }),
+                  "Moved entry up",
+                );
+              }}
+              type="button"
+              variant="secondary"
+            >
+              <MoveUp className="size-4" />
+            </Button>
+            <Button
+              aria-label={`Move ${entry.title ?? "entry"} down`}
+              className="h-8"
+              disabled={moveDownDisabled}
+              onClick={() => {
+                const anchor = section.entries[entryIndex + 1] ?? null;
+                if (!anchor) {
+                  return;
+                }
+
+                onPatch(
+                  createResumeDraftPatch({
+                    anchorEntryId: anchor.id,
+                    entryId: entry.id,
+                    idPrefix: `resume_patch_entry_down_${entry.id}`,
+                    operation: "move_entry",
+                    position: "after",
+                    sectionId: section.id,
+                  }),
+                  "Moved entry down",
+                );
+              }}
+              type="button"
+              variant="secondary"
+            >
+              <MoveDown className="size-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
       {workHistoryReviewSuggestions.length > 0 ? (
         <div
           aria-labelledby={workHistoryHeadingId}
-          className="grid gap-1 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-small) leading-5 text-(--warning-text)"
+          className="grid gap-1 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-(length:--text-body) leading-6 text-(--warning-text)"
           role="region"
         >
           <h3 className="text-foreground" id={workHistoryHeadingId}>
             {reviewHeading}
           </h3>
-          <p className="text-xs text-foreground-soft">
+          <p className="text-foreground-soft">
             {[
               entry.title,
               entry.subtitle,
@@ -437,7 +470,7 @@ export function ResumeEntryEditorCard(props: ResumeEntryEditorCardProps) {
             readable without hovering each glyph. */}
         {entry.bullets.length > 0 ? (
           <p
-            className="text-(length:--text-tiny) leading-4 text-foreground-soft"
+            className="text-(length:--text-body) leading-6 text-foreground-soft"
             data-resume-entry-bullet-actions-legend
           >
             Each row: show or hide, lock, move up, move down.

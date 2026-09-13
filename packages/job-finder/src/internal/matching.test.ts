@@ -6,11 +6,13 @@ import {
   assessPostingLocationCompatibility,
   createMatchAssessment,
   buildDiscoveryJobs,
+  enrichDiscoveredPosting,
   getBroadLocationCompatibility,
   matchesAnyPhrase,
   matchesExcludedLocation,
   matchesLocationPreference,
   matchesTitlePreference,
+  resolveMatchLocationReach,
   type LocationCompatibilityState,
 } from "./matching";
 import { MATCH_ASSESSMENT_SCORER_VERSION } from "./match-assessment-session";
@@ -74,9 +76,9 @@ describe("matching helpers", () => {
 
     expect(jobs.map((job) => job.id)).toEqual([
       "review_first",
+      "newer_card",
       "newer_enriched",
       "older_enriched",
-      "newer_card",
     ]);
   });
 
@@ -282,6 +284,35 @@ describe("matching helpers", () => {
     expect(adjacent.gaps).toContain(
       "Role title is adjacent to the target list but not an exact fit.",
     );
+  });
+
+  test("marks a score that stopped at a gap's ceiling as an upper bound", () => {
+    // Unrelated listings kept printing the same number because several gaps
+    // impose the same ceiling. The number is the most the listing can earn,
+    // not a measurement, and the assessment now says so.
+    const seed = createSeed();
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: ["Senior Software Engineer"],
+      locations: [],
+      workModes: [],
+      minimumSalaryUsd: null,
+      companyWhitelist: [],
+    };
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      easyApplyEligible: false,
+      description: "Build web products with TypeScript and React.",
+      keySkills: [],
+      keywordSignals: [],
+    };
+
+    const capped = createMatchAssessment(seed.profile, preferences, {
+      ...basePosting,
+      title: "Senior Software Engineer",
+    });
+
+    expect(capped.scoreIsUpperBound).toBe(true);
   });
 
   test("keeps unrelated role families out of a candidate's high-confidence matches", () => {
@@ -545,6 +576,42 @@ describe("matching helpers", () => {
     expect(customerSupport.recommendation).not.toBe("skip");
     expect(softwareEngineer.recommendation).not.toBe("skip");
     expect(frontendEngineer.recommendation).not.toBe("skip");
+  });
+
+  test("does not call adjacent Chicago roles conflicts for a Marketing Manager plan", () => {
+    const seed = createSeed();
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: ["Marketing Manager"],
+      locations: [],
+      workModes: [],
+    };
+    const basePosting = {
+      ...seed.savedJobs[0]!,
+      description: "Lead customer and commercial programs across the business.",
+      keySkills: [],
+      keywordSignals: [],
+      responsibilities: [],
+      minimumQualifications: [],
+      preferredQualifications: [],
+    };
+
+    for (const title of [
+      "Lead Treasury Management Consultant",
+      "Customer Service Associate (Tues-Sat or Night Shift)",
+      "Product Manager",
+    ]) {
+      const assessment = createMatchAssessment(seed.profile, preferences, {
+        ...basePosting,
+        sourceJobId: `chicago_${title}`,
+        title,
+      });
+
+      expect(assessment.recommendation, title).not.toBe("skip");
+      expect(assessment.dimensions.roleSuitability.state, title).not.toBe(
+        "conflict",
+      );
+    }
   });
 
   test("spends a constrained source budget on credible role matches before remote occupational mismatches", () => {
@@ -2229,10 +2296,13 @@ describe("matching helpers", () => {
     expect(concreteMismatch.gaps).toContain(
       "Location falls outside the preferred search areas.",
     );
+    // On site in a faraway city with relocation ruled out: there is no way to
+    // do this job from a saved area, so it stays a real blocker.
+    expect(concreteMismatch.locationReach).toBe("outside_area");
     expect(locationRequirement(concreteMismatch)).toMatchObject({
       status: "conflict",
       explanation:
-        "The listing location is outside the saved search area and the profile rules out relocation.",
+        "The listing is on site outside the saved search area and the profile rules out relocation.",
     });
     expect(concreteMismatch.score).toBeLessThan(
       assessAt("Remote", "bare_remote").score,
@@ -2240,6 +2310,24 @@ describe("matching helpers", () => {
     expect(concreteMismatch.recommendationRationale).toContain(
       "conflicts with the saved profile or search preferences",
     );
+
+    // The same faraway city, but the listing never says it must be done
+    // there. That sinks the listing without throwing it out.
+    const mismatchWithoutStatedMode = createMatchAssessment(
+      profile,
+      preferences,
+      {
+        ...basePosting,
+        sourceJobId: "location_evidence_mismatch_no_mode",
+        workMode: [],
+        location: "Madrid, Spain",
+      },
+    );
+    expect(mismatchWithoutStatedMode.locationReach).toBe("unknown");
+    expect(locationRequirement(mismatchWithoutStatedMode)).toMatchObject({
+      status: "unknown",
+    });
+    expect(mismatchWithoutStatedMode.recommendation).not.toBe("skip");
   });
 
   test("hard-skips explicit non-engineering occupations while preserving ambiguous engineering roles", () => {
@@ -2425,5 +2513,370 @@ describe("matching helpers", () => {
     expect(assessment.recommendationRationale).not.toContain(
       "Remote geography eligibility is not yet supported",
     );
+  });
+});
+
+describe("resolveMatchLocationReach", () => {
+  const base = {
+    hasSavedLocationConstraint: true,
+    locationRemotePreferenceApplied: false,
+    workMode: [] as const,
+    location: "Toronto, Ontario, Canada",
+  };
+
+  test("marks an on-site listing outside every saved area as out of reach", () => {
+    expect(
+      resolveMatchLocationReach({
+        ...base,
+        locationCompatibility: "incompatible",
+        workMode: ["onsite"],
+      }),
+    ).toBe("outside_area");
+    // No stated mode, but the listing says in person itself.
+    expect(
+      resolveMatchLocationReach({
+        ...base,
+        locationCompatibility: "incompatible",
+        location: "Toronto, Ontario (on-site)",
+      }),
+    ).toBe("outside_area");
+  });
+
+  test("leaves a remote or unstated listing alone", () => {
+    expect(
+      resolveMatchLocationReach({
+        ...base,
+        locationCompatibility: "incompatible",
+        workMode: ["remote"],
+      }),
+    ).toBe("unknown");
+    expect(
+      resolveMatchLocationReach({
+        ...base,
+        locationCompatibility: "incompatible",
+      }),
+    ).toBe("unknown");
+    expect(
+      resolveMatchLocationReach({
+        ...base,
+        locationCompatibility: "unknown",
+        workMode: ["onsite"],
+      }),
+    ).toBe("unknown");
+  });
+
+  test("names an in-area and a remote-preference listing", () => {
+    expect(
+      resolveMatchLocationReach({
+        ...base,
+        locationCompatibility: "compatible",
+      }),
+    ).toBe("in_area");
+    expect(
+      resolveMatchLocationReach({
+        ...base,
+        locationCompatibility: "compatible",
+        locationRemotePreferenceApplied: true,
+      }),
+    ).toBe("remote_preferred");
+  });
+
+  test("stays unknown when no area was saved", () => {
+    expect(
+      resolveMatchLocationReach({
+        ...base,
+        hasSavedLocationConstraint: false,
+        locationCompatibility: "incompatible",
+        workMode: ["onsite"],
+      }),
+    ).toBe("unknown");
+  });
+});
+
+describe("a ticked preference is never a reason to skip", () => {
+  const buildScene = (input: {
+    workModes?: readonly ("remote" | "hybrid" | "onsite" | "flexible")[];
+    employmentTypes?: readonly string[];
+    excludedLocations?: readonly string[];
+  }) => {
+    const seed = createSeed();
+    return {
+      profile: {
+        ...seed.profile,
+        headline: "Marketing Manager",
+        workEligibility: {
+          ...seed.profile.workEligibility,
+          willingToRelocate: false,
+          remoteEligible: true,
+        },
+      },
+      preferences: {
+        ...seed.searchPreferences,
+        targetRoles: ["Marketing Manager"],
+        locations: ["Chicago, IL"],
+        excludedLocations: [...(input.excludedLocations ?? [])],
+        workModes: [...(input.workModes ?? [])],
+        employmentTypes: [...(input.employmentTypes ?? [])],
+        companyWhitelist: [],
+        minimumSalaryUsd: null,
+      },
+      posting: {
+        ...seed.savedJobs[0]!,
+        title: "Marketing Manager",
+        location: "Chicago, IL",
+        description: "Run campaigns for a Chicago team.",
+        detailQuality: "detail_enriched" as const,
+      },
+    };
+  };
+
+  test("keeps a hybrid listing when hybrid is ticked", () => {
+    const scene = buildScene({ workModes: ["hybrid", "onsite"] });
+    const assessment = createMatchAssessment(scene.profile, scene.preferences, {
+      ...scene.posting,
+      sourceJobId: "hybrid_ticked",
+      workMode: ["hybrid"],
+    });
+
+    expect(assessment.recommendation).not.toBe("skip");
+    expect(
+      assessment.requirements.find(
+        (requirement) => requirement.category === "work_mode",
+      )?.status,
+    ).toBe("supported");
+  });
+
+  test("sinks an unticked work mode instead of throwing the listing out", () => {
+    const scene = buildScene({ workModes: ["remote"] });
+    const assessment = createMatchAssessment(scene.profile, scene.preferences, {
+      ...scene.posting,
+      sourceJobId: "hybrid_not_ticked",
+      workMode: ["hybrid"],
+    });
+
+    expect(assessment.recommendation).not.toBe("skip");
+    expect(assessment.recommendationRationale).not.toContain(
+      "conflicts with the saved profile or search preferences",
+    );
+    expect(
+      assessment.requirements.find(
+        (requirement) => requirement.category === "work_mode",
+      )?.status,
+    ).toBe("missing");
+  });
+
+  test("skips a work mode the person excluded", () => {
+    const scene = buildScene({
+      workModes: ["remote"],
+      excludedLocations: ["onsite"],
+    });
+    const assessment = createMatchAssessment(scene.profile, scene.preferences, {
+      ...scene.posting,
+      sourceJobId: "onsite_excluded",
+      workMode: ["onsite"],
+    });
+
+    expect(assessment.recommendation).toBe("skip");
+  });
+
+  test("keeps a part-time listing when part-time is ticked", () => {
+    const scene = buildScene({ employmentTypes: ["Part-time"] });
+    for (const employmentType of ["Part-time", "Full-Time/Part-Time"]) {
+      const assessment = createMatchAssessment(
+        scene.profile,
+        scene.preferences,
+        {
+          ...scene.posting,
+          sourceJobId: `part_time_${employmentType}`,
+          employmentType,
+        },
+      );
+
+      expect(assessment.recommendation, employmentType).not.toBe("skip");
+      expect(assessment.gaps, employmentType).not.toContain(
+        "The listing employment type conflicts with the saved employment preferences.",
+      );
+    }
+  });
+
+  test("skips a part-time listing when only full-time was selected", () => {
+    const scene = buildScene({ employmentTypes: ["Full-time"] });
+    const assessment = createMatchAssessment(scene.profile, scene.preferences, {
+      ...scene.posting,
+      sourceJobId: "part_time_excluded",
+      employmentType: "Part-time",
+    });
+
+    expect(assessment.recommendation).toBe("skip");
+    expect(assessment.recommendationRationale).toContain(
+      "employment type conflicts",
+    );
+  });
+});
+
+describe("occupation, career-stage, stack, and geography calibration", () => {
+  const buildSeniorEngineeringScene = () => {
+    const seed = createSeed();
+    const profile = {
+      ...seed.profile,
+      headline: "Senior Software Engineer",
+      currentLocation: "Philadelphia, PA, United States",
+      currentCountry: "United States",
+      skills: ["TypeScript", "React", "Node.js", "PostgreSQL"],
+      skillGroups: {
+        ...seed.profile.skillGroups,
+        coreSkills: ["TypeScript", "React", "Node.js"],
+      },
+      experiences: [
+        {
+          ...seed.profile.experiences[0]!,
+          id: "senior-role",
+          title: "Senior Software Engineer",
+          skills: ["TypeScript", "React", "Node.js", "PostgreSQL"],
+        },
+      ],
+    };
+    const preferences = {
+      ...seed.searchPreferences,
+      targetRoles: ["Senior Software Engineer"],
+      locations: ["Philadelphia, PA"],
+      workModes: ["remote" as const],
+      seniorityLevels: [],
+      minimumSalaryUsd: null,
+    };
+    const assess = (title: string, description: string, location = "Remote") =>
+      createMatchAssessment(profile, preferences, {
+        ...seed.savedJobs[0]!,
+        sourceJobId: title.toLowerCase().replaceAll(" ", "_"),
+        title,
+        description,
+        location,
+        workMode: ["remote"],
+        keySkills: [],
+        keywordSignals: [],
+        responsibilities: [],
+        minimumQualifications: [],
+        preferredQualifications: [],
+        screeningHints: {
+          ...seed.savedJobs[0]!.screeningHints,
+          remoteGeographies: [],
+        },
+      });
+    return { assess };
+  };
+
+  test("keeps a matching senior stack above clerical, trade, and student roles", () => {
+    const { assess } = buildSeniorEngineeringScene();
+    const senior = assess(
+      "Senior Software Engineer",
+      "Build TypeScript and React services with Node.js and PostgreSQL.",
+    );
+    const dataEntry = assess(
+      "Data Entry Clerk",
+      "Enter customer records and maintain filing accuracy.",
+    );
+    const technician = assess(
+      "Building Maintenance Technician",
+      "Maintain HVAC, electrical systems, and building equipment.",
+    );
+    const student = assess(
+      "Student Software Engineering Intern",
+      "An entry-level internship using TypeScript and React.",
+    );
+
+    expect(senior.score).toBeGreaterThan(student.score + 10);
+    expect(student.score).toBeGreaterThan(dataEntry.score);
+    expect(student.score).toBeGreaterThan(technician.score);
+    expect(dataEntry.score).toBeLessThanOrEqual(39);
+    expect(technician.score).toBeLessThanOrEqual(39);
+    expect(student.gaps.join(" ")).toContain("entry-level");
+  });
+
+  test("keeps an unrelated occupation well below a same-family senior role", () => {
+    const { assess } = buildSeniorEngineeringScene();
+    const senior = assess(
+      "Member of Technical Staff Engineering",
+      "Own senior TypeScript, React, Node.js, and PostgreSQL platform work.",
+    );
+    const unrelated = assess(
+      "Data Steward",
+      "Maintain records, governance catalogs, and data-entry quality.",
+    );
+
+    expect(senior.score).toBeGreaterThan(unrelated.score + 20);
+    expect(unrelated.score).toBeLessThanOrEqual(39);
+    expect(unrelated.recommendation).toBe("skip");
+  });
+
+  test("does not rank a non-English mid-level listing over a same-family senior listing", () => {
+    const { assess } = buildSeniorEngineeringScene();
+    const senior = assess(
+      "Senior Software Engineer",
+      "Build TypeScript and React services with Node.js and PostgreSQL.",
+    );
+    const midLevel = assess(
+      "Desenvolvedor de Software Pleno",
+      "Desenvolver aplicações e colaborar com a equipe de produto.",
+    );
+
+    expect(senior.score).toBeGreaterThan(midLevel.score);
+  });
+
+  test("requires a travel-requirement sentence rather than an industry word", () => {
+    const seed = createSeed();
+    const industryMention = enrichDiscoveredPosting(
+      {
+        ...seed.savedJobs[0]!,
+        description: "Build software for a travel technology company.",
+        screeningHints: {
+          ...seed.savedJobs[0]!.screeningHints,
+          travelText: null,
+        },
+      },
+      undefined,
+    );
+    const requiredTravel = enrichDiscoveredPosting(
+      {
+        ...seed.savedJobs[0]!,
+        description: "This role requires travel up to 20% of the time.",
+        screeningHints: {
+          ...seed.savedJobs[0]!.screeningHints,
+          travelText: null,
+        },
+      },
+      undefined,
+    );
+
+    expect(industryMention.screeningHints.travelText).toBeNull();
+    expect(requiredTravel.screeningHints.travelText).toBe(
+      "Travel expectations are mentioned in the listing.",
+    );
+  });
+
+  test("moves related roles materially with stack overlap", () => {
+    const { assess } = buildSeniorEngineeringScene();
+    const overlapping = assess(
+      "Senior Software Engineer",
+      "Build TypeScript, React, Node.js, and PostgreSQL systems.",
+    );
+    const different = assess(
+      "Senior Software Engineer",
+      "Build Java, Kotlin, Spring, and Kubernetes systems.",
+    );
+    expect(overlapping.score).toBeGreaterThan(different.score + 10);
+  });
+
+  test("treats a mixed worldwide and country restriction as restrictive", () => {
+    const { assess } = buildSeniorEngineeringScene();
+    const restricted = assess(
+      "Senior Software Engineer",
+      "Remote role for people located in Thailand. TypeScript and React.",
+      "Anywhere, Thailand",
+    );
+    const geography = restricted.requirements.find(
+      (requirement) => requirement.id === "requirement_location_remote_geography_eligibility",
+    );
+    expect(geography?.status).toBe("conflict");
+    expect(restricted.reasons.join(" ")).not.toContain("Location fits");
   });
 });

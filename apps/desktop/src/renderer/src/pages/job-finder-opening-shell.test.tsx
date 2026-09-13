@@ -71,6 +71,10 @@ describe("JobFinderOpeningShell platform geometry", () => {
 
     expect(header?.className).toContain("fixed");
     expect(header?.className).toContain("min-[1440px]:h-14");
+    const actions = document.querySelector("[data-job-finder-opening-actions]");
+    expect(actions?.className).toContain("min-[1440px]:col-start-3");
+    expect(actions?.className).toContain("min-[1440px]:col-span-1");
+    expect(actions?.className).toContain("min-[1440px]:row-start-1");
     expect(sidebar?.className).toContain("w-(--job-finder-side-width)");
     expect(sidebar?.className).toContain("min-[1440px]:block");
     // The loaded shell marks this reserve important, because `sm:pt-[7.25rem]`
@@ -92,6 +96,77 @@ describe("JobFinderOpeningShell platform geometry", () => {
       document.querySelector('[data-job-finder-sidebar] [aria-current="page"]')
         ?.textContent,
     ).toContain("Home");
+  });
+
+  it("paints both module names in full in the opening brand lockup", () => {
+    // The first paint carries the same caption switch as the loaded shell, so
+    // "Interview Helper" is never briefly shortened to "Interview …" and the
+    // control does not relayout when the workspace arrives. It is the
+    // wordmark's subtitle in the brand region, and it is the only one.
+    renderOpeningShell("win32", "/job-finder/home");
+
+    const brandSwitch = document.querySelector<HTMLElement>(
+      "[data-desktop-brand] [data-desktop-brand-region] [data-desktop-brand-subtitle] [data-desktop-module-navigation]",
+    );
+    if (!brandSwitch) {
+      throw new Error("Opening brand module switch is missing");
+    }
+
+    expect(brandSwitch.dataset.moduleSwitchVariant).toBe("caption");
+    expect(
+      document.querySelectorAll("[data-module-switch-trigger]"),
+    ).toHaveLength(1);
+    expect(
+      document.querySelector(
+        "[data-job-finder-sidebar] [data-desktop-module-navigation]",
+      ),
+    ).toBeNull();
+
+    const trigger = brandSwitch.querySelector<HTMLButtonElement>(
+      "[data-module-switch-trigger]",
+    );
+    if (!trigger) {
+      throw new Error("Opening brand module switch trigger is missing");
+    }
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger.getAttribute("aria-label")).toBe(
+      "Job Finder, switch module",
+    );
+    expect(trigger.textContent).toBe("Job Finder");
+    // Nothing is in the tree to name the other module until the menu opens.
+    expect(
+      document.querySelectorAll("[data-module-switch-option]"),
+    ).toHaveLength(0);
+
+    fireEvent.click(trigger);
+    const menuId = trigger.getAttribute("aria-controls");
+    const menu = menuId ? document.getElementById(menuId) : null;
+    if (!menu) {
+      throw new Error("Opening sidebar module switch menu is missing");
+    }
+    expect(menu.getAttribute("role")).toBe("menu");
+
+    for (const [moduleName, label] of [
+      ["job-finder", "Job Finder"],
+      ["interview-helper", "Interview Helper"],
+    ] as const) {
+      const option = menu.querySelector<HTMLButtonElement>(
+        `[data-module-switch-option="${moduleName}"]`,
+      );
+      const labelNode = option?.querySelector("span");
+      expect(option?.className).toContain("w-full");
+      expect(option?.getAttribute("role")).toBe("menuitemradio");
+      for (const truncation of [
+        "truncate",
+        "text-ellipsis",
+        "overflow-hidden",
+        "line-clamp",
+      ]) {
+        expect(labelNode?.className).not.toContain(truncation);
+        expect(option?.className).not.toContain(truncation);
+      }
+      expect(labelNode?.textContent).toBe(label);
+    }
   });
 
   it("reserves the native traffic-light area on macOS", async () => {
@@ -404,13 +479,22 @@ describe("JobFinderOpeningShell parity with the loaded shell", () => {
     ["header grid", "[data-job-finder-shell-header] > .job-finder-shell-grid"],
     ["brand row", "[data-desktop-brand]"],
     ["brand region", "[data-desktop-brand-region]"],
-    ["module switcher", "[data-desktop-module-navigation]"],
+    [
+      "brand subtitle",
+      "[data-desktop-brand-region] [data-desktop-brand-subtitle]",
+    ],
+    [
+      "module switcher",
+      "[data-desktop-brand-region] [data-desktop-module-navigation]",
+    ],
     ["window control inset", "[data-desktop-header-window-control-inset]"],
     ["root", "[data-job-finder-shell]"],
-    ["module label", '[data-desktop-module-navigation] [aria-current="page"]'],
+    // The two module options live in a menu that exists only while it is
+    // open, so the element this parity table can compare at rest is the one
+    // trigger each surface paints.
     [
-      "module link",
-      '[data-desktop-module-navigation] [aria-label="Open Interview Helper"]',
+      "module switch trigger",
+      "[data-desktop-brand-region] [data-desktop-module-navigation] [data-module-switch-trigger]",
     ],
     ["sidebar", "[data-job-finder-sidebar]"],
     ["sidebar inner column", "[data-job-finder-sidebar] > div"],

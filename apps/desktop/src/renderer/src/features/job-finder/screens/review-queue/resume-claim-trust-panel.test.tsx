@@ -102,6 +102,20 @@ describe("ResumeClaimTrustPanel", () => {
     expect(container?.querySelectorAll("details")).toHaveLength(3);
   });
 
+  it("credits a verbatim line to the person, not to the generator", () => {
+    renderPanel([
+      buildClaim(1, { claimOrigin: "ai_generated", status: "exact" }),
+      buildClaim(2, {
+        claimOrigin: "ai_generated",
+        status: "paraphrase",
+      }),
+    ]);
+
+    expect(container?.textContent).toContain("Your wording, kept word for word");
+    // The reworded line is still credited to the generator.
+    expect(container?.textContent).toContain("AI generated");
+  });
+
   it("limits the initial claim DOM and reveals more on demand", () => {
     renderPanel(Array.from({ length: 8 }, (_, index) => buildClaim(index + 1)));
 

@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   classifyEnabledSourceHealth,
   deriveEnabledSourceHealthCounts,
+  deriveDiscoverySourceOutcome,
   deriveSourceHealthSignals,
   deriveSucceededDiscoveryTargetIds,
   describeEnabledSourceHealth,
@@ -36,6 +37,18 @@ function run(
 }
 
 const VERIFIED_AT = "2026-08-20T09:00:00.000Z";
+
+test("failed sources are terminal but never counted as completed", () => {
+  expect(
+    deriveDiscoverySourceOutcome(
+      run([
+        { targetId: "one", state: "completed" },
+        { targetId: "two", state: "completed" },
+        { targetId: "three", state: "failed" },
+      ]),
+    ),
+  ).toEqual({ completed: 2, planned: 3 });
+});
 
 function source(
   overrides: Partial<DiscoverySourceHealthFields> & {
@@ -390,6 +403,47 @@ describe("source health classification", () => {
 });
 
 describe("describeEnabledSourceHealth", () => {
+  test("separates empty success, productive stale guidance, failure and unknown history", () => {
+    const completed = {
+      targetId: "target_001",
+      state: "completed" as const,
+      startedAt: VERIFIED_AT,
+      completedAt: VERIFIED_AT,
+      jobsFound: 0,
+    };
+    const input = { recentRuns: [{ targetExecutions: [completed] }] };
+    expect(
+      describeEnabledSourceHealth(source(), deriveSourceHealthSignals(input))
+        .reason,
+    ).toBe("Completed, 0 jobs found.");
+    completed.jobsFound = 12;
+    expect(
+      describeEnabledSourceHealth(
+        source({ instructionStatus: "stale" }),
+        deriveSourceHealthSignals(input),
+      ).reason,
+    ).toBe(
+      "Readable · 12 job cards found. Saved guidance for this source is out of date.",
+    );
+    const failed = {
+      ...completed,
+      state: "failed" as const,
+      completedAt: "2026-08-21T00:00:00.000Z",
+    };
+    const signals = deriveSourceHealthSignals({
+      recentRuns: [...input.recentRuns, { targetExecutions: [failed] }],
+    });
+    expect(signals.usedTargetIds?.has(completed.targetId)).toBe(true);
+    expect(describeEnabledSourceHealth(source(), signals).reason).toBe(
+      "The latest search failed.",
+    );
+    expect(
+      describeEnabledSourceHealth(source(), deriveSourceHealthSignals({}))
+        .reason,
+    ).toBe(
+      "Earlier search usage is unknown. This source has not been verified yet.",
+    );
+  });
   test("a source proven by a completed run is healthy with a reason", () => {
     const target = source({ id: "target_run" });
 
@@ -411,7 +465,7 @@ describe("describeEnabledSourceHealth", () => {
         }),
       ),
     ).toEqual({
-      reason: "The latest search used this source successfully.",
+      reason: "Completed; job count not recorded.",
       reasons: [],
       state: "healthy",
     });
@@ -440,7 +494,7 @@ describe("describeEnabledSourceHealth", () => {
         }),
       ),
     ).toEqual({
-      reason: "This source is waiting for you to sign in.",
+      reason: "Blocked: waiting for you to sign in.",
       reasons: ["login_required"],
       state: "needs_attention",
     });
@@ -468,5 +522,99 @@ describe("describeEnabledSourceHealth", () => {
         classifyEnabledSourceHealth(target),
       );
     }
+  });
+});
+
+describe("a source that returned nothing", () => {
+  const target = source({
+    id: "target_empty",
+    instructionStatus: "validated",
+    lastVerifiedAt: VERIFIED_AT,
+  });
+  const emptyRun: SourceRuntimeSignals = {
+    latestExecutions: new Map([
+      [
+        "target_empty",
+        {
+          targetId: "target_empty",
+          state: "completed" as DiscoveryTargetExecutionState,
+          startedAt: VERIFIED_AT,
+          completedAt: VERIFIED_AT,
+          jobsFound: 0,
+        },
+      ],
+    ]),
+    succeededTargetIds: new Set(["target_empty"]),
+  };
+
+  test("is not healthy", () => {
+    // "Completed, 0 jobs found." was printed beside a Healthy source.
+    expect(listSourceAttentionReasons(target, emptyRun)).toContain(
+      "returned_nothing",
+    );
+    expect(classifyEnabledSourceHealth(target, emptyRun)).toBe(
+      "needs_attention",
+    );
+    expect(describeEnabledSourceHealth(target, emptyRun)).toMatchObject({
+      reason: "Completed, 0 jobs found.",
+      state: "needs_attention",
+    });
+  });
+
+  test("stays healthy once the same source finds something", () => {
+    const productiveRun: SourceRuntimeSignals = {
+      latestExecutions: new Map([
+        [
+          "target_empty",
+          {
+            targetId: "target_empty",
+            state: "completed" as DiscoveryTargetExecutionState,
+            startedAt: VERIFIED_AT,
+            completedAt: VERIFIED_AT,
+            jobsFound: 7,
+          },
+        ],
+      ]),
+      succeededTargetIds: new Set(["target_empty"]),
+    };
+
+    expect(classifyEnabledSourceHealth(target, productiveRun)).toBe("healthy");
+  });
+
+  test("stays healthy when every listing found was already saved", () => {
+    const repeatedRun: SourceRuntimeSignals = {
+      latestExecutions: new Map([
+        [
+          "target_empty",
+          {
+            targetId: "target_empty",
+            state: "completed" as DiscoveryTargetExecutionState,
+            startedAt: VERIFIED_AT,
+            completedAt: VERIFIED_AT,
+            jobsFound: 0,
+            duplicatesMerged: 94,
+          },
+        ],
+      ]),
+      succeededTargetIds: new Set(["target_empty"]),
+    };
+
+    expect(classifyEnabledSourceHealth(target, repeatedRun)).toBe("healthy");
+    expect(describeEnabledSourceHealth(target, repeatedRun)).toMatchObject({
+      reason: "Completed, 94 listings found; all were already saved.",
+      state: "healthy",
+    });
+  });
+
+  test("says in plain words when a site layout is not one Job Finder reads", () => {
+    const unsupported = source({
+      id: "target_unsupported",
+      instructionStatus: "unsupported",
+      lastVerifiedAt: VERIFIED_AT,
+    });
+
+    expect(describeEnabledSourceHealth(unsupported).reason).toBe(
+      "Job Finder could not read this site's job listings: its page layout is not one Job Finder recognises yet.",
+    );
   });
 });

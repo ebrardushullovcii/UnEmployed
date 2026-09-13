@@ -30,6 +30,7 @@ import {
   getPostedDateLabel,
 } from "../../lib/job-finder-utils";
 import { presentListingActivity } from "../../lib/listing-activity-presentation";
+import { recordedJobSourceName } from "../../lib/job-source-display-name";
 import {
   companyPreferenceLabels,
   companyPreferenceScopeDescription,
@@ -104,11 +105,7 @@ function JobRow(props: {
         </p>
         <p className="text-(length:--text-tiny) text-foreground-muted">
           {props.job.location} · Workflow: {formatStatusLabel(props.job.status)}
-          {props.job.postedAt ||
-          props.job.postedAtText ||
-          props.job.providerUpdatedAt
-            ? ` · ${listingDate.label} ${listingDate.value}`
-            : ""}
+          {listingDate ? ` · ${listingDate.label} ${listingDate.value}` : ""}
         </p>
         <div className="mt-1 flex min-w-0 flex-wrap items-start gap-2">
           <StatusBadge tone={activity.tone}>{activity.label}</StatusBadge>
@@ -757,9 +754,15 @@ function EvidenceSection(props: {
             value={selectedJobId}
           >
             <option value="">No job selected</option>
+            {/* R10: this option read "Remote Customer Support - $20/hr+
+                (job_target_site_weworkremotely_com_listing_ads_13_click)".
+                A stored id is not a name; the job is named by its title,
+                its employer, and where it came from. */}
             {companyJobs.map((job) => (
               <option key={job.id} value={job.id}>
-                {job.title} ({job.id})
+                {`${job.title} · ${
+                  job.company?.trim() || recordedJobSourceName(job.source)
+                }`}
               </option>
             ))}
           </select>
@@ -788,7 +791,7 @@ function EvidenceSection(props: {
               </option>
               {applicationRecords.map((record) => (
                 <option key={record.id} value={record.id}>
-                  {record.title} · {record.status} ({record.id})
+                  {`${record.title} · ${record.company}`}
                 </option>
               ))}
             </select>

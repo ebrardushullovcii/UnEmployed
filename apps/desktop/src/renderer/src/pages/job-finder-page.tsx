@@ -10,9 +10,6 @@ import {
   SHELL_HEADER_GRID_CLASS,
   SHELL_MAIN_LOCKED_CLASS,
   SHELL_MAIN_SCROLLING_CLASS,
-  SHELL_MODULE_LABEL_CLASS,
-  SHELL_MODULE_LINK_CLASS,
-  SHELL_MODULE_NAV_CLASS,
   SHELL_ROUTE_CONTAINER_BASE_CLASS,
   SHELL_ROUTE_SECTION_GAP_STYLE,
   SHELL_SIDEBAR_CLASS,
@@ -31,7 +28,6 @@ import {
 } from "@renderer/features/job-finder/components/route-skeleton";
 import { StatusBadge } from "@renderer/features/job-finder/components/status-badge";
 import { SHELL_HEADER_MASK_HEIGHT_CLASS } from "@renderer/features/job-finder/lib/job-finder-shell-gutters";
-import { formatStatusLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
 import { cn } from "@renderer/lib/cn";
 import { StartupDatabaseRecoveryNotice } from "@renderer/features/job-finder/components/startup-database-recovery-notice";
 import { ThemeProvider } from "@renderer/app/theme-provider";
@@ -57,16 +53,13 @@ import {
 import type { LucideIcon } from "lucide-react";
 import {
   Suspense,
-  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { suiteModules } from "@unemployed/contracts";
 import type { DesktopWindowControlsState } from "@unemployed/contracts";
 import { createPortal } from "react-dom";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -586,11 +579,11 @@ function JobFinderOpeningShell() {
         style={dragRegionStyle}
       >
         <div className={SHELL_HEADER_GRID_CLASS}>
-          {/* Mirrors the shell header: wordmark left, module switcher centred
-              in an `auto` middle track between two equal `minmax(0,1fr)` side
-              tracks, native window-control inset right. Centring through the
-              grid rather than absolute positioning is what keeps the switcher
-              off the macOS traffic lights and the Windows caption buttons. */}
+          {/* Mirrors the shell header: wordmark left, native window-control
+              inset right, and nothing in between. The module switch is not a
+              header region any more — it heads the navigation surface, so the
+              frame paints it in the compact destination card and in the
+              sidebar header exactly where the loaded shell does. */}
           <div
             className={SHELL_BRAND_ROW_CLASS}
             data-desktop-brand
@@ -615,59 +608,19 @@ function JobFinderOpeningShell() {
               className="col-start-1 flex min-w-0 items-center justify-self-start"
               data-desktop-brand-region
             >
-              <JobFinderShellBrand />
+              <JobFinderShellBrand
+                moduleSwitch={{
+                  onSelectModule: () => {
+                    void navigate("/interview-helper");
+                  },
+                  style: noDragRegionStyle,
+                }}
+              />
             </div>
-
-            <nav
-              aria-label="UnEmployed modules"
-              className={SHELL_MODULE_NAV_CLASS}
-              data-desktop-module-navigation
-              style={dragRegionStyle}
-            >
-              <div
-                className="flex flex-nowrap items-center gap-6"
-                role="list"
-                style={noDragRegionStyle}
-              >
-                {suiteModules.map((moduleName, index) => (
-                  <div
-                    className="flex items-center gap-6"
-                    key={moduleName}
-                    role="listitem"
-                  >
-                    {index > 0 ? (
-                      <span
-                        aria-hidden="true"
-                        className="h-4 w-px bg-border/50"
-                      />
-                    ) : null}
-                    {moduleName === "job-finder" ? (
-                      <span
-                        aria-current="page"
-                        className={SHELL_MODULE_LABEL_CLASS}
-                      >
-                        {formatStatusLabel(moduleName)}
-                      </span>
-                    ) : (
-                      // Routing is available before the workspace is: the
-                      // other module is a plain hash link so the switcher
-                      // stays usable while Job Finder opens.
-                      <a
-                        aria-label="Open Interview Helper"
-                        className={SHELL_MODULE_LINK_CLASS}
-                        href="#/interview-helper"
-                      >
-                        {formatStatusLabel(moduleName)}
-                      </a>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </nav>
 
             <div
               aria-hidden="true"
-              className="col-start-3 min-w-0 justify-self-end"
+              className="col-start-2 min-w-0 justify-self-end"
               data-desktop-header-window-control-inset
               style={
                 {
@@ -739,6 +692,14 @@ function JobFinderOpeningShell() {
             ) : null}
           </div>
 
+          <div
+            aria-hidden="true"
+            className={cn(
+              "hidden min-[1440px]:col-span-1 min-[1440px]:col-start-3 min-[1440px]:row-start-1 min-[1440px]:block min-[1440px]:h-14 min-[1440px]:w-80",
+              !isMac && "min-[1440px]:mr-36",
+            )}
+            data-job-finder-opening-actions
+          />
           <nav
             aria-label="Job Finder sections"
             // Centred on the same axis as the module switcher above, with the
@@ -1187,19 +1148,7 @@ export function JobFinderPage() {
     workspaceState,
   } = useJobFinderPageController();
 
-  // One shared closure for both consumers of the existing fenced
-  // cancellation request: the shell Task Center and the Discovery route's
-  // header stop action. No new IPC or controller action is introduced.
-  const cancelDiscovery = useCallback(() => {
-    window.unemployed.jobFinder.cancelAgentDiscovery();
-  }, []);
-  // The route context gains only this optional member; memoized on the same
-  // inputs so outlet consumers keep the controller's context identity.
-  const routeContext = useMemo(
-    () =>
-      context ? { ...context, onCancelDiscovery: cancelDiscovery } : context,
-    [cancelDiscovery, context],
-  );
+  const routeContext = context;
 
   useEffect(() => {
     if (!context || shellMarkedRef.current) {
@@ -1302,9 +1251,14 @@ export function JobFinderPage() {
             applicationRecordId: result.applicationRecordId,
           });
         }}
-        onCancelDiscovery={cancelDiscovery}
+        {...(context.onCancelDiscovery
+          ? { onCancelDiscovery: context.onCancelDiscovery }
+          : {})}
         onDismissSavedStatus={dismissSavedStatus}
         onNavigate={navigateFromShell}
+        onPrepareRemainingJobs={(jobIds) =>
+          context.onStartAutoApplyQueue([...jobIds])
+        }
         onRetrySave={retryLastSave}
         onStopTailoredDraftPreparation={context.onStopTailoredDraftPreparation}
         platform={platform}

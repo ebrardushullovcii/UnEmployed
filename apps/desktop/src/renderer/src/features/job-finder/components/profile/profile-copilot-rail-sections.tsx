@@ -62,33 +62,37 @@ function getConversationContent(message: ProfileCopilotMessage): string {
     .trim();
 }
 
-function getLatestProfileRevision(
-  revisions: readonly ProfileRevision[],
-): ProfileRevision | null {
-  let latestRevision: ProfileRevision | null = null;
-
-  for (const revision of revisions) {
-    if (
-      latestRevision === null ||
-      revision.createdAt > latestRevision.createdAt
-    ) {
-      latestRevision = revision;
-    }
-  }
-
-  return latestRevision;
-}
-
+/**
+ * The revision this applied change wrote, whatever has happened since.
+ *
+ * Only the newest revision used to offer an Undo, so a person who accepted
+ * three changes could reverse the third and nothing else. Every applied
+ * change now carries its own Undo; the service decides what an undo may
+ * reach back through and refuses when it would overwrite the person's own
+ * later edit.
+ */
 function getSafeUndoRevisionId(
   revisions: readonly ProfileRevision[],
   patchGroupId: string,
 ): string | null {
-  const latestRevision = getLatestProfileRevision(revisions);
+  let match: ProfileRevision | null = null;
 
-  return latestRevision?.trigger === "assistant_patch" &&
-    latestRevision.patchGroupId === patchGroupId
-    ? latestRevision.id
-    : null;
+  for (const revision of revisions) {
+    if (
+      revision.trigger !== "assistant_patch" ||
+      revision.patchGroupId !== patchGroupId
+    ) {
+      continue;
+    }
+
+    // A patch group is applied once, but a re-applied group would leave more
+    // than one revision behind; the newest is the one to reverse.
+    if (match === null || revision.createdAt > match.createdAt) {
+      match = revision;
+    }
+  }
+
+  return match?.id ?? null;
 }
 
 function getPatchGroupStatus(
@@ -588,14 +592,16 @@ export function ProfileCopilotComposer(props: {
               : "Enter to send · Shift+Enter for a new line")}
         </p>
         {/* A real link, not a disclosure: the old popover note rendered inside
-            the panel's clipped box and painted over the composer. Settings is
-            where the provider and data-sharing choices actually live. */}
+            the panel's clipped box and painted over the composer. The
+            Assistant is part of the app — there is no model or key to choose —
+            so this points at what Settings genuinely answers: what leaves this
+            device. */}
         <a
           className="shrink-0 rounded-sm text-(length:--text-tiny) leading-4 text-muted-foreground underline decoration-from-font underline-offset-2 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           data-profile-copilot-provider-link="true"
           href="#/job-finder/settings"
         >
-          AI settings
+          How your data is used
         </a>
       </div>
     </div>

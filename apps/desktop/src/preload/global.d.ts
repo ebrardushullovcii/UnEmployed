@@ -35,6 +35,7 @@ import type {
   JobFinderApplyRunActionInput,
   JobFinderApplyRunDetailsQuery,
   JobFinderApplicationStartTarget,
+  JobFinderDiscoveryCancellationInput,
   CandidateProfile,
   ClearApplicationAnswerCommandInput,
   EditApplicationDocumentInput,
@@ -88,6 +89,8 @@ import type {
   ResumeImportProgressEvent,
   ResumeImportRun,
   ResumeApplicationMode,
+  JobFinderResumePdfExportResult,
+  RevealSavedFileResult,
   ResumePdfExportIntent,
   RevokeApplicationAuthorityEnvelopeInput,
   ResolveSubmissionOutcomeInput,
@@ -279,6 +282,7 @@ declare global {
         syncWorkspace: (
           baseRevision: WorkspaceRevision | null,
         ) => Promise<JobFinderWorkspaceSyncResult>;
+        onWorkspaceUpdate: (listener: () => void) => () => void;
         mutateWorkspaceEntities: (
           input: JobFinderWorkspaceEntityMutationInput,
         ) => Promise<JobFinderWorkspaceSyncResult>;
@@ -428,6 +432,7 @@ declare global {
         runSourceDebug: (
           targetId: string,
           onProgress?: (event: SourceDebugProgressEvent) => void,
+          options?: { readabilityTimeoutMs?: number },
         ) => Promise<JobFinderWorkspaceSnapshot>;
         cancelSourceDebug: (
           runId: string,
@@ -474,7 +479,9 @@ declare global {
           targetId: string,
           instructionId: string,
         ) => Promise<JobFinderWorkspaceSnapshot>;
-        cancelAgentDiscovery: () => void;
+        cancelAgentDiscovery: (
+          input: JobFinderDiscoveryCancellationInput,
+        ) => Promise<JobFinderWorkspaceSnapshot>;
         resetWorkspace: () => Promise<JobFinderWorkspaceSnapshot>;
         getStartupResetRecovery: () => Promise<JobFinderStartupResetRecoveryFact>;
         getStartupDatabaseRecovery: () => Promise<JobFinderStartupDatabaseRecoveryFact>;
@@ -528,7 +535,8 @@ declare global {
         exportResumePdf: (
           jobId: string,
           intent?: ResumePdfExportIntent,
-        ) => Promise<JobFinderWorkspaceSnapshot>;
+        ) => Promise<JobFinderResumePdfExportResult>;
+        revealSavedFile: (path: string) => Promise<RevealSavedFileResult>;
         approveResume: (
           jobId: string,
           exportId: string,

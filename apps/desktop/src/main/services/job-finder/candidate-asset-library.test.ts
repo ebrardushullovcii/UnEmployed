@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
   CandidateAssetLibrary,
   CandidateAssetLibraryError,
+  describeAcceptedFileTypes,
 } from "./candidate-asset-library";
 
 describe("CandidateAssetLibrary", () => {
@@ -166,6 +167,32 @@ describe("CandidateAssetLibrary", () => {
         throw error;
       }),
     ).toEqual([]);
+  });
+
+  test("says which file types the chosen category accepts", async () => {
+    const notes = path.join(sourceDirectory, "course-notes.txt");
+    await writeFile(notes, "Completed the course.", "utf8");
+
+    await expect(
+      library.importFromSourcePath(notes, {
+        kind: "certificate",
+        sensitivity: "sensitive",
+        consentScope: "private_storage_only",
+        retention: "until_deleted",
+      }),
+    ).rejects.toThrow(
+      /TXT files cannot be saved under certificate\. This category accepts PDF, JPG, PNG and WEBP\./,
+    );
+  });
+
+  test("names the accepted file types for every category in plain words", () => {
+    expect(describeAcceptedFileTypes("certificate")).toBe(
+      "PDF, JPG, PNG and WEBP",
+    );
+    expect(describeAcceptedFileTypes("image")).toBe("JPG, PNG and WEBP");
+    expect(describeAcceptedFileTypes("resume")).toBe(
+      "PDF, DOCX and plain text (TXT, MD, CSV)",
+    );
   });
 
   test("expires timed assets into Trash and purges bytes plus metadata after seven days", async () => {

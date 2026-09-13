@@ -1123,6 +1123,7 @@ function createBenchmarkContext(input: {
     documentManager,
     repository,
     activeDiscoveryAbortControllerRef: { current: null },
+    activeDiscoveryRunIdRef: { current: null },
     activeDiscoveryPromiseRef: { current: null },
     activeSourceDebugExecutionIdRef: { current: null },
     activeSourceDebugAbortControllerRef: { current: null },
@@ -1148,6 +1149,8 @@ function createBenchmarkContext(input: {
       ),
     getActiveCampaignId: () => Promise.resolve(null),
     resumeApplicationUserAction: () => Promise.resolve(undefined),
+    continueDiscoveryForSource: () =>
+      Promise.resolve({ status: "continued" as const }),
     runSourceDebugWorkflow: () =>
       Promise.reject(
         new Error("Source debug is not available in the benchmark harness."),
@@ -1163,6 +1166,8 @@ function createBenchmarkContext(input: {
     staleApprovedResumeDrafts: () => Promise.resolve(undefined),
     openRunBrowserSession: () => Promise.resolve(undefined),
     closeRunBrowserSession: () => Promise.resolve(undefined),
+    closeParkedBrowserTab: () => Promise.resolve(undefined),
+    hasActiveBrowserWorkflow: () => false,
     updateJob: () => Promise.resolve(undefined),
   };
 }

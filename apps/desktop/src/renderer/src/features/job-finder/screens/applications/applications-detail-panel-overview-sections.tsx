@@ -32,6 +32,7 @@ export function ApplicationsDetailPanelOverviewSections(props: {
     | null;
   visibleApplyRunId: string | null;
   showFactStrip?: boolean;
+  waitingOnSafetyLimitReview?: boolean;
 }) {
   const {
     selectedAttempt,
@@ -111,6 +112,12 @@ export function ApplicationsDetailPanelOverviewSections(props: {
           selectedRecord={selectedRecord}
           visibleApplyResult={visibleApplyResult}
           visibleApplyRunId={visibleApplyRunId}
+          {...(props.waitingOnSafetyLimitReview === undefined
+            ? {}
+            : {
+                waitingOnSafetyLimitReview:
+                  props.waitingOnSafetyLimitReview,
+              })}
         />
       ) : null}
     </>

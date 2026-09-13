@@ -4,7 +4,10 @@ import {
   DiscoveryRunRecordSchema,
 } from "@unemployed/contracts";
 
-import { appendDiscoveryEvent } from "./discovery-state";
+import {
+  appendDiscoveryEvent,
+  countCompletedTargetExecutions,
+} from "./discovery-state";
 
 function createRun() {
   return DiscoveryRunRecordSchema.parse({
@@ -51,5 +54,42 @@ describe("discovery state activity", () => {
 
     expect(result).toBe(run);
     expect(run.activity).toEqual([first]);
+  });
+});
+
+describe("finished source count", () => {
+  test("never counts a source cancellation stopped mid-run as finished", () => {
+    const run = DiscoveryRunRecordSchema.parse({
+      id: "run_cancelled",
+      state: "cancelled",
+      startedAt: "2026-08-19T10:00:00.000Z",
+      targetIds: ["source_a", "source_b"],
+      targetExecutions: [
+        { targetId: "source_a", adapterKind: "target_site", state: "completed" },
+        { targetId: "source_b", adapterKind: "target_site", state: "cancelled" },
+      ],
+    });
+
+    // Stopping the run finalises the source that was still working as
+    // cancelled. Reporting "2 of 2 sources finished" claimed credit for work
+    // the user had just interrupted.
+    expect(countCompletedTargetExecutions(run)).toBe(1);
+  });
+
+  test("counts sources that reached a real outcome", () => {
+    const run = DiscoveryRunRecordSchema.parse({
+      id: "run_mixed",
+      state: "completed",
+      startedAt: "2026-08-19T10:00:00.000Z",
+      targetIds: ["source_a", "source_b", "source_c", "source_d"],
+      targetExecutions: [
+        { targetId: "source_a", adapterKind: "target_site", state: "completed" },
+        { targetId: "source_b", adapterKind: "target_site", state: "failed" },
+        { targetId: "source_c", adapterKind: "target_site", state: "skipped" },
+        { targetId: "source_d", adapterKind: "target_site", state: "running" },
+      ],
+    });
+
+    expect(countCompletedTargetExecutions(run)).toBe(3);
   });
 });

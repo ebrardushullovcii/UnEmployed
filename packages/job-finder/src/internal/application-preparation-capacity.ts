@@ -1,4 +1,5 @@
 import type {
+  ApplicationRecord,
   ApplyJobResult,
   ApplyRun,
   JobFinderDashboardSummary,
@@ -19,9 +20,25 @@ export function localDateKey(date: Date): string {
   ].join("-");
 }
 
+/**
+ * The day's begun employer applications.
+ *
+ * Apply-job results are the exact ledger for work this app drove. A legacy
+ * application prepared without one can be counted only when its event history
+ * records that the employer application was actually opened. Record creation
+ * is staging, not evidence that preparation began.
+ */
 export function deriveGlobalDailyApplicationPreparationCapacity(input: {
   applyRuns: readonly ApplyRun[];
   applyJobResults: readonly ApplyJobResult[];
+  applicationRecords?: readonly ApplicationRecord[];
+  /**
+   * Jobs whose slot a live in-flight reservation already holds. A record is
+   * created the moment preparation begins, a beat before the run's apply-job
+   * result exists, so counting it here as well would charge that job twice
+   * and halve the day's real limit.
+   */
+  reservedJobIds?: readonly string[];
   now?: Date;
 }): DailyCapacity {
   const now = input.now ?? new Date();
@@ -68,6 +85,45 @@ export function deriveGlobalDailyApplicationPreparationCapacity(input: {
   for (const lineage of exactLineages) {
     uncertainLegacyLineages.delete(lineage);
   }
+
+  // A job the apply ledger already knows about is skipped entirely: that
+  // ledger, not the record, decides whether the job spent a slot. For a legacy
+  // record without a result, only an employer-page-open checkpoint is start
+  // evidence; approval-request and record-creation timestamps are not.
+  const countedJobIds = new Set([
+    ...input.applyJobResults.map((result) => result.jobId),
+    ...(input.reservedJobIds ?? []),
+  ]);
+  for (const record of input.applicationRecords ?? []) {
+    if (countedJobIds.has(record.jobId)) {
+      continue;
+    }
+    const startedAt = record.events
+      .filter((event) =>
+        [
+          "Application preparation started",
+          "Opened exact application target",
+          "Opened Easy Apply",
+        ].includes(event.title),
+      )
+      .map((event) => event.at)
+      .sort()
+      .at(0);
+    if (!startedAt) {
+      continue;
+    }
+    const preparedAt = Date.parse(startedAt);
+    if (Number.isNaN(preparedAt)) {
+      continue;
+    }
+    if (localDateKey(new Date(preparedAt)) !== localDate) {
+      continue;
+    }
+    countedJobIds.add(record.jobId);
+    exactLineages.add(`application_record\0${record.jobId}`);
+    uncertainLegacyLineages.delete(`application_record\0${record.jobId}`);
+  }
+
   const used = exactLineages.size;
   const legacyUncertain = uncertainLegacyLineages.size;
   const resetsAt = new Date(

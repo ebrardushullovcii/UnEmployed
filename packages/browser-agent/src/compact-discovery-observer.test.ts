@@ -11,6 +11,7 @@ import {
   captureCompactDiscoveryObservation,
   classifyOverlayCloseControl,
   classifyPaginationControl,
+  classifyBlockingOverlaySignal,
   classifyUnsupportedSignal,
   createDiscoveryRefIdAllocator,
   deduplicatePostingCandidates,
@@ -48,24 +49,27 @@ interface FakePageConfig {
 
 function createFakePage(config: FakePageConfig): Page {
   const bodyLocator = {
-    innerText: async (): Promise<string> => {
+    innerText: (): Promise<string> => {
       if (config.bodyText instanceof Error) {
-        throw config.bodyText;
+        return Promise.reject(config.bodyText);
       }
-      return config.bodyText ?? "";
+      return Promise.resolve(config.bodyText ?? "");
     },
     ...(config.snapshot === undefined
       ? {}
-      : { ariaSnapshot: async (): Promise<string> => config.snapshot ?? "" }),
+      : {
+          ariaSnapshot: (): Promise<string> =>
+            Promise.resolve(config.snapshot ?? ""),
+        }),
   };
 
   return {
     url: () => config.url,
-    title: async (): Promise<string> => {
+    title: (): Promise<string> => {
       if (config.title instanceof Error) {
-        throw config.title;
+        return Promise.reject(config.title);
       }
-      return config.title ?? "";
+      return Promise.resolve(config.title ?? "");
     },
     locator: (selector: string) => {
       if (selector !== "body") {
@@ -73,14 +77,14 @@ function createFakePage(config: FakePageConfig): Page {
       }
       return bodyLocator;
     },
-    evaluate: async (fn: unknown): Promise<unknown> => {
+    evaluate: (fn: unknown): Promise<unknown> => {
       if (config.scanError) {
-        throw config.scanError;
+        return Promise.reject(config.scanError);
       }
       if (typeof fn === "function" && String(fn).includes(SCANNER_FN_NAME)) {
-        return config.scanPayload ?? null;
+        return Promise.resolve(config.scanPayload ?? null);
       }
-      return null;
+      return Promise.resolve(null);
     },
   } as unknown as Page;
 }
@@ -184,14 +188,16 @@ function standardListingPayload(): CompactDiscoveryScanPayload {
   return payload;
 }
 
-async function captureFrom(
+function captureFrom(
   config: FakePageConfig,
   overrides?: Partial<CaptureCompactDiscoveryObservationInput>,
 ): Promise<DiscoveryCompactObservation> {
-  return captureCompactDiscoveryObservation({
-    ...createBaseInput({ page: createFakePage(config) }),
-    ...overrides,
-  });
+  return Promise.resolve(
+    captureCompactDiscoveryObservation({
+      ...createBaseInput({ page: createFakePage(config) }),
+      ...overrides,
+    }),
+  );
 }
 
 describe("compact discovery observer", () => {
@@ -362,7 +368,7 @@ describe("compact discovery observer", () => {
     );
   });
 
-  test("exact duplicates merge while distinct source ids stay separate", async () => {
+  test("exact duplicates merge while distinct source ids stay separate", () => {
     const candidates = deduplicatePostingCandidates([
       {
         sourceJobId: "a1",
@@ -1193,6 +1199,48 @@ describe("compact discovery observer pure helpers", () => {
     );
     expect(deriveSourceJobIdFromUrl("https://x.io/careers/about")).toBeNull();
     expect(deriveSourceJobIdFromUrl("not a url")).toBeNull();
+  });
+
+  test("classifies a full-page paid-plan overlay from page shape", () => {
+    const element = (accessibleName: string) => ({
+      role: "button",
+      accessibleName,
+      href: null,
+      containerKey: null,
+      jobIdHint: null,
+      companyHref: null,
+      companyLabel: null,
+    });
+
+    // The exact interstitial a tester watched a run browse for 15 minutes.
+    const blocked = classifyBlockingOverlaySignal({
+      pageTitle: "Remote jobs",
+      bodyText:
+        "Unlock your remote career potential with Remote OK Premium. Get unlimited access to every listing.",
+      elements: [element("Subscribe"), element("No thanks")],
+      hasPostingInventory: false,
+    });
+    expect(blocked?.reason).toBe("paid_plan_required");
+
+    // Listings readable behind the message are not a wall.
+    expect(
+      classifyBlockingOverlaySignal({
+        pageTitle: "Remote jobs",
+        bodyText: "Upgrade your plan for more filters.",
+        elements: [element("Subscribe")],
+        hasPostingInventory: true,
+      }),
+    ).toBe(null);
+
+    // Marketing wording with no overlay control is just page copy.
+    expect(
+      classifyBlockingOverlaySignal({
+        pageTitle: "Remote jobs",
+        bodyText: "Premium employers post here.",
+        elements: [element("Senior Backend Engineer")],
+        hasPostingInventory: false,
+      }),
+    ).toBe(null);
   });
 
   test("blocker classification is ordered and single-reason", () => {

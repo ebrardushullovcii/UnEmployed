@@ -87,9 +87,11 @@ describe("ProfileCopilotComposer", () => {
     expect(button?.hasAttribute("disabled")).toBe(true);
   });
 
-  test("links AI settings to the Settings screen instead of a popover note", () => {
+  test("links the data question to Settings instead of a popover note", () => {
     renderComposer({ isPendingHere: false });
-    expect(container?.textContent).toContain("AI settings");
+    // The Assistant is bundled: there is nothing to configure, so the
+    // link answers the question Settings actually answers.
+    expect(container?.textContent).toContain("How your data is used");
     expect(container?.textContent).not.toContain("Keyboard & movement help");
     expect(container?.textContent).not.toContain("Ask for an edit");
     expect(container?.textContent).not.toContain("Send request");
@@ -686,7 +688,7 @@ describe("ProfileCopilotTranscript inline proposals", () => {
     expect(onRejectPatchGroup).not.toHaveBeenCalled();
   });
 
-  test("hides undo when a newer profile revision supersedes the proposal", () => {
+  test("keeps undo on an earlier applied change after a newer one lands", () => {
     renderProposal("applied", [
       {
         id: "profile_revision_applied",
@@ -708,9 +710,15 @@ describe("ProfileCopilotTranscript inline proposals", () => {
       },
     ] as never);
 
+    // Undo used to appear only on the newest revision, so three accepted
+    // changes left the person able to reverse the third and nothing else.
+    // Each applied change now offers its own Undo; the service refuses the
+    // ones that would overwrite a later edit of the person's own.
     expect(
-      container?.querySelector('button[aria-label^="Undo applied change:"]'),
-    ).toBeNull();
+      container
+        ?.querySelector('button[aria-label^="Undo applied change:"]')
+        ?.getAttribute("aria-label"),
+    ).toBe("Undo applied change: Update headline");
     expect(container?.textContent).toContain("Applied");
   });
 

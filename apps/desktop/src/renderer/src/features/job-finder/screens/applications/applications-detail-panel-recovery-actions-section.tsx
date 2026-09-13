@@ -223,7 +223,6 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
   // recoverable queue. Keep an empty or non-queue selection out of the action
   // group instead of leaving a disabled control without a target.
   const showQueueRecoveryAction =
-    !needsUserFinishPath &&
     canRestageQueueRun &&
     selectedQueueRecoveryJobIds.length > 0;
   const externalWriteRecoveryText = getVerifiedExternalWriteRecoveryText(
@@ -259,7 +258,8 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
         })
       : null;
   const secondaryRecoveryActionCount =
-    Number(canRestageAutoRun) + Number(showQueueRecoveryAction);
+    Number(!needsUserFinishPath && canRestageAutoRun) +
+    Number(showQueueRecoveryAction);
   const secondaryRecoveryActionsClassName =
     "flex min-w-0 max-w-full flex-wrap items-start justify-start gap-2";
 
@@ -558,7 +558,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                 )}
               </p>
             ) : null}
-            {!needsUserFinishPath && secondaryRecoveryActionCount > 0 ? (
+            {secondaryRecoveryActionCount > 0 ? (
               <div
                 aria-label="Optional application preparation actions"
                 className="flex min-w-0 max-w-full flex-wrap items-start gap-2"
@@ -569,7 +569,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                   className={secondaryRecoveryActionsClassName}
                   data-testid="applications-recovery-secondary-action-list"
                 >
-                  {canRestageAutoRun ? (
+                  {!needsUserFinishPath && canRestageAutoRun ? (
                     <Button
                       className={RECOVERY_ACTION_CLASS_NAME}
                       onClick={() =>
@@ -587,27 +587,38 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                     </Button>
                   ) : null}
                   {showQueueRecoveryAction ? (
-                    <Button
-                      aria-describedby={
-                        dailyQueueRecoveryExceedsRemainingReason
-                          ? queueRecoveryExceedsNoteId
-                          : undefined
-                      }
-                      className={RECOVERY_ACTION_CLASS_NAME}
-                      onClick={() =>
-                        onStartAutoApplyQueue(selectedQueueRecoveryJobIds)
-                      }
-                      pending={showPreparingState}
-                      type="button"
-                      variant="secondary"
-                      disabled={
-                        showPreparingState ||
-                        isDailyCapacityExhausted ||
-                        selectedQueueRecoveryExceedsDailyRemaining
-                      }
-                    >
-                      Prepare remaining jobs
-                    </Button>
+                    <div className="grid gap-1.5">
+                      {selectedRun?.state === "paused_for_user_review" ? (
+                        <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                          One of your safety limits was reached. It will not
+                          carry on by itself. Review the prepared job above.
+                          Use Prepare remaining jobs to finish the ones it did
+                          not get to in a fresh run under the same approved
+                          batch.
+                        </p>
+                      ) : null}
+                      <Button
+                        aria-describedby={
+                          dailyQueueRecoveryExceedsRemainingReason
+                            ? queueRecoveryExceedsNoteId
+                            : undefined
+                        }
+                        className={RECOVERY_ACTION_CLASS_NAME}
+                        onClick={() =>
+                          onStartAutoApplyQueue(selectedQueueRecoveryJobIds)
+                        }
+                        pending={showPreparingState}
+                        type="button"
+                        variant="secondary"
+                        disabled={
+                          showPreparingState ||
+                          isDailyCapacityExhausted ||
+                          selectedQueueRecoveryExceedsDailyRemaining
+                        }
+                      >
+                        Prepare remaining jobs
+                      </Button>
+                    </div>
                   ) : null}
                 </div>
               </div>
@@ -739,6 +750,7 @@ export function ApplicationsDetailPanelRecoveryActionsSection(props: {
                         entry.runResult?.state === "awaiting_review" ||
                         entry.runResult?.state === "submitted",
                     ).length,
+                    unfinishedJobCount: selectedQueueRecoveryJobIds.length,
                   }
                 : null,
             )}

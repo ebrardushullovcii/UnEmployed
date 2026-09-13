@@ -206,6 +206,13 @@ export const BOTTOM_RIGHT_DOCK_ACTION_ROW_ATTRIBUTES = [
   "data-profile-copilot-review-actions",
   "data-profile-workspace-actions",
   "data-resume-assistant-quick-actions",
+  // The per-entry lock and reorder group in the resume section editor. It is
+  // painted only while its card is hovered, focused, selected or locked, but
+  // every control inside it stays mounted, enabled and in the tab order, so a
+  // dock occupant parked over it covers real controls — the same defect the
+  // list exists to prevent. Revealed-on-hover is a paint state, not an
+  // absence, so it is cleared like any other action row.
+  "data-resume-editor-entry-secondary-actions",
   "data-resume-workspace-top-actions",
 ] as const;
 

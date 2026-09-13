@@ -8,7 +8,286 @@ import {
   type ApplicationRecord,
   type ApplyJobResult,
   type ApplyRun,
+  type ApplySubmitApproval,
 } from "@unemployed/contracts";
+
+// ---------------------------------------------------------------------------
+// Reusing one batch approval across a retry of part of that batch
+//
+// Recovering a failed batch used to stage a fresh run with a fresh pending
+// approval, so a person who had already approved twelve named jobs was asked
+// again for every job that failed. ADR 0012 is untouched by this: approval is
+// still per batch of named jobs, still revocable, and still authorises
+// preparation only — nothing is submitted, and reuse can only ever cover jobs
+// the person already named.
+// ---------------------------------------------------------------------------
+
+/**
+ * How long an approved batch stays reusable for a retry of part of it. An
+ * approval is a decision about work happening now, not standing permission;
+ * after this it is asked again.
+ */
+export const APPLY_BATCH_APPROVAL_REUSE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export type ApplyBatchApprovalReuseRefusal =
+  | "no_batch_approval"
+  | "jobs_outside_batch"
+  | "different_plan"
+  | "batch_already_finished"
+  | "approval_expired";
+
+export interface ApplyBatchApprovalReuseDecision {
+  /** The approval whose authority a retry may inherit, when there is one. */
+  approval: ApplySubmitApproval | null;
+  /** The first-hand approval that owns the lineage's time boundary. */
+  authorityApproval: ApplySubmitApproval | null;
+  /** Why no approval may be reused; null when one may. */
+  refusal: ApplyBatchApprovalReuseRefusal | null;
+}
+
+function isReusableCandidate(
+  approval: ApplySubmitApproval,
+  authorityApproval: ApplySubmitApproval,
+  nowMs: number,
+): boolean {
+  if (approval.status !== "approved") return false;
+  if (approval.revokedAt !== null) return false;
+  if (approval.batchId === null) return false;
+  if (authorityApproval.status !== "approved") return false;
+  if (authorityApproval.revokedAt !== null) return false;
+  if (authorityApproval.approvedAt === null) return false;
+  const approvedMs = Date.parse(authorityApproval.approvedAt);
+  if (Number.isNaN(approvedMs)) return false;
+  if (nowMs - approvedMs >= APPLY_BATCH_APPROVAL_REUSE_WINDOW_MS) return false;
+  if (authorityApproval.expiresAt !== null) {
+    const expiresMs = Date.parse(authorityApproval.expiresAt);
+    if (Number.isNaN(expiresMs) || expiresMs <= nowMs) return false;
+  }
+  return true;
+}
+
+function resolveAuthorityApproval(
+  approval: ApplySubmitApproval,
+  approvalsById: ReadonlyMap<string, ApplySubmitApproval>,
+): ApplySubmitApproval | null {
+  const seen = new Set<string>();
+  let current = approval;
+  while (current.reusedFromApprovalId !== null) {
+    if (seen.has(current.id)) return null;
+    seen.add(current.id);
+    const parent = approvalsById.get(current.reusedFromApprovalId);
+    if (!parent) return null;
+    if (
+      parent.batchId !== current.batchId ||
+      (parent.batchCampaignId ?? null) !==
+        (current.batchCampaignId ?? null) ||
+      !current.jobIds.every((jobId) => parent.jobIds.includes(jobId))
+    ) {
+      return null;
+    }
+    current = parent;
+  }
+  return current;
+}
+
+function isValidReuseEdge(
+  child: ApplySubmitApproval,
+  parent: ApplySubmitApproval,
+): boolean {
+  return (
+    child.reusedFromApprovalId === parent.id &&
+    child.batchId === parent.batchId &&
+    (child.batchCampaignId ?? null) === (parent.batchCampaignId ?? null) &&
+    child.jobIds.every((jobId) => parent.jobIds.includes(jobId))
+  );
+}
+
+/** Approval ids connected to any revoked ancestor or descendant. */
+function findRevokedLineageApprovalIds(
+  approvals: readonly ApplySubmitApproval[],
+  approvalsById: ReadonlyMap<string, ApplySubmitApproval>,
+): ReadonlySet<string> {
+  const linkedApprovalIds = new Map<string, Set<string>>();
+  const link = (leftId: string, rightId: string): void => {
+    const linked = linkedApprovalIds.get(leftId) ?? new Set<string>();
+    linked.add(rightId);
+    linkedApprovalIds.set(leftId, linked);
+  };
+  for (const child of approvals) {
+    if (!child.reusedFromApprovalId) continue;
+    const parent = approvalsById.get(child.reusedFromApprovalId);
+    if (!parent || !isValidReuseEdge(child, parent)) continue;
+    link(child.id, parent.id);
+    link(parent.id, child.id);
+  }
+
+  const invalidated = new Set<string>();
+  const pending = approvals.filter(
+    (approval) => approval.status === "revoked" || approval.revokedAt !== null,
+  );
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || invalidated.has(current.id)) continue;
+    invalidated.add(current.id);
+    for (const linkedId of linkedApprovalIds.get(current.id) ?? []) {
+      const linked = approvalsById.get(linkedId);
+      if (linked) pending.push(linked);
+    }
+  }
+
+  return invalidated;
+}
+
+/**
+ * Decides whether a retry of `jobIds` is already covered by an approval the
+ * person gave for the batch those jobs belong to.
+ *
+ * Pure and deliberately narrow. It refuses unless every requested job was
+ * named in the original approval, the plan is the same, the approval is
+ * approved and not revoked, and it is recent. The refusal is named so the
+ * screen can say which of those was not true instead of showing a second
+ * approval card with no explanation.
+ */
+export function selectReusableBatchApproval(input: {
+  approvals: readonly ApplySubmitApproval[];
+  jobIds: readonly string[];
+  campaignId: string | null;
+  /**
+   * Runs of approved batches that did not finish. Only an unfinished batch
+   * can be continued; once a batch ran to completion, staging the same jobs
+   * again is a new intent and is asked about again.
+   */
+  unfinishedApprovalRunIds: ReadonlySet<string>;
+  now: string;
+}): ApplyBatchApprovalReuseDecision {
+  const requested = [...new Set(input.jobIds)];
+  if (requested.length === 0) {
+    return {
+      approval: null,
+      authorityApproval: null,
+      refusal: "no_batch_approval",
+    };
+  }
+  const nowMs = Date.parse(input.now);
+  if (Number.isNaN(nowMs)) {
+    return {
+      approval: null,
+      authorityApproval: null,
+      refusal: "approval_expired",
+    };
+  }
+
+  const approvalsById = new Map(
+    input.approvals.map((approval) => [approval.id, approval]),
+  );
+  const revokedLineageApprovalIds = findRevokedLineageApprovalIds(
+    input.approvals,
+    approvalsById,
+  );
+  const candidates = input.approvals.flatMap((approval) => {
+    const authorityApproval = resolveAuthorityApproval(approval, approvalsById);
+    return authorityApproval &&
+      !revokedLineageApprovalIds.has(approval.id) &&
+      isReusableCandidate(approval, authorityApproval, nowMs)
+      ? [{ approval, authorityApproval }]
+      : [];
+  });
+  if (candidates.length === 0) {
+    return {
+      approval: null,
+      authorityApproval: null,
+      refusal: "no_batch_approval",
+    };
+  }
+
+  const covering = candidates.filter(({ authorityApproval }) => {
+    const covered = new Set(authorityApproval.jobIds);
+    return requested.every((jobId) => covered.has(jobId));
+  });
+  if (covering.length === 0) {
+    return {
+      approval: null,
+      authorityApproval: null,
+      refusal: "jobs_outside_batch",
+    };
+  }
+
+  const samePlan = covering.filter(
+    ({ authorityApproval }) =>
+      (authorityApproval.batchCampaignId ?? null) === input.campaignId,
+  );
+  if (samePlan.length === 0) {
+    return {
+      approval: null,
+      authorityApproval: null,
+      refusal: "different_plan",
+    };
+  }
+
+  const unfinished = samePlan.filter(({ approval }) =>
+    input.unfinishedApprovalRunIds.has(approval.runId),
+  );
+  if (unfinished.length === 0) {
+    return {
+      approval: null,
+      authorityApproval: null,
+      refusal: "batch_already_finished",
+    };
+  }
+
+  // Prefer the latest continuation record, while its authority time remains
+  // anchored to the first-hand approval at the root of that lineage.
+  const chosen = [...unfinished].sort(
+    (left, right) =>
+      (right.authorityApproval.approvedAt ?? "").localeCompare(
+        left.authorityApproval.approvedAt ?? "",
+      ) || right.approval.createdAt.localeCompare(left.approval.createdAt),
+  )[0];
+
+  return {
+    approval: chosen?.approval ?? null,
+    authorityApproval: chosen?.authorityApproval ?? null,
+    refusal: chosen ? null : "no_batch_approval",
+  };
+}
+
+/**
+ * One plain sentence for a batch that was staged but never got to start.
+ *
+ * The staged run is persisted before execution begins, so a refusal after
+ * that point used to leave the run parked in its paused state with nothing
+ * on screen saying why — the button could be pressed again and again and the
+ * task would simply stay paused. Every refusal now ends as a sentence a
+ * person can act on.
+ */
+export function describeUnstartedBatchReason(
+  rawMessage: string | null,
+): string {
+  const message = rawMessage?.trim() ?? "";
+  if (message.includes("activity is paused")) {
+    return "Job Finder did not start these jobs because background work is paused. Press Resume background work on the Job Finder Home screen, then try again.";
+  }
+  if (message.includes("per local day")) {
+    return "Job Finder did not start these jobs because you have already reached today's limit on how many applications it may begin. Try again tomorrow.";
+  }
+  if (message.includes("already being prepared")) {
+    return "Job Finder did not start these jobs because one of them is already being prepared. Wait for that one to finish, then try again.";
+  }
+  if (message.includes("already executing")) {
+    return "Job Finder did not start these jobs because another batch is already running. Wait for it to finish, then try again.";
+  }
+  return "Job Finder could not start preparing these jobs, so nothing was opened or filled. Try again, and if it keeps happening prepare one job at a time.";
+}
+
+/** The action a batch summary offers for the jobs that still need preparing. */
+export function describeRemainingBatchPreparation(
+  remainingCount: number,
+): string {
+  return remainingCount === 1
+    ? "Prepare the remaining job"
+    : `Prepare the remaining ${remainingCount}`;
+}
 
 // Result states that claim a live browser flow. A row in one of these states
 // whose parent run was already terminalized by a prior partial recovery pass

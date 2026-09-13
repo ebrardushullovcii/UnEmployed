@@ -430,14 +430,14 @@ describe("ProfileJobSourcesTab", () => {
         container.querySelector(
           '[data-compact-source-id="target_login"]',
         ) as HTMLElement,
-      ).getByText("This source is waiting for you to sign in."),
+      ).getByText("Blocked: waiting for you to sign in."),
     ).toBeTruthy();
     expect(
       within(
         container.querySelector(
           '[data-compact-source-id="target_never_run"]',
         ) as HTMLElement,
-      ).getByText("No completed search has used this source yet."),
+      ).getByText("Earlier search usage is unknown. This source has not been verified yet."),
     ).toBeTruthy();
 
     // Back on the full library view, disabled problem sources stay explicitly
@@ -479,6 +479,7 @@ describe("ProfileJobSourcesTab", () => {
             state: "completed",
             startedAt: "2026-09-02T09:00:00.000Z",
             completedAt: "2026-09-02T09:04:00.000Z",
+            jobsFound: 12,
           },
         ],
       }),
@@ -501,6 +502,7 @@ describe("ProfileJobSourcesTab", () => {
     ) as HTMLElement;
     expect(within(row).queryByText("Needs attention")).toBeNull();
     expect(within(row).queryByText("No guidance yet")).toBeNull();
+    expect(within(row).getByText("Completed, 12 jobs found.")).toBeTruthy();
 
     // Nothing in the list claims attention for a source that just completed
     // a run; the filter is the only place that count lives now.
@@ -508,6 +510,48 @@ describe("ProfileJobSourcesTab", () => {
     expect(container.querySelectorAll("[data-compact-source-id]")).toHaveLength(
       0,
     );
+  });
+
+  it("does not call a source healthy after it completed with no jobs", () => {
+    const targets = [
+      createTarget(1, {
+        id: "target_empty_run",
+        label: "We Work Remotely",
+        enabled: true,
+        instructionStatus: "validated",
+        lastVerifiedAt: "2026-09-01T09:00:00.000Z",
+      }),
+    ];
+    const discoveryRuns = [
+      DiscoveryRunRecordSchema.parse({
+        id: "discovery_run_empty",
+        state: "completed",
+        startedAt: "2026-09-02T09:00:00.000Z",
+        completedAt: "2026-09-02T09:04:00.000Z",
+        targetIds: ["target_empty_run"],
+        targetExecutions: [
+          {
+            targetId: "target_empty_run",
+            adapterKind: "auto",
+            state: "completed",
+            startedAt: "2026-09-02T09:00:00.000Z",
+            completedAt: "2026-09-02T09:04:00.000Z",
+            jobsFound: 0,
+          },
+        ],
+      }),
+    ];
+
+    const { container } = render(
+      <JobSourcesHarness discoveryRuns={discoveryRuns} targets={targets} />,
+    );
+
+    const row = container.querySelector(
+      '[data-compact-source-id="target_empty_run"]',
+    ) as HTMLElement;
+    // "Completed, 0 jobs found." used to sit beside a healthy source.
+    expect(within(row).getByText("Needs attention")).toBeTruthy();
+    expect(within(row).getByText("Completed, 0 jobs found.")).toBeTruthy();
   });
 
   it("names the unmatched query in the empty state and restores the full list", async () => {
@@ -575,16 +619,21 @@ describe("ProfileJobSourcesTab", () => {
     ).toBeTruthy();
   });
 
-  it("keeps a newly added source disabled until it is explicitly enabled", () => {
+  it("turns a newly added source on, and still offers a way to turn it off", () => {
     render(<JobSourcesHarness targets={[]} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Add source" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add and turn on" }));
+
+    const includeToggle = screen.getByRole("checkbox", {
+      name: "Include this source in searches",
+    });
+    expect(includeToggle.getAttribute("aria-checked")).toBe("true");
+
+    fireEvent.click(includeToggle);
 
     expect(
       screen
-        .getByRole("checkbox", {
-          name: "Include this source in searches",
-        })
+        .getByRole("checkbox", { name: "Include this source in searches" })
         .getAttribute("aria-checked"),
     ).toBe("false");
   });

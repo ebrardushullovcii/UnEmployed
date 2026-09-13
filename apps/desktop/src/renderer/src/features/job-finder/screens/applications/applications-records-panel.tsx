@@ -266,12 +266,14 @@ export function ApplicationsRecordsPanel({
             // The stage badge already says the record is stuck; a second
             // badge restating how ("Needs follow-up", "Attempt failed") was
             // badge noise. The attempt detail stays in the panel.
-            const showAttemptBadge = !(
-              (stage.label === "Needs you" &&
-                attemptLabel === "Needs follow-up") ||
-              (stage.label === "Needs recovery" &&
-                attemptLabel === "Attempt failed")
-            );
+            const showAttemptBadge =
+              stage.label !== attemptLabel &&
+              !(
+                (stage.label === "Needs you" &&
+                  attemptLabel === "Needs follow-up") ||
+                (stage.label === "Needs recovery" &&
+                  attemptLabel === "Attempt failed")
+              );
             const nextStepLabel =
               getApplicationReadableNextStepLabel(
                 getApplicationNextStepLabel(record),

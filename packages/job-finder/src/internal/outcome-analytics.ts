@@ -12,6 +12,7 @@ import {
   type OutcomeSuggestionKind,
   type OutcomeUncertaintyLevel,
   outcomeBucketDimensionValues,
+  UNKNOWN_JOB_SOURCE_BUCKET_KEY,
 } from "@unemployed/contracts";
 
 /**
@@ -68,6 +69,12 @@ export interface AppendOutcomeEventInput {
   outcome: ApplicationOutcome;
   campaignId: string;
   source: string;
+  /**
+   * Saved source the job came from, when its discovery lineage records one.
+   * Null is a fact, not a gap: those outcomes group under the unknown-source
+   * bucket instead of vanishing from the source breakdown.
+   */
+  sourceTargetId?: string | null;
   company: string;
   jobTitle: string;
   /** Resume strategy in effect for the application, when recorded. */
@@ -103,6 +110,7 @@ export function appendOutcomeEvent(
     jobId: input.jobId,
     campaignId: input.campaignId,
     source: input.source,
+    sourceTargetId: input.sourceTargetId ?? null,
     company: input.company,
     jobTitle: input.jobTitle,
     resumeStrategyId: input.resumeStrategyId ?? null,
@@ -303,8 +311,12 @@ function eventKeyForDimension(
   switch (dimension) {
     case "campaign":
       return event.campaignId;
+    // Grouping on the recorded source *kind* produced one bucket holding
+    // every outcome, because that enum has one value. The job's own source
+    // lineage is the real dimension; outcomes without one are named rather
+    // than dropped, so the buckets still add up to the log.
     case "source":
-      return event.source;
+      return event.sourceTargetId ?? UNKNOWN_JOB_SOURCE_BUCKET_KEY;
     case "job_title":
       return event.jobTitle;
     case "company":

@@ -1006,7 +1006,11 @@ export function completeTailoredResumeDraft(
       `${quality.acceptedInferredRewriteCount} AI-inferred ${quality.acceptedInferredRewriteCount === 1 ? "line" : "lines"} came from aggressive tailoring. These lines are small, deliberate stretches of your saved evidence with one purpose: clearing the job's screening and earning you the first interview. They stay bounded to what your evidence implies you can actually do — evidenced years may round up by at most one toward the job's stated ask, technologies the job asks for may be added whenever your saved experience shows you are a developer or engineer, and the job's requested technologies also join your skills section. Proving each claim happens in the interview, and that is yours alone: review every inferred line and only approve ones you can stand behind.`,
     );
   }
-  const generationProvenance = describeModelDraftProvenance(quality, notes);
+  const generationProvenance = describeModelDraftProvenance(
+    quality,
+    notes,
+    addedListingSkills,
+  );
   const fullText = composeDeterministicFullText({
     label,
     summary,
@@ -1062,9 +1066,20 @@ const DETERMINISTIC_TAILORER_NOTE =
  * model's proposals could not be grounded. The note list is rewritten in
  * place so the human-readable trail matches the structured provenance.
  */
+function describeUnconfirmedListingSkills(
+  addedListingSkills: readonly string[],
+): string {
+  if (addedListingSkills.length === 0) {
+    return "";
+  }
+  const count = addedListingSkills.length;
+  return ` ${count} ${count === 1 ? "skill" : "skills"} the job asked for (${addedListingSkills.join(", ")}) ${count === 1 ? "is" : "are"} in the draft as a proposal only: confirm or remove ${count === 1 ? "it" : "them"} before approving.`;
+}
+
 function describeModelDraftProvenance(
   quality: ResumeGenerationQualityAccumulator,
   notes: string[],
+  addedListingSkills: readonly string[] = [],
 ): TailoredResumeGenerationProvenance {
   const proposed = quality.proposedRewriteCount;
   const accepted = quality.acceptedRewriteCount;
@@ -1073,15 +1088,23 @@ function describeModelDraftProvenance(
     if (deterministicNoteIndex >= 0) {
       notes.splice(deterministicNoteIndex, 1);
     }
-    const detail = `Created with AI: ${accepted} of ${proposed} proposed ${proposed === 1 ? "rewrite" : "rewrites"} verified against saved evidence; the rest keeps grounded resume wording.`;
+    const detail =
+      `Created with AI: ${accepted} of ${proposed} proposed ${proposed === 1 ? "rewrite" : "rewrites"} verified against saved evidence; the rest keeps grounded resume wording.` +
+      describeUnconfirmedListingSkills(addedListingSkills);
     notes.unshift(detail);
     return { method: "ai", reason: null, detail };
   }
 
+  // Anything the verifier could not support but that stayed in the draft is
+  // named here too. A line reading "none could be verified" above a skills
+  // list that gained a word from the listing reads as two answers to one
+  // question; the addition is a proposal the person has to settle, so it is
+  // stated in the same breath rather than left to be discovered.
   const detail =
-    proposed > 0
+    (proposed > 0
       ? `AI proposed ${proposed} ${proposed === 1 ? "rewrite" : "rewrites"}, but none could be verified against your saved evidence.`
-      : "AI could not produce usable rewrite suggestions this time.";
+      : "AI could not produce usable rewrite suggestions this time.") +
+    describeUnconfirmedListingSkills(addedListingSkills);
   if (!notes.includes(DETERMINISTIC_TAILORER_NOTE)) {
     notes.unshift(DETERMINISTIC_TAILORER_NOTE);
   }

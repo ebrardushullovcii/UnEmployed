@@ -1,0 +1,155 @@
+import type {
+  JobPosting,
+  JobSearchPreferences,
+  MatchAssessment,
+  SavedJob,
+} from "@unemployed/contracts";
+import { assessLocationCompatibility } from "./matching";
+
+const REMOTE_LISTING_PATTERN =
+  /\b(?:remote|anywhere|worldwide|work from home|wfh|global|distributed)\b/iu;
+
+function isRemoteListing(
+  posting: Pick<
+    JobPosting,
+    | "applicationUrl"
+    | "canonicalUrl"
+    | "description"
+    | "location"
+    | "summary"
+    | "workMode"
+  >,
+): boolean {
+  return (
+    posting.workMode.includes("remote") ||
+    REMOTE_LISTING_PATTERN.test(
+      [
+        posting.location,
+        posting.summary ?? "",
+        posting.description,
+        posting.canonicalUrl,
+        posting.applicationUrl ?? "",
+      ].join(" "),
+    )
+  );
+}
+
+function hasNoNamedLocation(location: string): boolean {
+  const trimmed = location.trim();
+  return (
+    trimmed.length === 0 ||
+    /^(?:location )?(?:not stated|unknown|unavailable|not listed)$/iu.test(
+      trimmed,
+    ) ||
+    /^(?:anywhere|worldwide|global|remote)$/iu.test(trimmed)
+  );
+}
+
+function requestedLocalWork(preferences: JobSearchPreferences): boolean {
+  return (
+    preferences.locations.length > 0 &&
+    !preferences.workModes.includes("remote") &&
+    (preferences.workModes.length === 0 ||
+      preferences.workModes.includes("onsite") ||
+      preferences.workModes.includes("hybrid"))
+  );
+}
+
+function requestedLocationLabel(preferences: JobSearchPreferences): string {
+  return preferences.locations.join(" or ");
+}
+
+/**
+ * Corrects the generic "Anywhere includes every city" geography rule when a
+ * person explicitly asked for local onsite/hybrid work. It is a ranking miss,
+ * not an exclusion or hard conflict.
+ */
+export function correctRemoteOnlyLocationAlignment(
+  posting: JobPosting | SavedJob,
+  assessment: MatchAssessment,
+  preferences: JobSearchPreferences,
+): MatchAssessment {
+  // A concrete city/region match is the strongest location evidence. A
+  // generic remote word elsewhere in the page must never overturn it.
+  if (
+    !hasNoNamedLocation(posting.location) &&
+    assessLocationCompatibility(posting.location, preferences.locations) ===
+    "compatible"
+  ) {
+    return assessment.locationReach === "in_area"
+      ? assessment
+      : { ...assessment, locationReach: "in_area" };
+  }
+  if (
+    !requestedLocalWork(preferences) ||
+    (!isRemoteListing(posting) && !hasNoNamedLocation(posting.location)) ||
+    assessment.locationReach === "outside_area"
+  ) {
+    return assessment;
+  }
+
+  const modeLabel = preferences.workModes.includes("onsite")
+    ? preferences.workModes.includes("hybrid")
+      ? "onsite or hybrid"
+      : "onsite"
+    : preferences.workModes.includes("hybrid")
+      ? "hybrid"
+      : "onsite or hybrid";
+  const evidenceSentence = `${
+    hasNoNamedLocation(posting.location)
+      ? "The listing does not name the requested place"
+      : "Remote listing"
+  }; you asked for ${requestedLocationLabel(preferences)} ${modeLabel}.`;
+  const reasons = assessment.reasons.filter(
+    (reason) =>
+      reason !== "Location fits the saved search preferences." &&
+      !reason.startsWith("Remote listing; remote is one of your preferred"),
+  );
+
+  return {
+    ...assessment,
+    score: Math.max(0, assessment.score - 20),
+    locationReach: "outside_area",
+    reasons,
+    gaps: [
+      evidenceSentence,
+      ...assessment.gaps.filter((gap) => gap !== evidenceSentence),
+    ].slice(0, 3),
+    dimensions: {
+      ...assessment.dimensions,
+      preferenceAlignment: {
+        ...assessment.dimensions.preferenceAlignment,
+        state: "mixed",
+        explanation: evidenceSentence,
+        evidence: [
+          {
+            source: "derived" as const,
+            label: "Location comparison",
+            detail: evidenceSentence,
+          },
+          ...assessment.dimensions.preferenceAlignment.evidence.filter(
+            (entry) => entry.label !== "Location comparison",
+          ),
+        ].slice(0, 4),
+      },
+    },
+  };
+}
+
+/** Plain run notice when the chosen sources supplied remote listings only. */
+export function describeRemoteOnlySourceMismatch(
+  jobs: readonly SavedJob[],
+  preferences: JobSearchPreferences,
+): string | null {
+  if (
+    jobs.length === 0 ||
+    !requestedLocalWork(preferences) ||
+    jobs.some((job) => !isRemoteListing(job))
+  ) {
+    return null;
+  }
+
+  return `Your sources only list remote jobs; add a site that lists jobs in ${requestedLocationLabel(
+    preferences,
+  )}.`;
+}

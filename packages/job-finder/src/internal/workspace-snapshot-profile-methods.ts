@@ -346,18 +346,47 @@ export function createWorkspaceSnapshotProfileMethods(
       const now = new Date().toISOString();
       await ctx.repository.saveCampaignState({
         ...campaignState,
-        campaigns: campaignState.campaigns.map((campaign) =>
-          campaign.id === campaignState.activeCampaignId
-            ? {
-                ...campaign,
-                searchPreferences,
-                sourceTargetIds: searchPreferences.discovery.targets
-                  .filter((target) => target.enabled)
-                  .map((target) => target.id),
-                updatedAt: now,
-              }
-            : campaign,
-        ),
+        campaigns: campaignState.campaigns.map((campaign) => {
+          const existingTargets = new Map(
+            campaign.searchPreferences.discovery.targets.map((target) => [
+              target.id,
+              target,
+            ]),
+          );
+          const liveTargets = searchPreferences.discovery.targets.map(
+            (target) => ({
+              ...target,
+              // Plans own only the on/off choice. A source newly added in
+              // Profile follows Profile's current setting in every plan until
+              // the person changes that plan.
+              enabled: existingTargets.get(target.id)?.enabled ?? target.enabled,
+            }),
+          );
+          const campaignPreferences =
+            campaign.id === campaignState.activeCampaignId
+              ? {
+                  ...searchPreferences,
+                  discovery: {
+                    ...searchPreferences.discovery,
+                    targets: liveTargets,
+                  },
+                }
+              : {
+                  ...campaign.searchPreferences,
+                  discovery: {
+                    ...campaign.searchPreferences.discovery,
+                    targets: liveTargets,
+                  },
+                };
+          return {
+            ...campaign,
+            searchPreferences: campaignPreferences,
+            sourceTargetIds: liveTargets
+              .filter((target) => target.enabled)
+              .map((target) => target.id),
+            updatedAt: now,
+          };
+        }),
       });
     });
   }
@@ -781,19 +810,13 @@ export function createWorkspaceSnapshotProfileMethods(
     });
 
     const persistedDiscoveryJobs = buildDiscoveryJobs(savedJobs);
-    const dismissedDiscoveryJobs = savedJobs
-      .filter(
-        (job) => job.status === "archived" && job.discoveryFeedback !== null,
-      )
-      .sort(compareDiscoveryJobs);
     const savedJobIds = new Set(savedJobs.map((job) => job.id));
     const mergedPendingJobs = discovery.pendingDiscoveryJobs.filter(
       (job) => !savedJobIds.has(job.id),
     );
-    const unprojectedDiscoveryJobs = [
-      ...persistedDiscoveryJobs,
-      ...mergedPendingJobs,
-    ].sort(compareDiscoveryJobs);
+    // Listing activity is projected before anything is ranked: a listing whose
+    // own text says it is closed must already be marked closed when the
+    // ordering decides what comes first.
     const projectedJobs = projectDiscoveryJobViews({
       jobs: [...savedJobs, ...mergedPendingJobs],
       discoveryLedger: discovery.discoveryLedger,
@@ -802,15 +825,21 @@ export function createWorkspaceSnapshotProfileMethods(
     const projectedJobById = new Map(
       projectedJobs.map((job) => [job.id, job] as const),
     );
-    const discoveryJobs = unprojectedDiscoveryJobs.flatMap((job) => {
-      const projected = projectedJobById.get(job.id);
-      return projected ? [projected] : [];
-    });
-    const projectedDismissedDiscoveryJobs = dismissedDiscoveryJobs.flatMap(
-      (job) => {
-        const projected = projectedJobById.get(job.id);
-        return projected ? [projected] : [];
-      },
+    const projectRanked = (jobs: readonly SavedJob[]) =>
+      jobs
+        .flatMap((job) => {
+          const projected = projectedJobById.get(job.id);
+          return projected ? [projected] : [];
+        })
+        .sort(compareDiscoveryJobs);
+    const discoveryJobs = projectRanked([
+      ...persistedDiscoveryJobs,
+      ...mergedPendingJobs,
+    ]);
+    const projectedDismissedDiscoveryJobs = projectRanked(
+      savedJobs.filter(
+        (job) => job.status === "archived" && job.discoveryFeedback !== null,
+      ),
     );
     const companyJobIds = new Set(
       intelligence.companies
@@ -999,6 +1028,7 @@ export function createWorkspaceSnapshotProfileMethods(
       });
     }
     const dashboard = deriveDashboardSummary({
+      safeguards: intelligence.safeguards,
       generatedAt,
       campaigns: campaignState,
       savedJobs: campaignSavedJobs,
@@ -1014,6 +1044,9 @@ export function createWorkspaceSnapshotProfileMethods(
       deriveGlobalDailyApplicationPreparationCapacity({
         applyRuns,
         applyJobResults,
+        // An application prepared outside an apply run leaves only its
+        // record, and the day's counter has to see it.
+        applicationRecords: orderedApplicationRecords,
         now: new Date(generatedAt),
       });
 

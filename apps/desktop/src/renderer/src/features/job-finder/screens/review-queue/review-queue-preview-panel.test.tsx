@@ -312,6 +312,118 @@ describe("ReviewQueuePreviewPanel locked pane scroll regions", () => {
     );
   });
 
+  it("names the document the original resume when nothing could be tailored", () => {
+    const selectedItem = {
+      jobId: "job_untailorable",
+      title: "Senior Frontend Engineer",
+      company: "Mercury",
+      location: "Remote",
+      matchScore: 86,
+      applicationStatus: "shortlisted" as const,
+      resumeApplicationMode: "tailored_per_job" as const,
+      assetStatus: "ready" as const,
+      progressPercent: 100,
+      resumeAssetId: "asset_untailorable",
+      resumeReview: { status: "needs_review" as const },
+      updatedAt: "2026-07-31T12:00:00.000Z",
+    } as never;
+
+    render(
+      <ReviewQueuePreviewPanel
+        pendingElapsedSeconds={0}
+        onEditResumeWorkspace={vi.fn()}
+        onGenerateResume={vi.fn()}
+        previewState={null}
+        queue={[selectedItem]}
+        selectedAsset={
+          {
+            id: "asset_untailorable",
+            jobId: "job_untailorable",
+            kind: "resume",
+            status: "ready",
+            label: "Tailored resume v1",
+            version: "v1",
+            templateName: "standard",
+            compatibilityScore: 92,
+            progressPercent: 100,
+            updatedAt: "2026-07-31T12:00:00.000Z",
+            storagePath: null,
+            contentText: null,
+            previewSections: [
+              { heading: "Summary", lines: ["Dependable product engineer."] },
+            ],
+            generationMethod: "deterministic",
+            generationReason: "listing_text_missing",
+            notes: [],
+            failureMessage: null,
+            failedAt: null,
+          } as never
+        }
+        selectedItem={selectedItem}
+        selectedJob={null}
+      />,
+    );
+
+    expect(screen.getByText("Your original resume")).toBeTruthy();
+    expect(screen.queryByText("Tailored resume v1")).toBeNull();
+  });
+
+  it("keeps the stored label when a real tailored document exists", () => {
+    const selectedItem = {
+      jobId: "job_tailored",
+      title: "Senior Frontend Engineer",
+      company: "Mercury",
+      location: "Remote",
+      matchScore: 86,
+      applicationStatus: "shortlisted" as const,
+      resumeApplicationMode: "tailored_per_job" as const,
+      assetStatus: "ready" as const,
+      progressPercent: 100,
+      resumeAssetId: "asset_tailored",
+      resumeReview: { status: "needs_review" as const },
+      updatedAt: "2026-07-31T12:00:00.000Z",
+    } as never;
+
+    render(
+      <ReviewQueuePreviewPanel
+        pendingElapsedSeconds={0}
+        onEditResumeWorkspace={vi.fn()}
+        onGenerateResume={vi.fn()}
+        previewState={null}
+        queue={[selectedItem]}
+        selectedAsset={
+          {
+            id: "asset_tailored",
+            jobId: "job_tailored",
+            kind: "resume",
+            status: "ready",
+            label: "Tailored resume v1",
+            version: "v1",
+            templateName: "standard",
+            compatibilityScore: 92,
+            progressPercent: 100,
+            updatedAt: "2026-07-31T12:00:00.000Z",
+            storagePath: null,
+            contentText: null,
+            previewSections: [
+              { heading: "Summary", lines: ["Dependable product engineer."] },
+            ],
+            generationMethod: "ai",
+            generationReason: null,
+            notes: [],
+            failureMessage: null,
+            failedAt: null,
+          } as never
+        }
+        selectedItem={selectedItem}
+        selectedJob={null}
+      />,
+    );
+
+    expect(screen.getByText("Tailored resume v1")).toBeTruthy();
+    expect(screen.queryByText("Your original resume")).toBeNull();
+  });
+
   it("leaves the centered generation-state wrapper unmarked", () => {
     const selectedItem = {
       jobId: "job_generating",

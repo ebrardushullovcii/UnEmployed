@@ -9,11 +9,13 @@ import {
   within,
 } from "@testing-library/react";
 import type {
+  DiscoveryRunRecord,
   JobSearchCampaign,
   SaveJobSearchCampaignInput,
 } from "@unemployed/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resetJobFinderOverlaysForTests } from "../../lib/job-finder-overlay-ownership";
+import { deviceTimeZone } from "../../lib/job-finder-timestamp-format";
 import { CampaignsScreen } from "./campaigns-screen";
 
 afterEach(() => {
@@ -28,6 +30,178 @@ afterEach(() => {
 const confirmNeverSpy = vi
   .spyOn(window, "confirm")
   .mockImplementation(() => false);
+
+it("replaces only the safeguarded plan's next run and restores it on dismissal", () => {
+  const props = { activeCampaignId: "one", campaigns: [campaign("one", "First", "precision"), campaign("two", "Second", "precision")],
+    onSaveCampaign: vi.fn(), onSelectCampaign: vi.fn(), pending: false };
+  const { rerender } = render(<CampaignsScreen {...props} safeguardPauses={[{
+    id: "pause", campaignId: "one", planName: "First", title: "Paused", explanation: "Review failures.", route: "/job-finder/safeguards",
+  }]} />);
+  expect(screen.getAllByText("Paused by a safeguard")).toHaveLength(1);
+  rerender(<CampaignsScreen {...props} safeguardPauses={[]} />);
+  expect(screen.queryByText("Paused by a safeguard")).toBeNull();
+});
+
+it("prints every card clock in the device zone and names a different schedule zone only on its run line", () => {
+  const scheduled = {
+    ...campaign("one", "First", "precision"),
+    schedule: {
+      mode: "daily" as const,
+      enabled: true,
+      daysOfWeek: [],
+      localStartTime: "08:00",
+      timeZone: "America/Chicago",
+      pauseWindows: [],
+      runFacts: {
+        // 2026-09-12T13:00Z is 08:00 in Chicago.
+        nextRunAt: "2026-09-12T13:00:00.000Z",
+        lastRunAt: "2026-09-11T13:01:00.000Z",
+        lastRunOutcome: "completed" as const,
+        lastRunSummary: null,
+        consecutiveFailures: 0,
+      },
+    },
+  } as unknown as JobSearchCampaign;
+
+  render(
+    <CampaignsScreen
+      activeCampaignId="one"
+      campaigns={[scheduled]}
+      onSaveCampaign={vi.fn()}
+      onSelectCampaign={vi.fn()}
+      pending={false}
+    />,
+  );
+
+  const nextRun = screen.getByText("Next run").parentElement;
+  const lastRun = screen.getByText("Last run").parentElement;
+  const expectedNext = new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    timeZone: deviceTimeZone(),
+  }).format(new Date("2026-09-12T13:00:00.000Z"));
+  const expectedLast = new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    timeZone: deviceTimeZone(),
+  }).format(new Date("2026-09-11T13:01:00.000Z"));
+  expect(nextRun?.textContent).toContain(expectedNext);
+  expect(lastRun?.textContent).toContain(expectedLast);
+  expect(screen.getByText(`Times shown in ${deviceTimeZone()}.`)).toBeTruthy();
+  if (deviceTimeZone() !== "America/Chicago") {
+    expect(screen.getByText("Runs at 8:00 AM America/Chicago")).toBeTruthy();
+  }
+});
+
+it("prints one timestamp shape whether or not the plan saved a time zone", () => {
+  // "succeeded · Sep 12, 5:41 AM CDT" on one card beside "succeeded ·
+  // Sep 12, 12:42 PM" on the next: one kind of fact, two shapes.
+  const withZone = {
+    ...campaign("one", "First", "precision"),
+    schedule: {
+      ...campaign("one", "First", "precision").schedule,
+      timeZone: "America/Chicago",
+      runFacts: {
+        nextRunAt: null,
+        lastRunAt: "2026-09-12T10:41:00.000Z",
+        lastRunOutcome: "completed" as const,
+        lastRunSummary: null,
+        consecutiveFailures: 0,
+      },
+    },
+  } as unknown as JobSearchCampaign;
+  const withoutZone = {
+    ...campaign("two", "Second", "precision"),
+    schedule: {
+      ...campaign("two", "Second", "precision").schedule,
+      timeZone: null,
+      runFacts: {
+        nextRunAt: null,
+        lastRunAt: "2026-09-12T10:42:00.000Z",
+        lastRunOutcome: "completed" as const,
+        lastRunSummary: null,
+        consecutiveFailures: 0,
+      },
+    },
+  } as unknown as JobSearchCampaign;
+
+  render(
+    <CampaignsScreen
+      activeCampaignId="one"
+      campaigns={[withZone, withoutZone]}
+      onSaveCampaign={vi.fn()}
+      onSelectCampaign={vi.fn()}
+      pending={false}
+    />,
+  );
+
+  const lastRunTexts = screen
+    .getAllByText("Last run")
+    .map((node) => node.parentElement?.textContent ?? "");
+  const first = lastRunTexts[0] ?? "";
+  const second = lastRunTexts[1] ?? "";
+  // Both name their zone, so neither number is read on a clock the reader
+  // has to guess at.
+  const zoneSuffix = /\b[A-Z]{2,5}(?:[+-]\d{1,2}(?::\d{2})?)?$/u;
+  expect(zoneSuffix.test(first.trim())).toBe(true);
+  expect(zoneSuffix.test(second.trim())).toBe(true);
+  expect(screen.getAllByText(`Times shown in ${deviceTimeZone()}.`)).toHaveLength(
+    1,
+  );
+});
+
+it("names each plan's selected share of job sites", () => {
+  const first = {
+    ...campaign("one", "First", "precision"),
+    sourceTargetIds: ["source-1", "source-2"],
+  } as JobSearchCampaign;
+  const second = {
+    ...campaign("two", "Second", "precision"),
+    sourceTargetIds: ["source-3"],
+  } as JobSearchCampaign;
+
+  render(
+    <CampaignsScreen
+      activeCampaignId="one"
+      campaigns={[first, second]}
+      onSaveCampaign={vi.fn()}
+      onSelectCampaign={vi.fn()}
+      pending={false}
+    />,
+  );
+
+  expect(screen.getByText("Uses 2 of your 3 job sites.")).toBeTruthy();
+});
+
+it("never says No run yet on a plan whose own progress records a run", () => {
+  // "Jobs in this plan 50" two lines above "Last run  No run yet".
+  const ran = {
+    ...campaign("one", "First", "precision"),
+    progress: {
+      ...campaign("one", "First", "precision").progress,
+      jobsFound: 50,
+      lastRunAt: "2026-09-12T10:41:00.000Z",
+    },
+  } as unknown as JobSearchCampaign;
+
+  render(
+    <CampaignsScreen
+      activeCampaignId="one"
+      campaigns={[ran]}
+      onSaveCampaign={vi.fn()}
+      onSelectCampaign={vi.fn()}
+      pending={false}
+    />,
+  );
+
+  const lastRun = screen.getByText("Last run").parentElement?.textContent ?? "";
+  expect(lastRun).not.toContain("No run yet");
+  expect(lastRun).toContain("outcome not recorded");
+});
 
 function campaign(id: string, name: string, mode: "precision" | "scale") {
   return {
@@ -135,6 +309,152 @@ function campaign(id: string, name: string, mode: "precision" | "scale") {
     rules: [],
   } as unknown as JobSearchCampaign;
 }
+
+function localPlan(id: string, locations: readonly string[]) {
+  const base = campaign(id, "Local plan", "precision");
+  return {
+    ...base,
+    searchPreferences: {
+      ...base.searchPreferences,
+      locations: [...locations],
+      // Remote unticked: only then can remote-only sources let this plan down.
+      workModes: ["onsite", "hybrid"],
+    },
+  } as unknown as JobSearchCampaign;
+}
+
+function finishedRun(
+  id: string,
+  campaignId: string,
+  completedAt: string,
+  warnings: readonly string[],
+) {
+  return {
+    id,
+    campaignId,
+    state: "completed",
+    runPhase: "complete",
+    scope: "run_all",
+    startedAt: completedAt,
+    completedAt,
+    targetIds: ["source-1"],
+    targetExecutions: [],
+    activity: [],
+    summary: { warnings: [...warnings] },
+  } as unknown as DiscoveryRunRecord;
+}
+
+describe("CampaignsScreen remote-only source warning", () => {
+  it("tells a plan that asked for a place that its sources only list remote jobs", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[localPlan("one", ["Chicago, IL"])]}
+        discoveryRuns={[
+          finishedRun("run_1", "one", "2026-09-11T10:00:00.000Z", [
+            "Your sources only list remote jobs; add a site that lists jobs in Chicago, IL.",
+          ]),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(
+      screen.getByTestId("campaign-remote-only-sources-note").textContent,
+    ).toBe(
+      "Your sources only list remote jobs; add a site that lists jobs in Chicago, IL.",
+    );
+  });
+
+  it("names the plan's current places, not the ones the run was told about", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[localPlan("one", ["Belgrade", "Novi Sad"])]}
+        discoveryRuns={[
+          finishedRun("run_1", "one", "2026-09-11T10:00:00.000Z", [
+            "Your sources only list remote jobs; add a site that lists jobs in Chicago, IL.",
+          ]),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(
+      screen.getByTestId("campaign-remote-only-sources-note").textContent,
+    ).toBe(
+      "Your sources only list remote jobs; add a site that lists jobs in Belgrade or Novi Sad.",
+    );
+  });
+
+  it("stays silent for a plan that ticked remote, and for another plan's run", () => {
+    const remotePlan = campaign("one", "First", "precision");
+
+    const { rerender } = render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[remotePlan]}
+        discoveryRuns={[
+          finishedRun("run_1", "one", "2026-09-11T10:00:00.000Z", [
+            "Your sources only list remote jobs; add a site that lists jobs in Worldwide remote.",
+          ]),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(
+      screen.queryByTestId("campaign-remote-only-sources-note"),
+    ).toBeNull();
+
+    rerender(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[localPlan("one", ["Chicago, IL"])]}
+        discoveryRuns={[
+          finishedRun("run_other", "two", "2026-09-11T10:00:00.000Z", [
+            "Your sources only list remote jobs; add a site that lists jobs in Chicago, IL.",
+          ]),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(
+      screen.queryByTestId("campaign-remote-only-sources-note"),
+    ).toBeNull();
+  });
+
+  it("clears once the plan's newest finished run no longer reports it", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[localPlan("one", ["Chicago, IL"])]}
+        discoveryRuns={[
+          finishedRun("run_1", "one", "2026-09-11T10:00:00.000Z", [
+            "Your sources only list remote jobs; add a site that lists jobs in Chicago, IL.",
+          ]),
+          finishedRun("run_2", "one", "2026-09-12T10:00:00.000Z", []),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(
+      screen.queryByTestId("campaign-remote-only-sources-note"),
+    ).toBeNull();
+  });
+});
 
 describe("CampaignsScreen", () => {
   it("shows onboarding when no search plans exist yet", () => {
@@ -549,30 +869,30 @@ describe("CampaignsScreen", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
 
-    fireEvent.click(screen.getByLabelText("Enable schedule"));
-    fireEvent.change(screen.getByLabelText("Schedule mode"), {
+    fireEvent.click(screen.getByLabelText("Run this search on a schedule"));
+    fireEvent.change(screen.getByLabelText("How often"), {
       target: { value: "selected_days" },
     });
     fireEvent.click(screen.getByLabelText("Mon"));
     fireEvent.click(screen.getByLabelText("Fri"));
-    fireEvent.change(screen.getByLabelText("Local start time"), {
+    fireEvent.change(screen.getByLabelText("Start time"), {
       target: { value: "08:30" },
     });
-    fireEvent.change(screen.getByLabelText("Run in this time zone"), {
+    fireEvent.change(screen.getByLabelText("Time zone"), {
       target: { value: "Europe/Belgrade" },
     });
 
     // Add a pause window through the editor controls.
-    fireEvent.change(screen.getByLabelText("Pause window starts"), {
+    fireEvent.change(screen.getByLabelText("Do not run from"), {
       target: { value: "2026-08-20T10:00" },
     });
-    fireEvent.change(screen.getByLabelText("Pause window ends"), {
+    fireEvent.change(screen.getByLabelText("Do not run until"), {
       target: { value: "2026-08-20T12:00" },
     });
-    fireEvent.change(screen.getByLabelText("Pause window reason"), {
+    fireEvent.change(screen.getByLabelText("Why not to run then"), {
       target: { value: "Offline" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Add pause window" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add a time not to run" }));
     expect(screen.getByText(/Offline/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remove" })).toBeTruthy();
 
@@ -607,8 +927,8 @@ describe("CampaignsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
 
     // Enable a daily schedule so the enforced-runner copy is visible.
-    fireEvent.click(screen.getByLabelText("Enable schedule"));
-    fireEvent.change(screen.getByLabelText("Schedule mode"), {
+    fireEvent.click(screen.getByLabelText("Run this search on a schedule"));
+    fireEvent.change(screen.getByLabelText("How often"), {
       target: { value: "daily" },
     });
 
@@ -619,12 +939,68 @@ describe("CampaignsScreen", () => {
     expect(screen.queryByText(/are not automatically enforced yet/)).toBeNull();
     // Truthful enforcement copy is present.
     expect(
-      screen.getByText(/runs this search plan automatically when its next run/),
+      screen.getByText(/starts this search for you at that time/),
     ).toBeTruthy();
     expect(screen.getByText(/stop rules are enforced/)).toBeTruthy();
     expect(
       screen.queryByText(/cannot authorize an external submit/),
     ).toBeNull();
+  });
+
+  // "I would never click 'Saved safety and automation policy' looking for a
+  // daily run time."
+  it("puts the run time under its own Run automatically section", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.queryByText("Saved safety and automation policy")).toBeNull();
+    const runAutomatically = screen.getByText("Run automatically")
+      .parentElement as HTMLElement;
+    expect(
+      within(runAutomatically).getByLabelText("Run this search on a schedule"),
+    ).toBeTruthy();
+    expect(within(runAutomatically).getByLabelText("How often")).toBeTruthy();
+    expect(within(runAutomatically).getByLabelText("Start time")).toBeTruthy();
+    expect(within(runAutomatically).getByLabelText("Time zone")).toBeTruthy();
+    // Safety settings keep their own section and do not hide the run time.
+    const safetyLimits = screen.getByText("Safety limits")
+      .parentElement as HTMLElement;
+    expect(
+      within(safetyLimits).queryByLabelText("Start time"),
+    ).toBeNull();
+    expect(
+      within(safetyLimits).getByLabelText("Pause above failure rate (%)"),
+    ).toBeTruthy();
+  });
+
+  // "86% of what?"
+  it("says what the fit percentage measures and what it does", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.queryByText("Minimum fit score")).toBeNull();
+    expect(
+      screen.getByLabelText(/Only show jobs scored at least this % fit/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/how closely a job matches what you saved about/),
+    ).toBeTruthy();
   });
 
   it("keeps pause-window controls keyboard accessible", () => {
@@ -639,10 +1015,10 @@ describe("CampaignsScreen", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
 
-    const starts = screen.getByLabelText("Pause window starts");
-    const ends = screen.getByLabelText("Pause window ends");
+    const starts = screen.getByLabelText("Do not run from");
+    const ends = screen.getByLabelText("Do not run until");
     const addButton = screen.getByRole("button", {
-      name: "Add pause window",
+      name: "Add a time not to run",
     });
     // All controls are native form controls reachable by keyboard.
     expect(starts.tagName).toBe("INPUT");
@@ -662,7 +1038,7 @@ describe("CampaignsScreen", () => {
     fireEvent.change(starts, { target: { value: "2026-08-20T12:00" } });
     fireEvent.change(ends, { target: { value: "2026-08-20T10:00" } });
     expect(screen.getByRole("alert").textContent).toContain(
-      "Pause window end must be later than its start.",
+      "The end has to be later than the start.",
     );
     expect(starts.getAttribute("aria-invalid")).toBe("true");
     expect(ends.getAttribute("aria-invalid")).toBe("true");
@@ -926,7 +1302,7 @@ describe("CampaignsScreen", () => {
     ).toBeNull();
   });
 
-  it("confirms a created plan without switching the active plan until asked", async () => {
+  it("closes the create form and asks once before making the new plan current", async () => {
     const onSaveCampaign =
       vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
     onSaveCampaign.mockResolvedValue(true);
@@ -950,6 +1326,9 @@ describe("CampaignsScreen", () => {
     expect(
       await screen.findByText(/Search plan "Focused frontend" created\./),
     ).toBeTruthy();
+    // R6: the create form used to stay open, with a live "Save search plan"
+    // button, while the banner below it said the plan was already created.
+    expect(screen.queryByRole("button", { name: "Save search plan" })).toBeNull();
     expect(onSelectCampaign).not.toHaveBeenCalled();
 
     view.rerender(
@@ -964,11 +1343,10 @@ describe("CampaignsScreen", () => {
         pending={false}
       />,
     );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Use it in Find jobs" }),
-    );
+    await screen.findByText(/Search plan "Focused frontend" created\./);
+    expect(onSelectCampaign).not.toHaveBeenCalled();
+    fireEvent.click(screen.getAllByRole("button", { name: "Make current" })[0]!);
     expect(onSelectCampaign).toHaveBeenCalledWith("two");
-    expect(screen.queryByText(/created\./)).toBeNull();
   });
 
   it("keeps archived plans out of switch-active controls and tags them", () => {
@@ -1024,9 +1402,21 @@ describe("CampaignsScreen", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
 
+    // R6: the editor used to stay open holding its pre-save draft, so its own
+    // "Run status" block said "Next run not scheduled yet" while the card
+    // below already showed the saved next run, and Cancel then claimed
+    // unsaved edits. A landed save closes the form and says so once.
     expect(
-      await screen.findByText("Search plan saved. Your next search uses it."),
+      await screen.findByText('Search plan "Renamed plan" saved.'),
     ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Save search plan" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("alertdialog", {
+        name: "Discard unsaved search-plan changes?",
+      }),
+    ).toBeNull();
   });
 
   it("guards Escape like cancel while the editor has unsaved changes", () => {
@@ -1356,7 +1746,7 @@ describe("CampaignsScreen", () => {
     const selects = Array.from(container.querySelectorAll("select"));
     const textareas = Array.from(container.querySelectorAll("textarea"));
     // Volume, Status, Pay interval (inside the closed compensation section),
-    // and Schedule mode.
+    // and How often.
     expect(selects).toHaveLength(4);
     // Plan purpose.
     expect(textareas).toHaveLength(1);
@@ -1434,13 +1824,17 @@ describe("CampaignsScreen", () => {
     } as unknown as JobSearchCampaign;
   }
 
-  it("persists Included sources toggles into the plan's enabled targets and derives the saved source ids", () => {
+  it("persists Included sources only in the plan's source ids", () => {
     const onSaveCampaign =
       vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
     onSaveCampaign.mockResolvedValue(true);
     const existing = planWithTwoTargets(
       campaign("one", "Remote TypeScript", "precision"),
-      { firstEnabled: true, secondEnabled: false },
+      {
+        firstEnabled: true,
+        secondEnabled: false,
+        sourceTargetIds: ["source-1"],
+      },
     );
     render(
       <CampaignsScreen
@@ -1464,7 +1858,8 @@ describe("CampaignsScreen", () => {
     expect(
       screen.getByText(
         (content, element) =>
-          element?.tagName === "P" && /^Uses 1 sources/.test(content),
+          element?.tagName === "P" &&
+          /^Searches 1 job site for 1 role you saved/.test(content),
       ),
     ).toBeTruthy();
 
@@ -1474,17 +1869,16 @@ describe("CampaignsScreen", () => {
     if (!saved) throw new Error("Expected a save.");
     expect(
       saved.searchPreferences.discovery.targets.map((target) => target.enabled),
-    ).toEqual([false, true]);
-    // The ids sent for save are derived from `target.enabled`.
+    ).toEqual([true, false]);
     expect(saved.sourceTargetIds).toEqual(["source-2"]);
   });
 
-  it("restores Included sources checkboxes from enabled targets after save and reopen", () => {
+  it("restores Included sources checkboxes from the plan's source ids", () => {
     const onSaveCampaign =
       vi.fn<(campaign: SaveJobSearchCampaignInput) => Promise<boolean>>();
     onSaveCampaign.mockResolvedValue(true);
-    // The stored enabled flags are the truth even when the legacy
-    // `sourceTargetIds` projection disagrees with them.
+    // Profile's stored enabled flags can disagree without changing this
+    // plan's explicit source selection.
     const existing = planWithTwoTargets(
       campaign("one", "Remote TypeScript", "precision"),
       {
@@ -1506,10 +1900,10 @@ describe("CampaignsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(
       screen.getByLabelText<HTMLInputElement>("Example jobs").checked,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       screen.getByLabelText<HTMLInputElement>("Second careers").checked,
-    ).toBe(true);
+    ).toBe(false);
 
     fireEvent.click(screen.getByLabelText("Second careers"));
     fireEvent.click(screen.getByRole("button", { name: "Save search plan" }));
@@ -1535,9 +1929,312 @@ describe("CampaignsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(
       screen.getByLabelText<HTMLInputElement>("Example jobs").checked,
-    ).toBe(false);
+    ).toBe(true);
     expect(
       screen.getByLabelText<HTMLInputElement>("Second careers").checked,
-    ).toBe(false);
+    ).toBe(true);
+  });
+});
+
+describe("a finished run reports one set of numbers", () => {
+  const runReport = {
+    version: 1 as const,
+    measuredAt: "2026-09-12T12:42:00.000Z",
+    found: 50,
+    new: 50,
+    saved: 50,
+    retained: 15,
+    worthOpening: 0,
+    duplicates: 0,
+    retentionLimitApplied: 15,
+    minimumFitScoreApplied: 70,
+  };
+
+  const planWithDigest = (id: string, name: string) =>
+    ({
+      ...campaign(id, name, "precision"),
+      latestDigest: {
+        id: `digest_run_${id}`,
+        campaignId: id,
+        discoveryRunId: `run_${id}`,
+        generatedAt: "2026-09-12T12:42:00.000Z",
+        counts: {
+          // The change tally counts sightings, not results. It used to be
+          // printed as "New 100" directly under "50 found · 50 new".
+          new: 100,
+          changed: 0,
+          reactivated: 0,
+          inactive: 0,
+          known: 0,
+          skipped: 0,
+        },
+        report: runReport,
+        failedSources: [],
+        jobIds: [],
+      },
+    }) as unknown as JobSearchCampaign;
+
+  it("prints the run's own counts on a plan the screen holds no run record for", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[planWithDigest("two", "Chicago marketing manager")]}
+        // Only the active plan's runs ever reach this screen.
+        discoveryRuns={[]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("What the last run found"));
+    const digest = screen.getByText("What the last run found")
+      .parentElement as HTMLElement;
+
+    expect(
+      within(digest).queryByText("Counts were not recorded for this run."),
+    ).toBeNull();
+    expect(
+      within(digest).getByText(
+        "50 looked at · 50 new · 15 kept · 0 already here · 15-job plan limit reached",
+      ),
+    ).toBeTruthy();
+    // The tile reads the same record as the sentence above it.
+    const newTile = within(digest).getByText("New").parentElement as HTMLElement;
+    expect(newTile.textContent).toContain("50");
+    expect(newTile.textContent).not.toContain("100");
+  });
+
+  it("does not count a failed source as completed and names its reason", () => {
+    const plan = planWithDigest("one", "Chicago marketing manager");
+    plan.latestDigest = {
+      ...plan.latestDigest!,
+      sourceOutcome: { completed: 2, planned: 3 },
+      failedSources: [
+        {
+          sourceTargetId: "source-1",
+          reason: "The source timed out.",
+          failedAt: "2026-09-12T12:42:00.000Z",
+          retryable: true,
+        },
+      ],
+    };
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[plan]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+    fireEvent.click(screen.getByText("What the last run found"));
+
+    expect(
+      screen.getByText(
+        "2 of 3 sources completed · Example jobs failed (The source timed out.)",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("opens Run automatically by default for a scheduled plan and accepts the first checkbox click", () => {
+    const scheduled = campaign("one", "Scheduled", "precision");
+    scheduled.schedule = {
+      ...scheduled.schedule,
+      enabled: true,
+      mode: "daily",
+      localStartTime: "09:00",
+      timeZone: "America/Chicago",
+    };
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[scheduled]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    const section = screen.getByText("Run automatically")
+      .parentElement as HTMLElement;
+    expect(within(section).getByLabelText("Start time")).toBeTruthy();
+    const checkbox = screen.getByLabelText("Run this search on a schedule");
+    fireEvent.click(checkbox);
+    expect((checkbox as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("uses one arithmetically consistent population when an older report disagrees", () => {
+    const reported = planWithDigest("one", "Chicago marketing manager");
+    const mismatched = {
+      ...reported,
+      latestDigest: {
+        ...reported.latestDigest,
+        report: {
+          ...reported.latestDigest?.report,
+          found: 94,
+          new: 0,
+          retained: 15,
+        },
+        counts: {
+          new: 0,
+          changed: 8,
+          reactivated: 0,
+          inactive: 0,
+          known: 48,
+          skipped: 2,
+        },
+      },
+    } as JobSearchCampaign;
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[mismatched]}
+        discoveryRuns={[]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("What the last run found"));
+    expect(
+      screen.getByText(
+        "94 looked at · 0 new · 15 kept · 0 already here · 15-job plan limit reached",
+      ),
+    ).toBeTruthy();
+  });
+
+  // R8: "Last run skipped · Sep 12, 5:48 PM" sat directly above that same
+  // run's "97 found · 97 new · 15 kept", and an earlier reading of the same
+  // card said "Ran · ... (outcome not recorded)".
+  it("never calls a run with its own report skipped or unrecorded", () => {
+    const reported = planWithDigest("one", "Chicago marketing manager");
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          {
+            ...reported,
+            schedule: {
+              ...reported.schedule,
+              runFacts: {
+                ...reported.schedule.runFacts,
+                lastRunAt: "2026-09-12T12:42:00.000Z",
+                lastRunOutcome: "skipped",
+              },
+            },
+          } as unknown as JobSearchCampaign,
+        ]}
+        discoveryRuns={[]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    const lastRun =
+      screen.getByText("Last run").parentElement?.textContent ?? "";
+    expect(lastRun).not.toContain("skipped");
+    expect(lastRun).not.toContain("outcome not recorded");
+    expect(lastRun).toContain("Ran");
+  });
+
+  it("says so when the run really recorded no counts", () => {
+    const legacy = planWithDigest("one", "Older plan");
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[
+          {
+            ...legacy,
+            latestDigest: { ...legacy.latestDigest, report: null },
+          } as unknown as JobSearchCampaign,
+        ]}
+        discoveryRuns={[]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("What the last run found"));
+    expect(
+      screen.getByText("Counts were not recorded for this run."),
+    ).toBeTruthy();
+  });
+});
+
+describe("Run now while a search is running", () => {
+  it("says why it cannot start and disables the button", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        activeDiscoveryRun={{ campaignId: "one" }}
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onRunCampaignNow={vi.fn()}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(
+      screen.getByText("A search is already running for this plan."),
+    ).toBeTruthy();
+    const button = screen.getByRole("button", { name: "Search running" });
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByRole("button", { name: "Run now" })).toBeNull();
+  });
+
+  // R7: one plan running greyed out every plan's Run now button, so the plan
+  // the person wanted to start looked broken before they touched it.
+  it("keeps Run now live on the other plans and explains only when pressed", () => {
+    const onRunCampaignNow = vi.fn();
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        activeDiscoveryRun={{ campaignId: "two" }}
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onRunCampaignNow={onRunCampaignNow}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "Run now" });
+    expect(button.hasAttribute("disabled")).toBe(false);
+    expect(
+      screen.queryByText(
+        "A search is already running for another plan. Wait for it to finish, then run this one.",
+      ),
+    ).toBeNull();
+
+    fireEvent.click(button);
+
+    expect(onRunCampaignNow).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        "A search is already running for another plan. Wait for it to finish, then run this one.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("leaves Run now enabled when nothing is running", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        activeDiscoveryRun={null}
+        campaigns={[campaign("one", "Remote TypeScript", "precision")]}
+        onRunCampaignNow={vi.fn()}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "Run now" });
+    expect(button.hasAttribute("disabled")).toBe(false);
   });
 });

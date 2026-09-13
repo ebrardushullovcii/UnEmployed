@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import type { SavedJob } from "@unemployed/contracts";
 import {
+  compareDiscoveryJobs,
   getDiscoveryListingRecencyKey,
   toSortableListingTime,
+  type OrderableDiscoveryJob,
 } from "./discovery-ordering";
 
 function recency(input: {
@@ -163,5 +166,184 @@ describe("getDiscoveryListingRecencyKey", () => {
     expect(toSortableListingTime("2026-08-01T10:00:00.000Z")).toBe(
       Date.parse("2026-08-01T10:00:00.000Z"),
     );
+  });
+});
+
+describe("closed listings in the default ordering", () => {
+  function candidate(
+    id: string,
+    score: number,
+    listingActivity?: OrderableDiscoveryJob["listingActivity"],
+  ): OrderableDiscoveryJob {
+    return {
+      id,
+      title: `Engineer ${id}`,
+      company: "Example",
+      detailQuality: "detail_enriched",
+      postedAt: "2026-08-20T10:00:00.000Z",
+      firstSeenAt: null,
+      discoveredAt: "2026-08-20T10:00:00.000Z",
+      matchAssessment: { score, recommendation: "strong_fit", gaps: [] },
+      ...(listingActivity ? { listingActivity } : {}),
+    } as unknown as OrderableDiscoveryJob;
+  }
+
+  it("sinks a closed listing below a lower-scoring open one", () => {
+    const closedButStrong = candidate("closed", 91, {
+      status: "closed",
+      observedAt: "2026-08-20T10:00:00.000Z",
+      signalId: "listing-text:closed",
+      provenance: "system",
+      explanation: "The listing's own text says it is no longer open.",
+      detail: null,
+      confidence: 1,
+    });
+    const openButWeaker = candidate("open", 48);
+
+    expect(
+      [closedButStrong, openButWeaker].sort(compareDiscoveryJobs)[0]?.id,
+    ).toBe("open");
+  });
+
+  it("leaves rows without a projection ordered by fit", () => {
+    const strong = candidate("strong", 91) as SavedJob;
+    const weak = candidate("weak", 48) as SavedJob;
+
+    expect([weak, strong].sort(compareDiscoveryJobs)[0]?.id).toBe("strong");
+  });
+});
+
+describe("out-of-area on-site listings", () => {
+  function reachCandidate(
+    id: string,
+    score: number,
+    locationReach: SavedJob["matchAssessment"]["locationReach"],
+    roleSuitability = "exact",
+  ): OrderableDiscoveryJob {
+    return {
+      id,
+      title: `Executive Assistant ${id}`,
+      company: "Example",
+      detailQuality: "detail_enriched",
+      postedAt: "2026-08-20T10:00:00.000Z",
+      firstSeenAt: null,
+      discoveredAt: "2026-08-20T10:00:00.000Z",
+      discoveryMethod: "agent_browser",
+      matchAssessment: {
+        score,
+        recommendation: "strong_fit",
+        gaps: [],
+        locationReach,
+        contextFingerprint: "context_fp",
+        postingFingerprint: "posting_fp",
+        dimensions: { roleSuitability: { state: roleSuitability } },
+      },
+    } as unknown as OrderableDiscoveryJob;
+  }
+
+  it("keeps an on-site out-of-area role below an in-area role of the same title fit", () => {
+    const canadianOnsite = reachCandidate("onsite_canada", 66, "outside_area");
+    const inArea = reachCandidate("in_area_ohio", 48, "in_area");
+
+    expect(
+      [canadianOnsite, inArea].sort(compareDiscoveryJobs).map((job) => job.id),
+    ).toEqual(["in_area_ohio", "onsite_canada"]);
+  });
+
+  it("keeps an on-site out-of-area role below a remote role of the same title fit", () => {
+    const canadianOnsite = reachCandidate("onsite_canada", 66, "outside_area");
+    const remote = reachCandidate("remote_us", 48, "remote_preferred");
+
+    expect(
+      [canadianOnsite, remote].sort(compareDiscoveryJobs).map((job) => job.id),
+    ).toEqual(["remote_us", "onsite_canada"]);
+  });
+
+  it("sinks an out-of-reach role below every reachable one", () => {
+    // Even an exact title match a person cannot travel to is not the first
+    // thing to show them.
+    const exactOutside = reachCandidate("exact_outside", 66, "outside_area");
+    const adjacentInArea = reachCandidate(
+      "adjacent_in_area",
+      48,
+      "in_area",
+      "adjacent",
+    );
+
+    expect(
+      [exactOutside, adjacentInArea]
+        .sort(compareDiscoveryJobs)
+        .map((job) => job.id),
+    ).toEqual(["adjacent_in_area", "exact_outside"]);
+  });
+
+  it("orders two out-of-reach roles against each other by fit", () => {
+    const strong = reachCandidate("strong_outside", 66, "outside_area");
+    const weak = reachCandidate("weak_outside", 48, "outside_area");
+
+    expect(
+      [weak, strong].sort(compareDiscoveryJobs).map((job) => job.id),
+    ).toEqual(["strong_outside", "weak_outside"]);
+  });
+
+  it("changes nothing when the reach was never recorded", () => {
+    const strong = reachCandidate("strong", 91, "unknown");
+    const weak = reachCandidate("weak", 48, "unknown");
+
+    expect(
+      [weak, strong].sort(compareDiscoveryJobs).map((job) => job.id),
+    ).toEqual(["strong", "weak"]);
+  });
+});
+
+describe("equal displayed fit ordering", () => {
+  function tiedCandidate(input: {
+    id: string;
+    titleFamilyMatch: "same_family" | "adjacent";
+    seniorityConflict?: boolean;
+    stackOverlap?: string;
+    postedAt: string;
+  }): SavedJob {
+    return {
+      id: input.id,
+      title: input.id,
+      company: "Example",
+      detailQuality: "detail_enriched",
+      discoveryMethod: "agent_browser",
+      postedAt: input.postedAt,
+      firstSeenAt: null,
+      discoveredAt: input.postedAt,
+      matchAssessment: {
+        score: 54,
+        recommendation: "review_before_applying",
+        titleFamilyMatch: input.titleFamilyMatch,
+        contextFingerprint: "context_fp",
+        postingFingerprint: `posting_${input.id}`,
+        reasons: input.stackOverlap
+          ? [`Stack overlap includes ${input.stackOverlap}.`]
+          : [],
+        gaps: input.seniorityConflict
+          ? ["The listing seniority conflicts with the saved seniority preferences."]
+          : [],
+      },
+    } as unknown as SavedJob;
+  }
+
+  it("breaks a five-way 54 percent tie by family, seniority, stack, then recency", () => {
+    const jobs = [
+      tiedCandidate({ id: "adjacent", titleFamilyMatch: "adjacent", postedAt: "2026-09-13" }),
+      tiedCandidate({ id: "seniority-conflict", titleFamilyMatch: "same_family", seniorityConflict: true, stackOverlap: "React, TypeScript", postedAt: "2026-09-13" }),
+      tiedCandidate({ id: "older-stack", titleFamilyMatch: "same_family", stackOverlap: "React", postedAt: "2026-09-10" }),
+      tiedCandidate({ id: "newer-stack", titleFamilyMatch: "same_family", stackOverlap: "React", postedAt: "2026-09-12" }),
+      tiedCandidate({ id: "most-stack", titleFamilyMatch: "same_family", stackOverlap: "React, TypeScript", postedAt: "2026-09-11" }),
+    ];
+
+    expect(jobs.sort(compareDiscoveryJobs).map((job) => job.id)).toEqual([
+      "most-stack",
+      "newer-stack",
+      "older-stack",
+      "seniority-conflict",
+      "adjacent",
+    ]);
   });
 });

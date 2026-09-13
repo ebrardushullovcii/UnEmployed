@@ -194,10 +194,25 @@ export function compactDiscoveryInPageScan(
     cardSignatures: [],
   };
 
+  // Only a primitive carries readable text. An object reached here (a nested
+  // JSON-LD record, a DOM node) has no sensible string form, and forcing one
+  // would stamp "[object Object]" into a title, an id or a salary. It reads
+  // as absent instead, so the caller's own "missing" branch takes over.
+  const toText = (value: unknown): string => {
+    if (typeof value === "string") {
+      return value;
+    }
+    if (typeof value === "number" || typeof value === "bigint") {
+      return Number.isNaN(value) ? "" : String(value);
+    }
+    if (typeof value === "boolean") {
+      return String(value);
+    }
+    return "";
+  };
+
   const collapse = (value: unknown): string =>
-    String(value ?? "")
-      .replace(/\s+/g, " ")
-      .trim();
+    toText(value).replace(/\s+/g, " ").trim();
 
   const sliceBounded = (value: string, maxChars: number): string =>
     value.slice(0, Math.max(0, maxChars));
@@ -212,7 +227,7 @@ export function compactDiscoveryInPageScan(
       .replace(/&#0?39;/g, "'");
 
   const stripMarkup = (value: unknown): string =>
-    decodeBasicEntities(String(value ?? "").replace(/<[^>]*>/g, " "));
+    decodeBasicEntities(toText(value).replace(/<[^>]*>/g, " "));
 
   const isVisible = (element: Element): boolean => {
     if (
@@ -743,14 +758,16 @@ export function compactDiscoveryInPageScan(
         identifierRecord.value ??
         identifierRecord.name ??
         identifierRecord["@id"];
-      if (value !== null && value !== undefined && String(value).trim()) {
-        return collapse(String(value)).slice(0, 160);
+      const valueText = collapse(value);
+      if (valueText) {
+        return valueText.slice(0, 160);
       }
     }
 
     const direct = record.jobId ?? record.id;
-    if (direct !== null && direct !== undefined && String(direct).trim()) {
-      return collapse(String(direct)).slice(0, 160);
+    const directText = collapse(direct);
+    if (directText) {
+      return directText.slice(0, 160);
     }
 
     return null;
@@ -773,9 +790,7 @@ export function compactDiscoveryInPageScan(
       .map((value) =>
         typeof value === "string"
           ? collapse(value)
-          : asRecord(value)?.name !== undefined
-            ? collapse(String(asRecord(value)?.name))
-            : "",
+          : collapse(asRecord(value)?.name),
       )
       .filter(Boolean);
 
@@ -793,16 +808,19 @@ export function compactDiscoveryInPageScan(
     const unit = collapse(baseSalary.unitText);
     const amountParts: string[] = [];
 
-    const minValue = valueRecord?.minValue;
-    const maxValue = valueRecord?.maxValue;
-    if (minValue !== undefined && minValue !== null && minValue !== "") {
-      amountParts.push(String(minValue));
+    const minValueText = collapse(valueRecord?.minValue);
+    const maxValueText = collapse(valueRecord?.maxValue);
+    if (minValueText) {
+      amountParts.push(minValueText);
     }
-    if (maxValue !== undefined && maxValue !== null && maxValue !== "") {
-      amountParts.push(String(maxValue));
+    if (maxValueText) {
+      amountParts.push(maxValueText);
     }
-    if (amountParts.length === 0 && valueRecord?.value != null) {
-      amountParts.push(String(valueRecord.value));
+    if (amountParts.length === 0) {
+      const singleValueText = collapse(valueRecord?.value);
+      if (singleValueText) {
+        amountParts.push(singleValueText);
+      }
     }
     if (amountParts.length === 0) {
       return null;
@@ -1932,6 +1950,65 @@ const UNSUPPORTED_SIGNALS: readonly UnsupportedSignal[] = [
   },
 ];
 
+/**
+ * Controls that belong to an overlay rather than to a job board: a way out of
+ * it, or a way to pay for what it is covering.
+ */
+const OVERLAY_DISMISS_CONTROL_PATTERN =
+  /^(?:close|dismiss|no thanks?|not now|maybe later|skip|continue without|\u00d7|x)\b/i;
+const OVERLAY_PURCHASE_CONTROL_PATTERN =
+  /\b(?:subscribe|upgrade|get\s+(?:premium|pro|plus)|start\s+(?:your\s+)?free\s+trial|join\s+(?:premium|pro|plus)|unlock|see\s+plans|choose\s+a\s+plan)\b/i;
+/** Wording that sells access rather than describing a job. */
+const PAID_PLAN_TEXT_PATTERN =
+  /\b(?:premium|subscription|subscribe|paywall|members?\s+only|free\s+trial|upgrade\s+your\s+plan|unlock\s+(?:your|full|unlimited))\b/i;
+
+/**
+ * A full-page overlay standing in front of the listings, detected from page
+ * shape alone: nothing readable behind it, a control that either dismisses it
+ * or buys past it, and wording that sells access.
+ *
+ * Blind testers watched a run spend fifteen minutes browsing a board whose
+ * every page was covered by a membership interstitial, while the app reported
+ * it was still working and "Needs you" stayed at zero. No site is named here;
+ * the rule is the shape.
+ */
+export function classifyBlockingOverlaySignal(input: {
+  pageTitle: string | null;
+  bodyText: string | null;
+  elements: readonly ScannedInteractiveElement[];
+  hasPostingInventory: boolean;
+}): { reason: "paid_plan_required"; detail: string } | null {
+  // Listings readable behind the overlay mean the run can still do its job.
+  if (input.hasPostingInventory) {
+    return null;
+  }
+
+  const haystack = `${input.pageTitle ?? ""}\n${input.bodyText ?? ""}`
+    .replace(/\s+/g, " ")
+    .trim();
+  const paidPlanMatch = haystack.match(PAID_PLAN_TEXT_PATTERN);
+  if (!paidPlanMatch) {
+    return null;
+  }
+
+  const controlNames = input.elements
+    .map((element) => element.accessibleName.trim())
+    .filter(Boolean);
+  const overlayControl = controlNames.find(
+    (name) =>
+      OVERLAY_DISMISS_CONTROL_PATTERN.test(name) ||
+      OVERLAY_PURCHASE_CONTROL_PATTERN.test(name),
+  );
+  if (!overlayControl) {
+    return null;
+  }
+
+  return {
+    reason: "paid_plan_required",
+    detail: `A full-page overlay ("${paidPlanMatch[0]}") covers the listings; its only controls are "${overlayControl}".`,
+  };
+}
+
 export function classifyUnsupportedSignal(
   pageTitle: string | null,
   bodyText: string | null,
@@ -2335,7 +2412,13 @@ export async function captureCompactDiscoveryObservation(
     );
   const unsupportedSignal = hasObservedPostingInventory
     ? null
-    : classifyUnsupportedSignal(pageTitle, bodyText);
+    : (classifyUnsupportedSignal(pageTitle, bodyText) ??
+      classifyBlockingOverlaySignal({
+        pageTitle,
+        bodyText,
+        elements: scanPayload?.elements ?? [],
+        hasPostingInventory: hasObservedPostingInventory,
+      }));
   if (unsupportedSignal) {
     return buildUnsupportedObservation({
       identity,
@@ -2373,6 +2456,8 @@ export async function captureCompactDiscoveryObservation(
       !isLikelySiteUtilityJob({
         canonicalUrl: candidate.canonicalUrl,
         title: candidate.title,
+        company: candidate.company,
+        description: candidate.description,
       }),
   );
 

@@ -37,6 +37,8 @@ const RULE_IDS = [
   "formatStatusLabel",
   "underscoreDisplay",
   "legacyErrorMessageMapper",
+  "internalVocabulary",
+  "approvalSendsClaim",
 ] as const;
 
 type RuleId = (typeof RULE_IDS)[number];
@@ -70,6 +72,41 @@ function findMatches(source: string, pattern: RegExp): readonly string[] {
     match[0].replace(/\s+/g, " ").trim(),
   );
 }
+
+/**
+ * Words a job seeker has no reason to know, banned from every surface they can
+ * read. Comments are stripped first, so a note explaining WHY a term is banned
+ * is allowed to name it.
+ *
+ * Deliberately narrow and literal: each entry is a phrase the blind panel
+ * actually read on screen, not a guess about future jargon. Add to it when a
+ * new term reaches a screen, never to make the regex clever.
+ */
+const INTERNAL_VOCABULARY_PATTERN =
+  /SHA-256|\bATS\b|occupational role|evidence coverage|site writes|prepare-only authority|company intelligence|safeguard blockers?|discovery volume|pause windows?|saved search scope|the local scheduler|global activity pause|minimum fit score|job families|employment types/gi;
+
+/**
+ * Removes line and block comments so the ban applies to copy, not to the
+ * reasoning above it. Strings containing "//" are rare in this layer and a
+ * false strip can only ever hide a violation from the scan in the file that
+ * wrote it, never invent one.
+ */
+function stripComments(source: string): string {
+  return source
+    .replace(BLOCK_COMMENT_PATTERN, " ")
+    .split("\n")
+    .map((line) => {
+      const commentStart = line.indexOf("//");
+      // A protocol ("https://") is not a comment; nothing else in this layer
+      // puts a slash pair mid-line.
+      return commentStart >= 0 && line[commentStart - 1] !== ":"
+        ? line.slice(0, commentStart)
+        : line;
+    })
+    .join("\n");
+}
+
+const BLOCK_COMMENT_PATTERN = /\/\*[\s\S]*?\*\//g;
 
 const RULES: readonly Rule[] = [
   {
@@ -148,6 +185,25 @@ const RULES: readonly Rule[] = [
     ],
   },
   {
+    id: "approvalSendsClaim",
+    description:
+      'approval copy that says approving sends or submits something — a tester read "Approving sends your resume", stopped, and left the job at NEEDS APPROVAL; say that approving lets Job Finder fill the form on your screen, that nothing is sent or submitted, and that you press the final button yourself',
+    exempt: [],
+    find: (source) =>
+      findMatches(
+        stripComments(source),
+        /\bApprov(?:ing|al)\b[^.?!]{0,20}?\b(?:sends?|submits?)\b/gi,
+      ),
+  },
+  {
+    id: "internalVocabulary",
+    description:
+      "trade jargon or an internal term on a user surface — four testers scored this 4 out of 10 across three runs; say the plain thing instead (\"reads reliably on job sites\", \"file fingerprint\", \"the role you are looking for\")",
+    exempt: [],
+    find: (source) =>
+      findMatches(stripComments(source), INTERNAL_VOCABULARY_PATTERN),
+  },
+  {
     id: "legacyErrorMessageMapper",
     description:
       "the staged mapper, which still passes unrecognised thrown text through — use describeFailure(error, { action }) instead",
@@ -186,11 +242,9 @@ export const PENDING_ADOPTION = {
     "features/job-finder/screens/rapid-review/rapid-review-screen.tsx",
     "features/job-finder/screens/review-queue/resume-claim-confirmation-panel.tsx",
     "features/job-finder/screens/review-queue/resume-strategy-job-panel.tsx",
-    "features/job-finder/screens/settings/settings-candidate-assets.tsx",
     "pages/use-job-finder-page-controller-actions.ts",
   ],
   formatStatusLabel: [
-    "features/job-finder/components/job-finder-shell.tsx",
     "features/job-finder/components/profile/profile-background-sections.tsx",
     "features/job-finder/components/profile/profile-copilot-rail.shared.ts",
     "features/job-finder/components/profile/profile-experience-tab.tsx",
@@ -213,7 +267,6 @@ export const PENDING_ADOPTION = {
     "features/job-finder/screens/discovery/discovery-results-panel.tsx",
     "features/job-finder/screens/review-queue/resume-version-history-panel.tsx",
     "features/job-finder/screens/settings/settings-runtime-summary.tsx",
-    "pages/job-finder-page.tsx",
   ],
   underscoreDisplay: [
     "features/job-finder/components/profile/profile-timeline-repair-list.tsx",
@@ -233,6 +286,12 @@ export const PENDING_ADOPTION = {
     "features/job-finder/screens/review-queue/resume-workspace-screen-helpers.ts",
     "pages/use-job-finder-page-controller-actions.ts",
   ],
+  // Empty on purpose, and it must stay empty: the sweep that added this rule
+  // removed every occurrence it found.
+  internalVocabulary: [],
+  // Empty on purpose, and it must stay empty: approving never sends or
+  // submits anything.
+  approvalSendsClaim: [],
 } as const satisfies Record<RuleId, readonly string[]>;
 
 const RENDERER_SRC = path.resolve(
@@ -449,6 +508,7 @@ describe("failure copy", () => {
     'Model returned invalid JSON: {"error":',
     "SQLITE_BUSY: database is locked",
     "TypeError: cannot read properties of undefined",
+    '[ { "code": "custom", "message": "A compensation currency awaiting clarification must remain unset.", "path": [ "compensation", "currency" ] } ]',
   ];
 
   it.each(INTERNAL_THROWS)(

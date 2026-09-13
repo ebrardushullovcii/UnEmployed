@@ -245,7 +245,7 @@ describe("CampaignRuleBuilder", () => {
     expect(screen.getByText("Disabled — not measured")).toBeTruthy();
   });
 
-  it("shows a truthful zeroed funnel when the campaign retains no jobs", () => {
+  it("says plainly that nothing has been kept yet, in search-plan words", () => {
     const zeroed = createProjection({
       rules: [],
       disabledRuleIds: [],
@@ -261,8 +261,13 @@ describe("CampaignRuleBuilder", () => {
       },
     });
     renderBuilder({ projection: zeroed });
-    expect(screen.getByText(/no funnel is projected/i)).toBeTruthy();
+    expect(
+      screen.getByText(/This search plan has not kept any jobs yet/i),
+    ).toBeTruthy();
     expect(screen.queryByText(/Hard removed/)).toBeNull();
+    // No engineering vocabulary left on the block a person reads first.
+    expect(document.body.textContent).not.toMatch(/funnel/i);
+    expect(document.body.textContent).not.toMatch(/campaign/i);
   });
 
   it("searches rules by field, value, or kind and shows a no-match state", () => {

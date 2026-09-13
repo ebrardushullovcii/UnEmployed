@@ -1,9 +1,12 @@
-import type {
-  BrowserSessionState,
-  ReviewQueueItem,
-  TailoredAsset,
+import {
+  isPreparedApplicationStatus,
+  type ApplicationStatus,
+  type BrowserSessionState,
+  type ReviewQueueItem,
+  type TailoredAsset,
 } from "@unemployed/contracts";
 import type { BadgeTone } from "../../lib/job-finder-types";
+import { describeUntailorableListing } from "./resume-workspace-utils";
 
 export const APPLICATION_PREPARATION_BATCH_LIMIT = 10;
 export const TAILORED_DRAFT_PREPARATION_LIMIT = 10;
@@ -61,6 +64,8 @@ export function getReviewQueueWorkflowStatus(
    * saying "Needs resume" for the whole run beside a progress bar.
    */
   isPending = false,
+  /** Jobs whose application is already prepared; see isQueueStageReady. */
+  preparedJobIds?: ReadonlySet<string>,
 ): ReviewQueueWorkflowStatus {
   if (!item) {
     return {
@@ -94,6 +99,13 @@ export function getReviewQueueWorkflowStatus(
     return {
       label: "Preparing resume",
       tone: "active",
+    };
+  }
+
+  if (preparedJobIds?.has(item.jobId)) {
+    return {
+      label: "Application prepared",
+      tone: "positive",
     };
   }
 
@@ -160,12 +172,47 @@ export function hasResumeGenerationFailure(
   return asset.failureMessage !== null || asset.failedAt !== null;
 }
 
-export function isQueueStageReady(item: ReviewQueueItem | null): boolean {
+/**
+ * Jobs whose application has already been prepared, read from the workspace's
+ * application records. A prepared job must stop advertising itself as ready to
+ * prepare: the Shortlisted list kept offering ten already-prepared jobs back to
+ * the user, who re-prepared eight of them by accident. Only records that
+ * reached preparation count — a run stopped before the draft existed leaves a
+ * staged record behind, and that row has to stay preparable.
+ */
+export function collectPreparedApplicationJobIds(
+  applicationRecords:
+    | readonly {
+        jobId: string;
+        status: ApplicationStatus;
+        lastAttemptState?: Parameters<
+          typeof isPreparedApplicationStatus
+        >[0]["lastAttemptState"];
+      }[]
+    | undefined,
+): ReadonlySet<string> {
+  return new Set(
+    (applicationRecords ?? [])
+      .filter((record) => isPreparedApplicationStatus(record))
+      .map((record) => record.jobId),
+  );
+}
+
+export function isQueueStageReady(
+  item: ReviewQueueItem | null,
+  preparedJobIds?: ReadonlySet<string>,
+): boolean {
+  if (item && preparedJobIds?.has(item.jobId)) {
+    return false;
+  }
+
   return Boolean(
     item &&
     item.assetStatus === "ready" &&
     item.resumeAssetId &&
     (item.resumeReview.status === "approved" ||
+      item.resumeReview.status === "draft" ||
+      item.resumeReview.status === "needs_review" ||
       item.resumeReview.status === "original_resume"),
   );
 }
@@ -176,7 +223,14 @@ export function isQueueStageReady(item: ReviewQueueItem | null): boolean {
  */
 export function getReviewQueueResumePolicyCaption(
   item: ReviewQueueItem,
+  asset?: TailoredAsset | null,
 ): string {
+  // Nothing could be written for a job whose listing text was never captured,
+  // so the row must not promise a tailored resume it is not going to produce.
+  if (describeUntailorableListing(asset)) {
+    return "Original wording — the listing text was not captured";
+  }
+
   if (item.resumeApplicationMode === "original_resume") {
     return item.resumeReview.status === "original_resume"
       ? "Original resume ready"
@@ -184,7 +238,9 @@ export function getReviewQueueResumePolicyCaption(
   }
 
   if (isQueueStageReady(item)) {
-    return "Approved resume ready";
+    return item.resumeReview.status === "approved"
+      ? "Approved resume ready"
+      : "Tailored draft ready for your review";
   }
 
   if (item.assetStatus === "generating" || item.assetStatus === "queued") {
@@ -220,7 +276,18 @@ export function getReviewQueueResumePolicyCaption(
  */
 export function isTailoredDraftPreparationEligible(
   item: ReviewQueueItem,
+  /**
+   * Jobs whose application is already prepared, read from the application
+   * records — the SAME set `isQueueStageReady` is given. Both counts on the
+   * batch card now come off one population, so "0 eligible · 12 ready to
+   * prepare" can no longer be two answers about jobs that overlap.
+   */
+  preparedJobIds?: ReadonlySet<string>,
 ): boolean {
+  if (preparedJobIds?.has(item.jobId)) {
+    return false;
+  }
+
   return (
     item.resumeApplicationMode !== "original_resume" &&
     (item.assetStatus === "not_started" || item.assetStatus === "failed") &&
@@ -228,9 +295,37 @@ export function isTailoredDraftPreparationEligible(
   );
 }
 
+/**
+ * Why the batch-draft button cannot run, in the words of what would change it.
+ * A permanently greyed control beside a number the person cannot act on is the
+ * shape of the defect this replaces; null means the button is live.
+ */
+export function describeTailoredDraftPreparationBlocker(
+  queue: readonly ReviewQueueItem[],
+  preparedJobIds?: ReadonlySet<string>,
+): string | null {
+  if (countTailoredDraftPreparationEligible(queue, preparedJobIds) > 0) {
+    return null;
+  }
+
+  if (queue.length === 0) {
+    return "Shortlist a job first — this writes the first draft for jobs that have none.";
+  }
+
+  const allOriginalResume = queue.every(
+    (item) => item.resumeApplicationMode === "original_resume",
+  );
+  if (allOriginalResume) {
+    return "Every shortlisted job is set to use your original resume, so there is no draft to write. Switch a job to a tailored resume to use this.";
+  }
+
+  return "Every shortlisted job already has a draft. This only writes first drafts for jobs that have none.";
+}
+
 export function getTailoredDraftPreparationCandidates(
   queue: readonly ReviewQueueItem[],
   limit = TAILORED_DRAFT_PREPARATION_LIMIT,
+  preparedJobIds?: ReadonlySet<string>,
 ): ReviewQueueItem[] {
   const boundedLimit = Math.min(
     Math.max(0, limit),
@@ -247,7 +342,7 @@ export function getTailoredDraftPreparationCandidates(
   for (const item of queue) {
     if (
       seenJobIds.has(item.jobId) ||
-      !isTailoredDraftPreparationEligible(item)
+      !isTailoredDraftPreparationEligible(item, preparedJobIds)
     ) {
       continue;
     }
@@ -265,6 +360,7 @@ export function getTailoredDraftPreparationCandidates(
 
 export function countTailoredDraftPreparationEligible(
   queue: readonly ReviewQueueItem[],
+  preparedJobIds?: ReadonlySet<string>,
 ): number {
   const seenJobIds = new Set<string>();
   let count = 0;
@@ -272,7 +368,7 @@ export function countTailoredDraftPreparationEligible(
   for (const item of queue) {
     if (
       seenJobIds.has(item.jobId) ||
-      !isTailoredDraftPreparationEligible(item)
+      !isTailoredDraftPreparationEligible(item, preparedJobIds)
     ) {
       continue;
     }
@@ -286,6 +382,7 @@ export function countTailoredDraftPreparationEligible(
 
 export function countQueueStageReady(
   queue: readonly ReviewQueueItem[],
+  preparedJobIds?: ReadonlySet<string>,
 ): number {
   const seenJobIds = new Set<string>();
   let count = 0;
@@ -296,7 +393,7 @@ export function countQueueStageReady(
     }
 
     seenJobIds.add(item.jobId);
-    if (isQueueStageReady(item)) {
+    if (isQueueStageReady(item, preparedJobIds)) {
       count += 1;
     }
   }

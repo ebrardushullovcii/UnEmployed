@@ -22,6 +22,7 @@ import {
   resumeCoveragePolicyLabels,
   resumeHeadlinePolicyLabels,
   resumeSkillsPolicyLabels,
+  resumeApproachLabels,
   resumeTailoringStrengthLabels,
   resumeTemplateLabels,
   strategySearchTokens,
@@ -444,7 +445,7 @@ function StrategyCard(props: {
             Tailoring strength
           </dt>
           <dd className="text-foreground-soft">
-            {resumeTailoringStrengthLabels[strategy.tailoringStrength]}
+            {resumeApproachLabels[strategy.tailoringStrength]}
           </dd>
         </div>
         <div>

@@ -32,7 +32,11 @@ import type {
   FinishInBrowserInput,
 } from "./applications-detail-panel-recovery-actions-section";
 import { ApplicationsDetailPanelRecoverySections } from "./applications-detail-panel-recovery-sections";
-import { ApplicationsDetailPanelSubmitApprovalSection } from "./applications-detail-panel-submit-approval-section";
+import {
+  ApplicationsDetailPanelSubmitApprovalSection,
+  isAwaitingPreparationApproval,
+  preparationApprovalActionLabel,
+} from "./applications-detail-panel-submit-approval-section";
 import { type ApplicationsViewFilter } from "./applications-filters";
 import { getApplicationStagePresentation } from "./applications-status";
 import { formatApplicationEmployerLine } from "../../lib/job-employer-location-display";
@@ -262,6 +266,22 @@ export function ApplicationsDetailPanel({
         visibleApplyResult,
       })
     : false;
+  // The one control this panel is asking for cannot be the one the reader has
+  // to find. Moving the approval block above the documents was not enough at
+  // the panel's smallest height, where it still sat below the fold and was
+  // reachable only by tabbing into the pane, so while an approval is pending
+  // the action is pinned to the panel's own footer, outside the scroller.
+  const awaitingPreparationApproval = isAwaitingPreparationApproval(
+    selectedApplyRunDetails,
+  );
+  const pinnedApproval =
+    selectedRecord && awaitingPreparationApproval &&
+    selectedApplyRunDetails?.submitApproval
+      ? {
+          approval: selectedApplyRunDetails.submitApproval,
+          record: selectedRecord,
+        }
+      : null;
 
   // While the user is being sent to the browser to finish this application,
   // an optional cover-letter block advertised a feature its own copy says to
@@ -318,9 +338,10 @@ export function ApplicationsDetailPanel({
    * fold at 1024x768.
    */
   const submissionAnswer = selectedRecord
-    ? getApplicationSubmissionAnswer(
+      ? getApplicationSubmissionAnswer(
         selectedRecord,
         selectedRecordEmployerDisplay,
+        visibleApplyResult,
       )
     : null;
 
@@ -413,8 +434,12 @@ export function ApplicationsDetailPanel({
         </StatusBadge>
       </div>
       {selectedRecord ? (
+        // A scroller that only names one axis still resolves the other to
+        // `auto`, so at 1920 this pane drew a horizontal track beside its
+        // vertical one and clipped run-history content into two-direction
+        // scrolling. The pane scrolls vertically; its content wraps.
         <div
-          className="grid min-h-0 min-w-0 flex-1 content-start gap-5 overflow-y-auto pr-1"
+          className="grid min-h-0 min-w-0 flex-1 content-start gap-5 overflow-x-hidden overflow-y-auto pr-1"
           data-locked-pane-scroll-region
         >
           {/* The plain answer, uncollapsed, before anything else: did I
@@ -441,21 +466,20 @@ export function ApplicationsDetailPanel({
             visibleApplyResult={visibleApplyResult}
             visibleApplyRunId={visibleApplyRunId}
             showFactStrip={!needsPrimaryRecovery}
+            waitingOnSafetyLimitReview={
+              selectedRun?.state === "paused_for_user_review" &&
+              visibleApplyResult?.state === "planned"
+            }
           />
-          {needsPrimaryRecovery ? recoverySection : documentsSection}
-          {needsPrimaryRecovery ? convenienceLinks : null}
-          {needsPrimaryRecovery ? (
-            <ApplicationsDetailFactStrip
-              selectedAttempt={selectedAttempt}
-              selectedRecord={selectedRecord}
-              visibleApplyResult={visibleApplyResult}
-              visibleApplyRunId={visibleApplyRunId}
-            />
-          ) : null}
+          {/* The decision comes before the paperwork. This sat under the
+              documents block, where it was not visible without tabbing into
+              the panel, so a person who had read everything still could not
+              see the one control the screen was asking them to use. */}
           <ApplicationsDetailPanelSubmitApprovalSection
             approvalScopeEntries={selectedQueueEntries.map(
               ({ jobId, label }) => ({ jobId, label }),
             )}
+            showApproveAction={!awaitingPreparationApproval}
             isApplyRunPending={isApplyRunPending}
             isSelectedRunPending={isSelectedRunPending}
             onApproveApplyRun={onApproveApplyRun}
@@ -467,6 +491,20 @@ export function ApplicationsDetailPanel({
             }}
             selectedApplyRunDetails={selectedApplyRunDetails}
           />
+          {needsPrimaryRecovery ? recoverySection : documentsSection}
+          {needsPrimaryRecovery ? convenienceLinks : null}
+          {needsPrimaryRecovery ? (
+            <ApplicationsDetailFactStrip
+              selectedAttempt={selectedAttempt}
+              selectedRecord={selectedRecord}
+              visibleApplyResult={visibleApplyResult}
+              visibleApplyRunId={visibleApplyRunId}
+              waitingOnSafetyLimitReview={
+                selectedRun?.state === "paused_for_user_review" &&
+                visibleApplyResult?.state === "planned"
+              }
+            />
+          ) : null}
           {needsPrimaryRecovery ? documentsSection : recoverySection}
           <ApplicationsDetailPanelActivitySections
             applyRunDetailsError={applyRunDetailsError}
@@ -495,6 +533,37 @@ export function ApplicationsDetailPanel({
           hasVisibleApplications={hasVisibleApplications}
         />
       )}
+      {pinnedApproval ? (
+        <div
+          className="-mx-8 -mb-5 flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-(--surface-panel-border) bg-(--surface-panel) px-8 py-4"
+          data-testid="applications-pinned-preparation-approval"
+        >
+          <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+            Job Finder is waiting for you before it prepares{" "}
+            {pinnedApproval.approval.jobIds.length === 1
+              ? "this job"
+              : `these ${pinnedApproval.approval.jobIds.length} jobs`}
+            . It never presses the final submit button on a job site.
+          </p>
+          <Button
+            disabled={isApplyRunPending(pinnedApproval.approval.runId)}
+            onClick={() =>
+              onApproveApplyRun({
+                applicationRecordId: pinnedApproval.record.id,
+                jobId: pinnedApproval.record.jobId,
+                runId: pinnedApproval.approval.runId,
+              })
+            }
+            pending={isApplyRunPending(pinnedApproval.approval.runId)}
+            type="button"
+            variant="secondary"
+          >
+            {preparationApprovalActionLabel(
+              pinnedApproval.approval.jobIds.length,
+            )}
+          </Button>
+        </div>
+      ) : null}
     </section>
   );
 }

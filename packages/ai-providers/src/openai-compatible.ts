@@ -731,6 +731,75 @@ export function createOpenAiCompatibleJobFinderAiClient(
 const LISTING_TEXT_MISSING_DETAIL =
   "The listing text was not captured, so there was nothing to tailor the resume toward; your original wording was kept.";
 
+const LISTING_TEXT_NOT_DISTINGUISHING_DETAIL =
+  "This listing says almost nothing about the job itself, so there was nothing to tailor the resume toward; your original wording was kept.";
+
+/**
+ * Words too common to tell one job from another. Deliberately generic and
+ * board-neutral: no site names, no role families (ADR 0007).
+ */
+const LISTING_BOILERPLATE_TOKENS = new Set([
+  "about",
+  "apply",
+  "benefits",
+  "candidate",
+  "company",
+  "employer",
+  "equal",
+  "experience",
+  "job",
+  "must",
+  "opportunity",
+  "position",
+  "requirements",
+  "responsibilities",
+  "role",
+  "skills",
+  "team",
+  "the",
+  "this",
+  "will",
+  "with",
+  "work",
+  "you",
+  "your",
+]);
+
+/**
+ * How many content words the listing brings that could make this draft
+ * different from a draft for another job.
+ *
+ * Two unrelated postings were producing byte-identical "tailored" resumes
+ * because their bodies carried nothing but boilerplate. A draft that the job
+ * did not shape is not tailored, whatever the mode says.
+ */
+export function countDistinguishingListingTerms(job: {
+  description?: string | null;
+  summary?: string | null;
+  keySkills?: readonly string[];
+}): number {
+  const text = [job.description ?? "", job.summary ?? "", ...(job.keySkills ?? [])]
+    .join(" ")
+    .toLowerCase();
+  const terms = new Set(
+    text
+      .split(/[^\p{L}\p{N}+#.]+/u)
+      .map((token) => token.replace(/^[.]+|[.]+$/gu, ""))
+      .filter(
+        (token) => token.length >= 3 && !LISTING_BOILERPLATE_TOKENS.has(token),
+      ),
+  );
+
+  return terms.size;
+}
+
+/**
+ * Below this, the body is a stub — a one-line "We are hiring" or a cookie
+ * banner the extractor kept — and tailoring toward it cannot distinguish this
+ * job from the next one.
+ */
+export const MINIMUM_DISTINGUISHING_LISTING_TERMS = 12;
+
 /** The agent's opening placeholder before it has worked; never an answer. */
 const RESUME_EDIT_PLACEHOLDER_CONTENT =
   /^I am reviewing the requested résumé change against the saved evidence\.?$/u;
@@ -1023,6 +1092,27 @@ export function createJobFinderAiClientFromEnvironment(
           notes: uniqueStrings([
             ...fallback.notes,
             LISTING_TEXT_MISSING_DETAIL,
+          ]),
+        };
+      }
+      // A body that says nothing specific is the same problem one step along:
+      // tailoring toward it produced the same draft for unrelated jobs, which
+      // the screen then called "tailored".
+      if (
+        countDistinguishingListingTerms(input.job) <
+        MINIMUM_DISTINGUISHING_LISTING_TERMS
+      ) {
+        const fallback = await fallbackClient.createResumeDraft(input);
+        return {
+          ...fallback,
+          generationProvenance: {
+            method: "deterministic" as const,
+            reason: "listing_text_not_distinguishing" as const,
+            detail: LISTING_TEXT_NOT_DISTINGUISHING_DETAIL,
+          },
+          notes: uniqueStrings([
+            ...fallback.notes,
+            LISTING_TEXT_NOT_DISTINGUISHING_DETAIL,
           ]),
         };
       }

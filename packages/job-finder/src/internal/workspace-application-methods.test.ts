@@ -165,6 +165,59 @@ function createService(input: {
 }
 
 describe("apply prerequisites resolve the resume path the verifier actually read", () => {
+  test("uses a ready tailored draft in prepare-only execution without requiring a separate approval", async () => {
+    const seed = createSeed();
+    const draftPath = `${CURRENT_USER_DATA_ROOT}/job-ready-draft.pdf`;
+    seed.tailoredAssets = seed.tailoredAssets.map((asset) =>
+      asset.jobId === "job_ready"
+        ? { ...asset, status: "ready", storagePath: draftPath }
+        : asset,
+    );
+    seed.resumeDrafts = [
+      {
+        id: "resume_draft_job_ready",
+        jobId: "job_ready",
+        status: "needs_review",
+        templateId: "classic_ats",
+        identity: null,
+        sections: [],
+        targetPageCount: 2,
+        generationMethod: "deterministic",
+        workHistoryReviewAcknowledgments: [],
+        claimConfirmations: [],
+        approvedAt: null,
+        approvedExportId: null,
+        staleReason: null,
+        createdAt: "2026-03-20T10:00:00.000Z",
+        updatedAt: "2026-03-20T10:04:00.000Z",
+      },
+    ];
+    seed.resumeExportArtifacts = [];
+    const disk = new Map([[draftPath, EXPORT_SHA256]]);
+    const { browserRuntime, executeApplicationFlow } =
+      createDiskAwareBrowserRuntime(new Set(disk.keys()));
+    const workspaceService = createService({
+      seed,
+      exportFileVerifier: createRecoveringExportFileVerifier(disk),
+      browserRuntime,
+    });
+
+    await workspaceService.startApplyCopilotRun("job_ready");
+
+    expect(executeApplicationFlow.mock.calls[0]?.[1]).toMatchObject({
+      mode: "prepare_only",
+      accountCreationAuthorized: false,
+      submitAuthorized: false,
+      resumeArtifact: {
+        source: "tailored_export",
+        sourceDocumentId: "resume_draft_job_ready",
+        exportArtifactId: null,
+        filePath: draftPath,
+        sha256: EXPORT_SHA256,
+      },
+    });
+  });
+
   test("hands the recovered tailored export path to the runtime instead of the stale recorded one", async () => {
     const seed = createSeed();
     stageApprovedTailoredExport(seed, STALE_EXPORT_PATH, EXPORT_SHA256);

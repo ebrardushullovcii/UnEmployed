@@ -1,7 +1,9 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 
 import {
+  ACTIVITY_PAUSED_MESSAGE,
   appendDiscoveryLiveActivityEvent,
+  applyCompensationPreferenceChange,
   assessJobPostingDetailQuality,
   buildDiscoveryCardOnlyEvidenceWarning,
   DISCOVERY_LIVE_ACTIVITY_EVENT_LIMIT,
@@ -89,6 +91,13 @@ describe("discovery contracts", () => {
     expect(
       Object.hasOwn(SavedJobSchema.parse(savedJobInput), "listingActivity"),
     ).toBe(false);
+    expect(SavedJobSchema.parse(savedJobInput).campaignIds).toEqual([]);
+    expect(
+      SavedJobSchema.parse({
+        ...savedJobInput,
+        campaignIds: ["campaign_primary", "campaign_shared"],
+      }).campaignIds,
+    ).toEqual(["campaign_primary", "campaign_shared"]);
   });
 
   test("defaults legacy target executions to empty fairness evidence", () => {
@@ -703,5 +712,64 @@ describe("discovery contracts", () => {
     expect(summary.warnings).toEqual([warning]);
     expect(summary.sourceHealth[0]?.warnings).toEqual([warning]);
     expect(summary.sourceHealth[0]?.health).toBe("warning");
+  });
+});
+
+describe("applyCompensationPreferenceChange", () => {
+  const awaitingClarification = {
+    minimum: null,
+    maximum: null,
+    interval: "year" as const,
+    currency: null,
+    currencyStatus: "needs_clarification" as const,
+  };
+
+  test("a change that names a currency sets it", () => {
+    expect(
+      applyCompensationPreferenceChange(awaitingClarification, {
+        minimum: 55_000,
+        currency: "USD",
+      }),
+    ).toMatchObject({
+      minimum: 55_000,
+      currency: "USD",
+      currencyStatus: "explicit",
+    });
+  });
+
+  test("clearing the currency puts it back to awaiting clarification", () => {
+    expect(
+      applyCompensationPreferenceChange(
+        { ...awaitingClarification, currency: "EUR", currencyStatus: "explicit" },
+        { currency: null },
+      ).currencyStatus,
+    ).toBe("needs_clarification");
+  });
+
+  test("a change that leaves the currency alone keeps the status", () => {
+    expect(
+      applyCompensationPreferenceChange(awaitingClarification, {
+        minimum: 55_000,
+      }),
+    ).toMatchObject({ currency: null, currencyStatus: "needs_clarification" });
+  });
+
+  test("an inherited currency survives a change that keeps it", () => {
+    expect(
+      applyCompensationPreferenceChange(
+        { ...awaitingClarification, currency: "USD", currencyStatus: "inherited" },
+        { maximum: 90_000 },
+      ).currencyStatus,
+    ).toBe("inherited");
+  });
+});
+
+describe("paused background work names a control that exists", () => {
+  it("points at the Resume background work button on Home", () => {
+    // The app has no "command center". A person who read that sentence had
+    // nowhere to go.
+    expect(ACTIVITY_PAUSED_MESSAGE).toContain("Resume background work");
+    expect(ACTIVITY_PAUSED_MESSAGE).toContain("Home");
+    expect(ACTIVITY_PAUSED_MESSAGE).not.toContain("command center");
   });
 });

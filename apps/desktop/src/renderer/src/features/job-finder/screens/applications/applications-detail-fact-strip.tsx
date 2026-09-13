@@ -81,6 +81,7 @@ export function ApplicationsDetailFactStrip(props: {
     | JobFinderWorkspaceSnapshot["applyJobResults"][number]
     | null;
   visibleApplyRunId: string | null;
+  waitingOnSafetyLimitReview?: boolean;
 }) {
   const {
     selectedAttempt,
@@ -176,9 +177,11 @@ export function ApplicationsDetailFactStrip(props: {
               ...(showsBlockerNote && blockerNote ? { note: blockerNote } : {}),
             }
           : {
-              content: "Nothing blocking",
+              content: props.waitingOnSafetyLimitReview
+                ? "Waiting for the batch safety-limit review"
+                : "Nothing blocking",
               label: "What stopped progress",
-              muted: true,
+              muted: !props.waitingOnSafetyLimitReview,
             },
       ];
 

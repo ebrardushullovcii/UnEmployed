@@ -334,13 +334,13 @@ describe("profile setup customer-quality guidance", () => {
       "Choose at least one so searches know what to look for.",
     );
     expect(container?.textContent).toContain(
-      "A city and country entered together stay one location.",
+      "Enter one place at a time, or separate places with semicolons. Keep a city, region, or country together with commas.",
     );
     expect(
       container?.querySelector<HTMLInputElement>(
         "#profile-setup-field-search-preferences-locations",
       )?.placeholder,
-    ).toBe("Example: Austin, TX");
+    ).toBe("Example: Austin, TX; Remote");
     const workModes = container?.querySelector(
       "#profile-setup-field-search-preferences-work-modes",
     );
@@ -362,16 +362,22 @@ describe("profile setup customer-quality guidance", () => {
     expect(container?.textContent).toContain(
       "How strongly should Job Finder tailor each resume?",
     );
-    expect(container?.textContent).toContain("Light edit");
-    expect(container?.textContent).toContain("Balanced rewrite");
-    expect(container?.textContent).toContain("Strong rewrite");
+    expect(container?.textContent).toContain(
+      "Light edits that keep every fact",
+    );
+    expect(container?.textContent).toContain(
+      "A fuller rewrite that keeps every fact",
+    );
+    expect(container?.textContent).toContain(
+      "A fuller rewrite that may stretch, with your say-so",
+    );
     expect(container?.textContent).toContain(
       "This sets the default for reusable resume strategies and per-job drafts.",
     );
+    // The confirm-each-stretch promise stays visible in the option itself.
     expect(container?.textContent).toContain(
-      "Review and confirm every generated line",
+      "shown to you to confirm before the resume can be used",
     );
-    expect(container?.textContent).toContain("strongest form you can prove");
 
     const balanced = container?.querySelector<HTMLInputElement>(
       'input[value="balanced"]',
@@ -391,9 +397,11 @@ describe("profile setup customer-quality guidance", () => {
       container?.querySelector("output[data-tailoring-mode]")?.textContent,
     ).toBe("aggressive");
     expect(container?.textContent).toContain(
-      "Strong rewrite reshapes supported experience",
+      "This choice can write lines that go a little past what you wrote",
     );
-    expect(container?.textContent).toContain("never auto-approves or submits");
+    expect(container?.textContent).toContain(
+      "never approves or sends an application on its own",
+    );
   });
 
   it("offers an explicit unchanged-original resume choice with privacy-safe copy", () => {
@@ -411,12 +419,12 @@ describe("profile setup customer-quality guidance", () => {
     );
     expect(original).toBeTruthy();
     expect(original?.checked).toBe(false);
-    expect(container?.textContent).toContain("Use original resume unchanged");
+    expect(container?.textContent).toContain("Keep my resume as it is");
     expect(container?.textContent).toContain(
-      "Use the exact file you imported.",
+      "uses the exact file you imported",
     );
     expect(container?.textContent).toContain(
-      "will not rewrite it or create a tailored copy",
+      "Nothing is rewritten and no tailored copy is made",
     );
 
     act(() => {

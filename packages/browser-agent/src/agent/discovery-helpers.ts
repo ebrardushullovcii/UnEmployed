@@ -202,10 +202,6 @@ export function summarizeExtractionPassResult(
   }
 
   const newJobsAdded = Math.max(0, Math.floor(data.jobsExtracted));
-  if (data.deferredExtraction === true && newJobsAdded === 0) {
-    return createEmptyExtractionPassSummary();
-  }
-
   return {
     extractionPasses: 1,
     zeroYieldExtractionPasses: newJobsAdded > 0 ? 0 : 1,

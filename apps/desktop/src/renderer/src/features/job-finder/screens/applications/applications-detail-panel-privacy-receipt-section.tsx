@@ -46,6 +46,31 @@ function ReceiptGroup(props: {
   );
 }
 
+/**
+ * What the attached file actually is, taken from its own name.
+ *
+ * This screen exists to prove the bytes were not altered, and it called a
+ * `.txt` original "PDF" twice while showing the real file name a line above.
+ * A tailored export really is a PDF; an original upload is whatever the person
+ * imported, so the extension answers rather than an assumption.
+ */
+export function describeReceiptResumeFileType(fileName: string): string {
+  const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
+  if (!extension || extension === fileName.toLowerCase()) {
+    return "file";
+  }
+
+  const known: Record<string, string> = {
+    pdf: "PDF",
+    doc: "Word document",
+    docx: "Word document",
+    md: "Markdown file",
+    rtf: "RTF file",
+    txt: "text file",
+  };
+  return known[extension] ?? `${extension.toUpperCase()} file`;
+}
+
 export function ApplicationsDetailPanelPrivacyReceiptSection(props: {
   onExport: () => Promise<void>;
   onResolveOutcome?: (
@@ -97,7 +122,8 @@ export function ApplicationsDetailPanelPrivacyReceiptSection(props: {
                 receipt.destination.origin,
                 receipt.destination.safePath,
               )}{" "}
-              · Your approved resume (PDF)
+              · Your approved resume (
+              {describeReceiptResumeFileType(receipt.resume.fileName)})
             </p>
           </div>
           <span className="text-(length:--text-small) text-primary">
@@ -266,21 +292,25 @@ export function ApplicationsDetailPanelPrivacyReceiptSection(props: {
             {receipt.resume.sha256 ? (
               <span className="grid gap-1">
                 <code
-                  aria-label={`Resume SHA-256 ${receipt.resume.sha256}`}
+                  aria-label={`Resume file fingerprint ${receipt.resume.sha256}`}
                   className="break-all font-mono text-foreground"
                   title={receipt.resume.sha256}
                 >
-                  SHA-256 {receipt.resume.sha256.slice(0, 12)}…
+                  Fingerprint {receipt.resume.sha256.slice(0, 12)}…
                   {receipt.resume.sha256.slice(-12)}
                 </code>
-                <span>This is the exact PDF you approved — unchanged.</span>
+                <span>
+                  This is the exact{" "}
+                  {describeReceiptResumeFileType(receipt.resume.fileName)} you
+                  approved — unchanged.
+                </span>
               </span>
             ) : (
               <>
-                SHA-256 was not recorded for this{" "}
-                {hasExactLineage ? "preparation" : "legacy receipt"}. Re-import
-                or re-export the resume before a future application to enable
-                byte verification.
+                No file fingerprint was recorded for this{" "}
+                {hasExactLineage ? "preparation" : "older record"}, so Job
+                Finder cannot prove the file went out unchanged. Export the
+                resume again before your next application and it will.
               </>
             )}
           </ReceiptGroup>

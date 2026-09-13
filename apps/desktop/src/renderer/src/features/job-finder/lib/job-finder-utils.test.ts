@@ -105,14 +105,44 @@ describe("getPostedDateLabel", () => {
     ).toEqual({ label: "Updated", value: "30 Jul 2026" });
   });
 
-  test("falls back to an Unknown updated value when no provider timestamp exists", () => {
+  test("renders nothing when no date exists at all", () => {
     expect(
       getPostedDateLabel({
         postedAt: null,
         postedAtText: null,
         providerUpdatedAt: null,
       }),
-    ).toEqual({ label: "Updated", value: "Unknown" });
+    ).toBeNull();
+  });
+
+  test("renders nothing when the posted slot holds a non-date token", () => {
+    expect(
+      getPostedDateLabel({
+        postedAt: null,
+        postedAtText: "NOPE",
+        providerUpdatedAt: null,
+      }),
+    ).toBeNull();
+  });
+
+  test("ignores a non-date posted token in favour of a real posting date", () => {
+    expect(
+      getPostedDateLabel({
+        postedAt: "2026-09-04T12:00:00.000Z",
+        postedAtText: "NOPE",
+        providerUpdatedAt,
+      }),
+    ).toEqual({ label: "Posted", value: "04 Sept 2026" });
+  });
+
+  test("still renders a written-out posting date", () => {
+    expect(
+      getPostedDateLabel({
+        postedAt: null,
+        postedAtText: "04 Sept 2026",
+        providerUpdatedAt: null,
+      }),
+    ).toEqual({ label: "Posted", value: "04 Sept 2026" });
   });
 });
 

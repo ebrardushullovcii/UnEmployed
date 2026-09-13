@@ -665,6 +665,61 @@ describe("buildResumeRenderDocument", () => {
     expect(bullets).not.toContain(experience.achievements[0]);
   });
 
+  test("buildResumeDraftFromTailoredDraft drops source bullets a combined line already covers", () => {
+    const seed = createSeed();
+    const experience = seed.profile.experiences[0]!;
+    const firstClaim =
+      "Led a cross-functional design-system rollout across core product surfaces.";
+    const secondClaim =
+      "Cut onboarding time for new engineers from three weeks to four days.";
+    const combined =
+      "Led a cross-functional design-system rollout across core product surfaces and cut onboarding time for new engineers from three weeks to four days.";
+    const draft = buildResumeDraftFromTailoredDraft({
+      job: seed.savedJobs[0]!,
+      templateId: seed.settings.resumeTemplateId,
+      createdAt: "2026-08-09T12:00:00.000Z",
+      generationMethod: "ai",
+      profile: seed.profile,
+      draft: {
+        label: "Tailored Resume",
+        summary: seed.profile.summary ?? "Grounded summary.",
+        experienceHighlights: [],
+        coreSkills: seed.profile.skills,
+        targetedKeywords: ["Design Systems"],
+        experienceEntries: [
+          {
+            title: experience.title,
+            employer: experience.companyName,
+            location: experience.location,
+            dateRange: "Jan 2020 - Present",
+            summary: experience.summary,
+            // The provider returned the merged line and both lines it merged.
+            bullets: [combined, firstClaim, secondClaim],
+            profileRecordId: experience.id,
+          },
+        ],
+        projectEntries: [],
+        educationEntries: [],
+        certificationEntries: [],
+        coverageMetadata: [],
+        additionalSkills: [],
+        languages: [],
+        fullText: combined,
+        compatibilityScore: 86,
+        notes: [],
+      },
+    });
+
+    const bullets =
+      draft.sections
+        .find((section) => section.kind === "experience")
+        ?.entries[0]?.bullets.map((bullet) => bullet.text) ?? [];
+
+    expect(bullets).toContain(combined);
+    expect(bullets).not.toContain(firstClaim);
+    expect(bullets).not.toContain(secondClaim);
+  });
+
   test("buildResumeDraftFromTailoredDraft keeps every canonical job available in the editor", () => {
     const seed = createSeed();
     const primaryExperience = seed.profile.experiences[0]!;

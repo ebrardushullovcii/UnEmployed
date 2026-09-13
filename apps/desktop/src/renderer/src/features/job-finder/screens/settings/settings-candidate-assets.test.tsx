@@ -141,11 +141,14 @@ describe("SettingsCandidateAssets", () => {
       await Promise.resolve();
     });
 
+    // The file's own retention is the default, so restoring never silently
+    // turns a dated file into a keep-forever one.
     expect(restoreCandidateAsset).toHaveBeenCalledWith({
       assetId: "asset_1",
       retention: "until_deleted",
     });
-    expect(document.body.textContent).toContain("fresh retention clock");
+    expect(document.body.textContent).toContain("was restored with");
+    expect(document.body.textContent).toContain("counted from today");
     expect(listCandidateAssets).toHaveBeenCalledTimes(4);
     expect(listCandidateAssets).toHaveBeenCalledWith({
       includeDeleted: true,
@@ -419,5 +422,59 @@ describe("SettingsCandidateAssets", () => {
       "The countdown starts once the file finishes importing.",
     );
     expect(cells[0]?.textContent).not.toContain("Timed retention");
+  });
+  test("keeps a timed file's retention when it is restored, and names the import date", async () => {
+    const timedAsset: CandidateAsset = { ...asset, retention: "90_days" };
+    const timedTrashedAsset: CandidateAsset = {
+      ...timedAsset,
+      deletedAt: "2026-08-10T11:00:00.000Z",
+      lifecycle: {
+        retentionStartedAt: timedAsset.createdAt,
+        expiresAt: null,
+        deletionReason: "removed",
+        purgeAt: "2026-08-17T11:00:00.000Z",
+      },
+    };
+    const listCandidateAssets = vi
+      .fn()
+      .mockResolvedValueOnce({ assets: [timedTrashedAsset] })
+      .mockResolvedValueOnce({ assets: [timedAsset] });
+    const restoreCandidateAsset = vi
+      .fn()
+      .mockResolvedValue({ asset: timedAsset });
+    Object.defineProperty(window, "unemployed", {
+      configurable: true,
+      value: {
+        jobFinder: {
+          listCandidateAssets,
+          importCandidateAsset: vi.fn(),
+          deleteCandidateAsset: vi.fn(),
+          restoreCandidateAsset,
+        },
+      },
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<SettingsCandidateAssets />);
+      await Promise.resolve();
+    });
+
+    const restoreButton = [...document.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Restore",
+    ) as HTMLButtonElement;
+    await act(async () => {
+      restoreButton.click();
+      await Promise.resolve();
+    });
+
+    expect(restoreCandidateAsset).toHaveBeenCalledWith({
+      assetId: "asset_1",
+      retention: "90_days",
+    });
+    // The row says which upload this was.
+    expect(document.body.textContent).toContain("Added");
   });
 });

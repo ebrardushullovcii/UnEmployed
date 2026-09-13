@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
+  DiscoveryRunRecord,
   JobDiscoveryTarget,
   JobSearchPreferences,
   SavedJob,
@@ -8,8 +9,10 @@ import {
   DISCOVERY_CLEAR_MISMATCH_SCORE_FLOOR,
   getDiscoveryConfiguredFilters,
   getDiscoveryInspectedJob,
+  getNewestRunForCampaign,
   getDiscoveryResultVisibility,
   isDiscoveryClearMismatch,
+  updateStableDiscoveryRunSnapshot,
 } from "./discovery-screen";
 import {
   DISCOVERY_BROWSER_BLOCKED_REASON,
@@ -101,7 +104,61 @@ function createSavedJob(
   } as unknown as SavedJob;
 }
 
+describe("active-run result stability", () => {
+  it("freezes existing rows, appends arrivals, and applies rescoring only at run end", () => {
+    const original = createSavedJob("original", "strong_fit", 80);
+    const started = updateStableDiscoveryRunSnapshot({
+      current: null,
+      jobs: [original],
+      runId: "run_1",
+    });
+    const rescored = {
+      ...original,
+      matchAssessment: { ...original.matchAssessment, score: 20 },
+    };
+    const appended = createSavedJob("appended", "strong_fit", 90);
+    const running = updateStableDiscoveryRunSnapshot({
+      current: started.snapshot,
+      jobs: [rescored, appended],
+      runId: "run_1",
+    });
+
+    expect(running.jobs.map((job) => [job.id, job.matchAssessment.score])).toEqual([
+      ["original", 80],
+      ["appended", 90],
+    ]);
+
+    const completed = updateStableDiscoveryRunSnapshot({
+      current: running.snapshot,
+      jobs: [rescored, appended],
+      runId: null,
+    });
+    expect(completed.jobs[0]?.matchAssessment.score).toBe(20);
+    expect(completed.snapshot).toBeNull();
+  });
+});
+
 describe("getDiscoveryConfiguredFilters", () => {
+  it("selects the newest run for the chosen plan and stays empty for a plan without one", () => {
+    const planARun = {
+      id: "run-a",
+      campaignId: "plan-a",
+      startedAt: "2026-09-13T08:00:00.000Z",
+    } as DiscoveryRunRecord;
+    const newerPlanBRun = {
+      id: "run-b",
+      campaignId: "plan-b",
+      startedAt: "2026-09-13T09:00:00.000Z",
+    } as DiscoveryRunRecord;
+
+    expect(
+      getNewestRunForCampaign([newerPlanBRun, planARun], "plan-a")?.id,
+    ).toBe("run-a");
+    expect(
+      getNewestRunForCampaign([newerPlanBRun, planARun], "plan-c"),
+    ).toBeNull();
+  });
+
   it("counts runnable sources instead of all configured sources in the header chip", () => {
     const filters = getDiscoveryConfiguredFilters(
       createSearchPreferences({
@@ -658,6 +715,33 @@ describe("getDiscoveryResultVisibility", () => {
       .map((job) => job.id);
 
     expect(visibleSubset.jobs.map((job) => job.id)).toEqual(expectedSubset);
+  });
+
+  it("holds the visible order during reading and applies new scores after the stage ends", () => {
+    const previouslyFirst = createSavedJob("previously-first", "strong_fit", 70);
+    const newlyHigher = createSavedJob("newly-higher", "strong_fit", 95);
+
+    const whileReading = getDiscoveryResultVisibility(
+      [newlyHigher, previouslyFirst],
+      null,
+      true,
+      false,
+      ["previously-first", "newly-higher"],
+    );
+    const afterReading = getDiscoveryResultVisibility(
+      [newlyHigher, previouslyFirst],
+      null,
+      true,
+    );
+
+    expect(whileReading.jobs.map((job) => job.id)).toEqual([
+      "previously-first",
+      "newly-higher",
+    ]);
+    expect(afterReading.jobs.map((job) => job.id)).toEqual([
+      "newly-higher",
+      "previously-first",
+    ]);
   });
 });
 

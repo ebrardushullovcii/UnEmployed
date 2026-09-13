@@ -22,6 +22,7 @@ function renderEmptyResults(options?: {
   hasCompletedSearch?: boolean;
   isSearchInProgress?: boolean;
   latestRunVerdict?: DiscoveryLatestRunVerdict | null;
+  editPlanHref?: string;
 }) {
   return render(
     <MemoryRouter>
@@ -30,6 +31,9 @@ function renderEmptyResults(options?: {
         jobs={[]}
         onSelectJob={vi.fn()}
         selectedJob={null}
+        {...(options?.editPlanHref
+          ? { editPlanHref: options.editPlanHref }
+          : {})}
         {...(options?.hasCompletedSearch ? { hasCompletedSearch: true } : {})}
         {...(options?.isSearchInProgress ? { isSearchInProgress: true } : {})}
         {...(options?.latestRunVerdict !== undefined
@@ -154,10 +158,17 @@ describe("DiscoveryResultsPanel newest-run empty-state verdicts", () => {
   });
 
   it("keeps the no-match verdict only for a completed newest run", () => {
-    renderEmptyResults({ latestRunVerdict: { kind: "completed" } });
+    renderEmptyResults({
+      editPlanHref: "/job-finder/campaigns?campaignId=plan_chicago",
+      latestRunVerdict: { kind: "completed" },
+    });
 
     expect(screen.getByText("No matches from this search")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Broaden search" })).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "Edit this plan's places" })
+        .getAttribute("href"),
+    ).toBe("/job-finder/campaigns?campaignId=plan_chicago");
     expect(
       screen.queryByText("The last search stopped before finishing"),
     ).toBeNull();

@@ -236,8 +236,37 @@ export type CandidateSkillGroup = z.infer<typeof CandidateSkillGroupSchema>;
 const FreshStartIdentityTextSchema =
   NonEmptyStringSchema.nullable().default(null);
 
+/**
+ * The person's own answer to "this document names someone else".
+ *
+ * A resume can genuinely carry two identities — a template header the writer
+ * never replaced, a maiden name, a document written for someone else and
+ * reused. The product used to treat that as a dead block: no draft, no
+ * export, no way forward. The way forward is the person's explicit word that
+ * the document is theirs and that their profile name is the right one.
+ *
+ * The exact source values they saw are recorded, so this is never a blanket
+ * permission: importing a different document that names a third person raises
+ * the block again.
+ */
+export const ResumeIdentityOwnershipAcknowledgementSchema = z.object({
+  acknowledgedSourceFullName: NonEmptyStringSchema.nullable().default(null),
+  acknowledgedSourceEmail: NonEmptyStringSchema.nullable().default(null),
+  acknowledgedAt: IsoDateTimeSchema,
+});
+export type ResumeIdentityOwnershipAcknowledgement = z.infer<
+  typeof ResumeIdentityOwnershipAcknowledgementSchema
+>;
+
 export const CandidateProfileSchema = z.object({
   id: NonEmptyStringSchema,
+  /**
+   * Set only when the person chose "this is my resume, use my profile name".
+   * Absent or null means no such choice was made and the mismatch still
+   * blocks: nothing here is ever inferred on their behalf.
+   */
+  resumeIdentityOwnership:
+    ResumeIdentityOwnershipAcknowledgementSchema.nullable().optional(),
   firstName: FreshStartIdentityTextSchema,
   lastName: FreshStartIdentityTextSchema,
   middleName: NonEmptyStringSchema.nullable().default(null),

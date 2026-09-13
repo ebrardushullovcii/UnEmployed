@@ -1,5 +1,5 @@
 import type { JobFinderResumeWorkspace } from "@unemployed/contracts";
-import { formatNormalizedCompensation } from "../../lib/normalized-compensation";
+import { formatStatedNormalizedCompensation } from "../../lib/normalized-compensation";
 import { ResumeClaimTrustPanel } from "./resume-claim-trust-panel";
 import { formatOptionalDate } from "./resume-workspace-utils";
 
@@ -44,9 +44,7 @@ export function ResumeWorkspaceSidebar({
   const blockingIssueCount = validationIssues.filter(
     (issue) => issue.severity === "error",
   ).length;
-  const normalizedCompensation = formatNormalizedCompensation(
-    job.normalizedCompensation,
-  );
+  const normalizedCompensation = formatStatedNormalizedCompensation(job);
   const roleSnapshot = [
     job.salaryText ? `Compensation: ${job.salaryText}` : null,
     normalizedCompensation ? `Normalized: ${normalizedCompensation}` : null,

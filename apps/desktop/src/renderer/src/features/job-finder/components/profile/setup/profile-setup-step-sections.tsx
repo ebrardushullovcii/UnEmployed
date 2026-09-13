@@ -1,5 +1,6 @@
 import {
   useDeferredValue,
+  useEffect,
   useId,
   useMemo,
   useState,
@@ -16,11 +17,13 @@ import {
 } from "./profile-setup-screen-helpers";
 import {
   type CandidateProfile,
+  type JobDiscoveryTarget,
   type ProfileSetupStep,
   type ResumeApplicationMode,
   type ResumeImportFieldCandidateSummary,
   type ResumeImportProgressEvent,
   type ResumeImportRun,
+  type SourceDebugRunRecord,
   workModeValues,
 } from "@unemployed/contracts";
 import { getResumeImportStageFallbackNotes } from "../profile-resume-panel";
@@ -56,8 +59,15 @@ import {
   profileSelectTriggerClassName,
 } from "../profile-form-primitives";
 import { ProfileBasicsFields } from "../profile-basics-fields";
-import { ProfileListEditor } from "../profile-list-editor";
+import {
+  parseProfileLocationDraft,
+  ProfileListEditor,
+} from "../profile-list-editor";
 import { PROFILE_WORK_CONSTRAINT_COPY } from "../profile-work-constraints-copy";
+import {
+  RESUME_APPROACH_OPTIONS,
+  STRONG_REWRITE_WARNING,
+} from "../profile-tailoring-copy";
 import { ResumeImportProgress } from "../resume-import-progress";
 
 const booleanSelectOptions = [
@@ -65,6 +75,25 @@ const booleanSelectOptions = [
   { label: "Yes", value: "yes" },
   { label: "No", value: "no" },
 ] as const;
+const ADDED_SOURCE_READABILITY_TIMEOUT_MS = 15_000;
+
+export function formatAddedSourceReadabilityResult(
+  run: SourceDebugRunRecord,
+): string {
+  if (run.state === "completed") {
+    const countMatch = run.finalSummary?.match(
+      /\b(\d+)\s+(?:job cards?|jobs?|listings?)\b/iu,
+    );
+    return `Readable · ${countMatch?.[1] ?? "0"} job cards found`;
+  }
+  if (run.state === "cancelled") {
+    return "Check timed out; Job Finder will try again during the next search";
+  }
+  const reason =
+    run.finalSummary?.trim().replace(/[.]$/u, "") ||
+    "the page did not return readable job cards";
+  return `Could not read this page (${reason})`;
+}
 
 // Same wording as the employment type on a work-history card, so a saved
 // preference and a listing's stated type compare as equal text.
@@ -76,32 +105,7 @@ const SETUP_EMPLOYMENT_TYPE_OPTIONS = [
   "Temporary",
 ] as const;
 
-const tailoringModeOptions = [
-  {
-    description:
-      "Use the exact file you imported. Job Finder will not rewrite it or create a tailored copy; you still review each job before any prepare-only application work.",
-    label: "Use original resume unchanged",
-    value: "original_resume",
-  },
-  {
-    description:
-      "Keep your wording and structure mostly intact, with small role-specific improvements.",
-    label: "Light edit",
-    value: "conservative",
-  },
-  {
-    description:
-      "Adapt emphasis and wording to the role while keeping the shape of your experience familiar.",
-    label: "Balanced rewrite",
-    value: "balanced",
-  },
-  {
-    description:
-      "Substantially rewrite, combine, or elaborate supported experience into the strongest form you can prove. Small deliberate stretches — evidenced years rounded up by one toward the job's ask, technologies the job asks for that your experience makes credible, and the job's requested technologies added to your skills — help clear screening for the first interview. Review and confirm every generated line yourself.",
-    label: "Strong rewrite",
-    value: "aggressive",
-  },
-] as const;
+const tailoringModeOptions = RESUME_APPROACH_OPTIONS;
 
 function getImportConflictSummary(
   candidate: ResumeImportFieldCandidateSummary,
@@ -157,7 +161,7 @@ function SetupBooleanField(props: {
           />
           {props.description ? (
             <p
-              className="text-xs leading-5 text-foreground-muted"
+              className="text-(length:--text-body) leading-6 text-foreground"
               id={descriptionId}
             >
               {props.description}
@@ -284,7 +288,7 @@ export function ProfileSetupImportStep(props: {
               from the full Profile screen.
             </p>
             {importRecoveryWarnings.length > 0 ? (
-              <ul className="mt-2 grid list-none gap-1 border-t border-(--warning-border) pt-2 text-xs leading-5">
+              <ul className="mt-2 grid list-none gap-1 border-t border-(--warning-border) pt-2 text-(length:--text-body) leading-6">
                 {importRecoveryWarnings.map((warning) => (
                   <li key={warning}>{warning}</li>
                 ))}
@@ -293,11 +297,14 @@ export function ProfileSetupImportStep(props: {
           </div>
         ) : null}
 
-        <div className="rounded-(--radius-field) border border-dashed border-border/40 bg-background/50 p-4 text-sm leading-6 text-foreground-soft">
-          {props.latestResumeImportReviewCandidates.length > 0
-            ? `Latest import kept ${props.latestResumeImportReviewCandidates.length} reviewable suggestion${props.latestResumeImportReviewCandidates.length === 1 ? "" : "s"} visible in setup.`
-            : "You can continue without a resume, but importing one usually gets you through setup faster."}
-        </div>
+        {/* Only the branch that carries a number says anything this card has
+            not said: the other branch repeated the card description above it
+            ("Import a resume first when you have one."). */}
+        {props.latestResumeImportReviewCandidates.length > 0 ? (
+          <div className="rounded-(--radius-field) border border-dashed border-border/40 bg-background/50 p-4 text-(length:--text-body) leading-6 text-foreground">
+            {`Latest import kept ${props.latestResumeImportReviewCandidates.length} reviewable suggestion${props.latestResumeImportReviewCandidates.length === 1 ? "" : "s"} visible in setup.`}
+          </div>
+        ) : null}
 
         {props.latestResumeImportReviewCandidates.length > 0 ? (
           <div className="grid gap-2">
@@ -326,7 +333,7 @@ export function ProfileSetupImportStep(props: {
                   {(() => {
                     const conflictSummary = getImportConflictSummary(candidate);
                     return conflictSummary ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-1 text-(length:--text-body) leading-6 text-foreground-soft">
                         {conflictSummary}
                       </p>
                     ) : null;
@@ -421,13 +428,20 @@ export function ProfileSetupEssentialsStep(props: {
 }
 
 export function ProfileSetupTargetingStep(props: {
+  isProfileSetupPending?: boolean;
   nextStep: ProfileSetupStep | null;
   onSaveAndGoToStep: (step: ProfileSetupStep) => void;
+  onRunSourceDebug?: (
+    targetId: string,
+    options?: { readabilityTimeoutMs?: number },
+  ) => void;
   onResumeApplicationModeChange?: (mode: ResumeApplicationMode) => void;
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>;
   profileForm: UseFormReturn<ProfileEditorValues>;
   resumeApplicationMode?: ResumeApplicationMode;
+  recentSourceDebugRuns?: readonly SourceDebugRunRecord[];
   renderFooter: RenderFooter;
+  savedDiscoveryTargets?: readonly JobDiscoveryTarget[];
 }) {
   const authorizedWorkCountriesId =
     "profile-setup-field-eligibility-authorized-work-countries";
@@ -470,6 +484,13 @@ export function ProfileSetupTargetingStep(props: {
   );
   const [manualSourceLabel, setManualSourceLabel] = useState("");
   const [manualSourceUrl, setManualSourceUrl] = useState("");
+  const [addedSourceCheck, setAddedSourceCheck] = useState<{
+    phase: "waiting_for_save" | "checking";
+    previousRunId: string | null;
+    targetId: string;
+  } | null>(null);
+  const [addedSourceCheckTimedOut, setAddedSourceCheckTimedOut] =
+    useState(false);
   const manualSourceLabelId = "profile-setup-field-manual-source-label";
   const manualSourceUrlId = "profile-setup-field-manual-source-url";
   const manualSourceUrlErrorId = "profile-setup-field-manual-source-url-error";
@@ -558,19 +579,90 @@ export function ProfileSetupTargetingStep(props: {
     );
   };
 
-  const addManualDiscoveryTarget = () => {
+  const latestAddedSourceRun = useMemo(() => {
+    if (!addedSourceCheck) {
+      return null;
+    }
+
+    return (
+      (props.recentSourceDebugRuns ?? [])
+        .filter(
+          (run) =>
+            run.targetId === addedSourceCheck.targetId &&
+            run.id !== addedSourceCheck.previousRunId,
+        )
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0] ??
+      null
+    );
+  }, [addedSourceCheck, props.recentSourceDebugRuns]);
+
+  useEffect(() => {
+    if (
+      addedSourceCheck?.phase !== "checking" ||
+      (latestAddedSourceRun &&
+        latestAddedSourceRun.state !== "running" &&
+        latestAddedSourceRun.state !== "idle")
+    ) {
+      setAddedSourceCheckTimedOut(false);
+      return;
+    }
+
+    const timeout = window.setTimeout(
+      () => setAddedSourceCheckTimedOut(true),
+      ADDED_SOURCE_READABILITY_TIMEOUT_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [addedSourceCheck?.phase, latestAddedSourceRun]);
+
+  useEffect(() => {
+    if (
+      !addedSourceCheck ||
+      addedSourceCheck.phase !== "waiting_for_save" ||
+      props.isProfileSetupPending ||
+      !props.onRunSourceDebug ||
+      !(props.savedDiscoveryTargets ?? []).some(
+        (target) => target.id === addedSourceCheck.targetId,
+      )
+    ) {
+      return;
+    }
+
+    const previousRunId = (props.recentSourceDebugRuns ?? []).find(
+      (run) => run.targetId === addedSourceCheck.targetId,
+    )?.id;
+    setAddedSourceCheck({
+      ...addedSourceCheck,
+      phase: "checking",
+      previousRunId: previousRunId ?? null,
+    });
+    props.onRunSourceDebug(addedSourceCheck.targetId, {
+      readabilityTimeoutMs: ADDED_SOURCE_READABILITY_TIMEOUT_MS,
+    });
+  }, [
+    addedSourceCheck,
+    props.isProfileSetupPending,
+    props.onRunSourceDebug,
+    props.recentSourceDebugRuns,
+    props.savedDiscoveryTargets,
+  ]);
+
+  const addManualDiscoveryTarget = (options?: { checkSite?: boolean }) => {
     if (!isManualSourceComplete) {
       return;
     }
 
     const targetId = createDiscoveryTargetId();
-    updateDiscoveryTargets([
+    const nextTargets: SearchPreferencesEditorValues["discoveryTargets"] = [
       ...discoveryTargets,
       {
         id: targetId,
         label: manualSourceLabel.trim(),
         startingUrl: manualSourceUrl.trim(),
-        enabled: false,
+        // Adding a site is already the act of choosing it: saving it switched
+        // off left people with "All 1 saved sources are turned off" and no
+        // way to search. The row keeps its Include toggle, so turning it back
+        // off stays one click away.
+        enabled: true,
         adapterKind: "auto",
         customInstructions: "",
         instructionStatus: "missing",
@@ -580,7 +672,21 @@ export function ProfileSetupTargetingStep(props: {
         lastVerifiedAt: null,
         staleReason: null,
       },
-    ]);
+    ];
+    updateDiscoveryTargets(nextTargets);
+    if (options?.checkSite && props.onRunSourceDebug) {
+      setAddedSourceCheckTimedOut(false);
+      setAddedSourceCheck({
+        phase: "waiting_for_save",
+        previousRunId: null,
+        targetId,
+      });
+      // The established source check reads saved targets. Persist the new row
+      // first, then the effect above starts the check as soon as that save is
+      // visible. Adding itself is immediate; neither save nor check blocks the
+      // form from closing or the source from appearing in the catalog.
+      props.onSaveAndGoToStep("targeting");
+    }
     setManualSourceLabel("");
     setManualSourceUrl("");
     setIsManualSourceOpen(false);
@@ -653,7 +759,7 @@ export function ProfileSetupTargetingStep(props: {
         <div className="grid gap-(--gap-content) md:grid-cols-2">
           <div className="grid gap-2">
             <ProfileListEditor
-              label="Job families"
+              label="Related role areas"
               onChange={(values) =>
                 props.preferencesForm.setValue(
                   "jobFamilies",
@@ -666,12 +772,13 @@ export function ProfileSetupTargetingStep(props: {
                 props.preferencesForm.watch("jobFamilies"),
               )}
             />
-            <p className="px-1 text-xs leading-5 text-foreground-muted">
+            <p className="px-1 text-(length:--text-body) leading-6 text-foreground">
               Related titles you&apos;d also consider, e.g. Backend Engineer.
             </p>
           </div>
           <div className="grid gap-2">
             <ProfileListEditor
+              draftParser={parseProfileLocationDraft}
               inputId={locationsId}
               label="Preferred job locations"
               onChange={(values) =>
@@ -681,12 +788,12 @@ export function ProfileSetupTargetingStep(props: {
                   listFieldOptions,
                 )
               }
-              placeholder="Example: Austin, TX"
+              placeholder="Example: Austin, TX; Remote"
               values={parseListInput(props.preferencesForm.watch("locations"))}
             />
-            <p className="px-1 text-xs leading-5 text-foreground-muted">
-              Only add places where you want to work. A city and country entered
-              together stay one location.
+            <p className="px-1 text-(length:--text-body) leading-6 text-foreground">
+              Enter one place at a time, or separate places with semicolons. Keep
+              a city, region, or country together with commas.
             </p>
           </div>
         </div>
@@ -721,7 +828,12 @@ export function ProfileSetupTargetingStep(props: {
 
                   return (
                     <label
-                      className="grid h-full min-w-0 cursor-pointer content-start gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 p-4 text-left transition-colors hover:border-primary/35 has-[:checked]:border-primary/70 has-[:checked]:bg-primary/8"
+                      // The radio inside is `sr-only`, so it takes focus but
+                      // paints nothing: a keyboard user arrowing through these
+                      // cards could change the selection without ever seeing
+                      // where they were. The ring is drawn on the card the
+                      // focused input belongs to.
+                      className="grid h-full min-w-0 cursor-pointer content-start gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 p-4 text-left transition-colors hover:border-primary/35 has-[:checked]:border-primary/70 has-[:checked]:bg-primary/8 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/45"
                       htmlFor={optionId}
                       key={option.value}
                     >
@@ -777,16 +889,9 @@ export function ProfileSetupTargetingStep(props: {
                   id={tailoringModeWarningId}
                   role="status"
                 >
-                  Strong rewrite reshapes supported experience and can add
-                  small, deliberate stretches meant to get you the first
-                  interview: evidenced years may round up by one toward the
-                  job's ask, and technologies the job asks for may appear when
-                  your saved experience makes them credible. The job's requested
-                  technologies are also added to your skills section. Every such
-                  line and skill is flagged, counted in the draft notes, and
-                  stays review-required until you confirm it — the interview is
-                  where you prove each claim. Job Finder never auto-approves or
-                  submits applications.
+                  {/* One source for this promise: the inline copy drifted
+                      from the shared warning the Preferences tab prints. */}
+                  {STRONG_REWRITE_WARNING}
                 </p>
               ) : null}
             </fieldset>
@@ -816,7 +921,7 @@ export function ProfileSetupTargetingStep(props: {
               )}
             />
             <p
-              className="text-xs leading-5 text-foreground-muted"
+              className="text-(length:--text-body) leading-6 text-foreground"
               id={`${authorizedWorkCountriesId}-help`}
             >
               {PROFILE_WORK_CONSTRAINT_COPY.authorizedWorkCountries.description}
@@ -839,7 +944,7 @@ export function ProfileSetupTargetingStep(props: {
               )}
             />
             <p
-              className="text-xs leading-5 text-foreground-muted"
+              className="text-(length:--text-body) leading-6 text-foreground"
               id={`${locationPreferencesId}-help`}
             >
               {
@@ -1011,9 +1116,10 @@ export function ProfileSetupTargetingStep(props: {
               Job sources
             </h3>
             <p className="max-w-2xl text-sm leading-6 text-foreground-soft">
-              Find a public careers page or job board you already know and
-              enable it here. Sources stay off until you enable them, and Job
-              Finder cannot search until at least one valid source is enabled.
+              Find a public careers page or job board you already know and add
+              it here. A site you add is turned on for search straight away;
+              turn one off in its row to leave it out. Job Finder cannot search
+              until at least one valid source is on.
             </p>
           </div>
 
@@ -1086,7 +1192,7 @@ export function ProfileSetupTargetingStep(props: {
               <p
                 aria-atomic="true"
                 aria-live="polite"
-                className="-mt-2 text-xs leading-5 text-foreground-muted"
+                className="-mt-2 text-(length:--text-body) leading-6 text-foreground-soft"
                 role="status"
               >
                 {enabledSourceCount} of {discoveryTargets.length} sources
@@ -1098,9 +1204,8 @@ export function ProfileSetupTargetingStep(props: {
                   <p className="font-medium text-foreground">
                     No sources match this search
                   </p>
-                  <p className="mt-1 text-sm text-foreground-muted">
-                    Clear the search to return to the complete source catalog.
-                  </p>
+                  {/* The sentence that used to sit here told the reader to
+                      clear the search; the button below it is that action. */}
                   <Button
                     className="mt-3"
                     onClick={() => setSourceLibraryView("")}
@@ -1151,18 +1256,36 @@ export function ProfileSetupTargetingStep(props: {
                                 {getProfileSetupSourceHost(target.startingUrl)}
                               </p>
                               {guidance.label ? (
-                                <p className="mt-1 text-xs leading-5 text-foreground-muted">
+                                <p className="mt-1 text-(length:--text-body) leading-6 text-foreground-soft">
                                   {guidance.label}
                                 </p>
                               ) : null}
                               {guidance.detail ? (
-                                <p className="text-xs leading-5 text-foreground-muted">
+                                <p className="text-(length:--text-body) leading-6 text-foreground-soft">
                                   {guidance.detail}
                                 </p>
                               ) : null}
                               {starterAccessNote ? (
-                                <p className="text-xs leading-5 text-foreground-muted">
+                                <p className="text-(length:--text-body) leading-6 text-foreground-soft">
                                   {starterAccessNote}
+                                </p>
+                              ) : null}
+                              {addedSourceCheck?.targetId === target.id ? (
+                                <p
+                                  aria-live="polite"
+                                  className="text-(length:--text-body) leading-6 text-foreground-soft"
+                                  data-profile-setup-source-check={target.id}
+                                  role="status"
+                                >
+                                  {latestAddedSourceRun &&
+                                  latestAddedSourceRun.state !== "running" &&
+                                  latestAddedSourceRun.state !== "idle"
+                                    ? formatAddedSourceReadabilityResult(
+                                        latestAddedSourceRun,
+                                      )
+                                    : addedSourceCheckTimedOut
+                                      ? "Check timed out; Job Finder will try again during the next search"
+                                      : "Checking this site…"}
                                 </p>
                               ) : null}
                             </div>
@@ -1355,18 +1478,14 @@ export function ProfileSetupTargetingStep(props: {
 
           <div className="grid gap-3 border-t border-border/30 pt-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="grid gap-0.5">
-                <p className="text-sm font-semibold text-foreground">
-                  {discoveryTargets.length === 0
-                    ? "Add a job site"
-                    : "Know the exact web address?"}
-                </p>
-                <p className="text-xs leading-5 text-foreground-muted">
-                  {discoveryTargets.length === 0
-                    ? "Give it a name and paste the page where the jobs are listed."
-                    : "Add another public careers page or job board by its web address."}
-                </p>
-              </div>
+              {/* The line under this heading restated the heading and the two
+                  labelled fields it opens ("Source name", "Careers or
+                  job-board URL"), so the heading stands on its own. */}
+              <p className="text-sm font-semibold text-foreground">
+                {discoveryTargets.length === 0
+                  ? "Add a job site"
+                  : "Know the exact web address?"}
+              </p>
               <Button
                 aria-expanded={isManualSourceOpen}
                 onClick={() => setIsManualSourceOpen((open) => !open)}
@@ -1383,7 +1502,7 @@ export function ProfileSetupTargetingStep(props: {
                 data-profile-setup-manual-source-form
                 onSubmit={(event) => {
                   event.preventDefault();
-                  addManualDiscoveryTarget();
+                  addManualDiscoveryTarget({ checkSite: true });
                 }}
               >
                 <div className="grid gap-3 md:grid-cols-2">
@@ -1433,7 +1552,7 @@ export function ProfileSetupTargetingStep(props: {
                 ) : null}
                 <div className="flex flex-wrap items-center gap-2">
                   <Button disabled={!isManualSourceComplete} type="submit">
-                    Add source
+                    Add and turn on
                   </Button>
                   <Button
                     onClick={() => {
@@ -1447,7 +1566,7 @@ export function ProfileSetupTargetingStep(props: {
                     Cancel
                   </Button>
                   {!isManualSourceComplete && !isManualSourceUrlInvalid ? (
-                    <p className="text-xs leading-5 text-foreground-muted">
+                    <p className="text-(length:--text-body) leading-6 text-foreground-soft">
                       Add a short name and a complete http or https URL.
                     </p>
                   ) : null}
@@ -1459,7 +1578,14 @@ export function ProfileSetupTargetingStep(props: {
 
         {props.renderFooter({
           nextLabel: "Save and continue to Extras",
-          onPrimary: () => props.onSaveAndGoToStep(props.nextStep ?? "extras"),
+          onPrimary: () => {
+            // A name and a complete URL typed into the add form are a source
+            // the person meant to keep. Leaving the step used to drop them
+            // without a word; a form that is not complete is still left
+            // alone, so nothing is ever invented.
+            addManualDiscoveryTarget();
+            props.onSaveAndGoToStep(props.nextStep ?? "extras");
+          },
         })}
       </CardContent>
     </Card>

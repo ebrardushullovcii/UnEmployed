@@ -9,6 +9,8 @@ const TONE_CLASS_NAMES: Record<DiscoveryRunFeedback["status"], string> = {
     "border-(--warning-border) bg-(--warning-surface) text-(--warning-text)",
   started: "border-(--info-border) bg-(--info-surface) text-(--info-text)",
   cancelled: "border-(--info-border) bg-(--info-surface) text-(--info-text)",
+  paused:
+    "border-(--warning-border) bg-(--warning-surface) text-(--warning-text)",
   succeeded:
     "border-(--success-border) bg-(--success-surface) text-(--success-text)",
 };
@@ -59,7 +61,20 @@ export function DiscoveryRunFeedbackCallout(props: {
       data-testid="discovery-run-feedback"
       role={feedback.status === "failed" ? "alert" : "status"}
     >
-      <p className="font-medium">{feedback.headline}</p>
+      <p className="font-medium">
+        {feedback.headline}
+        {feedback.safeguardAction ? (
+          <>
+            {" · "}
+            <Link
+              className="underline underline-offset-2"
+              to={feedback.safeguardAction.route}
+            >
+              {feedback.safeguardAction.label}
+            </Link>
+          </>
+        ) : null}
+      </p>
       {recoveryHeadline ? (
         <p className="opacity-90">{recoveryHeadline}</p>
       ) : null}

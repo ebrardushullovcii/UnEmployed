@@ -70,6 +70,7 @@ import type {
   JobFinderApplyRunActionInput,
   JobFinderApplyRunDetailsQuery,
   JobFinderApplicationStartTarget,
+  JobFinderDiscoveryCancellationInput,
   JobFinderOpenBrowserSessionInput,
   JobFinderSetResumeClaimConfirmationInput,
   JobFinderSetWorkHistoryReviewAcknowledgmentInput,
@@ -89,6 +90,8 @@ import type {
   ResumeImportProgressEvent,
   ResumeImportRun,
   ResumeApplicationMode,
+  JobFinderResumePdfExportResult,
+  RevealSavedFileResult,
   ResumePdfExportIntent,
   RemoveEmployerExclusionInput,
   RevokeApplicationAuthorityEnvelopeInput,
@@ -634,6 +637,13 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:sync-workspace", {
         baseRevision,
       }) as Promise<JobFinderWorkspaceSyncResult>,
+    onWorkspaceUpdate: (listener: () => void) => {
+      const handler = () => listener();
+      ipcRenderer.on("job-finder:workspace-updated", handler);
+      return () => {
+        ipcRenderer.removeListener("job-finder:workspace-updated", handler);
+      };
+    },
     mutateWorkspaceEntities: (input: JobFinderWorkspaceEntityMutationInput) =>
       ipcRenderer.invoke(
         "job-finder:mutate-workspace-entities",
@@ -981,6 +991,7 @@ const desktopApi = {
     runSourceDebug: (
       targetId: string,
       onProgress?: (event: SourceDebugProgressEvent) => void,
+      options?: { readabilityTimeoutMs?: number },
     ) => {
       if (activeSourceDebugRequestId) {
         return Promise.reject(new Error("Source debug is already running."));
@@ -1015,6 +1026,9 @@ const desktopApi = {
         .invoke("job-finder:run-source-debug", {
           targetId,
           requestId,
+          ...(options?.readabilityTimeoutMs
+            ? { readabilityTimeoutMs: options.readabilityTimeoutMs }
+            : {}),
         })
         .finally(cleanup) as Promise<JobFinderWorkspaceSnapshot>;
     },
@@ -1095,15 +1109,11 @@ const desktopApi = {
         targetId,
         instructionId,
       }) as Promise<JobFinderWorkspaceSnapshot>,
-    cancelAgentDiscovery: () => {
-      if (!activeAgentDiscoveryRequestId) {
-        return;
-      }
-
-      ipcRenderer.send("job-finder:cancel-agent-discovery", {
-        requestId: activeAgentDiscoveryRequestId,
-      });
-    },
+    cancelAgentDiscovery: (input: JobFinderDiscoveryCancellationInput) =>
+      ipcRenderer.invoke(
+        "job-finder:cancel-discovery-run",
+        input,
+      ) as Promise<JobFinderWorkspaceSnapshot>,
     resetWorkspace: () =>
       ipcRenderer.invoke(
         "job-finder:reset-workspace",
@@ -1201,7 +1211,13 @@ const desktopApi = {
       ipcRenderer.invoke("job-finder:export-resume-pdf", {
         intent,
         jobId,
-      }) as Promise<JobFinderWorkspaceSnapshot>,
+      }) as Promise<JobFinderResumePdfExportResult>,
+    // Shows a file the app wrote in the OS file manager. It never opens or
+    // runs the file, and the renderer keeps no filesystem access of its own.
+    revealSavedFile: (path: string) =>
+      ipcRenderer.invoke("job-finder:reveal-saved-file", {
+        path,
+      }) as Promise<RevealSavedFileResult>,
     approveResume: (jobId: string, exportId: string) =>
       ipcRenderer.invoke("job-finder:approve-resume", {
         jobId,

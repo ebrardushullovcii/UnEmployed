@@ -1,8 +1,10 @@
 import {
+  RESUME_APPROACH_OPTIONS,
   STRONG_REWRITE_WARNING,
   TAILORING_MODE_DESCRIPTIONS,
 } from "./profile-tailoring-copy";
 import { workModeValues } from "@unemployed/contracts";
+import type { ResumeApplicationMode } from "@unemployed/contracts";
 import { useId } from "react";
 import type { UseFormReturn } from "react-hook-form";
 import { Controller } from "react-hook-form";
@@ -19,7 +21,10 @@ import {
   ProfileInput,
   profileSelectTriggerClassName,
 } from "./profile-form-primitives";
-import { ProfileListEditor } from "./profile-list-editor";
+import {
+  parseProfileLocationDraft,
+  ProfileListEditor,
+} from "./profile-list-editor";
 import { PROFILE_WORK_CONSTRAINT_COPY } from "./profile-work-constraints-copy";
 import {
   PROFILE_SECTION_SCROLL_AREA_ID,
@@ -91,8 +96,17 @@ function revealExpectedSalaryAnswerField(documentRef: Document = document) {
 
 export function ProfilePreferencesTargetingSection(props: {
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>;
+  /**
+   * The saved application default. Preferences and Settings edit the same
+   * stored choice, so "Use original resume unchanged" is reachable from either
+   * without the two disagreeing.
+   */
+  resumeApplicationMode?: ResumeApplicationMode;
+  onSelectResumeApplicationMode?: (mode: ResumeApplicationMode) => void;
 }) {
   const { control, register, setValue, watch } = props.preferencesForm;
+  const resumeApplicationMode = props.resumeApplicationMode ?? "tailored_per_job";
+  const usesOriginalResume = resumeApplicationMode === "original_resume";
   const tailoringModeId = useId();
   const minimumSalaryId = useId();
   const targetSalaryId = useId();
@@ -153,8 +167,11 @@ export function ProfilePreferencesTargetingSection(props: {
             placeholder="Add a seniority level"
             values={parseListInput(watch("seniorityLevels"))}
           />
+          {/* "Part-time is the single most important thing about my
+              search" — hours were folded in among the other criteria under a
+              trade name. They get their own labelled control. */}
           <ProfileListEditor
-            label="Employment types"
+            label="Hours (full-time, part-time)"
             onChange={(values) =>
               setValue(
                 "employmentTypes",
@@ -162,7 +179,7 @@ export function ProfilePreferencesTargetingSection(props: {
                 listFieldOptions,
               )
             }
-            placeholder="Add an employment type"
+            placeholder="Add full-time, part-time, contract…"
             values={parseListInput(watch("employmentTypes"))}
           />
         </div>
@@ -174,6 +191,7 @@ export function ProfilePreferencesTargetingSection(props: {
         </h3>
         <div className="grid gap-(--gap-content) md:grid-cols-2 md:items-start">
           <ProfileListEditor
+            draftParser={parseProfileLocationDraft}
             inputId="profile-setup-field-search-preferences-locations"
             label="Preferred locations"
             onChange={(values) =>
@@ -183,6 +201,7 @@ export function ProfilePreferencesTargetingSection(props: {
             values={parseListInput(watch("locations"))}
           />
           <ProfileListEditor
+            draftParser={parseProfileLocationDraft}
             label="Excluded locations"
             onChange={(values) =>
               setValue(
@@ -263,7 +282,7 @@ export function ProfilePreferencesTargetingSection(props: {
             id="profile-work-modes-heading"
             tabIndex={-1}
           >
-            Work mode and compensation
+            Where you work and pay
           </h3>
           <p className="text-sm leading-relaxed text-foreground-muted">
             These values guide job matching. The minimum is your consideration
@@ -346,31 +365,35 @@ export function ProfilePreferencesTargetingSection(props: {
                   Default resume tailoring style
                 </FieldLabel>
                 <FormSelect
-                  onValueChange={field.onChange}
-                  options={[
-                    { label: "Light edit", value: "conservative" },
-                    { label: "Balanced rewrite", value: "balanced" },
-                    { label: "Strong rewrite", value: "aggressive" },
-                  ]}
+                  onValueChange={(value) => {
+                    if (value === "original_resume") {
+                      props.onSelectResumeApplicationMode?.("original_resume");
+                      return;
+                    }
+
+                    if (usesOriginalResume) {
+                      props.onSelectResumeApplicationMode?.("tailored_per_job");
+                    }
+                    field.onChange(value);
+                  }}
+                  options={RESUME_APPROACH_OPTIONS.map((option) => ({
+                    label: option.label,
+                    value: option.value,
+                  }))}
                   placeholder="Select a style"
                   triggerClassName={profileSelectTriggerClassName}
                   triggerId={tailoringModeId}
-                  value={field.value}
+                  value={usesOriginalResume ? "original_resume" : field.value}
                 />
                 {/* The same disclosure the setup screen gives; this dropdown
                     could switch Strong rewrite on without a word about it. */}
                 <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-                  {TAILORING_MODE_DESCRIPTIONS[field.value] ??
-                    TAILORING_MODE_DESCRIPTIONS.balanced}
+                  {usesOriginalResume
+                    ? RESUME_APPROACH_OPTIONS[0].description
+                    : (TAILORING_MODE_DESCRIPTIONS[field.value] ??
+                      TAILORING_MODE_DESCRIPTIONS.balanced)}
                 </p>
-                {/* Setup offers a fourth choice, "Use original resume
-                    unchanged"; it lives in Settings, so say where instead of
-                    letting this list look like the complete set. */}
-                <p className="text-(length:--text-small) leading-5 text-foreground-soft">
-                  To send your original file unchanged instead of a tailored
-                  copy, choose that under Settings › Application defaults.
-                </p>
-                {field.value === "aggressive" ? (
+                {!usesOriginalResume && field.value === "aggressive" ? (
                   <p
                     className="text-sm leading-6 text-(--warning-text)"
                     role="status"

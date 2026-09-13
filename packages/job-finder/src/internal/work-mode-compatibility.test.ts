@@ -99,19 +99,24 @@ describe("work-mode compatibility in match assessments", () => {
     ).toBe(true);
   });
 
-  test("still records an explicit onsite conflict against remote-only preferences", () => {
+  test("records an unticked onsite mode as a gap, not a blocker", () => {
+    // Not ticking onsite is a preference, not a rule the listing broke. The
+    // score still sinks, but the listing is never thrown out for it: "SKIP —
+    // HARD CONFLICT" on a work mode the person had ticked is exactly what
+    // made real hybrid roles disappear from a hybrid search.
     const { assessment } = buildAssessment(["onsite"], ["remote"]);
     const workModeRequirement = assessment.requirements.find(
       (requirement) => requirement.category === "work_mode",
     );
 
-    expect(workModeRequirement?.status).toBe("conflict");
+    expect(workModeRequirement?.status).toBe("missing");
     expect(workModeRequirement?.explanation).toBe(
-      "The listing work mode conflicts with the saved preference.",
+      "The listing work mode is not one you ticked, so it ranks lower rather than being thrown out.",
     );
     expect(assessment.gaps).toContain(
       "Work mode does not match the saved remote or hybrid preferences.",
     );
+    expect(assessment.recommendation).not.toBe("skip");
   });
 
   test("scores ambiguous availability above an explicit work-mode conflict", () => {

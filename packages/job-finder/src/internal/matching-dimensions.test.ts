@@ -115,6 +115,21 @@ describe("match dimensions", () => {
     expect(cardOnlyWithoutRequirements.roleSuitability.state).toBe("adjacent");
   });
 
+  test("credits a captured listing body even when no requirement row can be structured", () => {
+    const dimensions = buildMatchDimensionsAssessment(
+      createInput({ requirements: [] }),
+    );
+
+    expect(dimensions.evidenceConfidence).toMatchObject({
+      level: "moderate",
+      supportedCount: 0,
+      unknownCount: 0,
+    });
+    expect(dimensions.evidenceConfidence.explanation).toContain(
+      "listing body was read",
+    );
+  });
+
   test("turns an explicit required work-authorization conflict into a role conflict", () => {
     const requirement = {
       ...createRequirement("conflict", 1),

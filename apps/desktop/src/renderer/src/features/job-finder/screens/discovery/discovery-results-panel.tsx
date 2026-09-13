@@ -11,12 +11,18 @@ import {
 import type {
   BrowserSessionState,
   DiscoveryJobView,
+  DiscoveryRunRecord,
   JobDiscoveryTarget,
   ListingActivity,
   SavedJob,
   WorkMode,
 } from "@unemployed/contracts";
-import { fitRecommendationValues, workModeValues } from "@unemployed/contracts";
+import {
+  describeInterruptedDiscoveryRun,
+  fitRecommendationValues,
+  getDiscoveryRunPhase,
+  workModeValues,
+} from "@unemployed/contracts";
 import { ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
@@ -78,6 +84,7 @@ import {
   buildDiscoveryHeadedGroupByJobId,
   buildDiscoveryResultGroupHeadings,
   countDiscoveryUncheckedResults,
+  orderDiscoveryResultsByGroup,
 } from "./discovery-result-groups";
 // One name for that window, from the one module that owns it.
 import { JOB_FINDER_BROWSER_NAME } from "@renderer/features/job-finder/lib/job-finder-browser-handoff-copy";
@@ -106,14 +113,32 @@ interface DiscoveryResultsPanelProps {
   facetScopeId?: string | null;
   hasCompletedSearch?: boolean;
   hiddenAlsoFoundCount?: number;
+  focusedHiddenCount?: number;
+  inAreaJobCount?: number;
   isSearchInProgress?: boolean;
   jobs: readonly SavedJob[];
+  preferredLocations?: readonly string[];
+  remoteIncluded?: boolean;
+  totalLocationJobCount?: number;
+  editPlanHref?: string | null;
+  /**
+   * The newest run record, read for its own phase. A run the app close cut
+   * short kept everything it had already scored, and the screen used to
+   * answer that with "Nothing was deleted" — technically true of the hidden
+   * band it was written for, and read as a denial that 35 results had
+   * vanished.
+   */
+  latestRun?: Pick<DiscoveryRunRecord, "runPhase" | "state" | "summary"> | null;
+  latestRunReportLabel?: string | null;
   latestRunVerdict?: DiscoveryLatestRunVerdict | null;
+  /** Starts a fresh search from where the interrupted one stopped. */
+  onSearchAgain?: (() => void) | null;
   onDisplayedSelectedJobIdChange?: (selectedJobId: string | null) => void;
   onRecoveryAction?: (() => void) | null;
   onShowAlsoFound?: (() => void) | null;
   onToggleAlsoFound?: (() => void) | null;
   onSelectJob: (jobId: string) => void;
+  onShortlistJobs?: (jobIds: readonly string[]) => void | Promise<void>;
   recoveryActionLabel?: string | null;
   recoveryActionNextStep?: string | null;
   recoveryActionPending?: boolean;
@@ -421,14 +446,17 @@ export function getDiscoveryListingDateBadge(input: {
   postedAtText: string | null;
   providerUpdatedAt: string | null;
 }): { rankable: boolean; shown: boolean; text: string } {
-  if (!input.postedAt && !input.postedAtText && !input.providerUpdatedAt) {
+  const listingDate = getPostedDateLabel(input);
+
+  // Nothing datable on the listing: the row shows no date badge at all rather
+  // than "Updated Unknown" or whatever token sat in the board's posted slot.
+  if (!listingDate) {
     return { rankable: false, shown: false, text: "" };
   }
 
-  const listingDate = getPostedDateLabel(input);
   const recency = getDiscoveryListingRecencyKey(input);
   const unrankedRelativeLabel =
-    recency.basis === null && Boolean(input.postedAtText?.trim());
+    recency.basis === null && listingDate.label === "Posted";
 
   return {
     rankable: recency.basis !== null,
@@ -559,14 +587,24 @@ export function DiscoveryResultsPanel({
   facetScopeId = null,
   hasCompletedSearch = false,
   hiddenAlsoFoundCount = 0,
+  focusedHiddenCount = 0,
+  inAreaJobCount: completeInAreaJobCount,
   isSearchInProgress = false,
   jobs,
+  preferredLocations = [],
+  remoteIncluded = false,
+  totalLocationJobCount,
+  editPlanHref = null,
+  latestRun = null,
+  latestRunReportLabel = null,
   latestRunVerdict = null,
+  onSearchAgain = null,
   onDisplayedSelectedJobIdChange,
   onRecoveryAction,
   onShowAlsoFound,
   onToggleAlsoFound,
   onSelectJob,
+  onShortlistJobs,
   recoveryActionLabel,
   recoveryActionNextStep,
   recoveryActionPending = false,
@@ -759,7 +797,7 @@ export function DiscoveryResultsPanel({
   // skip re-sorting (and re-allocating) the full result set entirely.
   const orderedJobs = useMemo(() => {
     if (sortDirection === "desc" && sortField === "fit") {
-      return filteredJobs;
+      return orderDiscoveryResultsByGroup(filteredJobs);
     }
     return filteredJobs
       .map((job, sourceIndex) => ({ job, sourceIndex }))
@@ -775,6 +813,15 @@ export function DiscoveryResultsPanel({
       .map((entry) => entry.job);
   }, [filteredJobs, resultsSort.sort, sortDirection, sortField]);
   const jobCount = filteredJobs.length;
+  const locationPopulationCount = totalLocationJobCount ?? jobs.length;
+  const inAreaJobCount =
+    completeInAreaJobCount ??
+    jobs.filter((job) => job.matchAssessment.locationReach === "in_area")
+      .length;
+  const locationCountLabel =
+    preferredLocations.length > 0 && !remoteIncluded
+      ? `${inAreaJobCount} of ${locationPopulationCount} in or near ${preferredLocations.join(" or ")}`
+      : null;
   const pageCount = Math.max(
     1,
     Math.ceil(jobCount / DISCOVERY_RESULTS_PAGE_SIZE),
@@ -792,6 +839,31 @@ export function DiscoveryResultsPanel({
     () => getDiscoveryResultsPage(orderedJobs, currentPage),
     [currentPage, orderedJobs],
   );
+  const [bulkSelectedJobIds, setBulkSelectedJobIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [acknowledgedRescoreJobIds, setAcknowledgedRescoreJobIds] = useState<
+    Set<string>
+  >(() => new Set());
+  const shortlistableJobs = visibleJobs.filter(
+    (job) =>
+      job.status !== "shortlisted" &&
+      job.status !== "submitted" &&
+      getListingActivity(job).status !== "closed",
+  );
+  const shortlistSelected = async () => {
+    const jobIds = shortlistableJobs
+      .filter((job) => bulkSelectedJobIds.has(job.id))
+      .map((job) => job.id);
+    if (jobIds.length === 0 || !onShortlistJobs) return;
+    await onShortlistJobs(jobIds);
+    setBulkSelectedJobIds(new Set());
+  };
+  const shortlistAllShown = async () => {
+    if (shortlistableJobs.length === 0 || !onShortlistJobs) return;
+    await onShortlistJobs(shortlistableJobs.map((job) => job.id));
+    setBulkSelectedJobIds(new Set());
+  };
   // Band dividers only make sense while the list is in its canonical
   // best-match order; any other sort re-interleaves the bands. Headings are
   // built from the rows actually on screen so every page keeps its dividers
@@ -947,14 +1019,22 @@ export function DiscoveryResultsPanel({
   };
   const isCountFiltered =
     deferredQuery.trim().length > 0 || activeFilterCount > 0;
-  const resultCountLabel = isCountFiltered
-    ? `${filteredJobs.length} of ${jobs.length} results`
-    : formatDiscoveryResultBandLabel(bandCounts);
+  const resultCountLabel =
+    latestRunReportLabel ??
+    (isCountFiltered
+      ? `${filteredJobs.length} of ${jobs.length} results`
+      : formatDiscoveryResultBandLabel(bandCounts));
+  const filteredResultCountLabel =
+    latestRunReportLabel && isCountFiltered
+      ? `${filteredJobs.length} of ${jobs.length} shown`
+      : null;
   // Home and Search history describe the same run as "n new jobs saved". This
   // states the total the bands add up to, so the two vocabularies visibly
   // reconcile instead of reading as three different numbers.
   const resultCountTotalLabel =
-    !isCountFiltered && (alsoFoundCount > 0 || titleMatchCount > 0)
+    !latestRunReportLabel &&
+    !isCountFiltered &&
+    (alsoFoundCount > 0 || titleMatchCount > 0)
       ? formatDiscoveryResultBandTotal(bandCounts)
       : null;
   // Terminal empty-state truth: prefer the explicit newest-run verdict; when a
@@ -1023,6 +1103,16 @@ export function DiscoveryResultsPanel({
                 banded headline with the "kept" count Home prints. */}
             {resultCountTotalLabel ? (
               <span> · {resultCountTotalLabel}</span>
+            ) : null}
+            {filteredResultCountLabel ? (
+              <span> · {filteredResultCountLabel}</span>
+            ) : null}
+            {locationCountLabel ? <span> · {locationCountLabel}</span> : null}
+            {focusedHiddenCount > 0 ? (
+              <span>
+                {" "}· Focused search hid {focusedHiddenCount}{" "}
+                {focusedHiddenCount === 1 ? "result" : "results"}
+              </span>
             ) : null}
           </span>
         </div>
@@ -1278,6 +1368,32 @@ export function DiscoveryResultsPanel({
         </>
       ) : null}
 
+      {/* What the close actually did to the run, in the run's own frozen
+          numbers. It sits above the list because it explains the list. */}
+      {latestRun && getDiscoveryRunPhase(latestRun) === "interrupted" ? (
+        <div className="px-5 pt-4">
+          <div
+            className="flex flex-wrap items-center justify-between gap-3 rounded-(--radius-field) border border-(--warning-border) bg-(--warning-surface) px-4 py-3 text-(length:--text-small) leading-6 text-(--warning-text)"
+            data-testid="discovery-interrupted-run-banner"
+            role="status"
+          >
+            <p className="min-w-0">
+              {describeInterruptedDiscoveryRun(latestRun)}
+            </p>
+            {onSearchAgain ? (
+              <Button
+                onClick={onSearchAgain}
+                size="compact"
+                type="button"
+                variant="secondary"
+              >
+                Search again from here
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {allResultsHidden ? (
         <div className="px-5 pt-4">
           <ResultsEmptyState
@@ -1490,11 +1606,11 @@ export function DiscoveryResultsPanel({
       jobs.length === 0 ? (
         <div className="px-5 pt-4">
           <ResultsEmptyState
-            actionHref={JOB_FINDER_ROUTE_PATHS.profileTargetRoles}
+            actionHref={editPlanHref ?? JOB_FINDER_ROUTE_PATHS.campaigns}
             className={emptyClassName ?? "min-h-56"}
             description="No saved source returned a role that met this search. Broaden a role or location, enable another source, then run it again."
-            recoveryActionLabel="Broaden search"
-            recoveryActionNextStep="Review roles, locations, and enabled sources, then return here and search again."
+            recoveryActionLabel="Edit this plan's places"
+            recoveryActionNextStep="Review this plan's places, then return here and search again."
             title="No matches from this search"
           />
         </div>
@@ -1530,6 +1646,14 @@ export function DiscoveryResultsPanel({
         </div>
       ) : jobs.length > 0 && filteredJobs.length === 0 ? (
         <CollectionNoMatches
+          // "No jobs match 'Akron'" over eleven kept results read as a search
+          // that found nothing. It found eleven; none of them answer this
+          // word, and saying both is the only true version.
+          description={`This search kept ${jobs.length} ${
+            jobs.length === 1 ? "job" : "jobs"
+          }, found elsewhere. Clear the search to see ${
+            jobs.length === 1 ? "it" : "them"
+          }.`}
           noun="jobs"
           onClear={() => view.setQuery("")}
           query={view.query}
@@ -1546,6 +1670,31 @@ export function DiscoveryResultsPanel({
           className="flex min-h-0 flex-col overflow-hidden xl:flex-1"
           data-job-results-stack
         >
+          {onShortlistJobs && shortlistableJobs.length > 0 ? (
+            <div
+              aria-label="Bulk shortlist actions"
+              className="flex flex-wrap items-center gap-2 border-b border-(--surface-panel-border) px-4 py-2.5"
+              role="group"
+            >
+              <Button
+                disabled={bulkSelectedJobIds.size === 0}
+                onClick={() => void shortlistSelected()}
+                size="sm"
+                type="button"
+                variant="secondary"
+              >
+                Shortlist selected
+              </Button>
+              <Button
+                onClick={() => void shortlistAllShown()}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Shortlist all {shortlistableJobs.length} shown
+              </Button>
+            </div>
+          ) : null}
           <div
             aria-label="Job results list"
             // The scroll padding keeps the last card clear of the two-pane
@@ -1625,9 +1774,19 @@ export function DiscoveryResultsPanel({
                     : activity.description;
 
                 const groupHeading = groupHeadingsByJobId.get(job.id);
+                const wasRescoredAfterRead =
+                  !acknowledgedRescoreJobIds.has(job.id) &&
+                  Boolean(
+                    job.latestMatchAssessmentAudit?.inputChanges.some(
+                      (change) => change.code === "listing_evidence_changed",
+                    ) &&
+                      job.latestMatchAssessmentAudit.outputChanges.some(
+                        (change) => change.code === "score_changed",
+                      ),
+                  );
 
                 return (
-                  <li key={job.id} className="min-w-0">
+                  <li key={job.id} className="relative min-w-0 pl-10">
                     {groupHeading ? (
                       <div
                         className="grid gap-1 border-y border-(--surface-panel-border) bg-(--surface-panel-raised) px-4 py-2.5"
@@ -1641,6 +1800,26 @@ export function DiscoveryResultsPanel({
                         </span>
                       </div>
                     ) : null}
+                    {onShortlistJobs &&
+                    job.status !== "shortlisted" &&
+                    job.status !== "submitted" ? (
+                      <label className="absolute left-3 top-4 z-10 inline-flex size-7 items-center justify-center rounded-(--radius-small) focus-within:ring-[3px] focus-within:ring-ring/40">
+                        <span className="sr-only">Select {job.title}</span>
+                        <input
+                          aria-label={`Select ${job.title}`}
+                          checked={bulkSelectedJobIds.has(job.id)}
+                          onChange={(event) => {
+                            setBulkSelectedJobIds((current) => {
+                              const next = new Set(current);
+                              if (event.target.checked) next.add(job.id);
+                              else next.delete(job.id);
+                              return next;
+                            });
+                          }}
+                          type="checkbox"
+                        />
+                      </label>
+                    ) : null}
                     <SelectableRow
                       aria-controls={DISCOVERY_DETAIL_REGION_ID}
                       data-job-result-id={job.id}
@@ -1648,6 +1827,11 @@ export function DiscoveryResultsPanel({
                       aria-keyshortcuts="ArrowUp ArrowDown Home End"
                       data-collection-item-id={job.id}
                       onClick={(event) => {
+                        if (wasRescoredAfterRead) {
+                          setAcknowledgedRescoreJobIds(
+                            (current) => new Set(current).add(job.id),
+                          );
+                        }
                         onSelectJob(job.id);
                         if (event.detail === 0) {
                           focusDiscoveryDetailAfterKeyboardSelection();
@@ -1837,6 +2021,11 @@ export function DiscoveryResultsPanel({
                             data-testid={`discovery-result-fit-reason-${job.id}`}
                           >
                             {rowReason}
+                          </span>
+                        ) : null}
+                        {wasRescoredAfterRead ? (
+                          <span className="text-(length:--text-tiny) text-foreground-soft">
+                            Rescored after reading the listing
                           </span>
                         ) : null}
                       </div>

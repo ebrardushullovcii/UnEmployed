@@ -92,7 +92,11 @@ describe("every model caller sends the identity headers", () => {
     // fails here instead of in a user's import.
     const { readdir, readFile } = await import("node:fs/promises");
     const path = await import("node:path");
-    const dir = path.dirname(new URL(import.meta.url).pathname);
+    const { fileURLToPath } = await import("node:url");
+    // `new URL(...).pathname` yields "/D:/..." on Windows, which then joins
+    // onto the drive root as "D:\D:\...". fileURLToPath gives the real
+    // platform path on both.
+    const dir = path.dirname(fileURLToPath(import.meta.url));
     const files = (await readdir(dir)).filter(
       (name) => name.endsWith(".ts") && !name.includes(".test."),
     );
@@ -133,11 +137,33 @@ describe("OpenCode-compatible client requests", () => {
         UNEMPLOYED_AI_BASE_URL: "https://opencode.ai/zen/go/v1",
       }),
     );
+    // Distinct content words, not one phrase repeated: the client refuses to
+    // tailor toward a body that could describe any job, so a filler listing
+    // never reaches the model and this test would see only one request.
+    const listingTopics = [
+      "settlement",
+      "ledger",
+      "reconciliation",
+      "chargeback",
+      "payout",
+      "invoicing",
+      "kubernetes",
+      "terraform",
+      "postgres",
+      "kafka",
+      "observability",
+      "latency",
+      "compliance",
+      "audit",
+      "onboarding",
+      "forecasting",
+    ];
     const job = {
       ...createJobPosting(),
       description: Array.from(
         { length: 80 },
-        (_, index) => `requirement ${index}`,
+        (_, index) =>
+          `${listingTopics[index % listingTopics.length]} requirement ${index}`,
       ).join(" "),
     };
     const input = {

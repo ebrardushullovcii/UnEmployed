@@ -28,6 +28,8 @@ import {
   clampCopilotPosition,
   getDefaultCopilotPosition,
   getDraggedCopilotPosition,
+  getCopilotOpenPanelMaxWidth,
+  getCopilotReservedColumnWidth,
   getCopilotPanelDimensions,
   getCopilotViewportInset,
   getProfileCopilotSafeTopOffset,
@@ -51,14 +53,29 @@ const PROFILE_COPILOT_PANEL_SIZE_LIMITS: CopilotPanelSizeLimits = {
   maxWidth: 360,
 };
 
-function getProfileCopilotPanelSizeLimits(): CopilotPanelSizeLimits {
-  if (typeof window === "undefined" || window.innerWidth >= 640) {
+function getProfileCopilotPanelSizeLimits(
+  contentColumnRight: number | null,
+): CopilotPanelSizeLimits {
+  if (typeof window === "undefined") {
     return PROFILE_COPILOT_PANEL_SIZE_LIMITS;
   }
 
+  if (window.innerWidth < 640) {
+    return {
+      maxHeight: 460,
+      maxWidth: Math.max(0, window.innerWidth - 24),
+    };
+  }
+
+  // The open panel is sized to the space beside the edited column so it
+  // stops covering the fields it names.
   return {
-    maxHeight: 460,
-    maxWidth: Math.max(0, window.innerWidth - 24),
+    maxHeight: PROFILE_COPILOT_PANEL_SIZE_LIMITS.maxHeight,
+    maxWidth: getCopilotOpenPanelMaxWidth({
+      contentColumnRight,
+      maxWidth: PROFILE_COPILOT_PANEL_SIZE_LIMITS.maxWidth,
+      viewportWidth: window.innerWidth,
+    }),
   };
 }
 
@@ -140,6 +157,13 @@ export function ProfileCopilotRail(props: {
    * Without a slot the launcher falls back to the floating bottom-right pill.
    */
   launcherContainer?: HTMLElement | null;
+  /**
+   * Reports how much width the edited column must give up while the panel is
+   * open. Sizing the panel into the free space is not enough on a window that
+   * leaves none: the screen reserves the room so the panel docks beside the
+   * fields instead of over them.
+   */
+  onReserveColumnWidth?: (width: number) => void;
   title?: string;
 }) {
   const [input, setInput] = useState("");
@@ -152,6 +176,18 @@ export function ProfileCopilotRail(props: {
   // is not this component's parent, and the same marker already names that row
   // everywhere else in the app.
   const profileActionsContainer = useProfileLauncherContainer();
+  // The height of the screen's sticky action row, re-queried on the same pass
+  // as the safe top offset. The open panel floats above the page, so its
+  // clearance from the bottom of the window has to clear that row: with a
+  // fixed clearance the panel sat on "Save changes" and "Finish setup and find
+  // jobs", and a person had to minimize the Assistant to press the button it
+  // had just told them to press.
+  const [profileActionRowHeight, setProfileActionRowHeight] = useState(0);
+  // Right edge of the column the person is editing. The open panel is sized
+  // against it so it never lands on a field it is talking about.
+  const [contentColumnRight, setContentColumnRight] = useState<number | null>(
+    null,
+  );
   const [focusKind, setFocusKind] = useState<CopilotFocusKind>("none");
   const [position, setPosition] = useState(() => getDefaultCopilotPosition());
   const inputRef = useRef("");
@@ -184,7 +220,28 @@ export function ProfileCopilotRail(props: {
   } | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
   const suppressNextBubbleClickRef = useRef(false);
-  const panelSizeLimits = getProfileCopilotPanelSizeLimits();
+  const panelSizeLimits = getProfileCopilotPanelSizeLimits(contentColumnRight);
+  const onReserveColumnWidth = props.onReserveColumnWidth;
+  useEffect(() => {
+    if (!onReserveColumnWidth) {
+      return undefined;
+    }
+
+    onReserveColumnWidth(
+      getCopilotReservedColumnWidth({
+        contentColumnRight,
+        isOpen,
+        maxWidth: PROFILE_COPILOT_PANEL_SIZE_LIMITS.maxWidth,
+        viewportWidth: typeof window === "undefined" ? 0 : window.innerWidth,
+      }),
+    );
+
+    // Give the reservation back when the rail unmounts, or the column keeps a
+    // gutter for a panel that is no longer on screen.
+    return () => {
+      onReserveColumnWidth(0);
+    };
+  }, [contentColumnRight, isOpen, onReserveColumnWidth]);
   // The floating copilot dialog joins the app-wide LIFO overlay stack so
   // stacked surfaces close one per Escape and shell aliases stay blocked.
   const { isTopmost: isCopilotTopmost } = useJobFinderOverlayOwnership({
@@ -246,7 +303,11 @@ export function ProfileCopilotRail(props: {
     props.launcherContainer === undefined
       ? profileActionsContainer
       : props.launcherContainer;
-  const workspaceActionClearance = COPILOT_BOTTOM_OFFSET;
+  // The open panel must clear the screen's sticky action row, not just the
+  // window edge, so Save/Finish and the buttons the Assistant names stay
+  // reachable while it is open.
+  const workspaceActionClearance =
+    COPILOT_BOTTOM_OFFSET + profileActionRowHeight;
   const minBottomOffset = Math.max(
     props.minBottomOffset ?? COPILOT_BOTTOM_OFFSET,
     workspaceActionClearance,
@@ -339,12 +400,23 @@ export function ProfileCopilotRail(props: {
 
     const getProfileTabs = () =>
       document.querySelector<HTMLElement>("[data-profile-section-tabs]");
+    const getProfileActionRow = () =>
+      document.querySelector<HTMLElement>("[data-profile-workspace-actions]");
     const updateSafeTopOffset = () => {
       setSafeTopOffset(
         getProfileCopilotSafeTopOffset({
           shellHeaderBottom: shellHeader.getBoundingClientRect().bottom,
           profileTabsBottom: getProfileTabs()?.getBoundingClientRect().bottom,
         }),
+      );
+      const actionRowRect = getProfileActionRow()?.getBoundingClientRect();
+      setProfileActionRowHeight(Math.round(actionRowRect?.height ?? 0));
+      // The save/action row spans the edited column, so its right edge is the
+      // column's right edge without a marker of its own.
+      setContentColumnRight(
+        actionRowRect && actionRowRect.width > 0
+          ? Math.round(actionRowRect.right)
+          : null,
       );
     };
     const observer =
@@ -378,6 +450,10 @@ export function ProfileCopilotRail(props: {
     const profileTabs = getProfileTabs();
     if (profileTabs) {
       observer?.observe(profileTabs);
+    }
+    const profileActionRow = getProfileActionRow();
+    if (profileActionRow) {
+      observer?.observe(profileActionRow);
     }
     document.addEventListener("scroll", handleScroll, {
       capture: true,

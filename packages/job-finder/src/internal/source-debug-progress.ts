@@ -7,6 +7,30 @@ import {
 
 import { formatStatusLabel } from "./source-instructions";
 
+/**
+ * What each stage of a source check is actually doing, said the way a person
+ * would say it.
+ *
+ * The only feedback a person got while a source check ran was a rotating
+ * sequence of the internal phase names — "Access Auth Probe", "Site Structure
+ * Mapping", "Replay Verification" — which describe the code's stages, not
+ * anything the person asked for. These are the same stages named by what they
+ * are finding out.
+ */
+const SOURCE_DEBUG_PHASE_PLAIN_LABELS: Record<SourceDebugPhase, string> = {
+  access_auth_probe: "Checking whether this site lets Job Finder in",
+  site_structure_mapping: "Learning how this site lays out its jobs",
+  search_filter_probe: "Trying this site's own search and filters",
+  job_detail_validation: "Opening a job to check what it shows",
+  apply_path_validation: "Following the apply button to see where it leads",
+  replay_verification: "Repeating the steps to check they work every time",
+};
+
+/** The plain sentence for one stage; falls back to a readable label. */
+function describeSourceDebugPhase(phase: SourceDebugPhase): string {
+  return SOURCE_DEBUG_PHASE_PLAIN_LABELS[phase] ?? formatStatusLabel(phase);
+}
+
 function normalizeProgressUrl(value: string | null | undefined): string | null {
   if (!value) {
     return null;
@@ -17,6 +41,41 @@ function normalizeProgressUrl(value: string | null | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+export interface SourceDebugOpenFailureCopy {
+  summary: string;
+  technicalDetails: string;
+}
+
+/** Converts browser navigation failures into screen-safe source-check copy. */
+export function describeSourceDebugOpenFailure(
+  error: unknown,
+  sourceLabel: string,
+): SourceDebugOpenFailureCopy | null {
+  const technicalDetails =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  if (
+    !/(?:ApplicationNavigationError|page\.(?:goto|waitFor)|navigation.*(?:failed|timeout)|Timeout \d+ms exceeded|net::ERR_)/iu.test(
+      technicalDetails,
+    )
+  ) {
+    return null;
+  }
+
+  const timedOut = /(?:timeout|timed out)/iu.test(technicalDetails);
+  return {
+    summary: `Job Finder could not open ${sourceLabel} (${
+      timedOut
+        ? "the page did not load in time"
+        : "the page could not be opened"
+    }).`,
+    technicalDetails,
+  };
 }
 
 export function buildSourceDebugProgressEmitter(input: {
@@ -68,7 +127,10 @@ function inferProgressWaitReason(
     return "waiting_on_ai";
   }
 
-  if (normalizedAction === "thinking" || normalizedAction.includes("retrying_ai")) {
+  if (
+    normalizedAction === "thinking" ||
+    normalizedAction.includes("retrying_ai")
+  ) {
     return normalizedAction.includes("retrying_ai")
       ? "retrying_ai"
       : "waiting_on_ai";
@@ -99,31 +161,31 @@ function buildFallbackProgressMessage(
 ): string {
   switch (waitReason) {
     case "waiting_on_ai":
-      return `${phaseLabel}: planning the next browser action (step ${stepCount}).`;
+      return `${phaseLabel}: working out what to do next (step ${stepCount}).`;
     case "retrying_ai":
-      return `${phaseLabel}: retrying AI planning after a temporary model error.`;
+      return `${phaseLabel}: trying again after a hiccup working out the next step.`;
     case "waiting_on_page":
-      return `${phaseLabel}: waiting for the page to settle before continuing.`;
+      return `${phaseLabel}: waiting for the page to finish loading.`;
     case "executing_tool":
-      return `${phaseLabel}: executing the next browser action.`;
+      return `${phaseLabel}: using the site.`;
     case "retrying_tool":
-      return `${phaseLabel}: retrying the last browser action after a temporary page error.`;
+      return `${phaseLabel}: trying the last step again after the page did not respond.`;
     case "extracting_jobs":
-      return `${phaseLabel}: extracting jobs from the current page (${jobsFound} found so far).`;
+      return `${phaseLabel}: reading the jobs on this page (${jobsFound} so far).`;
     case "persisting_results":
-      return `${phaseLabel}: saving the findings from this phase.`;
+      return `${phaseLabel}: saving what this stage found.`;
     case "manual_prerequisite":
-      return `${phaseLabel}: waiting on a manual browser prerequisite.`;
+      return `${phaseLabel}: waiting for you to finish a step in the browser.`;
     case "finalizing":
-      return "Finalizing the source-debug run.";
+      return "Finishing the check on this job site.";
     case "starting_browser":
-      return "Starting or attaching the browser profile for source debug.";
+      return "Opening the browser to check this job site.";
     case "attaching_browser":
-      return "Preparing the browser tab for the next phase.";
+      return "Getting the browser tab ready for the next stage.";
     case "merging_results":
-      return `${phaseLabel}: organizing the collected findings.`;
+      return `${phaseLabel}: putting together what was found.`;
     default:
-      return `${phaseLabel}: continuing source debug.`;
+      return `${phaseLabel}: still checking this job site.`;
   }
 }
 
@@ -134,7 +196,7 @@ export function summarizeAgentProgressForSourceDebug(
   waitReason: SourceDebugProgressEvent["waitReason"];
   message: string;
 } {
-  const phaseLabel = formatStatusLabel(phase);
+  const phaseLabel = describeSourceDebugPhase(phase);
   const waitReason = inferProgressWaitReason(progress);
   const message =
     progress.message?.trim() ||

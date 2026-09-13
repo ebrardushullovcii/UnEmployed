@@ -1,4 +1,8 @@
-import { ApplyJobResultSchema, ApplyRunSchema } from "@unemployed/contracts";
+import {
+  ApplicationRecordSchema,
+  ApplyJobResultSchema,
+  ApplyRunSchema,
+} from "@unemployed/contracts";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { deriveGlobalDailyApplicationPreparationCapacity } from "./application-preparation-capacity";
@@ -247,5 +251,134 @@ describe("global daily application preparation capacity", () => {
         applyJobResults: [],
       }).resetsAt,
     ).toBe("2026-11-02T05:00:00.000Z");
+  });
+});
+
+describe("application records in the daily counter", () => {
+  function record(input: {
+    jobId: string;
+    at: string;
+    preparationStartedAt?: string;
+  }) {
+    return ApplicationRecordSchema.parse({
+      id: `application_${input.jobId}`,
+      jobId: input.jobId,
+      title: "Senior Engineer",
+      company: "Acme",
+      status: "approved",
+      lastActionLabel: "Application record created for safe preparation.",
+      nextActionLabel: null,
+      lastUpdatedAt: input.at,
+      events: input.preparationStartedAt
+        ? [
+            {
+              id: `event_${input.jobId}_preparation_started`,
+              at: input.preparationStartedAt,
+              title: "Application preparation started",
+              detail: "The employer application was opened for preparation.",
+              emphasis: "neutral",
+            },
+          ]
+        : [],
+    });
+  }
+
+  test("counts today's prepared applications and never double-counts a job", () => {
+    // The footer read "0 of 20 used" after twenty preparations because only
+    // apply-run results were counted.
+    const capacity = deriveGlobalDailyApplicationPreparationCapacity({
+      now: new Date("2026-03-08T18:00:00.000Z"),
+      applyRuns: [],
+      applyJobResults: [],
+      applicationRecords: [
+        record({
+          jobId: "job-1",
+          at: "2026-03-08T17:05:00.000Z",
+          preparationStartedAt: "2026-03-08T17:00:00.000Z",
+        }),
+        record({
+          jobId: "job-2",
+          at: "2026-03-08T17:35:00.000Z",
+          preparationStartedAt: "2026-03-08T17:30:00.000Z",
+        }),
+        record({
+          jobId: "job-old",
+          at: "2026-03-08T17:40:00.000Z",
+          preparationStartedAt: "2026-03-01T17:30:00.000Z",
+        }),
+      ],
+    });
+
+    expect(capacity.used).toBe(2);
+    expect(capacity.remaining).toBe(capacity.limit - 2);
+  });
+
+  test("a job held by a live reservation is not charged again by its record", () => {
+    // The record is written the moment preparation begins, a beat before the
+    // run's apply-job result exists. Counting both halved the real daily limit.
+    const capacity = deriveGlobalDailyApplicationPreparationCapacity({
+      now: new Date("2026-03-08T18:00:00.000Z"),
+      applyRuns: [],
+      applyJobResults: [],
+      applicationRecords: [
+        record({
+          jobId: "job-1",
+          at: "2026-03-08T17:05:00.000Z",
+          preparationStartedAt: "2026-03-08T17:00:00.000Z",
+        }),
+        record({
+          jobId: "job-2",
+          at: "2026-03-08T17:35:00.000Z",
+          preparationStartedAt: "2026-03-08T17:30:00.000Z",
+        }),
+      ],
+      reservedJobIds: ["job-1"],
+    });
+
+    expect(capacity.used).toBe(1);
+  });
+
+  test("a job already counted through its apply result consumes one slot", () => {
+    const applyRun = run({
+      id: "run-1",
+      campaignId: null,
+      createdAt: "2026-03-08T16:00:00.000Z",
+    });
+    const capacity = deriveGlobalDailyApplicationPreparationCapacity({
+      now: new Date("2026-03-08T18:00:00.000Z"),
+      applyRuns: [applyRun],
+      applyJobResults: [
+        result({
+          id: "result-1",
+          runId: applyRun.id,
+          jobId: "job-1",
+          state: "filling",
+          preparationStartedAt: "2026-03-08T17:00:00.000Z",
+          preparationStartedLocalDate: "2026-03-08",
+        }),
+      ],
+      applicationRecords: [
+        record({
+          jobId: "job-1",
+          at: "2026-03-08T17:05:00.000Z",
+          preparationStartedAt: "2026-03-08T17:00:00.000Z",
+        }),
+      ],
+    });
+
+    expect(capacity.used).toBe(1);
+  });
+
+  test("a record created before a failed preflight does not consume capacity", () => {
+    const capacity = deriveGlobalDailyApplicationPreparationCapacity({
+      now: new Date("2026-03-08T18:00:00.000Z"),
+      applyRuns: [],
+      applyJobResults: [],
+      applicationRecords: [
+        record({ jobId: "job-preflight-failed", at: "2026-03-08T17:00:00.000Z" }),
+      ],
+    });
+
+    expect(capacity).toMatchObject({ used: 0, remaining: capacity.limit });
   });
 });

@@ -13,8 +13,36 @@ import {
 import { StatusBadge } from "../../components/status-badge";
 import { getApprovalTone } from "./applications-detail-panel-helpers";
 
+/**
+ * True while this run is still waiting for the person to approve preparation.
+ *
+ * The panel pins the approve control to its own footer in exactly this state,
+ * so one predicate decides both that footer and whether the section below
+ * repeats the button.
+ */
+export function isAwaitingPreparationApproval(
+  details: ApplyRunDetails | null,
+): boolean {
+  return (
+    details?.submitApproval?.status === "pending" &&
+    details.run.state === "awaiting_submit_approval"
+  );
+}
+
+/** The exact words on the approve control, wherever it is drawn. */
+export function preparationApprovalActionLabel(jobCount: number): string {
+  return jobCount === 1
+    ? "Approve safe preparation"
+    : `Approve safe preparation for ${jobCount} jobs`;
+}
+
 export function ApplicationsDetailPanelSubmitApprovalSection(props: {
   approvalScopeEntries: readonly { jobId: string; label: string }[];
+  /**
+   * False while the panel's pinned footer carries the approve control, so the
+   * screen never shows the same button twice.
+   */
+  showApproveAction?: boolean;
   isApplyRunPending: (runId: string) => boolean;
   isSelectedRunPending: boolean;
   onApproveApplyRun: (input: JobFinderApplyRunActionInput) => void;
@@ -33,6 +61,7 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
     selectedApplicationTarget,
     selectedApplyRunDetails,
   } = props;
+  const showApproveAction = props.showApproveAction ?? true;
 
   if (!selectedApplyRunDetails?.submitApproval) {
     return null;
@@ -107,8 +136,8 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
         yourself.
       </div>
       <div className="flex flex-wrap gap-2">
-        {submitApproval.status === "pending" &&
-        selectedApplyRunDetails.run.state === "awaiting_submit_approval" ? (
+        {showApproveAction &&
+        isAwaitingPreparationApproval(selectedApplyRunDetails) ? (
           <Button
             onClick={() =>
               onApproveApplyRun({
@@ -121,9 +150,7 @@ export function ApplicationsDetailPanelSubmitApprovalSection(props: {
             variant="secondary"
             disabled={isApplyRunPending(submitApproval.runId)}
           >
-            {submitApproval.jobIds.length === 1
-              ? "Approve safe preparation"
-              : `Approve safe preparation for ${submitApproval.jobIds.length} jobs`}
+            {preparationApprovalActionLabel(submitApproval.jobIds.length)}
           </Button>
         ) : null}
         {submitApproval.status === "approved" &&

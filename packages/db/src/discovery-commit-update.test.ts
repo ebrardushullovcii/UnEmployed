@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import {
   DiscoveryLedgerEntrySchema,
+  DiscoveryRunRecordSchema,
   SavedJobSchema,
 } from "@unemployed/contracts";
 import type { JobFinderDiscoveryState } from "@unemployed/contracts";
@@ -490,5 +491,86 @@ describe("file repository cross-handle discovery concurrency", () => {
     } finally {
       await cleanupTempDirectoryWithRetry(temp.tempDirectory);
     }
+  });
+});
+
+describe("incremental per-run discovery appends", () => {
+  test("keeps each scored result the moment it lands and stays idempotent per run", async () => {
+    // A quit mid-search used to discard everything a run had scored, because
+    // results were only committed at the terminal commit. Appends are keyed
+    // by the ledger identity, so replaying the same result changes nothing.
+    const repository = createInMemoryJobFinderRepository(createSeed());
+    const runId = "run_incremental";
+
+    for (const index of [1, 2, 3]) {
+      await repository.commitSavedJobDelta({
+        upserts: [
+          createSavedJob({
+            id: `job_${index}`,
+            sourceJobId: `target_${index}`,
+          }),
+        ],
+        updateDiscoveryState: (current) => ({
+          ...current,
+          runState: "running",
+          activeRun:
+            current.activeRun && current.activeRun.id === runId
+              ? current.activeRun
+              : DiscoveryRunRecordSchema.parse({
+                  id: runId,
+                  campaignId: null,
+                  state: "running",
+                  runPhase: "in_progress",
+                  scope: "run_all",
+                  startedAt: "2026-03-20T10:00:00.000Z",
+                  completedAt: null,
+                  targetIds: [],
+                  targetExecutions: [],
+                  activity: [],
+                  summary: {},
+                }),
+          discoveryLedger: [
+            ...current.discoveryLedger.filter(
+              (entry) => entry.id !== `ledger_${index}`,
+            ),
+            createLedgerEntry(`ledger_${index}`),
+          ],
+        }),
+      });
+    }
+
+    const afterFirstPass = await repository.listSavedJobs();
+    const seededIds = createSeed().savedJobs.map((job) => job.id);
+    expect(
+      afterFirstPass
+        .map((job) => job.id)
+        .filter((id) => !seededIds.includes(id)),
+    ).toEqual(["job_1", "job_2", "job_3"]);
+    expect((await repository.getDiscoveryState()).activeRun?.runPhase).toBe(
+      "in_progress",
+    );
+
+    // Replaying the same appends after a restart adds nothing.
+    await repository.commitSavedJobDelta({
+      upserts: [createSavedJob({ id: "job_2", sourceJobId: "target_2" })],
+      updateDiscoveryState: (current) => ({
+        ...current,
+        discoveryLedger: [
+          ...current.discoveryLedger.filter(
+            (entry) => entry.id !== "ledger_2",
+          ),
+          createLedgerEntry("ledger_2"),
+        ],
+      }),
+    });
+
+    expect((await repository.listSavedJobs()).length).toBe(
+      afterFirstPass.length,
+    );
+    expect(
+      (await repository.getDiscoveryState()).discoveryLedger.filter(
+        (entry) => entry.id === "ledger_2",
+      ).length,
+    ).toBe(1);
   });
 });

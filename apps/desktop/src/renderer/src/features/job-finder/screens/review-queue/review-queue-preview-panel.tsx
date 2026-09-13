@@ -22,6 +22,7 @@ import {
   needsResumeGeneration,
 } from "./review-queue-status";
 import { formatDateOnly } from "../../lib/job-finder-utils";
+import { describeUntailorableListing } from "./resume-workspace-utils";
 
 interface ReviewQueuePreviewPanelProps {
   /** Seconds the current preparation has been running. */
@@ -34,6 +35,13 @@ interface ReviewQueuePreviewPanelProps {
   onEditResumeWorkspace: (jobId: string) => void;
   onGenerateResume: (jobId: string) => Promise<boolean>;
   originalResume?: ResumeSourceDocument;
+  /**
+   * Jobs whose application is already prepared. Shortlisted rows read this,
+   * so the panel has to read it too: without it the same job was badged
+   * "Application prepared" in the list and "Ready to prepare" here, seconds
+   * apart, from the same data.
+   */
+  preparedJobIds?: ReadonlySet<string>;
   previewState: PreviewState;
   queue: readonly ReviewQueueItem[];
   selectedAsset: TailoredAsset | null;
@@ -52,6 +60,7 @@ export function ReviewQueuePreviewPanel({
   onEditResumeWorkspace,
   onGenerateResume,
   originalResume,
+  preparedJobIds,
   previewState,
   queue,
   selectedAsset,
@@ -71,11 +80,21 @@ export function ReviewQueuePreviewPanel({
     selectedItem,
     selectedAsset,
     isSelectedJobPending,
+    preparedJobIds,
   );
   const previewTone =
     previewState === "missing" ? "critical" : workflowStatus.tone;
   const previewLabel =
     previewState === "missing" ? "Resume issue" : workflowStatus.label;
+  // When the listing text was never captured, nothing could be tailored and
+  // the document is the person's own resume. The stored asset label still says
+  // "Tailored Resume", which contradicts the explanation on this same screen,
+  // so the document is named for what it actually is.
+  const documentLabel = selectedAsset
+    ? describeUntailorableListing(selectedAsset)
+      ? "Your original resume"
+      : selectedAsset.label
+    : null;
 
   return (
     <section
@@ -378,7 +397,7 @@ export function ReviewQueuePreviewPanel({
               </strong>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <span className="text-[0.9rem] text-foreground-soft">
-                  {selectedAsset.label}
+                  {documentLabel}
                 </span>
               </div>
             </div>

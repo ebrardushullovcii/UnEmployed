@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { Page } from "playwright";
 import { runAgentDiscovery, type JobExtractor, type LLMClient } from "./agent";
 import {
@@ -7,16 +7,20 @@ import {
   createToolCall,
 } from "./agent.test-fixtures";
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("runAgentDiscovery stagnation behavior", () => {
   test("discovery stops early after repeated zero-yield extraction passes on a cold source", async () => {
     const page = createPage() as Page;
     let llmCallCount = 0;
     const llmClient: LLMClient = {
-      chatWithTools: vi.fn(async () => {
+      chatWithTools: vi.fn(() => {
         llmCallCount += 1;
 
         if (llmCallCount === 1) {
-          return {
+          return Promise.resolve({
             content: "extract one strong sample job first",
             toolCalls: [
               createToolCall(
@@ -25,11 +29,11 @@ describe("runAgentDiscovery stagnation behavior", () => {
                 "tool_extract_stagnation_seed",
               ),
             ],
-          };
+          });
         }
 
         if (llmCallCount <= 4) {
-          return {
+          return Promise.resolve({
             content: "check another likely detail page",
             toolCalls: [
               createToolCall(
@@ -38,22 +42,22 @@ describe("runAgentDiscovery stagnation behavior", () => {
                 `tool_extract_stagnation_${llmCallCount}`,
               ),
             ],
-          };
+          });
         }
 
-        return {
+        return Promise.resolve({
           content: "No action taken",
           toolCalls: [],
-        };
+        });
       }),
     };
     let extractionCallCount = 0;
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => {
+      extractJobsFromPage: vi.fn(() => {
         extractionCallCount += 1;
 
         if (extractionCallCount === 1) {
-          return [
+          return Promise.resolve([
             {
               sourceJobId: "job_stagnation_seed",
               canonicalUrl:
@@ -71,10 +75,10 @@ describe("runAgentDiscovery stagnation behavior", () => {
               keySkills: ["React"],
               responsibilities: [],
             },
-          ];
+          ]);
         }
 
-        return [];
+        return Promise.resolve([]);
       }),
     };
 
@@ -103,11 +107,11 @@ describe("runAgentDiscovery stagnation behavior", () => {
     const page = createPage() as Page;
     let llmCallCount = 0;
     const llmClient: LLMClient = {
-      chatWithTools: vi.fn(async () => {
+      chatWithTools: vi.fn(() => {
         llmCallCount += 1;
 
         if (llmCallCount === 1) {
-          return {
+          return Promise.resolve({
             content: "extract a strong candidate set first",
             toolCalls: [
               createToolCall(
@@ -116,10 +120,10 @@ describe("runAgentDiscovery stagnation behavior", () => {
                 "tool_extract_candidate_hold_seed",
               ),
             ],
-          };
+          });
         }
 
-        return {
+        return Promise.resolve({
           content: "keep probing even though nothing new is appearing",
           toolCalls: [
             createToolCall(
@@ -128,34 +132,36 @@ describe("runAgentDiscovery stagnation behavior", () => {
               `tool_probe_candidate_hold_${llmCallCount}`,
             ),
           ],
-        };
+        });
       }),
     };
     let extractionCallCount = 0;
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => {
+      extractJobsFromPage: vi.fn(() => {
         extractionCallCount += 1;
 
         if (extractionCallCount === 1) {
-          return Array.from({ length: 4 }, (_, index) => ({
-            sourceJobId: `job_candidate_hold_${index}`,
-            canonicalUrl: `https://www.linkedin.com/jobs/view/job_candidate_hold_${index}`,
-            title: `Workflow Engineer ${index}`,
-            company: "Signal Systems",
-            location: "Remote",
-            workMode: ["remote" as const],
-            applyPath: "unknown" as const,
-            postedAt: "2026-03-20T09:00:00.000Z",
-            salaryText: null,
-            summary: "Useful candidate set before the source goes stale.",
-            description: "Useful candidate set before the source goes stale.",
-            easyApplyEligible: false,
-            keySkills: ["React"],
-            responsibilities: [],
-          }));
+          return Promise.resolve(
+            Array.from({ length: 4 }, (_, index) => ({
+              sourceJobId: `job_candidate_hold_${index}`,
+              canonicalUrl: `https://www.linkedin.com/jobs/view/job_candidate_hold_${index}`,
+              title: `Workflow Engineer ${index}`,
+              company: "Signal Systems",
+              location: "Remote",
+              workMode: ["remote" as const],
+              applyPath: "unknown" as const,
+              postedAt: "2026-03-20T09:00:00.000Z",
+              salaryText: null,
+              summary: "Useful candidate set before the source goes stale.",
+              description: "Useful candidate set before the source goes stale.",
+              easyApplyEligible: false,
+              keySkills: ["React"],
+              responsibilities: [],
+            })),
+          );
         }
 
-        return [];
+        return Promise.resolve([]);
       }),
     };
 
@@ -184,11 +190,11 @@ describe("runAgentDiscovery stagnation behavior", () => {
     const page = createPage() as Page;
     let llmCallCount = 0;
     const llmClient: LLMClient = {
-      chatWithTools: vi.fn(async () => {
+      chatWithTools: vi.fn(() => {
         llmCallCount += 1;
 
         if (llmCallCount === 1) {
-          return {
+          return Promise.resolve({
             content: "extract one candidate first",
             toolCalls: [
               createToolCall(
@@ -197,10 +203,10 @@ describe("runAgentDiscovery stagnation behavior", () => {
                 "tool_extract_single_candidate_seed",
               ),
             ],
-          };
+          });
         }
 
-        return {
+        return Promise.resolve({
           content: "keep probing even though nothing new is appearing",
           toolCalls: [
             createToolCall(
@@ -209,16 +215,16 @@ describe("runAgentDiscovery stagnation behavior", () => {
               `tool_probe_single_candidate_${llmCallCount}`,
             ),
           ],
-        };
+        });
       }),
     };
     let extractionCallCount = 0;
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => {
+      extractJobsFromPage: vi.fn(() => {
         extractionCallCount += 1;
 
         if (extractionCallCount === 1) {
-          return [
+          return Promise.resolve([
             {
               sourceJobId: "job_single_candidate_hold",
               canonicalUrl:
@@ -238,10 +244,10 @@ describe("runAgentDiscovery stagnation behavior", () => {
               keySkills: ["React"],
               responsibilities: [],
             },
-          ];
+          ]);
         }
 
-        return [];
+        return Promise.resolve([]);
       }),
     };
 
@@ -270,11 +276,11 @@ describe("runAgentDiscovery stagnation behavior", () => {
     const page = createPage() as Page;
     let llmCallCount = 0;
     const llmClient: LLMClient = {
-      chatWithTools: vi.fn(async () => {
+      chatWithTools: vi.fn(() => {
         llmCallCount += 1;
 
         if (llmCallCount === 1) {
-          return {
+          return Promise.resolve({
             content: "extract an initial but weak candidate set",
             toolCalls: [
               createToolCall(
@@ -283,10 +289,10 @@ describe("runAgentDiscovery stagnation behavior", () => {
                 "tool_extract_misaligned_hold_seed",
               ),
             ],
-          };
+          });
         }
 
-        return {
+        return Promise.resolve({
           content: "keep probing because the current candidates are weak fits",
           toolCalls: [
             createToolCall(
@@ -295,36 +301,38 @@ describe("runAgentDiscovery stagnation behavior", () => {
               `tool_probe_misaligned_hold_${llmCallCount}`,
             ),
           ],
-        };
+        });
       }),
     };
     let extractionCallCount = 0;
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => {
+      extractJobsFromPage: vi.fn(() => {
         extractionCallCount += 1;
 
         if (extractionCallCount === 1) {
-          return Array.from({ length: 4 }, (_, index) => ({
-            sourceJobId: `job_misaligned_hold_${index}`,
-            canonicalUrl: `https://www.linkedin.com/jobs/view/job_misaligned_hold_${index}`,
-            title: `Retail Category Manager ${index}`,
-            company: "Signal Systems",
-            location: "Remote",
-            workMode: ["remote" as const],
-            applyPath: "unknown" as const,
-            postedAt: "2026-03-20T09:00:00.000Z",
-            salaryText: null,
-            summary:
-              "Misaligned retail candidate set should not trigger early hold.",
-            description:
-              "Retail planning, merchandising, and category ownership.",
-            easyApplyEligible: false,
-            keySkills: ["Merchandising"],
-            responsibilities: [],
-          }));
+          return Promise.resolve(
+            Array.from({ length: 4 }, (_, index) => ({
+              sourceJobId: `job_misaligned_hold_${index}`,
+              canonicalUrl: `https://www.linkedin.com/jobs/view/job_misaligned_hold_${index}`,
+              title: `Retail Category Manager ${index}`,
+              company: "Signal Systems",
+              location: "Remote",
+              workMode: ["remote" as const],
+              applyPath: "unknown" as const,
+              postedAt: "2026-03-20T09:00:00.000Z",
+              salaryText: null,
+              summary:
+                "Misaligned retail candidate set should not trigger early hold.",
+              description:
+                "Retail planning, merchandising, and category ownership.",
+              easyApplyEligible: false,
+              keySkills: ["Merchandising"],
+              responsibilities: [],
+            })),
+          );
         }
 
-        return [];
+        return Promise.resolve([]);
       }),
     };
 
@@ -357,11 +365,11 @@ describe("runAgentDiscovery stagnation behavior", () => {
     const page = createPage() as Page;
     let llmCallCount = 0;
     const llmClient: LLMClient = {
-      chatWithTools: vi.fn(async () => {
+      chatWithTools: vi.fn(() => {
         llmCallCount += 1;
 
         if (llmCallCount === 1) {
-          return {
+          return Promise.resolve({
             content: "extract one strong sample job first",
             toolCalls: [
               createToolCall(
@@ -370,10 +378,10 @@ describe("runAgentDiscovery stagnation behavior", () => {
                 "tool_extract_revisit_seed",
               ),
             ],
-          };
+          });
         }
 
-        return {
+        return Promise.resolve({
           content: "retry the same results page even though nothing changes",
           toolCalls: [
             createToolCall(
@@ -382,16 +390,16 @@ describe("runAgentDiscovery stagnation behavior", () => {
               `tool_navigate_revisit_${llmCallCount}`,
             ),
           ],
-        };
+        });
       }),
     };
     let extractionCallCount = 0;
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => {
+      extractJobsFromPage: vi.fn(() => {
         extractionCallCount += 1;
 
         if (extractionCallCount === 1) {
-          return [
+          return Promise.resolve([
             {
               sourceJobId: "job_revisit_seed",
               canonicalUrl:
@@ -411,10 +419,10 @@ describe("runAgentDiscovery stagnation behavior", () => {
               keySkills: ["React"],
               responsibilities: [],
             },
-          ];
+          ]);
         }
 
-        return [];
+        return Promise.resolve([]);
       }),
     };
 
@@ -438,7 +446,7 @@ describe("runAgentDiscovery stagnation behavior", () => {
     expect(result.jobs).toHaveLength(1);
     expect(result.steps).toBe(9);
     expect(result.incomplete).toBe(true);
-    expect(result.error).toContain("no new jobs");
+    expect(result.error).toContain("showed nothing new after several tries");
     expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(1);
     expect(llmClient.chatWithTools).toHaveBeenCalledTimes(9);
   });
@@ -447,11 +455,11 @@ describe("runAgentDiscovery stagnation behavior", () => {
     const page = createPage() as Page;
     let llmCallCount = 0;
     const llmClient: LLMClient = {
-      chatWithTools: vi.fn(async () => {
+      chatWithTools: vi.fn(() => {
         llmCallCount += 1;
 
         if (llmCallCount === 1) {
-          return {
+          return Promise.resolve({
             content: "extract a strong candidate pair first",
             toolCalls: [
               createToolCall(
@@ -460,11 +468,11 @@ describe("runAgentDiscovery stagnation behavior", () => {
                 "tool_extract_new_url_seed",
               ),
             ],
-          };
+          });
         }
 
         if (llmCallCount % 2 === 0) {
-          return {
+          return Promise.resolve({
             content: "follow a fresh pagination route",
             toolCalls: [
               createToolCall(
@@ -476,10 +484,10 @@ describe("runAgentDiscovery stagnation behavior", () => {
                 `tool_navigate_new_url_${llmCallCount}`,
               ),
             ],
-          };
+          });
         }
 
-        return {
+        return Promise.resolve({
           content: "extract from each newly landed surface",
           toolCalls: [
             createToolCall(
@@ -488,36 +496,38 @@ describe("runAgentDiscovery stagnation behavior", () => {
               `tool_extract_new_url_${llmCallCount}`,
             ),
           ],
-        };
+        });
       }),
     };
     let extractionCallCount = 0;
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => {
+      extractJobsFromPage: vi.fn(() => {
         extractionCallCount += 1;
 
         if (extractionCallCount === 1) {
-          return Array.from({ length: 2 }, (_, index) => ({
-            sourceJobId: `job_new_url_seed_${index}`,
-            canonicalUrl: `https://www.linkedin.com/jobs/view/job_new_url_seed_${index}`,
-            title: `Workflow Engineer ${index}`,
-            company: "Signal Systems",
-            location: "Remote",
-            workMode: ["remote" as const],
-            applyPath: "unknown" as const,
-            postedAt: "2026-03-20T09:00:00.000Z",
-            salaryText: null,
-            summary:
-              "Useful candidates while pagination is still opening new routes.",
-            description:
-              "Useful candidates while pagination is still opening new routes.",
-            easyApplyEligible: false,
-            keySkills: ["React"],
-            responsibilities: [],
-          }));
+          return Promise.resolve(
+            Array.from({ length: 2 }, (_, index) => ({
+              sourceJobId: `job_new_url_seed_${index}`,
+              canonicalUrl: `https://www.linkedin.com/jobs/view/job_new_url_seed_${index}`,
+              title: `Workflow Engineer ${index}`,
+              company: "Signal Systems",
+              location: "Remote",
+              workMode: ["remote" as const],
+              applyPath: "unknown" as const,
+              postedAt: "2026-03-20T09:00:00.000Z",
+              salaryText: null,
+              summary:
+                "Useful candidates while pagination is still opening new routes.",
+              description:
+                "Useful candidates while pagination is still opening new routes.",
+              easyApplyEligible: false,
+              keySkills: ["React"],
+              responsibilities: [],
+            })),
+          );
         }
 
-        return [];
+        return Promise.resolve([]);
       }),
     };
 
@@ -556,11 +566,11 @@ describe("runAgentDiscovery stagnation behavior", () => {
     const abortController = new AbortController();
     let llmCallCount = 0;
     const llmClient: LLMClient = {
-      chatWithTools: vi.fn(async () => {
+      chatWithTools: vi.fn(() => {
         llmCallCount += 1;
 
         if (llmCallCount === 1) {
-          return {
+          return Promise.resolve({
             content: "extract one strong sample job first",
             toolCalls: [
               createToolCall(
@@ -569,23 +579,23 @@ describe("runAgentDiscovery stagnation behavior", () => {
                 "tool_extract_abort_seed",
               ),
             ],
-          };
+          });
         }
 
         abortController.abort();
-        return {
+        return Promise.resolve({
           content: "No action taken",
           toolCalls: [],
-        };
+        });
       }),
     };
     let extractionCallCount = 0;
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => {
+      extractJobsFromPage: vi.fn(() => {
         extractionCallCount += 1;
 
         if (extractionCallCount === 1) {
-          return [
+          return Promise.resolve([
             {
               sourceJobId: "job_abort_seed",
               canonicalUrl: "https://www.linkedin.com/jobs/view/job_abort_seed",
@@ -602,10 +612,10 @@ describe("runAgentDiscovery stagnation behavior", () => {
               keySkills: ["React"],
               responsibilities: [],
             },
-          ];
+          ]);
         }
 
-        return [];
+        return Promise.resolve([]);
       }),
     };
 
@@ -632,5 +642,61 @@ describe("runAgentDiscovery stagnation behavior", () => {
     expect(result.incomplete).toBe(true);
     expect(result.error).toBeUndefined();
     expect(llmClient.chatWithTools).toHaveBeenCalledTimes(2);
+  });
+
+  test("emits a heartbeat and stops a page read at the per-source time budget", async () => {
+    vi.useFakeTimers();
+    let rejectRead: ((reason: unknown) => void) | null = null;
+    const close = vi.fn(() => {
+      rejectRead?.(new DOMException("Page closed", "AbortError"));
+      return Promise.resolve();
+    });
+    const page = {
+      close,
+      evaluate: vi.fn(() => Promise.resolve([])),
+      goto: vi.fn(() => Promise.resolve(null)),
+      locator: vi.fn(() => ({
+        innerText: () =>
+          new Promise<string>((_resolve, reject) => {
+            rejectRead = reject;
+          }),
+      })),
+      title: vi.fn(() => Promise.resolve("Primary target")),
+      url: vi.fn(() => "https://www.linkedin.com/jobs/search/"),
+      waitForTimeout: vi.fn(() => Promise.resolve()),
+    } as unknown as Page;
+    const config = createConfig();
+    config.runControl = { timeBudgetMs: 60_000, noProgressStepLimit: 8 };
+    const progressActions: string[] = [];
+    const chatWithTools: LLMClient["chatWithTools"] = (
+      _messages,
+      _tools,
+      options,
+    ) =>
+      new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("Aborted", "AbortError")),
+          { once: true },
+        );
+      });
+    const resultPromise = runAgentDiscovery(
+      page,
+      config,
+      { chatWithTools },
+      { extractJobsFromPage: vi.fn(() => Promise.resolve([])) },
+      (event) => progressActions.push(event.currentAction ?? ""),
+    );
+
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(progressActions).toContain("source_read_heartbeat");
+    await vi.advanceTimersByTimeAsync(35_000);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      incomplete: true,
+      error:
+        "This source reached its time limit. Saved jobs were kept and the search moved on.",
+    });
+    expect(close).toHaveBeenCalledOnce();
   });
 });

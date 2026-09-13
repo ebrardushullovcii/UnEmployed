@@ -63,6 +63,12 @@ import type {
   JobFinderShellActions,
 } from "@renderer/features/job-finder/lib/job-finder-types";
 import {
+  formatDiscoveryRunReportLabel,
+  getDiscoveryRunReportCounts,
+  hasDiscoveryRunReportCounts,
+} from "@renderer/features/job-finder/lib/discovery-run-count-label";
+import {
+  createDiscoveryRunAlreadyRunningFeedback,
   createDiscoveryRunCancelledFeedback,
   createDiscoveryRunFailedFeedback,
   createDiscoveryRunInterruptedFeedback,
@@ -71,6 +77,7 @@ import {
   createDiscoveryRunStartedFeedback,
   createDiscoveryRunSucceededFeedback,
   getDiscoveryCancelledSavedJobCount,
+  isDiscoveryAlreadyRunningDetail,
   shouldPresentRepeatedDiscoveryFeedback,
   type DiscoveryRunFeedback,
 } from "@renderer/features/job-finder/screens/discovery/discovery-run-feedback";
@@ -99,8 +106,18 @@ import {
   type JobFinderSaveSurface,
 } from "./job-finder-save-state";
 
-/** How long an apply start may keep every Prepare control disabled. */
-const APPLY_PENDING_RELEASE_MS = 90_000;
+import { COMMAND_PENDING_RELEASE_MS } from "@renderer/features/job-finder/lib/discovery-stop-state";
+import {
+  describeResumeIdentityOwnershipChoice,
+  useResumeSourceNameForProfile,
+} from "@unemployed/job-finder/resume-identity";
+
+/**
+ * How long a browser-backed command may keep its controls disabled. Defined
+ * beside the stop-state helper that bounds a Stop request with the same
+ * window, and re-exported here for the call sites that already import it.
+ */
+export { COMMAND_PENDING_RELEASE_MS };
 
 type ActionOptions = {
   clearMessageOnStart?: boolean;
@@ -112,6 +129,7 @@ type ActionOptions = {
    * own state is shown by the Applications screen and the Tasks panel.
    */
   releasePendingAfterMs?: number;
+  pendingTimeoutMessage?: string;
   rethrowError?: boolean;
   scope?: PendingActionScope;
   startMessage?: string;
@@ -205,6 +223,17 @@ let isDiscoveryRunActive = false;
  * lifetimes only; it never survives a full reload.
  */
 let isTailoredDraftPreparationRunActive = false;
+
+/**
+ * Stop lives beside the run guard, not only on a controller ref.
+ *
+ * The batch survives a controller remount — the module flag above is exactly
+ * what keeps it running — but the stop request was written to a `useRef` that
+ * a remount replaces with a fresh `false`. A Stop pressed after that remount
+ * reached nobody: testers saw preparation advance to "Writing resume 8 of 10"
+ * forty-five seconds after pressing it. This flag lives as long as the run.
+ */
+let tailoredDraftPreparationStopRequested = false;
 
 /**
  * Route ownership for the single page-level action status (`ActionState`).
@@ -473,6 +502,7 @@ export function createActionRunners(args: {
     scope: PendingActionScope | null,
     action: () => Promise<TResult>,
     releasePendingAfterMs?: number,
+    onPendingTimeout?: () => void,
   ) => {
     if (!scope) {
       return action();
@@ -497,7 +527,10 @@ export function createActionRunners(args: {
     };
     const releaseTimer =
       releasePendingAfterMs !== undefined
-        ? setTimeout(release, releasePendingAfterMs)
+        ? setTimeout(() => {
+            release();
+            onPendingTimeout?.();
+          }, releasePendingAfterMs)
         : null;
 
     try {
@@ -561,6 +594,12 @@ export function createActionRunners(args: {
           });
         },
         options?.releasePendingAfterMs,
+        options?.pendingTimeoutMessage
+          ? () =>
+              applyStatusMessage({
+                message: options.pendingTimeoutMessage ?? null,
+              })
+          : undefined,
       );
       return true;
     } catch (error) {
@@ -827,6 +866,7 @@ export function createPrimaryPageActions(
 
     const target = targetId ? getConfiguredSourceTarget(targetId) : null;
     const targetLabel = target?.label ?? null;
+    const campaignIdForRun = workspace.activeCampaignId;
     const hasRunnableSource = targetId
       ? target !== null && isRunnableJobDiscoveryTarget(target)
       : workspace.searchPreferences.discovery.targets.some(
@@ -942,13 +982,18 @@ export function createPrimaryPageActions(
           refreshedDiscoverySnapshot?.recentDiscoveryRuns ??
           agentDiscoveryResult?.snapshot.recentDiscoveryRuns ??
           [];
-        const newestRun = [...discoveryRuns].sort(
+        const newestRun = discoveryRuns
+          .filter((run) => run.campaignId === campaignIdForRun)
+          .sort(
           (left, right) =>
             Date.parse(right.startedAt) - Date.parse(left.startedAt),
-        )[0];
+          )[0];
         const validJobsFound = newestRun?.summary.validJobsFound ?? 0;
         const duplicatesMerged = newestRun?.summary.duplicatesMerged ?? 0;
+        const reportCounts = getDiscoveryRunReportCounts(newestRun);
+        const hasReport = hasDiscoveryRunReportCounts(reportCounts);
         setDiscoveryRunFeedback(
+          !hasReport &&
           shouldPresentRepeatedDiscoveryFeedback({
             duplicatesMerged,
             validJobsFound,
@@ -959,7 +1004,12 @@ export function createPrimaryPageActions(
                   newestRun?.summary.changeDigest?.known ?? null,
                 targetLabel,
               })
-            : createDiscoveryRunSucceededFeedback(targetLabel),
+            : createDiscoveryRunSucceededFeedback(
+                targetLabel,
+                hasReport
+                  ? formatDiscoveryRunReportLabel(reportCounts)
+                  : null,
+              ),
         );
       })
       .catch((error: unknown) => {
@@ -970,6 +1020,16 @@ export function createPrimaryPageActions(
         // and the callout would silently fall back to "try again".
         const detail =
           getJobFinderErrorDetail(error) ?? "The search failed on this device.";
+        // The service refused a second search because the first one is still
+        // live — a Stop that has not finished yet lands here. That is not a
+        // failure: the run the person already has is still going.
+        if (isDiscoveryAlreadyRunningDetail(detail)) {
+          setDiscoveryRunFeedback(
+            createDiscoveryRunAlreadyRunningFeedback(targetLabel),
+          );
+          void actions.refreshWorkspace().catch(() => undefined);
+          return;
+        }
         // Progress events prove the run started; only a rejection with no
         // observed progress may claim the search could not start.
         const feedback = sawDiscoveryProgress
@@ -1012,7 +1072,7 @@ export function createPrimaryPageActions(
           // Preparation can run for minutes and can hang on a job site; the
           // Applications screen and the Tasks panel show its real state, so
           // the buttons must not stay disabled for the whole call.
-          { scope, releasePendingAfterMs: APPLY_PENDING_RELEASE_MS },
+          { scope, releasePendingAfterMs: COMMAND_PENDING_RELEASE_MS },
         );
       },
     );
@@ -1056,6 +1116,7 @@ export function createPrimaryPageActions(
     isTailoredDraftPreparationRunActive = true;
     tailoredDraftPreparationRunRef.current = true;
     tailoredDraftPreparationStopRequestedRef.current = false;
+    tailoredDraftPreparationStopRequested = false;
 
     try {
       setTailoredDraftPreparation({
@@ -1084,7 +1145,14 @@ export function createPrimaryPageActions(
         },
         {
           onProgress: ({ completedCount, currentIndex, totalCount }) => {
-            if (tailoredDraftPreparationDisposedRef.current) {
+            if (
+              tailoredDraftPreparationDisposedRef.current ||
+              // Once Stop is pressed the count must not keep climbing: the
+              // run is finishing the item it already started and nothing
+              // after it.
+              tailoredDraftPreparationStopRequested ||
+              tailoredDraftPreparationStopRequestedRef.current
+            ) {
               return;
             }
 
@@ -1098,6 +1166,7 @@ export function createPrimaryPageActions(
             }));
           },
           shouldStop: () =>
+            tailoredDraftPreparationStopRequested ||
             tailoredDraftPreparationStopRequestedRef.current ||
             tailoredDraftPreparationDisposedRef.current,
         },
@@ -1144,10 +1213,12 @@ export function createPrimaryPageActions(
         })
         .finally(() => {
           isTailoredDraftPreparationRunActive = false;
+          tailoredDraftPreparationStopRequested = false;
           tailoredDraftPreparationRunRef.current = false;
         });
     } catch (error) {
       isTailoredDraftPreparationRunActive = false;
+      tailoredDraftPreparationStopRequested = false;
       tailoredDraftPreparationRunRef.current = false;
       throw error;
     }
@@ -1199,14 +1270,24 @@ export function createPrimaryPageActions(
         () => actions.approveApplyRun(input),
         () => undefined,
         "Safe preparation approved. Final submission and account creation remain disabled.",
-        { scope: jobFinderPendingActions.applyRun(input.runId) },
+        {
+          scope: jobFinderPendingActions.applyRun(input.runId),
+          releasePendingAfterMs: COMMAND_PENDING_RELEASE_MS,
+          pendingTimeoutMessage:
+            "This took too long to confirm. Check its status before trying again.",
+        },
       ),
     onCancelApplyRun: (input: JobFinderApplyRunActionInput) =>
       runAction(
         () => actions.cancelApplyRun(input),
         () => undefined,
         "Application preparation run cancelled.",
-        { scope: jobFinderPendingActions.applyRun(input.runId) },
+        {
+          scope: jobFinderPendingActions.applyRun(input.runId),
+          releasePendingAfterMs: COMMAND_PENDING_RELEASE_MS,
+          pendingTimeoutMessage:
+            "This took too long to confirm. Check its status before trying again.",
+        },
       ),
     onApproveApply: (jobId: string) => {
       void confirmLeaveDirtyResumeWorkspace("approve this application").then(
@@ -1658,11 +1739,21 @@ export function createPrimaryPageActions(
     },
     onPrepareTailoredDrafts: prepareTailoredDrafts,
     onStopTailoredDraftPreparation: () => {
-      if (!tailoredDraftPreparationRunRef.current) {
+      // The run outlives this controller, so a Stop pressed after a remount
+      // has to be accepted on the module-level guard as well.
+      if (
+        !tailoredDraftPreparationRunRef.current &&
+        !isTailoredDraftPreparationRunActive
+      ) {
         return;
       }
 
       tailoredDraftPreparationStopRequestedRef.current = true;
+      tailoredDraftPreparationStopRequested = true;
+      // The progress figure freezes where it stands (see `onProgress`): the
+      // run is finishing the draft it already started and scheduling nothing
+      // after it. The terminal state is written when it really has stopped,
+      // so nothing here claims it stopped before it did.
     },
     onSetJobResumeApplicationMode: (
       jobId: string,
@@ -1760,7 +1851,32 @@ export function createPrimaryPageActions(
       ),
     onRunAgentDiscovery: () => runDiscoveryAction(),
     onRunDiscoveryForTarget: (targetId: string) => runDiscoveryAction(targetId),
-    onRunSourceDebug: (targetId: string) => {
+    onCancelDiscovery: async (runId: string) => {
+      try {
+        const nextWorkspace = await actions.cancelAgentDiscovery({ runId });
+        const currentRun = nextWorkspace.activeDiscoveryRun;
+        return (
+          (currentRun?.id === runId &&
+            Boolean(currentRun.cancellationRequestedAt)) ||
+          nextWorkspace.recentDiscoveryRuns.some(
+            (run) => run.id === runId && run.state === "cancelled",
+          )
+        );
+      } catch (error) {
+        applyRouteScopedMessage({
+          message:
+            getJobFinderErrorMessage(
+              error,
+              "The search could not be stopped. Check its status, then try again.",
+            ),
+        });
+        return false;
+      }
+    },
+    onRunSourceDebug: (
+      targetId: string,
+      options?: { readabilityTimeoutMs?: number },
+    ) => {
       const ownerStartRoute = jobFinderStatusRoute;
       sourceDebugRunIdRef.current += 1;
       const runId = sourceDebugRunIdRef.current;
@@ -1787,6 +1903,7 @@ export function createPrimaryPageActions(
                 ownerStartRoute,
               );
             },
+            options,
           );
 
           if (sourceDebugRunIdRef.current !== runId) {
@@ -2111,15 +2228,121 @@ export function createPrimaryPageActions(
         scope: jobFinderPendingActions.profileMutation(),
         surface: "profile",
       }),
-    onExportResumePdf: (jobId: string) =>
+    onExportResumePdf: (jobId: string) => {
+      const ownerStartRoute = jobFinderStatusRoute;
       void runResumeWorkspaceAction(
         () => actions.exportResumePdf(jobId),
-        async () => {
+        async (result) => {
           await refreshResumeWorkspace(jobId);
+          // The export used to report success whatever happened, including
+          // when the save dialog was dismissed and no file was ever written.
+          // Each outcome says what the person actually has, and a written file
+          // carries its path as an action rather than as text to retype.
+          applyRouteScopedMessage(
+            {
+              message:
+                result.outcome === "cancelled"
+                  ? "Export cancelled. No file was saved."
+                  : result.outputPath
+                    ? `Saved your resume PDF to ${result.outputPath}.`
+                    : "Your resume PDF is ready in Job Finder. No folder was chosen, so nothing was written to disk.",
+              savedFilePath:
+                result.outcome === "cancelled"
+                  ? null
+                  : (result.outputPath ?? null),
+            },
+            ownerStartRoute,
+          );
         },
-        "PDF exported for review.",
+        null,
         { scope: jobFinderPendingActions.resumeExport(jobId) },
-      ),
+      );
+    },
+    // "The imported resume identifies 'TAYLOR QUINN', but the visible resume
+    // identity is 'Jamal Reyes'" is sometimes simply true: one document, one
+    // person, an old name. The block offered no way to say so, which left the
+    // whole resume path dead. Saying it is the person's own action and it is
+    // recorded as such — nothing is inferred for them (ADR 0018).
+    onClaimResumeIdentity: () => {
+      const profile = workspace.profile;
+      if (!profile) {
+        return;
+      }
+
+      const choice = describeResumeIdentityOwnershipChoice(profile);
+      void runSaveAction({
+        action: () =>
+          actions.saveProfile({
+            ...profile,
+            resumeIdentityOwnership: choice.acknowledgement,
+          }),
+        dedupeKey: createSaveDedupeKey(
+          "profile",
+          choice.acknowledgement,
+        ),
+        failedFallback:
+          "That choice was not saved. Retry before leaving this page.",
+        label: "Resume identity",
+        onSuccess: () => undefined,
+        savedMessage: choice.sourceFullName
+          ? `Saved. Job Finder will treat "${choice.sourceFullName}" as your own earlier name and use your profile name on resumes.`
+          : "Saved. Job Finder will use your profile name on resumes.",
+        scope: jobFinderPendingActions.profileMutation(),
+        surface: "profile",
+      });
+    },
+    onKeepResumeIdentity: () => {
+      const profile = workspace.profile;
+      if (!profile) {
+        return;
+      }
+
+      const nextProfile = useResumeSourceNameForProfile(profile);
+      void runSaveAction({
+        action: () => actions.saveProfile(nextProfile),
+        dedupeKey: createSaveDedupeKey("profile", nextProfile),
+        failedFallback:
+          "The resume name was not saved. Retry before preparing jobs.",
+        label: "Resume identity",
+        onSuccess: () => undefined,
+        savedMessage: "Saved. Your profile now uses the resume's name.",
+        scope: jobFinderPendingActions.profileMutation(),
+        surface: "profile",
+      });
+    },
+    onRevealSavedFile: (path: string) => {
+      const ownerStartRoute = jobFinderStatusRoute;
+      void (async () => {
+        try {
+          const result = await actions.revealSavedFile(path);
+          if (result.outcome === "revealed") {
+            return;
+          }
+
+          applyRouteScopedMessage(
+            {
+              message:
+                result.outcome === "not_found"
+                  ? `That file is no longer at ${path}. Export it again to save a new copy.`
+                  : "This device cannot open a folder from Job Finder. The path above is where the file was saved.",
+              savedFilePath: null,
+            },
+            ownerStartRoute,
+          );
+        } catch (error) {
+          applyRouteScopedMessage(
+            {
+              message: getJobFinderErrorMessage(
+                error,
+                "The folder could not be opened. The path above is where the file was saved.",
+              ),
+              savedFilePath: null,
+            },
+            ownerStartRoute,
+          );
+        }
+      })();
+    },
     onSaveSearchPreferences: (searchPreferences: JobSearchPreferences) => {
       // Search settings belong to the current plan, and a saved change is
       // only felt on the next search, so the confirmation says both.

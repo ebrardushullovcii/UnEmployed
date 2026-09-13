@@ -173,7 +173,7 @@ describe("Find jobs fit honesty", () => {
     // of on every row underneath it.
     const heading = screen.getByTestId("discovery-results-group-unchecked");
     expect(heading.textContent).toContain(
-      "Title matches · not yet checked (1)",
+      "Matches your role, not yet scored (1)",
     );
     expect(screen.queryByTestId(`discovery-result-fit-${job.id}`)).toBeNull();
     expect(
@@ -185,7 +185,7 @@ describe("Find jobs fit honesty", () => {
     const srOnly = screen.getByTestId(`discovery-result-fit-sr-${job.id}`);
     expect(srOnly.className).toContain("sr-only");
     expect(srOnly.textContent).toBe(
-      "Overall fit: title match only, not scored. Fit is based on the title alone. Review the listing details before applying.",
+      "Overall fit: title-only estimate. Fit is based on the title alone. Review the listing details before applying.",
     );
     // …and it is the row's only carrier of that reason.
     expect(screen.getAllByText(/Fit is based on the title alone/)).toEqual([

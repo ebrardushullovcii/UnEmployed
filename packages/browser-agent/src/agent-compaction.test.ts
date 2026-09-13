@@ -88,19 +88,19 @@ describe("runAgentDiscovery compaction", () => {
     ];
     let callIndex = 0;
     const llmClient: LLMClient = {
-      async chatWithTools() {
+      chatWithTools() {
         const toolCalls =
           llmCalls[Math.min(callIndex, llmCalls.length - 1)] ?? [];
         callIndex += 1;
-        return {
+        return Promise.resolve({
           content: `step ${callIndex}`,
           toolCalls,
-        };
+        });
       },
     };
     const jobExtractor: JobExtractor = {
-      async extractJobsFromPage() {
-        return [];
+      extractJobsFromPage() {
+        return Promise.resolve([]);
       },
     };
 
@@ -137,7 +137,9 @@ describe("runAgentDiscovery compaction", () => {
     expect(result.transcriptMessageCount).toBeLessThanOrEqual(6);
     expect(result.compactionUsedFallbackTrigger).toBe(false);
     expect(result.debugFindings?.summary).toContain("Keyword search");
-    expect(result.debugFindings?.trickyFilters?.[0]).toContain("category chips");
+    expect(result.debugFindings?.trickyFilters?.[0]).toContain(
+      "category chips",
+    );
   });
 
   test("compaction preserves tool-call context so later llm requests do not start with orphan tool messages", async () => {
@@ -177,7 +179,7 @@ describe("runAgentDiscovery compaction", () => {
     ];
     let callIndex = 0;
     const llmClient: LLMClient = {
-      async chatWithTools(messages) {
+      chatWithTools(messages) {
         const firstToolIndex = messages.findIndex(
           (message) => message.role === "tool",
         );
@@ -185,7 +187,9 @@ describe("runAgentDiscovery compaction", () => {
           const firstToolMessage = messages[firstToolIndex];
           expect(firstToolMessage?.role).toBe("tool");
           if (firstToolMessage?.role !== "tool") {
-            throw new Error("Expected a tool message at firstToolIndex");
+            return Promise.reject(
+              new Error("Expected a tool message at firstToolIndex"),
+            );
           }
 
           const hasMatchingAssistant = messages
@@ -205,15 +209,15 @@ describe("runAgentDiscovery compaction", () => {
         const toolCalls =
           llmCalls[Math.min(callIndex, llmCalls.length - 1)] ?? [];
         callIndex += 1;
-        return {
+        return Promise.resolve({
           content: `step ${callIndex}`,
           toolCalls,
-        };
+        });
       },
     };
     const jobExtractor: JobExtractor = {
-      async extractJobsFromPage() {
-        return [];
+      extractJobsFromPage() {
+        return Promise.resolve([]);
       },
     };
 
@@ -423,9 +427,9 @@ describe("runAgentDiscovery compaction", () => {
 
     let callIndex = 0;
     const llmClient: LLMClient = {
-      async chatWithTools() {
+      chatWithTools() {
         callIndex += 1;
-        return {
+        return Promise.resolve({
           content: `step ${callIndex}`,
           toolCalls:
             callIndex >= 3
@@ -451,12 +455,12 @@ describe("runAgentDiscovery compaction", () => {
                     `nav_${callIndex}`,
                   ),
                 ],
-        };
+        });
       },
     };
     const jobExtractor: JobExtractor = {
-      async extractJobsFromPage() {
-        return [];
+      extractJobsFromPage() {
+        return Promise.resolve([]);
       },
     };
 
@@ -497,14 +501,17 @@ describe("runAgentDiscovery compaction", () => {
 
     let llmCallCount = 0;
     const llmClient: LLMClient = {
-      async chatWithTools() {
+      chatWithTools() {
         llmCallCount += 1;
-        return { content: "should not be called", toolCalls: [] };
+        return Promise.resolve({
+          content: "should not be called",
+          toolCalls: [],
+        });
       },
     };
     const jobExtractor: JobExtractor = {
-      async extractJobsFromPage() {
-        return [];
+      extractJobsFromPage() {
+        return Promise.resolve([]);
       },
     };
 

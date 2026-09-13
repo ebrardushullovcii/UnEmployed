@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { app, BrowserWindow, dialog } from "electron";
+import { access } from "node:fs/promises";
+import { app, BrowserWindow, dialog, shell } from "electron";
 import type {
   IpcMain,
   IpcMainInvokeEvent,
@@ -25,6 +26,7 @@ import {
   DesktopTestOkResponseSchema,
   JobFinderAgentDiscoveryActionInputSchema,
   JobFinderAgentDiscoveryResultSchema,
+  JobFinderDiscoveryCancellationInputSchema,
   JobFinderApplicationPacketExportResultSchema,
   JobFinderApplyCopilotActionInputSchema,
   JobFinderApplyConsentActionInputSchema,
@@ -56,7 +58,10 @@ import {
   JobFinderResumeWorkspaceSchema,
   JobFinderResumeSectionActionInputSchema,
   JobFinderExportResumePdfInputSchema,
+  JobFinderResumePdfExportResultSchema,
   JobFinderJobActionInputSchema,
+  RevealSavedFileInputSchema,
+  RevealSavedFileResultSchema,
   JobFinderJobResumeApplicationModeInputSchema,
   JobFinderDismissDiscoveryJobInputSchema,
   EmployerExclusionPreviewSchema,
@@ -117,10 +122,15 @@ import {
   UserActionCommandSchema,
 } from "@unemployed/contracts";
 import type { JobFinderWorkspaceSnapshot } from "@unemployed/contracts";
-import { createJobFinderProductActionToolRegistry } from "@unemployed/job-finder";
+import {
+  createJobFinderProductActionToolRegistry,
+  resolveTailoredAssetLabel,
+} from "@unemployed/job-finder";
 import { buildJobFinderDiagnosticExport } from "../services/job-finder/build-diagnostic-export";
 import { collectJobFinderPerformanceSnapshot } from "../services/job-finder/collect-performance-snapshot";
 import { createJobFinderWorkspaceDeltaTracker } from "../services/job-finder/workspace-delta";
+import { publishJobFinderWorkspaceUpdate } from "../services/job-finder/workspace-updates";
+import { runBoundedNewSourceReadabilityCheck } from "../services/job-finder/new-source-readability-check";
 import {
   getDesktopTestDelayMs,
   getJobFinderWorkspaceService,
@@ -162,6 +172,15 @@ function parseOptionalRequestId(payload: unknown): string | null {
   return requestId;
 }
 
+function parseSourceReadabilityTimeout(payload: unknown): number | null {
+  if (!payload || typeof payload !== "object") return null;
+  const timeoutMs = (payload as { readabilityTimeoutMs?: unknown })
+    .readabilityTimeoutMs;
+  return typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+    ? Math.min(Math.trunc(timeoutMs), 15_000)
+    : null;
+}
+
 function throwIfResumePreviewAborted(signal: AbortSignal): void {
   if (!signal.aborted) {
     return;
@@ -177,17 +196,28 @@ function sanitizeFileNameSegment(value: string): string {
     .trim();
 }
 
+/**
+ * The name the app already gives this document, leading its exported file.
+ *
+ * A resume nothing could be tailored for is called "Your original resume"
+ * everywhere else; the exported file used to carry no document name at all
+ * while the screen around it still said "Tailored Resume". One label, derived
+ * from one state, reaches the shortlisted row, the documents list and the
+ * file on disk.
+ */
 function buildResumeExportDefaultPath(
+  documentLabel: string,
   jobTitle: string,
   company: string,
 ): string {
   const titleSegment = sanitizeFileNameSegment(jobTitle) || "Resume";
   const companySegment = sanitizeFileNameSegment(company);
-  const fileName = companySegment
-    ? `${titleSegment} - ${companySegment}.pdf`
-    : `${titleSegment}.pdf`;
+  const labelSegment = sanitizeFileNameSegment(documentLabel);
+  const fileName = [labelSegment, titleSegment, companySegment]
+    .filter((segment) => segment.length > 0)
+    .join(" - ");
 
-  return path.join(app.getPath("documents"), fileName);
+  return path.join(app.getPath("documents"), `${fileName}.pdf`);
 }
 function buildApplicationPacketExportDefaultPath(
   jobTitle: string,
@@ -452,10 +482,14 @@ export function registerJobFinderRouteHandlers(
 
   ipcMain.handle(
     "job-finder:run-campaign-now",
-    async (_event, payload: unknown) => {
+    async (event, payload: unknown) => {
       const input = RunCampaignNowInputSchema.parse(payload ?? {});
       const service = await getJobFinderWorkspaceService();
-      return workspaceMutationResponse(await service.runCampaignNow(input));
+      const snapshot = await service.runCampaignNow(input, () => {
+        publishJobFinderWorkspaceUpdate(event.sender);
+      });
+      publishJobFinderWorkspaceUpdate(event.sender);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1236,40 +1270,7 @@ export function registerJobFinderRouteHandlers(
     async (event, payload: unknown) => {
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const window = event.sender;
-      const senderId = event.sender.id;
       const { requestId, targetId } = parseAgentDiscoveryRequest(payload);
-      const controller = new AbortController();
-
-      const cancelHandler = (
-        cancelEvent: Electron.IpcMainEvent,
-        cancelPayload: unknown,
-      ) => {
-        const cancelRequestId = (() => {
-          try {
-            return parseAgentDiscoveryRequest(cancelPayload).requestId;
-          } catch (error) {
-            if (
-              error instanceof Error &&
-              error.name === "ZodError" &&
-              Array.isArray((error as { issues?: unknown }).issues)
-            ) {
-              return null;
-            }
-
-            throw error;
-          }
-        })();
-
-        if (
-          cancelEvent.sender.id !== senderId ||
-          cancelRequestId !== requestId
-        ) {
-          return;
-        }
-
-        controller.abort();
-      };
-      ipcMain.on("job-finder:cancel-agent-discovery", cancelHandler);
 
       try {
         const snapshot = await jobFinderWorkspaceService.runAgentDiscovery(
@@ -1278,8 +1279,9 @@ export function registerJobFinderRouteHandlers(
               `job-finder:discovery-activity:${requestId}`,
               DiscoveryActivityEventSchema.parse(eventPayload),
             );
+            publishJobFinderWorkspaceUpdate(window);
           },
-          controller.signal,
+          undefined,
           targetId ?? undefined,
         );
 
@@ -1308,12 +1310,18 @@ export function registerJobFinderRouteHandlers(
           });
         }
         throw error;
-      } finally {
-        ipcMain.removeListener(
-          "job-finder:cancel-agent-discovery",
-          cancelHandler,
-        );
       }
+    },
+  );
+
+  ipcMain.handle(
+    "job-finder:cancel-discovery-run",
+    async (event, payload: unknown) => {
+      const input = JobFinderDiscoveryCancellationInputSchema.parse(payload);
+      const service = await getJobFinderWorkspaceService();
+      const snapshot = await service.cancelDiscoveryRun(input.runId);
+      publishJobFinderWorkspaceUpdate(event.sender);
+      return workspaceMutationResponse(snapshot);
     },
   );
 
@@ -1323,18 +1331,56 @@ export function registerJobFinderRouteHandlers(
       const { targetId } = JobFinderSourceDebugActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const requestId = parseOptionalRequestId(payload);
-      const snapshot = await jobFinderWorkspaceService.runSourceDebug(
-        targetId,
-        undefined,
-        requestId
-          ? (progressEvent) => {
-              event.sender.send(
-                `job-finder:source-debug-progress:${requestId}`,
-                SourceDebugProgressEventSchema.parse(progressEvent),
-              );
-            }
-          : undefined,
-      );
+      const readabilityTimeoutMs = parseSourceReadabilityTimeout(payload);
+      let snapshot: JobFinderWorkspaceSnapshot;
+      try {
+        const run = (signal?: AbortSignal) =>
+          jobFinderWorkspaceService.runSourceDebug(
+            targetId,
+            signal,
+            requestId
+              ? (progressEvent) => {
+                  event.sender.send(
+                    `job-finder:source-debug-progress:${requestId}`,
+                    SourceDebugProgressEventSchema.parse(progressEvent),
+                  );
+                  publishJobFinderWorkspaceUpdate(event.sender);
+                }
+              : undefined,
+          );
+        snapshot = readabilityTimeoutMs
+          ? await runBoundedNewSourceReadabilityCheck(
+              (signal) => run(signal),
+              readabilityTimeoutMs,
+            )
+          : await run();
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        if (error instanceof Error && error.name === "AbortError") {
+          const interrupted =
+            await jobFinderWorkspaceService.getWorkspaceSnapshot();
+          const runningRun = interrupted.recentSourceDebugRuns.find(
+            (run) => run.targetId === targetId && run.state === "running",
+          );
+          snapshot = runningRun
+            ? await jobFinderWorkspaceService.cancelSourceDebug(runningRun.id)
+            : interrupted;
+        } else {
+          if (
+            !/(?:ApplicationNavigationError|page\.(?:goto|waitFor)|navigation.*(?:failed|timeout)|Timeout \d+ms exceeded|net::ERR_)/iu.test(
+              detail,
+            )
+          ) {
+            throw error;
+          }
+          // The workflow records a screen-safe failed result before this route
+          // fallback is reached. Return that durable snapshot instead of letting
+          // Electron paint its transport wrapper across the window.
+          snapshot = await jobFinderWorkspaceService.getWorkspaceSnapshot();
+        }
+      }
+
+      publishJobFinderWorkspaceUpdate(event.sender);
 
       return workspaceMutationResponse(snapshot);
     },
@@ -1420,14 +1466,18 @@ export function registerJobFinderRouteHandlers(
 
   ipcMain.handle(
     "job-finder:verify-source-instructions",
-    async (_event, payload: unknown) => {
+    async (event, payload: unknown) => {
       const { targetId, instructionId } =
         JobFinderSourceInstructionActionInputSchema.parse(payload);
       const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
       const snapshot = await jobFinderWorkspaceService.verifySourceInstructions(
         targetId,
         instructionId,
+        undefined,
+        () => publishJobFinderWorkspaceUpdate(event.sender),
       );
+
+      publishJobFinderWorkspaceUpdate(event.sender);
 
       return workspaceMutationResponse(snapshot);
     },
@@ -1925,6 +1975,15 @@ export function registerJobFinderRouteHandlers(
         const browserWindow = BrowserWindow.fromWebContents(event.sender);
         const saveDialogOptions: SaveDialogOptions = {
           defaultPath: buildResumeExportDefaultPath(
+            resolveTailoredAssetLabel({
+              existingLabel: workspace.tailoredAsset?.label ?? null,
+              generationMethod:
+                workspace.draft.generationMethod === "ai"
+                  ? "ai_assisted"
+                  : "deterministic",
+              generationReason:
+                workspace.tailoredAsset?.generationReason ?? null,
+            }),
             workspace.job.title,
             workspace.job.company,
           ),
@@ -1935,7 +1994,9 @@ export function registerJobFinderRouteHandlers(
             },
           ],
           properties: ["createDirectory", "showOverwriteConfirmation"],
-          title: "Export tailored resume PDF",
+          // Not "tailored": the same dialog opens for a document nothing
+          // could be tailored for.
+          title: "Export resume PDF",
         };
         const saveResult = browserWindow
           ? await dialog.showSaveDialog(browserWindow, saveDialogOptions)
@@ -1945,7 +2006,14 @@ export function registerJobFinderRouteHandlers(
           const snapshot =
             await jobFinderWorkspaceService.getWorkspaceSnapshot();
 
-          return workspaceMutationResponse(snapshot);
+          // A dismissed dialog wrote nothing. Saying so is the difference
+          // between "no dialog, no toast, no error and no file" and a person
+          // knowing where they stand.
+          return JobFinderResumePdfExportResultSchema.parse({
+            outcome: "cancelled",
+            outputPath: null,
+            snapshot: workspaceMutationResponse(snapshot),
+          });
         }
 
         outputPath = saveResult.filePath.toLowerCase().endsWith(".pdf")
@@ -1958,9 +2026,34 @@ export function registerJobFinderRouteHandlers(
         outputPath,
       );
 
-      return workspaceMutationResponse(snapshot);
+      return JobFinderResumePdfExportResultSchema.parse({
+        outcome: "saved",
+        outputPath,
+        snapshot: workspaceMutationResponse(snapshot),
+      });
     },
   );
+
+  // Shows a file the app itself wrote in the operating system's file manager.
+  // The export already named the path; without this the person had to find it
+  // by hand. The OS selects the file — nothing is opened or executed — and a
+  // path that no longer exists says so instead of failing silently.
+  ipcMain.handle("job-finder:reveal-saved-file", async (_event, payload) => {
+    const { path: savedPath } = RevealSavedFileInputSchema.parse(payload);
+
+    try {
+      await access(savedPath);
+    } catch {
+      return RevealSavedFileResultSchema.parse({ outcome: "not_found" });
+    }
+
+    if (typeof shell.showItemInFolder !== "function") {
+      return RevealSavedFileResultSchema.parse({ outcome: "unsupported" });
+    }
+
+    shell.showItemInFolder(savedPath);
+    return RevealSavedFileResultSchema.parse({ outcome: "revealed" });
+  });
 
   ipcMain.handle(
     "job-finder:approve-resume",

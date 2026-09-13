@@ -78,6 +78,25 @@ describe("location requirement labels", () => {
 });
 
 describe("structured requirement evidence extraction", () => {
+  test("reads a requirements section flattened into compact inline text", () => {
+    const requirements = buildAssessment({
+      posting: {
+        description:
+          "Role: Own lifecycle marketing. What You'll Do: - Build campaigns - Report results Candidate Requirements: - Experience with Salesforce is required - Proven lifecycle email experience.",
+      },
+    });
+
+    expect(requirements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "skill",
+          importance: "required",
+          label: "Salesforce",
+        }),
+      ]),
+    );
+  });
+
   test("maps location compatibility states onto truthful requirement evidence", () => {
     const seed = createSeed();
     const buildLocationRequirement = (
@@ -123,15 +142,118 @@ describe("structured requirement evidence extraction", () => {
       "The listing location is outside the saved search area; relocation needs confirmation.",
     );
 
-    const settledConflict = buildLocationRequirement("incompatible", {
+    // Outside the saved area and unwilling to move still is not a blocker on
+    // its own: the listing may be doable from home, so it sinks rather than
+    // being thrown away.
+    const settledMiss = buildLocationRequirement("incompatible", {
       workEligibility: {
         ...seed.profile.workEligibility,
         willingToRelocate: false,
       },
     });
-    expect(settledConflict.status).toBe("conflict");
-    expect(settledConflict.explanation).toBe(
-      "The listing location is outside the saved search area and the profile rules out relocation.",
+    expect(settledMiss.status).toBe("unknown");
+    expect(settledMiss.explanation).toBe(
+      "The listing location is outside the saved search area; relocation needs confirmation.",
+    );
+  });
+
+  test("blocks a location only when it is out of reach or the person excluded it", () => {
+    const seed = createSeed();
+    const buildLocationRequirement = (extra: {
+      locationReach?: "unknown" | "outside_area";
+      locationExcluded?: boolean;
+      willingToRelocate?: boolean | null;
+    }) =>
+      buildRequirementEvidenceAssessment({
+        profile: {
+          ...seed.profile,
+          workEligibility: {
+            ...seed.profile.workEligibility,
+            willingToRelocate: extra.willingToRelocate ?? false,
+          },
+        },
+        posting: {
+          ...seed.savedJobs[0]!,
+          title: "Senior Software Engineer",
+          location: "Madrid, Spain",
+        },
+        locationCompatibility: "incompatible",
+        workModeCompatibility: "compatible",
+        hasLocationPreferences: true,
+        hasWorkModePreferences: false,
+        locationReach: extra.locationReach,
+        locationExcluded: extra.locationExcluded,
+      }).find(
+        (requirement) =>
+          requirement.category === "location" &&
+          requirement.label.startsWith("Location:"),
+      )!;
+
+    // On site, elsewhere, and relocation ruled out: there is no way to do it.
+    const outOfReach = buildLocationRequirement({
+      locationReach: "outside_area",
+    });
+    expect(outOfReach.status).toBe("conflict");
+    expect(outOfReach.explanation).toBe(
+      "The listing is on site outside the saved search area and the profile rules out relocation.",
+    );
+
+    // The same place, but the person is open to moving.
+    expect(
+      buildLocationRequirement({
+        locationReach: "outside_area",
+        willingToRelocate: true,
+      }).status,
+    ).toBe("unknown");
+
+    const excluded = buildLocationRequirement({ locationExcluded: true });
+    expect(excluded.status).toBe("conflict");
+    expect(excluded.explanation).toBe(
+      "The listing location is one you asked the search to leave out.",
+    );
+  });
+
+  test("never blocks a listing for a work mode the person ticked", () => {
+    const seed = createSeed();
+    const buildWorkModeRequirement = (input: {
+      workModeCompatibility: "compatible" | "conflict" | "unknown";
+      workModeExcluded?: boolean;
+    }) =>
+      buildRequirementEvidenceAssessment({
+        profile: seed.profile,
+        posting: {
+          ...seed.savedJobs[0]!,
+          title: "Marketing Manager",
+          location: "Chicago, IL",
+          workMode: ["hybrid"],
+        },
+        locationCompatibility: "compatible",
+        workModeCompatibility: input.workModeCompatibility,
+        hasLocationPreferences: false,
+        hasWorkModePreferences: true,
+        workModeExcluded: input.workModeExcluded,
+      }).find((requirement) => requirement.category === "work_mode")!;
+
+    expect(
+      buildWorkModeRequirement({ workModeCompatibility: "compatible" }).status,
+    ).toBe("supported");
+
+    // Not ticked is a preference miss, not a blocker.
+    const notTicked = buildWorkModeRequirement({
+      workModeCompatibility: "conflict",
+    });
+    expect(notTicked.status).toBe("missing");
+    expect(notTicked.explanation).toBe(
+      "The listing work mode is not one you ticked, so it ranks lower rather than being thrown out.",
+    );
+
+    const excluded = buildWorkModeRequirement({
+      workModeCompatibility: "conflict",
+      workModeExcluded: true,
+    });
+    expect(excluded.status).toBe("conflict");
+    expect(excluded.explanation).toBe(
+      "You asked the search to leave this work mode out.",
     );
   });
 

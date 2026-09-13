@@ -230,7 +230,7 @@ describe("listing recency versus displayed posted label", () => {
         providerUpdatedAt: entry.job.providerUpdatedAt,
       });
 
-      expect(badge.label).toBe("Posted");
+      expect(badge?.label).toBe("Posted");
       expect(getListingRecencyTimestamp(entry.job)).toBe(expected);
     },
   );

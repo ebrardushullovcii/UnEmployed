@@ -156,8 +156,8 @@ describe("match assessment session", () => {
       scorerVersion: MATCH_ASSESSMENT_SCORER_VERSION,
       contextFingerprint: session.contextFingerprint,
     });
-    expect(first.postingFingerprint).toMatch(/^match_posting_v4_logic8_/u);
-    expect(session.contextFingerprint).toMatch(/^match_context_v4_logic8_/u);
+    expect(first.postingFingerprint).toMatch(/^match_posting_v4_logic10_/u);
+    expect(session.contextFingerprint).toMatch(/^match_context_v4_logic10_/u);
   });
 
   test("does not reuse an assessment persisted under the previous scoring logic", () => {
@@ -333,6 +333,31 @@ describe("match assessment session", () => {
       persisted,
     );
     expect(baselineSession.assessPersisted(posting, legacy)).not.toBe(legacy);
+  });
+
+  test("rescales a persisted version-10 result through the current scorer", () => {
+    const seed = createSeed();
+    const calculate = vi.fn(createMatchAssessment);
+    const session = createMatchAssessmentSession({
+      profile: seed.profile,
+      searchPreferences: seed.searchPreferences,
+      calculate,
+    });
+    const stale = {
+      ...seed.savedJobs[0]!.matchAssessment,
+      scorerVersion: 10,
+      score: 99,
+      contextFingerprint: session.contextFingerprint,
+      postingFingerprint: createMatchAssessmentPostingFingerprint(
+        seed.savedJobs[0]!,
+      ),
+    };
+
+    const current = session.assessPersisted(seed.savedJobs[0]!, stale);
+
+    expect(current).not.toBe(stale);
+    expect(current.scorerVersion).toBe(11);
+    expect(calculate).toHaveBeenCalledTimes(1);
   });
 
   test("computes exactly once per unique scoring input across a 500-posting replay", () => {

@@ -4,10 +4,12 @@ import {
 } from "./discovery-hide-reason-options";
 import type {
   DiscoveryFeedbackReason,
+  ApplicationRecord,
   DiscoveryJobView,
   EmployerExclusionPreview,
   JobDiscoveryTarget,
   MatchAssessmentChangeAudit,
+  ReviewQueueItem,
   SavedJob,
 } from "@unemployed/contracts";
 import {
@@ -47,7 +49,14 @@ import {
   getMatchAssessmentPresentation,
 } from "../../lib/match-assessment-presentation";
 import { presentListingActivity } from "../../lib/listing-activity-presentation";
-import { formatNormalizedCompensation } from "../../lib/normalized-compensation";
+import { formatStatedNormalizedCompensation } from "../../lib/normalized-compensation";
+import {
+  collapseRepeatedListingParts,
+  countListingLocations,
+  formatEmploymentTypeLabel,
+  formatWorkModeLabel,
+  splitListingLocationValues,
+} from "../../lib/listing-fact-presentation";
 import {
   formatJobEmployerLocationLine,
   resolveJobEmployerDisplay,
@@ -60,6 +69,35 @@ import {
 } from "./discovery-accessibility";
 import { getDiscoverySourceLabels } from "./discovery-source-attribution";
 import { describeMissingListingText } from "@renderer/features/job-finder/lib/listing-detail-fetch-copy";
+
+function describeDiscoveryMissingListingText(
+  job: Pick<SavedJob, "listingDetailCapture" | "listingDetailFetch">,
+): string {
+  if (
+    job.listingDetailCapture?.state === "blocked" ||
+    job.listingDetailFetch?.outcome === "blocked"
+  ) {
+    return "This site did not let Job Finder read the listing";
+  }
+  return describeMissingListingText(
+    job.listingDetailFetch,
+    job.listingDetailCapture,
+  );
+}
+
+function wasDiscoveryListingReadBlocked(
+  job: Pick<SavedJob, "listingDetailCapture" | "listingDetailFetch">,
+): boolean {
+  return (
+    job.listingDetailCapture?.state === "blocked" ||
+    job.listingDetailFetch?.outcome === "blocked"
+  );
+}
+import { getApplicationStagePresentation } from "../applications/applications-status";
+import {
+  collectPreparedApplicationJobIds,
+  getReviewQueueWorkflowStatus,
+} from "../review-queue/review-queue-status";
 
 /**
  * The bare workflow value reads as a verdict on the job itself ("APPROVED"),
@@ -82,6 +120,15 @@ export function presentDiscoveryJobStatusLabel(status: string): string {
 }
 
 interface DiscoveryDetailPanelProps {
+  applicationRecords?: readonly ApplicationRecord[];
+  /**
+   * The Shortlisted rows. When this job is on that list its readiness is
+   * computed there, once, and read back here: the inspector used to derive a
+   * second verdict from the stored job status, so the same job could read
+   * "Resume needs review" here and "Ready to prepare" on Shortlisted seconds
+   * apart.
+   */
+  reviewQueue?: readonly ReviewQueueItem[];
   discoveryTargets: readonly JobDiscoveryTarget[];
   isJobPending: (jobId: string) => boolean;
   onDismissJob: (
@@ -94,6 +141,7 @@ interface DiscoveryDetailPanelProps {
     jobId: string,
   ) => Promise<EmployerExclusionPreview>;
   onOpenCompany?: (companyId: string) => void;
+  onOpenApplication?: (recordId: string) => void;
   onQueueJob: (jobId: string) => void;
   /**
    * Request-local outcome of this job's own Shortlist decision, correlated by
@@ -364,11 +412,14 @@ function useDiscoveryDetailScrollEdges(
 }
 
 export function DiscoveryDetailPanel({
+  applicationRecords = [],
+  reviewQueue = [],
   discoveryTargets,
   isJobPending,
   onDismissJob,
   onPreviewEmployerExclusion,
   onOpenCompany,
+  onOpenApplication = () => undefined,
   onQueueJob,
   queueFeedback,
   selectedJob,
@@ -412,9 +463,8 @@ export function DiscoveryDetailPanel({
     selectedJob?.provenance ?? [],
     discoveryTargets,
   );
-  const normalizedCompensation = formatNormalizedCompensation(
-    selectedJob?.normalizedCompensation,
-  );
+  const normalizedCompensation =
+    formatStatedNormalizedCompensation(selectedJob);
   const intelligenceSummaries = buildIntelligenceSummaries(
     selectedJob?.sourceIntelligence ?? null,
   );
@@ -427,6 +477,32 @@ export function DiscoveryDetailPanel({
       ? employerExclusionPreview
       : null;
   const isAlreadyShortlisted = selectedJob?.status !== "discovered";
+  const existingNeedsYouApplication = selectedJob
+    ? applicationRecords.find(
+        (record) =>
+          record.jobId === selectedJob.id &&
+          getApplicationStagePresentation(record).label === "Needs you",
+      )
+    : null;
+  // One readiness value for this job. Shortlisted already computes it from the
+  // draft and its review, so when the job is on that list the inspector reads
+  // that same value rather than deriving a second one from the stored status.
+  const queueItem = selectedJob
+    ? (reviewQueue.find((item) => item.jobId === selectedJob.id) ?? null)
+    : null;
+  const readinessStatus = selectedJob
+    ? queueItem
+      ? getReviewQueueWorkflowStatus(
+          queueItem,
+          null,
+          isJobPending(selectedJob.id),
+          collectPreparedApplicationJobIds(applicationRecords),
+        )
+      : {
+          label: presentDiscoveryJobStatusLabel(selectedJob.status),
+          tone: getApplicationTone(selectedJob.status),
+        }
+    : null;
   const recommendation = selectedJob
     ? fitRecommendationCopy[
         selectedJob.matchAssessment.recommendation ?? "review_before_applying"
@@ -435,15 +511,10 @@ export function DiscoveryDetailPanel({
   const assessmentPresentation = selectedJob
     ? getMatchAssessmentPresentation(selectedJob)
     : null;
+  // `null` when the listing has no date worth printing: a listing with no
+  // posted or provider-updated date must not render a bare "Updated — Unknown"
+  // fact, and a posted slot holding a non-date token must not render at all.
   const listingDate = selectedJob ? getPostedDateLabel(selectedJob) : null;
-  // A listing with no posted or provider-updated date must not render a bare
-  // "Updated — Unknown" fact; the absent date is not useful information.
-  const hasListingDate = Boolean(
-    selectedJob &&
-    (selectedJob.postedAtText ??
-      selectedJob.postedAt ??
-      selectedJob.providerUpdatedAt),
-  );
   const applicationMethodLabel =
     selectedJob?.applyPath === "easy_apply"
       ? "Easy Apply"
@@ -465,6 +536,15 @@ export function DiscoveryDetailPanel({
         separator: " • ",
       })
     : "";
+  // "Chicago, IL" is ONE place written the way people write places. Counting
+  // the commas made the panel claim two, above a card that listed one, so the
+  // count and the list are read off the same split here.
+  const listingLocationCount = countListingLocations(selectedJob?.location);
+  const listingLocationLabel =
+    splitListingLocationValues(selectedJob?.location)
+      .map((place) => collapseRepeatedListingParts(place))
+      .filter((place): place is string => Boolean(place))
+      .join(" · ") || null;
   const employerDisplay = selectedJob
     ? resolveJobEmployerDisplay({
         company: selectedJob.company,
@@ -670,9 +750,9 @@ export function DiscoveryDetailPanel({
         <p className="text-(length:--text-heading-3) font-semibold text-(--text-headline)">
           Job inspector
         </p>
-        {selectedJob ? (
-          <StatusBadge tone={getApplicationTone(selectedJob.status)}>
-            {presentDiscoveryJobStatusLabel(selectedJob.status)}
+        {selectedJob && readinessStatus ? (
+          <StatusBadge tone={readinessStatus.tone}>
+            {readinessStatus.label}
           </StatusBadge>
         ) : null}
       </div>
@@ -727,7 +807,18 @@ export function DiscoveryDetailPanel({
                 </p>
               ) : null}
             </div>
-            {isAlreadyShortlisted ? (
+            {existingNeedsYouApplication ? (
+              <Button
+                className="h-11 w-full"
+                onClick={() =>
+                  onOpenApplication(existingNeedsYouApplication.id)
+                }
+                type="button"
+                variant="primary"
+              >
+                Needs you · Open application
+              </Button>
+            ) : isAlreadyShortlisted ? (
               <Button asChild className="h-11 w-full" variant="primary">
                 <Link
                   aria-describedby={DISCOVERY_DETAIL_HEADING_ID}
@@ -814,10 +905,10 @@ export function DiscoveryDetailPanel({
                     About this job
                   </span>
                   <p className="text-(length:--text-body) leading-7 text-foreground-soft">
-                    {listingExcerpt ||
-                      describeMissingListingText(
-                        selectedJob.listingDetailFetch,
-                      )}
+                    {wasDiscoveryListingReadBlocked(selectedJob)
+                      ? describeDiscoveryMissingListingText(selectedJob)
+                      : listingExcerpt ||
+                        describeDiscoveryMissingListingText(selectedJob)}
                   </p>
                   {hasFullListingText ? (
                     <details key={selectedJob.id} className="min-w-0">
@@ -840,10 +931,7 @@ export function DiscoveryDetailPanel({
                       Salary
                     </span>
                     <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
-                      {selectedJob.salaryText ??
-                        (normalizedCompensation
-                          ? normalizedCompensation
-                          : "Not stated")}
+                      {selectedJob.salaryText ?? "Not stated"}
                     </strong>
                     {selectedJob.salaryText && normalizedCompensation ? (
                       <p className="mt-2 text-(length:--text-small) text-foreground-soft">
@@ -858,20 +946,27 @@ export function DiscoveryDetailPanel({
                     <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
                       {[
                         // A six-month contract read as a permanent role at an
-                        // annual salary until the user opened the page.
-                        selectedJob.employmentType?.trim()
-                          ? selectedJob.employmentType
-                          : null,
-                        selectedJob.location?.trim()
-                          ? selectedJob.location
-                          : null,
-                        selectedJob.workMode.length > 0
-                          ? selectedJob.workMode.join(", ")
-                          : "Work mode not stated",
+                        // annual salary until the user opened the page. The
+                        // board's own spelling is machine text ("FULL_TIME")
+                        // and a flattened card repeats the same place and work
+                        // mode in every slot it had, so each fact is said once
+                        // and in plain words.
+                        formatEmploymentTypeLabel(selectedJob.employmentType),
+                        listingLocationLabel,
+                        formatWorkModeLabel(selectedJob.workMode) ??
+                          "Work mode not stated",
                       ]
                         .filter(Boolean)
                         .join(" · ")}
                     </strong>
+                    {listingLocationCount > 1 ? (
+                      <p
+                        className="mt-2 text-(length:--text-small) text-foreground-soft"
+                        data-testid="discovery-detail-location-count"
+                      >
+                        This job is open in {listingLocationCount} places.
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 
@@ -923,6 +1018,9 @@ export function DiscoveryDetailPanel({
                     />
                     <MatchEvidenceMatrix
                       assessment={selectedJob.matchAssessment}
+                      listingCapture={
+                        selectedJob.listingDetailCapture?.state ?? null
+                      }
                       scoreLabel={
                         assessmentPresentation?.breakdownScoreLabel ?? null
                       }
@@ -951,7 +1049,7 @@ export function DiscoveryDetailPanel({
                       {listingActivity.description}
                     </p>
                   </div>
-                  {hasListingDate && listingDate ? (
+                  {listingDate ? (
                     <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                       <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
                         {listingDate.label}
@@ -964,7 +1062,7 @@ export function DiscoveryDetailPanel({
                   {selectedJob.atsProvider ? (
                     <div className="surface-card-tint rounded-(--radius-field) border border-(--surface-panel-border) p-4">
                       <span className="text-(length:--text-tiny) uppercase tracking-(--tracking-label) text-foreground-soft">
-                        ATS or provider
+                        Applications handled by
                       </span>
                       <strong className="mt-2 block text-(length:--text-body) text-(--text-headline)">
                         {selectedJob.atsProvider}

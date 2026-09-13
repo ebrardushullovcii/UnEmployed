@@ -646,6 +646,33 @@ export const ApplySubmitApprovalSchema = z.object({
   revokedAt: IsoDateTimeSchema.nullable().default(null),
   expiresAt: IsoDateTimeSchema.nullable().default(null),
   detail: NonEmptyStringSchema.nullable().default(null),
+  /**
+   * The named batch of jobs this approval belongs to.
+   *
+   * A person approving preparation is answering about a batch of jobs they
+   * were shown, not about one run record. When part of that batch fails and
+   * the remainder is retried, the retry stays inside the same batch and
+   * carries the same id, so the audit shows one human decision instead of
+   * one per recovery — which is what made a recovery ask for approval again
+   * for every single job.
+   *
+   * Null for approvals recorded before batches existed; those never satisfy
+   * reuse and always ask again.
+   */
+  batchId: NonEmptyStringSchema.nullable().default(null),
+  /**
+   * The search plan in force when the batch was approved. A retry may reuse
+   * the approval only while this is unchanged; a different plan is a
+   * different decision and is asked again.
+   */
+  batchCampaignId: NonEmptyStringSchema.nullable().default(null),
+  /**
+   * The approval whose authority this one inherits, when a retry covered a
+   * subset of an already approved batch. Null for a first-hand approval.
+   * Reuse never widens scope: the inheriting approval's `jobIds` are always
+   * a subset of the original's.
+   */
+  reusedFromApprovalId: NonEmptyStringSchema.nullable().default(null),
 });
 export type ApplySubmitApproval = z.infer<typeof ApplySubmitApprovalSchema>;
 

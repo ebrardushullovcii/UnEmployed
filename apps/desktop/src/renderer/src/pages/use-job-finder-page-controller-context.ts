@@ -28,7 +28,15 @@ import type {
   ActionState,
   JobFinderShellActions,
 } from "@renderer/features/job-finder/lib/job-finder-types";
-import type { DiscoveryRunFeedback } from "@renderer/features/job-finder/screens/discovery/discovery-run-feedback";
+import {
+  createDiscoveryRunSucceededFeedback,
+  type DiscoveryRunFeedback,
+} from "@renderer/features/job-finder/screens/discovery/discovery-run-feedback";
+import {
+  formatDiscoveryRunReportLabel,
+  getDiscoveryRunReportCounts,
+  hasDiscoveryRunReportCounts,
+} from "@renderer/features/job-finder/lib/discovery-run-count-label";
 import type { TailoredDraftPreparationViewState } from "@renderer/features/job-finder/screens/review-queue/review-queue-status";
 import { safeguardMutationKey } from "@renderer/features/job-finder/screens/safeguards/safeguards-presentation";
 import type {
@@ -37,6 +45,7 @@ import type {
 } from "./job-finder-pending-actions";
 import { jobFinderPendingActions } from "./job-finder-pending-actions";
 import {
+  COMMAND_PENDING_RELEASE_MS,
   createActionRunners,
   createPrimaryPageActions,
 } from "./use-job-finder-page-controller-actions";
@@ -398,7 +407,7 @@ export function buildJobFinderPageContext(
       await runAction(
         () => actions.refreshCompanyIntelligence(),
         () => undefined,
-        "Company intelligence refreshed from your saved jobs and applications.",
+        "What Job Finder knows about these employers was refreshed from your saved jobs and applications.",
         { scope: jobFinderPendingActions.companyIntelligenceRefresh() },
       );
     },
@@ -514,7 +523,40 @@ export function buildJobFinderPageContext(
     // and a `void`-ed promise can only ever look like success there.
     onPerformUserAction: (command, options) =>
       runAction(
-        () => actions.performUserAction(command),
+        async () => {
+          const request = (workspace.userActionRequests ?? []).find(
+            (candidate) => candidate.id === command.requestId,
+          );
+          const parkedTab =
+            command.action === "open_page" &&
+            request?.scope.type === "discovery_source" &&
+            request.scope.discoveryRunId
+              ? request.scope.parkedTab
+              : null;
+          if (parkedTab) {
+            const browserState = await window.unemployed.browser.getState();
+            const tab = browserState.tabs.find(
+              (candidate) =>
+                parkedTab.tabId !== null
+                  ? candidate.id === parkedTab.tabId
+                  : candidate.url === parkedTab.url,
+            );
+            if (!tab) {
+              throw new Error(
+                "That saved browser tab is gone. Open the source again, then retry the search.",
+              );
+            }
+            await window.unemployed.browser.command({
+              type: "select_tab",
+              tabId: tab.id,
+            });
+            await window.unemployed.browser.command({
+              type: "expand",
+              expanded: true,
+            });
+          }
+          return actions.performUserAction(command);
+        },
         () => undefined,
         // "Action inbox" is not a destination this app has — the page is
         // called Needs you — and the opened-page case has a destination the
@@ -533,6 +575,9 @@ export function buildJobFinderPageContext(
             : "Saved. Needs you is up to date.",
         {
           scope: jobFinderPendingActions.userAction(command.requestId),
+          releasePendingAfterMs: COMMAND_PENDING_RELEASE_MS,
+          pendingTimeoutMessage:
+            "This took too long to confirm. Check its status before trying again.",
           // Only a caller that asked for it: the route message is written
           // either way, and every other caller keeps resolving `false`.
           ...(options?.rethrowError ? { rethrowError: true } : {}),
@@ -549,7 +594,23 @@ export function buildJobFinderPageContext(
       const resolvedCampaignId = campaignId ?? workspace.activeCampaignId;
       return runAction(
         () => actions.runCampaignNow(campaignId),
-        () => undefined,
+        (snapshot) => {
+          const latestPlanRun = [...(snapshot.recentDiscoveryRuns ?? [])]
+            .filter((run) => run.campaignId === resolvedCampaignId)
+            .sort(
+              (left, right) =>
+                Date.parse(right.startedAt) - Date.parse(left.startedAt),
+            )[0];
+          const report = getDiscoveryRunReportCounts(latestPlanRun);
+          setDiscoveryRunFeedback(
+            createDiscoveryRunSucceededFeedback(
+              null,
+              hasDiscoveryRunReportCounts(report)
+                ? formatDiscoveryRunReportLabel(report)
+                : null,
+            ),
+          );
+        },
         "Search plan run started. Discovery searches and reads listings; it does not fill application forms or perform submits.",
         {
           scope: jobFinderPendingActions.campaignRun(resolvedCampaignId),
@@ -665,7 +726,7 @@ export function buildJobFinderPageContext(
           mayLeave
             ? runAction(
                 () => actions.selectCampaign(campaignId),
-                () => undefined,
+                () => setDiscoveryRunFeedback(null),
                 "Active search plan updated.",
               )
             : false,

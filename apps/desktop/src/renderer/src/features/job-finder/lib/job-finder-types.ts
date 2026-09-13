@@ -27,6 +27,7 @@ import type {
   JobFinderApplyRunDetailsQuery,
   JobFinderApplicationStartTarget,
   JobFinderAgentDiscoveryResult,
+  JobFinderDiscoveryCancellationInput,
   JobFinderOpenBrowserSessionInput,
   JobFinderResumePreview,
   JobFinderResumeWorkspace,
@@ -57,8 +58,10 @@ import type {
   ProjectGroupedManualAnswerCommand,
   ResumeAssistantMessage,
   ResumeApplicationMode,
+  JobFinderResumePdfExportResult,
   ResumePdfExportIntent,
   RemoveEmployerExclusionInput,
+  RevealSavedFileResult,
   ResumeDraft,
   ResumeDraftPatch,
   ResumeTimelineRepairAction,
@@ -123,9 +126,13 @@ export interface JobFinderShellActions {
     onActivity?: (event: DiscoveryActivityEvent) => void,
     targetId?: string,
   ) => Promise<JobFinderAgentDiscoveryResult>;
+  cancelAgentDiscovery: (
+    input: JobFinderDiscoveryCancellationInput,
+  ) => Promise<JobFinderWorkspaceSnapshot>;
   runSourceDebug: (
     targetId: string,
     onProgress?: (event: SourceDebugProgressEvent) => void,
+    options?: { readabilityTimeoutMs?: number },
   ) => Promise<JobFinderWorkspaceSnapshot>;
   getSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
   getApplyRunDetails: (
@@ -323,7 +330,13 @@ export interface JobFinderShellActions {
   exportResumePdf: (
     jobId: string,
     intent?: ResumePdfExportIntent,
-  ) => Promise<JobFinderWorkspaceSnapshot>;
+  ) => Promise<JobFinderResumePdfExportResult>;
+  /**
+   * Shows a file the app wrote in the OS file manager. The export already
+   * named the path and then left the person to find it by hand; nothing is
+   * opened or executed, only selected.
+   */
+  revealSavedFile: (path: string) => Promise<RevealSavedFileResult>;
   approveResume: (
     jobId: string,
     exportId: string,
@@ -522,6 +535,12 @@ export type BadgeTone =
 
 export interface ActionState {
   message: string | null;
+  /**
+   * A file this action just wrote, when the message names its path. The
+   * surface that prints the message offers "Open folder" beside it, so the
+   * path is an action rather than something to retype.
+   */
+  savedFilePath?: string | null;
 }
 
 /**

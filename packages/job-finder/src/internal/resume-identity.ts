@@ -1,6 +1,7 @@
 import {
   isFreshStartCandidateProfile,
   type CandidateProfile,
+  type ResumeIdentityOwnershipAcknowledgement,
   type ResumeImportFieldCandidate,
 } from "@unemployed/contracts";
 
@@ -386,6 +387,76 @@ function valuesMatch(key: string, left: string, right: string): boolean {
 }
 
 /**
+ * The choice the person can make when a document names someone else.
+ *
+ * Returns the exact source values the block is about, so the screen can quote
+ * them, and the acknowledgement to save if the person says the document is
+ * theirs. Nothing here decides anything: writing the acknowledgement is the
+ * person's action, and until they take it the mismatch still blocks.
+ */
+export function describeResumeIdentityOwnershipChoice(
+  profile: CandidateProfile,
+  sourceCandidates: readonly ResumeImportFieldCandidate[] = [],
+  now: string = new Date().toISOString(),
+): {
+  sourceFullName: string | null;
+  sourceEmail: string | null;
+  profileFullName: string | null;
+  acknowledgement: ResumeIdentityOwnershipAcknowledgement;
+} {
+  const { identity } = resolveResumeIdentity(profile, sourceCandidates);
+  const sourceIdentity = extractCanonicalResumeIdentity(
+    profile.baseResume.textContent,
+    sourceCandidates,
+  );
+
+  return {
+    sourceFullName: sourceIdentity.fullName ?? null,
+    sourceEmail: sourceIdentity.email ?? null,
+    profileFullName: identity.fullName,
+    acknowledgement: {
+      acknowledgedSourceFullName: sourceIdentity.fullName ?? null,
+      acknowledgedSourceEmail: sourceIdentity.email ?? null,
+      acknowledgedAt: now,
+    },
+  };
+}
+
+/**
+ * Applies the imported resume's visible name to the editable profile after the
+ * person explicitly chooses that direction. The source text remains intact;
+ * only the profile identity used by future resumes and applications changes.
+ */
+export function useResumeSourceNameForProfile(
+  profile: CandidateProfile,
+  sourceCandidates: readonly ResumeImportFieldCandidate[] = [],
+): CandidateProfile {
+  const { sourceFullName } = describeResumeIdentityOwnershipChoice(
+    profile,
+    sourceCandidates,
+  );
+  if (!sourceFullName) {
+    return profile;
+  }
+
+  const nameParts = sourceFullName.split(/\s+/).filter(Boolean);
+  const firstName = nameParts[0] ?? null;
+  const lastName = nameParts.length > 1 ? (nameParts.at(-1) ?? null) : null;
+  const middleName =
+    nameParts.length > 2 ? nameParts.slice(1, -1).join(" ") : null;
+
+  return {
+    ...profile,
+    firstName,
+    middleName,
+    lastName,
+    fullName: sourceFullName,
+    preferredDisplayName: null,
+    resumeIdentityOwnership: null,
+  };
+}
+
+/**
  * Resolves all resume header fields from one coherent, user-visible identity.
  * Preferred display/contact values are treated as a single intentional choice;
  * the canonical imported source is retained only for contradiction detection.
@@ -436,9 +507,23 @@ export function resolveResumeIdentity(
 
   // A fresh placeholder profile is expected to be paired with a newly
   // imported source. Once a real identity is present, source text must agree
-  // with the same visible identity used for rendering and applications.
+  // with the same visible identity used for rendering and applications —
+  // unless the person has said in so many words that this document is theirs.
+  const ownership = profile.resumeIdentityOwnership ?? null;
+  const ownsSourceName =
+    ownership !== null &&
+    sourceIdentity.fullName !== null &&
+    comparable(ownership.acknowledgedSourceFullName) ===
+      comparable(sourceIdentity.fullName);
+  const ownsSourceEmail =
+    ownership !== null &&
+    sourceIdentity.email !== null &&
+    comparableEmail(ownership.acknowledgedSourceEmail) ===
+      comparableEmail(sourceIdentity.email);
+
   if (
     !isFreshPlaceholderIdentityProfile(profile) &&
+    !ownsSourceName &&
     sourceIdentity.fullName &&
     identity.fullName &&
     !valuesMatch("fullName", sourceIdentity.fullName, identity.fullName)
@@ -449,6 +534,7 @@ export function resolveResumeIdentity(
   }
   if (
     !isFreshPlaceholderIdentityProfile(profile) &&
+    !ownsSourceEmail &&
     sourceIdentity.email &&
     identity.email &&
     !valuesMatch("email", sourceIdentity.email, identity.email)

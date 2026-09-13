@@ -110,6 +110,29 @@ afterEach(() => {
 });
 
 describe("DiscoveryResultsPanel workspace scale", () => {
+  it("shortlists exactly the rows shown on the current page", () => {
+    const jobs = createJobs().slice(0, DISCOVERY_RESULTS_PAGE_SIZE + 10);
+    const onShortlistJobs = vi.fn();
+    render(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        jobs={jobs}
+        onSelectJob={vi.fn()}
+        onShortlistJobs={onShortlistJobs}
+        selectedJob={jobs[0] ?? null}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Shortlist all ${DISCOVERY_RESULTS_PAGE_SIZE} shown`,
+      }),
+    );
+    expect(onShortlistJobs).toHaveBeenCalledWith(
+      jobs.slice(0, DISCOVERY_RESULTS_PAGE_SIZE).map((job) => job.id),
+    );
+  });
+
   it("bounds a 1,000-job React DOM commit to exactly one 50-row page", () => {
     const jobs = createJobs();
     const startedAt = performance.now();
@@ -213,7 +236,7 @@ describe("DiscoveryResultsPanel workspace scale", () => {
     // above it — not a chip and a caption on every row — says what is missing
     // instead of asserting a confidence it has not earned.
     expect(row.textContent).not.toContain("54%");
-    expect(screen.queryByText("Title match only")).toBeNull();
+    expect(screen.queryByText("Title-only estimate")).toBeNull();
     // The reason is not painted on the row any more; it survives only in the
     // row's sr-only verdict line.
     expect(
@@ -225,13 +248,13 @@ describe("DiscoveryResultsPanel workspace scale", () => {
     ).toContain("Fit is based on the title alone");
     const heading = screen.getByTestId("discovery-results-group-unchecked");
     expect(heading.textContent).toContain(
-      "Title matches · not yet checked (1)",
+      "Matches your role, not yet scored (1)",
     );
     expect(heading.textContent).toContain(
       "Matched on the title alone; the full requirements have not been assessed.",
     );
     expect(row.textContent).toContain(
-      "Overall fit: title match only, not scored",
+      "Overall fit: title-only estimate",
     );
   });
 

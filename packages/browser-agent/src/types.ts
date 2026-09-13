@@ -1,5 +1,6 @@
 import type {
   AgentDebugFindings,
+  DiscoveryAccessBlockerReason,
   BrowserVisualAnalysisContext,
   BrowserVisualObservationSet,
   BrowserVisualSnapshotRef,
@@ -192,6 +193,8 @@ export interface AgentResult {
   phaseCompletionReason?: string | null;
   phaseEvidence?: SourceDebugPhaseEvidence | null;
   debugFindings?: AgentDebugFindings | null;
+  accessBlockerReason?: DiscoveryAccessBlockerReason;
+  parkedPageUrl?: string;
 }
 
 // Re-export AgentDiscoveryProgress from contracts for consistency

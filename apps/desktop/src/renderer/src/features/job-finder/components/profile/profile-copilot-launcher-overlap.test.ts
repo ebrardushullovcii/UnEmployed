@@ -8,6 +8,8 @@ import {
   type CopilotViewport,
   classifyCopilotFocusTarget,
   getCollapsedLauncherClearance,
+  getCopilotOpenPanelMaxWidth,
+  getCopilotReservedColumnWidth,
   getCollapsedLauncherStackSize,
   shouldYieldCollapsedLauncher,
 } from "./profile-copilot-rail-layout";
@@ -309,5 +311,104 @@ describe("collapsed launcher focus yielding", () => {
         isPendingHere: false,
       }),
     ).toBe(false);
+  });
+});
+
+describe("profile copilot open-panel width", () => {
+  // The panel sliced the last-name field in half and hid the headline field
+  // entirely, because it floats over the same column those fields live in.
+  test("sizes the open panel to the space beside the edited column", () => {
+    expect(
+      getCopilotOpenPanelMaxWidth({
+        contentColumnRight: 1100,
+        maxWidth: 360,
+        viewportWidth: 1440,
+      }),
+    ).toBe(308);
+  });
+
+  test("keeps the full width when the column already leaves room", () => {
+    expect(
+      getCopilotOpenPanelMaxWidth({
+        contentColumnRight: 900,
+        maxWidth: 360,
+        viewportWidth: 1440,
+      }),
+    ).toBe(360);
+  });
+
+  test("keeps a readable panel rather than a sliver when there is no room", () => {
+    expect(
+      getCopilotOpenPanelMaxWidth({
+        contentColumnRight: 1380,
+        maxWidth: 360,
+        viewportWidth: 1440,
+      }),
+    ).toBe(360);
+    expect(
+      getCopilotOpenPanelMaxWidth({
+        contentColumnRight: null,
+        maxWidth: 360,
+        viewportWidth: 1440,
+      }),
+    ).toBe(360);
+  });
+});
+
+describe("profile copilot reserved column width", () => {
+  // Reproduced on the built app at the advertised minimum window size: the
+  // panel covered the LAST NAME value, the whole HEADLINE field and "Back to
+  // Home". Sizing the panel into the free space cannot fix that when there is
+  // no free space; the column has to give the pixels up.
+  test("reserves room when the window leaves none beside the column", () => {
+    expect(
+      getCopilotReservedColumnWidth({
+        contentColumnRight: 1000,
+        isOpen: true,
+        maxWidth: 360,
+        viewportWidth: 1024,
+      }),
+    ).toBeGreaterThan(0);
+  });
+
+  test("reserves nothing when the panel already fits beside the column", () => {
+    expect(
+      getCopilotReservedColumnWidth({
+        contentColumnRight: 900,
+        isOpen: true,
+        maxWidth: 360,
+        viewportWidth: 1440,
+      }),
+    ).toBe(0);
+  });
+
+  test("reserves nothing while the panel is closed or is a phone sheet", () => {
+    expect(
+      getCopilotReservedColumnWidth({
+        contentColumnRight: 1000,
+        isOpen: false,
+        maxWidth: 360,
+        viewportWidth: 1024,
+      }),
+    ).toBe(0);
+    expect(
+      getCopilotReservedColumnWidth({
+        contentColumnRight: 380,
+        isOpen: true,
+        maxWidth: 360,
+        viewportWidth: 400,
+      }),
+    ).toBe(0);
+  });
+
+  test("never takes more than half the column", () => {
+    expect(
+      getCopilotReservedColumnWidth({
+        contentColumnRight: 1000,
+        isOpen: true,
+        maxWidth: 360,
+        viewportWidth: 1024,
+      }),
+    ).toBeLessThanOrEqual(500);
   });
 });

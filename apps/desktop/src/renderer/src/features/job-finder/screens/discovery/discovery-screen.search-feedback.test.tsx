@@ -5,6 +5,7 @@ import type {
   BrowserSessionState,
   DiscoveryRunRecord,
   JobSearchPreferences,
+  PlanSafeguardPause,
   SavedJob,
 } from "@unemployed/contracts";
 import { buildDiscoveryCardOnlyEvidenceWarning } from "@unemployed/contracts";
@@ -73,7 +74,6 @@ import { DiscoveryScreen } from "./discovery-screen";
 import {
   createDiscoveryRunFailedFeedback,
   createDiscoveryRunStartedFeedback,
-  createDiscoveryRunSucceededFeedback,
   type DiscoveryRunFeedback,
 } from "./discovery-run-feedback";
 
@@ -135,8 +135,14 @@ const runningRun = {
   state: "running",
 } as unknown as DiscoveryRunRecord;
 
+// `campaignId` is explicit: the screen now scopes the finished banner to the
+// runs of the selected plan (`run.campaignId === activeCampaignId`), and the
+// contract defaults an unassigned run to `null`, never `undefined`. A fixture
+// that omits the field matches no plan at all and would make these
+// expectations pass without ever rendering the banner.
 const cardOnlyRun = {
   id: "run_card_only",
+  campaignId: null,
   state: "completed",
   startedAt: "2026-08-25T10:00:00.000Z",
   summary: {
@@ -149,6 +155,7 @@ const cardOnlyRun = {
 
 const cleanRun = {
   id: "run_clean",
+  campaignId: null,
   state: "completed",
   startedAt: "2026-08-25T10:00:00.000Z",
   summary: {
@@ -169,8 +176,10 @@ function createDeferredOutcome() {
 
 function buildScreen(overrides?: {
   actionState?: { message: string | null };
+  activeCampaignId?: string | null;
   activeRun?: DiscoveryRunRecord | null;
   recentRuns?: readonly DiscoveryRunRecord[];
+  safeguardPauses?: readonly PlanSafeguardPause[];
   activityPaused?: boolean;
   discoveryRunFeedback?: DiscoveryRunFeedback | null;
   isDiscoveryAllPending?: boolean;
@@ -185,6 +194,7 @@ function buildScreen(overrides?: {
     <MemoryRouter>
       <DiscoveryScreen
         actionState={overrides?.actionState ?? { message: null }}
+        activeCampaignId={overrides?.activeCampaignId ?? null}
         activeRun={overrides?.activeRun ?? null}
         {...(overrides?.activityPaused ? { activityPaused: true } : {})}
         browserSession={browserSession}
@@ -211,6 +221,7 @@ function buildScreen(overrides?: {
           : {})}
         onSelectJob={vi.fn()}
         recentRuns={overrides?.recentRuns ?? []}
+        safeguardPauses={overrides?.safeguardPauses ?? []}
         searchPreferences={searchPreferences}
         selectedJob={overrides?.selectedJob ?? createJob("strong")}
         sourceAccessPrompts={[]}
@@ -228,6 +239,37 @@ afterEach(() => {
 });
 
 describe("DiscoveryScreen Search now truthful feedback", () => {
+  it("replaces a finished banner with the active plan's safeguard pause", () => {
+    const pausedRun = {
+      ...cleanRun,
+      campaignId: "campaign_paused",
+    } as DiscoveryRunRecord;
+
+    renderScreen({
+      recentRuns: [pausedRun],
+      safeguardPauses: [
+        {
+          id: "automatic_discovery_failures:campaign_paused",
+          campaignId: "campaign_paused",
+          planName: "Paused plan",
+          title: "Paused after repeated failures (33.3% failed)",
+          explanation: "Too many searches failed.",
+          route: "/job-finder/safeguards",
+        },
+      ],
+      activeCampaignId: "campaign_paused",
+    });
+
+    const status = screen.getByRole("status");
+    expect(status.textContent).toContain(
+      "Search paused by a safety limit · Open Safeguards",
+    );
+    expect(status.textContent).not.toContain("Search finished");
+    expect(
+      screen.getByRole("link", { name: "Open Safeguards" }).getAttribute("href"),
+    ).toBe("/job-finder/safeguards");
+  });
+
   it("prevents duplicate clicks while any discovery run occupies the pipeline", () => {
     const onRunAgentDiscovery = vi.fn();
     const first = renderScreen({ onRunAgentDiscovery });
@@ -297,21 +339,24 @@ describe("DiscoveryScreen Search now truthful feedback", () => {
   });
 
   it("reports success without claiming matches that may not exist", () => {
-    renderScreen({
-      discoveryRunFeedback: createDiscoveryRunSucceededFeedback(),
-    });
+    // The finished banner is read from the selected plan's own frozen run
+    // report now, not from the transient feedback prop, so Find jobs states
+    // the same numbers as Home, Search history, the plan card and Tasks.
+    renderScreen({ recentRuns: [cleanRun] });
 
-    expect(screen.getByRole("status").textContent).toContain(
+    const status = screen.getByRole("status");
+    expect(status.textContent).toContain(
       "Search finished and results were saved on this device.",
     );
+    // It quotes the run's own count line instead of claiming matches.
+    expect(status.textContent).toContain("4 new jobs saved");
+    expect(status.textContent).not.toMatch(/match/iu);
   });
 
   it("prints the run's own card-only evidence warning verbatim beside the outcome", () => {
     const warning = buildDiscoveryCardOnlyEvidenceWarning("Example Board");
-    renderScreen({
-      discoveryRunFeedback: createDiscoveryRunSucceededFeedback(),
-      recentRuns: [cardOnlyRun],
-    });
+    // The completed run is the source of both the outcome and the warning.
+    renderScreen({ recentRuns: [cardOnlyRun] });
 
     const notice = screen.getByTestId("discovery-run-notice");
     expect(notice.textContent).toBe(warning);
@@ -332,11 +377,10 @@ describe("DiscoveryScreen Search now truthful feedback", () => {
   });
 
   it("shows no run notice when the newest run recorded no warning", () => {
-    renderScreen({
-      discoveryRunFeedback: createDiscoveryRunSucceededFeedback(),
-      recentRuns: [cleanRun],
-    });
+    renderScreen({ recentRuns: [cleanRun] });
 
+    // The banner is on screen; only the notice line is absent.
+    expect(screen.getByTestId("discovery-run-feedback")).toBeTruthy();
     expect(screen.queryByTestId("discovery-run-notice")).toBeNull();
   });
 });
@@ -500,21 +544,14 @@ describe("DiscoveryScreen Results-mode shortlist feedback", () => {
   });
 
   it("keeps a finished-search banner off the search-setup editor", () => {
-    renderScreen({
-      discoveryRunFeedback: {
-        detail: null,
-        headline: "Search finished and results were saved on this device.",
-        recovery: null,
-        status: "succeeded",
-        targetLabel: null,
-      },
-    });
+    // Driven by the run record: the succeeded banner is the plan's frozen run
+    // report, and its headline now carries the run's own counts, so assert on
+    // the banner surface rather than on one whole-string text match.
+    renderScreen({ recentRuns: [cleanRun] });
 
-    expect(
-      screen.getByText(
-        "Search finished and results were saved on this device.",
-      ),
-    ).toBeTruthy();
+    expect(screen.getByTestId("discovery-run-feedback").textContent).toContain(
+      "Search finished and results were saved on this device.",
+    );
 
     fireEvent.click(
       document.querySelector(
@@ -524,11 +561,7 @@ describe("DiscoveryScreen Results-mode shortlist feedback", () => {
 
     // No results are on screen while the editor is open, so a banner about
     // them has nowhere to belong.
-    expect(
-      screen.queryByText(
-        "Search finished and results were saved on this device.",
-      ),
-    ).toBeNull();
+    expect(screen.queryByTestId("discovery-run-feedback")).toBeNull();
   });
 
   it("keeps one shared route message surface across Results and Search setup", () => {

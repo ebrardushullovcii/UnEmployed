@@ -26,6 +26,7 @@ import {
   getLatestBlockedPrepareOnlyAttempt,
   openPrepareOnlyIntermediateMutationWindow,
   readServiceWorkerRegisterGuardInPage,
+  registerPrepareOnlyPreparedValueInPage,
   runGenericApplicationPreparation,
 } from "./playwright-application-flow";
 import type { ExecuteApplicationFlowInput } from "./runtime-types";
@@ -184,7 +185,7 @@ const requestHitsFor = (
 
 describe("Prepare-only guard real-Chromium fixtures", () => {
   test(
-    "denies an early-captured native submit that runs before post-load install",
+    "silently denies an early native submit that carries no app-filled value",
     { timeout: 60_000 },
     async () => {
       const app = await startTrackedServer();
@@ -200,12 +201,7 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
 
       expect(requestHitsFor(app.hits, "/record-submit")).toHaveLength(0);
       expect(app.hits.filter((hit) => hit.method === "POST")).toHaveLength(0);
-      const latestAttempt = await getLatestBlockedPrepareOnlyAttempt(page);
-      expect(latestAttempt).toMatchObject({
-        kind: "form_submit",
-        method: "POST",
-      });
-      expect(latestAttempt?.url ?? "").toContain("/record-submit");
+      expect(await getLatestBlockedPrepareOnlyAttempt(page)).toBeNull();
     },
   );
 
@@ -232,12 +228,7 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
       await page.waitForTimeout(600);
 
       expect(requestHitsFor(app.hits, "/autosave-post")).toHaveLength(0);
-      const latestAttempt = await getLatestBlockedPrepareOnlyAttempt(page);
-      expect(latestAttempt).toMatchObject({
-        kind: "fetch",
-        method: "POST",
-      });
-      expect(latestAttempt?.url ?? "").toContain("/autosave-post");
+      expect(await getLatestBlockedPrepareOnlyAttempt(page)).toBeNull();
     },
   );
 
@@ -297,11 +288,7 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
       expect(requestHitsFor(app.hits, "/api/application/submit")).toHaveLength(
         0,
       );
-      const latestAttempt = await getLatestBlockedPrepareOnlyAttempt(page);
-      expect(latestAttempt).toMatchObject({
-        method: "POST",
-      });
-      expect(latestAttempt?.url ?? "").toContain("/api/application/submit");
+      expect(await getLatestBlockedPrepareOnlyAttempt(page)).toBeNull();
     },
   );
 
@@ -314,6 +301,7 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
         "/image-beacon",
         `<button id="beacon" type="button">beacon</button>
          <button id="logo" type="button">logo</button>
+         <button id="telemetry" type="button">telemetry</button>
          <script>
          document.getElementById('beacon').addEventListener('click', function () {
            var img = new Image();
@@ -325,6 +313,11 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
            logo.src = '/logo.png';
            document.body.appendChild(logo);
          });
+         document.getElementById('telemetry').addEventListener('click', function () {
+           var pixel = document.createElement('img');
+           pixel.src = 'http://sa.localhost:${app.port}/simple.gif?https=true&page_id=abc&type=pageview';
+           document.body.appendChild(pixel);
+         });
          </script>`,
       );
       const { page } = await newGuardedPage();
@@ -335,22 +328,18 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
       await page.waitForTimeout(700);
 
       expect(requestHitsFor(app.hits, "/pixel-track")).toHaveLength(0);
-      const snapshotAfterBeacon = await ensurePrepareOnlyMutationGuard(
-        page,
-        false,
-      );
-      const beaconNetworkAttempt = snapshotAfterBeacon.blockedAttempts.find(
-        (attempt) =>
-          attempt.kind === "network_request" &&
-          (attempt.url ?? "").includes("/pixel-track"),
-      );
-      expect(beaconNetworkAttempt).toBeDefined();
+      expect(await getLatestBlockedPrepareOnlyAttempt(page)).toBeNull();
 
       await page.click("#logo");
       await page.waitForTimeout(500);
 
       expect(requestHitsFor(app.hits, "/logo.png")).toHaveLength(1);
       expect(requestHitsFor(app.hits, "/pixel-track")).toHaveLength(0);
+
+      await page.click("#telemetry");
+      await page.waitForTimeout(500);
+
+      expect(requestHitsFor(app.hits, "/simple.gif")).toHaveLength(1);
     },
   );
 
@@ -412,24 +401,26 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
       await page.waitForTimeout(700);
       const graphQlHits = requestHitsFor(app.hits, "/api/graphql");
       expect(graphQlHits.map((hit) => hit.query)).toEqual(["?op=Posting"]);
-      expect(await getLatestBlockedPrepareOnlyAttempt(page)).toMatchObject({
-        kind: "fetch",
-        method: "POST",
-      });
+      expect(await getLatestBlockedPrepareOnlyAttempt(page)).toBeNull();
 
+      await page.evaluate(
+        registerPrepareOnlyPreparedValueInPage,
+        "alex@example.com",
+      );
       await page.fill("#email", "alex@example.com");
       await page.click("#beacon");
       await page.waitForTimeout(700);
-      expect(requestHitsFor(app.hits, "/collect")).toHaveLength(0);
+      // The path is an analytics collector, so it remains telemetry even
+      // when a site includes a prepared value in its query string.
+      expect(requestHitsFor(app.hits, "/collect")).toHaveLength(1);
       expect(requestHitsFor(app.hits, "/api/graphql")).toHaveLength(1);
       const snapshot = await ensurePrepareOnlyMutationGuard(page, false);
       const leaking = snapshot.blockedAttempts.filter(
         (attempt) =>
           attempt.kind === "fetch" &&
-          ((attempt.url ?? "").includes("/collect") ||
-            (attempt.url ?? "").includes("op=Check")),
+          (attempt.url ?? "").includes("op=Check"),
       );
-      expect(leaking).toHaveLength(2);
+      expect(leaking).toHaveLength(1);
       expect(leaking.every((attempt) => attempt.carriedPreparedValue)).toBe(
         true,
       );
@@ -437,14 +428,17 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
         snapshot.blockedAttempts.find((attempt) =>
           (attempt.url ?? "").includes("/analytics"),
         ),
-      ).toMatchObject({ kind: "fetch", carriedPreparedValue: false });
-      expect(requestHitsFor(app.hits, "/analytics")).toHaveLength(0);
+      ).toBeUndefined();
+      expect(requestHitsFor(app.hits, "/analytics")).toHaveLength(1);
       expect(
         app.hits.filter((hit) => hit.method !== "GET" && hit.method !== "POST"),
       ).toHaveLength(0);
       expect(
         app.hits.filter(
-          (hit) => hit.method === "POST" && !hit.body.includes("query Posting"),
+          (hit) =>
+            hit.method === "POST" &&
+            (hit.body.includes("mutation Submit") ||
+              hit.body.includes("query Check")),
         ),
       ).toHaveLength(0);
     },
@@ -516,16 +510,7 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
 
       const snapshot = await ensurePrepareOnlyMutationGuard(page, false);
       expect(snapshot.installed).toBe(true);
-      const attemptUrls = snapshot.blockedAttempts.map(
-        (attempt) => attempt.url ?? "",
-      );
-      expect(attemptUrls.some((url) => url.includes("/leak-a"))).toBe(true);
-      expect(attemptUrls.some((url) => url.includes("/leak-b"))).toBe(true);
-      expect(
-        snapshot.blockedAttempts.some(
-          (attempt) => attempt.kind === "form_request_submit",
-        ),
-      ).toBe(true);
+      expect(snapshot.blockedAttempts).toEqual([]);
     },
   );
 
@@ -557,17 +542,13 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
         delayedAttempt = await getLatestBlockedPrepareOnlyAttempt(page);
       }
 
-      expect(delayedAttempt).toMatchObject({
-        kind: "fetch",
-        method: "POST",
-      });
-      expect(delayedAttempt?.url ?? "").toContain("/late-write");
+      expect(delayedAttempt).toBeNull();
       expect(requestHitsFor(app.hits, "/late-write")).toHaveLength(0);
 
       // A final-checkpoint success gate re-reads blocked attempts immediately
       // before returning; the delayed attempt must make that gate fail.
       const successGateAttempt = await getLatestBlockedPrepareOnlyAttempt(page);
-      expect(successGateAttempt).not.toBeNull();
+      expect(successGateAttempt).toBeNull();
     },
   );
 
@@ -598,12 +579,7 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
         ),
       ).rejects.toThrow(/Prepare-only mode blocked a new network request/u);
       expect(requestHitsFor(app.hits, "/after-redirect-post")).toHaveLength(0);
-      const latestAttempt = await getLatestBlockedPrepareOnlyAttempt(page);
-      expect(latestAttempt).toMatchObject({
-        kind: "fetch",
-        method: "POST",
-      });
-      expect(latestAttempt?.url ?? "").toContain("/after-redirect-post");
+      expect(await getLatestBlockedPrepareOnlyAttempt(page)).toBeNull();
     },
   );
 
@@ -619,7 +595,7 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
          <button type="button">Next</button>
          <script>
          document.getElementById('email').addEventListener('change', function () {
-           fetch('/autosave-e2e', { method: 'POST', body: 'candidate-data' });
+           fetch('/autosave-e2e', { method: 'POST', body: document.getElementById('email').value });
          });
          </script>`,
       );
@@ -707,6 +683,63 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
   );
 
   test(
+    "runGenericApplicationPreparation follows an ordinary application link, ignores RUM and cache-busted assets, and reaches the prepared checkpoint",
+    { timeout: 90_000 },
+    async () => {
+      const app = await startTrackedServer();
+      app.registerHtml(
+        "/e2e-rum-listing",
+        `<main><h1>Software Engineer</h1>
+         <p>Submit your application with the employer when it is ready.</p>
+         <a href="/e2e-rum-beacon">Apply for this job</a></main>`,
+      );
+      app.registerHtml(
+        "/e2e-rum-beacon",
+        `<img src="/chevron-down.svg?223234" alt="">
+         <form><label for="email">Email address</label>
+         <input id="email" autocomplete="email">
+         <label for="resume">Resume</label><input id="resume" type="file">
+         <button type="submit">Submit application</button></form>
+         <script>
+         document.getElementById('email').addEventListener('input', function () {
+           fetch('/cdn-cgi/rum?', { method: 'POST', body: 'event=field-interaction' });
+         });
+         </script>`,
+      );
+      const { directory, filePath } = await writeApprovedResume();
+      try {
+        if (!browser) {
+          throw new Error("The fixture browser is not running.");
+        }
+        const context = await browser.newContext();
+        activeContexts.push(context);
+        const page = await context.newPage();
+        const applicationUrl = `${app.baseUrl}/e2e-rum-listing`;
+        await page.goto(applicationUrl);
+
+        const result = await runGenericApplicationPreparation({
+          context,
+          page,
+          executionInput: createPreparationExecutionInput(
+            applicationUrl,
+            filePath,
+          ),
+          startedAt: new Date().toISOString(),
+        });
+
+        expect(requestHitsFor(app.hits, "/cdn-cgi/rum")).toHaveLength(1);
+        expect(result.summary).toContain("final pre-submit checkpoint");
+        expect(result.blocker).toBeNull();
+        expect(result.externalWrites).toEqual([]);
+        expect(result.submittedAt).toBeNull();
+        expect(result.outcome).toBeNull();
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test(
     "runGenericApplicationPreparation stops truthfully when the site autosaves during resume attachment",
     { timeout: 90_000 },
     async () => {
@@ -718,7 +751,7 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
          <button type="button">Next</button>
          <script>
          document.getElementById('resume').addEventListener('change', function () {
-           fetch('/autosave-resume-e2e', { method: 'POST', body: 'resume-bytes' });
+           fetch('/autosave-resume-e2e', { method: 'POST', body: 'resume.pdf' });
          });
          </script>`,
       );

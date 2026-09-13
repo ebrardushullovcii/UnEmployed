@@ -1,4 +1,8 @@
-import type { DiscoveryRunRecord } from "@unemployed/contracts";
+import {
+  DISCOVERY_RUN_ALREADY_ACTIVE_MESSAGE,
+  type DiscoveryRunRecord,
+  type PlanSafeguardPause,
+} from "@unemployed/contracts";
 import {
   JOB_FINDER_BROWSER_NAME,
   JOB_FINDER_BROWSER_NAME_SENTENCE_START,
@@ -8,6 +12,7 @@ import {
 export type DiscoveryRunFeedbackStatus =
   | "started"
   | "succeeded"
+  | "paused"
   | "cancelled"
   | "failed";
 
@@ -200,6 +205,10 @@ export interface DiscoveryRunFeedback {
   detail: string | null;
   headline: string;
   recovery: DiscoveryRunRecovery | null;
+  safeguardAction?: {
+    label: "Open Safeguards";
+    route: PlanSafeguardPause["route"];
+  };
   targetLabel: string | null;
 }
 
@@ -321,17 +330,39 @@ export function createDiscoveryRunStartedFeedback(
   };
 }
 
+/**
+ * `runCountLabel` is the run's own frozen "N found · M new · K kept" line.
+ * The banner quotes it verbatim so Find jobs states the same three numbers as
+ * Home, Search history, the plan card and Tasks instead of describing the
+ * same search a sixth way.
+ */
 export function createDiscoveryRunSucceededFeedback(
   targetLabel: string | null = null,
+  runCountLabel: string | null = null,
 ): DiscoveryRunFeedback {
+  const finished = targetLabel
+    ? `Search finished for ${targetLabel} and results were saved on this device.`
+    : "Search finished and results were saved on this device.";
+
   return {
     status: "succeeded",
     detail: null,
-    headline: targetLabel
-      ? `Search finished for ${targetLabel} and results were saved on this device.`
-      : "Search finished and results were saved on this device.",
+    headline: runCountLabel ? `${finished} ${runCountLabel}.` : finished,
     recovery: null,
     targetLabel,
+  };
+}
+
+export function createDiscoveryRunSafeguardPausedFeedback(
+  route: PlanSafeguardPause["route"],
+): DiscoveryRunFeedback {
+  return {
+    status: "paused",
+    detail: null,
+    headline: "Search paused by a safety limit",
+    recovery: null,
+    safeguardAction: { label: "Open Safeguards", route },
+    targetLabel: null,
   };
 }
 
@@ -453,6 +484,31 @@ export function createDiscoveryRunInterruptedFeedback(input: {
       : "The search stopped before it could finish.",
     recovery: detail ? getDiscoveryRunFailureRecovery(detail) : null,
     targetLabel: input.targetLabel ?? null,
+  };
+}
+
+/**
+ * True when the service refused a second search because the first one is still
+ * live. A Stop that has not finished yet lands here, so this is the one
+ * rejection that must never read as a failure.
+ */
+export function isDiscoveryAlreadyRunningDetail(
+  detail: string | null | undefined,
+): boolean {
+  return (detail ?? "").includes(DISCOVERY_RUN_ALREADY_ACTIVE_MESSAGE);
+}
+
+export function createDiscoveryRunAlreadyRunningFeedback(
+  targetLabel: string | null = null,
+): DiscoveryRunFeedback {
+  return {
+    status: "started",
+    detail: null,
+    headline: targetLabel
+      ? `The search for ${targetLabel} is still finishing. Wait for it to stop, then search again.`
+      : "The last search is still finishing. Wait for it to stop, then search again.",
+    recovery: null,
+    targetLabel,
   };
 }
 

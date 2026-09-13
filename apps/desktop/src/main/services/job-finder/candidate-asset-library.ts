@@ -143,6 +143,34 @@ function parseCandidateAssetIndex(value: unknown): CandidateAssetIndex {
   return { version: 1, assets };
 }
 
+/** File extensions a person would recognise, per stored media type. */
+const FILE_TYPE_NAMES: Readonly<Record<string, string>> = {
+  "application/pdf": "PDF",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    "DOCX",
+  "text/plain": "plain text (TXT, MD, CSV)",
+  "text/vtt": "VTT",
+  "application/x-subrip": "SRT",
+  "image/jpeg": "JPG",
+  "image/png": "PNG",
+  "image/webp": "WEBP",
+};
+
+/**
+ * The file types one category accepts, written the way a person would say
+ * them. Choosing "Certificate" and picking a .txt used to fail with the raw
+ * storage sentence, which never said what would have worked.
+ */
+export function describeAcceptedFileTypes(kind: CandidateAssetKind): string {
+  const names = [...supportedMimeByKind[kind]].map(
+    (mime) => FILE_TYPE_NAMES[mime] ?? mime,
+  );
+  if (names.length <= 1) {
+    return names[0] ?? "no file types";
+  }
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
 export class CandidateAssetLibraryError extends Error {
   constructor(message: string) {
     super(message);
@@ -398,7 +426,7 @@ export class CandidateAssetLibrary {
     const mime = detectMime(bytes, originalName);
     if (!mime || !supportedMimeByKind[input.kind].has(mime)) {
       throw new CandidateAssetLibraryError(
-        `This file type is not allowed for a ${input.kind.replaceAll("_", " ")} asset.`,
+        `${path.extname(originalName).replace(".", "").toUpperCase() || "That"} files cannot be saved under ${input.kind.replaceAll("_", " ")}. This category accepts ${describeAcceptedFileTypes(input.kind)}.`,
       );
     }
     if (bytes.byteLength > getMimeByteLimit(mime)) {

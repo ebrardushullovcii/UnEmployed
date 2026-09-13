@@ -201,7 +201,8 @@ const PROFILE_SETUP_READINESS_BLOCKER_LABELS: Record<
   // not promise that a location was saved.
   eligibility_preferences: "Answer one work or location detail",
   identity_contact: "Add your name and an email or phone",
-  work_mode_preference: "Pick a work mode (remote, hybrid, or onsite)",
+  work_mode_preference:
+    "Pick where you want to work (remote, hybrid, onsite, or flexible)",
 };
 
 export function getProfileSetupReadinessBlockerLabel(
@@ -464,7 +465,7 @@ function humanizeRecordFieldKey(key: string): string {
     case "interviewPreference":
       return "Interview preference";
     case "workMode":
-      return "Work mode at this job";
+      return "Where you worked at this job";
     case "dateEarned":
       return "Date earned";
     default:
@@ -748,9 +749,19 @@ export function buildProfileSetupIdentityBlockerReason(
     missingRequirements.push("a headline");
   }
 
+  // Either place the app offers counts: guided setup writes one compact line,
+  // Profile Basics writes city, region and country. Reading only the compact
+  // line kept "Add your current location" on screen for someone who had
+  // already filled in the structured fields.
   if (
-    !hasMeaningfulText(profile.currentLocation) ||
-    hasProfileSetupPlaceholderValue("currentLocation", profile.currentLocation)
+    (!hasMeaningfulText(profile.currentLocation) ||
+      hasProfileSetupPlaceholderValue(
+        "currentLocation",
+        profile.currentLocation,
+      )) &&
+    !hasMeaningfulText(profile.currentCity) &&
+    !hasMeaningfulText(profile.currentRegion) &&
+    !hasMeaningfulText(profile.currentCountry)
   ) {
     missingRequirements.push("your location");
   }

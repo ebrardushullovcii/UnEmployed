@@ -36,6 +36,8 @@ const {
   mockBrowserWindowFromWebContents,
   mockBuildApplicationPacket,
   mockDeleteCampaignRule,
+  mockExportResumePdf,
+  mockGetResumeWorkspace,
   mockPreviewResumeDraft,
   mockGetWorkspaceBootstrap,
   mockGetWorkspaceSnapshot,
@@ -77,6 +79,8 @@ const {
   ),
   mockBuildApplicationPacket: vi.fn(),
   mockDeleteCampaignRule: vi.fn(),
+  mockExportResumePdf: vi.fn(),
+  mockGetResumeWorkspace: vi.fn(),
   mockPreviewResumeDraft: vi.fn(),
   mockGetWorkspaceBootstrap: vi.fn(),
   mockGetWorkspaceSnapshot: vi.fn(),
@@ -631,6 +635,7 @@ describe("job-finder resume import picker route", () => {
 describe("job-finder application packet export route", () => {
   let temporaryDirectory: string;
   let exportHandler: RegisteredHandler;
+  let resumePdfExportHandler: RegisteredHandler;
   let bootstrapHandler: RegisteredHandler;
   let syncHandler: RegisteredHandler;
   let entityMutationHandler: RegisteredHandler;
@@ -650,8 +655,20 @@ describe("job-finder application packet export route", () => {
     mockQueueJobForReview.mockResolvedValue(
       createEmptyWorkspace("2026-08-09T10:01:00.000Z"),
     );
+    mockExportResumePdf.mockResolvedValue(
+      createEmptyWorkspace("2026-08-09T10:02:00.000Z"),
+    );
+    mockGetResumeWorkspace.mockResolvedValue({
+      job: { title: "Staff Engineer", company: "Example" },
+      // The export route names the file from how the draft was produced, so
+      // the double has to carry a draft the way the real workspace does.
+      draft: { generationMethod: "ai" },
+      tailoredAsset: null,
+    });
     mockGetJobFinderWorkspaceService.mockResolvedValue({
       buildApplicationPacket: mockBuildApplicationPacket,
+      exportResumePdf: mockExportResumePdf,
+      getResumeWorkspace: mockGetResumeWorkspace,
       getWorkspaceBootstrap: mockGetWorkspaceBootstrap,
       getWorkspaceSnapshot: mockGetWorkspaceSnapshot,
       proposeProfileCopilotChange: mockProposeProfileCopilotChange,
@@ -673,6 +690,13 @@ describe("job-finder application packet export route", () => {
       throw new Error("Application packet export handler was not registered.");
     }
     exportHandler = registeredHandler;
+    const registeredResumePdfHandler = handlers.get(
+      "job-finder:export-resume-pdf",
+    );
+    if (!registeredResumePdfHandler) {
+      throw new Error("Resume PDF export handler was not registered.");
+    }
+    resumePdfExportHandler = registeredResumePdfHandler;
     const registeredBootstrapHandler = handlers.get(
       "job-finder:get-workspace-bootstrap",
     );
@@ -734,6 +758,42 @@ describe("job-finder application packet export route", () => {
       "application-1",
     );
     await expect(readdir(temporaryDirectory)).resolves.toEqual([]);
+  });
+
+  it("tells the person a cancelled resume export saved nothing", async () => {
+    mockShowSaveDialog.mockResolvedValue({
+      canceled: true,
+      filePath: undefined,
+    });
+
+    const result = (await resumePdfExportHandler(
+      { sender: {} },
+      { intent: "download", jobId: "job-1" },
+    )) as { outcome: string; outputPath: string | null };
+
+    expect(result.outcome).toBe("cancelled");
+    expect(result.outputPath).toBeNull();
+    expect(mockExportResumePdf).not.toHaveBeenCalled();
+  });
+
+  it("reports where a saved resume PDF went", async () => {
+    const selectedPath = path.join(temporaryDirectory, "resume");
+    mockShowSaveDialog.mockResolvedValue({
+      canceled: false,
+      filePath: selectedPath,
+    });
+
+    const result = (await resumePdfExportHandler(
+      { sender: {} },
+      { intent: "download", jobId: "job-1" },
+    )) as { outcome: string; outputPath: string | null };
+
+    expect(result.outcome).toBe("saved");
+    expect(result.outputPath).toBe(`${selectedPath}.pdf`);
+    expect(mockExportResumePdf).toHaveBeenCalledWith(
+      "job-1",
+      `${selectedPath}.pdf`,
+    );
   });
 
   it("writes the exact schema-validated packet as formatted JSON", async () => {
@@ -1543,19 +1603,23 @@ describe("job-finder campaign run and notification read routes", () => {
       { campaignId: "campaign-1" },
     );
 
-    expect(mockRunCampaignNow).toHaveBeenCalledWith({
-      campaignId: "campaign-1",
-    });
+    expect(mockRunCampaignNow).toHaveBeenCalledWith(
+      { campaignId: "campaign-1" },
+      expect.any(Function),
+    );
     expect(result).toMatchObject({ module: "job-finder" });
   });
 
   it("treats omitted or null campaign ids as the active campaign", async () => {
     await runCampaignNowHandler({ sender: {} }, undefined);
-    expect(mockRunCampaignNow).toHaveBeenCalledWith({});
+    expect(mockRunCampaignNow).toHaveBeenCalledWith({}, expect.any(Function));
 
     mockRunCampaignNow.mockClear();
     await runCampaignNowHandler({ sender: {} }, { campaignId: null });
-    expect(mockRunCampaignNow).toHaveBeenCalledWith({ campaignId: null });
+    expect(mockRunCampaignNow).toHaveBeenCalledWith(
+      { campaignId: null },
+      expect.any(Function),
+    );
   });
 
   it("rejects a malformed run-campaign-now payload", async () => {

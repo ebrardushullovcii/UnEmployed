@@ -36,10 +36,24 @@ function collectProductionSources(dir: URL, prefix = ""): Map<string, string> {
   return sources;
 }
 
+/** The three list REGIONS — the scroll containers that own row spacing. */
 const LIST_PANEL_PATHS = [
   "screens/applications/applications-records-panel.tsx",
   "screens/discovery/discovery-results-panel.tsx",
   "screens/review-queue/review-queue-list-panel.tsx",
+];
+
+/**
+ * Where each of those three lists renders its ROW. Usually the panel itself;
+ * Shortlisted keeps its row in a module of its own so the row can be memoised
+ * and a one-job update stops re-rendering the whole list. Still one list
+ * treatment — a fourth entry here is a fourth list, which is the thing this
+ * guard exists to catch.
+ */
+const LIST_ROW_PATHS = [
+  "screens/applications/applications-records-panel.tsx",
+  "screens/discovery/discovery-results-panel.tsx",
+  "screens/review-queue/review-queue-list-row.tsx",
 ];
 
 describe("Job Finder list rows carry no chrome of their own", () => {
@@ -65,7 +79,7 @@ describe("Job Finder list rows carry no chrome of their own", () => {
     );
     // All three lists, and no list left behind. A new list that renders rows
     // outside the shared treatment shows up here first.
-    expect(rowSources.map(([path]) => path).sort()).toEqual(LIST_PANEL_PATHS);
+    expect(rowSources.map(([path]) => path).sort()).toEqual(LIST_ROW_PATHS);
 
     const offenders = rowSources
       .filter(([, source]) => !source.includes("jobFinderListRowClassName"))

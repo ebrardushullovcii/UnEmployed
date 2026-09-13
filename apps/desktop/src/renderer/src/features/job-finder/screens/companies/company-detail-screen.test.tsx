@@ -44,6 +44,15 @@ function makeCompany(overrides: Partial<CompanyEntity> = {}): CompanyEntity {
   };
 }
 
+/**
+ * The option values of a select. R10 put a stored record id inside the
+ * option's own text ("… (job_target_site_…_click)"); these tests therefore
+ * identify options by their value, which is storage, not copy.
+ */
+function optionValues(select: HTMLElement): string[] {
+  return [...select.querySelectorAll("option")].map((option) => option.value);
+}
+
 function makeJob(
   id: string,
   overrides: Partial<SavedJob> & { listingActivity?: ListingActivity } = {},
@@ -619,8 +628,8 @@ describe("CompanyDetailScreen", () => {
     );
     expect(application.value).toBe("");
     expect(within(application).getByText(/Job only/)).toBeTruthy();
-    expect(within(application).getByText(/app_1/)).toBeTruthy();
-    expect(within(application).getByText(/app_2/)).toBeTruthy();
+    expect(optionValues(application)).toContain("app_1");
+    expect(optionValues(application)).toContain("app_2");
 
     fireEvent.change(screen.getByPlaceholderText(/Verbal offer/), {
       target: { value: "Offer 200k" },
@@ -709,8 +718,11 @@ describe("CompanyDetailScreen", () => {
     });
 
     const jobSelect = screen.getByLabelText("Evidence job");
-    expect(within(jobSelect).queryByText(/job_stale/)).toBeNull();
-    expect(within(jobSelect).getByText(/job_ambiguous/)).toBeTruthy();
+    expect(optionValues(jobSelect)).not.toContain("job_stale");
+    expect(optionValues(jobSelect)).toContain("job_ambiguous");
+    // The option names the job, never its stored id.
+    expect(jobSelect.textContent).not.toContain("job_ambiguous");
+    expect(jobSelect.textContent).toContain("Engineer · Acme Inc");
   });
 
   it("accepts only user-approved aliases as evidence job owners", () => {
@@ -741,7 +753,7 @@ describe("CompanyDetailScreen", () => {
 
     const jobSelect = screen.getByLabelText("Evidence job");
     expect(within(jobSelect).queryByText(/job_legacy/)).toBeNull();
-    expect(within(jobSelect).getByText(/job_approved/)).toBeTruthy();
+    expect(optionValues(jobSelect)).toContain("job_approved");
   });
 
   it("does not use a unique domain as a fallback when the company name is missing", () => {
@@ -799,8 +811,8 @@ describe("CompanyDetailScreen", () => {
     });
 
     expect(
-      within(screen.getByLabelText("Evidence job")).queryByText(/job_new_name/),
-    ).toBeNull();
+      optionValues(screen.getByLabelText("Evidence job")),
+    ).not.toContain("job_new_name");
   });
 
   it("uses service-parity C++ and C# identity normalization for evidence candidates", () => {
@@ -824,7 +836,7 @@ describe("CompanyDetailScreen", () => {
     });
 
     const jobSelect = screen.getByLabelText("Evidence job");
-    expect(within(jobSelect).getByText(/job_cpp/)).toBeTruthy();
+    expect(optionValues(jobSelect)).toContain("job_cpp");
     expect(within(jobSelect).queryByText(/job_csharp/)).toBeNull();
   });
 
@@ -852,8 +864,8 @@ describe("CompanyDetailScreen", () => {
     });
 
     expect(
-      within(screen.getByLabelText("Evidence job")).queryByText(/job_conflict/),
-    ).toBeNull();
+      optionValues(screen.getByLabelText("Evidence job")),
+    ).not.toContain("job_conflict");
   });
 
   it("keeps a unique name match when its unique domain resolves to the same company", () => {
@@ -872,11 +884,9 @@ describe("CompanyDetailScreen", () => {
       ],
     });
 
-    expect(
-      within(screen.getByLabelText("Evidence job")).getByText(
-        /job_same_company/,
-      ),
-    ).toBeTruthy();
+    expect(optionValues(screen.getByLabelText("Evidence job"))).toContain(
+      "job_same_company",
+    );
   });
 
   it("offers applications only for the selected eligible job and clears the previous choice", () => {
@@ -899,8 +909,8 @@ describe("CompanyDetailScreen", () => {
     const firstApplication = screen.getByLabelText<HTMLSelectElement>(
       "Evidence application record",
     );
-    expect(within(firstApplication).getByText(/app_1/)).toBeTruthy();
-    expect(within(firstApplication).queryByText(/app_2/)).toBeNull();
+    expect(optionValues(firstApplication)).toContain("app_1");
+    expect(optionValues(firstApplication)).not.toContain("app_2");
     fireEvent.change(firstApplication, { target: { value: "app_1" } });
 
     fireEvent.change(jobSelect, { target: { value: "job_2" } });
@@ -908,9 +918,9 @@ describe("CompanyDetailScreen", () => {
       "Evidence application record",
     );
     expect(secondApplication.value).toBe("");
-    expect(within(secondApplication).queryByText(/app_1/)).toBeNull();
-    expect(within(secondApplication).getByText(/app_2/)).toBeTruthy();
-    expect(within(secondApplication).queryByText(/app_unowned/)).toBeNull();
+    expect(optionValues(secondApplication)).not.toContain("app_1");
+    expect(optionValues(secondApplication)).toContain("app_2");
+    expect(optionValues(secondApplication)).not.toContain("app_unowned");
   });
 
   it("lets the user merge or reject a pending duplicate candidate explicitly", () => {

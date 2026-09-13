@@ -1,12 +1,16 @@
 import { FINISH_IN_JOB_FINDER_BROWSER_LIST_NEXT_STEP } from "../../lib/job-finder-browser-handoff-copy";
 import { describe, expect, it } from "vitest";
-import { ApplicationRecordSchema } from "@unemployed/contracts";
+import {
+  ApplicationRecordSchema,
+  ApplyJobResultSchema,
+} from "@unemployed/contracts";
 import {
   getApplicationLatestActivityLabel,
   getApplicationNextStepLabel,
   getApplicationReadableNextStepLabel,
   getApplicationStagePresentation,
   getApplicationSubmissionAnswer,
+  applicationRecordAwaitsUser,
 } from "./applications-status";
 
 function createRecord(
@@ -26,6 +30,56 @@ function createRecord(
 }
 
 describe("applications status helpers", () => {
+  it("derives an unfinished preparation summary from the same write receipt as the field facts", () => {
+    const result = ApplyJobResultSchema.parse({
+      id: "result_1",
+      runId: "run_1",
+      jobId: "job_1",
+      state: "blocked",
+      summary: "Preparation stopped at sign-in.",
+      detail: "The site requires sign-in.",
+      startedAt: "2026-03-20T10:00:00.000Z",
+      updatedAt: "2026-03-20T10:01:00.000Z",
+      privacyReceipt: {
+        generatedAt: "2026-03-20T10:01:00.000Z",
+        lineage: {
+          runId: "run_1",
+          jobId: "job_1",
+          resultId: "result_1",
+          applicationRecordId: "application_1",
+        },
+        destination: { origin: "https://jobs.example", safePath: "/apply" },
+        resume: {
+          source: "original_upload",
+          sourceDocumentId: "resume_1",
+          exportArtifactId: null,
+          fileName: "Resume.pdf",
+          sha256: null,
+        },
+        externalWrites: [
+          {
+            category: "profile_field",
+            fieldLabel: "Location",
+            occurredAt: "2026-03-20T10:00:30.000Z",
+            verified: true,
+          },
+        ],
+      },
+    });
+
+    const answer = getApplicationSubmissionAnswer(
+      createRecord({ lastAttemptState: "paused" }),
+      "Acme",
+      result,
+    );
+
+    expect(answer.headline).toBe("Preparation did not finish.");
+    expect(answer.detail).toContain(
+      "1 prepared field or file was recorded as written to the site",
+    );
+    expect(answer.detail).not.toContain("Nothing was recorded as written");
+  });
+
   it("does not claim a resume was attached when preparation paused before filling", () => {
     const answer = getApplicationSubmissionAnswer(
       createRecord({ lastAttemptState: "paused" }),
@@ -303,5 +357,65 @@ describe("applications status helpers", () => {
     ].join(" ");
 
     expect(combined).not.toMatch(/submit approval|apply copilot|restage/i);
+  });
+});
+
+describe("applicationRecordAwaitsUser", () => {
+  it("is the same population the Applications row badges Needs you", () => {
+    // "Needs you: 0 unresolved" sat beside an application badged NEEDS YOU.
+    const paused = createRecord({
+      lastAttemptState: "paused",
+      consentSummary: { status: "requested", pendingCount: 1 },
+      nextActionLabel: "Finish the sign-in step on the job site.",
+    });
+    expect(getApplicationStagePresentation(paused).label).toBe("Needs you");
+    expect(applicationRecordAwaitsUser(paused)).toBe(true);
+
+    const ready = createRecord();
+    expect(getApplicationStagePresentation(ready).label).not.toBe("Needs you");
+    expect(applicationRecordAwaitsUser(ready)).toBe(false);
+  });
+
+  it("agrees with the row badge across every stage combination", () => {
+    // The two must not drift: whatever makes a row say "Needs you" is
+    // exactly what the global Needs-you count counts.
+    const statuses = [
+      "discovered",
+      "drafting",
+      "ready_for_review",
+      "approved",
+      "submitted",
+    ] as const;
+    const attemptStates = [
+      "paused",
+      "failed",
+      "submitted",
+      "unsupported",
+      "in_progress",
+    ] as const;
+    const consentStates = [
+      "none",
+      "requested",
+      "approved",
+      "declined",
+    ] as const;
+
+    for (const status of statuses) {
+      for (const lastAttemptState of attemptStates) {
+        for (const consent of consentStates) {
+          for (const nextActionLabel of ["Finish on the job site.", null]) {
+            const record = createRecord({
+              status,
+              lastAttemptState,
+              consentSummary: { status: consent, pendingCount: 0 },
+              nextActionLabel,
+            });
+            expect(applicationRecordAwaitsUser(record)).toBe(
+              getApplicationStagePresentation(record).label === "Needs you",
+            );
+          }
+        }
+      }
+    }
   });
 });

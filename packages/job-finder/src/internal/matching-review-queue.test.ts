@@ -8,6 +8,7 @@ import {
   buildReviewQueue,
   compareDiscoveryJobs,
   isApprovedTailoredResumeReadyForApply,
+  isLikelyEmptyNonDetailPosting,
   isLikelyUtilityShortlistJob,
   resolveApprovedResumeExportForApply,
 } from "./matching-review-queue";
@@ -81,6 +82,35 @@ describe("discovery result fit ordering", () => {
     expect(isLikelyUtilityShortlistJob({ title: "Pricing" })).toBe(true);
     expect(
       isLikelyUtilityShortlistJob({ title: "Software Engineer, Robotics" }),
+    ).toBe(false);
+  });
+
+  test("filters pagination titles and an empty non-detail site section", () => {
+    for (const title of ["Go to page 1000", "Next", "Previous", "Page 12"]) {
+      expect(
+        isLikelyUtilityShortlistJob({
+          canonicalUrl: "https://example.com/jobs?page=12",
+          company: "Employer not listed",
+          description: "",
+          title,
+        }),
+      ).toBe(true);
+    }
+    expect(
+      isLikelyEmptyNonDetailPosting({
+        canonicalUrl: "https://example.com/content/descriptions",
+        company: "Employer not listed",
+        description: "",
+        title: "Content Descriptions",
+      }),
+    ).toBe(true);
+    expect(
+      isLikelyEmptyNonDetailPosting({
+        canonicalUrl: "https://example.com/jobs/4815162342",
+        company: "Employer not listed",
+        description: "",
+        title: "Senior Platform Engineer",
+      }),
     ).toBe(false);
   });
 

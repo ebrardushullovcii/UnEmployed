@@ -9,6 +9,7 @@ import { profileInputClassName } from "./profile-form-primitives";
 interface ProfileListEditorProps {
   className?: string;
   displayMode?: "chips" | "rows";
+  draftParser?: (value: string) => readonly string[];
   emptyMessage?: string;
   inputId?: string;
   label: string;
@@ -17,9 +18,22 @@ interface ProfileListEditorProps {
   values: readonly string[];
 }
 
+/**
+ * A place can itself contain commas ("Chicago, IL" or "Paris, France").
+ * Keep those commas inside the place; only the separators the location UI
+ * promises create more than one entry.
+ */
+export function parseProfileLocationDraft(value: string): string[] {
+  return value
+    .split(/[;\r\n]+/u)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 export function ProfileListEditor({
   className,
   displayMode = "chips",
+  draftParser,
   emptyMessage = "No items added yet.",
   inputId,
   label,
@@ -56,9 +70,21 @@ export function ProfileListEditor({
       return;
     }
 
-    updateValues([...values, trimmed]);
+    const parsedValues = draftParser ? [...draftParser(trimmed)] : [trimmed];
+    updateValues([...values, ...parsedValues]);
 
     setDraft("");
+  };
+
+  // Typed-but-uncommitted text used to be thrown away silently: a role typed
+  // into "Add a target role" and then left by clicking "Save and continue"
+  // never reached the form, so guided setup saved a plan with no roles and
+  // Find jobs reported "No roles added yet". Leaving the field commits what
+  // was typed, exactly as Enter and Add already do.
+  const commitPendingDraft = () => {
+    if (draft.trim()) {
+      addValue();
+    }
   };
 
   const isPopulated = values.length > 0;
@@ -98,6 +124,7 @@ export function ProfileListEditor({
         <Input
           className={profileInputClassName}
           id={resolvedInputId}
+          onBlur={commitPendingDraft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {

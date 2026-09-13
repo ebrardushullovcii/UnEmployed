@@ -1,4 +1,17 @@
-import type { SavedJob } from "@unemployed/contracts";
+import type { ListingActivity, SavedJob } from "@unemployed/contracts";
+
+/**
+ * A candidate as the ordering sees it. `listingActivity` is a projection, so
+ * callers that sort stored rows before it is computed simply omit it.
+ */
+export type OrderableDiscoveryJob = SavedJob & {
+  listingActivity?: ListingActivity | undefined;
+};
+
+/** A listing whose own text or signals say it is closed sinks below open ones. */
+function getClosedListingPenalty(job: OrderableDiscoveryJob): number {
+  return job.listingActivity?.status === "closed" ? 1 : 0;
+}
 
 /**
  * Normalizes a listing timestamp to a sortable epoch value. Absent or
@@ -98,6 +111,20 @@ export function getClearMismatchPenalty(job: SavedJob): number {
 }
 
 /**
+ * A role that is on site and outside every saved area sinks below a role in a
+ * saved area or one that can be done remotely. Where the work happens is not
+ * something a person can negotiate away from a results list, so a place they
+ * cannot reach must never be the first thing they are shown.
+ *
+ * The penalty is claimed only when the scorer positively recorded
+ * `outside_area`: no saved area, no stated geography, or an assessment written
+ * before the field existed all score zero and change nothing.
+ */
+export function getOutOfAreaOnsitePenalty(job: SavedJob): number {
+  return job.matchAssessment.locationReach === "outside_area" ? 1 : 0;
+}
+
+/**
  * A fit score is authoritative only when it is bound to both the candidate
  * context and the posting it describes. Catalog-seeded rows are always
  * provisional: they are offline fixtures/catalog output and must not be
@@ -158,20 +185,49 @@ export function assessmentTitleMissesTargetRoles(
 /**
  * Tie-breaks applied after the clear-mismatch penalty, assessment confidence,
  * and (for authoritative assessments) fit score:
- * detail-enriched listings first, then newest listing timestamp (postedAt,
- * then firstSeenAt, then discoveredAt; undated last), then title, company,
- * and id as the stable terminal key.
+ * title family, seniority, stack overlap, then newest listing timestamp
+ * (postedAt, then firstSeenAt, then discoveredAt; undated last). Detail
+ * quality and stable lexical keys settle only otherwise identical signals.
  */
 export function compareDiscoveryFitTieBreaks(
   left: SavedJob,
   right: SavedJob,
 ): number {
-  const detailDelta =
-    Number(right.detailQuality === "detail_enriched") -
-    Number(left.detailQuality === "detail_enriched");
-  if (detailDelta !== 0) {
-    return detailDelta;
-  }
+  const titleFamilyRank = (job: SavedJob) => {
+    switch (job.matchAssessment.titleFamilyMatch) {
+      case "same_family":
+        return 0;
+      case "adjacent":
+        return 1;
+      case "unrelated":
+        return 3;
+      default:
+        return 2;
+    }
+  };
+  const titleFamilyDelta = titleFamilyRank(left) - titleFamilyRank(right);
+  if (titleFamilyDelta !== 0) return titleFamilyDelta;
+
+  const hasSeniorityConflict = (job: SavedJob) =>
+    job.matchAssessment.gaps.some((gap) => /seniority conflicts?/iu.test(gap));
+  const seniorityDelta =
+    Number(hasSeniorityConflict(left)) - Number(hasSeniorityConflict(right));
+  if (seniorityDelta !== 0) return seniorityDelta;
+
+  const stackOverlapCount = (job: SavedJob) => {
+    const reason = job.matchAssessment.reasons.find((entry) =>
+      entry.startsWith("Stack overlap includes "),
+    );
+    return reason
+      ? reason
+          .slice("Stack overlap includes ".length)
+          .replace(/\.$/u, "")
+          .split(",")
+          .filter((entry) => entry.trim().length > 0).length
+      : 0;
+  };
+  const stackDelta = stackOverlapCount(right) - stackOverlapCount(left);
+  if (stackDelta !== 0) return stackDelta;
 
   const leftRecency = toSortableListingTime(
     left.postedAt ?? left.firstSeenAt ?? left.discoveredAt,
@@ -181,6 +237,13 @@ export function compareDiscoveryFitTieBreaks(
   );
   if (leftRecency !== rightRecency) {
     return rightRecency - leftRecency;
+  }
+
+  const detailDelta =
+    Number(right.detailQuality === "detail_enriched") -
+    Number(left.detailQuality === "detail_enriched");
+  if (detailDelta !== 0) {
+    return detailDelta;
   }
 
   return (
@@ -195,8 +258,11 @@ export function compareDiscoveryFitTieBreaks(
  * the rediscovery rank audit and the Find jobs screen. The chain is total and
  * ends in the job id, so the sequence is a pure function of the candidate set:
  *
+ * 0. listings reported closed sink below every listing still open;
  * 1. clear mismatches (`recommendation: "skip"`) sink below reviewable jobs;
  * 2. authoritative assessments outrank provisional/unbound assessments;
+ * 2a. an on-site role outside every saved area sinks below in-area and remote
+ *    roles — a place a person cannot reach is never the first result;
  * 3. higher authoritative fit score wins — provisional scores never promote a
  *    row as the Best match;
  * 4. detail-enriched listings outrank card-only listings;
@@ -204,7 +270,18 @@ export function compareDiscoveryFitTieBreaks(
  *    last) outrank older ones;
  * 6. title, then company, then id keep ties stable.
  */
-export function compareDiscoveryJobs(left: SavedJob, right: SavedJob): number {
+export function compareDiscoveryJobs(
+  left: OrderableDiscoveryJob,
+  right: OrderableDiscoveryJob,
+): number {
+  // A listing reported closed never outranks one a person can still apply to,
+  // however well it scores.
+  const closedDelta =
+    getClosedListingPenalty(left) - getClosedListingPenalty(right);
+  if (closedDelta !== 0) {
+    return closedDelta;
+  }
+
   const mismatchDelta =
     getClearMismatchPenalty(left) - getClearMismatchPenalty(right);
   if (mismatchDelta !== 0) {
@@ -216,6 +293,15 @@ export function compareDiscoveryJobs(left: SavedJob, right: SavedJob): number {
   const confidenceDelta = Number(leftProvisional) - Number(rightProvisional);
   if (confidenceDelta !== 0) {
     return confidenceDelta;
+  }
+
+  // A role that is on site and outside every saved area never outranks one a
+  // person can actually reach. The penalty depends only on the row itself, so
+  // the chain stays a total order.
+  const reachDelta =
+    getOutOfAreaOnsitePenalty(left) - getOutOfAreaOnsitePenalty(right);
+  if (reachDelta !== 0) {
+    return reachDelta;
   }
 
   if (!leftProvisional) {

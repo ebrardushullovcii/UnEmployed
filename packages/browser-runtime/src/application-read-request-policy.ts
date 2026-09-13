@@ -11,6 +11,20 @@
  */
 const SAFE_READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+const TELEMETRY_HOST_SUFFIXES = [
+  "google-analytics.com",
+  "doubleclick.net",
+  "segment.io",
+  "mixpanel.com",
+  "hotjar.com",
+] as const;
+
+const TELEMETRY_PATH_SEGMENT =
+  /(?:^|\/)\/?(?:analytics|beacon|ping|rum)(?:\/|$)/iu;
+
+const APPLICATION_FORM_FIELD_PATTERN =
+  /(?:address|answer|city|country|email|firstname|fullname|lastname|name|phone|postal|question|resume|telephone|zipcode)/u;
+
 export function normalizeRequestMethod(value: string | null | undefined) {
   return (value || "GET").trim().toUpperCase() || "GET";
 }
@@ -37,6 +51,66 @@ export function carriesPreparedValue(
       haystacks.some((haystack) => haystack.includes(needle))
     );
   });
+}
+
+/** True only when a URL query value carries prepared data. */
+export function requestUrlCarriesPreparedValue(
+  value: string | null | undefined,
+  preparedValues: readonly string[],
+): boolean {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value, "https://invalid.local");
+    return (
+      carriesPreparedValue(parsed.pathname, preparedValues) ||
+      [...parsed.searchParams.values()].some((queryValue) =>
+        carriesPreparedValue(queryValue, preparedValues),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Generic telemetry/monitoring request shapes that never represent a form submission. */
+export function isTelemetryRequestUrl(value: string | null | undefined): boolean {
+  if (!value) return false;
+  let parsed: URL;
+  try {
+    parsed = new URL(value, "https://invalid.local");
+  } catch {
+    return false;
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  const pathname = parsed.pathname.toLowerCase();
+  const telemetrySubdomain = /^(?:analytics|beacon|metrics|rum|sa|telemetry)\./u.test(
+    hostname,
+  );
+  const trackingPixel = /(?:^|\/)(?:pixel|simple)(?:\.gif)?$/u.test(pathname);
+  const pageViewSignal =
+    parsed.searchParams.has("page_id") ||
+    parsed.searchParams.get("type")?.toLowerCase() === "pageview";
+  if (
+    TELEMETRY_HOST_SUFFIXES.some(
+      (suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`),
+    )
+  ) {
+    return true;
+  }
+  if (
+    (hostname === "sentry.io" || hostname.endsWith(".sentry.io")) &&
+    /(?:^|\/)(?:api\/\d+\/)?(?:envelope|store|minidump|security)(?:\/|$)/u.test(
+      pathname,
+    )
+  ) {
+    return true;
+  }
+  return (
+    pathname === "/cdn-cgi/rum" ||
+    pathname === "/cdn-cgi/beacon" ||
+    (telemetrySubdomain && (trackingPixel || pageViewSignal)) ||
+    TELEMETRY_PATH_SEGMENT.test(pathname)
+  );
 }
 
 /**
@@ -71,20 +145,73 @@ export interface PageOwnedReadRequest {
   method: string;
   url: string | null;
   bodyText?: string | null;
+  bodyIsFormData?: boolean;
   preparedValues: readonly string[];
+}
+
+function carriesApplicationFormFields(
+  bodyText: string | null | undefined,
+): boolean {
+  if (!bodyText) return false;
+  const normalizedFieldName = (value: string) =>
+    value.toLowerCase().replace(/[^a-z0-9]+/gu, "");
+  const isApplicationFieldName = (value: string) =>
+    APPLICATION_FORM_FIELD_PATTERN.test(normalizedFieldName(value));
+
+  if (/content-disposition\s*:\s*form-data/iu.test(bodyText)) {
+    return true;
+  }
+  try {
+    const containsApplicationField = (value: unknown): boolean => {
+      if (Array.isArray(value)) {
+        return value.some(containsApplicationField);
+      }
+      if (typeof value !== "object" || value === null) {
+        return false;
+      }
+      return Object.entries(value).some(
+        ([key, nested]) =>
+          isApplicationFieldName(key) || containsApplicationField(nested),
+      );
+    };
+    if (containsApplicationField(JSON.parse(bodyText))) {
+      return true;
+    }
+  } catch {
+    // A non-JSON telemetry payload may still be safe by shape below.
+  }
+  if (!bodyText.includes("=")) return false;
+  try {
+    return [...new URLSearchParams(bodyText).keys()].some(
+      isApplicationFieldName,
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** Whether a fetch or XHR is a page-owned read that carries nothing prepared. */
 export function isPageOwnedReadRequest(input: PageOwnedReadRequest): boolean {
   const method = normalizeRequestMethod(input.method);
+  const carriesPrepared =
+    requestUrlCarriesPreparedValue(input.url, input.preparedValues) ||
+    carriesPreparedValue(input.bodyText, input.preparedValues);
+  if (carriesPrepared) {
+    return false;
+  }
   if (SAFE_READ_METHODS.has(method)) {
-    return !carriesPreparedValue(input.url, input.preparedValues);
+    return true;
   }
   if (method === "POST" && isGraphQlReadBody(input.bodyText)) {
-    return (
-      !carriesPreparedValue(input.url, input.preparedValues) &&
-      !carriesPreparedValue(input.bodyText, input.preparedValues)
-    );
+    return true;
+  }
+  if (
+    method === "POST" &&
+    isTelemetryRequestUrl(input.url) &&
+    input.bodyIsFormData !== true &&
+    !carriesApplicationFormFields(input.bodyText)
+  ) {
+    return true;
   }
   return false;
 }

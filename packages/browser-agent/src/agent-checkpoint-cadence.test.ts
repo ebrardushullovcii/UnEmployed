@@ -6,52 +6,54 @@ import { createConfig, createToolCall } from "./agent.test-fixtures";
 
 function createResultsPage(): Page {
   return {
-    async goto() {
-      return null as never;
+    goto() {
+      return Promise.resolve(null as never);
     },
-    async waitForTimeout() {
-      return undefined;
+    waitForTimeout() {
+      return Promise.resolve(undefined);
     },
     url() {
       return "https://www.linkedin.com/jobs/search/";
     },
-    async title() {
-      return "Primary target";
+    title() {
+      return Promise.resolve("Primary target");
     },
     locator(selector: string) {
       if (selector === "body") {
         return {
-          async innerText() {
-            return [
-              "Search by title, skill, or company",
-              "Frontend Engineer",
-              "Acme",
-              "Remote",
-              "Apply",
-              "Job description",
-              "Build product interfaces for customer workflows.",
-              "Use the jobs search filters and recommendations to find relevant roles quickly.",
-            ]
-              .join("\n")
-              .repeat(20);
+          innerText() {
+            return Promise.resolve(
+              [
+                "Search by title, skill, or company",
+                "Frontend Engineer",
+                "Acme",
+                "Remote",
+                "Apply",
+                "Job description",
+                "Build product interfaces for customer workflows.",
+                "Use the jobs search filters and recommendations to find relevant roles quickly.",
+              ]
+                .join("\n")
+                .repeat(20),
+            );
           },
         } as never;
       }
 
       return {
-        async innerText() {
-          return "";
+        innerText() {
+          return Promise.resolve("");
         },
       } as never;
     },
-    async evaluate(fn: unknown) {
+    evaluate(fn: unknown) {
       const serialized = String(fn);
 
       if (
         serialized.includes("cardCandidates") ||
         serialized.includes("application/ld+json")
       ) {
-        return {
+        return Promise.resolve({
           structuredDataCandidates: [],
           cardCandidates: [
             {
@@ -67,14 +69,16 @@ function createResultsPage(): Page {
               ],
             },
           ],
-        };
+        });
       }
 
       if (serialized.includes('querySelectorAll("a[href]")')) {
-        return ["https://www.linkedin.com/jobs/view/job_batch_1"];
+        return Promise.resolve([
+          "https://www.linkedin.com/jobs/view/job_batch_1",
+        ]);
       }
 
-      return [];
+      return Promise.resolve([]);
     },
   } as unknown as Page;
 }
@@ -91,7 +95,7 @@ describe("runAgentDiscovery checkpoint cadence", () => {
       }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
     const checkpoints: BrowserAgentRunCheckpoint[] = [];
 
@@ -149,8 +153,8 @@ describe("runAgentDiscovery checkpoint cadence", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => {
-        return [
+      extractJobsFromPage: vi.fn(() => {
+        return Promise.resolve([
           {
             sourceJobId: "job_deferred_1",
             canonicalUrl: "https://www.linkedin.com/jobs/view/job_deferred_1",
@@ -167,7 +171,7 @@ describe("runAgentDiscovery checkpoint cadence", () => {
             keySkills: ["React"],
             responsibilities: [],
           },
-        ];
+        ]);
       }),
     };
     const checkpointJobCounts: number[] = [];
@@ -202,7 +206,7 @@ describe("runAgentDiscovery checkpoint cadence", () => {
     // Each stored revision snapshot remains independent of the agent's later
     // mutable collected array: revision 1 keeps exactly the one job it
     // captured even though the agent's own list grew to two afterwards.
-    const firstCapturedArray = checkpointPayloads[0]!.collectedJobs;
+    const firstCapturedArray = checkpointPayloads[0].collectedJobs;
     expect(firstCapturedArray).toHaveLength(1);
     expect(firstCapturedArray).not.toBe(result.jobs);
   });

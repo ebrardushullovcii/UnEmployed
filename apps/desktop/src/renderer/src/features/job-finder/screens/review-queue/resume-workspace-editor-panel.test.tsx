@@ -131,8 +131,13 @@ describe("ResumeWorkspaceEditorPanel", () => {
 
     expect(scrollRegion?.textContent).toContain("Edit resume");
     expect(scrollRegion?.textContent).toContain("Resume identity");
-    expect(scrollRegion?.textContent).toContain(
+    // The subtitle under "Edit resume" only said the heading again, in schema
+    // words. The helper line that carries a fact stays.
+    expect(scrollRegion?.textContent).not.toContain(
       "Change the schema-safe content behind the preview",
+    );
+    expect(scrollRegion?.textContent).toContain(
+      "Click the live page to jump to the matching structured field.",
     );
     expect(scrollRegion?.textContent).not.toContain("Choose a family");
     expect(scrollRegion?.querySelectorAll('[role="radio"]')).toHaveLength(0);
@@ -260,6 +265,238 @@ describe("ResumeWorkspaceEditorPanel", () => {
         )}"]`,
       ),
     ).toBeTruthy();
+  });
+
+  it("shows on the card itself that an entry is hidden", () => {
+    // The panel reported that "Show entry" did nothing: a hidden entry was
+    // drawn exactly like a kept one, so the only thing the toggle changed was
+    // the button's own label.
+    const hiddenEntryDraft: ResumeDraft = {
+      ...draft,
+      sections: [
+        {
+          id: "section_experience",
+          kind: "experience",
+          label: "Experience",
+          text: null,
+          bullets: [],
+          entries: [
+            {
+              id: "experience_hidden",
+              entryType: "experience",
+              title: "Systems designer",
+              subtitle: "Signal Systems",
+              location: null,
+              dateRange: "2020-01 - Present",
+              startDate: "2020-01",
+              endDate: null,
+              isCurrent: true,
+              summary: null,
+              bullets: [],
+              origin: "imported",
+              locked: false,
+              included: false,
+              sortOrder: 0,
+              profileRecordId: "experience_hidden",
+              sourceRefs: [],
+              updatedAt: "2026-04-26T12:00:00.000Z",
+            },
+          ],
+          origin: "imported",
+          locked: false,
+          included: true,
+          sortOrder: 0,
+          entryOrderMode: "chronology",
+          profileRecordId: null,
+          sourceRefs: [],
+          updatedAt: "2026-04-26T12:00:00.000Z",
+        },
+      ],
+    };
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <ResumeWorkspaceEditorPanel
+          actionMessage={null}
+          coverageComparison={null}
+          draft={hiddenEntryDraft}
+          hasUnsavedChanges={false}
+          isWorkspacePending={false}
+          jobId="job_1"
+          onApplyPatch={vi.fn()}
+          onDraftChange={vi.fn()}
+          onSectionChange={vi.fn()}
+          onSelectEntry={vi.fn()}
+          onSelectSection={vi.fn()}
+          runWithSavedDraft={(next) => {
+            void next();
+          }}
+          selectedEntryId="experience_hidden"
+          selectedSectionId="section_experience"
+          selectedTargetId={null}
+          workHistoryAcknowledgments={[]}
+          onAcknowledgeWorkHistoryOmission={vi.fn()}
+          onRemoveWorkHistoryOmissionAcknowledgment={vi.fn()}
+          workHistoryReviewSuggestions={[]}
+        />,
+      );
+    });
+
+    const card = container?.querySelector(
+      '[data-resume-editor-entry="experience_hidden"]',
+    );
+    expect(card?.getAttribute("data-resume-editor-entry-hidden")).toBe("true");
+    expect(
+      card?.querySelector("[data-resume-editor-entry-hidden-note]")?.textContent,
+    ).toBe(
+      "Hidden — this entry stays in your draft but is left off the resume.",
+    );
+    expect(
+      card?.querySelector('[aria-label="Show Systems designer"]'),
+    ).toBeTruthy();
+  });
+
+  it("leads each entry with one action and keeps the rest revealed by hover or focus", () => {
+    // Four equal buttons on every entry line was the densest thing in the
+    // editor. Hide/Show leads; Lock and the two reorder controls recede — but
+    // they stay mounted, enabled and in the tab order, so a keyboard user
+    // reaches them and focus inside the group paints them.
+    const entryDraft: ResumeDraft = {
+      ...draft,
+      sections: [
+        {
+          id: "section_experience",
+          kind: "experience",
+          label: "Experience",
+          text: null,
+          bullets: [],
+          entries: [
+            {
+              id: "experience_first",
+              entryType: "experience",
+              title: "Systems designer",
+              subtitle: "Signal Systems",
+              location: null,
+              dateRange: "2020-01 - Present",
+              startDate: "2020-01",
+              endDate: null,
+              isCurrent: true,
+              summary: null,
+              bullets: [],
+              origin: "imported",
+              locked: false,
+              included: true,
+              sortOrder: 0,
+              profileRecordId: "experience_first",
+              sourceRefs: [],
+              updatedAt: "2026-04-26T12:00:00.000Z",
+            },
+            {
+              id: "experience_second",
+              entryType: "experience",
+              title: "Platform engineer",
+              subtitle: "Northwind",
+              location: null,
+              dateRange: "2016-01 - 2019-12",
+              startDate: "2016-01",
+              endDate: "2019-12",
+              isCurrent: false,
+              summary: null,
+              bullets: [],
+              origin: "imported",
+              locked: false,
+              included: true,
+              sortOrder: 1,
+              profileRecordId: "experience_second",
+              sourceRefs: [],
+              updatedAt: "2026-04-26T12:00:00.000Z",
+            },
+          ],
+          origin: "imported",
+          locked: false,
+          included: true,
+          sortOrder: 0,
+          entryOrderMode: "chronology",
+          profileRecordId: null,
+          sourceRefs: [],
+          updatedAt: "2026-04-26T12:00:00.000Z",
+        },
+      ],
+    };
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <ResumeWorkspaceEditorPanel
+          actionMessage={null}
+          coverageComparison={null}
+          draft={entryDraft}
+          hasUnsavedChanges={false}
+          isWorkspacePending={false}
+          jobId="job_1"
+          onApplyPatch={vi.fn()}
+          onDraftChange={vi.fn()}
+          onSectionChange={vi.fn()}
+          onSelectEntry={vi.fn()}
+          onSelectSection={vi.fn()}
+          runWithSavedDraft={(next) => {
+            void next();
+          }}
+          selectedEntryId={null}
+          selectedSectionId={null}
+          selectedTargetId={null}
+          workHistoryAcknowledgments={[]}
+          onAcknowledgeWorkHistoryOmission={vi.fn()}
+          onRemoveWorkHistoryOmissionAcknowledgment={vi.fn()}
+          workHistoryReviewSuggestions={[]}
+        />,
+      );
+    });
+
+    const card = container?.querySelector(
+      '[data-resume-editor-entry="experience_second"]',
+    );
+    const secondaryActions = card?.querySelector(
+      "[data-resume-editor-entry-secondary-actions]",
+    );
+
+    // The one action that leads the line is outside the recessed group.
+    const primaryAction = card?.querySelector(
+      '[aria-label="Hide Platform engineer"]',
+    );
+    expect(primaryAction).toBeTruthy();
+    expect(secondaryActions?.contains(primaryAction ?? null)).toBe(false);
+
+    // Every other action is still there, still enabled, inside the group.
+    const secondaryButtons = Array.from(
+      secondaryActions?.querySelectorAll("button") ?? [],
+    );
+    expect(secondaryButtons).toHaveLength(3);
+    expect(
+      secondaryButtons.map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      null,
+      "Move Platform engineer up",
+      "Move Platform engineer down",
+    ]);
+    expect(secondaryActions?.textContent).toContain("Lock");
+    // Lock and "move up" are available on this entry; only "move down" is
+    // disabled, because it is the last entry in the section.
+    expect(secondaryButtons[0]?.hasAttribute("disabled")).toBe(false);
+    expect(secondaryButtons[1]?.hasAttribute("disabled")).toBe(false);
+
+    // Hover and focus both paint the group, so it is never mouse-only.
+    expect(secondaryActions?.className).toContain("group-hover:opacity-100");
+    expect(secondaryActions?.className).toContain(
+      "group-focus-within:opacity-100",
+    );
+    expect(secondaryActions?.className).toContain("focus-within:opacity-100");
+    expect(card?.className).toContain("group");
   });
 
   it("disables structured editing controls while workspace work is pending", () => {
@@ -739,7 +976,7 @@ describe("ResumeWorkspaceEditorPanel", () => {
           bullets: [
             {
               id: "bullet_generated",
-              text: "Generated metric line.",
+              text: "Generated a measurable delivery metric line.",
               origin: "ai_generated",
               locked: false,
               included: true,
@@ -823,7 +1060,9 @@ describe("ResumeWorkspaceEditorPanel", () => {
       "See generated lines",
     );
     expect(details?.textContent).toContain("Summary");
-    expect(details?.textContent).toContain("Generated metric line.");
+    expect(details?.textContent).toContain(
+      "Generated a measurable delivery metric line.",
+    );
     expect(markedContainer.textContent).toContain("AI-generated");
     expect(
       markedContainer.querySelector("[data-resume-ai-assistance-disclosure]")

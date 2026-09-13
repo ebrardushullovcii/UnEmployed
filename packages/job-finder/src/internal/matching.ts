@@ -10,6 +10,7 @@ import {
   type JobPosting,
   type JobPostingDetailQuality,
   type MatchAssessment,
+  type MatchLocationReach,
   type SavedJob,
   type SavedJobDiscoveryProvenance,
   type WorkMode,
@@ -21,10 +22,12 @@ import {
 import type { MatchAssessmentPostingInput } from "./match-assessment-posting-input";
 import { createMatchAssessmentChangeAudit } from "./match-assessment-change-audit";
 import { MATCH_ASSESSMENT_SCORER_VERSION } from "./match-assessment-session";
+import { assessRemoteGeographyRequirement } from "./matching-eligibility";
 import { buildMatchDimensionsAssessment } from "./matching-dimensions";
 import {
   buildFitRecommendation,
   buildRequirementEvidenceAssessment,
+  collectTechnologySignals,
 } from "./matching-requirements";
 import { canonicalizeLocationAliases } from "./location-normalization";
 import {
@@ -32,7 +35,11 @@ import {
   createJobIdentityIndex,
 } from "./job-identity";
 import { assessJobPostingDetailQuality } from "./job-posting-detail-quality";
-import { buildDiscoveryJobs as orderVisibleDiscoveryJobs } from "./matching-review-queue";
+import {
+  buildDiscoveryJobs as orderVisibleDiscoveryJobs,
+  isLikelyEmptyNonDetailPosting,
+  isLikelyUtilityShortlistJob,
+} from "./matching-review-queue";
 export {
   buildApplicationRecords,
   compareDiscoveryJobs,
@@ -102,6 +109,8 @@ type RoleFamily =
   | "security"
   | "design"
   | "operations"
+  | "clerical"
+  | "trades"
   | "healthcare";
 
 const roleFamilyPatterns: Record<RoleFamily, readonly RegExp[]> = {
@@ -119,6 +128,7 @@ const roleFamilyPatterns: Record<RoleFamily, readonly RegExp[]> = {
   ],
   data: [
     /\bdata (?:engineer|scientist|analyst)\b/,
+    /\bdata steward\b/,
     /\banalytics?\b/,
     /\bbusiness intelligence\b/,
     /\bmachine learning\b/,
@@ -222,6 +232,19 @@ const roleFamilyPatterns: Record<RoleFamily, readonly RegExp[]> = {
     /\bcontracts? (?:manager|specialist|administrator)\b/,
     /\bvendor management\b/,
   ],
+  clerical: [
+    /\bdata entry\b/,
+    /\b(?:records?|filing|document) clerk\b/,
+    /\bclerical\b/,
+    /\boffice assistant\b/,
+  ],
+  trades: [
+    /\bbuilding maintenance\b/,
+    /\bfacilities? technician\b/,
+    /\bmaintenance technician\b/,
+    /\b(?:hvac|electrical|mechanical) technician\b/,
+    /\b(?:electrician|plumber|mechanic)\b/,
+  ],
   healthcare: [
     /\bnurs(?:e|ing)\b/,
     /\bphysician\b/,
@@ -262,6 +285,11 @@ const primaryRoleFamilyPatterns: ReadonlyArray<readonly [RoleFamily, RegExp]> =
       /\b(?:recruiter|talent acquisition|human resources|people operations)\b/iu,
     ],
     ["healthcare", /\b(?:nurse|physician|therapist|clinical engineer)\b/iu],
+    ["clerical", /\b(?:data entry|records?|filing|document) clerk\b/iu],
+    [
+      "trades",
+      /\b(?:building maintenance|facilities? technician|maintenance technician|electrician|plumber|mechanic)\b/iu,
+    ],
   ];
 
 function getPrimaryRoleFamily(value: string): RoleFamily | null {
@@ -303,6 +331,60 @@ const engineeringVocationalTitlePatterns: ReadonlyArray<
   ["healthcare", /\bclinical engineer\b/iu],
 ];
 
+const adjacentRoleFamilies: Readonly<
+  Partial<Record<RoleFamily, ReadonlySet<RoleFamily>>>
+> = {
+  marketing: new Set(["product", "sales", "support"]),
+};
+
+function occupationHeadStem(value: string): string | null {
+  const tokens = normalizeText(value)
+    .split(/\s+/u)
+    .filter(Boolean);
+  const head = tokens.at(-1);
+  if (!head) return null;
+  if (/^manag(?:e|er|ement|ing)$/u.test(head)) return "manag";
+  const stem = head.replace(/(?:s|es)$/u, "");
+  return new Set([
+    "accountant",
+    "analyst",
+    "architect",
+    "consultant",
+    "designer",
+    "developer",
+    "engineer",
+    "recruiter",
+  ]).has(stem)
+    ? stem
+    : null;
+}
+
+function sharesTargetRoleHead(
+  candidateTitle: string,
+  targetRoles: readonly string[],
+): boolean {
+  const candidate = normalizeText(candidateTitle);
+  return targetRoles.some((role) => {
+    const stem = occupationHeadStem(role);
+    return (
+      stem !== null &&
+      new RegExp(`\\b${escapeRegex(stem)}`, "u").test(candidate)
+    );
+  });
+}
+
+function hasAdjacentRoleFamily(
+  candidateFamilies: ReadonlySet<RoleFamily>,
+  targetFamilies: ReadonlySet<RoleFamily>,
+): boolean {
+  return [...targetFamilies].some((targetFamily) =>
+    [...candidateFamilies].some(
+      (candidateFamily) =>
+        adjacentRoleFamilies[targetFamily]?.has(candidateFamily) === true,
+    ),
+  );
+}
+
 function hasRoleFamilyMismatch(
   candidateTitle: string,
   targetRoles: readonly string[],
@@ -312,6 +394,14 @@ function hasRoleFamilyMismatch(
     targetRoles.flatMap((role) => [...collectRoleFamilies(role)]),
   );
   if (candidateFamilies.size === 0 || targetFamilies.size === 0) {
+    return false;
+  }
+  // A shared occupational head (Manager/Management) or an adjacent family is
+  // useful recall, not positive evidence that the listing is unrelated.
+  if (
+    sharesTargetRoleHead(candidateTitle, targetRoles) ||
+    hasAdjacentRoleFamily(candidateFamilies, targetFamilies)
+  ) {
     return false;
   }
   if (![...candidateFamilies].some((family) => targetFamilies.has(family))) {
@@ -869,7 +959,9 @@ function buildScreeningHints(posting: JobPosting): SavedJob["screeningHints"] {
       normalizedText.includes("relocate")
         ? "Relocation support or requirements are mentioned in the listing."
         : null,
-    travelText: normalizedText.includes("travel")
+    travelText: /(?:\b(?:requires?|must|expected|willing|ability|availability)\b[^.!?]{0,72}\btravel\b|\btravel\b[^.!?]{0,48}\b(?:required|expected|occasionally|regularly|up to\s+\d{1,3}%|\d{1,3}%)\b)/iu.test(
+      normalizedText,
+    )
       ? "Travel expectations are mentioned in the listing."
       : null,
     remoteGeographies: supportsRemoteGeographyHints
@@ -1003,8 +1095,15 @@ export function enrichDiscoveredPosting(
       existingJob?.firstSeenAt ?? posting.firstSeenAt ?? posting.discoveredAt,
     lastSeenAt: posting.lastSeenAt ?? posting.discoveredAt,
     lastVerifiedActiveAt: posting.lastVerifiedActiveAt ?? posting.discoveredAt,
+    // Salary the listing stated, kept across re-sightings so a card-only
+    // re-read does not silently drop what a detail page published.
+    salaryText: posting.salaryText ?? existingJob?.salaryText ?? null,
+    // A band may only survive while some sighting of this listing actually
+    // stated a salary. Carrying an earlier band onto a posting that states
+    // none is how a figure no employer published reached the screen.
     normalizedCompensation:
       existingCompensation &&
+      (posting.salaryText ?? existingJob?.salaryText) &&
       (existingCompensation.minAmount !== null ||
         existingCompensation.maxAmount !== null)
         ? {
@@ -1419,6 +1518,62 @@ export function assessPostingLocationCompatibility(
   };
 }
 
+// A listing that says where it sits but never says it can be done away from
+// there. The place words alone are not enough — a board can leave work mode
+// out entirely — so an explicit in-person phrase counts as onsite too.
+const EXPLICIT_ONSITE_LOCATION_PATTERN =
+  /\b(?:on[-\s]?site|onsite|in[-\s]?person|in[-\s]?office)\b/iu;
+const REMOTE_LOCATION_PATTERN =
+  /\b(?:remote|anywhere|worldwide|work from home|wfh|global|distributed|hybrid)\b/iu;
+
+function isOnsiteOnlyListing(
+  workMode: readonly WorkMode[],
+  location: string,
+): boolean {
+  if (
+    workMode.includes("remote") ||
+    workMode.includes("hybrid") ||
+    workMode.includes("flexible")
+  ) {
+    return false;
+  }
+  if (workMode.includes("onsite")) {
+    return true;
+  }
+  // No stated mode: the location text decides, and only when it is explicit.
+  return (
+    EXPLICIT_ONSITE_LOCATION_PATTERN.test(location) &&
+    !REMOTE_LOCATION_PATTERN.test(location)
+  );
+}
+
+/**
+ * Where a listing sits against the saved areas. Only `outside_area` changes
+ * ordering, and it is claimed conservatively: the person saved at least one
+ * real place, the listing's own place is outside every one of them, and the
+ * listing is on site, so there is no way to do the job from a saved area.
+ */
+export function resolveMatchLocationReach(input: {
+  hasSavedLocationConstraint: boolean;
+  locationCompatibility: LocationCompatibilityState;
+  locationRemotePreferenceApplied: boolean;
+  workMode: readonly WorkMode[];
+  location: string;
+}): MatchLocationReach {
+  if (!input.hasSavedLocationConstraint) {
+    return "unknown";
+  }
+  if (input.locationCompatibility === "compatible") {
+    return input.locationRemotePreferenceApplied ? "remote_preferred" : "in_area";
+  }
+  if (input.locationCompatibility !== "incompatible") {
+    return "unknown";
+  }
+  return isOnsiteOnlyListing(input.workMode, input.location)
+    ? "outside_area"
+    : "unknown";
+}
+
 export function matchesLocationPreference(
   candidate: string,
   desiredValues: readonly string[],
@@ -1575,17 +1730,71 @@ function isNonOpeningListing(posting: MatchAssessmentPostingInput): boolean {
   return titleSignalsTalentPool || (explicitlyNotOpen && invitesFutureInterest);
 }
 
+// Boards publish more than one value in a single field: "Full-Time/Part-Time",
+// "Contract or Permanent", "Mid, Senior". Read as one string, the part-time
+// job a person asked for looked like a conflict with their part-time
+// preference. Each stated value is compared on its own, and one match is
+// enough.
+function splitStatedPreferenceValues(listingValue: string): string[] {
+  return listingValue
+    .split(/[/|,;]|\bor\b|\band\b/iu)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
 function hasExplicitPreferenceConflict(
   listingValue: string | null,
   savedValues: readonly string[],
 ): boolean {
-  return (
-    savedValues.length > 0 &&
-    listingValue !== null &&
-    !savedValues.some(
-      (savedValue) => normalizeText(savedValue) === normalizeText(listingValue),
-    )
+  if (savedValues.length === 0 || listingValue === null) {
+    return false;
+  }
+
+  const statedValues = splitStatedPreferenceValues(listingValue);
+  if (statedValues.length === 0) {
+    return false;
+  }
+
+  return !statedValues.some((statedValue) =>
+    savedValues.some(
+      (savedValue) => normalizeText(savedValue) === normalizeText(statedValue),
+    ),
   );
+}
+
+type CareerStage = "entry" | "experienced" | "unknown";
+
+function inferCareerStage(value: string): CareerStage {
+  if (
+    /\b(?:intern(?:ship)?|student|graduate|new grad|entry[- ]level|junior|apprentice|trainee)\b/iu.test(
+      value,
+    )
+  ) {
+    return "entry";
+  }
+  if (
+    /\b(?:senior|sr\.?|staff|lead|principal|manager|director|head|chief|architect)\b/iu.test(
+      value,
+    )
+  ) {
+    return "experienced";
+  }
+  return "unknown";
+}
+
+function titleSignalOverlapCount(
+  postingTitle: string,
+  targetRoles: readonly string[],
+): number {
+  const ignored = new Set(["junior", "senior", "staff", "lead", "principal"]);
+  const postingTokens = new Set(
+    tokenize(postingTitle).filter((token) => !ignored.has(token)),
+  );
+  return new Set(
+    targetRoles
+      .flatMap(tokenize)
+      .filter((token) => !ignored.has(token) && postingTokens.has(token)),
+  ).size;
 }
 
 export function createMatchAssessment<
@@ -1621,14 +1830,48 @@ export function createMatchAssessment<
     searchPreferences.locations,
   );
   const hasSavedLocationConstraint = savedLocationConstraints.length > 0;
-  const {
-    state: locationCompatibility,
-    remotePreferenceApplied: locationRemotePreferenceApplied,
-  } = assessPostingLocationCompatibility(posting, searchPreferences);
+  const assessedLocation = assessPostingLocationCompatibility(
+    posting,
+    searchPreferences,
+  );
+  const remoteGeographyRequirement = assessRemoteGeographyRequirement({
+    profile,
+    posting,
+  });
+  const remoteGeographyConflicts =
+    remoteGeographyRequirement?.status === "conflict";
+  const locationCompatibility = remoteGeographyConflicts
+    ? ("incompatible" as const)
+    : assessedLocation.state;
+  const locationRemotePreferenceApplied = remoteGeographyConflicts
+    ? false
+    : assessedLocation.remotePreferenceApplied;
   const workModeCompatibility = assessWorkModeCompatibility(
     posting.workMode,
     searchPreferences.workModes,
   );
+  const locationReach = resolveMatchLocationReach({
+    hasSavedLocationConstraint,
+    locationCompatibility,
+    locationRemotePreferenceApplied,
+    workMode: posting.workMode,
+    location: posting.location,
+  });
+  // Only a place or a work mode the person ruled out themselves can throw a
+  // listing away. Everything else they simply did not tick, which changes
+  // where the listing ranks, never whether they get to see it.
+  const locationExcluded = matchesExcludedLocation(
+    posting.location,
+    searchPreferences.excludedLocations,
+  );
+  const statedWorkModes = posting.workMode.filter(
+    (mode) => mode !== "flexible",
+  );
+  const workModeExcluded =
+    statedWorkModes.length > 0 &&
+    statedWorkModes.every((mode) =>
+      matchesExcludedLocation(mode, searchPreferences.excludedLocations),
+    );
   const explicitSeniorityConflict = hasExplicitPreferenceConflict(
     posting.seniority,
     searchPreferences.seniorityLevels,
@@ -1681,6 +1924,15 @@ export function createMatchAssessment<
   ]
     .filter((value): value is string => typeof value === "string")
     .join(" ");
+  const listingTechnologies = collectTechnologySignals(
+    `${posting.title} ${postingSkillEvidence}`,
+  );
+  const profileTechnologies = new Set(
+    collectTechnologySignals(profileCapabilityEvidence),
+  );
+  const overlappingTechnologies = listingTechnologies.filter((technology) =>
+    profileTechnologies.has(technology),
+  );
   const requirements = buildRequirementEvidenceAssessment({
     profile,
     posting,
@@ -1689,6 +1941,9 @@ export function createMatchAssessment<
     workModeCompatibility,
     hasLocationPreferences: hasSavedLocationConstraint,
     hasWorkModePreferences: searchPreferences.workModes.length > 0,
+    locationReach,
+    locationExcluded,
+    workModeExcluded,
     targetRoles: searchPreferences.targetRoles,
   });
   const missingCoreRequirements = requirements.filter(
@@ -1771,6 +2026,28 @@ export function createMatchAssessment<
     );
   const elevatedScopeGap =
     postingRequestsElevatedSeniority && !profileShowsElevatedSeniority;
+  const postingCareerStage = inferCareerStage(
+    `${posting.title} ${posting.seniority ?? ""}`,
+  );
+  const profileCareerStage = inferCareerStage(
+    [
+      profile.headline,
+      ...profile.experiences.map((experience) => experience.title ?? ""),
+    ].join(" "),
+  );
+  const careerStageMismatch =
+    postingCareerStage !== "unknown" &&
+    profileCareerStage !== "unknown" &&
+    postingCareerStage !== profileCareerStage;
+  if (careerStageMismatch) {
+    score -= 18;
+    scoreCeiling = Math.min(scoreCeiling, 56);
+    gaps.push(
+      postingCareerStage === "entry"
+        ? "The role is aimed at students or entry-level candidates, while the profile shows experienced scope."
+        : "The role expects experienced scope that is not yet explicit in the current profile.",
+    );
+  }
   if (elevatedScopeGap) {
     score -= 8;
     gaps.push(
@@ -1831,8 +2108,24 @@ export function createMatchAssessment<
     reasons.push("Company appears in the current preferred-company list.");
   }
 
-  if (overlappingSkills.length > 0) {
-    score += Math.min(12, overlappingSkills.length * 4);
+  if (overlappingTechnologies.length > 0) {
+    score += Math.min(18, overlappingTechnologies.length * 6);
+    reasons.push(
+      `Stack overlap includes ${overlappingTechnologies.slice(0, 3).join(", ")}.`,
+    );
+    if (
+      listingTechnologies.length >= 3 &&
+      overlappingTechnologies.length / listingTechnologies.length < 0.34
+    ) {
+      score -= 8;
+      gaps.push("Most of the stated technology stack is not in the current profile.");
+    }
+  } else if (listingTechnologies.length >= 2) {
+    score -= 18;
+    scoreCeiling = Math.min(scoreCeiling, 58);
+    gaps.push("The stated technology stack does not overlap the current profile.");
+  } else if (overlappingSkills.length > 0) {
+    score += Math.min(6, overlappingSkills.length * 2);
     reasons.push(
       `Skill overlap includes ${overlappingSkills.slice(0, 2).join(" and ")}.`,
     );
@@ -1904,6 +2197,7 @@ export function createMatchAssessment<
   } else if (
     compensationFit.state === "below_minimum" ||
     explicitSeniorityConflict ||
+    careerStageMismatch ||
     explicitEmploymentTypeConflict ||
     elevatedScopeGap ||
     hasUnresolvedRequired ||
@@ -1916,7 +2210,32 @@ export function createMatchAssessment<
     scoreCeiling = Math.min(scoreCeiling, 85);
   }
 
-  const finalScore = clampScore(Math.min(score, scoreCeiling));
+  const technologyCoverage =
+    listingTechnologies.length === 0
+      ? 0
+      : overlappingTechnologies.length / listingTechnologies.length;
+  const ceilingRankingPenalty =
+    (roleFamilyMismatch ? 8 : roleFamilyUnclear ? 6 : matchesRole ? 0 : 3) +
+    (careerStageMismatch ? 5 : elevatedScopeGap ? 3 : 0) +
+    (locationCompatibility === "incompatible" ? 4 : 0) +
+    (listingTechnologies.length >= 2
+      ? Math.round((1 - technologyCoverage) * 5)
+      : 0) +
+    Math.max(
+      0,
+      3 - titleSignalOverlapCount(posting.title, searchPreferences.targetRoles),
+    );
+  const finalScore = clampScore(
+    score > scoreCeiling
+      ? scoreCeiling - Math.min(12, ceilingRankingPenalty)
+      : score,
+  );
+  // The accumulated signal wanted a higher number than an unresolved gap
+  // allows, so the printed figure is that gap's ceiling rather than a
+  // measurement of this listing. Unrelated jobs share a ceiling all the time
+  // ("71%" over and over), which reads as though the app measured them as
+  // equal; the screen qualifies the number instead of hiding it.
+  const scoreIsUpperBound = score > scoreCeiling;
   const evidenceRecommendation = buildFitRecommendation({
     score: finalScore,
     requirements,
@@ -1932,7 +2251,13 @@ export function createMatchAssessment<
           recommendation: "skip" as const,
           rationale: "The listing belongs to a different occupational role.",
         }
-      : compensationFit.state === "below_minimum" &&
+      : explicitEmploymentTypeConflict
+        ? {
+            recommendation: "skip" as const,
+            rationale:
+              "The listing employment type conflicts with the saved employment preferences.",
+          }
+        : compensationFit.state === "below_minimum" &&
           evidenceRecommendation.recommendation !== "skip"
         ? {
             recommendation: "review_before_applying" as const,
@@ -1946,7 +2271,9 @@ export function createMatchAssessment<
     contextFingerprint: null,
     postingFingerprint: null,
     score: finalScore,
+    scoreIsUpperBound,
     compensationFit,
+    locationReach,
     dimensions,
     reasons: reasons.slice(0, 3),
     gaps: gaps.slice(0, 3),
@@ -1977,9 +2304,15 @@ export async function createMatchAssessmentAsync(
     return fallbackAssessment;
   }
 
+  const assistedScore = clampScore(assistedAssessment.score);
   return {
     ...fallbackAssessment,
-    score: clampScore(assistedAssessment.score),
+    score: assistedScore,
+    // The "up to" qualifier belongs to the deterministic ceiling. Once the
+    // assisted pass names its own number, that number is not this ceiling.
+    scoreIsUpperBound:
+      fallbackAssessment.scoreIsUpperBound &&
+      assistedScore === fallbackAssessment.score,
     reasons: assistedAssessment.reasons.slice(0, 3),
     gaps: assistedAssessment.gaps.slice(0, 3),
   };
@@ -2029,6 +2362,10 @@ function assembleMergedDiscoveredJob(input: {
   return SavedJobSchema.parse({
     ...enrichedPosting,
     id: existingJob?.id ?? toSavedJobId(posting),
+    // A discovery recrawl refreshes shared listing content, not the plans that
+    // already retained that row. Dropping this list on duplicate merge made a
+    // job silently leave plan 1 as soon as plan 2 found it.
+    campaignIds: [...(existingJob?.campaignIds ?? [])],
     status: preserveJobStatus(existingJob),
     matchAssessment,
     discoveryFeedback: existingJob?.discoveryFeedback ?? null,
@@ -2103,7 +2440,12 @@ export function mergeDiscoveredPostings(
       }
     })();
 
-    if (!posting.sourceJobId || !postingUrl) {
+    if (
+      !posting.sourceJobId ||
+      !postingUrl ||
+      isLikelyUtilityShortlistJob(posting) ||
+      isLikelyEmptyNonDetailPosting(posting)
+    ) {
       invalidSkipped += 1;
       continue;
     }

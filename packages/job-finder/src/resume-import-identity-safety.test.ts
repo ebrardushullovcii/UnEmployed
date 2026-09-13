@@ -16,9 +16,11 @@ import {
 } from "./internal/resume-workspace-helpers";
 import { buildResumeDraftIdentity } from "./internal/resume-workspace-structure";
 import {
+  describeResumeIdentityOwnershipChoice,
   findResumeImportIdentityConflicts,
   resolveResumeIdentity,
   extractIdentityNameFromLine,
+  useResumeSourceNameForProfile,
 } from "./internal/resume-identity";
 import { reconcileCandidates } from "./internal/resume-import-reconciliation";
 import { createSeed } from "./workspace-service.test-fixtures";
@@ -434,6 +436,77 @@ describe("resume import identity and revision safety", () => {
     });
     expect(resolution.mismatchReasons.join(" ")).toMatch(/Taylor Quinn/);
     expect(resolution.mismatchReasons.join(" ")).toMatch(/taylor@example.com/);
+  });
+
+  test("clears the block only when the person says the document is theirs", () => {
+    // A genuine two-identities-in-one-document case used to be a dead end:
+    // no draft, no export, no way forward. The way forward is the person's
+    // own word, recorded against the exact values they were shown.
+    const caseyProfile = createCaseyProfile();
+    const profileWithTaylorResume = CandidateProfileSchema.parse({
+      ...caseyProfile,
+      baseResume: {
+        ...caseyProfile.baseResume,
+        id: "resume_taylor_source",
+        fileName: "taylor-resume.txt",
+        textContent: "Taylor Quinn\nTaylor City\ntaylor@example.com",
+      },
+    });
+
+    const choice = describeResumeIdentityOwnershipChoice(
+      profileWithTaylorResume,
+    );
+    expect(choice.sourceFullName).toBe("Taylor Quinn");
+    expect(choice.profileFullName).toBe("Casey Rowan");
+
+    const acknowledged = CandidateProfileSchema.parse({
+      ...profileWithTaylorResume,
+      resumeIdentityOwnership: choice.acknowledgement,
+    });
+    expect(resolveResumeIdentity(acknowledged).mismatchReasons).toEqual([]);
+    // The profile name is what gets used; nothing was rewritten silently.
+    expect(resolveResumeIdentity(acknowledged).identity).toMatchObject({
+      fullName: "Casey Rowan",
+      email: "casey@example.com",
+    });
+
+    // A different document naming a third person raises the block again: the
+    // acknowledgement was about one document, not a blanket permission.
+    const anotherDocument = CandidateProfileSchema.parse({
+      ...acknowledged,
+      baseResume: {
+        ...acknowledged.baseResume,
+        id: "resume_jordan_source",
+        textContent: "Jordan Blake\nJordan City\njordan@example.com",
+      },
+    });
+    expect(
+      resolveResumeIdentity(anotherDocument).mismatchReasons.join(" "),
+    ).toMatch(/Jordan Blake/);
+  });
+
+  test("can explicitly keep the imported resume name as the profile identity", () => {
+    const caseyProfile = createCaseyProfile();
+    const profileWithTaylorResume = CandidateProfileSchema.parse({
+      ...caseyProfile,
+      baseResume: {
+        ...caseyProfile.baseResume,
+        textContent: "Taylor Morgan Quinn\ntaylor@example.com",
+      },
+    });
+
+    const updated = useResumeSourceNameForProfile(profileWithTaylorResume);
+
+    expect(updated).toMatchObject({
+      firstName: "Taylor",
+      middleName: "Morgan",
+      lastName: "Quinn",
+      fullName: "Taylor Morgan Quinn",
+      preferredDisplayName: null,
+    });
+    expect(resolveResumeIdentity(updated).mismatchReasons).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/Taylor Morgan Quinn/)]),
+    );
   });
 
   test("allows a fresh placeholder profile to import a replacement identity", async () => {

@@ -110,10 +110,10 @@ function mutationMessage(
 ): string {
   if (result.status === "applied") {
     return action === "revoked"
-      ? "Prepare-only authority revoked. No application can be submitted from this envelope."
+      ? "What Job Finder may do has been taken back. It can no longer open or fill an application for you, and it has never been able to submit one."
       : result.envelope.intermediateMutationsAuthorized
-        ? "Prepare-only authority saved with bounded ATS autosave. Final submission remains blocked."
-        : "Prepare-only authority saved. Bounded ATS autosave and final submission remain blocked.";
+        ? "Saved. Job Finder may fill this application and let the site save answers as it goes. It still cannot send the application."
+        : "Saved. Job Finder may fill this application. It cannot let the site save answers as it goes, and it cannot send the application.";
   }
   if (result.status === "stale") {
     return "This envelope changed elsewhere. The current revision was reloaded; review it before trying again.";
@@ -636,7 +636,7 @@ export function SettingsApplicationAuthoritySection({
         <div className="grid min-w-0 gap-3 md:grid-cols-2">
           <Field>
             <FieldLabel htmlFor={originsId}>
-              Allowed origins (required)
+              Website Job Finder may fill on (required)
             </FieldLabel>
             <Textarea
               aria-describedby={`${originsId}-hint`}
@@ -651,13 +651,14 @@ export function SettingsApplicationAuthoritySection({
               className="text-xs leading-4 text-foreground-soft"
               id={`${originsId}-hint`}
             >
-              One HTTP(S) origin per line. Bounded autosave requires exactly
-              one. Paths, credentials, and query strings are rejected.
+              One web address per line, and exactly one to let the site save
+              your answers as you go. Give the address only — no page path and
+              nothing after a "?".
             </p>
           </Field>
           <Field>
             <FieldLabel htmlFor={resumeDigestsId}>
-              Allowed resume SHA-256 digests
+              Resume file fingerprint
             </FieldLabel>
             <Textarea
               aria-describedby={`${resumeDigestsId}-hint`}
@@ -665,20 +666,22 @@ export function SettingsApplicationAuthoritySection({
               onChange={(event) =>
                 setDraftValue("allowedResumeSha256", event.target.value)
               }
-              placeholder="One lowercase 64-character digest per line"
+              placeholder="One 64-character fingerprint per line"
               value={draft.allowedResumeSha256}
             />
             <p
               className="text-xs leading-4 text-foreground-soft"
               id={`${resumeDigestsId}-hint`}
             >
-              Bounded autosave requires exactly one approved export digest,
-              matched again at execution time.
+              The fingerprint identifies the exact resume file you approved,
+              so a different file cannot be sent by mistake. Letting the site
+              save your answers as you go needs exactly one, and it is checked
+              again when Job Finder fills the form.
             </p>
           </Field>
           <Field>
             <FieldLabel htmlFor={campaignId}>
-              Campaign scope (autosave requires blank)
+              Search plan scope (autosave requires blank)
             </FieldLabel>
             <Input
               id={campaignId}
@@ -742,14 +745,14 @@ export function SettingsApplicationAuthoritySection({
         </div>
         <ToggleField
           checked={draft.intermediateMutationsAuthorized}
-          description="Authorize only bounded, same-origin ATS draft/autosave requests immediately caused by filling an approved field. Final submit requests, account creation, credentials, CAPTCHA, MFA, beacons, WebSockets, and ambiguous writes stay blocked."
+          description="Lets the job site save a draft of an answer the moment Job Finder types it, and only on the site above. Sending the application, creating an account, entering a password, and answering a security check all stay blocked."
           disabled={readiness?.answerApprovalStatus !== "current"}
           hint={
             readiness?.answerApprovalStatus === "current"
-              ? "Saving is the second explicit action. Job Finder will still require exactly one job, resume digest, and origin plus the approved-answer snapshot and future expiry at execution time."
+              ? "Saving is a second, separate step. Job Finder still needs exactly one job, one resume file, one website, the answers you approved, and an expiry date in the future before it will fill anything."
               : "Approve the current reusable answers above before this capability can be selected."
           }
-          label="Allow bounded ATS autosave during preparation"
+          label="Let the job site save answers as Job Finder fills them"
           onCheckedChange={(checked) =>
             setDraftValue("intermediateMutationsAuthorized", checked)
           }
@@ -771,7 +774,7 @@ export function SettingsApplicationAuthoritySection({
               ? "Editing unavailable"
               : activePrepareOnly
                 ? "Save authority revision"
-                : "Create prepare-only authority"}
+                : "Save what Job Finder may do"}
           </Button>
           {activeSelected ? (
             <Button

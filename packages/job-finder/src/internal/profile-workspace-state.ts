@@ -116,8 +116,10 @@ export async function deriveAndPersistProfileSetupState(
       searchPreferences: input.searchPreferences,
     }),
   });
+  const discoveryState = await ctx.repository.getDiscoveryState();
   const derivedState = deriveProfileSetupState(input.profile, input.searchPreferences, {
     currentState: nextState,
+    hasRunSearch: discoveryState.recentRuns.length > 0,
     now,
   });
 

@@ -9,6 +9,7 @@ import type {
   ProfileCopilotContext,
   ProfileSetupState,
   ProfileSetupStep,
+  ResumeApplicationMode,
   ResumeImportFieldCandidateSummary,
   ResumeImportProgressEvent,
   ResumeImportRun,
@@ -18,6 +19,10 @@ import type {
   SourceInstructionArtifact,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
+import {
+  describeResumeIdentityOwnershipChoice,
+  useResumeSourceNameForProfile,
+} from "@unemployed/job-finder/resume-identity";
 import { buildComparableValueFingerprint } from "../lib/profile-editor-review-candidates";
 import { LockedScreenLayout } from "../components/locked-screen-layout";
 import { ProfileActiveSectionContent } from "../components/profile/profile-active-section-content";
@@ -39,6 +44,7 @@ import {
   getProfileImportSuggestionDestination,
 } from "../components/profile/profile-import-suggestion-navigation";
 import { ProfileSaveFooter } from "../components/profile/profile-save-footer";
+import { ResumeIdentityChoiceNotice } from "../components/profile/resume-identity-choice-notice";
 import { ProfileSectionTabs } from "../components/profile/profile-section-tabs";
 import { ProfileSetupReminder } from "../components/profile/profile-setup-reminder";
 import { PageHeader } from "../components/page-header";
@@ -109,7 +115,10 @@ export function ProfileScreen(props: {
   onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void;
   onResumeProfileSetup: (step?: ProfileSetupStep) => void;
   onRunDiscoveryForTarget?: (targetId: string) => void;
-  onRunSourceDebug: (targetId: string) => void;
+  onRunSourceDebug: (
+    targetId: string,
+    options?: { readabilityTimeoutMs?: number },
+  ) => void;
   onSaveSourceInstructionArtifact: (
     targetId: string,
     artifact: EditableSourceInstructionArtifact,
@@ -139,6 +148,12 @@ export function ProfileScreen(props: {
   discoveryRuns?: readonly DiscoveryRunRecord[];
   recentSourceDebugRuns: readonly SourceDebugRunRecord[];
   searchPreferences: JobSearchPreferences;
+  /**
+   * The saved application default. Preferences edits the same stored choice
+   * Settings does, so "Use original resume unchanged" is reachable from both.
+   */
+  resumeApplicationMode?: ResumeApplicationMode;
+  onSelectResumeApplicationMode?: (mode: ResumeApplicationMode) => void;
   sourceAccessPrompts: JobFinderWorkspaceSnapshot["sourceAccessPrompts"];
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[];
 }) {
@@ -188,6 +203,10 @@ export function ProfileScreen(props: {
   const pendingImportSuggestionRef =
     useRef<ResumeImportFieldCandidateSummary | null>(null);
   const [importSuggestionFocusRequest, setImportSuggestionFocusRequest] =
+    useState(0);
+  // Width the field column gives up while the assistant panel is open on a
+  // window too narrow to hold both side by side.
+  const [copilotReservedColumnWidth, setCopilotReservedColumnWidth] =
     useState(0);
   const {
     backgroundArrays,
@@ -339,6 +358,9 @@ export function ProfileScreen(props: {
       buildComparableValueFingerprint(
         draftSearchPreferencesResult.payload ?? searchPreferences,
       );
+  const identityChoiceProfile =
+    buildProfilePayload(profile, profileForm.getValues()).payload ??
+    overviewProfile;
 
   function hasUnsavedSourceRowChanges(targetId: string) {
     const savedTarget = savedTargetsById.get(targetId);
@@ -374,14 +396,17 @@ export function ProfileScreen(props: {
     onRunDiscoveryForTarget?.(targetId);
   }
 
-  function handleRunSourceDebug(targetId: string) {
+  function handleRunSourceDebug(
+    targetId: string,
+    options?: { readabilityTimeoutMs?: number },
+  ) {
     if (hasUnsavedSearchPreferenceChanges) {
       setValidationMessage(unsavedProfileSourceActionMessage);
       return;
     }
 
     setValidationMessage(null);
-    onRunSourceDebug(targetId);
+    onRunSourceDebug(targetId, options);
   }
 
   // Per-source Search now outcomes are shown next to the source rows that
@@ -425,6 +450,36 @@ export function ProfileScreen(props: {
 
     setValidationMessage(null);
     onSaveAll(profileResult.payload, preferencesResult.payload);
+  }
+
+  function handleResumeIdentityChoice(
+    choice: "profile_name" | "resume_name",
+  ) {
+    const profileResult = buildProfilePayload(profile, profileForm.getValues());
+    const preferencesResult = buildSearchPreferencesPayload(
+      searchPreferences,
+      preferencesForm.getValues(),
+    );
+    if (!profileResult.payload || !preferencesResult.payload) {
+      setValidationMessage(
+        profileResult.validationMessage ??
+          preferencesResult.validationMessage ??
+          "Save the valid profile fields before choosing a resume name.",
+      );
+      return;
+    }
+
+    const nextProfile =
+      choice === "profile_name"
+        ? {
+            ...profileResult.payload,
+            resumeIdentityOwnership:
+              describeResumeIdentityOwnershipChoice(profileResult.payload)
+                .acknowledgement,
+          }
+        : useResumeSourceNameForProfile(profileResult.payload);
+    setValidationMessage(null);
+    onSaveAll(nextProfile, preferencesResult.payload);
   }
 
   function handleReviewImportSuggestion(
@@ -520,7 +575,18 @@ export function ProfileScreen(props: {
         </>
       }
     >
-      <section className="grid min-h-124 min-w-0 gap-(--gap-content) xl:h-full xl:min-h-0">
+      <section
+        className="grid min-h-124 min-w-0 gap-(--gap-content) xl:h-full xl:min-h-0"
+        // Room held open for the assistant panel. Sizing the panel into the
+        // space that happens to be free left it covering the very fields it
+        // names on a window with no space to spare; the column gives up the
+        // pixels instead, so the panel always docks beside the form.
+        style={
+          copilotReservedColumnWidth > 0
+            ? { paddingRight: `${copilotReservedColumnWidth}px` }
+            : undefined
+        }
+      >
         <div className="grid min-h-0 min-w-0 gap-2 xl:grid-rows-[auto_minmax(0,1fr)]">
           <div className="sticky top-0 z-20 bg-(--surface-canvas)">
             <ProfileSectionTabs
@@ -603,6 +669,19 @@ export function ProfileScreen(props: {
                     />
                   </div>
                 ) : null}
+                {activeSection === "basics" ? (
+                  <div className="mb-3">
+                    <ResumeIdentityChoiceNotice
+                      onKeepResumeName={() =>
+                        handleResumeIdentityChoice("resume_name")
+                      }
+                      onUseProfileName={() =>
+                        handleResumeIdentityChoice("profile_name")
+                      }
+                      profile={identityChoiceProfile}
+                    />
+                  </div>
+                ) : null}
                 <fieldset
                   className="m-0 min-w-0 border-0 p-0 disabled:opacity-80"
                   disabled={resumeAnalysisPending}
@@ -637,6 +716,15 @@ export function ProfileScreen(props: {
                     onVerifySourceInstructions={onVerifySourceInstructions}
                     preferencesForm={preferencesForm}
                     profileForm={profileForm}
+                    {...(props.resumeApplicationMode
+                      ? { resumeApplicationMode: props.resumeApplicationMode }
+                      : {})}
+                    {...(props.onSelectResumeApplicationMode
+                      ? {
+                          onSelectResumeApplicationMode:
+                            props.onSelectResumeApplicationMode,
+                        }
+                      : {})}
                     recentSourceDebugRuns={recentSourceDebugRuns}
                     sourceAccessPrompts={sourceAccessPrompts}
                     sourceInstructionArtifacts={sourceInstructionArtifacts}
@@ -704,6 +792,7 @@ export function ProfileScreen(props: {
           starterQuestion={starterQuestion}
           showProactivePrompt={false}
           minBottomOffset={COPILOT_BOTTOM_OFFSET}
+          onReserveColumnWidth={setCopilotReservedColumnWidth}
         />
       ) : null}
     </LockedScreenLayout>

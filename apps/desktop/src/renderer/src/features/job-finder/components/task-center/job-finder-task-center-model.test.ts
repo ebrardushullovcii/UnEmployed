@@ -7,7 +7,10 @@ import type {
 } from "@unemployed/contracts";
 import { JobFinderIntelligenceStateSchema } from "@unemployed/contracts";
 import { describe, expect, test } from "vitest";
-import { buildJobFinderTaskCenterModel } from "./job-finder-task-center-model";
+import {
+  buildJobFinderTaskCenterModel,
+  describeTaskCenterCounts,
+} from "./job-finder-task-center-model";
 import type { TailoredDraftPreparationViewState } from "../../screens/review-queue/review-queue-status";
 
 function createWorkspace(
@@ -77,6 +80,7 @@ function findTask(
   model: ReturnType<typeof buildJobFinderTaskCenterModel>,
   kind:
     | "discovery"
+    | "source_check"
     | "resume_import"
     | "apply"
     | "safeguards"
@@ -217,6 +221,95 @@ describe("buildJobFinderTaskCenterModel", () => {
       "about 10s from 1 similar completed search",
     );
     expect(task.historyEstimateLabel).not.toContain("remaining");
+  });
+
+  test("derives the active stage and counts from the same persisted progress event", () => {
+    const progress = {
+      id: "event_persisted",
+      runId: "discovery_current",
+      timestamp: "2026-07-31T10:00:05.000Z",
+      kind: "progress",
+      stage: "extraction",
+      targetId: "source_b",
+      jobsPersisted: 97,
+    } as DiscoveryActivityEvent;
+    const run = createDiscoveryRun({
+      activity: [progress],
+      summary: {
+        targetsPlanned: 2,
+        targetsCompleted: 1,
+        validJobsFound: 97,
+        durationMs: 0,
+      },
+    });
+
+    const task = findTask(
+      buildJobFinderTaskCenterModel({
+        workspace: createWorkspace({ activeDiscoveryRun: run }),
+        isDiscoveryPending: true,
+        isResumeImportPending: false,
+      }),
+      "discovery",
+    );
+
+    expect(task.stageLabel).toBe("Reading source 2 of 2");
+    expect(task.countLabel).toBe("1 of 2 sources finished · 97 new jobs saved");
+  });
+
+  test("uses service-owned search and source-check state without local pending flags", () => {
+    const discovery = createDiscoveryRun({
+      cancellationRequestedAt: "2026-07-31T10:00:06.000Z",
+    });
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        activeDiscoveryRun: discovery,
+        activeSourceDebugRun: {
+          id: "source_check_1",
+          state: "paused_manual",
+          activePhase: "access_auth_probe",
+          targetLabel: "Mercury careers",
+          phases: [],
+          updatedAt: "2026-07-31T10:00:07.000Z",
+        } as unknown as JobFinderWorkspaceSnapshot["activeSourceDebugRun"],
+      }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+      now: Date.parse("2026-07-31T10:00:20.000Z"),
+    });
+
+    expect(findTask(model, "discovery")).toMatchObject({
+      id: discovery.id,
+      status: "stopping",
+      stageLabel: "Stopping",
+      canCancel: false,
+    });
+    expect(findTask(model, "source_check")).toMatchObject({
+      status: "paused",
+      sourceLabel: "Mercury careers",
+      stageLabel: "Checking access",
+    });
+    expect(model.activeCount).toBe(1);
+    expect(model.pausedCount).toBe(1);
+  });
+
+  test("stops counting Stopping upward once the stop goes unanswered", () => {
+    const discovery = createDiscoveryRun({
+      cancellationRequestedAt: "2026-07-31T10:00:06.000Z",
+    });
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({ activeDiscoveryRun: discovery }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+      // Well past the release window: 800 seconds of "Stopping" was the bug.
+      now: Date.parse("2026-07-31T10:13:26.000Z"),
+    });
+
+    expect(findTask(model, "discovery")).toMatchObject({
+      status: "cancelled",
+      stageLabel: "Stopped, some work may have finished in the background",
+      canCancel: false,
+    });
+    expect(model.activeCount).toBe(0);
   });
 
   test("keeps unmerged scoring-stage candidates out of the settled count", () => {
@@ -622,19 +715,102 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(task.status).toBe("paused");
     expect(task.stageLabel).toBe("Waiting for your consent");
     expect(task.countLabel).toBe(
-      "1 of 3 application tasks finished · 1 blocked · Waiting on you",
+      "0 applications · 1 of 3 application tasks finished · 1 blocked · Waiting on you",
     );
     expect(task.canCancel).toBe(true);
-    expect(task.resumeRoute).toBe("/job-finder/applications");
-    expect(task.resumeActionLabel).toBe("Continue application");
+    // A consent pause holds a real decision, and settling it lets the run
+    // carry on, so the action goes where that decision lives.
+    expect(task.resumeRoute).toBe("/job-finder/actions");
+    expect(task.resumeActionLabel).toBe("Resolve what needs you");
     expect(task.historyEstimateLabel).toBeNull();
+  });
+
+  test("offers the named recovery action after a safety limit stops the run", () => {
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        applyRuns: [
+          createApplyRun({
+            state: "paused_for_user_review",
+            totalJobs: 10,
+            pendingJobs: 10,
+          }),
+        ],
+        applyJobResults: [
+          {
+            id: "result_blocked",
+            runId: "apply_current",
+            jobId: "job_1",
+            applicationRecordId: "application_1",
+            state: "blocked",
+            blockerReason: "required_human_input",
+            updatedAt: "2026-07-31T10:00:06.000Z",
+          },
+        ] as JobFinderWorkspaceSnapshot["applyJobResults"],
+      }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+    });
+    const task = findTask(model, "apply");
+
+    expect(task.status).toBe("paused");
+    expect(task.stageLabel).toBe("Paused by a safety limit");
+    expect(task.countLabel).toBe(
+      "0 applications · 0 of 10 application tasks finished · It will not carry on by itself",
+    );
+    expect(task.resumeActionLabel).toBe("Prepare remaining jobs");
+    expect(task.resumeRoute).toBe("/job-finder/applications");
+    expect(task.applyRecoveryJobIds).toEqual(["job_1"]);
+    expect(task.reviewActionLabel).toBe("Review prepared sample");
+    expect(task.reviewRoute).toBe("/job-finder/safeguards");
+  });
+
+  test("clears the paused task after the last application handoff is cancelled", () => {
+    const run = createApplyRun({
+      state: "paused_for_user_review",
+      totalJobs: 1,
+      pendingJobs: 1,
+    });
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        applyRuns: [run],
+        applyJobResults: [
+          {
+            id: "result_cancelled_handoff",
+            runId: run.id,
+            jobId: "job_1",
+            applicationRecordId: "application_1",
+            state: "awaiting_review",
+            updatedAt: "2026-07-31T10:00:06.000Z",
+          },
+        ] as JobFinderWorkspaceSnapshot["applyJobResults"],
+        applicationRecords: [
+          {
+            id: "application_1",
+            jobId: "job_1",
+            lastAttemptState: "unsupported",
+          },
+        ] as JobFinderWorkspaceSnapshot["applicationRecords"],
+        userActionRequests: [
+          {
+            id: "handoff_1",
+            state: "cancelled",
+            scope: { type: "application", runId: run.id },
+          },
+        ] as JobFinderWorkspaceSnapshot["userActionRequests"],
+      }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+    });
+
+    expect(model.items.some((item) => item.kind === "apply")).toBe(false);
+    expect(model.pausedCount).toBe(0);
   });
 
   test.each([
     ["draft", "active", "Ready to start"],
     ["awaiting_submit_approval", "active", "Waiting for your approval"],
     ["running", "active", "Opening application"],
-    ["paused_for_user_review", "paused", "Waiting for your review"],
+    ["paused_for_user_review", "paused", "Paused by a safety limit"],
     ["paused_for_consent", "paused", "Waiting for your consent"],
     ["completed", "completed", "Ready for final review"],
     ["cancelled", "cancelled", "Application stopped"],
@@ -832,5 +1008,22 @@ describe("buildJobFinderTaskCenterModel", () => {
       resumeActionLabel: "Verify outcome",
     });
     expect(task.countLabel).toMatch(/automatic retry is blocked/i);
+  });
+});
+
+describe("describeTaskCenterCounts", () => {
+  test("never renders a zero beside a real count", () => {
+    expect(describeTaskCenterCounts({ activeCount: 2, pausedCount: 0 })).toBe(
+      "2 active",
+    );
+    expect(describeTaskCenterCounts({ activeCount: 0, pausedCount: 3 })).toBe(
+      "3 paused",
+    );
+    expect(describeTaskCenterCounts({ activeCount: 2, pausedCount: 3 })).toBe(
+      "2 active · 3 paused",
+    );
+    expect(describeTaskCenterCounts({ activeCount: 0, pausedCount: 0 })).toBe(
+      null,
+    );
   });
 });

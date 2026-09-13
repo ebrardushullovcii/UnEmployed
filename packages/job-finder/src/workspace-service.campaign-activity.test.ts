@@ -145,7 +145,7 @@ describe("workspace campaign and activity controls", () => {
     ]);
     await expect(
       workspaceService.startApplyCopilotRun("job_ready"),
-    ).rejects.toThrow(/already running/i);
+    ).rejects.toThrow(/already being prepared/i);
 
     const pause = workspaceService.setActivityControl({ paused: true });
     await expect(firstRun).rejects.toThrow(/aborted/i);
@@ -180,7 +180,7 @@ describe("workspace campaign and activity controls", () => {
       }),
     ]);
     await expect(workspaceService.approveApply("job_ready")).rejects.toThrow(
-      /already running/i,
+      /already being prepared/i,
     );
 
     const pause = workspaceService.setActivityControl({ paused: true });

@@ -306,7 +306,7 @@ export function buildSingleJobAutoApplyArtifacts(input: {
     summary: `Automatic submit run is staged for '${input.job.title}'.`,
     detail:
       input.detail ??
-      "This safe development run records explicit submit approval before any later submit-enabled execution. It does not click the final submit action.",
+      "This batch records your approval before Job Finder prepares anything. Job Finder never presses the final submit button on a job site — you do that yourself.",
     totalJobs: 1,
     pendingJobs: 1,
     submittedJobs: 0,
@@ -324,7 +324,7 @@ export function buildSingleJobAutoApplyArtifacts(input: {
     state: "planned",
     summary: "Waiting for explicit submit approval.",
     detail:
-      "This job is queued behind a run-scoped submit approval. The current safe implementation records approval state only and still stops before any final submit action.",
+      "This job is waiting for you to approve the batch it belongs to. Job Finder never presses the final submit button on a job site — you finish the application yourself.",
     startedAt: input.createdAt,
     updatedAt: input.createdAt,
     completedAt: null,
@@ -350,7 +350,7 @@ export function buildSingleJobAutoApplyArtifacts(input: {
     revokedAt: null,
     expiresAt: null,
     detail:
-      "Explicit submit approval is required before any later submit-enabled run can continue. Final submit remains disabled in the current safe development slice.",
+      "Approve this batch before Job Finder prepares it. Job Finder never presses the final submit button on a job site; you finish each application yourself.",
   });
 
   return {

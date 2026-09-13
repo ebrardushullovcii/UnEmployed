@@ -1,6 +1,6 @@
 import type { SourceAccessPrompt } from "@unemployed/contracts";
 import { History, Search } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@renderer/components/ui/button";
 import {
   OPEN_JOB_FINDER_BROWSER_ACTION,
@@ -32,6 +32,8 @@ type SectionValue =
 type SectionEditAction = {
   href: string;
   label: string;
+  /** Overrides the derived "Edit <label>" wording on a filled row. */
+  filledLabel?: string;
   variant?: "primary" | "secondary";
 };
 
@@ -222,6 +224,7 @@ export function DiscoverySearchSections(props: {
   }>;
 }) {
   const { sectionHeadingPrefix, sections } = props;
+  const navigate = useNavigate();
 
   return (
     <>
@@ -235,9 +238,12 @@ export function DiscoverySearchSections(props: {
         // was a read-only summary whose single edit route was a body-copy link
         // at the bottom of the panel.
         const editAction = section.editAction ?? null;
+        // A heading that is already a sentence ("Full-time or part-time")
+        // makes "Edit full-time or part-time" read like an instruction, so a
+        // row may name its own verb phrase instead.
         const editLabel = isEmpty
           ? editAction?.label
-          : `Edit ${section.label.toLowerCase()}`;
+          : (editAction?.filledLabel ?? `Edit ${section.label.toLowerCase()}`);
 
         return (
           <section
@@ -259,15 +265,22 @@ export function DiscoverySearchSections(props: {
                   {section.label}
                 </h3>
                 {editAction && editLabel ? (
+                  // A real button, not a link dressed as one. As an anchor,
+                  // "Add roles" took focus but neither Enter nor Space opened
+                  // the role editor, so the only repair route for an empty
+                  // search plan was unreachable from the keyboard.
                   <Button
-                    asChild
                     className="h-8 shrink-0 whitespace-nowrap px-3 normal-case tracking-normal"
+                    onClick={() => {
+                      void navigate(editAction.href);
+                    }}
                     size="sm"
+                    type="button"
                     variant={
                       isEmpty ? (editAction.variant ?? "secondary") : "outline"
                     }
                   >
-                    <Link to={editAction.href}>{editLabel}</Link>
+                    {editLabel}
                   </Button>
                 ) : null}
               </div>

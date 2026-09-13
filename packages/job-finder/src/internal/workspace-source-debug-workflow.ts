@@ -50,6 +50,7 @@ import {
 import type { WorkspaceServiceContext } from "./workspace-service-context";
 import {
   buildSourceDebugProgressEmitter,
+  describeSourceDebugOpenFailure,
   summarizeAgentProgressForSourceDebug,
 } from "./source-debug-progress";
 import {
@@ -1231,7 +1232,29 @@ export async function runSourceDebugWorkflow(
   } catch (error) {
     const interrupted =
       error instanceof DOMException && error.name === "AbortError";
+    const openFailure = interrupted
+      ? null
+      : describeSourceDebugOpenFailure(error, normalizedTarget.label);
     const completedAt = new Date().toISOString();
+    if (openFailure) {
+      await ctx.repository
+        .upsertSourceDebugEvidenceRefs([
+          SourceDebugEvidenceRefSchema.parse({
+            id: `${run.id}_open_failure_technical_details`,
+            runId: run.id,
+            attemptId: `${run.id}_open_failure`,
+            targetId: normalizedTarget.id,
+            phase: run.phases[0] ?? "access_auth_probe",
+            kind: "note",
+            label: "Technical details",
+            capturedAt: completedAt,
+            url: normalizedTarget.startingUrl,
+            storagePath: null,
+            excerpt: openFailure.technicalDetails,
+          }),
+        ])
+        .catch(() => {});
+    }
     run = SourceDebugRunRecordSchema.parse({
       ...run,
       state: interrupted ? "cancelled" : "failed",
@@ -1240,7 +1263,8 @@ export async function runSourceDebugWorkflow(
       activePhase: null,
       finalSummary: interrupted
         ? "Source debug run was interrupted before completion."
-        : `Source debug run failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        : (openFailure?.summary ??
+          `Source debug run failed: ${error instanceof Error ? error.message : "Unknown error"}`),
       timing: buildSourceDebugRunTimingSummary({
         events: progressEvents,
         run,
@@ -1251,7 +1275,7 @@ export async function runSourceDebugWorkflow(
       }),
     });
     await ctx.persistSourceDebugRun(run);
-    if (!interrupted) {
+    if (!interrupted && !openFailure) {
       throw error;
     }
   } finally {

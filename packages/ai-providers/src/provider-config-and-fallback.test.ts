@@ -676,10 +676,12 @@ describe("ai provider config and fallback behavior", () => {
         // (see the card-only test), so the timeout path needs text to tailor.
         job: {
           ...createJobPosting(),
-          description: Array.from(
-            { length: 80 },
-            (_, index) => `requirement ${index}`,
-          ).join(" "),
+          description: [
+            "Own the payments reconciliation service end to end.",
+            "Design ledger invariants, instrument settlement dashboards,",
+            "run incident response, and mentor two backend engineers.",
+            Array.from({ length: 40 }, (_, index) => `duty ${index}`).join(" "),
+          ].join(" "),
         },
         resumeText: "Resume text",
       });

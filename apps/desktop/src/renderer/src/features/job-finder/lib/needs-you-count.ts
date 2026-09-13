@@ -2,6 +2,8 @@ import type {
   GroupedManualAnswerDecision,
   JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
+import { projectPlanSafeguardPauses } from "@unemployed/job-finder/plan-safeguard-pauses";
+import { applicationRecordAwaitsUser } from "../screens/applications/applications-status";
 
 /**
  * The one renderer-side owner of the "Needs you" population.
@@ -26,11 +28,64 @@ const FINAL_ACTION_REQUEST_STATES: readonly string[] = [
 ];
 
 export interface NeedsYouCountInput {
+  /**
+   * Applications the Applications screen badges "Needs you". They belong to
+   * the same population: an application paused on a site step the person has
+   * to finish was badged NEEDS YOU while this count said "0 unresolved",
+   * because it only ever counted live browser-step requests.
+   */
+  applicationRecords?:
+    | readonly JobFinderWorkspaceSnapshot["applicationRecords"][number][]
+    | undefined;
   groupedDecisions?: readonly GroupedManualAnswerDecision[] | undefined;
-  requests?: JobFinderWorkspaceSnapshot["userActionRequests"] | undefined;
+  requests?:
+    | readonly JobFinderWorkspaceSnapshot["userActionRequests"][number][]
+    | undefined;
+}
+
+/** The application-record ledger is the one application population. */
+export function countApplicationLedgerEntries<TRecord extends { jobId: string }>(
+  records: readonly TRecord[],
+  jobIds?: ReadonlySet<string>,
+): number {
+  return jobIds
+    ? records.filter((record) => jobIds.has(record.jobId)).length
+    : records.length;
+}
+
+/**
+ * Applications waiting on the person that no live request already represents.
+ * Exported so the Needs you screen lists exactly what the badge counts.
+ */
+export function listApplicationsAwaitingUser({
+  applicationRecords,
+  requests,
+}: Pick<
+  NeedsYouCountInput,
+  "applicationRecords" | "requests"
+>): readonly JobFinderWorkspaceSnapshot["applicationRecords"][number][] {
+  const records = applicationRecords ?? [];
+  if (records.length === 0) return records;
+
+  const coveredRecordIds = new Set(
+    (requests ?? [])
+      .filter((request) => !FINAL_ACTION_REQUEST_STATES.includes(request.state))
+      .flatMap((request) =>
+        request.scope?.type === "application" &&
+        request.scope.applicationRecordId
+          ? [request.scope.applicationRecordId]
+          : [],
+      ),
+  );
+
+  return records.filter(
+    (record) =>
+      !coveredRecordIds.has(record.id) && applicationRecordAwaitsUser(record),
+  );
 }
 
 export function countNeedsYouItems({
+  applicationRecords,
   groupedDecisions,
   requests,
 }: NeedsYouCountInput): number {
@@ -52,14 +107,19 @@ export function countNeedsYouItems({
     (request) => !representedRequestIds.has(request.id),
   );
 
-  return unrepresentedRequests.length + pendingDecisions.length;
+  return (
+    unrepresentedRequests.length +
+    pendingDecisions.length +
+    listApplicationsAwaitingUser({ applicationRecords, requests }).length
+  );
 }
 
 /** Convenience reader for callers that already hold the whole snapshot. */
 export function countWorkspaceNeedsYouItems(
   workspace: JobFinderWorkspaceSnapshot,
 ): number {
-  return countNeedsYouItems({
+  return projectPlanSafeguardPauses(workspace.intelligence?.safeguards, workspace.campaigns).length + countNeedsYouItems({
+    applicationRecords: workspace.applicationRecords ?? [],
     groupedDecisions: workspace.intelligence?.groupedDecisions ?? [],
     requests: workspace.userActionRequests ?? [],
   });

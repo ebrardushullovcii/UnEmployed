@@ -145,7 +145,7 @@ describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
     expect(screen.getByText("Written to the site")).not.toBeNull();
     expect(screen.getByText("The resume that was used")).not.toBeNull();
     expect(
-      screen.getByText(/SHA-256 was not recorded for this preparation/i),
+      screen.getByText(/No file fingerprint was recorded for this preparation/i),
     ).not.toBeNull();
     expect(screen.getByText("Safety record")).not.toBeNull();
     expect(screen.getByText(/Final submit stayed disabled/)).not.toBeNull();
@@ -348,12 +348,53 @@ describe("ApplicationsDetailPanelPrivacyReceiptSection", () => {
 
     expect(screen.getByText("The resume that was used")).not.toBeNull();
     expect(
-      screen.getByText("SHA-256 0123456789ab…456789abcdef"),
+      screen.getByText("Fingerprint 0123456789ab…456789abcdef"),
     ).not.toBeNull();
-    expect(screen.getByLabelText(`Resume SHA-256 ${sha256}`)).not.toBeNull();
+    expect(screen.getByLabelText(`Resume file fingerprint ${sha256}`)).not.toBeNull();
     expect(
       screen.getByText(/exact PDF you approved/i),
     ).not.toBeNull();
+  });
+
+  it("names the original file by what it actually is, not as a PDF", () => {
+    const sha256 = "abcdef0123456789".repeat(4);
+    render(
+      <ApplicationsDetailPanelPrivacyReceiptSection
+        onExport={vi.fn()}
+        receipt={{
+          schemaVersion: 1,
+          generatedAt: "2026-07-30T10:00:00.000Z",
+          lineage: {
+            runId: "run-1",
+            jobId: "job-1",
+            resultId: "result-1",
+            applicationRecordId: "application-1",
+          },
+          destination: { origin: "https://example.com", safePath: "/apply" },
+          resume: {
+            source: "original_upload",
+            sourceDocumentId: "document-1",
+            exportArtifactId: null,
+            fileName: "Ebrar-CV.txt",
+            sha256,
+          },
+          stayedLocal: [],
+          modelUse: [],
+          externalWrites: [],
+          accountCreationAuthorized: false,
+          finalSubmitAuthorized: false,
+          finalSubmitOccurred: false,
+          submissionOutcome: null,
+        }}
+      />,
+    );
+
+    // The one screen whose job is proving nothing was altered must not
+    // misname the file it is vouching for.
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Your approved resume (text file)");
+    expect(text).toContain("This is the exact text file you approved");
+    expect(text).not.toMatch(/PDF/);
   });
 
   it("does not render a receipt before one exists", () => {

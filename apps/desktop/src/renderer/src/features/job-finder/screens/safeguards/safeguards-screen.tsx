@@ -104,7 +104,7 @@ function SafeguardRowCard(props: {
           ) : null}
           {row.lineage.campaigns.length > 0 ? (
             <>
-              <dt className="text-foreground-muted">Campaigns</dt>
+              <dt className="text-foreground-muted">Search plans</dt>
               <dd className="text-foreground">
                 {row.lineage.campaigns.map((label) => (
                   <span className="block truncate" key={label} title={label}>
@@ -249,9 +249,11 @@ export function SafeguardsScreen(props: {
         >
           <ShieldAlert aria-hidden="true" className="size-4 text-destructive" />
           <span>
-            {blockedCount} active blocker{blockedCount === 1 ? "" : "s"}.
-            Resolve, dismiss, or retry below to continue discovery and
-            application preparation.
+            {blockedCount === 1
+              ? "1 thing is being held back."
+              : `${blockedCount} things are being held back.`}{" "}
+            Settle, dismiss, or retry them below so searching and preparing
+            applications can carry on.
           </span>
         </div>
       ) : dailyCapacityExhausted && dailyCapacity ? (
@@ -262,7 +264,7 @@ export function SafeguardsScreen(props: {
         >
           <ShieldAlert aria-hidden="true" className="size-4" />
           <span>
-            No active safeguard blockers.{" "}
+            Nothing is being held back right now.{" "}
             {formatDailyPreparationCapacityReachedText(dailyCapacity)}
           </span>
         </div>
@@ -273,7 +275,8 @@ export function SafeguardsScreen(props: {
         >
           <ShieldCheck aria-hidden="true" className="size-4 text-positive" />
           <span>
-            No active safeguard blockers. Discovery and preparation are clear.
+            Nothing is being held back right now. Searching and preparing
+            applications can both run.
           </span>
         </div>
       )}

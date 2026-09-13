@@ -208,6 +208,15 @@ function buildVerifierJobListingText(job: SavedJob): string {
     .join("\n");
 }
 
+/**
+ * Whether this section is the draft's core-skills list. Read from the draft
+ * rather than a label match so a renamed section still counts.
+ */
+function isSkillsResumeSection(draft: ResumeDraft, sectionId: string): boolean {
+  const section = draft.sections.find((entry) => entry.id === sectionId);
+  return section?.kind === "skills" || section?.kind === "keywords";
+}
+
 function buildProfileSupportBank(
   profile: CandidateProfile | undefined,
 ): string[] {
@@ -1171,6 +1180,11 @@ function assessResumeClaims(input: {
     evidenceBank.map((entry) => [entry.ref.id, entry.ref] as const),
   );
   const jobListingText = buildVerifierJobListingText(input.job);
+  // The person's own imported document. A line lifted verbatim out of it was
+  // written by them, not by the product, so the verifier has no standing to
+  // call it unsupported — it was flagging the candidate's own sentences back
+  // at them.
+  const importedResumeText = input.profile?.baseResume.textContent ?? "";
 
   return buildResumeClaimDescriptors(input.draft).map((claim) => {
     const support = buildRelevantResumeClaimSupport(claim.text, evidenceBank);
@@ -1206,8 +1220,25 @@ function assessResumeClaims(input: {
       ) ||
       isShortJobTermBleed(claim.text, input.job, input.profileSupportBank);
     const generatedClaim = isGeneratedResumeClaimOrigin(claim.origin);
-    const status = legacyIntegrityOverride
-      ? "unsupported"
+    // A skill the product added because the target listing asked for it.
+    //
+    // ADR 0018 allows exactly this and promises the candidate confirms each
+    // one. The draft note said so while the skill itself sat in Core Skills
+    // with no control at all, because an "unsupported" verdict is not
+    // confirmable — so the promise had nothing to attach to. A
+    // listing-anchored skill is a confirmation the person owns, not a
+    // verdict the product gets to make on their behalf.
+    const isListingAnchoredSkillAddition =
+      generatedClaim &&
+      claim.field === "section_bullet" &&
+      isSkillsResumeSection(input.draft, claim.sectionId) &&
+      claimTextIsVerbatimInSupport(claim.text, jobListingText);
+    // Long enough that a single shared word cannot pass as the whole line.
+    const isCandidateOwnVerbatimLine =
+      claim.text.trim().length >= 16 &&
+      claimTextIsVerbatimInSupport(claim.text, importedResumeText);
+    const baseStatus = legacyIntegrityOverride
+      ? ("unsupported" as const)
       : resolveResumeClaimAssessmentStatus({
           verdict: grounding.verdict,
           gaps: grounding.gaps,
@@ -1222,6 +1253,13 @@ function assessResumeClaims(input: {
           claimText: claim.text,
           generatedClaim,
         });
+    // Only a skill the evidence cannot support becomes a confirmation: one
+    // the person demonstrably has keeps its own grounded verdict.
+    const status = isCandidateOwnVerbatimLine
+      ? ("exact" as const)
+      : baseStatus === "unsupported" && isListingAnchoredSkillAddition
+        ? ("confirm_needed" as const)
+        : baseStatus;
     const locator = [
       claim.field,
       claim.sectionId,
@@ -2829,6 +2867,42 @@ export function buildResumeExportArtifact(input: {
   });
 }
 
+export const TAILORED_RESUME_ASSET_LABEL = "Tailored Resume";
+
+/**
+ * What a document whose listing text was never captured is actually called.
+ *
+ * Nothing could be tailored for it, so the draft keeps the person's own
+ * wording. The preview panel already said so while the shortlisted row, the
+ * documents list and the exported file still read "Tailored Resume": the name
+ * is derived from the same state everywhere now.
+ */
+export const UNTAILORABLE_RESUME_ASSET_LABEL = "Your original resume";
+
+export function resolveTailoredAssetLabel(input: {
+  existingLabel?: string | null;
+  generationMethod: "ai_assisted" | "deterministic";
+  generationReason?: string | null;
+}): string {
+  const isUntailorable =
+    input.generationMethod === "deterministic" &&
+    (input.generationReason === "listing_text_missing" ||
+      input.generationReason === "listing_text_not_distinguishing");
+
+  if (isUntailorable) {
+    return UNTAILORABLE_RESUME_ASSET_LABEL;
+  }
+
+  const existingLabel = input.existingLabel?.trim();
+  // A draft that has since been written against real listing text stops being
+  // the person's untouched resume, so the carried-forward name goes back.
+  if (!existingLabel || existingLabel === UNTAILORABLE_RESUME_ASSET_LABEL) {
+    return TAILORED_RESUME_ASSET_LABEL;
+  }
+
+  return existingLabel;
+}
+
 export function buildTailoredAssetBridge(input: {
   draft: ResumeDraft;
   job: SavedJob;
@@ -2858,13 +2932,23 @@ export function buildTailoredAssetBridge(input: {
     resolvedStoragePath === null && input.existingAsset?.status === "failed"
       ? input.existingAsset
       : null;
+  const generationMethod =
+    input.draft.generationMethod === "ai" ? "ai_assisted" : "deterministic";
+  const generationReason =
+    input.draft.generationMethod === "ai"
+      ? null
+      : (input.existingAsset?.generationReason ?? null);
 
   return TailoredAssetSchema.parse({
     id: input.existingAsset?.id ?? `resume_${input.job.id}`,
     jobId: input.job.id,
     kind: "resume",
     status: preservedFailure ? "failed" : "ready",
-    label: input.existingAsset?.label ?? "Tailored Resume",
+    label: resolveTailoredAssetLabel({
+      existingLabel: input.existingAsset?.label ?? null,
+      generationMethod,
+      generationReason,
+    }),
     version: input.existingAsset?.version ?? "v1",
     templateName: resolveResumeTemplateLabel({
       templateId: input.draft.templateId,
@@ -2886,8 +2970,7 @@ export function buildTailoredAssetBridge(input: {
       input.draft,
     ),
     previewSections: buildPreviewSectionsFromResumeDraft(input.draft),
-    generationMethod:
-      input.draft.generationMethod === "ai" ? "ai_assisted" : "deterministic",
+    generationMethod,
     // The structured reason and detail describe how the *first* draft was
     // written. Every save, patch, and export rebuilds the asset through this
     // bridge, and dropping them here made the studio's disclosure degrade
@@ -2898,7 +2981,7 @@ export function buildTailoredAssetBridge(input: {
     ...(input.draft.generationMethod === "ai"
       ? { generationReason: null, generationDetail: null }
       : {
-          generationReason: input.existingAsset?.generationReason ?? null,
+          generationReason,
           generationDetail: input.existingAsset?.generationDetail ?? null,
         }),
     notes: uniqueStrings([

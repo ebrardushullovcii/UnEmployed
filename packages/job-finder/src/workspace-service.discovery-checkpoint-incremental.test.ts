@@ -680,10 +680,11 @@ describe("discovery checkpoint incremental persistence", () => {
       expect(execution.duplicatesMerged).toBe(0);
       expect(run.summary.jobsPersisted).toBe(2);
 
-      // Commit shape: one failed checkpoint commit, plus the legacy
-      // per-target terminal and post-loop finalize commits. The disabled-mode
-      // checkpoint and the retry never double-committed the same job.
-      expect(commitSpy.mock.calls.length).toBe(3);
+      // Commit shape: one failed checkpoint commit, the legacy per-target and
+      // post-loop commits, and the paired campaign-membership/run-count
+      // finalization. The disabled-mode checkpoint and the retry never
+      // double-committed the same job.
+      expect(commitSpy.mock.calls.length).toBe(4);
       expect(simulatedFailures).toBe(1);
     } finally {
       commitSpy.mockRestore();
@@ -939,12 +940,13 @@ describe("discovery checkpoint incremental persistence", () => {
 
     // Saved-job delta shape: exactly ONE SUCCEEDING commit carried upserts
     // (the job-bearing checkpoint flush); the remaining commits are the
-    // legacy terminal pair with no upserts.
+    // legacy terminal pair and final campaign-membership/run-count commit
+    // with no upserts.
     const jobBearingCommits = commitSpy.mock.calls.filter(
       ([input]) => (input.upserts?.length ?? 0) > 0,
     );
     expect(jobBearingCommits).toHaveLength(1);
-    expect(commitSpy.mock.calls.length).toBe(3);
+    expect(commitSpy.mock.calls.length).toBe(4);
 
     // Checkpoint-phase delta: the two identical duplicate-only checkpoints
     // moved the discovery-singleton commit count by exactly zero.
@@ -954,11 +956,11 @@ describe("discovery checkpoint incremental persistence", () => {
 
     // Exact whole-run singleton total, decomposed: run-start planning persist
     // (1) + browser session open status (1) + browser session close status
-    // (1) + the pipeline snapshot's session-refresh merge (1) + the scoped
-    // wrapper's company-intelligence refresh snapshot's session-refresh merge
-    // (1). Kept batches ride the atomic saved-job delta channel and never
-    // appear here; future lifecycle additions should extend this list rather
-    // than loosening the total.
+    // (1) + the pipeline snapshot's session-refresh merge (1) + the
+    // scoped wrapper's company-intelligence refresh snapshot's session-refresh
+    // merge (1). Kept batches and the final membership/report update ride the
+    // atomic saved-job delta channel and never appear here; future lifecycle
+    // additions should extend this list rather than loosening the total.
     expect(discoveryCommitSpy.mock.calls.length).toBe(5);
 
     // Terminal saves still carry the freshest in-memory checkpoint payload.
@@ -1050,8 +1052,8 @@ describe("discovery checkpoint incremental persistence", () => {
     // Exact whole-run singleton total, decomposed: the five fixed lifecycle
     // commits (run-start planning, session open status, session close status,
     // pipeline snapshot session refresh, scoped-wrapper company-intelligence
-    // refresh snapshot session refresh — see the empty-checkpoints test)
-    // plus the two heartbeats above.
+    // refresh snapshot session refresh — see the empty-checkpoints test) plus
+    // the two heartbeats above.
     expect(discoveryCommitSpy.mock.calls.length).toBe(7);
 
     // Terminal saves still carry the freshest in-memory resume metadata, and

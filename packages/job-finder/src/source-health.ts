@@ -25,12 +25,19 @@ export type DiscoverySourceHealthFields = {
 /** Every concrete, truthful reason an enabled source needs attention. */
 export type SourceAttentionReason =
   | "failing"
+  | "returned_nothing"
   | "never_verified"
   | "guidance_stale"
   | "guidance_unsupported"
   | "login_required";
 
 export type SourceRuntimeSignals = {
+  /** Presence proves use; absence is unknown because run history is bounded. */
+  usedTargetIds?: ReadonlySet<string>;
+  latestExecutions?: ReadonlyMap<
+    string,
+    DiscoveryRunHealthFields["targetExecutions"][number]
+  >;
   /** Targets with an in-flight execution in the active discovery run. */
   runningTargetIds?: ReadonlySet<string>;
   /** Targets with an open `prompt_login_required` access prompt. */
@@ -51,8 +58,23 @@ export type DiscoveryRunHealthFields = {
     state: DiscoveryTargetExecutionState;
     startedAt: string | null;
     completedAt: string | null;
+    jobsFound?: number;
+    duplicatesMerged?: number;
   }[];
 };
+
+/** A terminal source counts as completed only when its execution succeeded. */
+export function deriveDiscoverySourceOutcome(run: DiscoveryRunHealthFields): {
+  completed: number;
+  planned: number;
+} {
+  return {
+    completed: run.targetExecutions.filter(
+      (execution) => execution.state === "completed",
+    ).length,
+    planned: run.targetExecutions.length,
+  };
+}
 
 /**
  * Collect the targets whose most recent discovery execution across the given
@@ -109,13 +131,26 @@ export function listSourceAttentionReasons(
 ): SourceAttentionReason[] {
   const reasons: SourceAttentionReason[] = [];
 
-  if (target.staleReason) {
+  const latestExecution = signals.latestExecutions?.get(target.id);
+  if (target.staleReason || latestExecution?.state === "failed") {
     reasons.push("failing");
   }
-  // A completed discovery run is verification enough: the source returned
-  // results, so it is no longer an unproven "never verified" entry even when
-  // guidance verification never ran for it.
-  if (!target.lastVerifiedAt && !signals.succeededTargetIds?.has(target.id)) {
+  // A source that ran to the end and brought back nothing is not healthy. It
+  // was reported as Healthy beside the sentence "Completed, 0 jobs found."
+  if (
+    latestExecution?.state === "completed" &&
+    latestExecution.jobsFound === 0 &&
+    (latestExecution.duplicatesMerged ?? 0) === 0
+  ) {
+    reasons.push("returned_nothing");
+  }
+  // Usage and guidance verification are separate facts. Missing bounded
+  // history cannot establish that a source has never been used.
+  if (
+    !target.lastVerifiedAt &&
+    !signals.usedTargetIds?.has(target.id) &&
+    !signals.succeededTargetIds?.has(target.id)
+  ) {
     reasons.push("never_verified");
   }
   if (target.instructionStatus === "stale") {
@@ -221,10 +256,12 @@ function describeAttentionReason(
       return "This source is waiting for you to sign in.";
     case "guidance_stale":
       return "Saved guidance for this source is out of date.";
+    case "returned_nothing":
+      return "The last search finished here but brought back no jobs.";
     case "guidance_unsupported":
-      return "Job Finder has no working guidance for this source yet.";
+      return "Job Finder could not read this site's job listings: its page layout is not one Job Finder recognises yet.";
     default:
-      return "No completed search has used this source yet.";
+      return "Earlier search usage is unknown. This source has not been verified yet.";
   }
 }
 
@@ -241,6 +278,40 @@ export function describeEnabledSourceHealth(
   }
 
   const reasons = listSourceAttentionReasons(target, signals);
+  const latest = signals.latestExecutions?.get(target.id);
+  const alreadySavedCount = latest?.duplicatesMerged ?? 0;
+  const outcome = signals.loginRequiredTargetIds?.has(target.id)
+    ? "Blocked: waiting for you to sign in."
+    : latest?.state === "completed"
+      ? latest.jobsFound === undefined
+        ? "Completed; job count not recorded."
+        : latest.jobsFound === 0 && alreadySavedCount > 0
+          ? `Completed, ${alreadySavedCount} ${alreadySavedCount === 1 ? "listing" : "listings"} found; ${alreadySavedCount === 1 ? "it was" : "all were"} already saved.`
+          : latest.jobsFound === 0
+            ? "Completed, 0 jobs found."
+            : `Readable · ${latest.jobsFound} job ${latest.jobsFound === 1 ? "card" : "cards"} found.`
+      : latest?.state === "failed"
+        ? "The latest search failed."
+        : latest?.state === "cancelled"
+          ? "The latest search was stopped."
+          : null;
+  if (outcome) {
+    const guidance = reasons
+      .filter(
+        (reason) =>
+          reason !== "login_required" &&
+          // The outcome sentence already said the count; repeating it as
+          // guidance would say the same thing twice.
+          reason !== "returned_nothing" &&
+          !(reason === "failing" && !target.staleReason),
+      )
+      .map((reason) => describeAttentionReason(reason, target));
+    return {
+      reason: [outcome, ...guidance].join(" "),
+      reasons,
+      state: reasons.length ? "needs_attention" : "healthy",
+    };
+  }
   const firstReason = reasons[0];
   if (firstReason) {
     return {
@@ -278,8 +349,34 @@ export function deriveSourceHealthSignals(
   input: SourceHealthSignalInput,
 ): SourceRuntimeSignals {
   const activeRuns = input.activeRun ? [input.activeRun] : [];
+  const usedTargetIds = new Set<string>();
+  const latestExecutions = new Map<
+    string,
+    DiscoveryRunHealthFields["targetExecutions"][number]
+  >();
+  for (const run of [...activeRuns, ...(input.recentRuns ?? [])]) {
+    for (const execution of run.targetExecutions) {
+      if (
+        execution.state === "planned" ||
+        (execution.state === "skipped" && !execution.startedAt)
+      )
+        continue;
+      usedTargetIds.add(execution.targetId);
+      if (execution.state === "running") continue;
+      const previous = latestExecutions.get(execution.targetId);
+      if (
+        !previous ||
+        (execution.completedAt ?? execution.startedAt ?? "") >
+          (previous.completedAt ?? previous.startedAt ?? "")
+      ) {
+        latestExecutions.set(execution.targetId, execution);
+      }
+    }
+  }
 
   return {
+    usedTargetIds,
+    latestExecutions,
     loginRequiredTargetIds: new Set(
       (input.sourceAccessPrompts ?? [])
         .filter((prompt) => prompt.state === "prompt_login_required")

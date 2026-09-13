@@ -8,6 +8,7 @@ import {
   type ApplyRun,
   type ApplicationRecord,
   type JobFinderDashboardSummary,
+  type JobFinderIntelligenceSafeguards,
   type JobFinderDiscoveryState,
   type JobSearchCampaign,
   type JobSearchCampaignCollection,
@@ -19,6 +20,7 @@ import {
   type UserActionRequest,
 } from "@unemployed/contracts";
 import type { JobFinderRepository } from "@unemployed/db";
+import { projectPlanSafeguardPauses } from "../plan-safeguard-pauses";
 import type { SourceAccessPrompt } from "@unemployed/contracts";
 import {
   getApplicationCrmData,
@@ -116,7 +118,7 @@ function createDefaultCampaign(
     id,
     name: "My job search",
     description:
-      "Your main search. Find jobs uses this plan's roles and places, plus the job sources enabled on Profile.",
+      "Your main search. Uses the job sites selected for this plan.",
     mode: "precision",
     status: "active",
     createdAt: now,
@@ -144,7 +146,7 @@ function createDefaultCampaign(
         campaignId: id,
         kind: "created",
         occurredAt: now,
-        summary: "Existing workspace moved into the default campaign.",
+        summary: "Existing workspace moved into the default search plan.",
         discoveryRunId: null,
       },
     ],
@@ -200,6 +202,9 @@ export function reconcileCampaignState(input: {
   const enabledSourceTargetIds = searchPreferences.discovery.targets
     .filter((target) => target.enabled)
     .map((target) => target.id);
+  const availableSourceTargetIds = new Set(
+    searchPreferences.discovery.targets.map((target) => target.id),
+  );
   let changed = false;
   const campaigns = input.state.campaigns.map((campaign) => {
     if (campaign.id !== input.state.activeCampaignId) return campaign;
@@ -209,9 +214,19 @@ export function reconcileCampaignState(input: {
     if (!isAdoptionLineageCampaign(campaign)) return campaign;
     if (hasCommittedDiscoveryRun(campaign)) return campaign;
 
+    // Only the untouched adoption record predates an explicit per-plan source
+    // choice. Once a plan has been edited, preserve its own include list and
+    // merely discard source ids that no longer exist in Profile.
+    const sourceTargetIds = campaign.history[0]?.id.startsWith(
+      "campaign_history_default_created",
+    )
+      ? enabledSourceTargetIds
+      : campaign.sourceTargetIds.filter((targetId) =>
+          availableSourceTargetIds.has(targetId),
+        );
     const unchanged =
       sameStringValues(savedJobIds, campaign.jobIds) &&
-      sameStringValues(enabledSourceTargetIds, campaign.sourceTargetIds) &&
+      sameStringValues(sourceTargetIds, campaign.sourceTargetIds) &&
       serializedSearchPreferences ===
         JSON.stringify(campaign.searchPreferences);
     if (unchanged) return campaign;
@@ -220,7 +235,7 @@ export function reconcileCampaignState(input: {
     return JobSearchCampaignSchema.parse({
       ...campaign,
       jobIds: [...savedJobIds],
-      sourceTargetIds: enabledSourceTargetIds,
+      sourceTargetIds,
       searchPreferences,
       updatedAt: input.now,
       history: [
@@ -318,7 +333,7 @@ export function createCampaign(input: {
 export function assertCampaignCanRun(campaign: JobSearchCampaign): void {
   if (campaign.status !== "active") {
     throw new Error(
-      `The active campaign is ${campaign.status}. Set it to active before starting discovery.`,
+      `The active search plan is ${campaign.status}. Set it to active before starting discovery.`,
     );
   }
 }
@@ -382,21 +397,10 @@ export function deriveCampaignProgress(input: {
   return {
     jobsFound: input.savedJobs.length,
     jobsRetained: input.reviewQueue.length,
-    applicationsPrepared: input.applicationRecords.filter((record) =>
-      [
-        "preparing",
-        "ready_for_approval",
-        "applied",
-        "employer_viewed",
-        "recruiter_contact",
-        "assessment",
-        "interview",
-        "offer",
-        "rejected",
-        "withdrawn",
-        "no_response",
-      ].includes(getApplicationCrmData(record).stage),
-    ).length,
+    // Compatibility field: every surface treats the application-record ledger
+    // as the application population. A prepared subset is a status, not a
+    // second total.
+    applicationsPrepared: input.applicationRecords.length,
     applicationsApplied: input.applicationRecords.filter(
       (record) => getApplicationCrmData(record).appliedAt !== null,
     ).length,
@@ -415,6 +419,7 @@ export function deriveCampaignProgress(input: {
 }
 
 export function deriveDashboardSummary(input: {
+  safeguards?: JobFinderIntelligenceSafeguards;
   generatedAt: string;
   campaigns: JobSearchCampaignCollection;
   savedJobs: readonly SavedJob[];
@@ -452,7 +457,7 @@ export function deriveDashboardSummary(input: {
         appliedAt !== null && Number.isFinite(Date.parse(appliedAt)),
     )
     .map((appliedAt) => Date.parse(appliedAt));
-  const unresolvedActions = countNeedsYouItems(
+  const unresolvedActions = projectPlanSafeguardPauses(input.safeguards, input.campaigns.campaigns).length + countNeedsYouItems(
     input.userActionRequests,
     input.groupedDecisions,
   );

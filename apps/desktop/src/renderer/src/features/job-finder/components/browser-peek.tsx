@@ -92,7 +92,7 @@ function BrowserBrandMark({
   );
 }
 
-export function BrowserPeek() {
+export function BrowserPeek(props: { hasUnresolvedAttention?: boolean }) {
   const bridge = window.unemployed?.browser;
   const [state, setState] = useState(initialState);
   const [address, setAddress] = useState("");
@@ -124,7 +124,8 @@ export function BrowserPeek() {
   const active = state.tabs.find((tab) => tab.id === state.activeTabId);
   const shown = state.presentation !== "minimized" && state.phase !== "closed";
   const busy = state.phase === "working";
-  const needsYou = state.phase === "needs_you";
+  const needsYou =
+    state.phase === "needs_you" && props.hasUnresolvedAttention !== false;
   const paused = state.automationPaused;
   const blank = !active || active.url === "about:blank";
   const overlayRequested = menuOpen || importPanel !== null;
@@ -347,7 +348,10 @@ export function BrowserPeek() {
         : state.phase === "pausing"
           ? "Pausing…"
           : busy
-            ? (state.activity ?? "Agent browsing")
+            ? // Every running step names itself in plain words ("Finding
+              // jobs", "Preparing application"); "Agent" is an internal noun,
+              // so the fallback says what is happening instead.
+              (state.activity ?? "Working in this browser")
             : needsYou
               ? (state.attention?.title ?? "Needs you")
               : paused
@@ -395,7 +399,12 @@ export function BrowserPeek() {
             </span>
           )}
         </span>
-        <span className="browser-trigger-label">Browser</span>
+        {/* Same collapse as Tasks and Needs you: below 1100px the toolbar has
+            to fit beside the section nav, and this label was the one that
+            never gave way, so the toolbar overflowed onto "More". */}
+        <span className="browser-trigger-label hidden min-[900px]:inline max-[1099px]:!hidden">
+          Browser
+        </span>
       </button>
       {shown &&
         createPortal(

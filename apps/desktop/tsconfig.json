@@ -7,6 +7,9 @@
       "@unemployed/job-finder/discovery-ordering": [
         "../../packages/job-finder/src/discovery-ordering.ts"
       ],
+      "@unemployed/job-finder/discovery-result-bands": [
+        "../../packages/job-finder/src/discovery-result-bands.ts"
+      ],
       "@unemployed/job-finder/resume-record-identity": [
         "../../packages/job-finder/src/resume-record-identity.ts"
       ],

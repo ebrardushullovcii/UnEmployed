@@ -129,6 +129,66 @@ afterEach(() => {
 });
 
 describe("progressive public API discovery", () => {
+  test("cancels the service-owned run by its durable run id", async () => {
+    const pendingResponse = createDeferred<Response>();
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockReturnValue(pendingResponse.promise);
+    const { workspaceService } = createProgressiveApiHarness();
+    const runPromise = workspaceService.runAgentDiscovery();
+
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    const running = await workspaceService.getWorkspaceSnapshot();
+    const runId = running.activeDiscoveryRun?.id;
+    expect(runId).toBeTruthy();
+
+    const stopping = await workspaceService.cancelDiscoveryRun(runId ?? "");
+    const acknowledgedRun =
+      stopping.activeDiscoveryRun?.id === runId
+        ? stopping.activeDiscoveryRun
+        : stopping.recentDiscoveryRuns.find((run) => run.id === runId);
+    expect(acknowledgedRun?.cancellationRequestedAt).toBeTruthy();
+    expect(["running", "cancelled"]).toContain(acknowledgedRun?.state);
+
+    const stopped = await runPromise;
+    expect(stopped.activeDiscoveryRun).toBeNull();
+    expect(stopped.recentDiscoveryRuns[0]).toMatchObject({
+      id: runId,
+      state: "cancelled",
+    });
+    expect(
+      stopped.recentDiscoveryRuns[0]?.cancellationRequestedAt,
+    ).not.toBeNull();
+
+    pendingResponse.resolve(createFailedResponse(503));
+  });
+
+  test("aborts the in-flight pipeline for a run the stored state has not caught up to", async () => {
+    const pendingResponse = createDeferred<Response>();
+    vi.spyOn(globalThis, "fetch").mockReturnValue(pendingResponse.promise);
+    const { workspaceService } = createProgressiveApiHarness();
+
+    // The run id reaches the screen through live activity well before the run
+    // record is persisted. Stopping on that id used to be acknowledged as a
+    // request and never reach the pipeline, so the search kept working while
+    // the toolbar counted "Stopping" upward.
+    let liveRunId: string | null = null;
+    const runPromise = workspaceService.runAgentDiscovery((event) => {
+      liveRunId ??= event.runId;
+    });
+
+    await vi.waitFor(() => expect(liveRunId).toBeTruthy());
+    await workspaceService.cancelDiscoveryRun(liveRunId ?? "");
+
+    const stopped = await runPromise;
+    expect(stopped.recentDiscoveryRuns[0]).toMatchObject({
+      id: liveRunId,
+      state: "cancelled",
+    });
+
+    pendingResponse.resolve(createFailedResponse(503));
+  });
+
   test("limits large public API catalogs to eight in-flight source requests", async () => {
     const seed = createSeed();
     seed.savedJobs = [];

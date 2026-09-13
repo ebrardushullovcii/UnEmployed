@@ -75,16 +75,88 @@ function createWorkspaceWithActiveApplyRun(): JobFinderWorkspaceSnapshot {
   return workspace;
 }
 
-function getCompactInterviewHelperAffordance(): HTMLAnchorElement {
-  const affordance = screen
-    .getAllByRole("link", { name: "Open Interview Helper" })
-    .find(
-      (candidate) => !candidate.closest("[data-desktop-module-navigation]"),
-    );
-  if (!(affordance instanceof HTMLAnchorElement)) {
-    throw new Error("Compact Open Interview Helper affordance is missing");
+/**
+ * The module switch is the wordmark's subtitle inside the header brand
+ * region — one instance at every width. The sidebar head, the compact
+ * destination card and the collapsed rail carry none, so a person reads the
+ * module they are in in exactly one place and the control never relayouts
+ * across breakpoints.
+ */
+function getBrandModuleSwitch(): HTMLElement {
+  const control = document.querySelector<HTMLElement>(
+    "[data-desktop-brand] [data-desktop-brand-region] [data-desktop-brand-subtitle] [data-desktop-module-navigation]",
+  );
+  if (!control) {
+    throw new Error("Brand module switch is missing");
   }
-  return affordance;
+  return control;
+}
+
+/** Exactly one switch on screen, and it is the brand one. */
+function expectSoleModuleSwitchInBrand(): HTMLElement {
+  const control = getBrandModuleSwitch();
+  expect(
+    document.querySelectorAll("[data-desktop-module-navigation]"),
+  ).toHaveLength(1);
+  expect(
+    document.querySelectorAll("[data-module-switch-trigger]"),
+  ).toHaveLength(1);
+  for (const surface of [
+    "[data-job-finder-sidebar]",
+    "[data-job-finder-compact-navigation]",
+    "[data-job-finder-shell-content]",
+  ]) {
+    expect(
+      document.querySelector(`${surface} [data-desktop-module-navigation]`),
+    ).toBeNull();
+  }
+  return control;
+}
+
+/**
+ * At rest each surface shows one trigger naming the module the user is in;
+ * the two options live in a menu that is portalled to `document.body` only
+ * while it is open. Tests therefore go through the trigger the way a person
+ * does, and reach the menu through the trigger's `aria-controls`.
+ */
+function getModuleSwitchTrigger(control: HTMLElement): HTMLButtonElement {
+  const trigger = control.querySelector<HTMLButtonElement>(
+    "[data-module-switch-trigger]",
+  );
+  if (!trigger) {
+    throw new Error("Module switch trigger is missing");
+  }
+  return trigger;
+}
+
+function getModuleSwitchMenu(control: HTMLElement): HTMLElement {
+  const menuId = getModuleSwitchTrigger(control).getAttribute("aria-controls");
+  const menu = menuId ? document.getElementById(menuId) : null;
+  if (!menu) {
+    throw new Error("Module switch menu is closed");
+  }
+  return menu;
+}
+
+function openModuleSwitch(control: HTMLElement): HTMLElement {
+  const trigger = getModuleSwitchTrigger(control);
+  if (trigger.getAttribute("aria-expanded") !== "true") {
+    fireEvent.click(trigger);
+  }
+  return getModuleSwitchMenu(control);
+}
+
+function getModuleOption(
+  control: HTMLElement,
+  moduleName: "interview-helper" | "job-finder",
+): HTMLButtonElement {
+  const option = getModuleSwitchMenu(control).querySelector<HTMLButtonElement>(
+    `[data-module-switch-option="${moduleName}"]`,
+  );
+  if (!option) {
+    throw new Error(`Module switch option ${moduleName} is missing`);
+  }
+  return option;
 }
 
 const SIDEBAR_SECONDARY_DESTINATIONS = [
@@ -183,6 +255,8 @@ describe("JobFinderShell section navigation", () => {
       .getAllByRole("button")
       .map((button) => button.textContent?.replace(/\d+/g, "").trim());
 
+    // The card carries this module's destinations and nothing else: the
+    // module switch lives in the brand lockup, not in this row.
     expect(destinations).toEqual([
       "Home",
       "Profile",
@@ -198,21 +272,30 @@ describe("JobFinderShell section navigation", () => {
     const notificationGroup = screen.getByRole("group", {
       name: "Notifications and actions",
     });
-    expect(notificationGroup.className).toContain("min-[1440px]:!top-0");
-    expect(notificationGroup.className).toContain("min-[1440px]:!right-36");
+    expect(notificationGroup.className).toContain("min-[1440px]:!static");
+    expect(notificationGroup.className).toContain("min-[1440px]:col-start-3");
+    expect(notificationGroup.className).toContain("min-[1440px]:col-span-1");
+    expect(notificationGroup.className).toContain("min-[1440px]:row-start-1");
+    expect(notificationGroup.className).toContain("min-[1440px]:mr-36");
     const needsYouButton = within(notificationGroup).getByRole("button", {
       name: "Needs you: 0 unresolved",
     });
     expect(needsYouButton).toBeTruthy();
-    // Both header pills keep a readable word from the compact breakpoint up,
-    // so 1024px never shows two interchangeable glyph+count chips.
+    // At 1024px utility labels collapse before they can crowd navigation.
+    expect(needsYouButton.textContent).toContain("Needs you");
+    expect(needsYouButton.querySelector("span")?.className).toContain(
+      "max-[1099px]:!hidden",
+    );
     expect(
       Array.from(needsYouButton.querySelectorAll("span")).find(
         (span) => span.textContent?.trim() === "Needs you",
       )?.className,
     ).toContain("min-[900px]:inline");
-    const taskCenterLauncher =
-      within(notificationGroup).getByLabelText("Tasks: 0 active");
+    // The open panel carries the same accessible name, so the trigger is
+    // selected by element rather than by name alone.
+    const taskCenterLauncher = notificationGroup.querySelector(
+      "summary[aria-label='Tasks']",
+    ) as HTMLElement;
     const taskCenterLabels = Array.from(
       taskCenterLauncher.querySelectorAll("span"),
     );
@@ -223,6 +306,9 @@ describe("JobFinderShell section navigation", () => {
     );
     expect(taskLabels).toHaveLength(1);
     expect(taskLabels[0]?.className).toContain("min-[900px]:inline");
+    expect(taskLabels[0]?.className).toContain("max-[1099px]:!hidden");
+    expect(notificationGroup.querySelector(".browser-trigger-label")?.className)
+      .toContain("max-[1099px]:!hidden");
     expect(
       taskCenterLabels.some(
         (span) => span.textContent?.trim() === "Task center",
@@ -246,21 +332,14 @@ describe("JobFinderShell section navigation", () => {
     expect(windowControls.parentElement?.className).toContain(
       "absolute right-0 top-0",
     );
-    expect(
-      document.querySelector("[data-desktop-module-navigation]")?.className,
-    ).toContain("justify-self-center");
     // The destination card is centred in whatever width the reserve leaves.
     expect(navigation.className).toContain("justify-center");
     expect(navigation.className).not.toContain("justify-start");
     expect(navigation.className).toContain("sm:pr-64");
     expect(navigation.className).toContain("max-[899px]:pr-40");
-    // The desktop module switcher only exists at >=900px CSS width, so the
-    // 640-899 band relies on the compact cross-module affordance below.
-    const moduleNavigation = document.querySelector(
-      "[data-desktop-module-navigation]",
-    );
-    expect(moduleNavigation?.className).toContain("hidden");
-    expect(moduleNavigation?.className).toContain("min-[900px]:flex");
+    // The one way across to Interview Helper is the brand subtitle, at every
+    // width; this card never grows a second one.
+    expect(expectSoleModuleSwitchInBrand()).toBeTruthy();
     // Planning is a non-scrolling sibling, so it reserves its own width rather
     // than painting over destinations inside the horizontal scroll viewport.
     const compactNavigation = document.querySelector(
@@ -279,13 +358,12 @@ describe("JobFinderShell section navigation", () => {
     expect(moreWrapper?.className).toContain("shrink-0");
     expect(moreWrapper?.className).toContain("z-10");
     expect(moreWrapper?.className).not.toContain("sticky");
-    const interviewHelperAffordance = getCompactInterviewHelperAffordance();
-    expect(interviewHelperAffordance.className).toContain("min-[900px]:hidden");
-    expect(scrollViewport?.contains(interviewHelperAffordance)).toBe(false);
-    expect(Array.from(compactLayout?.children ?? [])).toEqual([
+    // Destination scroller, then the Planning trigger: the card is this
+    // module's destinations and nothing else — no module switch heads it.
+    const compactChildren = Array.from(compactLayout?.children ?? []);
+    expect(compactChildren).toEqual([
       scrollViewport?.parentElement,
       moreWrapper,
-      interviewHelperAffordance,
     ]);
     expect(scrollViewport?.contains(moreButton)).toBe(false);
     expect(
@@ -293,7 +371,7 @@ describe("JobFinderShell section navigation", () => {
     ).toContain("w-(--job-finder-side-width)");
   });
 
-  it("keeps the module switcher on one line beside the wordmark at the wide layout", () => {
+  it("keeps the module switch in the brand lockup at the wide layout", () => {
     render(
       <MemoryRouter initialEntries={["/job-finder/discovery"]}>
         <JobFinderShell platform="darwin" workspace={createWorkspace()}>
@@ -303,46 +381,116 @@ describe("JobFinderShell section navigation", () => {
     );
 
     const brand = document.querySelector<HTMLElement>("[data-desktop-brand]");
-    const moduleNavigation = document.querySelector<HTMLElement>(
-      "[data-desktop-module-navigation]",
-    );
-    if (!brand || !moduleNavigation) {
+    if (!brand) {
       throw new Error("Shell brand row is missing");
     }
 
-    // At >=1440px grid column 1 is the 17rem sidebar column. The wordmark plus
-    // the switcher does not fit there: it wrapped onto a second flex line that
-    // spilled out of the 3.5rem header and painted under the page title. The
-    // brand row spans the sidebar column and the content column instead, and
-    // cannot wrap, so the switcher stays on the header line.
-    // col-end-3, not the col-span shorthand: `grid-column: span 2 / span 2`
-    // would reset the row's grid-column-start off column 1.
+    // The caption row is down to two regions: the brand lockup and the native
+    // window-control reserve. Nothing rides between them any more, which is
+    // what made the switch look centred on nothing in particular.
     expect(brand.className).toContain("min-[1440px]:col-end-3");
     expect(brand.className).not.toContain("col-span-2");
     expect(brand.className).toContain("col-start-1");
-    // The row is a single-row three-region grid, so there is no flex line to
-    // wrap onto: the switcher cannot leave the 3.5rem header row.
-    expect(brand.className).toContain(
-      "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]",
-    );
+    expect(brand.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
     expect(brand.className).not.toContain("flex-wrap");
-    expect(moduleNavigation.className).toContain("justify-self-center");
 
-    // Neither module label may break across lines inside the switcher.
-    const currentModule = within(moduleNavigation).getByText("Job Finder");
-    const otherModule = within(moduleNavigation).getByRole("button", {
-      name: "Open Interview Helper",
-    });
-    expect(currentModule.getAttribute("aria-current")).toBe("page");
-    expect(currentModule.className).toContain("whitespace-nowrap");
-    expect(otherModule.className).toContain("whitespace-nowrap");
+    // The switch is the wordmark's subtitle inside the brand region, and it is
+    // the only one: one trigger naming the module the user is in, and a menu
+    // that names both in full once it is opened.
+    const brandSwitch = expectSoleModuleSwitchInBrand();
+    expect(brand.contains(brandSwitch)).toBe(true);
+    expect(getModuleSwitchTrigger(brandSwitch).getAttribute("aria-label")).toBe(
+      "Job Finder, switch module",
+    );
 
-    // The switcher stays inside the header, not in the sidebar.
+    openModuleSwitch(brandSwitch);
+    expect(
+      getModuleOption(brandSwitch, "job-finder").getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(
+      getModuleOption(brandSwitch, "interview-helper").getAttribute(
+        "aria-checked",
+      ),
+    ).toBe("false");
+    for (const [moduleName, label] of [
+      ["job-finder", "Job Finder"],
+      ["interview-helper", "Interview Helper"],
+    ] as const) {
+      expect(getModuleOption(brandSwitch, moduleName).textContent).toContain(
+        label,
+      );
+    }
+
     const header = document.querySelector("[data-job-finder-shell-header]");
-    const sidebar = document.querySelector("[data-job-finder-sidebar]");
-    expect(header?.contains(moduleNavigation)).toBe(true);
-    expect(sidebar?.contains(moduleNavigation)).toBe(false);
     expect(header?.className).toContain("min-[1440px]:h-14");
+  });
+
+  it("gives both module names the menu's full width instead of shortening one", () => {
+    // Side by side inside the 17rem rail each option got ~100px of text box
+    // and "Interview Helper" needs ~98px at --text-small in the selected
+    // semibold weight, so the longer of the two module names shipped as
+    // "Interview …". The switch prints one name at a time now — the active one
+    // in the caption, the other in the menu — so neither is ever abbreviated.
+    render(
+      <MemoryRouter initialEntries={["/job-finder/discovery"]}>
+        <JobFinderShell platform="win32" workspace={createWorkspace()}>
+          <div>Current screen</div>
+        </JobFinderShell>
+      </MemoryRouter>,
+    );
+
+    const brandSwitch = expectSoleModuleSwitchInBrand();
+
+    // The brand subtitle gets the caption variant: the module name in small
+    // caps plus a chevron, sized to the wordmark it sits under.
+    expect(brandSwitch.dataset.moduleSwitchVariant).toBe("caption");
+
+    const trigger = getModuleSwitchTrigger(brandSwitch);
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(trigger.textContent).toBe("Job Finder");
+
+    const menu = openModuleSwitch(brandSwitch);
+    expect(menu.getAttribute("role")).toBe("menu");
+    expect(menu.getAttribute("aria-label")).toBe("Switch module");
+
+    for (const moduleName of ["job-finder", "interview-helper"] as const) {
+      const option = getModuleOption(brandSwitch, moduleName);
+      const label = option.querySelector("span");
+
+      // Full-width rows, left-aligned inside the menu.
+      expect(option.className).toContain("w-full");
+      expect(option.getAttribute("role")).toBe("menuitemradio");
+      // Nothing may clip, ellipsise or otherwise shorten either name.
+      for (const truncation of [
+        "truncate",
+        "text-ellipsis",
+        "overflow-hidden",
+        "line-clamp",
+      ]) {
+        expect(label?.className).not.toContain(truncation);
+        expect(option.className).not.toContain(truncation);
+      }
+      expect(label?.textContent).toBe(
+        moduleName === "job-finder" ? "Job Finder" : "Interview Helper",
+      );
+    }
+
+    // The current module is the checked item and opening focuses it first.
+    const selected = getModuleOption(brandSwitch, "job-finder");
+    const other = getModuleOption(brandSwitch, "interview-helper");
+    expect(selected.getAttribute("aria-checked")).toBe("true");
+    expect(other.getAttribute("aria-checked")).toBe("false");
+    expect(document.activeElement).toBe(selected);
+
+    // Arrows cycle the menu; Escape closes it and hands focus back.
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(other);
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(selected);
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("reserves the native macOS traffic-light area without shifting centered navigation", () => {
@@ -356,9 +504,6 @@ describe("JobFinderShell section navigation", () => {
 
     const brand = document.querySelector<HTMLElement>("[data-desktop-brand]");
     const brandName = brand?.querySelector("span");
-    const moduleNavigation = document.querySelector(
-      "[data-desktop-module-navigation]",
-    );
     const sectionNavigation = screen.getByRole("navigation", {
       name: "Job Finder sections",
     });
@@ -370,11 +515,12 @@ describe("JobFinderShell section navigation", () => {
     // The traffic-light reserve is mirrored on the trailing edge, so
     // reserving it cannot push the centred switcher off the window centre.
     expect(brand?.style.paddingInlineEnd).toBe("5.5rem");
-    expect(brandName?.className).toContain("xl:text-[2rem]");
+    expect(brandName?.className).toContain("sm:text-[1.75rem]");
     expect(brandName?.className).not.toContain("xl:text-[2.7rem]");
     expect(screen.queryByRole("group", { name: "Window controls" })).toBeNull();
-    expect(moduleNavigation?.className).toContain("justify-self-center");
-    expect(moduleNavigation?.className).not.toContain("absolute");
+    // The switch sits in the brand row's leading track, which carries this
+    // reserve, so it can never land under the traffic lights.
+    expect(expectSoleModuleSwitchInBrand().className).not.toContain("absolute");
     // macOS has no in-header caption buttons, so nothing is reserved on the
     // trailing side beyond the mirrored traffic-light padding.
     expect(
@@ -400,7 +546,7 @@ describe("JobFinderShell section navigation", () => {
     expect(notificationGroup.className).not.toContain("sm:top-0");
   });
 
-  it("reserves the Windows caption buttons on the trailing edge without moving the centred switcher", () => {
+  it("reserves the Windows caption buttons on the trailing edge of the brand row", () => {
     render(
       <MemoryRouter initialEntries={["/job-finder/profile"]}>
         <JobFinderShell platform="win32" workspace={createWorkspace()}>
@@ -422,37 +568,27 @@ describe("JobFinderShell section navigation", () => {
     // the reserve is the exact rendered width of minimize + maximize + close
     // (w-11 + w-11 + w-12 = 8.5rem).
     expect(windowControlInset?.style.inlineSize).toBe("8.5rem");
-    expect(windowControlInset?.className).toContain("col-start-3");
+    expect(windowControlInset?.className).toContain("col-start-2");
     expect(windowControls.parentElement?.className).toContain(
       "absolute right-0 top-0",
     );
 
     // The reserve lives inside the trailing region, never as row padding, so
-    // the two side tracks stay equal and the switcher stays on the centre.
+    // the brand lockup keeps its own edge.
     expect(brand?.style.paddingInlineEnd).toBe("");
     expect(brand?.style.paddingInlineStart).toBe("");
-    expect(brand?.className).toContain(
-      "grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]",
-    );
+    expect(brand?.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
 
-    // Neither module label may wrap out of the centre track.
-    const moduleNavigation = document.querySelector<HTMLElement>(
-      "[data-desktop-module-navigation]",
-    );
-    if (!moduleNavigation) {
-      throw new Error("Desktop module navigation is missing");
+    // Neither module name may wrap inside the switch, and the leading track
+    // holds it clear of the trailing reserve.
+    const brandSwitch = expectSoleModuleSwitchInBrand();
+    openModuleSwitch(brandSwitch);
+    for (const [moduleName, label] of [
+      ["job-finder", "Job Finder"],
+      ["interview-helper", "Interview Helper"],
+    ] as const) {
+      expect(getModuleOption(brandSwitch, moduleName).textContent).toBe(label);
     }
-    expect(
-      moduleNavigation.querySelector('[role="list"]')?.className,
-    ).toContain("flex-nowrap");
-    expect(
-      within(moduleNavigation).getByText("Job Finder").className,
-    ).toContain("whitespace-nowrap");
-    expect(
-      within(moduleNavigation).getByRole("button", {
-        name: "Open Interview Helper",
-      }).className,
-    ).toContain("whitespace-nowrap");
   });
 
   it.each([
@@ -500,19 +636,17 @@ describe("JobFinderShell section navigation", () => {
       const wordmark = document.querySelector<HTMLElement>(
         "[data-desktop-brand-wordmark]",
       );
-      const moduleNavigation = document.querySelector<HTMLElement>(
-        "[data-desktop-module-navigation]",
-      );
-
       expect(header?.className).toContain("overflow-visible");
       expect(lockup?.className).toContain("py-1");
       expect(wordmark?.className).toContain("leading-[1.05]");
       expect(wordmark?.className).not.toContain("leading-none");
       expect(brand?.style.paddingInlineStart).toBe("5.5rem");
       expect(brand?.style.paddingInlineEnd).toBe("5.5rem");
-      expect(moduleNavigation?.className).toContain("justify-self-center");
-      expect(moduleNavigation?.className).toContain("justify-center");
-      expect(moduleNavigation?.className).not.toContain("justify-start");
+      // The caption row carries the lockup alone, so the 56px budget above is
+      // spent on the wordmark and its caption — the switch — and nothing else.
+      expect(brand?.querySelector("[data-desktop-module-navigation]")).toBe(
+        expectSoleModuleSwitchInBrand(),
+      );
     },
   );
 
@@ -579,6 +713,8 @@ describe("JobFinderShell section navigation", () => {
       .getAllByRole("button")
       .map((button) => button.textContent?.replace(/\d+/g, "").trim());
 
+    // Destinations only: the one module switch is up in the brand lockup, so
+    // the row never doubles as a cross-module control.
     expect(labels).toEqual([
       "Home",
       "Profile",
@@ -905,10 +1041,13 @@ describe("JobFinderShell section navigation", () => {
       name: "Job Finder sidebar destinations",
     });
     // The toggle stays pinned above the scroller; only destinations scroll.
+    // The module switch is not in this column at all — it is the brand
+    // subtitle in the header.
     expect(toggleRow?.className).toContain("shrink-0");
     expect(toggleRow?.parentElement).toBe(column);
     expect(navigation.parentElement).toBe(column);
-    expect(navigation.previousElementSibling).toBe(toggleRow);
+    expect(toggleRow?.nextElementSibling).toBe(navigation);
+    expect(sidebar.querySelector("[data-desktop-module-navigation]")).toBeNull();
     expect(
       navigation.hasAttribute("data-job-finder-sidebar-scroll-region"),
     ).toBe(true);
@@ -965,7 +1104,12 @@ describe("JobFinderShell section navigation", () => {
     expect(collapsedLockup?.className).toContain("w-max");
     expect(collapsedLockup?.className).toContain("shrink-0");
     expect(collapsedLockup?.className).toContain("whitespace-nowrap");
-    expect(collapsedSubtitle?.className).toContain("whitespace-nowrap");
+    // The subtitle is the switch now, so the nowrap that protects the module
+    // name lives on the caption it prints (and on the lockup above it).
+    expect(
+      collapsedSubtitle?.querySelector("[data-module-switch-trigger] span")
+        ?.className,
+    ).toContain("whitespace-nowrap");
     expect(shell?.style.getPropertyValue("--job-finder-side-width")).toBe(
       "4rem",
     );
@@ -975,6 +1119,33 @@ describe("JobFinderShell section navigation", () => {
     expect(
       window.localStorage.getItem("unemployed.job-finder.sidebar-collapsed.v1"),
     ).toBe("true");
+
+    // Collapsing the rail does not move or shrink the module switch: it stays
+    // the brand subtitle, still printing the module name in full, so the one
+    // cross-module control does not change shape with the sidebar.
+    const collapsedSwitch = expectSoleModuleSwitchInBrand();
+    expect(collapsedSwitch.dataset.moduleSwitchVariant).toBe("caption");
+    const collapsedTrigger = getModuleSwitchTrigger(collapsedSwitch);
+    expect(collapsedTrigger.textContent).toBe("Job Finder");
+    expect(collapsedTrigger.getAttribute("aria-label")).toBe(
+      "Job Finder, switch module",
+    );
+    expect(collapsedTrigger.getAttribute("title")).toContain("Job Finder");
+
+    openModuleSwitch(collapsedSwitch);
+    for (const moduleName of ["job-finder", "interview-helper"] as const) {
+      const option = getModuleOption(collapsedSwitch, moduleName);
+      expect(option.querySelector("svg")).not.toBeNull();
+      expect(option.querySelector("span")?.textContent).toBe(
+        moduleName === "job-finder" ? "Job Finder" : "Interview Helper",
+      );
+    }
+    expect(
+      getModuleOption(collapsedSwitch, "interview-helper").getAttribute(
+        "aria-label",
+      ),
+    ).toBe("Open Interview Helper");
+    fireEvent.keyDown(getModuleSwitchMenu(collapsedSwitch), { key: "Escape" });
 
     view.unmount();
     render(
@@ -1045,9 +1216,12 @@ describe("JobFinderShell section navigation", () => {
     });
 
     expect(handle).toBeTruthy();
-    // Lives INSIDE the sidebar, before the nav — never jumps between states.
+    // Lives INSIDE the sidebar, directly above the nav — never jumps between
+    // states, and never shares the column with a module switch.
     expect(sidebar.contains(toggle)).toBe(true);
+    expect(handle?.nextElementSibling).toBe(nav);
     expect(nav.previousElementSibling).toBe(handle);
+    expect(sidebar.querySelector("[data-desktop-module-navigation]")).toBeNull();
     expect(handle?.className).not.toContain("fixed");
     // Electron drag region opt-out must stay inline or clicks die on the header.
     expect(
@@ -1394,9 +1568,11 @@ describe("JobFinderShell section navigation", () => {
       getDestinationButton(/^Keyboard shortcuts/),
     );
 
-    // The compact cross-module affordance follows the Planning trigger in DOM
-    // order, so closing with Tab lands on it first.
-    const interviewHelperControl = getCompactInterviewHelperAffordance();
+    // The module switch now heads the card, so the first control after the
+    // Planning trigger in DOM order is the header search utility.
+    const interviewHelperControl = screen.getByRole("button", {
+      name: "Search your workspace",
+    });
     const nextControlFocus = vi.spyOn(interviewHelperControl, "focus");
     const tabWasPrevented = fireEvent.keyDown(
       document.activeElement as HTMLElement,
@@ -1683,7 +1859,9 @@ describe("JobFinderShell section navigation", () => {
     const actionGroup = screen.getByRole("group", {
       name: "Notifications and actions",
     });
-    const summary = within(actionGroup).getByLabelText("Tasks: 0 active");
+    const summary = actionGroup.querySelector(
+      "summary[aria-label='Tasks']",
+    ) as HTMLElement;
     const taskCenter = summary?.closest("details");
 
     expect(taskCenter).toBeInstanceOf(HTMLDetailsElement);
@@ -1814,6 +1992,7 @@ describe("JobFinderShell compact nav responsive contract", () => {
       const destinations = within(navigation)
         .getAllByRole("button")
         .map((button) => button.textContent?.replace(/\d+/g, "").trim());
+      // Destinations only; the module switch is in the brand lockup above.
       expect(destinations).toEqual([
         "Home",
         "Profile",
@@ -1847,11 +2026,18 @@ describe("JobFinderShell compact nav responsive contract", () => {
       expect(moreWrapper?.className).not.toContain("sticky");
       expect(strip?.contains(moreWrapper)).toBe(false);
 
-      const interviewHelperAffordance = getCompactInterviewHelperAffordance();
-      expect(interviewHelperAffordance.className).toContain(
-        "min-[900px]:hidden",
-      );
-      expect(strip?.contains(interviewHelperAffordance)).toBe(false);
+      // Below the wide layout the one module switch is still the brand
+      // subtitle, and it never enters this card or its destination scroller.
+      const brandSwitch = expectSoleModuleSwitchInBrand();
+      expect(navigation.contains(brandSwitch)).toBe(false);
+      expect(strip?.contains(brandSwitch)).toBe(false);
+      openModuleSwitch(brandSwitch);
+      expect(
+        getModuleOption(brandSwitch, "interview-helper").getAttribute(
+          "aria-checked",
+        ),
+      ).toBe("false");
+      fireEvent.keyDown(getModuleSwitchMenu(brandSwitch), { key: "Escape" });
 
       expect(
         screen.getAllByRole("button", { name: /^Needs you/ }),
@@ -2620,29 +2806,28 @@ describe("JobFinderShell responsive shell contract", () => {
   }
 
   it.each([639, 640, 899])(
-    "hides the desktop module switcher and keeps one compact cross-module affordance beside Planning at %spx CSS",
+    "keeps exactly one cross-module affordance, in the brand lockup, at %spx CSS",
     (width) => {
       expect(width).toBeLessThan(900);
       renderShell();
 
-      const moduleNavigation = document.querySelector(
-        "[data-desktop-module-navigation]",
-      );
-      expect(moduleNavigation?.className).toContain("hidden");
-      expect(moduleNavigation?.className).toContain("min-[900px]:flex");
+      // There is one switch in the whole shell — the brand subtitle — so no
+      // width can produce a second cross-module control. At rest nothing
+      // offers the other module by name; it waits in the one menu.
+      expect(
+        document.querySelectorAll("[data-module-switch-option]"),
+      ).toHaveLength(0);
+      expect(
+        screen.getAllByRole("button", { name: "Job Finder, switch module" }),
+      ).toHaveLength(1);
 
-      const affordanceCount = screen
-        .getAllByRole("link", { name: "Open Interview Helper" })
-        .filter(
-          (candidate) => !candidate.closest("[data-desktop-module-navigation]"),
-        ).length;
-      expect(affordanceCount).toBe(1);
-
-      const affordance = getCompactInterviewHelperAffordance();
-      expect(affordance.className).toContain("min-[900px]:hidden");
-      expect(affordance.tagName).toBe("A");
-      expect(affordance.getAttribute("href")).toBe("#/interview-helper");
-      expect(getRouteScroller().contains(affordance)).toBe(false);
+      const brandSwitch = expectSoleModuleSwitchInBrand();
+      expect(getRouteScroller().contains(brandSwitch)).toBe(false);
+      openModuleSwitch(brandSwitch);
+      expect(
+        screen.getAllByRole("menuitemradio", { name: "Open Interview Helper" }),
+      ).toHaveLength(1);
+      fireEvent.keyDown(getModuleSwitchMenu(brandSwitch), { key: "Escape" });
 
       const compactLayout = document.querySelector(
         "[data-job-finder-compact-navigation]",
@@ -2651,7 +2836,6 @@ describe("JobFinderShell responsive shell contract", () => {
       expect(Array.from(compactLayout?.children ?? [])).toEqual([
         getRouteScroller().parentElement,
         moreWrapper,
-        affordance,
       ]);
 
       // Utilities stay unique and reachable in the 640-899 band.
@@ -2660,7 +2844,9 @@ describe("JobFinderShell responsive shell contract", () => {
           name: "Search your workspace",
         }),
       ).toHaveLength(1);
-      expect(screen.getAllByLabelText("Tasks: 0 active")).toHaveLength(1);
+      expect(
+        document.querySelectorAll("summary[aria-label='Tasks']"),
+      ).toHaveLength(1);
       expect(
         screen.getAllByRole("button", { name: /^Needs you/ }),
       ).toHaveLength(1);
@@ -2668,64 +2854,76 @@ describe("JobFinderShell responsive shell contract", () => {
   );
 
   it.each([900, 1160, 1439])(
-    "centres the desktop module switcher between the wordmark and the window-control inset at %spx CSS",
+    "keeps the caption row's two regions at %spx CSS",
     (width) => {
       expect(width).toBeGreaterThanOrEqual(900);
       renderShell();
 
-      const moduleNavigation = document.querySelector<HTMLElement>(
-        "[data-desktop-module-navigation]",
-      );
-      // One alignment rule for the header row at every width: the wordmark
-      // owns the leading region, the switcher owns the centre track of a
-      // three-region grid whose side tracks are equal, and the native
-      // window-control inset owns the trailing region. Nothing is absolutely
-      // centred, which is what previously fought the traffic-light inset.
-      expect(moduleNavigation?.className).not.toContain("absolute");
-      expect(moduleNavigation?.className).toContain("col-start-2");
-      expect(moduleNavigation?.className).toContain("justify-self-center");
-      expect(moduleNavigation?.className).toContain("min-[900px]:flex");
-      expect(moduleNavigation?.className).not.toContain("justify-start");
-      expect(
-        document.querySelector<HTMLElement>("[data-desktop-brand]")?.className,
-      ).toContain("grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]");
+      // One alignment rule for the caption row at every width: the wordmark
+      // (with the switch as its subtitle) owns the leading region and the
+      // native window-control inset owns the trailing one. There is no middle
+      // region left to drift.
+      const brand = document.querySelector<HTMLElement>("[data-desktop-brand]");
+      expect(brand?.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
 
-      const moduleTwin = within(moduleNavigation as HTMLElement).getByRole(
-        "button",
-        { name: "Open Interview Helper" },
-      );
+      const brandSwitch = expectSoleModuleSwitchInBrand();
+      expect(brandSwitch.className).not.toContain("absolute");
+      openModuleSwitch(brandSwitch);
+      const moduleTwin = getModuleOption(brandSwitch, "interview-helper");
       expect(moduleTwin.getAttribute("aria-current")).toBeNull();
-
-      expect(getCompactInterviewHelperAffordance().className).toContain(
-        "min-[900px]:hidden",
-      );
+      expect(moduleTwin.getAttribute("aria-checked")).toBe("false");
     },
   );
 
-  it("renders the current module non-interactive with aria-current and keeps the other module a button", () => {
+  it("marks the current module selected and keeps both options keyboard operable", () => {
     renderShell();
 
-    const moduleNavigation = document.querySelector<HTMLElement>(
-      "[data-desktop-module-navigation]",
+    const brandSwitch = expectSoleModuleSwitchInBrand();
+    const trigger = getModuleSwitchTrigger(brandSwitch);
+
+    // At rest the switch states the module the user is in and offers to
+    // change it; the menu is not in the tree yet.
+    expect(trigger.getAttribute("aria-label")).toBe(
+      "Job Finder, switch module",
     );
-    if (!moduleNavigation) {
-      throw new Error("Desktop module navigation is missing");
-    }
-
-    // Job Finder is current: a plain marker with aria-current, not a
-    // focusable button that announces an action it cannot perform.
-    const currentModule = within(moduleNavigation).getByText("Job Finder");
-    expect(currentModule.tagName).toBe("SPAN");
-    expect(currentModule.getAttribute("aria-current")).toBe("page");
+    expect(trigger.dataset.state).toBe("closed");
     expect(
-      within(moduleNavigation).queryByRole("button", { name: "Job Finder" }),
-    ).toBeNull();
+      document.querySelectorAll("[data-module-switch-option]"),
+    ).toHaveLength(0);
 
-    // The other module stays an actionable button without aria-current.
-    const interviewHelperButton = within(moduleNavigation).getByRole("button", {
-      name: "Open Interview Helper",
-    });
-    expect(interviewHelperButton.getAttribute("aria-current")).toBeNull();
+    // ArrowDown opens it from the keyboard alone and lands on the first item.
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(trigger.dataset.state).toBe("open");
+    const menu = getModuleSwitchMenu(brandSwitch);
+    const jobFinderOption = getModuleOption(brandSwitch, "job-finder");
+    const interviewHelperOption = getModuleOption(
+      brandSwitch,
+      "interview-helper",
+    );
+    expect(document.activeElement).toBe(jobFinderOption);
+
+    // Job Finder is current: checked and named for where the user already is.
+    // It carries no aria-current, because the destination rows around the
+    // switch own that marker.
+    expect(jobFinderOption.getAttribute("aria-checked")).toBe("true");
+    expect(jobFinderOption.getAttribute("aria-label")).toBe("Job Finder");
+    expect(jobFinderOption.getAttribute("aria-current")).toBeNull();
+    expect(interviewHelperOption.getAttribute("aria-checked")).toBe("false");
+    expect(interviewHelperOption.getAttribute("aria-label")).toBe(
+      "Open Interview Helper",
+    );
+
+    // Arrow keys cycle the two items; Escape returns to the trigger.
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(interviewHelperOption);
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(document.activeElement).toBe(jobFinderOption);
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(interviewHelperOption);
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("reveals the active route button when mounting mid-strip", () => {
@@ -3172,34 +3370,34 @@ describe("JobFinderShell responsive shell contract", () => {
     ).toBeNull();
   });
 
-  it("routes plain Interview Helper clicks through the shell while modifier clicks stay native", () => {
+  it("routes Interview Helper through the shell and makes the current module a no-op", () => {
     const onNavigate = vi.fn();
     renderShell("/job-finder/discovery", onNavigate);
 
-    const anchor = getCompactInterviewHelperAffordance();
-    const preventedStates: boolean[] = [];
-    const observer = (event: Event) => {
-      preventedStates.push(event.defaultPrevented);
-    };
-    window.addEventListener("click", observer);
+    const brandSwitch = expectSoleModuleSwitchInBrand();
 
-    fireEvent.click(anchor);
-    expect(preventedStates).toEqual([true]);
+    openModuleSwitch(brandSwitch);
+    fireEvent.click(getModuleOption(brandSwitch, "interview-helper"));
     expect(onNavigate).toHaveBeenCalledTimes(1);
     expect(onNavigate).toHaveBeenCalledWith("/interview-helper");
+    // Choosing an item closes the menu either way.
+    expect(
+      getModuleSwitchTrigger(brandSwitch).getAttribute("aria-expanded"),
+    ).toBe("false");
 
-    for (const modifiers of [
-      { metaKey: true },
-      { ctrlKey: true },
-      { shiftKey: true },
-      { altKey: true },
-    ]) {
-      fireEvent.click(anchor, modifiers);
-    }
-
-    expect(preventedStates).toEqual([true, false, false, false, false]);
+    // Selecting the module the user is already in never navigates.
+    openModuleSwitch(brandSwitch);
+    fireEvent.click(getModuleOption(brandSwitch, "job-finder"));
     expect(onNavigate).toHaveBeenCalledTimes(1);
-    window.removeEventListener("click", observer);
+    expect(
+      getModuleSwitchTrigger(brandSwitch).getAttribute("aria-expanded"),
+    ).toBe("false");
+
+    // Reopening reaches the same destination the second time too.
+    openModuleSwitch(brandSwitch);
+    fireEvent.click(getModuleOption(brandSwitch, "interview-helper"));
+    expect(onNavigate).toHaveBeenCalledTimes(2);
+    expect(onNavigate).toHaveBeenLastCalledWith("/interview-helper");
   });
 });
 

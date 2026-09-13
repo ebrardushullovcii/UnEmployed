@@ -1347,7 +1347,7 @@ describe("apply run cancellation and application record concurrency", () => {
 
     await expect(
       workspaceService.startApplyCopilotRun("job_ready"),
-    ).rejects.toThrow(/already running in apply run 'apply_run_staged_active'/);
+    ).rejects.toThrow(/already being prepared/i);
 
     expect(await repository.listApplyRuns()).toHaveLength(1);
     expect(await repository.listApplicationQuestionRecords({})).toHaveLength(0);

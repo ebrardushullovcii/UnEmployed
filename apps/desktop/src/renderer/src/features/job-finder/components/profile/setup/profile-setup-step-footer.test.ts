@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   formatProfileSetupFinishReadiness,
+  getProfileSetupStepFooterContinue,
   getProfileSetupStepFooterPrimary,
 } from "./profile-setup-step-footer";
 
@@ -81,6 +82,47 @@ describe("getProfileSetupStepFooterPrimary", () => {
         onSaveAndGoToStep: vi.fn(),
       }).label,
     ).toBe("Finish setup and find jobs");
+  });
+});
+
+describe("getProfileSetupStepFooterContinue", () => {
+  it("keeps Save and continue to Extras once Finish takes the primary slot", () => {
+    // The finish action replaced the continue action mid-step, so a button
+    // read as "Save and continue to Extras" and then opened Find jobs.
+    const onSaveAndGoToStep = vi.fn();
+    const continueAction = getProfileSetupStepFooterContinue({
+      canFinishSetup: true,
+      currentStep: "targeting",
+      onSaveAndGoToStep,
+    });
+
+    expect(continueAction?.label).toBe("Save and continue to Extras");
+    continueAction?.onContinue();
+    expect(onSaveAndGoToStep).toHaveBeenCalledWith("extras");
+  });
+
+  it("offers no second continue action where the primary already continues", () => {
+    expect(
+      getProfileSetupStepFooterContinue({
+        canFinishSetup: false,
+        currentStep: "targeting",
+        onSaveAndGoToStep: vi.fn(),
+      }),
+    ).toBeNull();
+    expect(
+      getProfileSetupStepFooterContinue({
+        canFinishSetup: true,
+        currentStep: "extras",
+        onSaveAndGoToStep: vi.fn(),
+      }),
+    ).toBeNull();
+    expect(
+      getProfileSetupStepFooterContinue({
+        canFinishSetup: false,
+        currentStep: "essentials",
+        onSaveAndGoToStep: vi.fn(),
+      }),
+    ).toBeNull();
   });
 });
 

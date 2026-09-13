@@ -137,6 +137,102 @@ describe("ProfileCopilotRail", () => {
     );
   });
 
+  it("keeps the open panel clear of the sticky save footer", () => {
+    // The panel floated over the bottom-right corner with a fixed clearance,
+    // so it covered "Save changes" and "Finish setup and find jobs" — the very
+    // buttons it told people to press.
+    const previousViewport = {
+      height: window.innerHeight,
+      width: window.innerWidth,
+    };
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1280,
+      writable: true,
+    });
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 843,
+      writable: true,
+    });
+
+    const shellHeader = document.createElement("div");
+    shellHeader.setAttribute("data-job-finder-shell-header", "");
+    document.body.appendChild(shellHeader);
+    const footer = document.createElement("div");
+    footer.setAttribute("data-profile-workspace-actions", "");
+    document.body.appendChild(footer);
+    const footerHeight = 96;
+    footer.getBoundingClientRect = () =>
+      ({
+        bottom: 843,
+        height: footerHeight,
+        left: 0,
+        right: 1280,
+        top: 843 - footerHeight,
+        width: 1280,
+        x: 0,
+        y: 843 - footerHeight,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    try {
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+
+      act(() => {
+        root?.render(
+          <ProfileCopilotRail
+            busy={false}
+            context={{ surface: "profile", section: "basics" }}
+            emptyStateDescription="Ask why a field matters."
+            emptyStateTitle="No requests yet"
+            messages={[]}
+            onApplyPatchGroup={vi.fn()}
+            onRejectPatchGroup={vi.fn()}
+            onSendMessage={vi.fn()}
+            onUndoRevision={vi.fn()}
+            pendingContextKey={null}
+            placeholder="Ask for an edit"
+            revisions={[]}
+            showProactivePrompt={false}
+            title="the Assistant"
+          />,
+        );
+      });
+
+      act(() =>
+        document.body
+          .querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')
+          ?.click(),
+      );
+
+      const panel = document.body.querySelector<HTMLElement>(
+        'aside[role="dialog"]',
+      );
+      const rail = panel?.parentElement;
+      const top = Number.parseInt(rail?.style.top ?? "0", 10);
+      const height = Number.parseInt(panel?.style.height ?? "0", 10);
+
+      expect(height).toBeGreaterThan(0);
+      expect(top + height).toBeLessThanOrEqual(843 - footerHeight);
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: previousViewport.width,
+        writable: true,
+      });
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: previousViewport.height,
+        writable: true,
+      });
+      footer.remove();
+      shellHeader.remove();
+    }
+  });
+
   it("keeps the the Assistant compact at a wide Profile viewport", () => {
     const previousViewport = {
       height: window.innerHeight,
@@ -541,6 +637,7 @@ describe("ProfileCopilotRail", () => {
           revisions={[
             {
               id: "profile_revision_1",
+              sequence: 1,
               createdAt: "2026-04-15T16:00:00.000Z",
               reason: "Assistant patch: Update headline",
               trigger: "assistant_patch",
@@ -1840,20 +1937,124 @@ describe("ProfileCopilotRail", () => {
       "Update my headline",
     );
   });
-  it("re-queries clearance targets instead of observing them, so no callback can re-observe", () => {
-    // Previously: "observes each clearance target once instead of
-    // re-observing from its own ResizeObserver callback" — the rail kept a
-    // `Set` of observed rows and asserted each was observed exactly once,
-    // because `observe()` on an already-observed target resets its last
-    // reported size and guarantees another delivery, so a callback that
-    // re-observes never settles.
-    //
-    // The launcher is a shared bottom-right dock occupant now, and the dock
-    // re-queries its no-cover set on every pass rather than resolving rows
-    // into observed nodes. That is a stronger reading of the same rule: a
-    // `ResizeObserver` reports size and not position, so an observed row that
-    // merely *moves* never re-measured — and with nothing observed, the
-    // re-observe loop this test guarded against cannot exist at all.
+  it("updates open-panel clearance when the Profile action footer grows", () => {
+    const observers: ControlledResizeObserver[] = [];
+
+    class ControlledResizeObserver {
+      readonly observeCalls: Element[] = [];
+
+      constructor(private readonly callback: ResizeObserverCallback) {
+        observers.push(this);
+      }
+
+      observe(target: Element) {
+        this.observeCalls.push(target);
+      }
+
+      unobserve() {}
+
+      disconnect() {}
+
+      deliver() {
+        this.callback([], this as unknown as ResizeObserver);
+      }
+    }
+
+    const previousResizeObserver = (
+      globalThis as typeof globalThis & {
+        ResizeObserver?: typeof ResizeObserver;
+      }
+    ).ResizeObserver;
+    (
+      globalThis as typeof globalThis & { ResizeObserver?: unknown }
+    ).ResizeObserver = ControlledResizeObserver;
+
+    const shellHeader = document.createElement("div");
+    shellHeader.setAttribute("data-job-finder-shell-header", "");
+    document.body.appendChild(shellHeader);
+    const footer = document.createElement("div");
+    footer.setAttribute("data-profile-workspace-actions", "");
+    document.body.appendChild(footer);
+    let footerHeight = 48;
+    footer.getBoundingClientRect = () =>
+      ({
+        bottom: window.innerHeight,
+        height: footerHeight,
+        left: 0,
+        right: window.innerWidth,
+        top: window.innerHeight - footerHeight,
+        width: window.innerWidth,
+        x: 0,
+        y: window.innerHeight - footerHeight,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    try {
+      container = document.createElement("div");
+      document.body.appendChild(container);
+      root = createRoot(container);
+
+      act(() => {
+        root?.render(
+          <ProfileCopilotRail
+            busy={false}
+            context={{ surface: "profile", section: "basics" }}
+            emptyStateDescription="Ask why a field matters."
+            emptyStateTitle="No requests yet"
+            messages={[]}
+            onApplyPatchGroup={vi.fn()}
+            onRejectPatchGroup={vi.fn()}
+            onSendMessage={vi.fn()}
+            onUndoRevision={vi.fn()}
+            pendingContextKey={null}
+            placeholder="Ask for an edit"
+            revisions={[]}
+            title="the Assistant"
+          />,
+        );
+      });
+      act(() =>
+        document.body
+          .querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')
+          ?.click(),
+      );
+
+      const footerObserver = observers.find((observer) =>
+        observer.observeCalls.includes(footer),
+      );
+      expect(footerObserver).toBeTruthy();
+
+      footerHeight = 132;
+      act(() => footerObserver?.deliver());
+
+      const panel = document.body.querySelector<HTMLElement>(
+        'aside[role="dialog"]',
+      );
+      const rail = panel?.parentElement;
+      const top = Number.parseInt(rail?.style.top ?? "0", 10);
+      const height = Number.parseInt(panel?.style.height ?? "0", 10);
+      expect(top + height).toBeLessThanOrEqual(
+        window.innerHeight - footerHeight,
+      );
+    } finally {
+      if (previousResizeObserver === undefined) {
+        Reflect.deleteProperty(globalThis, "ResizeObserver");
+      } else {
+        (
+          globalThis as typeof globalThis & {
+            ResizeObserver?: typeof ResizeObserver;
+          }
+        ).ResizeObserver = previousResizeObserver;
+      }
+      shellHeader.remove();
+      footer.remove();
+    }
+  });
+
+  it("observes each clearance target once without re-observing in its callback", () => {
+    // Calling observe again from the ResizeObserver callback schedules another
+    // delivery and can loop forever. The targets are captured once; callbacks
+    // only re-measure them.
     const observers: LoopProbeResizeObserver[] = [];
 
     class LoopProbeResizeObserver {
@@ -1907,6 +2108,9 @@ describe("ProfileCopilotRail", () => {
       globalThis as typeof globalThis & { ResizeObserver?: unknown }
     ).ResizeObserver = LoopProbeResizeObserver;
 
+    const shellHeader = document.createElement("div");
+    shellHeader.setAttribute("data-job-finder-shell-header", "");
+    document.body.appendChild(shellHeader);
     const actions = document.createElement("div");
     actions.setAttribute("data-profile-workspace-actions", "");
     document.body.appendChild(actions);
@@ -1939,13 +2143,9 @@ describe("ProfileCopilotRail", () => {
         );
       });
 
-      // No clearance row is observed at all, and nothing loops.
       expect(
-        observers.filter((observer) => observer.observeCalls.includes(actions)),
-      ).toEqual([]);
-      expect(
-        observers.filter((observer) => observer.observeCalls.includes(tabs)),
-      ).toEqual([]);
+        observers.flatMap((observer) => observer.observeCalls),
+      ).toEqual([shellHeader, tabs, actions]);
       for (const observer of observers) {
         expect(observer.iterations).toBeLessThan(5);
       }
@@ -1966,6 +2166,7 @@ describe("ProfileCopilotRail", () => {
         ).ResizeObserver = previousResizeObserver;
       }
 
+      shellHeader.remove();
       actions.remove();
       tabs.remove();
     }

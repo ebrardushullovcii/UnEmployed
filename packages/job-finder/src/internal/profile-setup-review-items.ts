@@ -407,6 +407,27 @@ function hasMeaningfulStringList(
   return values?.some((value) => hasMeaningfulText(value)) ?? false;
 }
 
+/**
+ * True when the person has said where they are, in whichever place the app
+ * offered them.
+ *
+ * Guided setup writes one compact line; Profile Basics writes city, region and
+ * country. Reading only the compact line left a person who filled in
+ * "Budapest" and "Hungary" on Basics staring at "Add your current location"
+ * with no way to clear it.
+ */
+function hasStatedCurrentLocation(profile: CandidateProfile): boolean {
+  return (
+    hasPlaceholderAwareIdentityValue(
+      profile.currentLocation,
+      "currentLocation",
+    ) ||
+    hasMeaningfulText(profile.currentCity) ||
+    hasMeaningfulText(profile.currentRegion) ||
+    hasMeaningfulText(profile.currentCountry)
+  );
+}
+
 function hasPlaceholderAwareIdentityValue(
   value: string | null | undefined,
   field: "headline" | "currentLocation",
@@ -592,10 +613,7 @@ function buildMissingFieldDrafts(
   }
 
   if (
-    !hasPlaceholderAwareIdentityValue(
-      profile.currentLocation,
-      "currentLocation",
-    ) &&
+    !hasStatedCurrentLocation(profile) &&
     !hasDraftForTarget(candidateDrafts, "identity", "currentLocation")
   ) {
     drafts.push({
@@ -747,6 +765,14 @@ function shouldReopenResolvedItem(input: {
   const proposedSummary = input.draft.proposedValue ?? null;
   const previousProposedSummary = input.item.proposedValue ?? null;
 
+  // "Dismiss for now" is checked first. An item offered for a field the person
+  // left empty is exactly the item they dismissed, so reopening it because the
+  // field is still empty put the card straight back and made the button look
+  // like it did nothing. New proposed evidence still reopens it below.
+  if (input.item.status === "dismissed" && !proposedSummary) {
+    return false;
+  }
+
   if (
     !hasCurrentTargetValue(
       input.profile,
@@ -774,10 +800,6 @@ function shouldReopenResolvedItem(input: {
     currentSummary &&
     normalizeText(proposedSummary) === normalizeText(currentSummary)
   ) {
-    return false;
-  }
-
-  if (input.item.status === "dismissed" && !proposedSummary) {
     return false;
   }
 

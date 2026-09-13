@@ -4,6 +4,7 @@ import type {
 } from "@unemployed/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  formatDiscoveryResultBandLabel,
   formatDiscoveryResultBandTotal,
   formatDiscoveryRunCountLabel,
   formatLastSearchSummarySentence,
@@ -312,5 +313,33 @@ describe("formatDiscoveryResultBandTotal", () => {
     expect(
       formatDiscoveryResultBandTotal({ worthOpening: 1, alsoFound: 0 }),
     ).toBe("1 job kept in this search plan.");
+  });
+});
+
+describe("formatDiscoveryResultBandLabel", () => {
+  it("leads with what was found when nothing earned a score", () => {
+    expect(
+      formatDiscoveryResultBandLabel({
+        worthOpening: 0,
+        titleMatches: 13,
+        alsoFound: 2,
+      }),
+    ).toBe("13 matched your role, not scored yet · 2 also found");
+  });
+
+  it("keeps the recommended count in front once a row has earned one", () => {
+    expect(
+      formatDiscoveryResultBandLabel({
+        worthOpening: 1,
+        titleMatches: 14,
+        alsoFound: 0,
+      }),
+    ).toBe("1 worth opening · 14 title matches · 0 also found");
+  });
+
+  it("is unchanged when no row was left unscored", () => {
+    expect(
+      formatDiscoveryResultBandLabel({ worthOpening: 0, alsoFound: 3 }),
+    ).toBe("0 worth opening · 3 also found");
   });
 });

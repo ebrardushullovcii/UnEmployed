@@ -337,6 +337,13 @@ interface ResumeValidationIssueListProps {
   issues: readonly ResumeValidationIssue[];
   canRestorePreviousText?: (issue: ResumeValidationIssue) => boolean;
   onAskAiFix?: (issue: ResumeValidationIssue) => void;
+  /**
+   * Resolves an identity mismatch the other way: the document really is this
+   * person's, under a name they no longer use. Without it the block was a
+   * dead end — the only offered action edited a profile field that was
+   * already correct.
+   */
+  onClaimResumeIdentity?: () => void;
   onFixIssue: (issue: ResumeValidationIssue) => void;
   onRestorePreviousText?: (issue: ResumeValidationIssue) => void;
 }
@@ -345,6 +352,7 @@ function ResumeValidationIssueRow(props: {
   issue: ResumeValidationIssue;
   canRestorePreviousText?: (issue: ResumeValidationIssue) => boolean;
   onAskAiFix?: (issue: ResumeValidationIssue) => void;
+  onClaimResumeIdentity?: () => void;
   onFixIssue: (issue: ResumeValidationIssue) => void;
   onRestorePreviousText?: (issue: ResumeValidationIssue) => void;
 }) {
@@ -401,6 +409,18 @@ function ResumeValidationIssueRow(props: {
         >
           {actionLabel}
         </Button>
+        {props.issue.category === "identity_mismatch" &&
+        props.onClaimResumeIdentity ? (
+          <Button
+            data-resume-identity-claim
+            onClick={() => props.onClaimResumeIdentity?.()}
+            size="compact"
+            type="button"
+            variant="secondary"
+          >
+            This is my resume, use my profile name
+          </Button>
+        ) : null}
         {canRestore ? (
           <Button
             aria-label={`Restore previous text: ${props.issue.message}`}
@@ -509,6 +529,9 @@ export function ResumeValidationIssueList(
               ? { canRestorePreviousText: props.canRestorePreviousText }
               : {})}
             onAskAiFix={handleAskAiFix}
+            {...(props.onClaimResumeIdentity
+              ? { onClaimResumeIdentity: props.onClaimResumeIdentity }
+              : {})}
             onFixIssue={props.onFixIssue}
             {...(props.onRestorePreviousText
               ? { onRestorePreviousText: props.onRestorePreviousText }
@@ -539,6 +562,9 @@ export function ResumeValidationIssueList(
                   ? { canRestorePreviousText: props.canRestorePreviousText }
                   : {})}
                 onAskAiFix={handleAskAiFix}
+                {...(props.onClaimResumeIdentity
+                  ? { onClaimResumeIdentity: props.onClaimResumeIdentity }
+                  : {})}
                 onFixIssue={props.onFixIssue}
                 {...(props.onRestorePreviousText
                   ? { onRestorePreviousText: props.onRestorePreviousText }

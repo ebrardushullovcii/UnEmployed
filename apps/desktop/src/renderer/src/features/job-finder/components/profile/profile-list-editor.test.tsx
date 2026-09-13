@@ -3,7 +3,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ProfileListEditor } from "./profile-list-editor";
+import {
+  parseProfileLocationDraft,
+  ProfileListEditor,
+} from "./profile-list-editor";
 
 describe("ProfileListEditor", () => {
   let container: HTMLDivElement | null = null;
@@ -28,6 +31,7 @@ describe("ProfileListEditor", () => {
 
   function renderEditor(props?: {
     displayMode?: "chips" | "rows";
+    onChange?: (values: string[]) => void;
     values?: readonly string[];
   }) {
     container = document.createElement("div");
@@ -39,12 +43,29 @@ describe("ProfileListEditor", () => {
         <ProfileListEditor
           {...(props?.displayMode ? { displayMode: props.displayMode } : {})}
           label="Skills"
-          onChange={vi.fn()}
+          onChange={props?.onChange ?? vi.fn()}
           placeholder="Add a skill"
           values={props?.values ?? []}
         />,
       );
     });
+  }
+
+  function typeIntoEditor(text: string) {
+    const input = container?.querySelector("input");
+    expect(input).toBeTruthy();
+
+    act(() => {
+      const valueDescriptor = Object.getOwnPropertyDescriptor(
+        globalThis.HTMLInputElement.prototype,
+        "value",
+      );
+      const setValue = valueDescriptor?.set?.bind(input);
+      setValue?.(text);
+      input?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    return input as HTMLInputElement;
   }
 
   it("rests on the neutral panel border instead of an active accent", () => {
@@ -112,5 +133,72 @@ describe("ProfileListEditor", () => {
     expect(tray?.className).toContain("min-h-46");
     expect(tray?.className).not.toContain("max-h-46");
     expect(tray?.className).not.toContain("overflow-auto");
+  });
+
+  it("keeps a typed entry when the field is left without pressing Add", () => {
+    // Guided setup saved a plan with no roles because the role typed into
+    // this field was still uncommitted when "Save and continue" was clicked.
+    const onChange = vi.fn();
+    renderEditor({ onChange });
+
+    const input = typeIntoEditor("QA Tester");
+
+    act(() => {
+      input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+
+    expect(onChange).toHaveBeenCalledWith(["QA Tester"]);
+    expect(input.value).toBe("");
+  });
+
+  it("does not add an empty entry when an untouched field is left", () => {
+    const onChange = vi.fn();
+    renderEditor({ onChange, values: ["React"] });
+
+    const input = container?.querySelector("input");
+    act(() => {
+      input?.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps comma-delimited place details together and splits only semicolons or newlines", () => {
+    expect(
+      parseProfileLocationDraft(
+        "Chicago, IL; Manchester, England\nPrishtina, Kosovo",
+      ),
+    ).toEqual([
+      "Chicago, IL",
+      "Manchester, England",
+      "Prishtina, Kosovo",
+    ]);
+  });
+
+  it("adds multiple locations without turning the region into another place", () => {
+    const onChange = vi.fn();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root?.render(
+        <ProfileListEditor
+          draftParser={parseProfileLocationDraft}
+          label="Preferred locations"
+          onChange={onChange}
+          placeholder="Example: Austin, TX; Remote"
+          values={[]}
+        />,
+      );
+    });
+
+    typeIntoEditor("Chicago, IL; Remote");
+    const addButton = [...(container.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent === "Add",
+    );
+    act(() => addButton?.click());
+
+    expect(onChange).toHaveBeenCalledWith(["Chicago, IL", "Remote"]);
   });
 });

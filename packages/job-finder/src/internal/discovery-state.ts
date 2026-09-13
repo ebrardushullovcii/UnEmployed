@@ -2,6 +2,7 @@ import type { BrowserSessionRuntime } from "@unemployed/browser-runtime";
 import {
   DiscoveryActivityEventSchema,
   DiscoveryTargetExecutionSchema,
+  isFinishedDiscoveryTargetExecutionState,
   JobFinderDiscoveryStateSchema,
   type AgentDiscoveryProgress,
   type DiscoveryActivityEvent,
@@ -303,12 +304,16 @@ export function updateTargetExecution(
   return run;
 }
 
+/**
+ * How many sources actually finished. Cancelling a run finalises its running
+ * sources as `cancelled`, so counting "anything past running" reported a
+ * source the user had just interrupted as finished.
+ */
 export function countCompletedTargetExecutions(
   run: DiscoveryRunRecord,
 ): number {
-  return run.targetExecutions.filter(
-    (execution) =>
-      execution.state !== "planned" && execution.state !== "running",
+  return run.targetExecutions.filter((execution) =>
+    isFinishedDiscoveryTargetExecutionState(execution.state),
   ).length;
 }
 
@@ -326,14 +331,22 @@ export function finalizeDiscoveryState(
   // places at once. History receives the run exactly once, when it reaches a
   // terminal state; the id filter also retires any legacy running copy that
   // older versions left in stored history.
-  const isRunning = run.state === "running";
+  const cancellationRequestedAt =
+    run.cancellationRequestedAt ??
+    (current.activeRun?.id === run.id
+      ? current.activeRun.cancellationRequestedAt
+      : null);
+  const persistedRun = cancellationRequestedAt
+    ? { ...run, cancellationRequestedAt }
+    : run;
+  const isRunning = persistedRun.state === "running";
   return JobFinderDiscoveryStateSchema.parse({
     ...current,
-    runState: run.state,
-    activeRun: isRunning ? run : null,
+    runState: persistedRun.state,
+    activeRun: isRunning ? persistedRun : null,
     recentRuns: [
-      ...(isRunning ? [] : [run]),
-      ...current.recentRuns.filter((entry) => entry.id !== run.id),
+      ...(isRunning ? [] : [persistedRun]),
+      ...current.recentRuns.filter((entry) => entry.id !== persistedRun.id),
     ].slice(0, historyLimit),
   });
 }

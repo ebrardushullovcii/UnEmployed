@@ -392,7 +392,7 @@ export function CompaniesScreen(props: CompaniesScreenProps) {
       setRefreshError(
         error instanceof Error
           ? error.message
-          : "Company intelligence could not be refreshed.",
+          : "What Job Finder knows about these employers could not be refreshed.",
       );
     });
   };

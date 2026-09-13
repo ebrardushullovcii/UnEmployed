@@ -312,6 +312,15 @@ export const OutcomeEventSchema = z
     jobId: NonEmptyStringSchema,
     campaignId: NonEmptyStringSchema,
     source: NonEmptyStringSchema,
+    /**
+     * The saved job source this application came from, when the job's own
+     * discovery lineage records one. The `source` field above is the recorded
+     * source *kind*, which is a single value for every job, so grouping
+     * outcomes by it produced one bucket for everything. Null for outcomes
+     * recorded before this field existed and for jobs with no lineage; those
+     * group under `UNKNOWN_JOB_SOURCE_BUCKET_KEY` rather than being hidden.
+     */
+    sourceTargetId: NonEmptyStringSchema.nullable().default(null),
     company: NonEmptyStringSchema,
     jobTitle: NonEmptyStringSchema,
     resumeStrategyId: NonEmptyStringSchema.nullable().default(null),
@@ -1832,6 +1841,15 @@ export const JobFinderIntelligenceSafeguardsSchema = z
 export type JobFinderIntelligenceSafeguards = z.infer<
   typeof JobFinderIntelligenceSafeguardsSchema
 >;
+
+export type PlanSafeguardPause = {
+  id: string;
+  campaignId: string;
+  planName: string;
+  title: string;
+  explanation: string;
+  route: "/job-finder/safeguards";
+};
 
 export const JobFinderIntelligenceStateSchema = z
   .object({

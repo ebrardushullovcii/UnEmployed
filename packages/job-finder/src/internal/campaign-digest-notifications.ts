@@ -9,8 +9,10 @@ import {
   type CampaignNotification,
   type CampaignRunFacts,
   type DiscoveryRunRecord,
+  type DiscoveryRunReport,
 } from "@unemployed/contracts";
 import { isProvisionalMatchAssessment } from "../discovery-ordering";
+import { deriveDiscoverySourceOutcome } from "../source-health";
 
 /**
  * Pure, deterministic campaign digest + notification helpers.
@@ -48,6 +50,24 @@ const MAX_DIGEST_JOB_IDS = 10_000;
 /** Truthful fallback when a failed source carries no warning text. */
 const DEFAULT_FAILED_SOURCE_REASON =
   "The discovery source failed before this run completed.";
+
+/** Shown when a job source no longer carries the label the user saved. */
+export const UNNAMED_JOB_SOURCE_TITLE = "A job source";
+
+/**
+ * Names a job source the way the user saved it. Internal target ids are never
+ * user-facing, so an id with no saved label falls back to a plain phrase
+ * instead of leaking the identifier into a notification or a digest row.
+ */
+export function describeJobSourceWorkTitle(
+  sourceTargetId: string,
+  targets: readonly { id: string; label: string }[],
+): string {
+  const id = sourceTargetId.trim();
+  const label =
+    targets.find((target) => target.id === id)?.label.trim() ?? "";
+  return label.length > 0 ? `Job source ${label}` : UNNAMED_JOB_SOURCE_TITLE;
+}
 
 function truncate(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
@@ -124,6 +144,11 @@ export interface BuildCampaignDigestInput {
    * schema maximum; only evidence supplied here is included.
    */
   jobIds?: readonly string[] | null;
+  /**
+   * The run's frozen accounting, carried onto the digest so a plan card can
+   * print the run's own numbers without holding the run record.
+   */
+  report?: DiscoveryRunReport | null;
 }
 
 /**
@@ -169,7 +194,9 @@ export function buildCampaignDigest(
       known: run.summary.changeDigest.known,
       skipped: run.summary.changeDigest.skipped,
     },
+    report: input.report ?? run.summary.report ?? null,
     failedSources: listFailedSourcesFromRecord(run),
+    sourceOutcome: deriveDiscoverySourceOutcome(run),
     jobIds: dedupeStrings(input.jobIds ?? []).slice(0, MAX_DIGEST_JOB_IDS),
   });
 }
@@ -356,7 +383,7 @@ export function deriveCampaignNotifications(
           id,
           campaignId,
           kind: "blocked_work",
-          title: "Failed: Scheduled campaign run",
+          title: "Failed: Scheduled search plan run",
           body:
             runFacts.lastRunSummary !== null
               ? runFacts.lastRunSummary.slice(0, 2_000)

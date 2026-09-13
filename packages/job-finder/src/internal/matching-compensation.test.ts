@@ -1,8 +1,12 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import {
   evaluateCompensationFit,
+  findSiteFurnitureSalaryTexts,
+  extractSalaryRangeFromListingBody,
+  isSiteFurnitureSalaryText,
   parseNormalizedCompensation,
   parseSalaryFloor,
+  reconcileSalaryTextWithListingBody,
 } from "./matching-compensation";
 
 describe("compensation normalization and fit truth", () => {
@@ -20,6 +24,73 @@ describe("compensation normalization and fit truth", () => {
       interval: "year",
       minAnnualUsd: 120_000,
       maxAnnualUsd: 140_000,
+    });
+  });
+
+  test("reads a single labelled hourly pay amount from the listing body", () => {
+    const stated = extractSalaryRangeFromListingBody(
+      "Pay: $22.00 per hour for this role.",
+    );
+    expect(stated).toBe("$22.00 per hour");
+    expect(parseNormalizedCompensation(stated)).toMatchObject({
+      currency: "USD",
+      interval: "hour",
+      minAmount: 22,
+      minAnnualUsd: 45_760,
+    });
+  });
+
+  test("repairs a doubled extracted floor from the listing's exact salary sentence", () => {
+    const body =
+      "Highly Competitive Salary:\n- $100k-$500k USD yearly\nEquity is available.";
+    expect(extractSalaryRangeFromListingBody(body)).toBe(
+      "$100k-$500k USD yearly",
+    );
+    const reconciled = reconcileSalaryTextWithListingBody(
+      "$200000 - 500000",
+      body,
+    );
+    expect(reconciled).toBe("$100k-$500k USD yearly");
+    expect(parseNormalizedCompensation(reconciled)).toMatchObject({
+      minAnnualUsd: 100_000,
+      maxAnnualUsd: 500_000,
+    });
+  });
+
+  test("does not extract an experience range after a competitive salary label", () => {
+    expect(
+      extractSalaryRangeFromListingBody(
+        "Salary: competitive; requirements: 3-5 years of experience",
+      ),
+    ).toBeNull();
+  });
+
+  test("extracts a salary range with explicit monetary evidence", () => {
+    expect(
+      extractSalaryRangeFromListingBody(
+        "Salary: $85,000 - $95,000 per year",
+      ),
+    ).toBe("$85,000 - $95,000 per year");
+  });
+
+  test("keeps a stated currency instead of relabelling it USD", () => {
+    // "$170-250K CAD" reached a screen as "USD 170,000 - USD 250,000".
+    expect(parseNormalizedCompensation("$170-250K CAD")).toMatchObject({
+      currency: "CAD",
+      minAmount: 170_000,
+      maxAmount: 250_000,
+      minAnnualUsd: null,
+      maxAnnualUsd: null,
+    });
+    expect(parseNormalizedCompensation("CA$95,000 - CA$120,000")).toMatchObject(
+      { currency: "CAD" },
+    );
+    expect(parseNormalizedCompensation("A$140k/year")).toMatchObject({
+      currency: "AUD",
+    });
+    // A bare dollar sign with nothing else stated still reads as USD.
+    expect(parseNormalizedCompensation("$120,000 - $150,000")).toMatchObject({
+      currency: "USD",
     });
   });
 
@@ -118,5 +189,62 @@ describe("compensation normalization and fit truth", () => {
       state: "not_requested",
       minimumSalaryUsd: null,
     });
+  });
+});
+
+describe("findSiteFurnitureSalaryTexts", () => {
+  const houseBand = "$80000 - 150000";
+  function run(bodies: readonly string[]) {
+    return bodies.map((description) => ({
+      description,
+      salaryText: houseBand,
+    }));
+  }
+
+  it("drops a band most of one run shares and none of the listings state", () => {
+    const furniture = findSiteFurnitureSalaryTexts(
+      run([
+        "Pay: $22.00 per hour for this warehouse role.",
+        "We are hiring a receptionist.",
+        "Join the kitchen team.",
+        "Delivery driver wanted.",
+        "Night shift stocker.",
+      ]),
+    );
+    expect(isSiteFurnitureSalaryText(houseBand, furniture)).toBe(true);
+  });
+
+  it("keeps a band the listings themselves state", () => {
+    const furniture = findSiteFurnitureSalaryTexts(
+      run([
+        "Base pay is $80,000 - $150,000 depending on experience.",
+        "Base pay is $80,000 - $150,000 depending on experience.",
+        "Base pay is $80,000 - $150,000 depending on experience.",
+        "Base pay is $80,000 - $150,000 depending on experience.",
+        "Base pay is $80,000 - $150,000 depending on experience.",
+      ]),
+    );
+    expect(isSiteFurnitureSalaryText(houseBand, furniture)).toBe(false);
+  });
+
+  it("proves nothing from a run too small to be evidence", () => {
+    const furniture = findSiteFurnitureSalaryTexts(
+      run(["Receptionist wanted.", "Driver wanted."]),
+    );
+    expect(isSiteFurnitureSalaryText(houseBand, furniture)).toBe(false);
+  });
+
+  it("leaves a salary only one job carries alone", () => {
+    const furniture = findSiteFurnitureSalaryTexts([
+      { description: "Warehouse role.", salaryText: "$22.00 per hour" },
+      ...run([
+        "Receptionist wanted.",
+        "Kitchen team.",
+        "Driver wanted.",
+        "Stocker wanted.",
+      ]),
+    ]);
+    expect(isSiteFurnitureSalaryText("$22.00 per hour", furniture)).toBe(false);
+    expect(isSiteFurnitureSalaryText(houseBand, furniture)).toBe(true);
   });
 });

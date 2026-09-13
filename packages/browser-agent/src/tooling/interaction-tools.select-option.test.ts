@@ -1,6 +1,9 @@
 import type { Page } from "playwright";
 import { describe, expect, test, vi } from "vitest";
-import { buildInteractionContext, getInteractionTool } from "./interaction-tools.test-helpers";
+import {
+  buildInteractionContext,
+  getInteractionTool,
+} from "./interaction-tools.test-helpers";
 
 describe("select_option", () => {
   test("fails safely instead of selecting an arbitrary combobox option", async () => {
@@ -80,7 +83,7 @@ describe("select_option", () => {
         optionText: "Remote",
         selectedLabel: "Hybrid",
         selectedValue: "Hybrid",
-      }),
+      }) as unknown,
     });
     expect(keyboardPress).not.toHaveBeenCalled();
   });
@@ -107,9 +110,9 @@ describe("select_option navigation state", () => {
     let currentUrl = "https://example.com/jobs";
     const page = {
       getByRole: vi.fn(() => locator),
-      waitForTimeout: vi.fn(async () => {
+      waitForTimeout: vi.fn(() => {
         currentUrl = "https://example.com/jobs?workMode=remote";
-        return undefined;
+        return Promise.resolve(undefined);
       }),
       url: vi.fn(() => currentUrl),
     } as unknown as Page;
@@ -120,7 +123,8 @@ describe("select_option navigation state", () => {
           "fill::input::search by title skill::0",
           {
             count: 2,
-            lastError: 'No textbox matched accessible name "Search by title, skill, or company".',
+            lastError:
+              'No textbox matched accessible name "Search by title, skill, or company".',
           },
         ],
       ]),
@@ -142,7 +146,7 @@ describe("select_option navigation state", () => {
       data: expect.objectContaining({
         navigated: true,
         newUrl: "https://example.com/jobs?workMode=remote",
-      }),
+      }) as unknown,
     });
     expect(state.failedInteractionAttempts.size).toBe(0);
   });
@@ -165,7 +169,9 @@ describe("select_option navigation state", () => {
     locator.nth.mockReturnValue(locator);
 
     const page = {
-      evaluate: vi.fn().mockResolvedValueOnce("https://example.com/jobs::before"),
+      evaluate: vi
+        .fn()
+        .mockResolvedValueOnce("https://example.com/jobs::before"),
       getByRole: vi.fn(() => locator),
       waitForTimeout: vi.fn().mockResolvedValue(undefined),
       url: vi.fn(() => "https://example.com/jobs"),
@@ -200,7 +206,7 @@ describe("select_option navigation state", () => {
       data: expect.objectContaining({
         navigated: false,
         selectedLabel: "Remote",
-      }),
+      }) as unknown,
     });
     expect(state.failedInteractionAttempts.size).toBe(0);
   });

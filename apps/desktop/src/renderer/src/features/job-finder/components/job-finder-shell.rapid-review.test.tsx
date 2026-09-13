@@ -90,7 +90,10 @@ describe("JobFinderShell rapid review route", () => {
       .getAllByRole("button")
       .map((button) => button.textContent?.replace(/\d+/g, "").trim());
 
+    // The module switch heads the card ahead of this module's destinations.
     expect(destinations).toEqual([
+      "Job Finder",
+      "Interview Helper",
       "Home",
       "Profile",
       "Find jobs",

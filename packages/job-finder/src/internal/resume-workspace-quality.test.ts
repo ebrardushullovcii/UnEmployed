@@ -188,6 +188,86 @@ function getSeedContext() {
 }
 
 describe("resume workspace quality helpers", () => {
+  test("never calls the candidate's own verbatim sentence unsupported", () => {
+    // The verifier was flagging lines lifted straight out of the person's own
+    // imported resume. Whatever else it can say about such a line, it cannot
+    // say the product invented it.
+    const { profile, job } = getSeedContext();
+    const ownSentence =
+      "Architected a quantum operating model for global logistics teams.";
+    const profileWithOwnSentence = {
+      ...profile,
+      baseResume: {
+        ...profile.baseResume,
+        textContent: `${profile.baseResume.textContent ?? ""}
+${ownSentence}`,
+      },
+    };
+    const draft = ResumeDraftSchema.parse({
+      id: "resume_draft_own_verbatim",
+      jobId: job.id,
+      status: "draft",
+      templateId: "classic_ats",
+      generationMethod: "ai",
+      sections: [
+        {
+          id: "section_experience",
+          kind: "experience",
+          label: "Experience",
+          origin: "ai_generated",
+          sortOrder: 0,
+          entries: [
+            {
+              id: "entry_own_verbatim",
+              entryType: "experience",
+              title: "Senior systems designer",
+              subtitle: "Signal Systems",
+              origin: "ai_generated",
+              sortOrder: 0,
+              profileRecordId: "experience_1",
+              bullets: [
+                {
+                  id: "bullet_own_verbatim",
+                  text: ownSentence,
+                  origin: "ai_generated",
+                  updatedAt: "2026-08-17T10:00:00.000Z",
+                },
+              ],
+              updatedAt: "2026-08-17T10:00:00.000Z",
+            },
+          ],
+          updatedAt: "2026-08-17T10:00:00.000Z",
+        },
+      ],
+      createdAt: "2026-08-17T10:00:00.000Z",
+      updatedAt: "2026-08-17T10:00:00.000Z",
+    });
+
+    const withoutOwnResume = validateResumeDraft({
+      draft,
+      job,
+      profile,
+      validatedAt: "2026-08-17T10:00:00.000Z",
+    });
+    const withOwnResume = validateResumeDraft({
+      draft,
+      job,
+      profile: profileWithOwnSentence,
+      validatedAt: "2026-08-17T10:00:00.000Z",
+    });
+
+    expect(
+      withoutOwnResume.claimAssessments.find(
+        (assessment) => assessment.bulletId === "bullet_own_verbatim",
+      ),
+    ).toMatchObject({ status: "unsupported" });
+    expect(
+      withOwnResume.claimAssessments.find(
+        (assessment) => assessment.bulletId === "bullet_own_verbatim",
+      ),
+    ).toMatchObject({ status: "exact" });
+  });
+
   test("enforces selected strategy evidence boundaries while still rejecting unsupported claims", () => {
     const { profile, job } = getSeedContext();
     const draft = ResumeDraftSchema.parse({
@@ -1551,6 +1631,40 @@ describe("resume workspace quality helpers", () => {
     expect(buildResumeDraftContentHash(originOnlyEdit)).not.toBe(
       buildResumeDraftContentHash(userEditedDraft),
     );
+  });
+
+  test("gives a listing-asked skill the person cannot evidence a confirmation of its own", () => {
+    // ADR 0018 lets aggressive tailoring name a technology the listing asks
+    // for, and promises the candidate confirms each one. The headline said
+    // "none could be verified" while the skill sat in Core Skills with no
+    // control at all, because an unsupported verdict is not confirmable.
+    const { profile, job } = getSeedContext();
+    const listingSkill = job.keySkills[0];
+    expect(typeof listingSkill).toBe("string");
+    const draft = updateSection(
+      createBaseDraft(),
+      "section_skills",
+      (section) => ({
+        ...section,
+        bullets: createBullets("skill_bullet", [
+          listingSkill!,
+          "Cobol mainframe migration",
+        ]),
+      }),
+    );
+
+    const validation = validateResumeDraft({ draft, job, profile });
+    const listingSkillClaim = validation.claimAssessments.find(
+      (assessment) => assessment.bulletId === "skill_bullet_1",
+    );
+    const inventedSkillClaim = validation.claimAssessments.find(
+      (assessment) => assessment.bulletId === "skill_bullet_2",
+    );
+
+    // The listing asked for it, so it becomes the candidate's call.
+    expect(listingSkillClaim?.status).not.toBe("unsupported");
+    // A skill neither the evidence nor the listing mentions stays refused.
+    expect(inventedSkillClaim?.status).toBe("unsupported");
   });
 
   test("maps classifier verdicts to statuses and gates confirmations by locator and hash", () => {

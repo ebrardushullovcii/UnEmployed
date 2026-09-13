@@ -3,10 +3,27 @@ import {
   carriesPreparedValue,
   isGraphQlReadBody,
   isPageOwnedReadRequest,
+  isTelemetryRequestUrl,
+  requestUrlCarriesPreparedValue,
 } from "./application-read-request-policy";
 
 describe("page-owned read policy", () => {
   const prepared = ["Jamie Rivers", "jamie@example.com", "+49 555 0000000"];
+
+  test("matches prepared URL query values without treating cache-buster keys as form data", () => {
+    expect(
+      requestUrlCarriesPreparedValue(
+        "https://site.test/pixel?email=jamie%40example.com",
+        prepared,
+      ),
+    ).toBe(true);
+    expect(
+      requestUrlCarriesPreparedValue(
+        "https://site.test/chevron.svg?223234",
+        ["223234"],
+      ),
+    ).toBe(false);
+  });
 
   test("allows safe-method reads with or without a query when nothing prepared rides along", () => {
     for (const url of [
@@ -35,7 +52,7 @@ describe("page-owned read policy", () => {
     expect(
       isPageOwnedReadRequest({
         method: "GET",
-        url: "https://site.test/collect?email=jamie%40example.com",
+        url: "https://site.test/form?email=jamie%40example.com",
         preparedValues: prepared,
       }),
     ).toBe(false);
@@ -116,6 +133,86 @@ describe("page-owned read policy", () => {
         method: "PUT",
         url: "https://site.test/api/graphql",
         bodyText: clean,
+        preparedValues: prepared,
+      }),
+    ).toBe(false);
+  });
+
+  test("recognizes generic telemetry URL shapes without confusing ordinary paths", () => {
+    for (const url of [
+      "https://remoteok.com/cdn-cgi/rum?",
+      "https://jobs.test/cdn-cgi/beacon",
+      "https://jobs.test/api/beacon/events",
+      "https://jobs.test/rum",
+      "https://jobs.test/analytics/event",
+      "https://www.google-analytics.com/g/collect",
+      "https://stats.doubleclick.net/activity",
+      "https://api.segment.io/v1/t",
+      "https://api.mixpanel.com/track",
+      "https://static.hotjar.com/c/hotjar.js",
+      "https://o123.ingest.sentry.io/api/456/envelope/",
+      "https://sa.remoteok.com/simple.gif?https=true&page_id=abc&type=pageview",
+    ]) {
+      expect(isTelemetryRequestUrl(url), url).toBe(true);
+      expect(
+        isPageOwnedReadRequest({
+          method: "POST",
+          url,
+          bodyText: '{"event":"pageview"}',
+          preparedValues: prepared,
+        }),
+        url,
+      ).toBe(true);
+    }
+    expect(isTelemetryRequestUrl("https://jobs.test/login")).toBe(false);
+    expect(isTelemetryRequestUrl("https://jobs.test/catalog")).toBe(false);
+    expect(isTelemetryRequestUrl("https://jobs.test/v1/collect")).toBe(false);
+    expect(isTelemetryRequestUrl("https://jobs.test/log")).toBe(false);
+  });
+
+  test("blocks a prepared value on a telemetry-looking application endpoint", () => {
+    expect(
+      isPageOwnedReadRequest({
+        method: "POST",
+        url: "https://jobs.test/applications/collect/answers",
+        bodyText: "email=jamie%40example.com",
+        preparedValues: prepared,
+      }),
+    ).toBe(false);
+  });
+
+  test("allows clean telemetry POST and GET requests", () => {
+    expect(
+      isPageOwnedReadRequest({
+        method: "POST",
+        url: "https://jobs.test/cdn-cgi/rum",
+        bodyText: "opaque-rum-payload",
+        preparedValues: prepared,
+      }),
+    ).toBe(true);
+    expect(
+      isPageOwnedReadRequest({
+        method: "GET",
+        url: "https://jobs.test/analytics/collect",
+        bodyText: null,
+        preparedValues: prepared,
+      }),
+    ).toBe(true);
+  });
+
+  test("does not exempt form-shaped bodies or arbitrary telemetry methods", () => {
+    expect(
+      isPageOwnedReadRequest({
+        method: "POST",
+        url: "https://jobs.test/cdn-cgi/rum",
+        bodyText: "email=somebody%40example.com",
+        preparedValues: prepared,
+      }),
+    ).toBe(false);
+    expect(
+      isPageOwnedReadRequest({
+        method: "DELETE",
+        url: "https://jobs.test/analytics/event",
         preparedValues: prepared,
       }),
     ).toBe(false);

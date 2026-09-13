@@ -13,12 +13,14 @@ import {
   FIELD_SAVE_PAUSE_NEXT_STEP,
   formatApplyRunModeLabel,
   formatApplyRunStateLabel,
+  getApplyBlockedAttemptDetail,
   getApplyResultDestinationUrl,
   getCustomerFacingApplyText,
   getManualFieldFinishGuidance,
   getManualFieldFinishNextStep,
   getManualFieldFinishReason,
   getQueueStateExplanation,
+  buildQueueEntries,
   getVerifiedExternalWriteRecoveryText,
   applicationNeedsPrimaryRecovery,
   MANUAL_FIELD_CONFLICT_REASON,
@@ -246,6 +248,7 @@ describe("getQueueStateExplanation", () => {
     skippedJobCount: 0,
     failedJobCount: 0,
     completedJobCount: 0,
+    unfinishedJobCount: 3,
   };
 
   it("says a stop-rule pause will not continue and needs a fresh Prepare remaining jobs run", () => {
@@ -256,12 +259,23 @@ describe("getQueueStateExplanation", () => {
 
     expect(explanation).toContain("one of your safety limits was reached");
     expect(explanation).toContain("will not carry on by itself");
-    expect(explanation).toContain("nothing is waiting on your decision");
+    expect(explanation).toContain("Review the prepared sample in Safeguards");
     expect(explanation).toContain(
       "Use Prepare remaining jobs to finish the ones it did not get to",
     );
     // Unlike the consent pause, there is nothing to resolve to resume.
     expect(explanation).not.toContain("Needs you");
+  });
+
+  it("does not name Prepare remaining jobs when the stopped run has no unfinished work", () => {
+    const explanation = getQueueStateExplanation({
+      ...baseInput,
+      runState: "paused_for_user_review",
+      unfinishedJobCount: 0,
+      completedJobCount: 3,
+    });
+
+    expect(explanation).not.toContain("Prepare remaining jobs");
   });
 
   it("keeps the live consent pause framed as resumable", () => {
@@ -279,6 +293,31 @@ describe("getQueueStateExplanation", () => {
 
   it("returns no explanation when no run is selected", () => {
     expect(getQueueStateExplanation(null)).toBeNull();
+  });
+});
+
+describe("buildQueueEntries recovery population", () => {
+  it("keeps blocked jobs in Prepare remaining jobs", () => {
+    const entries = buildQueueEntries({
+      applicationRecords: [],
+      applyJobResults: [
+        {
+          id: "result_blocked",
+          runId: "run_blocked",
+          jobId: "job_blocked",
+          applicationRecordId: null,
+          state: "blocked",
+        },
+      ] as JobFinderWorkspaceSnapshot["applyJobResults"],
+      discoveryJobs: [],
+      selectedRun: {
+        id: "run_blocked",
+        jobIds: ["job_blocked"],
+      } as JobFinderWorkspaceSnapshot["applyRuns"][number],
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.includeInRecovery).toBe(true);
   });
 });
 
@@ -377,6 +416,26 @@ describe("manual field-finish helpers", () => {
       privacyReceipt: null,
     };
   }
+
+  it("routes a manual-navigation pause to the finish-yourself path", () => {
+    // The page offered no control Job Finder could press without risking a
+    // send. It used to end here with nothing to click.
+    const result = createResult({
+      summary: "Finish this application step yourself",
+      detail:
+        "Job Finder could not tell which control moves this application forward without sending it, so it stopped rather than guess. Open the application and finish this step yourself.",
+      blockerSummary:
+        "Job Finder stopped here because it could not tell which control is safe to press. Finish this application step yourself in the open application.",
+    });
+
+    expect(applyResultNeedsManualFieldFinish(result)).toBe(true);
+    expect(
+      applicationNeedsPrimaryRecovery({
+        lastAttemptState: "paused",
+        visibleApplyResult: result,
+      }),
+    ).toBe(true);
+  });
 
   it("detects conflicting prefilled fields and marks recovery as primary", () => {
     const result = createResult({
@@ -519,5 +578,26 @@ describe("manual field-finish helpers", () => {
 
     expect(applyResultNeedsResumeAttachment(result)).toBe(true);
     expect(applyResultNeedsManualFieldFinish(result)).toBe(false);
+  });
+});
+
+describe("blocked-attempt diagnostics", () => {
+  const stopText =
+    "Job Finder blocked a background page request before it could continue preparing this application. Review the application in the browser; no submission was made. Blocked: xhr POST https://example.test/cdn-cgi/rum?req=1.";
+
+  it("leads with the plain sentence and keeps the request line for a disclosure", () => {
+    expect(getCustomerFacingApplyText(stopText)).toBe(
+      "Job Finder blocked a background page request before it could continue preparing this application. Review the application in the browser; no submission was made.",
+    );
+    expect(getApplyBlockedAttemptDetail(stopText)).toBe(
+      "Blocked: xhr POST https://example.test/cdn-cgi/rum?req=1.",
+    );
+  });
+
+  it("leaves text without a recorded attempt untouched", () => {
+    expect(getCustomerFacingApplyText("This page needs a human.")).toBe(
+      "This page needs a human.",
+    );
+    expect(getApplyBlockedAttemptDetail("This page needs a human.")).toBeNull();
   });
 });

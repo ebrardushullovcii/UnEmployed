@@ -85,7 +85,7 @@ export function buildCopilotStarterQuestion(
   }
 
   if (item.target.domain === "work_eligibility") {
-    return "Which countries can you work in, and do you want remote, hybrid, or onsite roles?";
+    return "Which countries can you work in, and do you want remote, hybrid, onsite, or flexible roles?";
   }
 
   if (item.target.domain === "narrative") {

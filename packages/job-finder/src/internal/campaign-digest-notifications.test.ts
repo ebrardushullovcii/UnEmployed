@@ -15,6 +15,7 @@ import {
   STRONG_MATCH_MIN_SCORE,
   buildCampaignDigest,
   deriveCampaignNotifications,
+  describeJobSourceWorkTitle,
   listFailedSources,
   markAllCampaignNotificationsRead,
   markCampaignNotificationRead,
@@ -102,6 +103,53 @@ describe("buildCampaignDigest", () => {
     });
   });
 
+  test("carries the run's frozen report so a plan card needs no run record", () => {
+    const report = {
+      version: 1 as const,
+      measuredAt: "2026-07-31T10:30:00.000Z",
+      found: 50,
+      new: 50,
+      saved: 50,
+      retained: 15,
+      worthOpening: 0,
+      duplicates: 0,
+    };
+    const digest = buildCampaignDigest({
+      campaignId: "campaign-1",
+      run: createRun({
+        summary: { changeDigest: { new: 100, known: 0, skipped: 0 } },
+      }),
+      report,
+    });
+
+    // The digest's change tally and the run's own accounting are different
+    // populations; the card must print the run's, not a second number.
+    expect(digest?.counts.new).toBe(100);
+    expect(digest?.report).toEqual(report);
+  });
+
+  test("falls back to the report the run already froze", () => {
+    const digest = buildCampaignDigest({
+      campaignId: "campaign-1",
+      run: createRun({
+        summary: {
+          report: {
+            version: 1,
+            measuredAt: "2026-07-31T10:30:00.000Z",
+            found: 12,
+            new: 9,
+            saved: 9,
+            retained: 4,
+            worthOpening: 1,
+            duplicates: 3,
+          },
+        },
+      }),
+    });
+
+    expect(digest?.report?.retained).toBe(4);
+  });
+
   test("copies the aggregate change digest counts without fabricating", () => {
     const digest = buildCampaignDigest({
       campaignId: "campaign-1",
@@ -181,6 +229,7 @@ describe("buildCampaignDigest", () => {
         retryable: false,
       },
     ]);
+    expect(digest?.sourceOutcome).toEqual({ completed: 1, planned: 2 });
   });
 
   test("falls back to the run completion time for failed sources without target timestamps", () => {
@@ -651,7 +700,7 @@ describe("deriveCampaignNotifications", () => {
     expect(notifications[0]).toMatchObject({
       kind: "blocked_work",
       id: "n_campaign-1_failed_run_2026-07-31T11:00:00.000Z",
-      title: "Failed: Scheduled campaign run",
+      title: "Failed: Scheduled search plan run",
       body: "The scheduled run failed after two attempts.",
       jobId: null,
     });
@@ -922,5 +971,27 @@ describe("markAllCampaignNotificationsRead", () => {
 
     expect(marked).toEqual(notifications);
     expect(marked[0]?.unread).toBe(true);
+  });
+});
+
+describe("describeJobSourceWorkTitle", () => {
+  const targets = [
+    { id: "target_tzhl5nit", label: "RemoteOK" },
+    { id: "target_blank", label: "   " },
+  ];
+
+  test("names a source by the label the user saved", () => {
+    expect(describeJobSourceWorkTitle("target_tzhl5nit", targets)).toBe(
+      "Job source RemoteOK",
+    );
+  });
+
+  test("never shows the internal id when the label is gone", () => {
+    expect(describeJobSourceWorkTitle("target_removed", targets)).toBe(
+      "A job source",
+    );
+    expect(describeJobSourceWorkTitle("target_blank", targets)).toBe(
+      "A job source",
+    );
   });
 });

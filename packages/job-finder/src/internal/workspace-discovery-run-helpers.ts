@@ -1,11 +1,13 @@
 import {
   DiscoveryRunRecordSchema,
+  DiscoveryRunReportSchema,
   DiscoveryTimingSummarySchema,
   DISCOVERY_RUN_JOB_BUDGET_MAX,
   browserRunWaitReasonValues,
   discoveryActivityStageValues,
   type DiscoveryActivityEvent,
   type DiscoveryRunRecord,
+  type DiscoveryRunReport,
   type DiscoveryTargetExecution,
 } from "@unemployed/contracts";
 
@@ -144,9 +146,12 @@ function summarizeTargetExecutions(
     },
   );
   const sourceHealth = targetExecutions.map((execution) => {
+    // A source that completed with nothing to show is not healthy, warning or
+    // not: reporting it as healthy is what let Home call a search that found
+    // no jobs anywhere "Completed" with every source green.
     const health =
       execution.state === "completed"
-        ? execution.warning
+        ? execution.jobsFound + execution.duplicatesMerged === 0
           ? "warning"
           : "healthy"
         : execution.state === "failed"
@@ -230,6 +235,74 @@ export function finalizeRunningTargetExecutions(
   return nextRun;
 }
 
+/**
+ * Freezes the run's own accounting the moment the pipeline stops.
+ *
+ * Everything here comes from the run's own execution ledger, never from
+ * current workspace inventory, so reloading the app or pruning jobs later
+ * cannot change what this run reports. Retention is decided by the search
+ * plan, so `retained`/`worthOpening` stay null for a plan-owned run until
+ * its terminal commit fills them in; a run with no plan retains everything
+ * it saved and says so here.
+ */
+export function buildDiscoveryRunReport(
+  run: DiscoveryRunRecord,
+  measuredAt: string,
+): DiscoveryRunReport {
+  const reviewed = run.targetExecutions.reduce(
+    (total, execution) => total + execution.jobsReviewed,
+    0,
+  );
+  const saved = run.summary.jobsPersisted + run.summary.jobsStaged;
+  const duplicates = run.summary.duplicatesMerged;
+  // Legacy and checkpoint-only executions can report no reviewed volume at
+  // all. Claiming fewer listings reviewed than the run demonstrably merged
+  // would be its own contradiction, so the merged population is the floor.
+  const found = Math.max(reviewed, run.summary.validJobsFound + duplicates);
+
+  return DiscoveryRunReportSchema.parse({
+    version: 1,
+    measuredAt,
+    found,
+    new: run.summary.validJobsFound,
+    saved,
+    retained: run.campaignId === null ? saved : null,
+    worthOpening: null,
+    duplicates,
+  });
+}
+
+/**
+ * Completes a frozen report with the retention facts only the search plan's
+ * terminal commit knows. Nothing else in the report is recomputed: the run's
+ * own reviewed/new/saved counts stay exactly as the pipeline froze them.
+ */
+export function applyDiscoveryRunRetentionCounts(
+  run: DiscoveryRunRecord,
+  counts: {
+    measuredAt: string;
+    new?: number;
+    retained: number;
+    worthOpening: number;
+  },
+): DiscoveryRunRecord {
+  const report =
+    run.summary.report ?? buildDiscoveryRunReport(run, counts.measuredAt);
+
+  return DiscoveryRunRecordSchema.parse({
+    ...run,
+    summary: {
+      ...run.summary,
+      report: DiscoveryRunReportSchema.parse({
+        ...report,
+        new: counts.new ?? report.new,
+        retained: counts.retained,
+        worthOpening: counts.worthOpening,
+      }),
+    },
+  });
+}
+
 export function finalizeDiscoveryRun(
   run: DiscoveryRunRecord,
   state: "completed" | "cancelled" | "failed",
@@ -248,6 +321,7 @@ export function finalizeDiscoveryRun(
         run.startedAt,
         completedAt,
       ),
+      report: buildDiscoveryRunReport(run, completedAt),
     },
   });
 }

@@ -26,6 +26,115 @@ export interface CopilotPanelSizeLimits {
   maxWidth: number;
 }
 
+/**
+ * Narrowest the open panel may become while still reading as a conversation.
+ * Below this it is squeezed rather than usable, so the panel keeps its normal
+ * width and floats instead.
+ */
+export const COPILOT_PANEL_MIN_WIDTH = 288;
+
+/** Breathing room between the edited column and the panel beside it. */
+export const COPILOT_CONTENT_COLUMN_GAP = 16;
+
+/**
+ * How wide the open panel may be without landing on the fields it is talking
+ * about.
+ *
+ * The panel floats on the right while the profile's field column runs
+ * underneath it, so it sliced the last-name field in half and hid the
+ * headline field entirely. When the space beside the column can hold a usable
+ * panel, the panel is sized to that space and its right-hand dock keeps it
+ * clear of every field. When it cannot, the panel keeps its normal width: a
+ * 120px sliver would hide the conversation instead of the form.
+ */
+export function getCopilotOpenPanelMaxWidth(input: {
+  contentColumnRight: number | null;
+  maxWidth: number;
+  viewportWidth: number;
+}): number {
+  const columnRight = input.contentColumnRight;
+  if (
+    columnRight === null ||
+    !Number.isFinite(columnRight) ||
+    columnRight <= 0 ||
+    !Number.isFinite(input.viewportWidth) ||
+    input.viewportWidth <= 0
+  ) {
+    return input.maxWidth;
+  }
+
+  const freeWidth = Math.floor(
+    input.viewportWidth -
+      getCopilotViewportInset(input.viewportWidth) -
+      COPILOT_CONTENT_COLUMN_GAP -
+      columnRight,
+  );
+
+  if (freeWidth >= input.maxWidth) {
+    return input.maxWidth;
+  }
+
+  return freeWidth >= COPILOT_PANEL_MIN_WIDTH ? freeWidth : input.maxWidth;
+}
+
+/**
+ * How much width the edited column must give up so the open panel can dock
+ * beside it instead of on top of it.
+ *
+ * {@link getCopilotOpenPanelMaxWidth} shrinks the panel into whatever space is
+ * already free, and when that space cannot hold a readable conversation it
+ * gives up and lets the panel float over the form — which is exactly the case
+ * the panel finding reported: "the 'Kim' last-name field is sliced in half and
+ * the HEADLINE field is hidden entirely". Sizing alone cannot fix that; the
+ * layout has to reserve the room. This returns the reservation in pixels: 0
+ * whenever the panel is closed, the window is a phone-width sheet, or the
+ * space beside the column is already enough.
+ */
+export function getCopilotReservedColumnWidth(input: {
+  contentColumnRight: number | null;
+  isOpen: boolean;
+  maxWidth: number;
+  viewportWidth: number;
+}): number {
+  if (
+    !input.isOpen ||
+    !Number.isFinite(input.viewportWidth) ||
+    input.viewportWidth < COPILOT_MOBILE_BREAKPOINT
+  ) {
+    return 0;
+  }
+
+  const columnRight = input.contentColumnRight;
+  if (
+    columnRight === null ||
+    !Number.isFinite(columnRight) ||
+    columnRight <= 0
+  ) {
+    return 0;
+  }
+
+  const freeWidth = Math.floor(
+    input.viewportWidth -
+      getCopilotViewportInset(input.viewportWidth) -
+      COPILOT_CONTENT_COLUMN_GAP -
+      columnRight,
+  );
+  const wantedWidth = Math.max(
+    COPILOT_PANEL_MIN_WIDTH,
+    Math.min(input.maxWidth, COPILOT_PANEL_MIN_WIDTH),
+  );
+
+  if (freeWidth >= wantedWidth) {
+    return 0;
+  }
+
+  // Never reserve more than the column can spare: on a genuinely tiny window
+  // the panel is a sheet and this returns 0 above, but a mid-width window must
+  // still be left with a usable form.
+  const reservation = wantedWidth - Math.max(0, freeWidth);
+  return Math.max(0, Math.min(reservation, Math.floor(columnRight / 2)));
+}
+
 function resolveCopilotPanelSizeLimits(
   panelSizeLimits?: CopilotPanelSizeLimits,
 ): CopilotPanelSizeLimits {

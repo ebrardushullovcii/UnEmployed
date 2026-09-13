@@ -1,6 +1,7 @@
 import type {
   DiscoveryRunRecord,
   EditableSourceInstructionArtifact,
+  ResumeApplicationMode,
   SourceAccessPrompt,
   SourceDebugRunDetails,
   SourceDebugRunRecord,
@@ -43,7 +44,10 @@ interface ProfileActiveSectionContentProps {
   onGetSourceDebugRunDetails: (runId: string) => Promise<SourceDebugRunDetails>;
   onOpenBrowserSessionForTarget: (targetId: string) => void;
   onRunDiscoveryForTarget?: (targetId: string) => void;
-  onRunSourceDebug: (targetId: string) => void;
+  onRunSourceDebug: (
+    targetId: string,
+    options?: { readabilityTimeoutMs?: number },
+  ) => void;
   onSaveSourceInstructionArtifact: (
     targetId: string,
     artifact: EditableSourceInstructionArtifact,
@@ -51,6 +55,9 @@ interface ProfileActiveSectionContentProps {
   onVerifySourceInstructions: (targetId: string, instructionId: string) => void;
   preferencesForm: UseFormReturn<SearchPreferencesEditorValues>;
   profileForm: UseFormReturn<ProfileEditorValues>;
+  /** The saved application default, so Preferences can offer and change it. */
+  resumeApplicationMode?: ResumeApplicationMode;
+  onSelectResumeApplicationMode?: (mode: ResumeApplicationMode) => void;
   recentSourceDebugRuns: readonly SourceDebugRunRecord[];
   sourceAccessPrompts: readonly SourceAccessPrompt[];
   sourceInstructionArtifacts: readonly SourceInstructionArtifact[];
@@ -76,6 +83,8 @@ export function ProfileActiveSectionContent({
   onVerifySourceInstructions,
   preferencesForm,
   profileForm,
+  resumeApplicationMode,
+  onSelectResumeApplicationMode,
   recentSourceDebugRuns,
   sourceAccessPrompts,
   sourceInstructionArtifacts,
@@ -99,6 +108,10 @@ export function ProfileActiveSectionContent({
         busy={isProfileMutationPending}
         preferencesForm={preferencesForm}
         profileForm={profileForm}
+        {...(resumeApplicationMode ? { resumeApplicationMode } : {})}
+        {...(onSelectResumeApplicationMode
+          ? { onSelectResumeApplicationMode }
+          : {})}
         customAnswerArray={backgroundArrays.customAnswerArray}
       />
     ),

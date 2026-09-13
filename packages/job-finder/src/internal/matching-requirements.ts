@@ -3,6 +3,7 @@ import type {
   FitRecommendation,
   JobRequirementAssessment,
   JobRequirementImportance,
+  MatchLocationReach,
   ResumeRequirementEvidence,
 } from "@unemployed/contracts";
 
@@ -55,6 +56,13 @@ const technologySignals = [
   { label: "Cypress", aliases: ["cypress"] },
   { label: "Playwright", aliases: ["playwright"] },
 ] as const;
+
+/** Canonical technologies stated in listing or profile text. */
+export function collectTechnologySignals(value: string): string[] {
+  return technologySignals
+    .filter((technology) => containsPhrase(value, technology.aliases))
+    .map((technology) => technology.label);
+}
 
 const preferredMarkers = /\b(?:nice to have|preferred|ideally|bonus|plus)\b/iu;
 const requiredMarkers =
@@ -191,6 +199,16 @@ function decodeJobMarkup(value: string): string {
 function splitJobEvidence(value: string, minimumLength = 8): string[] {
   return uniqueStrings(
     decodeJobMarkup(value)
+      // Compact browser extraction can flatten headings and bullets into one
+      // line. Restore those generic semantic boundaries before requirement
+      // classification so "Candidate Requirements: - ..." is not treated as
+      // an undifferentiated introductory paragraph.
+      .replace(
+        /\s+(?=(?:candidate requirements?|requirements?|minimum qualifications?|preferred qualifications?|nice to have|what you(?:'ll| will) do|what you should bring|who you are)\s*[:：])/giu,
+        "\n",
+      )
+      .replace(/\s*[:：]\s*-\s+/gu, ":\n")
+      .replace(/\s+-\s+(?=[A-Z0-9])/gu, "\n")
       .split(/\r?\n|(?<=[.!?])\s+(?=[A-Z0-9])/u)
       .map((part) => part.replace(/\s+/gu, " ").trim())
       .filter(
@@ -733,6 +751,16 @@ export function buildRequirementEvidenceAssessment(input: {
   hasLocationPreferences: boolean;
   hasWorkModePreferences: boolean;
   /**
+   * Where the listing stands against the saved areas. Only `outside_area`
+   * means the job genuinely cannot be done from a saved area, so it is the
+   * only reach that can turn a location miss into a blocker.
+   */
+  locationReach?: MatchLocationReach | undefined;
+  /** The saved search rules exclude this listing's stated location. */
+  locationExcluded?: boolean | undefined;
+  /** The saved search rules exclude every work mode this listing states. */
+  workModeExcluded?: boolean | undefined;
+  /**
    * Saved target roles, used only as extra career-stage evidence about the
    * candidate. Omitted by callers that have no saved preferences; the
    * career-stage requirement then falls back to the profile alone.
@@ -1146,12 +1174,21 @@ export function buildRequirementEvidenceAssessment(input: {
   );
 
   if (input.hasLocationPreferences) {
+    // A saved area is a preference, not a rule the listing broke. Being
+    // outside it sinks the listing through the score; it may only block the
+    // listing when the person ruled the place out themselves, or when the job
+    // cannot be done from any saved area at all (on site, elsewhere, and
+    // relocation ruled out). Anything else stays a "check this" row, so a
+    // wanted job is never thrown out for sitting one city over.
+    const locationUnreachable =
+      input.locationReach === "outside_area" &&
+      profile.workEligibility.willingToRelocate === false;
     const locationStatus: JobRequirementAssessment["status"] =
       input.locationCompatibility === "compatible"
         ? "supported"
         : input.locationCompatibility === "unknown"
           ? "unknown"
-          : profile.workEligibility.willingToRelocate === false
+          : input.locationExcluded === true || locationUnreachable
             ? "conflict"
             : "unknown";
     // A stored absence placeholder ("Location not stated") is not a stated
@@ -1169,9 +1206,11 @@ export function buildRequirementEvidenceAssessment(input: {
           ? statedLocation
             ? "The listing does not specify enough geographic detail to verify it against the saved search areas."
             : "The listing does not state a location, so it could not be compared with the saved search areas."
-          : profile.workEligibility.willingToRelocate === false
-            ? "The listing location is outside the saved search area and the profile rules out relocation."
-            : "The listing location is outside the saved search area; relocation needs confirmation.";
+          : input.locationExcluded === true
+            ? "The listing location is one you asked the search to leave out."
+            : locationUnreachable
+              ? "The listing is on site outside the saved search area and the profile rules out relocation."
+              : "The listing location is outside the saved search area; relocation needs confirmation.";
     requirements.push({
       id: requirementId("location", statedLocation || "not stated"),
       category: "location",
@@ -1215,9 +1254,15 @@ export function buildRequirementEvidenceAssessment(input: {
 
   if (input.hasWorkModePreferences && posting.workMode.length > 0) {
     const isRemotePosting = posting.workMode.includes("remote");
+    // A work mode the person did not tick is a preference miss, not a
+    // blocker: the score already sinks it. Only a mode they explicitly ruled
+    // out can throw the listing away, so ticking hybrid can never be the
+    // reason a hybrid job is skipped.
     const workModeStatus =
       input.workModeCompatibility === "conflict"
-        ? "conflict"
+        ? input.workModeExcluded === true
+          ? "conflict"
+          : "missing"
         : input.workModeCompatibility === "unknown"
           ? "unknown"
           : isRemotePosting && profile.workEligibility.remoteEligible === false
@@ -1249,7 +1294,9 @@ export function buildRequirementEvidenceAssessment(input: {
       ],
       explanation:
         input.workModeCompatibility === "conflict"
-          ? "The listing work mode conflicts with the saved preference."
+          ? input.workModeExcluded === true
+            ? "You asked the search to leave this work mode out."
+            : "The listing work mode is not one you ticked, so it ranks lower rather than being thrown out."
           : input.workModeCompatibility === "unknown"
             ? "The listing does not state a concrete work mode, so it cannot be verified against the saved preference."
             : isRemotePosting && profile.workEligibility.remoteEligible === null

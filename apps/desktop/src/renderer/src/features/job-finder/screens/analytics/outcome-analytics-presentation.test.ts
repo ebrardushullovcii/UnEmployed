@@ -5,6 +5,7 @@ import {
   type OutcomeEvent,
   OutcomeEventSchema,
 } from "@unemployed/contracts";
+import { UNNAMED_JOB_SOURCE_NAME } from "../../lib/job-source-display-name";
 import {
   OUTCOME_VIEW_MINIMUM_SAMPLE_FOR_CONFIDENCE,
   OUTCOME_VIEW_MINIMUM_SAMPLE_FOR_RATES,
@@ -333,12 +334,14 @@ describe("deriveCampaignScopedOutcomeAnalytics", () => {
           id === "strategy-1" ? "SWE generalist" : null,
       }),
     ).toBe("SWE generalist");
+    // A source bucket is keyed by the stored source value; the screen shows a
+    // plain name for it and never the stored value itself.
     expect(
       bucketDisplayLabel(sourceBucket, {
         campaignName: () => null,
         resumeStrategyName: () => null,
       }),
-    ).toBe("example");
+    ).toBe(UNNAMED_JOB_SOURCE_NAME);
   });
 
   it("exposes stable dimension labels", () => {

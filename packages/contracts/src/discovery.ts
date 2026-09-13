@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  DiscoveryRunReportSchema,
   ApplicationAttemptStateSchema,
   ApplicationEventEmphasisSchema,
   ApplicationStatusSchema,
@@ -44,7 +45,11 @@ import {
   SourceInstructionArtifactSchema,
 } from "./source-debug";
 import { SharedAgentCompactionSnapshotSchema } from "./agent-compaction";
-import { UserActionRequestKindSchema } from "./user-action";
+import {
+  DiscoveryAccessBlockerReasonSchema,
+  ParkedBrowserTabReferenceSchema,
+  UserActionRequestKindSchema,
+} from "./user-action";
 import { ResumeExportFormatSchema } from "./resume";
 import {
   BrowserVisualEvidenceSummarySchema,
@@ -205,6 +210,44 @@ export const CompensationPreferenceSchema =
 export type CompensationPreference = z.infer<
   typeof CompensationPreferenceSchema
 >;
+
+/**
+ * Applies a partial compensation change and keeps the currency status
+ * consistent with the currency that results: naming a currency sets it, and
+ * clearing it puts the currency back to awaiting clarification. Only a status
+ * supplied by the caller overrides that.
+ *
+ * Merging a change straight onto the stored preference used to fail schema
+ * validation whenever the stored status still said the currency was awaiting
+ * clarification, so the first change that named a currency could never save.
+ */
+export function applyCompensationPreferenceChange(
+  current: CompensationPreference,
+  change: {
+    [Field in keyof CompensationPreference]?:
+      | CompensationPreference[Field]
+      | undefined;
+  },
+): CompensationPreference {
+  const merged = { ...current, ...change };
+  const requestedStatus =
+    change.currencyStatus ??
+    (change.currency === undefined
+      ? merged.currencyStatus
+      : merged.currency === null
+        ? "needs_clarification"
+        : "explicit");
+  const currencyStatus =
+    merged.currency === null
+      ? requestedStatus === "explicit"
+        ? "needs_clarification"
+        : requestedStatus
+      : requestedStatus === "needs_clarification"
+        ? "explicit"
+        : requestedStatus;
+
+  return CompensationPreferenceSchema.parse({ ...merged, currencyStatus });
+}
 
 export const JobSearchPreferencesObjectSchema = z.object({
   targetRoles: z.array(NonEmptyStringSchema).default([]),
@@ -561,12 +604,60 @@ export type MatchDimensionsAssessment = z.infer<
   typeof MatchDimensionsAssessmentSchema
 >;
 
+export const matchLocationReachValues = [
+  "in_area",
+  "remote_preferred",
+  "outside_area",
+  "unknown",
+] as const;
+export const MatchLocationReachSchema = z.enum(matchLocationReachValues);
+/**
+ * Where the listing sits against the saved areas, kept beside the score so
+ * ordering can hold one promise the score alone cannot: a role that is on site
+ * and outside the saved areas never outranks an in-area or remote role of the
+ * same title fit. `unknown` covers "no saved area", "no stated geography", and
+ * every assessment recorded before this field existed.
+ */
+export type MatchLocationReach = z.infer<typeof MatchLocationReachSchema>;
+
+export const titleFamilyMatchValues = [
+  "same_family",
+  "adjacent",
+  "unrelated",
+] as const;
+export const TitleFamilyMatchSchema = z.enum(titleFamilyMatchValues);
+/**
+ * How the listing's own job title sits against the saved target roles,
+ * independent of any score.
+ *
+ * A role in the same occupational family as a saved target is a result the
+ * person asked for even when nothing else about the listing could be read, so
+ * it must never be demoted purely for the absence of a number. `null` means
+ * the question was not asked — every assessment recorded before this field
+ * existed — and is never read as "unrelated".
+ */
+export type TitleFamilyMatch = z.infer<typeof TitleFamilyMatchSchema>;
+
 export const MatchAssessmentSchema = z.object({
   scorerVersion: z.number().int().positive().default(1),
   contextFingerprint: NonEmptyStringSchema.nullable().default(null),
   postingFingerprint: NonEmptyStringSchema.nullable().default(null),
   score: z.number().int().min(0).max(100),
+  /**
+   * The score was held down to a ceiling by an unresolved gap rather than
+   * measured. Several unrelated listings can legitimately land on the same
+   * ceiling, so the screen must present the number as "up to", never as a
+   * comparison between two jobs. Defaults false so assessments recorded
+   * before this field existed keep their plain reading.
+   */
+  scoreIsUpperBound: z.boolean().default(false),
   compensationFit: CompensationFitAssessmentSchema.default({}),
+  locationReach: MatchLocationReachSchema.default("unknown"),
+  // Optional rather than defaulted: an assessment that never asked the
+  // question must be distinguishable from one that asked and found no
+  // relation, and every assessment recorded before this field existed is in
+  // the first group. Read it as "not asked" when it is absent.
+  titleFamilyMatch: TitleFamilyMatchSchema.nullable().optional(),
   dimensions: MatchDimensionsAssessmentSchema.default({}),
   reasons: z.array(NonEmptyStringSchema).default([]),
   gaps: z.array(NonEmptyStringSchema).default([]),
@@ -839,6 +930,41 @@ export const ListingDetailFetchSchema = z.object({
 });
 export type ListingDetailFetch = z.infer<typeof ListingDetailFetchSchema>;
 
+/**
+ * The single answer to "does this job have its own listing text?".
+ *
+ * Three states, and only three, so the score panel, the row caption and the
+ * run report cannot each invent their own reading of the same job:
+ *
+ * - `captured`  — the listing body was read and is what the job was scored on;
+ * - `blocked`   — a read was attempted and the page did not yield a body
+ *                 (signed-in wall, no description published, unreachable,
+ *                 nothing readable at that address). `listingDetailFetch`
+ *                 keeps which of those it was;
+ * - `not_attempted` — no read has been made yet, so nothing may be said
+ *                 about what the page holds.
+ *
+ * `textHash` fingerprints the captured body so a later run can tell "the same
+ * text again" from "the listing was rewritten" without storing a second copy.
+ */
+export const listingDetailCaptureStateValues = [
+  "captured",
+  "blocked",
+  "not_attempted",
+] as const;
+export const ListingDetailCaptureStateSchema = z.enum(
+  listingDetailCaptureStateValues,
+);
+export type ListingDetailCaptureState = z.infer<
+  typeof ListingDetailCaptureStateSchema
+>;
+
+export const ListingDetailCaptureSchema = z.object({
+  state: ListingDetailCaptureStateSchema.default("not_attempted"),
+  textHash: NonEmptyStringSchema.nullable().default(null),
+});
+export type ListingDetailCapture = z.infer<typeof ListingDetailCaptureSchema>;
+
 export const JobPostingSchema = z.object({
   source: JobSourceSchema,
   sourceJobId: NonEmptyStringSchema,
@@ -864,6 +990,11 @@ export const JobPostingSchema = z.object({
   normalizedCompensation: NormalizedCompensationSchema.default({}),
   detailQuality: JobPostingDetailQualitySchema.default("card_only"),
   listingDetailFetch: ListingDetailFetchSchema.nullable().default(null),
+  // Optional so that every posting written before this field existed stays
+  // valid and is re-derived on read rather than silently defaulting to a
+  // claim about what was tried. `deriveListingDetailCapture` is the one rule
+  // for both writing and re-deriving it.
+  listingDetailCapture: ListingDetailCaptureSchema.optional(),
   summary: NonEmptyStringSchema.nullable().default(null),
   description: NonEmptyStringSchema,
   keySkills: z.array(NonEmptyStringSchema).default([]),
@@ -981,6 +1112,65 @@ export function assessJobPostingDetailQuality(
   }
 
   return "card_only";
+}
+
+/**
+ * A short, stable fingerprint of a captured listing body.
+ *
+ * Deliberately not a cryptographic digest: nothing here is a security claim,
+ * it has to run in the renderer as well as the main process, and it must not
+ * pull a Node-only module into a shared contract. Whitespace and case are
+ * normalized first so a re-read of an unchanged page fingerprints identically.
+ */
+export function hashListingText(value: string): string | null {
+  const normalized = value.replace(/\s+/gu, " ").trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  // FNV-1a, 32 bit. `Math.imul` keeps the multiply exact at 32 bits.
+  let digest = 0x811c9dc5;
+  for (let index = 0; index < normalized.length; index += 1) {
+    digest ^= normalized.charCodeAt(index);
+    digest = Math.imul(digest, 0x01000193);
+  }
+  return `${normalized.length.toString(36)}-${(digest >>> 0).toString(36)}`;
+}
+
+/**
+ * The one classification of "does this job have its own listing text?".
+ *
+ * Both the browser workflow that collects postings and the orchestration that
+ * persists them call this, so the capture state a run records and the state a
+ * screen reads back are the same rule applied to the same fields.
+ */
+export function deriveListingDetailCapture(input: {
+  description: string;
+  detailQuality: JobPostingDetailQuality;
+  listingDetailFetch: ListingDetailFetch | null;
+}): ListingDetailCapture {
+  if (input.detailQuality !== "card_only") {
+    return {
+      state: "captured",
+      textHash: hashListingText(input.description),
+    };
+  }
+
+  const outcome = input.listingDetailFetch?.outcome ?? null;
+  if (outcome === "enriched" || outcome === "partial") {
+    return {
+      state: "captured",
+      textHash: hashListingText(input.description),
+    };
+  }
+
+  // Every other recorded outcome is a read that happened and produced no
+  // body. The reason stays on `listingDetailFetch`; the state only says the
+  // product tried and cannot score on the listing's own words.
+  if (outcome) {
+    return { state: "blocked", textHash: null };
+  }
+
+  return { state: "not_attempted", textHash: null };
 }
 
 /**
@@ -1174,6 +1364,8 @@ export type DiscoveryLedgerEntry = z.infer<typeof DiscoveryLedgerEntrySchema>;
 
 export type SavedJob = JobPosting & {
   id: string;
+  /** Search plans that currently retain this shared global job row. */
+  campaignIds?: string[];
   status: z.infer<typeof ApplicationStatusSchema>;
   matchAssessment: MatchAssessment;
   provenance: SavedJobDiscoveryProvenance[];
@@ -1183,6 +1375,7 @@ export type SavedJob = JobPosting & {
 };
 type SavedJobInput = z.input<typeof JobPostingSchema> & {
   id: string;
+  campaignIds?: string[] | undefined;
   status: z.input<typeof ApplicationStatusSchema>;
   matchAssessment: z.input<typeof MatchAssessmentSchema>;
   provenance?: z.input<typeof SavedJobDiscoveryProvenanceSchema>[] | undefined;
@@ -1203,6 +1396,7 @@ type SavedJobInput = z.input<typeof JobPostingSchema> & {
 export const SavedJobSchema: z.ZodType<SavedJob, z.ZodTypeDef, SavedJobInput> =
   JobPostingSchema.extend({
     id: NonEmptyStringSchema,
+    campaignIds: z.array(NonEmptyStringSchema).default([]),
     status: ApplicationStatusSchema,
     matchAssessment: MatchAssessmentSchema,
     provenance: z.array(SavedJobDiscoveryProvenanceSchema).default([]),
@@ -1750,6 +1944,9 @@ export const DiscoveryAgentMetadataSchema = z.object({
   phaseCompletionReason: NonEmptyStringSchema.nullable().default(null),
   phaseEvidence: SourceDebugPhaseEvidenceSchema.nullable().default(null),
   debugFindings: AgentDebugFindingsSchema.nullable().default(null),
+  accessBlockerReason:
+    DiscoveryAccessBlockerReasonSchema.nullable().optional(),
+  parkedTab: ParkedBrowserTabReferenceSchema.nullable().optional(),
 });
 export type DiscoveryAgentMetadata = z.infer<
   typeof DiscoveryAgentMetadataSchema
@@ -1905,6 +2102,9 @@ export const DiscoveryTargetExecutionSchema = z.object({
   invalidSkipped: z.number().int().nonnegative().default(0),
   changeDigest: DiscoveryChangeDigestSchema.default({}),
   warning: NonEmptyStringSchema.nullable().default(null),
+  accessBlockerReason:
+    DiscoveryAccessBlockerReasonSchema.nullable().optional(),
+  parkedTab: ParkedBrowserTabReferenceSchema.nullable().optional(),
   compactionState: SharedAgentCompactionSnapshotSchema.nullable().default(null),
   compactionUsedFallbackTrigger: z.boolean().default(false),
   timing: DiscoveryTimingSummarySchema.nullable().default(null),
@@ -2035,6 +2235,7 @@ export function appendDiscoveryLiveActivityEvent(
   );
 }
 
+
 export const DiscoveryRunSummarySchema = z.object({
   targetsPlanned: z.number().int().nonnegative().default(0),
   targetsCompleted: z.number().int().nonnegative().default(0),
@@ -2052,13 +2253,43 @@ export const DiscoveryRunSummarySchema = z.object({
   outcome: DiscoveryRunStateSchema.default("idle"),
   browserCloseout: BrowserRunCloseoutSchema.nullable().default(null),
   timing: DiscoveryTimingSummarySchema.nullable().default(null),
+  /**
+   * The frozen run accounting every surface reads. Null for runs recorded
+   * before the report existed and for runs still in flight.
+   */
+  report: DiscoveryRunReportSchema.nullable().default(null),
 });
 export type DiscoveryRunSummary = z.infer<typeof DiscoveryRunSummarySchema>;
+
+/**
+ * How far a search run got, independent of why it ended.
+ *
+ * A run that was still scoring results when the app closed used to leave only
+ * `state: "running"` behind. On the next start the app said "50 new jobs
+ * saved" about work it had dropped, then "Nothing was deleted" over a list of
+ * 15. The phase is the durable fact a screen can read: results land as they
+ * are scored, an interrupted run says so and names what it kept, and a
+ * complete run is complete.
+ */
+export const discoveryRunPhaseValues = [
+  "in_progress",
+  "interrupted",
+  "complete",
+] as const;
+export const DiscoveryRunPhaseSchema = z.enum(discoveryRunPhaseValues);
+export type DiscoveryRunPhase = z.infer<typeof DiscoveryRunPhaseSchema>;
 
 export const DiscoveryRunRecordSchema = z.object({
   id: NonEmptyStringSchema,
   campaignId: NonEmptyStringSchema.nullable().default(null),
   state: DiscoveryRunStateSchema,
+  /**
+   * Null for runs recorded before the phase existed; read it through
+   * {@link getDiscoveryRunPhase}, which derives the honest value from the
+   * run state instead of guessing "complete" for everything.
+   */
+  runPhase: DiscoveryRunPhaseSchema.nullable().default(null),
+  cancellationRequestedAt: IsoDateTimeSchema.nullable().optional(),
   scope: DiscoveryRunScopeSchema.default("run_all"),
   startedAt: IsoDateTimeSchema,
   completedAt: IsoDateTimeSchema.nullable().default(null),
@@ -2068,6 +2299,100 @@ export const DiscoveryRunRecordSchema = z.object({
   summary: DiscoveryRunSummarySchema.default({}),
 });
 export type DiscoveryRunRecord = z.infer<typeof DiscoveryRunRecordSchema>;
+
+/**
+ * The run's phase, deriving an honest value for records written before the
+ * field existed: a run still marked running is in progress, and any terminal
+ * state is complete. It never invents "interrupted"; only recovery, which
+ * actually observed the interruption, writes that.
+ */
+export function getDiscoveryRunPhase(
+  run: Pick<DiscoveryRunRecord, "runPhase" | "state">,
+): DiscoveryRunPhase {
+  if (run.runPhase !== null) return run.runPhase;
+  return run.state === "running" || run.state === "idle"
+    ? "in_progress"
+    : "complete";
+}
+
+/**
+ * What the app says about a run the close interrupted, and what it kept.
+ *
+ * The counts come from the run's own frozen report, never recomputed from
+ * current inventory: quoting the report is the whole point, since recomputing
+ * is what produced three different answers for one search.
+ */
+export function describeInterruptedDiscoveryRun(
+  run: Pick<DiscoveryRunRecord, "summary">,
+): string {
+  const saved = run.summary.report?.saved ?? null;
+  if (saved === null) {
+    return "This search stopped when the app closed. Everything it had saved before then was kept; the rest of the search did not run.";
+  }
+  return saved === 1
+    ? "This search stopped when the app closed. The 1 result it had already saved was kept; the rest of the search did not run."
+    : `This search stopped when the app closed. The ${saved} results it had already saved were kept; the rest of the search did not run.`;
+}
+
+/**
+ * Marks a run that was still in flight when the app closed.
+ *
+ * The state becomes `failed` because the run did not finish, but the phase
+ * says why, so a screen can distinguish "this search broke" from "this search
+ * was cut short and here is what survived". Runs that already reached a
+ * terminal state are returned untouched.
+ */
+export function recoverInterruptedDiscoveryRun(
+  run: DiscoveryRunRecord,
+  completedAt: string,
+): DiscoveryRunRecord | null {
+  if (getDiscoveryRunPhase(run) !== "in_progress") {
+    return null;
+  }
+
+  return DiscoveryRunRecordSchema.parse({
+    ...run,
+    state: "failed",
+    runPhase: "interrupted",
+    completedAt: run.completedAt ?? completedAt,
+    summary: {
+      ...run.summary,
+      outcome: "failed",
+      warnings: [
+        ...run.summary.warnings.filter(
+          (warning) => warning !== describeInterruptedDiscoveryRun(run),
+        ),
+        describeInterruptedDiscoveryRun(run),
+      ],
+    },
+  });
+}
+
+/**
+ * What the service says when a second search is asked for while one is still
+ * running (including while a Stop is still finishing). Plain user copy, shared
+ * so the renderer can recognise it and show "still stopping" instead of a
+ * failure.
+ */
+/**
+ * What the service says when background work is paused and something tried to
+ * start anyway. It names the control the person can actually press: the app
+ * has no "command center", it has a "Resume background work" button in the
+ * header of the Job Finder Home screen.
+ */
+export const ACTIVITY_PAUSED_MESSAGE =
+  "Browser and application activity is paused. Press Resume background work on the Job Finder Home screen before starting new work.";
+
+export const DISCOVERY_RUN_ALREADY_ACTIVE_MESSAGE =
+  "A search is already running for this plan.";
+
+/** Cancels the service-owned discovery run with this durable run identity. */
+export const JobFinderDiscoveryCancellationInputSchema = z
+  .object({ runId: NonEmptyStringSchema })
+  .strict();
+export type JobFinderDiscoveryCancellationInput = z.infer<
+  typeof JobFinderDiscoveryCancellationInputSchema
+>;
 
 export const ApplicationRecordSchema = z.object({
   id: NonEmptyStringSchema,
@@ -2165,6 +2490,13 @@ export const discoveryCompactObservationUnsupportedReasonValues = [
   "auth_required",
   "site_protection",
   "manual_step_required",
+  /**
+   * A full-page overlay stands between the reader and the listings — usually
+   * an upsell for a paid plan. The listings are not readable behind it and
+   * dismissing it is the reader's decision, so the run stops instead of
+   * spending itself on a page it cannot read.
+   */
+  "paid_plan_required",
   "navigation_failed",
 ] as const;
 export const DiscoveryCompactObservationUnsupportedReasonSchema = z.enum(

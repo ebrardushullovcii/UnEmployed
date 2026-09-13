@@ -155,9 +155,12 @@ describe("profile copilot commit concurrency", () => {
       messageId: null,
       patchGroupId: null,
       restoredFromRevisionId: null,
+      sequence: 1,
       snapshotProfile: seed.profile,
       snapshotSearchPreferences: seed.searchPreferences,
       snapshotProfileSetupState: seed.profileSetupState,
+      snapshotProfileAfter: null,
+      snapshotSearchPreferencesAfter: null,
     };
     await base.upsertProfileRevision(undoTarget);
     await base.saveProfile({
@@ -360,9 +363,12 @@ describe("profile copilot preference and sibling-flag races", () => {
       messageId: null,
       patchGroupId: null,
       restoredFromRevisionId: null,
+      sequence: 1,
       snapshotProfile: seed.profile,
       snapshotSearchPreferences: seed.searchPreferences,
       snapshotProfileSetupState: seed.profileSetupState,
+      snapshotProfileAfter: null,
+      snapshotSearchPreferencesAfter: null,
     };
     await base.upsertProfileRevision(undoTarget);
 

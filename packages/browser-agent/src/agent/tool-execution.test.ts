@@ -359,10 +359,10 @@ describe("seeded search query guard", () => {
     const state = createState();
     let pageUrl =
       "https://jobs.example.com/search?currentJobId=4400784689&geoId=GEO_ID&keywords=JOB_TITLE";
-    const goto = vi.fn<NonNullable<Page["goto"]>>(async () => {
+    const goto = vi.fn<NonNullable<Page["goto"]>>(() => {
       pageUrl =
         "https://jobs.example.com/search?currentJobId=4400784689&geoId=GEO_ID&keywords=JOB_TITLE";
-      return null;
+      return Promise.resolve(null);
     });
     const page: Partial<Page> = {
       goto,

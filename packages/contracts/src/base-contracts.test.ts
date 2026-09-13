@@ -17,6 +17,7 @@ import {
   WorkModeListSchema,
   annualizeCompensationAmount,
   applicationStatusValues,
+  isPreparedApplicationStatus,
   sourceAccessPromptStateValues,
 } from "./index";
 
@@ -24,6 +25,31 @@ describe("contracts base schemas", () => {
   test("supports the full application status list", () => {
     expect(applicationStatusValues).toContain("submitted");
     expect(ApplicationStatusSchema.parse("interview")).toBe("interview");
+  });
+
+  test("requires successful application-preparation evidence", () => {
+    expect(
+      isPreparedApplicationStatus({
+        status: "approved",
+        lastAttemptState: "failed",
+      }),
+    ).toBe(false);
+    expect(
+      isPreparedApplicationStatus({
+        status: "approved",
+        lastAttemptState: "paused",
+      }),
+    ).toBe(false);
+    expect(isPreparedApplicationStatus({ status: "approved" })).toBe(false);
+    expect(
+      isPreparedApplicationStatus({ status: "ready_for_review" }),
+    ).toBe(true);
+    expect(
+      isPreparedApplicationStatus({
+        status: "approved",
+        lastAttemptState: "ready",
+      }),
+    ).toBe(true);
   });
 
   test("parses staged apply foundation enums", () => {

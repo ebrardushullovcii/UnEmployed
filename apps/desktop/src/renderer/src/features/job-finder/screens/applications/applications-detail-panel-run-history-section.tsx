@@ -25,7 +25,7 @@ function RunHistoryEntry(props: {
     <button
       aria-pressed={isSelected}
       className={cn(
-        "grid w-full gap-1 rounded-(--radius-field) border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30",
+        "grid w-full min-w-0 gap-1 rounded-(--radius-field) border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/30",
         isSelected
           ? "border-primary bg-primary/8"
           : "border-(--surface-panel-border) bg-background/40 hover:bg-background/60",
@@ -34,8 +34,8 @@ function RunHistoryEntry(props: {
       title={result.runId}
       type="button"
     >
-      <span className="flex flex-wrap items-center justify-between gap-2">
-        <strong className="min-w-0 break-words text-(length:--text-field) text-foreground">
+      <span className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <strong className="min-w-0 break-words [overflow-wrap:anywhere] text-(length:--text-field) text-foreground">
           {run ? formatApplyRunModeLabel(run.mode) : "Preparation run"}
         </strong>
         <StatusBadge
@@ -52,10 +52,10 @@ function RunHistoryEntry(props: {
           {formatStatusLabel(result.state)}
         </StatusBadge>
       </span>
-      <p className="min-w-0 break-words text-(length:--text-small) leading-5 text-foreground-soft">
+      <p className="min-w-0 break-words [overflow-wrap:anywhere] text-(length:--text-small) leading-5 text-foreground-soft">
         {getCustomerFacingApplyText(result.summary)}
       </p>
-      <p className="min-w-0 break-words text-(length:--text-small) leading-5 text-foreground-soft">
+      <p className="min-w-0 break-words [overflow-wrap:anywhere] text-(length:--text-small) leading-5 text-foreground-soft">
         {formatTimestamp(result.updatedAt)}
         {run ? ` • ${formatApplyRunStateLabel(run.state)}` : ""}
         {result.blockerSummary

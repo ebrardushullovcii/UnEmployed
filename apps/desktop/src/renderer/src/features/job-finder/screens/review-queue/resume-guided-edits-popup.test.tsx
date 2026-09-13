@@ -136,6 +136,58 @@ describe("ResumeGuidedEditsPopup", () => {
     expect(dialog.style.maxHeight).toBe("calc(100vh - 236px)");
   });
 
+  it("keeps the expanded panel above the Undo row it tells the user to press", () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function getBoundingClientRect(this: HTMLElement) {
+        if (this.hasAttribute("data-resume-draft-provenance")) {
+          return {
+            bottom: 780,
+            height: 80,
+            left: 900,
+            right: 1264,
+            top: 700,
+            width: 364,
+            x: 900,
+            y: 700,
+            toJSON: () => ({}),
+          } as DOMRect;
+        }
+        return {
+          bottom: 0,
+          height: 0,
+          left: 0,
+          right: 1280,
+          top: 0,
+          width: 1280,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        } as DOMRect;
+      },
+    );
+    render(
+      <>
+        <section data-resume-workspace-top-actions />
+        <section data-resume-draft-provenance />
+        <ResumeGuidedEditsPopup
+          assistantMessages={[]}
+          assistantPending={false}
+          isWorkspacePending={false}
+          onSendAssistantMessage={vi.fn()}
+        />
+      </>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open the Assistant" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Assistant" });
+
+    // 800 - 700 + 16 = 116px is reserved below the panel (the default is 16),
+    // so the Undo row the Assistant points at stays clickable while the panel
+    // is open. 112px of top safe area plus that 116px is the 228px reserved.
+    expect(dialog.style.maxHeight).toBe("calc(100vh - 228px)");
+  });
+
   it("docks the collapsed launcher in the studio header and floats nothing", () => {
     // Previously "keeps the launcher bottom-right with the shared responsive
     // inset": it asserted a floating root at `bottom: 16px; right: 16px`

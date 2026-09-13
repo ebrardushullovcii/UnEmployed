@@ -11,6 +11,7 @@ import {
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ApplicationRecordSchema,
   MatchAssessmentChangeAuditSchema,
   MatchAssessmentSchema,
   type ListingActivity,
@@ -87,6 +88,86 @@ function deferred<T>() {
   });
   return { promise, reject, resolve };
 }
+
+describe("DiscoveryDetailPanel listing capture copy", () => {
+  afterEach(cleanup);
+
+  it("explains a refused detail read as a title-only estimate", () => {
+    const blockedJob = {
+      ...baseSelectedJob,
+      description: "Headway Featured Full-Time United States of America",
+      listingDetailCapture: { state: "blocked" },
+      listingDetailFetch: {
+        attemptedAt: "2026-09-12T10:00:00.000Z",
+        outcome: "blocked",
+        method: null,
+        detail: "The page answered 403.",
+      },
+    } as unknown as SavedJob;
+
+    render(
+      <MemoryRouter>
+        <DiscoveryDetailPanel
+          applicationRecords={[]}
+          discoveryTargets={[]}
+          isJobPending={() => false}
+          onDismissJob={vi.fn()}
+          onOpenApplication={vi.fn()}
+          onQueueJob={vi.fn()}
+          selectedJob={blockedJob}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.getByText(
+        "This site did not let Job Finder read the listing",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Headway Featured Full-Time United States of America",
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("DiscoveryDetailPanel application handoff", () => {
+  it("opens an existing Needs you application instead of offering to shortlist again", () => {
+    const onOpenApplication = vi.fn();
+    render(
+      <MemoryRouter>
+        <DiscoveryDetailPanel
+          applicationRecords={[
+            ApplicationRecordSchema.parse({
+              id: "application_base",
+              jobId: baseSelectedJob.id,
+              title: baseSelectedJob.title,
+              company: baseSelectedJob.company,
+              status: "approved",
+              lastAttemptState: "paused",
+              lastActionLabel: "Sign-in needed",
+              nextActionLabel: "Sign in, then continue",
+              lastUpdatedAt: "2026-08-30T10:00:00.000Z",
+            }),
+          ]}
+          discoveryTargets={[]}
+          isJobPending={() => false}
+          onDismissJob={vi.fn()}
+          onOpenApplication={onOpenApplication}
+          onQueueJob={vi.fn()}
+          selectedJob={baseSelectedJob}
+        />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Needs you · Open application" }),
+    );
+    expect(onOpenApplication).toHaveBeenCalledWith("application_base");
+    expect(screen.queryByRole("button", { name: /shortlist job/i })).toBeNull();
+  });
+});
 
 function createSelectedJob(
   overrides: Partial<SavedJob> &
@@ -345,6 +426,53 @@ describe("DiscoveryDetailPanel", () => {
     );
     expect(getByRole("button", { name: "Copy listing link" })).toBeTruthy();
     expect(getByRole("status")).toBeTruthy();
+  });
+
+  it("reads the readiness Shortlisted computed instead of deriving its own", () => {
+    // The stored job status still says the resume is waiting for review while
+    // Shortlisted already approved it; one value has to win, and it is the
+    // Shortlisted one.
+    const selectedJob = createSelectedJob({
+      id: "job_ready",
+      status: "ready_for_review",
+    });
+
+    render(
+      <MemoryRouter>
+        <DiscoveryDetailPanel
+          discoveryTargets={[]}
+          isJobPending={() => false}
+          onDismissJob={vi.fn()}
+          onQueueJob={vi.fn()}
+          reviewQueue={[
+            {
+              jobId: "job_ready",
+              title: "Office Administrative Assistant",
+              company: "Cardinal Field Services",
+              location: "Remote",
+              matchScore: 80,
+              applicationStatus: "ready_for_review",
+              assetStatus: "ready",
+              progressPercent: null,
+              resumeAssetId: "asset_ready",
+              resumeApplicationMode: "tailored_per_job",
+              resumeReview: {
+                status: "approved",
+                approvedAt: "2026-08-20T00:00:00.000Z",
+                approvedExportId: "export_ready",
+                approvedFormat: "pdf",
+                approvedFilePath: "C:/exports/ready.pdf",
+              },
+              updatedAt: "2026-08-20T00:00:00.000Z",
+            },
+          ]}
+          selectedJob={selectedJob}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Resume needs review")).toBeNull();
+    expect(screen.getByText("Ready to prepare")).toBeTruthy();
   });
 
   it("confirms the exact job identity after a shortlist outcome", () => {
@@ -1409,7 +1537,7 @@ describe("job inspector fit honesty", () => {
     );
 
     expect(screen.getByTestId("discovery-detail-fit-score").textContent).toBe(
-      "Title match only",
+      "Title-only estimate",
     );
     expect(screen.queryByText(/^54% fit$/)).toBeNull();
   });

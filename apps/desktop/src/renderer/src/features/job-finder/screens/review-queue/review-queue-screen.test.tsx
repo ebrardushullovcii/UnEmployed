@@ -8,7 +8,9 @@ import {
   screen,
   within,
 } from "@testing-library/react";
+import { ApplicationRecordSchema } from "@unemployed/contracts";
 import type {
+  ApplicationRecord,
   BrowserSessionState,
   ResumeSourceDocument,
   ReviewQueueItem,
@@ -89,6 +91,7 @@ function createOriginalResume(): ResumeSourceDocument {
 }
 
 function renderScreen(props: {
+  applicationRecords?: readonly ApplicationRecord[];
   resumeOperationStarts?: Readonly<Record<string, number>>;
   browserSession?: BrowserSessionState;
   isJobPending?: (jobId: string) => boolean;
@@ -113,7 +116,7 @@ function renderScreen(props: {
     <MemoryRouter>
       <ReviewQueueScreen
         resumeOperationStarts={props.resumeOperationStarts}
-        applicationRecords={[]}
+        applicationRecords={props.applicationRecords ?? []}
         actionState={{ message: null }}
         browserSession={props.browserSession ?? createBrowserSession()}
         campaignId={props.campaignId ?? "campaign_1"}
@@ -253,12 +256,15 @@ describe("ReviewQueueScreen tailored draft preparation (controlled)", () => {
 
     renderScreen({ queue: [selectedItem], selectedItem });
 
-    // The detail header owns the selected job's state; the selected list row
-    // no longer prints the same chip beside it, so exactly one appears.
+    // A ready tailored draft is queue-ready now: `isQueueStageReady` accepts
+    // "draft" and "needs_review", because approving happens in the resume
+    // workspace and is no longer a gate on entering preparation. The point
+    // this test guards is unchanged — the row and the detail header must name
+    // the same canonical state, never two names for one job.
     // Once on the selected row (rows keep their badge when selected) and once
     // in the detail header.
-    expect(screen.getAllByText("Needs approval").length).toBe(2);
-    expect(screen.queryByText("Ready to prepare")).toBeNull();
+    expect(screen.getAllByText("Ready to prepare").length).toBe(2);
+    expect(screen.queryByText("Needs approval")).toBeNull();
   });
 
   it("delegates batch start to the page controller without owning the run", () => {
@@ -900,7 +906,7 @@ describe("ReviewQueueScreen job details honesty", () => {
     // The withheld rule now names what was actually checked instead of
     // printing a percentage the app has not earned.
     expect(screen.getByTestId("review-queue-fit-score").textContent).toBe(
-      "Title match only",
+      "Title-only estimate",
     );
     // Once beside the score, once inside the breakdown that would otherwise
     // read as five contradictions of it.
@@ -978,7 +984,7 @@ describe("ReviewQueueScreen job details honesty", () => {
     });
 
     expect(screen.getByTestId("review-queue-fit-score").textContent).toBe(
-      "Title match only",
+      "Title-only estimate",
     );
     expect(screen.queryByText(/54% fit/)).toBeNull();
     // The number is not destroyed: it stays inside the breakdown, qualified.
@@ -1022,5 +1028,46 @@ describe("ReviewQueueScreen job details honesty", () => {
         "Own the deployment pipeline for the payments platform.",
       ),
     ).toBeTruthy();
+  });
+});
+
+describe("ReviewQueueScreen readiness agreement", () => {
+  it("badges an already-prepared job the same way in the list and the header", () => {
+    // The panel saw "RESUME NEEDS REVIEW" and "READY TO PREPARE" for one job
+    // seconds apart: the row read the prepared-application set and the
+    // workspace header computed its own verdict without it.
+    const item: ReviewQueueItem = {
+      ...createEligibleItem("job_prepared"),
+      assetStatus: "ready",
+      resumeAssetId: "asset_prepared",
+      resumeReview: {
+        status: "approved",
+        approvedAt: "2026-08-20T00:00:00.000Z",
+        approvedExportId: "export_prepared",
+        approvedFormat: "pdf",
+        approvedFilePath: "/tmp/prepared.pdf",
+      },
+    };
+
+    renderScreen({
+      applicationRecords: [
+        ApplicationRecordSchema.parse({
+          id: "application_prepared",
+          jobId: "job_prepared",
+          title: "Role job_prepared",
+          company: "Acme",
+          status: "ready_for_review",
+          lastActionLabel: "Prepared application",
+          nextActionLabel: "Review",
+          lastUpdatedAt: "2026-08-20T00:00:00.000Z",
+        }),
+      ],
+      queue: [item],
+      selectedItem: item,
+    });
+
+    const badges = screen.getAllByText("Application prepared");
+    expect(badges.length).toBeGreaterThanOrEqual(2);
+    expect(screen.queryByText("Ready to prepare")).toBeNull();
   });
 });

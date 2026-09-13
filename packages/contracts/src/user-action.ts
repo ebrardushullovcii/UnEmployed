@@ -11,6 +11,15 @@ const UserActionFingerprintSchema = NonEmptyStringSchema.max(512);
 const UserActionShortTextSchema = NonEmptyStringSchema.max(240);
 const UserActionLongTextSchema = NonEmptyStringSchema.max(2_000);
 
+export const DiscoveryAccessBlockerReasonSchema = z.enum([
+  "auth_required",
+  "site_protection",
+  "manual_step_required",
+]);
+export type DiscoveryAccessBlockerReason = z.infer<
+  typeof DiscoveryAccessBlockerReasonSchema
+>;
+
 function parseBrowserUrl(value: string): URL | null {
   try {
     return new URL(value);
@@ -43,6 +52,17 @@ export const UserActionBrowserUrlSchema = z
     }
   });
 export type UserActionBrowserUrl = z.infer<typeof UserActionBrowserUrlSchema>;
+
+export const ParkedBrowserTabReferenceSchema = z
+  .object({
+    tabId: UserActionIdentifierSchema.nullable().default(null),
+    url: UserActionBrowserUrlSchema,
+    title: UserActionShortTextSchema.nullable().default(null),
+  })
+  .strict();
+export type ParkedBrowserTabReference = z.infer<
+  typeof ParkedBrowserTabReferenceSchema
+>;
 
 export const UserActionBrowserOriginSchema =
   UserActionBrowserUrlSchema.superRefine((value, context) => {
@@ -204,6 +224,8 @@ const UserActionDiscoverySourceScopeSchema = z
     source: JobSourceSchema,
     sourceDebugRunId: UserActionIdentifierSchema.nullable().default(null),
     sourceDebugAttemptId: UserActionIdentifierSchema.nullable().default(null),
+    discoveryRunId: UserActionIdentifierSchema.nullable().optional(),
+    parkedTab: ParkedBrowserTabReferenceSchema.nullable().optional(),
   })
   .strict();
 

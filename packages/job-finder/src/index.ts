@@ -53,3 +53,13 @@ export {
   createDefaultListingHtmlFetcher,
   type ListingHtmlFetcher,
 } from "./internal/listing-detail-enrichment";
+
+export { DiscoveryRunAlreadyActiveError } from "./internal/workspace-discovery-methods";
+
+// One rule for what a tailored document is called, so the Electron layer's
+// exported file name cannot disagree with the name the screens print.
+export {
+  resolveTailoredAssetLabel,
+  TAILORED_RESUME_ASSET_LABEL,
+  UNTAILORABLE_RESUME_ASSET_LABEL,
+} from "./internal/resume-workspace-helpers";

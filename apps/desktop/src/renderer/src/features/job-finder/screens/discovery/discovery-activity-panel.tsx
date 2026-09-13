@@ -25,13 +25,36 @@ import { isImeComposingEvent } from "../../lib/job-finder-shortcuts";
 import { useJobFinderOverlayOwnership } from "../../lib/job-finder-overlay-ownership";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 import { formatDuration } from "@renderer/features/job-finder/lib/job-finder-utils";
-import { formatDiscoveryRunCountLabel } from "../../lib/discovery-run-count-label";
+import {
+  formatDiscoveryRunCountLabel,
+  formatDiscoveryRunReportLabel,
+  getDiscoveryRunReportCounts,
+  hasDiscoveryRunReportCounts,
+} from "../../lib/discovery-run-count-label";
 import {
   buildLiveRunRecord,
   formatOutcomeLabel,
   getRunOptions,
   type DiscoveryTargetConfig,
 } from "./discovery-history-utils";
+
+/**
+ * Search history quotes the run's own frozen report, so a row here reads the
+ * same "N found · M new · K kept" as Home, Find jobs, the plan card and
+ * Tasks. Runs recorded before the report existed keep the older label rather
+ * than inventing numbers for it.
+ */
+function describeRunCounts(run: DiscoveryRunRecord): string {
+  const report = getDiscoveryRunReportCounts(run);
+  if (hasDiscoveryRunReportCounts(report)) {
+    return formatDiscoveryRunReportLabel(report);
+  }
+
+  return formatDiscoveryRunCountLabel({
+    distinctJobsRetained: run.summary.validJobsFound ?? 0,
+    duplicatesMerged: run.summary.duplicatesMerged ?? 0,
+  });
+}
 
 function formatTimestamp(value: string): string {
   return new Date(value).toLocaleTimeString([], {
@@ -58,7 +81,7 @@ function formatStageLabel(stage: DiscoveryActivityEvent["stage"]): string {
     case "target":
       return "Source";
     case "navigation":
-      return "Navigation";
+      return "Opening pages";
     case "extraction":
       return "Review jobs";
     case "scoring":
@@ -422,7 +445,7 @@ export function DiscoveryHistoryModal(props: {
         </div>
 
         <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[18rem_minmax(0,1fr)]">
-          <aside className="grid min-h-0 content-start gap-3 overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r">
+          <aside className="grid min-h-0 min-w-0 content-start gap-3 overflow-x-hidden overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r">
             <p className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted">
               Searches
             </p>
@@ -474,12 +497,8 @@ export function DiscoveryHistoryModal(props: {
                         {formatRunLabel(run.startedAt)}
                       </span>
                       <span className="text-[0.8rem] text-foreground-muted">
-                        {`${run.summary.targetsCompleted}/${run.summary.targetsPlanned} sources completed · ${formatDiscoveryRunCountLabel(
-                          {
-                            distinctJobsRetained:
-                              run.summary.validJobsFound ?? 0,
-                            duplicatesMerged: run.summary.duplicatesMerged ?? 0,
-                          },
+                        {`${run.summary.targetsCompleted}/${run.summary.targetsPlanned} sources completed · ${describeRunCounts(
+                          run,
                         )}${durationSummary}`}
                       </span>
                     </button>
@@ -660,6 +679,21 @@ export function DiscoveryHistoryModal(props: {
                     >
                       Source health
                     </h3>
+                    <p className="text-[0.82rem] leading-5 text-foreground-soft">
+                      By source: {sourceHealth
+                        .map((source) => {
+                          const label =
+                            targetLabels.get(source.targetId) ??
+                            "Configured source";
+                          const contributed =
+                            selectedRun.targetExecutions.find(
+                              (execution) =>
+                                execution.targetId === source.targetId,
+                            )?.jobsPersisted ?? 0;
+                          return `${label} — ${contributed} ${contributed === 1 ? "job" : "jobs"}`;
+                        })
+                        .join("; ")}.
+                    </p>
                     <div className="grid gap-2 md:grid-cols-2">
                       {sourceHealth.map((source) => {
                         const sourceLabel =
@@ -671,6 +705,30 @@ export function DiscoveryHistoryModal(props: {
                         const canRetry =
                           source.health === "failed" &&
                           Boolean(props.onRetrySource);
+                        const execution = selectedRun.targetExecutions.find(
+                          (candidate) => candidate.targetId === source.targetId,
+                        );
+                        const contributed = execution?.jobsPersisted ?? 0;
+                        const previousExecution = props.recentRuns
+                          .filter((run) => run.id !== selectedRun.id)
+                          .sort((left, right) =>
+                            right.startedAt.localeCompare(left.startedAt),
+                          )
+                          .flatMap((run) => run.targetExecutions)
+                          .find(
+                            (candidate) =>
+                              candidate.targetId === source.targetId,
+                          );
+                        const repeatedZero =
+                          contributed === 0 &&
+                          previousExecution?.jobsPersisted === 0;
+                        const zeroReason = repeatedZero
+                          ? execution?.warning || source.warnings[0]
+                            ? "The source was blocked or could not be read. Review it in the Job Finder browser or replace it."
+                            : (execution?.jobsReviewed ?? 0) === 0
+                              ? "The page layout could not be read. Check the source address or try another careers page."
+                              : "No jobs matched this plan in either of its last two runs. Broaden the plan or try another source."
+                          : null;
 
                         return (
                           <article
@@ -687,6 +745,9 @@ export function DiscoveryHistoryModal(props: {
                                   {source.durationMs > 0
                                     ? ` · ${formatDuration(source.durationMs)}`
                                     : ""}
+                                </p>
+                                <p className="mt-1 text-[0.82rem] text-foreground-soft">
+                                  Contributed {contributed} job{contributed === 1 ? "" : "s"} to this run.
                                 </p>
                               </div>
                               {canRetry ? (
@@ -718,6 +779,11 @@ export function DiscoveryHistoryModal(props: {
                                 {warning}
                               </p>
                             ))}
+                            {zeroReason ? (
+                              <p className="text-[0.82rem] leading-5 text-(--warning-text)">
+                                {zeroReason}
+                              </p>
+                            ) : null}
                           </article>
                         );
                       })}

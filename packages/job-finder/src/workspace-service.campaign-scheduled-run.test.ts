@@ -111,6 +111,49 @@ function preferencesMatchingNothing(
 }
 
 describe("workspace campaign scheduled runs", () => {
+  test("a duplicate-only second plan retains the shared jobs as new to that plan", async () => {
+    const harness = createWorkspaceServiceHarness();
+    const { repository, workspaceService } = harness;
+    const firstPlan = await getActiveCampaign(harness);
+
+    await workspaceService.runCampaignNow({ campaignId: firstPlan.id });
+    const afterFirstRun = await repository.getCampaignState();
+    const retainedByFirst = afterFirstRun?.campaigns.find(
+      (campaign) => campaign.id === firstPlan.id,
+    )?.jobIds;
+    expect(retainedByFirst?.length).toBeGreaterThan(0);
+
+    const created = await workspaceService.saveCampaign(
+      toCampaignInput(firstPlan, {
+        id: null,
+        name: "Overlapping plan",
+        searchPreferences: firstPlan.searchPreferences,
+        schedule: createSchedule(),
+      }),
+    );
+    const secondPlan = created.campaigns.find(
+      (campaign) => campaign.name === "Overlapping plan",
+    );
+    if (!secondPlan) throw new Error("Expected the overlapping plan.");
+
+    await workspaceService.runCampaignNow({ campaignId: secondPlan.id });
+
+    const finalState = await repository.getCampaignState();
+    const retainedBySecond = finalState?.campaigns.find(
+      (campaign) => campaign.id === secondPlan.id,
+    );
+    expect(retainedBySecond?.jobIds.length).toBeGreaterThan(0);
+    expect(retainedBySecond?.latestDigest?.report?.new).toBeGreaterThan(0);
+    expect(retainedBySecond?.latestDigest?.report?.retained).toBeGreaterThan(0);
+
+    const sharedJob = (await repository.listSavedJobs()).find((job) =>
+      retainedBySecond?.jobIds.includes(job.id),
+    );
+    expect(sharedJob?.campaignIds).toEqual(
+      expect.arrayContaining([firstPlan.id, secondPlan.id]),
+    );
+  });
+
   test("runCampaignNow uses the supplied campaign preferences without changing the active campaign or global preferences", async () => {
     const captured: JobSearchPreferences[] = [];
     const base = createBrowserRuntime();
@@ -578,7 +621,7 @@ describe("workspace campaign scheduled runs", () => {
       state?.notifications.some(
         (notification) =>
           notification.kind === "blocked_work" &&
-          notification.title === "Failed: Scheduled campaign run",
+          notification.title === "Failed: Scheduled search plan run",
       ),
     ).toBe(true);
   });
@@ -609,7 +652,9 @@ describe("workspace campaign scheduled runs", () => {
       rejected.some(
         (result) =>
           result.status === "rejected" &&
-          String(result.reason).includes("already in progress"),
+          String(result.reason).includes(
+            "A search is already running for this plan.",
+          ),
       ),
     ).toBe(true);
   });

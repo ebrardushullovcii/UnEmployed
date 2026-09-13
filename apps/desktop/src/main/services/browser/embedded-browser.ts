@@ -449,6 +449,14 @@ export class EmbeddedBrowser {
   }
 
   /**
+   * Close one workflow handoff tab without taking control or aborting any
+   * automation that owns another tab in the shared browser host.
+   */
+  closeParkedTab(id: string): void {
+    this.closePage(id);
+  }
+
+  /**
    * A still of the active page for the renderer to show while its own chrome
    * (a menu, the import picker) needs to sit where the native view paints.
    */

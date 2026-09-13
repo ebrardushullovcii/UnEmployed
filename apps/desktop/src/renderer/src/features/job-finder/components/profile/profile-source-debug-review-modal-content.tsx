@@ -4,6 +4,10 @@ import type {
   SourceInstructionArtifact,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
+import {
+  splitBlockedAttemptNote,
+  TECHNICAL_DETAILS_LABEL,
+} from "@renderer/features/job-finder/lib/describe-failure";
 import { buildLearnedInstructionIntelligenceSummaries } from "@renderer/features/job-finder/lib/source-intelligence-utils";
 import {
   formatDuration,
@@ -57,6 +61,46 @@ function formatInstructionActionLabel(
     : null;
 }
 
+/**
+ * One recorded note from a source check.
+ *
+ * The runtime records exactly what it tried ("Blocked: xhr POST https://...")
+ * alongside the sentence a person is meant to read, and printing both as one
+ * line turned this panel into a request log — the panel's "the only feedback
+ * is a rotating sequence of internal phase names". The plain sentence leads;
+ * the recorded line stays, behind a disclosure, because it is the only thing
+ * that explains a stubborn source.
+ */
+function AttemptNote({
+  className,
+  value,
+}: {
+  className: string;
+  value: string;
+}) {
+  const { message, technicalDetails } = splitBlockedAttemptNote(value);
+
+  if (!message) {
+    return null;
+  }
+
+  return (
+    <div className="grid min-w-0 gap-1">
+      <p className={className}>{message}</p>
+      {technicalDetails ? (
+        <details className="min-w-0">
+          <summary className="cursor-pointer text-xs text-muted-foreground">
+            {TECHNICAL_DETAILS_LABEL}
+          </summary>
+          <p className="mt-1 break-all text-xs leading-5 text-muted-foreground">
+            {technicalDetails}
+          </p>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 interface ProfileSourceDebugReviewModalContentProps {
   artifact: SourceInstructionArtifact | null;
   details: SourceDebugRunDetails | null;
@@ -90,12 +134,16 @@ export function ProfileSourceDebugReviewModalContent({
     : null;
   const intelligenceSummaries =
     buildLearnedInstructionIntelligenceSummaries(artifact);
+  const technicalDetails = details?.evidenceRefs.find(
+    (evidence) =>
+      evidence.kind === "note" && evidence.label === TECHNICAL_DETAILS_LABEL,
+  )?.excerpt;
 
   return (
     <div className="grid min-h-0 flex-1 gap-0 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <aside
         aria-labelledby={recentRunsLabelId}
-        className="grid min-h-0 content-start gap-3 overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r"
+        className="grid min-h-0 min-w-0 content-start gap-3 overflow-x-hidden overflow-y-auto border-b border-(--surface-panel-border) px-4 py-4 lg:border-b-0 lg:border-r"
       >
         <p
           className="text-[0.72rem] uppercase tracking-(--tracking-label) text-foreground-muted"
@@ -143,7 +191,7 @@ export function ProfileSourceDebugReviewModalContent({
         </ul>
       </aside>
 
-      <section className="grid min-h-0 content-start gap-4 overflow-y-auto px-5 py-4">
+      <section className="grid min-h-0 min-w-0 content-start gap-4 overflow-x-hidden overflow-y-auto px-5 py-4">
         {loading ? (
           <div
             aria-atomic="true"
@@ -194,6 +242,16 @@ export function ProfileSourceDebugReviewModalContent({
                 <p className="text-[0.92rem] leading-6 text-foreground">
                   {details.run.finalSummary}
                 </p>
+              ) : null}
+              {technicalDetails ? (
+                <details className="min-w-0">
+                  <summary className="cursor-pointer text-xs text-muted-foreground">
+                    {TECHNICAL_DETAILS_LABEL}
+                  </summary>
+                  <p className="mt-1 break-all text-xs leading-5 text-muted-foreground">
+                    {technicalDetails}
+                  </p>
+                </details>
               ) : null}
               <ProfileIntelligenceSummaries
                 className="grid gap-3 rounded-(--radius-small) border border-(--surface-panel-border) px-3 py-3"
@@ -260,13 +318,15 @@ export function ProfileSourceDebugReviewModalContent({
                         )}
                       </p>
                     </div>
-                    <p className="text-[0.92rem] leading-6 text-foreground">
-                      {attempt.resultSummary}
-                    </p>
+                    <AttemptNote
+                      className="text-[0.92rem] leading-6 text-foreground"
+                      value={attempt.resultSummary}
+                    />
                     {attempt.completionReason ? (
-                      <p className="text-[0.84rem] leading-6 text-foreground-soft">
-                        {attempt.completionReason}
-                      </p>
+                      <AttemptNote
+                        className="text-[0.84rem] leading-6 text-foreground-soft"
+                        value={attempt.completionReason}
+                      />
                     ) : null}
                   </article>
                 ))}

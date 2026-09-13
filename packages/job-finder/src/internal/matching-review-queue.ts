@@ -103,6 +103,10 @@ const UUID_SEGMENT_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NUMERIC_ID_RUN_PATTERN = /\d{4,}/;
 const OPAQUE_ID_TOKEN_PATTERN = /^(?=[^]*\d)(?=[^]*[a-z])[a-z0-9]{8,}$/i;
+const PAGINATION_TITLE_PATTERN =
+  /^(?:(?:go\s+to\s+)?page\s+\d+|next(?:\s+page)?|previous(?:\s+page)?)$/iu;
+const ABSENT_EMPLOYER_PATTERN =
+  /^(?:employer|company|organization|organisation)?\s*(?:not\s+(?:listed|stated|available)|unknown|unavailable|n\/?a)?$/iu;
 
 /**
  * A path segment that names one concrete posting rather than a section.
@@ -124,6 +128,62 @@ function isLikelyPostingIdentifierSegment(segment: string): boolean {
   return (
     NUMERIC_ID_RUN_PATTERN.test(segment) ||
     OPAQUE_ID_TOKEN_PATTERN.test(segment)
+  );
+}
+
+const ROLE_TITLE_NOUN_PATTERN =
+  /\b(?:engineer|developer|manager|analyst|designer|specialist|coordinator|assistant|technician|consultant|administrator|scientist|officer|clerk|recruiter|nurse|driver|cashier|representative|director|lead|intern)\b/iu;
+
+function hasLikelyDetailPageShape(rawUrl: string, title: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    for (const [key, value] of parsed.searchParams) {
+      if (
+        /^(?:id|job|jobid|job_id|posting|position|requisition|req)$/iu.test(
+          key,
+        ) &&
+        value.trim().length > 0
+      ) {
+        return true;
+      }
+    }
+    const segments = parsed.pathname
+      .split("/")
+      .map((segment) => decodeURIComponent(segment).trim().toLowerCase())
+      .filter(Boolean);
+    return (
+      segments.some(isLikelyPostingIdentifierSegment) ||
+      (ROLE_TITLE_NOUN_PATTERN.test(title) &&
+        (segments.length >= 2 || parsed.searchParams.size > 0))
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Last-resort intake gate for a link that contains no job record at all.
+ * Every predicate is content/URL shape based: no employer, no body, and no
+ * identifier that makes the address look like one concrete detail page.
+ */
+export function isLikelyEmptyNonDetailPosting(
+  job: Pick<SavedJob, "canonicalUrl" | "company" | "description" | "title">,
+): boolean {
+  const title = job.title.trim();
+  if (PAGINATION_TITLE_PATTERN.test(title)) {
+    return true;
+  }
+
+  const company = job.company.trim();
+  const body = job.description.trim();
+  const hasEmployer =
+    company.length > 0 && !ABSENT_EMPLOYER_PATTERN.test(company);
+  const hasBody =
+    body.length > 0 && body.toLocaleLowerCase() !== title.toLocaleLowerCase();
+  return (
+    !hasEmployer &&
+    !hasBody &&
+    !hasLikelyDetailPageShape(job.canonicalUrl, title)
   );
 }
 
@@ -335,7 +395,8 @@ function hasUtilityPathOrHost(canonicalUrl: string): boolean {
 }
 
 export function isLikelyUtilityShortlistJob(
-  job: Pick<SavedJob, "title"> & Partial<Pick<SavedJob, "canonicalUrl">>,
+  job: Pick<SavedJob, "title"> &
+    Partial<Pick<SavedJob, "canonicalUrl" | "company" | "description">>,
 ): boolean {
   const title = job.title.trim();
   if (title.length === 0) {
@@ -349,6 +410,19 @@ export function isLikelyUtilityShortlistJob(
   const canonicalUrl = job.canonicalUrl?.trim() ?? "";
   if (!canonicalUrl) {
     return false;
+  }
+
+  if (
+    job.company !== undefined &&
+    job.description !== undefined &&
+    isLikelyEmptyNonDetailPosting({
+      canonicalUrl,
+      company: job.company,
+      description: job.description,
+      title,
+    })
+  ) {
+    return true;
   }
 
   return (

@@ -386,7 +386,7 @@ export function RapidReviewScreen(props: {
           <h1 className="font-semibold">Quick review</h1>
           <p className="text-foreground-soft">
             {props.campaignName} has no discovered jobs to review yet. Run the
-            campaign first; no browser or application work starts here.
+            search plan first; no browser or application work starts here.
           </p>
           <div className="flex justify-center pt-2">
             <Button asChild type="button">
@@ -578,8 +578,10 @@ export function RapidReviewScreen(props: {
                   {activeJob.workMode}
                 </p>
                 <p className="text-sm text-foreground-soft">
-                  {activeJob.salaryText ?? "Compensation not listed"} ·{" "}
-                  {activeJobDate?.label} {activeJobDate?.value}
+                  {activeJob.salaryText ?? "Compensation not listed"}
+                  {activeJobDate
+                    ? ` · ${activeJobDate.label} ${activeJobDate.value}`
+                    : ""}
                 </p>
               </div>
               <div className="grid gap-2 border-t border-border pt-3">

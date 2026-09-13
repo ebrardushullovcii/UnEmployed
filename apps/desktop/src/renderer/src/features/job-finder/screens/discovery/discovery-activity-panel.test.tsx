@@ -175,4 +175,58 @@ describe("DiscoveryHistoryModal", () => {
       }).disabled,
     ).toBe(true);
   });
+
+  it("names a source's contribution and explains a second consecutive zero", () => {
+    const zeroRun = DiscoveryRunRecordSchema.parse({
+      ...failedRun,
+      id: "zero-run-current",
+      startedAt: "2026-08-02T10:00:00.000Z",
+      completedAt: "2026-08-02T10:00:04.000Z",
+      targetExecutions: failedRun.targetExecutions.map((execution) => ({
+        ...execution,
+        state: "completed",
+        warning: null,
+        jobsReviewed: 8,
+        jobsPersisted: 0,
+      })),
+      summary: {
+        ...failedRun.summary,
+        sourceHealth: failedRun.summary.sourceHealth.map((source) => ({
+          ...source,
+          health: "healthy",
+          warnings: [],
+        })),
+        warnings: [],
+      },
+    });
+    const earlierZeroRun = DiscoveryRunRecordSchema.parse({
+      ...zeroRun,
+      id: "zero-run-earlier",
+      startedAt: "2026-08-01T10:00:00.000Z",
+      completedAt: "2026-08-01T10:00:04.000Z",
+    });
+
+    render(
+      <DiscoveryHistoryModal
+        activeRun={null}
+        isDiscoveryPending={false}
+        isTargetPending={() => false}
+        liveEvents={[]}
+        onClose={vi.fn()}
+        open
+        recentRuns={[zeroRun, earlierZeroRun]}
+        targets={targets}
+      />,
+    );
+
+    expect(screen.getByText("Contributed 0 jobs to this run.")).toBeTruthy();
+    expect(
+      screen.getByText("By source: Greenhouse roles — 0 jobs."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "No jobs matched this plan in either of its last two runs. Broaden the plan or try another source.",
+      ),
+    ).toBeTruthy();
+  });
 });

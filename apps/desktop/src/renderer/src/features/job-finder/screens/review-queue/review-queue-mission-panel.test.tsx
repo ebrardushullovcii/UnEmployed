@@ -15,6 +15,7 @@ import type {
 } from "@unemployed/contracts";
 import {
   ApplicationRecordSchema,
+  CandidateProfileSchema,
   TailoredAssetSchema,
 } from "@unemployed/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +24,92 @@ import { ReviewQueueMissionPanel } from "./review-queue-mission-panel";
 afterEach(cleanup);
 
 describe("ReviewQueueMissionPanel", () => {
+  it("links to an existing Needs you application instead of offering another preparation", () => {
+    const onOpenApplication = vi.fn();
+    const selectedItem = {
+      jobId: "job_existing",
+      title: "Product Designer",
+      company: "Example Co",
+      applicationStatus: "ready_for_review",
+      resumeApplicationMode: "original_resume",
+      assetStatus: "ready",
+      resumeReview: { status: "original_resume" },
+    } as unknown as ReviewQueueItem;
+    const selectedJob = {
+      id: selectedItem.jobId,
+      title: selectedItem.title,
+      company: selectedItem.company,
+      canonicalUrl: "https://jobs.example/role",
+      applicationUrl: "https://jobs.example/apply",
+      applyPath: "easy_apply",
+      matchAssessment: { score: 90, reasons: [], gaps: [] },
+    } as unknown as SavedJob;
+
+    render(
+      <ReviewQueueMissionPanel
+        actionMessage={null}
+        applicationRecords={[
+          ApplicationRecordSchema.parse({
+            id: "application_existing",
+            jobId: selectedItem.jobId,
+            title: selectedItem.title,
+            company: selectedItem.company,
+            status: "approved",
+            lastAttemptState: "paused",
+            lastActionLabel: "Sign-in needed",
+            nextActionLabel: "Sign in, then continue",
+            lastUpdatedAt: "2026-08-30T10:00:00.000Z",
+          }),
+        ]}
+        browserSession={
+          {
+            source: "target_site",
+            status: "ready",
+            driver: "chrome_profile_agent",
+            label: "Browser ready",
+            detail: "Ready when needed.",
+            lastCheckedAt: "2026-08-30T10:00:00.000Z",
+          } as BrowserSessionState
+        }
+        campaignId="campaign_1"
+        pendingElapsedSeconds={0}
+        isApplyPending={false}
+        isJobPending={() => false}
+        isResumeStrategyPending={() => false}
+        onClearQueueSelection={vi.fn()}
+        onEditResumeWorkspace={vi.fn()}
+        onGenerateResume={vi.fn().mockResolvedValue(true)}
+        onOpenApplication={onOpenApplication}
+        onOpenBrowserSession={vi.fn()}
+        onOpenJobDetails={vi.fn()}
+        onOpenProfile={vi.fn()}
+        onRecommendResumeStrategy={vi.fn().mockResolvedValue(null)}
+        onRemoveReviewJob={vi.fn()}
+        onSelectResumeStrategy={vi.fn()}
+        onSetJobResumeApplicationMode={vi.fn()}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        queue={[selectedItem]}
+        queueSelection={[]}
+        resumeStrategies={[]}
+        resumeStrategySelections={[]}
+        selectedAsset={null}
+        selectedItem={selectedItem}
+        selectedJob={selectedJob}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Needs you · Open application" }),
+    );
+    expect(onOpenApplication).toHaveBeenCalledWith("application_existing");
+    expect(
+      screen.queryByRole("button", { name: "Prepare application" }),
+    ).toBeNull();
+    expect(screen.queryByText("Start new application")).toBeNull();
+    expect(screen.getByText("Existing application")).toBeTruthy();
+  });
+
   it("keeps the primary action above scrollable evidence at every layout size", () => {
     const onStartApplyCopilot = vi.fn();
     const onSetJobResumeApplicationMode = vi.fn();
@@ -235,13 +322,29 @@ describe("ReviewQueueMissionPanel", () => {
     const tailoredResumeOption = screen.getByRole("radio", {
       name: "Tailor for this job",
     });
-    expect(originalResumeOption.tagName).toBe("INPUT");
-    expect(tailoredResumeOption.tagName).toBe("INPUT");
-    expect(originalResumeOption.getAttribute("name")).toBe(
-      tailoredResumeOption.getAttribute("name"),
-    );
-    expect((originalResumeOption as HTMLInputElement).checked).toBe(true);
+    // A real radiogroup: assistive tech announces the pair as one choice, and
+    // both options stay in the tab order so tabbing can never skip past the
+    // safer original-resume choice on the way back to the job list.
+    const resumeChoiceGroup = screen.getByRole("radiogroup", {
+      name: "Resume choice for this job",
+    });
+    expect(resumeChoiceGroup.contains(originalResumeOption)).toBe(true);
+    expect(resumeChoiceGroup.contains(tailoredResumeOption)).toBe(true);
+    expect(originalResumeOption.getAttribute("aria-checked")).toBe("true");
+    expect(tailoredResumeOption.getAttribute("aria-checked")).toBe("false");
+    expect(originalResumeOption.getAttribute("tabindex")).toBe("0");
+    expect(tailoredResumeOption.getAttribute("tabindex")).toBe("0");
 
+    // Arrow keys move and choose, the way a radiogroup is operated.
+    originalResumeOption.focus();
+    fireEvent.keyDown(resumeChoiceGroup, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(tailoredResumeOption);
+    expect(onSetJobResumeApplicationMode).toHaveBeenCalledWith(
+      "job_circle",
+      "tailored_per_job",
+    );
+
+    onSetJobResumeApplicationMode.mockClear();
     fireEvent.click(tailoredResumeOption);
     expect(onSetJobResumeApplicationMode).toHaveBeenCalledWith(
       "job_circle",
@@ -382,6 +485,120 @@ describe("ReviewQueueMissionPanel", () => {
         "Each employer-application run can include up to 10 jobs.",
       ),
     ).toBeTruthy();
+  });
+
+  it("blocks batch preparation inline with both resume identity choices", () => {
+    const onClaimResumeIdentity = vi.fn();
+    const onKeepResumeIdentity = vi.fn();
+    const onStartAutoApplyQueue = vi.fn();
+    const selectedItem = {
+      jobId: "job_identity",
+      title: "Marketing Manager",
+      company: "Example Co",
+      applicationStatus: "ready_for_review",
+      resumeApplicationMode: "original_resume",
+      assetStatus: "ready",
+      progressPercent: 100,
+      resumeAssetId: "resume_identity",
+      resumeReview: {
+        status: "original_resume",
+        sourceDocumentId: "resume_identity",
+        fileName: "resume.pdf",
+        filePath: "/tmp/resume.pdf",
+      },
+    } as unknown as ReviewQueueItem;
+    const selectedJob = {
+      id: selectedItem.jobId,
+      title: selectedItem.title,
+      company: selectedItem.company,
+      canonicalUrl: "https://jobs.example/marketing-manager",
+      applicationUrl: "https://jobs.example/apply",
+      applyPath: "easy_apply",
+      matchAssessment: { score: 90, reasons: [], gaps: [] },
+    } as unknown as SavedJob;
+    const profile = CandidateProfileSchema.parse({
+      id: "candidate_identity",
+      firstName: "Jordan",
+      lastName: "Vance",
+      fullName: "Jordan Vance",
+      headline: "Marketing Manager",
+      summary: null,
+      currentLocation: "Chicago",
+      yearsExperience: 8,
+      baseResume: {
+        id: "resume_identity",
+        fileName: "resume.pdf",
+        uploadedAt: "2026-09-13T10:00:00.000Z",
+        textContent: "CASEY ROWAN\nMarketing Manager",
+        extractionStatus: "ready",
+      },
+    });
+
+    render(
+      <ReviewQueueMissionPanel
+        actionMessage={null}
+        applicationRecords={[]}
+        browserSession={
+          {
+            source: "target_site",
+            status: "ready",
+            driver: "chrome_profile_agent",
+            label: "Browser ready",
+            detail: "Ready when needed.",
+            lastCheckedAt: "2026-09-13T10:00:00.000Z",
+          } as BrowserSessionState
+        }
+        campaignId="campaign_1"
+        isApplyPending={false}
+        isJobPending={() => false}
+        isResumeStrategyPending={() => false}
+        onClaimResumeIdentity={onClaimResumeIdentity}
+        onClearQueueSelection={vi.fn()}
+        onEditResumeWorkspace={vi.fn()}
+        onGenerateResume={vi.fn()}
+        onKeepResumeIdentity={onKeepResumeIdentity}
+        onOpenBrowserSession={vi.fn()}
+        onOpenJobDetails={vi.fn()}
+        onOpenProfile={vi.fn()}
+        onRecommendResumeStrategy={vi.fn().mockResolvedValue(null)}
+        onRemoveReviewJob={vi.fn()}
+        onSelectResumeStrategy={vi.fn()}
+        onSetJobResumeApplicationMode={vi.fn()}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApplyQueue={onStartAutoApplyQueue}
+        pendingElapsedSeconds={0}
+        originalResume={profile.baseResume}
+        profile={profile}
+        queue={[selectedItem]}
+        queueSelection={[selectedItem.jobId]}
+        resumeStrategies={[]}
+        resumeStrategySelections={[]}
+        selectedAsset={null}
+        selectedItem={selectedItem}
+        selectedJob={selectedJob}
+      />,
+    );
+
+    expect(screen.getByTestId("resume-identity-choice").textContent).toContain(
+      "Preparation is paused because the imported resume says “CASEY ROWAN” while your profile says “Jordan Vance”",
+    );
+    const prepare = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Prepare selected jobs (1)",
+    });
+    expect(prepare.disabled).toBe(true);
+    fireEvent.click(prepare);
+    expect(onStartAutoApplyQueue).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Use my profile name for this resume",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Keep the resume's name" }),
+    );
+    expect(onClaimResumeIdentity).toHaveBeenCalledTimes(1);
+    expect(onKeepResumeIdentity).toHaveBeenCalledTimes(1);
   });
 
   it("never queues more than 10 unique employer-application jobs", () => {
@@ -1164,21 +1381,18 @@ describe("ReviewQueueMissionPanel", () => {
       />,
     );
 
-    const toggleOption = container.querySelector(
-      ".peer-focus-visible\\:ring-2",
+    // The option itself takes focus now, so the ring lives on the option
+    // rather than on a peer of a hidden input.
+    const focusRing = container.querySelector(
+      '[class*="focus-visible:ring-ring"]',
     );
-    // Fallback: query by the peer pair class directly from rendered toggle
-    const peerRing = container.querySelector(
-      '[class*="peer-focus-visible:ring-ring"]',
-    );
-    expect(peerRing).toBeTruthy();
-    expect(peerRing?.className).toContain("peer-focus-visible:ring-2");
-    expect(peerRing?.className).toContain("peer-focus-visible:ring-ring");
-    expect(peerRing?.className).not.toMatch(/ring-primary\/\d/);
+    expect(focusRing).toBeTruthy();
+    expect(focusRing?.className).toContain("focus-visible:ring-2");
+    expect(focusRing?.className).toContain("focus-visible:ring-ring");
+    expect(focusRing?.className).not.toMatch(/ring-primary\/\d/);
     // Non-focus decoration stays diluted by design.
     expect(container.innerHTML).toContain("border-primary");
     expect(container.innerHTML).toContain("hover:border-primary/35");
-    expect(toggleOption ?? peerRing).toBeTruthy();
   });
 
   it("disables Queue with a control-associated capacity reason when the batch passes remaining daily slots", () => {
@@ -1458,5 +1672,115 @@ describe("ReviewQueueMissionPanel", () => {
     expect(
       screen.getByRole("button", { name: "Prepare application" }),
     ).toBeTruthy();
+  });
+  it("presents a draft as the original resume when the listing text was never captured", () => {
+    const selectedItem = {
+      jobId: "job_no_listing",
+      title: "Support Specialist",
+      company: "Signal Systems",
+      location: "Remote",
+      matchScore: 70,
+      applicationStatus: "ready_for_review",
+      resumeApplicationMode: "tailored_per_job",
+      assetStatus: "ready",
+      progressPercent: 100,
+      resumeAssetId: "resume_no_listing",
+      resumeReview: { status: "needs_review" },
+      updatedAt: "2026-08-10T10:00:00.000Z",
+    } as ReviewQueueItem;
+    const selectedJob = {
+      id: selectedItem.jobId,
+      title: selectedItem.title,
+      company: selectedItem.company,
+      summary: "",
+      description: "",
+      employerWebsiteUrl: null,
+      canonicalUrl: "https://signal.example/jobs/support-specialist",
+      applicationUrl: "https://signal.example/jobs/support-specialist/apply",
+      atsProvider: "Signal Careers",
+      screeningHints: { requiresConsentInterrupt: false },
+      applyPath: "easy_apply",
+      easyApplyEligible: true,
+      matchAssessment: {
+        score: 70,
+        reasons: [],
+        gaps: [],
+        recommendation: "review_before_applying",
+        recommendationRationale: "Review the live form before continuing.",
+        requirements: [],
+      },
+    } as unknown as SavedJob;
+    const selectedAsset = TailoredAssetSchema.parse({
+      id: "resume_no_listing",
+      jobId: selectedItem.jobId,
+      kind: "resume",
+      status: "ready",
+      label: "Resume",
+      version: "1",
+      templateName: "Chronology Classic",
+      compatibilityScore: 70,
+      progressPercent: 100,
+      updatedAt: "2026-08-10T10:00:00.000Z",
+      storagePath: "/tmp/Resume.pdf",
+      generationMethod: "deterministic",
+      generationReason: "listing_text_missing",
+    });
+
+    render(
+      <ReviewQueueMissionPanel
+        applicationRecords={[]}
+        actionMessage={null}
+        browserSession={
+          {
+            source: "target_site",
+            status: "ready",
+            driver: "chrome_profile_agent",
+            label: "Browser ready",
+            detail: "",
+            lastCheckedAt: "2026-08-10T10:00:00.000Z",
+          } as BrowserSessionState
+        }
+        campaignId="campaign_1"
+        pendingElapsedSeconds={0}
+        isApplyPending={false}
+        isJobPending={() => false}
+        isResumeStrategyPending={() => false}
+        onClearQueueSelection={vi.fn()}
+        onEditResumeWorkspace={vi.fn()}
+        onGenerateResume={vi.fn()}
+        onOpenBrowserSession={vi.fn()}
+        onOpenJobDetails={vi.fn()}
+        onOpenProfile={vi.fn()}
+        onRecommendResumeStrategy={vi.fn().mockResolvedValue(null)}
+        onRemoveReviewJob={vi.fn()}
+        onSelectResumeStrategy={vi.fn()}
+        onSetJobResumeApplicationMode={vi.fn()}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApplyQueue={vi.fn()}
+        queue={[selectedItem]}
+        queueSelection={[]}
+        resumeStrategies={[]}
+        resumeStrategySelections={[]}
+        selectedAsset={selectedAsset}
+        selectedItem={selectedItem}
+        selectedJob={selectedJob}
+      />,
+    );
+
+    // The saved choice still says "tailor", but nothing could be tailored, so
+    // the panel presents the original-resume path and says why.
+    expect(
+      screen
+        .getByRole("radio", { name: "Use my original resume" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    const tailoredOption = screen.getByRole("radio", {
+      name: /Tailor for this job/,
+    });
+    expect(tailoredOption.getAttribute("aria-checked")).toBe("false");
+    expect((tailoredOption as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.getByText(/listing text was not captured/i).textContent,
+    ).toContain("original wording");
   });
 });

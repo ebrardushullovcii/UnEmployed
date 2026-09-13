@@ -25,6 +25,86 @@ export const applicationStatusValues = [
 export const ApplicationStatusSchema = z.enum(applicationStatusValues);
 export type ApplicationStatus = z.infer<typeof ApplicationStatusSchema>;
 
+/**
+ * True once an application has actually been prepared — a document exists and
+ * the person can look at it.
+ *
+ * `discovered`, `shortlisted` and `drafting` are staging: a run that stopped
+ * before the draft existed leaves exactly those behind. Counting them made a
+ * plan card say "Applications prepared 11" over eleven rows all badged
+ * DRAFTING with no apply attempt, so every surface that counts prepared
+ * applications reads this one rule.
+ */
+export function isPreparedApplicationStatus(
+  record: {
+    status: ApplicationStatus;
+    lastAttemptState?: ApplicationAttemptState | null | undefined;
+  },
+): boolean {
+  if (
+    record.lastAttemptState === "ready" ||
+    record.lastAttemptState === "submitted"
+  ) {
+    return true;
+  }
+
+  switch (record.status) {
+    case "ready_for_review":
+    case "submitted":
+    case "assessment":
+    case "interview":
+    case "rejected":
+    case "offer":
+    case "withdrawn":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * The one immutable accounting of a finished search run.
+ *
+ * Six screens used to describe the same run by recomputing counts from
+ * whatever inventory they happened to hold, so one search was reported as
+ * 100, 50 and 15 depending on where you stood. This report is computed once,
+ * frozen when the run reaches its terminal state (and completed once more at
+ * the search plan's terminal commit, which is where retention is decided),
+ * and read verbatim afterwards. No surface may recompute any of these
+ * numbers from current inventory.
+ *
+ * Every count is nullable on purpose: a run recorded before this report
+ * existed genuinely has no such number, and rendering a fabricated 0 would
+ * be the same untruth in a new place. Missing values render as
+ * "not recorded".
+ */
+export const DiscoveryRunReportSchema = z.object({
+  /** Schema generation, so a later counting change is detectable. */
+  version: z.literal(1).default(1),
+  /** When the counts were frozen. */
+  measuredAt: IsoDateTimeSchema,
+  /** Listings this run reviewed, duplicates and rejects included. */
+  found: z.number().int().nonnegative().nullable().default(null),
+  /** Listing identities this run introduced for the first time. */
+  new: z.number().int().nonnegative().nullable().default(null),
+  /** Distinct listings this run durably persisted or staged. */
+  saved: z.number().int().nonnegative().nullable().default(null),
+  /**
+   * Saved listings the search plan's rules kept. Null until the plan's
+   * terminal commit decides retention; a run with no plan retains everything
+   * it saved.
+   */
+  retained: z.number().int().nonnegative().nullable().default(null),
+  /** Retained listings the recommendation classifier leads with. */
+  worthOpening: z.number().int().nonnegative().nullable().default(null),
+  /** Valid listings that merged into already-known jobs. */
+  duplicates: z.number().int().nonnegative().nullable().default(null),
+  /** Retention settings frozen when the search plan committed this run. */
+  retentionLimitApplied: z.number().int().positive().nullable().optional(),
+  minimumFitScoreApplied: z.number().int().min(0).max(100).nullable().optional(),
+});
+export type DiscoveryRunReport = z.infer<typeof DiscoveryRunReportSchema>;
+
 export const approvalModeValues = [
   "draft_only",
   "review_before_submit",
@@ -58,6 +138,16 @@ export const AppearanceThemeSchema = z.enum(appearanceThemeValues);
 export type AppearanceTheme = z.infer<typeof AppearanceThemeSchema>;
 
 export const jobSourceValues = ["target_site"] as const;
+
+/**
+ * Bucket key for outcomes whose originating job source is not known.
+ *
+ * Outcomes are grouped by the saved source the job came from. An outcome
+ * recorded before that lineage existed, or for a job whose source was
+ * removed, has no id to group by; it goes here instead of being hidden, so
+ * the sum of the source buckets still equals the outcomes recorded.
+ */
+export const UNKNOWN_JOB_SOURCE_BUCKET_KEY = "unknown_source";
 
 function normalizeLegacyJobSource(value: unknown): unknown {
   if (typeof value !== "string") {
@@ -484,6 +574,22 @@ export type DiscoveryTargetExecutionState = z.infer<
   typeof DiscoveryTargetExecutionStateSchema
 >;
 
+/**
+ * Whether a source actually finished its work, for the "N of M sources
+ * finished" readout.
+ *
+ * `cancelled` is deliberately excluded. A stopped run finalises every source
+ * that was still running as `cancelled`, so counting "anything past running"
+ * made Stop flip "1 of 2 sources finished" to "2 of 2 sources finished" — the
+ * app claiming credit for work the user had just interrupted. A cancelled
+ * source is over, but it never finished.
+ */
+export function isFinishedDiscoveryTargetExecutionState(
+  state: DiscoveryTargetExecutionState,
+): boolean {
+  return state === "completed" || state === "failed" || state === "skipped";
+}
+
 export const discoveryActivityKindValues = [
   "info",
   "progress",
@@ -548,6 +654,10 @@ export const assetGenerationReasonValues = [
   // The posting carried no listing body (card-only capture), so there was
   // nothing to tailor toward and the model was never asked.
   "listing_text_missing",
+  // The posting carried a body, but nothing in it distinguishes this job from
+  // any other: tailoring toward it would produce the same draft for unrelated
+  // roles, which is what "tailored" must never mean.
+  "listing_text_not_distinguishing",
 ] as const;
 
 export const AssetGenerationReasonSchema = z.enum(assetGenerationReasonValues);
@@ -619,3 +729,33 @@ export const ApplicationEventEmphasisSchema = z.enum(
 export type ApplicationEventEmphasis = z.infer<
   typeof ApplicationEventEmphasisSchema
 >;
+
+/**
+ * Asking the operating system to show a file the app just wrote.
+ *
+ * The export already told the person where the PDF landed and then left them
+ * to find it by hand. Revealing a path is not opening a file: the OS selects
+ * it in the file manager and nothing is executed, so the app never runs what
+ * it wrote.
+ */
+export const RevealSavedFileInputSchema = z.object({
+  path: NonEmptyStringSchema,
+});
+export type RevealSavedFileInput = z.infer<typeof RevealSavedFileInputSchema>;
+
+export const revealSavedFileOutcomeValues = [
+  "revealed",
+  "not_found",
+  "unsupported",
+] as const;
+export const RevealSavedFileOutcomeSchema = z.enum(
+  revealSavedFileOutcomeValues,
+);
+export type RevealSavedFileOutcome = z.infer<
+  typeof RevealSavedFileOutcomeSchema
+>;
+
+export const RevealSavedFileResultSchema = z.object({
+  outcome: RevealSavedFileOutcomeSchema,
+});
+export type RevealSavedFileResult = z.infer<typeof RevealSavedFileResultSchema>;

@@ -6,52 +6,54 @@ import { createConfig, createToolCall } from "./agent.test-fixtures";
 describe("runAgentDiscovery fast-path extraction behavior", () => {
   test("search-results extraction keeps fast-path jobs before the slower extractor runs", async () => {
     const page = {
-      async goto() {
-        return null as never;
+      goto() {
+        return Promise.resolve(null as never);
       },
-      async waitForTimeout() {
-        return undefined;
+      waitForTimeout() {
+        return Promise.resolve(undefined);
       },
       url() {
         return "https://www.linkedin.com/jobs/search/";
       },
-      async title() {
-        return "Primary target";
+      title() {
+        return Promise.resolve("Primary target");
       },
       locator(selector: string) {
         if (selector === "body") {
           return {
-            async innerText() {
-              return [
-                "Search by title, skill, or company",
-                "Frontend Engineer",
-                "Acme",
-                "Remote",
-                "Apply",
-                "Job description",
-                "Build product interfaces for customer workflows.",
-                "Use the jobs search filters and recommendations to find relevant roles quickly.",
-              ]
-                .join("\n")
-                .repeat(20);
+            innerText() {
+              return Promise.resolve(
+                [
+                  "Search by title, skill, or company",
+                  "Frontend Engineer",
+                  "Acme",
+                  "Remote",
+                  "Apply",
+                  "Job description",
+                  "Build product interfaces for customer workflows.",
+                  "Use the jobs search filters and recommendations to find relevant roles quickly.",
+                ]
+                  .join("\n")
+                  .repeat(20),
+              );
             },
           } as never;
         }
 
         return {
-          async innerText() {
-            return "";
+          innerText() {
+            return Promise.resolve("");
           },
         } as never;
       },
-      async evaluate(fn: unknown) {
+      evaluate(fn: unknown) {
         const serialized = String(fn);
 
         if (
           serialized.includes("cardCandidates") ||
           serialized.includes("application/ld+json")
         ) {
-          return {
+          return Promise.resolve({
             structuredDataCandidates: [],
             cardCandidates: [
               {
@@ -68,14 +70,16 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
                 ],
               },
             ],
-          };
+          });
         }
 
         if (serialized.includes('querySelectorAll("a[href]")')) {
-          return ["https://www.linkedin.com/jobs/view/job_fast_path_1"];
+          return Promise.resolve([
+            "https://www.linkedin.com/jobs/view/job_fast_path_1",
+          ]);
         }
 
-        return [];
+        return Promise.resolve([]);
       },
     } as unknown as Page;
     const llmClient: LLMClient = {
@@ -97,7 +101,7 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
     const progressEvents: Array<{ message?: string | null }> = [];
 
@@ -126,51 +130,53 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
 
   test("phase-driven search-results extraction skips the slower model extractor once fast path already produced jobs", async () => {
     const page = {
-      async goto() {
-        return null as never;
+      goto() {
+        return Promise.resolve(null as never);
       },
-      async waitForTimeout() {
-        return undefined;
+      waitForTimeout() {
+        return Promise.resolve(undefined);
       },
       url() {
         return "https://www.linkedin.com/jobs/search/?currentJobId=438896875";
       },
-      async title() {
-        return "Primary target";
+      title() {
+        return Promise.resolve("Primary target");
       },
       locator(selector: string) {
         if (selector === "body") {
           return {
-            async innerText() {
-              return [
-                "Search by title, skill, or company",
-                "Frontend Engineer",
-                "Acme",
-                "Remote",
-                "Apply",
-                "Job description",
-                "Build product interfaces for customer workflows.",
-              ]
-                .join("\n")
-                .repeat(20);
+            innerText() {
+              return Promise.resolve(
+                [
+                  "Search by title, skill, or company",
+                  "Frontend Engineer",
+                  "Acme",
+                  "Remote",
+                  "Apply",
+                  "Job description",
+                  "Build product interfaces for customer workflows.",
+                ]
+                  .join("\n")
+                  .repeat(20),
+              );
             },
           } as never;
         }
 
         return {
-          async innerText() {
-            return "";
+          innerText() {
+            return Promise.resolve("");
           },
         } as never;
       },
-      async evaluate(fn: unknown) {
+      evaluate(fn: unknown) {
         const serialized = String(fn);
 
         if (
           serialized.includes("cardCandidates") ||
           serialized.includes("application/ld+json")
         ) {
-          return {
+          return Promise.resolve({
             structuredDataCandidates: [],
             cardCandidates: [
               {
@@ -187,14 +193,16 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
                 ],
               },
             ],
-          };
+          });
         }
 
         if (serialized.includes('querySelectorAll("a[href]")')) {
-          return ["https://www.linkedin.com/jobs/view/job_fast_phase_1"];
+          return Promise.resolve([
+            "https://www.linkedin.com/jobs/view/job_fast_phase_1",
+          ]);
         }
 
-        return [];
+        return Promise.resolve([]);
       },
     } as unknown as Page;
     const llmClient: LLMClient = {
@@ -231,7 +239,7 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
 
     const result = await runAgentDiscovery(
@@ -247,51 +255,53 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
 
   test("phase-driven search-results extraction still uses the slower extractor when fast path does not fill the requested evidence budget", async () => {
     const page = {
-      async goto() {
-        return null as never;
+      goto() {
+        return Promise.resolve(null as never);
       },
-      async waitForTimeout() {
-        return undefined;
+      waitForTimeout() {
+        return Promise.resolve(undefined);
       },
       url() {
         return "https://www.linkedin.com/jobs/search/?currentJobId=438896875";
       },
-      async title() {
-        return "Primary target";
+      title() {
+        return Promise.resolve("Primary target");
       },
       locator(selector: string) {
         if (selector === "body") {
           return {
-            async innerText() {
-              return [
-                "Search by title, skill, or company",
-                "Frontend Engineer",
-                "Acme",
-                "Remote",
-                "Apply",
-                "Job description",
-                "Build product interfaces for customer workflows.",
-              ]
-                .join("\n")
-                .repeat(20);
+            innerText() {
+              return Promise.resolve(
+                [
+                  "Search by title, skill, or company",
+                  "Frontend Engineer",
+                  "Acme",
+                  "Remote",
+                  "Apply",
+                  "Job description",
+                  "Build product interfaces for customer workflows.",
+                ]
+                  .join("\n")
+                  .repeat(20),
+              );
             },
           } as never;
         }
 
         return {
-          async innerText() {
-            return "";
+          innerText() {
+            return Promise.resolve("");
           },
         } as never;
       },
-      async evaluate(fn: unknown) {
+      evaluate(fn: unknown) {
         const serialized = String(fn);
 
         if (
           serialized.includes("cardCandidates") ||
           serialized.includes("application/ld+json")
         ) {
-          return {
+          return Promise.resolve({
             structuredDataCandidates: [],
             cardCandidates: [
               {
@@ -307,16 +317,16 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
                 ],
               },
             ],
-          };
+          });
         }
 
         if (serialized.includes('querySelectorAll("a[href]")')) {
-          return [
+          return Promise.resolve([
             "https://www.linkedin.com/jobs/view/job_fast_phase_partial_1",
-          ];
+          ]);
         }
 
-        return [];
+        return Promise.resolve([]);
       },
     } as unknown as Page;
     const llmClient: LLMClient = {
@@ -353,24 +363,26 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => [
-        {
-          sourceJobId: "job_fast_phase_partial_2",
-          canonicalUrl:
-            "https://www.linkedin.com/jobs/view/job_fast_phase_partial_2",
-          title: "React Engineer",
-          company: "Beta",
-          location: "Remote",
-          description: "Second extracted job.",
-          salaryText: null,
-          summary: "Second extracted job.",
-          postedAt: "2026-03-20T09:00:00.000Z",
-          workMode: ["remote" as const],
-          applyPath: "unknown" as const,
-          easyApplyEligible: false,
-          keySkills: ["React"],
-        },
-      ]),
+      extractJobsFromPage: vi.fn(() =>
+        Promise.resolve([
+          {
+            sourceJobId: "job_fast_phase_partial_2",
+            canonicalUrl:
+              "https://www.linkedin.com/jobs/view/job_fast_phase_partial_2",
+            title: "React Engineer",
+            company: "Beta",
+            location: "Remote",
+            description: "Second extracted job.",
+            salaryText: null,
+            summary: "Second extracted job.",
+            postedAt: "2026-03-20T09:00:00.000Z",
+            workMode: ["remote" as const],
+            applyPath: "unknown" as const,
+            easyApplyEligible: false,
+            keySkills: ["React"],
+          },
+        ]),
+      ),
     };
 
     const config = createConfig();
@@ -391,46 +403,48 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
     let currentUrl = "https://www.linkedin.com/jobs/search/?currentJobId=111";
     let extractionCaptureCount = 0;
     const page = {
-      async goto(url: string) {
+      goto(url: string) {
         currentUrl = url;
-        return null as never;
+        return Promise.resolve(null as never);
       },
-      async waitForTimeout() {
-        return undefined;
+      waitForTimeout() {
+        return Promise.resolve(undefined);
       },
       url() {
         return currentUrl;
       },
-      async title() {
-        return "Primary target";
+      title() {
+        return Promise.resolve("Primary target");
       },
       locator(selector: string) {
         if (selector === "body") {
           return {
-            async innerText() {
-              return [
-                "Search by title, skill, or company",
-                "Frontend Engineer",
-                "Acme",
-                "Remote",
-                "Apply",
-                "Job description",
-                "Build product interfaces for customer workflows.",
-                "Use the jobs search filters and recommendations to find relevant roles quickly.",
-              ]
-                .join("\n")
-                .repeat(20);
+            innerText() {
+              return Promise.resolve(
+                [
+                  "Search by title, skill, or company",
+                  "Frontend Engineer",
+                  "Acme",
+                  "Remote",
+                  "Apply",
+                  "Job description",
+                  "Build product interfaces for customer workflows.",
+                  "Use the jobs search filters and recommendations to find relevant roles quickly.",
+                ]
+                  .join("\n")
+                  .repeat(20),
+              );
             },
           } as never;
         }
 
         return {
-          async innerText() {
-            return "";
+          innerText() {
+            return Promise.resolve("");
           },
         } as never;
       },
-      async evaluate(fn: unknown) {
+      evaluate(fn: unknown) {
         const serialized = String(fn);
 
         if (
@@ -438,7 +452,7 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
           serialized.includes("application/ld+json")
         ) {
           extractionCaptureCount += 1;
-          return {
+          return Promise.resolve({
             structuredDataCandidates: [],
             cardCandidates:
               extractionCaptureCount === 1
@@ -458,14 +472,16 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
                       ],
                     },
                   ],
-          };
+          });
         }
 
         if (serialized.includes('querySelectorAll("a[href]")')) {
-          return ["https://www.linkedin.com/jobs/view/job_merge_fast_path_1"];
+          return Promise.resolve([
+            "https://www.linkedin.com/jobs/view/job_merge_fast_path_1",
+          ]);
         }
 
-        return [];
+        return Promise.resolve([]);
       },
     } as unknown as Page;
     const llmClient: LLMClient = {
@@ -505,7 +521,7 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
 
     const result = await runAgentDiscovery(
@@ -533,52 +549,54 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
 
   test("deferred search-result flush does not call the slower extractor once fast path fills the capped budget", async () => {
     const page = {
-      async goto() {
-        return null as never;
+      goto() {
+        return Promise.resolve(null as never);
       },
-      async waitForTimeout() {
-        return undefined;
+      waitForTimeout() {
+        return Promise.resolve(undefined);
       },
       url() {
         return "https://www.linkedin.com/jobs/search/?currentJobId=333";
       },
-      async title() {
-        return "Primary target";
+      title() {
+        return Promise.resolve("Primary target");
       },
       locator(selector: string) {
         if (selector === "body") {
           return {
-            async innerText() {
-              return [
-                "Search by title, skill, or company",
-                "Frontend Engineer",
-                "Acme",
-                "Remote",
-                "Apply",
-                "Job description",
-                "Build product interfaces for customer workflows.",
-                "Use the jobs search filters and recommendations to find relevant roles quickly.",
-              ]
-                .join("\n")
-                .repeat(20);
+            innerText() {
+              return Promise.resolve(
+                [
+                  "Search by title, skill, or company",
+                  "Frontend Engineer",
+                  "Acme",
+                  "Remote",
+                  "Apply",
+                  "Job description",
+                  "Build product interfaces for customer workflows.",
+                  "Use the jobs search filters and recommendations to find relevant roles quickly.",
+                ]
+                  .join("\n")
+                  .repeat(20),
+              );
             },
           } as never;
         }
 
         return {
-          async innerText() {
-            return "";
+          innerText() {
+            return Promise.resolve("");
           },
         } as never;
       },
-      async evaluate(fn: unknown) {
+      evaluate(fn: unknown) {
         const serialized = String(fn);
 
         if (
           serialized.includes("cardCandidates") ||
           serialized.includes("application/ld+json")
         ) {
-          return {
+          return Promise.resolve({
             structuredDataCandidates: [],
             cardCandidates: Array.from({ length: 4 }, (_, index) => ({
               canonicalUrl: `https://www.linkedin.com/jobs/view/job_budget_${index + 1}`,
@@ -592,19 +610,19 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
                 "Easy Apply",
               ],
             })),
-          };
+          });
         }
 
         if (serialized.includes('querySelectorAll("a[href]")')) {
-          return [
+          return Promise.resolve([
             "https://www.linkedin.com/jobs/view/job_budget_1",
             "https://www.linkedin.com/jobs/view/job_budget_2",
             "https://www.linkedin.com/jobs/view/job_budget_3",
             "https://www.linkedin.com/jobs/view/job_budget_4",
-          ];
+          ]);
         }
 
-        return [];
+        return Promise.resolve([]);
       },
     } as unknown as Page;
     const llmClient: LLMClient = {
@@ -626,7 +644,7 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
 
     const result = await runAgentDiscovery(
@@ -649,52 +667,54 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
 
   test("fast path prefers cards matching saved role/location preferences over earlier cards", async () => {
     const page = {
-      async goto() {
-        return null as never;
+      goto() {
+        return Promise.resolve(null as never);
       },
-      async waitForTimeout() {
-        return undefined;
+      waitForTimeout() {
+        return Promise.resolve(undefined);
       },
       url() {
         return "https://example.com/jobs/search/?currentJobId=role_fullstack_1&keywords=Senior%20Full-Stack%20Software%20Engineer&location=Prishtina%2C%20Kosovo";
       },
-      async title() {
-        return "Primary target";
+      title() {
+        return Promise.resolve("Primary target");
       },
       locator(selector: string) {
         if (selector === "body") {
           return {
-            async innerText() {
-              return [
-                "Search by title, skill, or company",
-                "Frontend Engineer",
-                "Odiin",
-                "Prishtina, Kosovo",
-                "Full Stack Developer (AI-First)",
-                "Full Circle Agency",
-                "Prishtina (Remote)",
-                "Apply",
-              ]
-                .join("\n")
-                .repeat(20);
+            innerText() {
+              return Promise.resolve(
+                [
+                  "Search by title, skill, or company",
+                  "Frontend Engineer",
+                  "Odiin",
+                  "Prishtina, Kosovo",
+                  "Full Stack Developer (AI-First)",
+                  "Full Circle Agency",
+                  "Prishtina (Remote)",
+                  "Apply",
+                ]
+                  .join("\n")
+                  .repeat(20),
+              );
             },
           } as never;
         }
 
         return {
-          async innerText() {
-            return "";
+          innerText() {
+            return Promise.resolve("");
           },
         } as never;
       },
-      async evaluate(fn: unknown) {
+      evaluate(fn: unknown) {
         const serialized = String(fn);
 
         if (
           serialized.includes("cardCandidates") ||
           serialized.includes("application/ld+json")
         ) {
-          return {
+          return Promise.resolve({
             structuredDataCandidates: [],
             cardCandidates: [
               {
@@ -748,17 +768,17 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
                 },
               },
             ],
-          };
+          });
         }
 
         if (serialized.includes('querySelectorAll("a[href]")')) {
-          return [
+          return Promise.resolve([
             "https://example.com/jobs/view/role_frontend_1",
             "https://example.com/jobs/view/role_fullstack_1",
-          ];
+          ]);
         }
 
-        return [];
+        return Promise.resolve([]);
       },
     } as unknown as Page;
     const llmClient: LLMClient = {
@@ -780,7 +800,7 @@ describe("runAgentDiscovery fast-path extraction behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
 
     const result = await runAgentDiscovery(

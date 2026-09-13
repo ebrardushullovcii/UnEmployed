@@ -6,6 +6,7 @@ import {
   buildRelaunchLaunchContract,
   buildSeedLaunchEnvironment,
   desktopDirectory,
+  jobFinderDemoSafeRoot,
   jobFinderDemoUsage,
   parseSeedArguments,
   summarizeDemoSnapshot,
@@ -58,7 +59,13 @@ describe("Job Finder demo workspace seed arguments", () => {
   });
 
   it("accepts a missing or empty child of /tmp and refuses unsafe targets", async () => {
-    const root = await mkdtemp(path.join("/tmp", "job-finder-demo-seed-test-"));
+    // The validator resolves before it compares, and on Windows resolving
+    // "/tmp" prefixes the current drive. Resolving the same way here keeps the
+    // test comparing paths rather than platform spellings.
+    const safeRoot = path.resolve(jobFinderDemoSafeRoot);
+    const root = await mkdtemp(
+      path.join(safeRoot, "job-finder-demo-seed-test-"),
+    );
     temporaryDirectories.push(root);
 
     const missing = path.join(root, "new-workspace");
@@ -85,9 +92,9 @@ describe("Job Finder demo workspace seed arguments", () => {
     await expect(
       validateUserDataDirectory("relative-workspace"),
     ).rejects.toThrow("relative");
-    await expect(validateUserDataDirectory("/tmp")).rejects.toThrow(
-      "child of /tmp",
-    );
+    await expect(
+      validateUserDataDirectory(jobFinderDemoSafeRoot),
+    ).rejects.toThrow(`child of ${safeRoot}`);
   });
 });
 

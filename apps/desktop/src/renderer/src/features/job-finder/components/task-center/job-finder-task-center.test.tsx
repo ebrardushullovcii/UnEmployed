@@ -120,6 +120,7 @@ describe("JobFinderTaskCenter", () => {
     );
 
     expect(onCancelDiscovery).toHaveBeenCalledOnce();
+    expect(onCancelDiscovery).toHaveBeenCalledWith("discovery_running");
     expect(onCancelApplyRun).toHaveBeenCalledOnce();
     expect(onCancelApplyRun).toHaveBeenCalledWith("apply_running");
     expect(
@@ -127,6 +128,10 @@ describe("JobFinderTaskCenter", () => {
         "button",
       ).disabled,
     ).toBe(true);
+    expect(discoveryTask?.getAttribute("data-task-status")).toBe("stopping");
+    expect(within(discoveryTask as HTMLElement).getAllByText("Stopping")).toHaveLength(
+      2,
+    );
     expect(
       within(applyTask as HTMLElement).getByRole<HTMLButtonElement>("button")
         .disabled,
@@ -167,7 +172,7 @@ describe("JobFinderTaskCenter", () => {
       />,
     );
 
-    const summary = screen.getByLabelText(/Tasks:/);
+    const summary = document.querySelector("summary") as HTMLElement;
     fireEvent.click(summary);
     fireEvent.click(screen.getByRole("button", { name: "Open Find jobs" }));
     expect(onNavigate).toHaveBeenCalledWith("/job-finder/discovery");
@@ -176,6 +181,51 @@ describe("JobFinderTaskCenter", () => {
         (document.querySelector("details") as HTMLDetailsElement).open,
       ).toBe(false),
     );
+  });
+
+  test("prepares the unfinished jobs from a safety-limit pause and keeps review one click away", () => {
+    const onNavigate = vi.fn();
+    const onPrepareRemainingJobs = vi.fn();
+    const workspace = createWorkspace();
+    workspace.activeDiscoveryRun = null;
+    workspace.recentDiscoveryRuns = [];
+    workspace.applyRuns = [
+      {
+        ...workspace.applyRuns[0]!,
+        state: "paused_for_user_review",
+        jobIds: ["job_1", "job_2"],
+        totalJobs: 2,
+        pendingJobs: 2,
+        currentJobId: null,
+      },
+    ];
+    workspace.discoveryJobs.push({
+      id: "job_2",
+      company: "Venus",
+      title: "Platform Engineer",
+    } as JobFinderWorkspaceSnapshot["discoveryJobs"][number]);
+
+    render(
+      <JobFinderTaskCenter
+        isDiscoveryPending={false}
+        isResumeImportPending={false}
+        onNavigate={onNavigate}
+        onPrepareRemainingJobs={onPrepareRemainingJobs}
+        workspace={workspace}
+      />,
+    );
+
+    fireEvent.click(document.querySelector("summary") as HTMLElement);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Prepare remaining jobs" }),
+    );
+    expect(onPrepareRemainingJobs).toHaveBeenCalledWith(["job_1", "job_2"]);
+
+    fireEvent.click(document.querySelector("summary") as HTMLElement);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review prepared sample" }),
+    );
+    expect(onNavigate).toHaveBeenCalledWith("/job-finder/safeguards");
   });
 
   test("closes predictably with Escape, outside interaction, and the visible close control", () => {
@@ -217,7 +267,15 @@ describe("JobFinderTaskCenter", () => {
     expect(document.activeElement).toBe(summary);
 
     const panel = screen.getByRole("region", { name: "Tasks" });
-    expect(panel.className).toContain("max-h-[calc(100vh-14rem)]");
+    // Anchored under its own trigger and bounded at every width: as a fixed
+    // bottom sheet it resolved against the header's backdrop filter and opened
+    // upward over the title bar at the minimum window size.
+    expect(panel.className).toContain("absolute");
+    expect(panel.className).toContain("top-12");
+    expect(panel.className).toContain("max-h-[min(38rem,calc(100vh-8rem))]");
+    expect(panel.className).not.toContain("fixed");
+    // An opaque surface, so nothing behind it ever shows through.
+    expect(panel.className).toContain("surface-popover-solid");
   });
 
   test("re-enables cancellation when the owning operation reports a failure", async () => {
@@ -284,7 +342,7 @@ describe("JobFinderTaskCenter", () => {
     );
 
     const details = document.querySelector("details") as HTMLDetailsElement;
-    fireEvent.click(screen.getByLabelText(/Tasks:/));
+    fireEvent.click(document.querySelector("summary") as HTMLElement);
     fireEvent.click(screen.getByRole("button", { name: "Open Find jobs" }));
 
     expect((await screen.findByRole("status")).textContent).toContain(
@@ -391,6 +449,9 @@ describe("JobFinderTaskCenter", () => {
     expect(
       document.querySelector('[data-task-kind="tailored_drafts"]'),
     ).toBeNull();
-    expect(screen.getByLabelText("Tasks: 0 active")).toBeTruthy();
+    // Nothing running: the chip names itself and renders no count at all.
+    const summary = document.querySelector("summary") as HTMLElement;
+    expect(summary.getAttribute("aria-label")).toBe("Tasks");
+    expect(summary.textContent).not.toMatch(/\d/);
   });
 });

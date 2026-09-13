@@ -1,4 +1,5 @@
 import {
+  ApplicationRecordSchema,
   JOB_FINDER_BROWSER_LABEL,
   UserActionRequestSchema,
   type ApplicationAttemptBlocker,
@@ -539,3 +540,67 @@ export async function persistApplicationUserAction(input: {
   });
 }
 export const persistApplicationLoginUserAction = persistApplicationUserAction;
+
+/**
+ * Closing a browser step must also close the application waiting on it.
+ *
+ * Cancelling or skipping a step said "the step was closed" and stopped there:
+ * the request went to cancelled, but the application record kept the paused
+ * attempt state that every "waiting on you" reading is derived from. The
+ * header badge therefore stayed on "Needs you: 2 unresolved" and the row
+ * stayed NEEDS YOU after both steps were cancelled. The record moves to the
+ * state the cancel copy promises — Job Finder stops working on it and the
+ * person can still finish it themselves — and the count follows.
+ */
+export async function releaseApplicationRecordAfterDismissedUserAction(input: {
+  repository: JobFinderRepository;
+  request: UserActionRequest;
+  occurredAt: string;
+  eventId: string;
+  dismissal: "cancelled" | "skipped";
+}): Promise<void> {
+  const { request } = input;
+  if (request.scope.type !== "application") return;
+  const applicationRecordId = request.scope.applicationRecordId;
+  if (!applicationRecordId) return;
+
+  const record = (await input.repository.listApplicationRecords()).find(
+    (entry) => entry.id === applicationRecordId,
+  );
+  if (!record || record.lastAttemptState !== "paused") return;
+
+  // Another open step on the same application still needs the person, so the
+  // record keeps waiting until the last one is closed.
+  const stillOpen = (
+    await input.repository.listUserActionRequests({ scopeType: "application" })
+  ).some(
+    (entry) =>
+      entry.id !== request.id &&
+      entry.scope.type === "application" &&
+      entry.scope.applicationRecordId === applicationRecordId &&
+      !isUserActionTerminal(entry.state),
+  );
+  if (stillOpen) return;
+
+  const closedWord = input.dismissal === "skipped" ? "skipped" : "cancelled";
+  await input.repository.upsertApplicationRecord(
+    ApplicationRecordSchema.parse({
+      ...record,
+      lastAttemptState: "unsupported",
+      lastActionLabel: `You ${closedWord} the step Job Finder was waiting on.`,
+      nextActionLabel: "Finish this application yourself on the job site.",
+      lastUpdatedAt: input.occurredAt,
+      events: [
+        ...record.events,
+        {
+          id: input.eventId,
+          at: input.occurredAt,
+          title: `Step ${closedWord}`,
+          detail:
+            "Job Finder stopped working on this application. Nothing was sent, and you can still finish it yourself on the job site.",
+          emphasis: "warning",
+        },
+      ],
+    }),
+  );
+}

@@ -6,7 +6,7 @@ describe("navigate", () => {
   test("treats capped networkidle timeouts as partial success when the page is already usable", async () => {
     const goto = vi
       .fn()
-      .mockRejectedValue(new Error('page.goto: Timeout 7000ms exceeded.'));
+      .mockRejectedValue(new Error("page.goto: Timeout 7000ms exceeded."));
     const page = {
       goto,
       url: vi.fn(() => "https://www.linkedin.com/jobs"),
@@ -14,7 +14,9 @@ describe("navigate", () => {
       evaluate: vi.fn().mockResolvedValue("interactive"),
     } as unknown as Page;
 
-    const tool = navigationTools.find((candidate) => candidate.name === "navigate");
+    const tool = navigationTools.find(
+      (candidate) => candidate.name === "navigate",
+    );
     if (!tool) {
       throw new Error("navigate tool is not registered");
     }
@@ -23,10 +25,14 @@ describe("navigate", () => {
       currentUrl: "https://www.linkedin.com/jobs/search",
       visitedUrls: new Set<string>(),
       failedInteractionAttempts: new Map([
-        ["fill::input::search by title skill::0", {
-          count: 2,
-          lastError: 'No textbox matched accessible name "Search by title, skill, or company".',
-        }],
+        [
+          "fill::input::search by title skill::0",
+          {
+            count: 2,
+            lastError:
+              'No textbox matched accessible name "Search by title, skill, or company".',
+          },
+        ],
       ]),
     };
 
@@ -59,7 +65,7 @@ describe("navigate", () => {
         waitStateReached: false,
         partialLoad: true,
         readyState: "interactive",
-      }),
+      }) as unknown,
     });
     expect(state.currentUrl).toBe("https://www.linkedin.com/jobs");
     expect(state.visitedUrls.has("https://www.linkedin.com/jobs")).toBe(true);
@@ -74,7 +80,9 @@ describe("navigate", () => {
       evaluate: vi.fn().mockResolvedValue([]),
     } as unknown as Page;
 
-    const tool = navigationTools.find((candidate) => candidate.name === "navigate");
+    const tool = navigationTools.find(
+      (candidate) => candidate.name === "navigate",
+    );
     if (!tool) {
       throw new Error("navigate tool is not registered");
     }
@@ -83,10 +91,14 @@ describe("navigate", () => {
       currentUrl: "https://www.linkedin.com/jobs/search",
       visitedUrls: new Set<string>(),
       failedInteractionAttempts: new Map([
-        ["fill::input::search by title skill::0", {
-          count: 2,
-          lastError: 'No textbox matched accessible name "Search by title, skill, or company".'
-        }]
+        [
+          "fill::input::search by title skill::0",
+          {
+            count: 2,
+            lastError:
+              'No textbox matched accessible name "Search by title, skill, or company".',
+          },
+        ],
       ]),
     };
 
@@ -111,7 +123,7 @@ describe("navigate", () => {
       success: true,
       data: expect.objectContaining({
         url: "https://www.linkedin.com/jobs/collections/recommended",
-      }),
+      }) as unknown,
     });
     expect(state.failedInteractionAttempts.size).toBe(0);
   });
@@ -132,34 +144,41 @@ describe("navigate", () => {
 
     const page = {
       goto: vi.fn().mockResolvedValue(undefined),
-      url: vi.fn(() => 'https://example.com/jobs'),
-      title: vi.fn().mockResolvedValue('Jobs'),
-      evaluate: vi.fn().mockResolvedValue([{ label: 'Close', role: 'button' }]),
-      getByRole: vi.fn((role: string, options?: { name?: string; exact?: boolean }) => {
-        if (role === 'button' && String(options?.name ?? '').toLowerCase() === 'close') {
-          return overlayButton;
-        }
+      url: vi.fn(() => "https://example.com/jobs"),
+      title: vi.fn().mockResolvedValue("Jobs"),
+      evaluate: vi.fn().mockResolvedValue([{ label: "Close", role: "button" }]),
+      getByRole: vi.fn(
+        (role: string, options?: { name?: string; exact?: boolean }) => {
+          if (
+            role === "button" &&
+            String(options?.name ?? "").toLowerCase() === "close"
+          ) {
+            return overlayButton;
+          }
 
-        return missingButton;
-      }),
+          return missingButton;
+        },
+      ),
       waitForTimeout: vi.fn().mockResolvedValue(undefined),
     } as unknown as Page;
 
-    const tool = navigationTools.find((candidate) => candidate.name === 'navigate');
+    const tool = navigationTools.find(
+      (candidate) => candidate.name === "navigate",
+    );
     if (!tool) {
-      throw new Error('navigate tool is not registered');
+      throw new Error("navigate tool is not registered");
     }
 
     const state = {
-      currentUrl: 'https://example.com',
+      currentUrl: "https://example.com",
       visitedUrls: new Set<string>(),
       failedInteractionAttempts: new Map(),
     };
 
     const result = await tool.execute(
       {
-        url: 'https://example.com/jobs',
-        waitFor: 'domcontentloaded',
+        url: "https://example.com/jobs",
+        waitFor: "domcontentloaded",
         timeout: 5000,
       },
       {
@@ -167,7 +186,7 @@ describe("navigate", () => {
         state: state as never,
         config: {
           navigationPolicy: {
-            allowedHostnames: ['example.com'],
+            allowedHostnames: ["example.com"],
           },
         } as never,
       },
@@ -176,8 +195,8 @@ describe("navigate", () => {
     expect(result).toEqual({
       success: true,
       data: expect.objectContaining({
-        url: 'https://example.com/jobs',
-      }),
+        url: "https://example.com/jobs",
+      }) as unknown,
     });
     expect(overlayButton.click).toHaveBeenCalled();
   });

@@ -336,7 +336,11 @@ export function createJobPosting(): JobPosting {
       maxAnnualUsd: null,
     },
     summary: 'Build product interfaces',
-    description: 'Build product interfaces',
+    // A body with enough of its own content to distinguish this posting from
+    // another one: a draft generated against three boilerplate words is not
+    // tailored, and the generator now declines to call it that.
+    description:
+      'Build product interfaces for customer workflows. Own the React component library, partner with design on accessibility, instrument usage analytics, and lead migration away from the legacy checkout surface.',
     keySkills: ['React'],
     responsibilities: [],
     minimumQualifications: [],

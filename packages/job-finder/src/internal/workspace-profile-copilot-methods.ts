@@ -1,4 +1,5 @@
 import {
+  applyCompensationPreferenceChange,
   CandidateProfileSchema,
   JobSearchPreferencesSchema,
   ProfileCopilotPatchGroupSchema,
@@ -392,6 +393,11 @@ function buildProfileRevision(input: {
   profile: CandidateProfile;
   searchPreferences: JobSearchPreferences;
   profileSetupState: ProfileSetupState;
+  /** State the change left behind; see `snapshotProfileAfter`. */
+  profileAfter?: CandidateProfile | null;
+  searchPreferencesAfter?: JobSearchPreferences | null;
+  /** Monotonic position in the log; see `sequence`. */
+  sequence: number;
   reason?: string | null;
   messageId?: string | null;
   patchGroupId?: string | null;
@@ -399,6 +405,7 @@ function buildProfileRevision(input: {
 }): ProfileRevision {
   return {
     id: createUniqueId("profile_revision"),
+    sequence: input.sequence,
     createdAt: new Date().toISOString(),
     reason: input.reason ?? null,
     trigger: input.trigger,
@@ -412,7 +419,109 @@ function buildProfileRevision(input: {
     snapshotProfileSetupState: ProfileSetupStateSchema.parse(
       input.profileSetupState,
     ),
+    snapshotProfileAfter: input.profileAfter
+      ? CandidateProfileSchema.parse(input.profileAfter)
+      : null,
+    snapshotSearchPreferencesAfter: input.searchPreferencesAfter
+      ? JobSearchPreferencesSchema.parse(input.searchPreferencesAfter)
+      : null,
   };
+}
+
+/**
+ * The next free position in the revision log.
+ *
+ * Ids alone cannot order two revisions written in the same millisecond, and
+ * "undo back to here" needs an order it can trust.
+ */
+function nextProfileRevisionSequence(
+  revisions: readonly ProfileRevision[],
+): number {
+  let highest = 0;
+  for (const revision of revisions) {
+    if (revision.sequence > highest) {
+      highest = revision.sequence;
+    }
+  }
+
+  return highest + 1;
+}
+
+/**
+ * Plain-language names of the top-level fields that differ.
+ *
+ * Used to tell a person which of their own edits an undo would have thrown
+ * away, by name, instead of refusing without saying why.
+ */
+function collectChangedFieldLabels(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): string[] {
+  const labels: string[] = [];
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const key of keys) {
+    if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) {
+      labels.push(
+        key
+          .replace(/([a-z0-9])([A-Z])/gu, "$1 $2")
+          .replace(/_/gu, " ")
+          .toLowerCase(),
+      );
+    }
+  }
+
+  return labels.sort();
+}
+
+/**
+ * Fields a person changed by hand after the assistant last wrote.
+ *
+ * The log stores what each assistant change left behind, so anything that
+ * differs between that and the state the next change found was written by
+ * somebody other than the assistant.
+ */
+function collectManualEditsAfterRevision(input: {
+  currentProfile: CandidateProfile;
+  currentSearchPreferences: JobSearchPreferences;
+  /** Newest first, exactly as the repository returns them. */
+  revisionsNewestFirst: readonly ProfileRevision[];
+  fromSequence: number;
+}): string[] {
+  const labels = new Set<string>();
+  const ordered = [...input.revisionsNewestFirst]
+    .filter((revision) => revision.sequence >= input.fromSequence)
+    .sort((left, right) => left.sequence - right.sequence);
+
+  for (const [index, revision] of ordered.entries()) {
+    if (!revision.snapshotProfileAfter) {
+      // Recorded before the after-state existed: nothing can be compared, so
+      // this gap is left uncounted rather than reported as a manual edit.
+      continue;
+    }
+
+    const next = ordered[index + 1];
+    const nextProfile = next?.snapshotProfile ?? input.currentProfile;
+    const nextSearchPreferences =
+      next?.snapshotSearchPreferences ?? input.currentSearchPreferences;
+
+    for (const label of collectChangedFieldLabels(
+      revision.snapshotProfileAfter,
+      nextProfile,
+    )) {
+      labels.add(label);
+    }
+
+    if (revision.snapshotSearchPreferencesAfter) {
+      for (const label of collectChangedFieldLabels(
+        revision.snapshotSearchPreferencesAfter,
+        nextSearchPreferences,
+      )) {
+        labels.add(label);
+      }
+    }
+  }
+
+  return [...labels].sort();
 }
 
 function replaceOrInsertRecord<TRecord extends { id: string }>(
@@ -634,6 +743,25 @@ export function createWorkspaceProfileCopilotMethods(input: {
             },
           });
           break;
+        case "remove_profile_list_entries": {
+          // A removal names its entries, so nothing the person did not name
+          // can disappear, and the whole change is one reversible revision
+          // like any assistant edit.
+          const removedValues = new Set(
+            operation.values.map((value) => value.trim().toLowerCase()),
+          );
+          const keep = (value: string) =>
+            !removedValues.has(value.trim().toLowerCase());
+          nextProfile = CandidateProfileSchema.parse({
+            ...nextProfile,
+            ...(operation.field === "locations"
+              ? { locations: nextProfile.locations.filter(keep) }
+              : operation.field === "skills"
+                ? { skills: nextProfile.skills.filter(keep) }
+                : { targetRoles: nextProfile.targetRoles.filter(keep) }),
+          });
+          break;
+        }
         case "replace_search_preferences_fields": {
           const hasLegacyCompensationAmount =
             operation.value.minimumSalaryUsd !== undefined ||
@@ -680,10 +808,13 @@ export function createWorkspaceProfileCopilotMethods(input: {
           nextSearchPreferences = normalizeSearchPreferences(
             JobSearchPreferencesSchema.parse({
               ...nextSearchPreferences,
-              compensation: {
-                ...nextSearchPreferences.compensation,
-                ...operation.value,
-              },
+              // A change that names a currency sets it. Merging the raw patch
+              // kept the stored "awaiting clarification" status, so the first
+              // pay change a person asked for could never be saved.
+              compensation: applyCompensationPreferenceChange(
+                nextSearchPreferences.compensation,
+                operation.value,
+              ),
             }),
           );
           break;
@@ -864,9 +995,11 @@ export function createWorkspaceProfileCopilotMethods(input: {
   ) {
     const prepareAttempt =
       async (): Promise<CommitProfileCopilotStateInput> => {
-        const [messages, currentSetupContext] = await Promise.all([
+        const [messages, currentSetupContext, existingRevisions] =
+          await Promise.all([
           ctx.repository.listProfileCopilotMessages(),
           getCurrentSetupStateContext(),
+          ctx.repository.listProfileRevisions(),
         ]);
         const captured = await ctx.repository.getProfileWithRevision();
         const now = new Date().toISOString();
@@ -971,6 +1104,11 @@ export function createWorkspaceProfileCopilotMethods(input: {
               profile: captured.profile,
               searchPreferences: currentSetupContext.searchPreferences,
               profileSetupState: currentSetupContext.profileSetupState,
+              // Recorded beside the "before" state so a later undo can tell
+              // this change apart from the person's own edits.
+              profileAfter: patched.profile,
+              searchPreferencesAfter: patched.searchPreferences,
+              sequence: nextProfileRevisionSequence(existingRevisions),
               reason: `Assistant patch: ${patchGroup.summary}`,
               messageId: options?.messageId ?? sourceMessage?.id ?? null,
               patchGroupId,
@@ -1025,14 +1163,53 @@ export function createWorkspaceProfileCopilotMethods(input: {
       throw new Error(`Unknown profile revision '${revisionId}'.`);
     }
 
+    // Undo reaches back to the state this revision found, which also reverses
+    // every assistant change recorded after it. That is the point — an undo
+    // list you can only use from the top is not an undo list — but it must
+    // never take a person's own later edit with it.
+    const laterAssistantRevisionCount = revisions.filter(
+      (revision) =>
+        revision.sequence > targetRevision.sequence &&
+        revision.trigger === "assistant_patch",
+    ).length;
+    const fieldsThisUndoWouldChange = new Set([
+      ...collectChangedFieldLabels(
+        currentSetupContext.profile,
+        targetRevision.snapshotProfile,
+      ),
+      ...collectChangedFieldLabels(
+        currentSetupContext.searchPreferences,
+        targetRevision.snapshotSearchPreferences,
+      ),
+    ]);
+    const conflictingManualEdits = collectManualEditsAfterRevision({
+      currentProfile: currentSetupContext.profile,
+      currentSearchPreferences: currentSetupContext.searchPreferences,
+      revisionsNewestFirst: revisions,
+      fromSequence: targetRevision.sequence,
+    }).filter((label) => fieldsThisUndoWouldChange.has(label));
+
+    if (conflictingManualEdits.length > 0) {
+      throw new Error(
+        `This change cannot be undone: you edited ${conflictingManualEdits.join(", ")} yourself afterwards, and undoing would overwrite your own edit. Change ${conflictingManualEdits.length === 1 ? "that field" : "those fields"} by hand instead.`,
+      );
+    }
+
+    const undoReason = targetRevision.reason
+      ? `Undo: ${targetRevision.reason}`
+      : "Undo profile revision";
     const undoRevision = buildProfileRevision({
       trigger: "undo",
-      profile: targetRevision.snapshotProfile,
-      searchPreferences: targetRevision.snapshotSearchPreferences,
-      profileSetupState: targetRevision.snapshotProfileSetupState,
-      reason: targetRevision.reason
-        ? `Undo: ${targetRevision.reason}`
-        : "Undo profile revision",
+      profile: currentSetupContext.profile,
+      searchPreferences: currentSetupContext.searchPreferences,
+      profileSetupState: currentSetupContext.profileSetupState,
+      profileAfter: targetRevision.snapshotProfile,
+      searchPreferencesAfter: targetRevision.snapshotSearchPreferences,
+      sequence: nextProfileRevisionSequence(revisions),
+      reason:
+        laterAssistantRevisionCount > 0
+          ? `${undoReason} (and ${laterAssistantRevisionCount} later assistant change${laterAssistantRevisionCount === 1 ? "" : "s"})`
+          : undoReason,
       restoredFromRevisionId: targetRevision.id,
     });
 

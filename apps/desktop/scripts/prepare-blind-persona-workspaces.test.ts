@@ -13,10 +13,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   CandidateProfileSchema,
@@ -352,8 +353,24 @@ describe("blind persona source path-set digest ordering", () => {
   });
 });
 
-const approvedTempRoot =
-  "/private/var/folders/nh/pj6dg1rj2kvdgrh75f7b5krr0000gn/T/opencode";
+// Windows runs this harness slower on every axis: the fake accepted build is
+// copied, hashed and sealed on NTFS, each simulated launch spawns a process,
+// and removals retry until handles are released. That regularly outgrows
+// vitest's 5s default and the suite fails on the clock rather than on
+// behaviour. POSIX keeps the default, so a real hang still fails fast there.
+if (process.platform === "win32") {
+  vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
+}
+
+// The harness's approved scratch root, resolved so it is a real path on this
+// platform: Windows has no "/private/var/..." and path.join would leave a
+// driveless "\private\var\..." that never matched the canonical paths the
+// code under test returns.
+const approvedTempRoot = path.resolve(
+  process.platform === "win32"
+    ? path.join(os.tmpdir(), "opencode")
+    : "/private/var/folders/nh/pj6dg1rj2kvdgrh75f7b5krr0000gn/T/opencode",
+);
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../..",
@@ -1647,9 +1664,15 @@ describe("blind persona accepted-build preparation", () => {
     let saved: Record<string, unknown> | undefined;
     const childPids: number[] = [];
     const launch: LaunchSeedElectron = async ({ env }) => {
-      const child = spawn("/bin/sh", ["-c", "sleep 30 & wait"], {
-        stdio: "ignore",
-      });
+      // A long-lived descendant spawned the same way on every platform:
+      // "/bin/sh" does not exist on Windows, so the spawn failed
+      // asynchronously, left pid undefined, and the recheck below passed
+      // without ever having a process to terminate.
+      const child = spawn(
+        process.execPath,
+        ["-e", "setTimeout(() => undefined, 30_000)"],
+        { stdio: "ignore" },
+      );
       childPids.push(child.pid!);
       return {
         close: async () => undefined,

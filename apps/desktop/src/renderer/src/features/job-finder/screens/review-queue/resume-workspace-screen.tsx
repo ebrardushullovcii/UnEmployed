@@ -45,7 +45,10 @@ import {
   describeResumeGenerationPath,
   findLatestAssistantEditRevisionId,
 } from "./resume-workspace-utils";
-import { orderResumeEntriesNewestFirst } from "./resume-section-editor-helpers";
+import {
+  createResumeDraftPatch,
+  orderResumeEntriesNewestFirst,
+} from "./resume-section-editor-helpers";
 import {
   buildResumeThemeRecommendationContext,
   buildWorkspaceStatusCopy,
@@ -674,6 +677,10 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
   const editorPanel = (
     <ResumeWorkspaceEditorPanel
       actionMessage={props.actionMessage}
+      actionSavedFilePath={props.actionSavedFilePath ?? null}
+      {...(props.onRevealSavedFile
+        ? { onOpenSavedFolder: props.onRevealSavedFile }
+        : {})}
       acceptedAssistantEdits={acceptedAssistantEdits}
       {...(undoAiEditAction ? { undoAiEditAction } : {})}
       onOpenAssistant={openAssistant}
@@ -808,6 +815,24 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       hasUnsavedChanges={hasUnsavedChanges}
       isWorkspacePending={props.isWorkspacePending}
       jobId={props.jobId}
+      onRejectClaim={(assessment) => {
+        if (!assessment.bulletId) {
+          return;
+        }
+
+        // Rejecting is the same reversible draft edit the bullet row's own
+        // delete makes, so it is logged and undoable like any other.
+        handleApplyPatch(
+          createResumeDraftPatch({
+            bulletId: assessment.bulletId,
+            entryId: assessment.entryId,
+            idPrefix: `resume_patch_claim_reject_${assessment.bulletId}`,
+            operation: "remove_bullet",
+            sectionId: assessment.sectionId,
+          }),
+          "Removed a line you did not confirm",
+        );
+      }}
       onSetResumeClaimConfirmation={props.onSetResumeClaimConfirmation}
     />
   ) : null;
@@ -904,6 +929,9 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
               "Saved your draft before exporting the PDF.",
             )
           }
+          {...(props.onClaimResumeIdentity
+            ? { onClaimResumeIdentity: props.onClaimResumeIdentity }
+            : {})}
           {...(prepareApplication
             ? {
                 onPrepareApplication: () =>

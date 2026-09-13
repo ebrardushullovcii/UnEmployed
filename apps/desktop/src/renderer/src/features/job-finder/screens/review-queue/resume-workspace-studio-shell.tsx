@@ -75,6 +75,12 @@ interface ResumeWorkspaceStudioShellProps {
   setAsideProposalNote?: string;
   onContinueToShortlisted: () => void;
   onExportPdf: () => void;
+  /**
+   * Resolves an identity mismatch by recording that the imported document is
+   * this person's, under a name they no longer use (ADR 0018 keeps the
+   * honesty decision theirs). Absent when the caller cannot save a profile.
+   */
+  onClaimResumeIdentity?: () => void;
   onPrepareApplication?: () => void;
   onReviewBlockingIssues: () => void;
   /** Reopens the Assistant on a proposal approval set aside, so a discarded
@@ -114,7 +120,7 @@ function StudioStatusRow(props: {
   return (
     <div
       {...(props.live ? { "aria-live": "polite", role: "status" } : {})}
-      className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-1.5 text-(length:--text-small) leading-5 text-foreground-soft"
+      className="flex flex-wrap items-center justify-between gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-1.5 text-(length:--text-body) leading-6 text-foreground"
       data-resume-studio-status
     >
       <span>{props.message}</span>
@@ -750,6 +756,9 @@ export function ResumeWorkspaceStudioShell(
                 }
               : {})}
             {...(props.onAskAiFix ? { onAskAiFix: props.onAskAiFix } : {})}
+            {...(props.onClaimResumeIdentity
+              ? { onClaimResumeIdentity: props.onClaimResumeIdentity }
+              : {})}
             onFixIssue={focusValidationIssue}
             {...(props.onRestoreValidationIssuePreviousText
               ? {
@@ -831,7 +840,7 @@ export function ResumeWorkspaceStudioShell(
               one did not says it here. */}
           {!isDesktopStudio && props.canClearApproval ? (
             <span
-              className="min-w-0 text-(length:--text-small) leading-5 text-foreground-soft"
+              className="min-w-0 text-(length:--text-body) leading-6 text-foreground"
               data-resume-studio-compact-approval-note
             >
               {props.hasUnsavedChanges

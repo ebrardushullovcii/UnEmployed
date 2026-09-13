@@ -1,6 +1,10 @@
 import { z, type RefinementCtx } from "zod";
 
-import { IsoDateTimeSchema, NonEmptyStringSchema } from "./base";
+import {
+  DiscoveryRunReportSchema,
+  IsoDateTimeSchema,
+  NonEmptyStringSchema,
+} from "./base";
 
 // ---------------------------------------------------------------------------
 // Campaign rules
@@ -588,6 +592,11 @@ export type CampaignDigestFailedSource = z.infer<
   typeof CampaignDigestFailedSourceSchema
 >;
 
+export const CampaignDigestSourceOutcomeSchema = z.object({
+  planned: z.number().int().nonnegative(),
+  completed: z.number().int().nonnegative(),
+});
+
 export const CampaignDigestSchema = z
   .object({
     id: NonEmptyStringSchema,
@@ -595,10 +604,21 @@ export const CampaignDigestSchema = z
     discoveryRunId: NonEmptyStringSchema.nullable().default(null),
     generatedAt: IsoDateTimeSchema,
     counts: CampaignDigestCountsSchema.default({}),
+    /**
+     * The run's own frozen accounting, copied onto the digest at the plan's
+     * terminal commit. A plan card must be able to print the run's numbers
+     * without going looking for a run record it may not hold: the Search
+     * plans screen only ever receives the active plan's runs, so every other
+     * card printed "Counts were not recorded for this run" about a search
+     * that had just finished. Null only for digests written before this
+     * field existed.
+     */
+    report: DiscoveryRunReportSchema.nullable().default(null),
     failedSources: z
       .array(CampaignDigestFailedSourceSchema)
       .max(100)
       .default([]),
+    sourceOutcome: CampaignDigestSourceOutcomeSchema.nullable().default(null),
     jobIds: z.array(NonEmptyStringSchema).max(10_000).default([]),
   })
   .strict();

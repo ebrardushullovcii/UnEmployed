@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import {
+  ApplicationRecordSchema,
   UserActionRequestSchema,
   type UserActionCommandInput,
 } from "@unemployed/contracts";
+import { countNeedsYouItems } from "../../lib/needs-you-count";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -136,6 +138,20 @@ describe("ActionsScreen", () => {
     ).toBe(
       "/job-finder/applications?applicationRecordId=application-only&jobId=job_1",
     );
+  });
+
+  it("shows safeguard recovery instead of an empty state and clears after dismissal", () => {
+    const onNavigate = vi.fn();
+    const props = { discoveryJobs: [], requests: [], isPending: () => false, onCommand: vi.fn(), onNavigate };
+    const { rerender } = render(<ActionsScreen {...props} safeguardPauses={[{
+      id: "pause", campaignId: "plan", planName: "My search", title: "Paused after repeated failures (37.5% failed)",
+      explanation: "Review the failed searches.", route: "/job-finder/safeguards",
+    }]} />);
+    expect(screen.queryByText("Nothing needs you right now")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open Safeguards" }));
+    expect(onNavigate).toHaveBeenCalledWith("/job-finder/safeguards");
+    rerender(<ActionsScreen {...props} safeguardPauses={[]} />);
+    expect(screen.getByText("Nothing needs you right now")).toBeTruthy();
   });
 
   it("renders the shared page header grammar with a normalized body gap", () => {
@@ -532,6 +548,110 @@ describe("ActionsScreen", () => {
     expect(
       text.split("cannot create an account or submit an application").length -
         1,
+    ).toBe(1);
+  });
+
+  it("leads with the plain step and hides the recorded request line behind Technical details", () => {
+    const request = UserActionRequestSchema.parse({
+      ...createRequest({ id: "blocked", scope: "application" }),
+      summary:
+        "The application page needs manual review. Blocked: xhr POST https://example.test/cdn-cgi/rum?req=1.",
+      instructions: [
+        "Choose the next application step manually in the Job Finder browser. Blocked: xhr POST https://example.test/cdn-cgi/rum?req=1.",
+      ],
+    });
+
+    const { container, getAllByRole, getByText } = render(
+      <ActionsScreen
+        discoveryJobs={[]}
+        isPending={() => false}
+        onCommand={vi.fn()}
+        onNavigate={vi.fn()}
+        requests={[request]}
+      />,
+    );
+
+    expect(
+      getAllByRole("listitem").map((item) => item.textContent?.trim()),
+    ).toContain(
+      "Choose the next application step manually in the Job Finder browser.",
+    );
+    expect(getByText("The application page needs manual review.")).toBeTruthy();
+
+    // The blocked attempt is still recorded, one level down.
+    const disclosure = container.querySelector("details");
+    expect(disclosure?.querySelector("summary")?.textContent).toBe(
+      "Technical details",
+    );
+    expect(disclosure?.textContent).toContain(
+      "Blocked: xhr POST https://example.test/cdn-cgi/rum?req=1.",
+    );
+  });
+
+  it("lists an application the Applications screen badges Needs you", () => {
+    // "Needs you: 0 unresolved" beside an application badged NEEDS YOU:
+    // one population, two answers. The badge count and this page now read
+    // the same selector, so the page can never be empty while it counts.
+    const record = ApplicationRecordSchema.parse({
+      id: "application_1",
+      jobId: "job_1",
+      title: "Principal Designer",
+      company: "Acme",
+      status: "ready_for_review",
+      lastAttemptState: "paused",
+      consentSummary: { status: "requested", pendingCount: 1 },
+      lastActionLabel: "Paused on the job site.",
+      nextActionLabel: "Finish the sign-in step on the job site.",
+      lastUpdatedAt: "2026-03-20T10:00:00.000Z",
+    });
+    const onNavigate = vi.fn();
+
+    render(
+      <ActionsScreen
+        applicationRecords={[record]}
+        discoveryJobs={[]}
+        isPending={() => false}
+        onCommand={vi.fn()}
+        onNavigate={onNavigate}
+        requests={[]}
+      />,
+    );
+
+    expect(countNeedsYouItems({ applicationRecords: [record], requests: [] })).toBe(1);
+    expect(screen.queryByText("Nothing needs you right now")).toBeNull();
+    expect(screen.getByText("Applications waiting on you")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Open this application/ }),
+    );
+    expect(onNavigate).toHaveBeenCalledWith(
+      expect.stringContaining("/job-finder/applications"),
+    );
+  });
+
+  it("does not repeat an application a live browser step already represents", () => {
+    const record = ApplicationRecordSchema.parse({
+      id: "application_1",
+      jobId: "job_1",
+      title: "Principal Designer",
+      company: "Acme",
+      status: "ready_for_review",
+      lastAttemptState: "paused",
+      consentSummary: { status: "requested", pendingCount: 1 },
+      lastActionLabel: "Paused on the job site.",
+      nextActionLabel: "Finish the sign-in step on the job site.",
+      lastUpdatedAt: "2026-03-20T10:00:00.000Z",
+    });
+    const request = createRequest({
+      id: "request_1",
+      scope: "application",
+      applicationRecordId: "application_1",
+    });
+
+    expect(
+      countNeedsYouItems({
+        applicationRecords: [record],
+        requests: [request],
+      }),
     ).toBe(1);
   });
 

@@ -580,6 +580,72 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
     });
   });
 
+  it("keeps the paused queue recovery visible while its prepared sample needs manual review", () => {
+    const now = "2026-08-27T10:00:00.000Z";
+    const onStartAutoApplyQueue = vi.fn();
+    const selectedRun = ApplyRunSchema.parse({
+      id: "run_sample_review",
+      mode: "queue_auto",
+      state: "paused_for_user_review",
+      jobIds: ["job_sample", "job_next"],
+      currentJobId: null,
+      summary: "Paused by a safety limit.",
+      detail: "Review the prepared sample before continuing.",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
+      {
+        id: "result_sample",
+        runId: selectedRun.id,
+        jobId: "job_sample",
+        applicationRecordId: "application_sample",
+        queuePosition: 0,
+        state: "awaiting_review",
+        summary: "This prepared application needs your review.",
+        detail: "Finish a required field in the employer page.",
+        startedAt: now,
+        updatedAt: now,
+        completedAt: now,
+        blockerReason: "required_human_input",
+        blockerSummary: "A required field needs manual review.",
+        listingSignalEvidence: null,
+        visualObservationSets: [],
+        visualCheckpoints: [],
+        latestQuestionCount: 1,
+        latestAnswerCount: 0,
+        pendingConsentRequestCount: 0,
+        artifactCount: 1,
+        latestCheckpointId: null,
+        privacyReceipt: null,
+      };
+
+    const { getByRole, getByText } = render(
+      <ApplicationsDetailPanelRecoveryActionsSection
+        canRestageAutoRun={false}
+        canRestageQueueRun
+        dailyPreparationCapacity={null}
+        excludedQueueRecoveryEntries={[]}
+        isApplyPending={false}
+        onStartApplyCopilot={vi.fn()}
+        onStartAutoApply={vi.fn()}
+        onStartAutoApplyQueue={onStartAutoApplyQueue}
+        selectedQueueOutcomeEntries={[]}
+        selectedQueueRecoveryEntries={[]}
+        selectedQueueRecoveryJobIds={["job_next"]}
+        selectedRecordJobId="job_sample"
+        selectedApplicationRecordId="application_sample"
+        selectedRun={selectedRun}
+        visibleApplyResult={visibleApplyResult}
+      />,
+    );
+
+    expect(getByText(/review the prepared job above/i)).toBeTruthy();
+    const button = getByRole("button", { name: "Prepare remaining jobs" });
+    fireEvent.click(button);
+    expect(onStartAutoApplyQueue).toHaveBeenCalledWith(["job_next"]);
+  });
+
   it("uses the same finish-first hierarchy for a prepare-only field save pause", () => {
     const visibleApplyResult: JobFinderWorkspaceSnapshot["applyJobResults"][number] =
       {

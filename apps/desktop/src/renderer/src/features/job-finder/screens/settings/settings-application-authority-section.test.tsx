@@ -275,11 +275,11 @@ describe("SettingsApplicationAuthoritySection", () => {
       expect(screen.getByText(/Nothing saved yet/)).toBeTruthy(),
     );
     const create = screen.getByRole<HTMLButtonElement>("button", {
-      name: "Create prepare-only authority",
+      name: "Save what Job Finder may do",
     });
     expect(create.disabled).toBe(true);
 
-    fireEvent.change(screen.getByLabelText(/Allowed origins/), {
+    fireEvent.change(screen.getByLabelText(/Website Job Finder may fill on/), {
       target: { value: origin },
     });
     fireEvent.change(screen.getByLabelText("Maximum applications per run"), {
@@ -340,15 +340,15 @@ describe("SettingsApplicationAuthoritySection", () => {
     render(<SettingsApplicationAuthoritySection />);
 
     const autosave = await screen.findByRole("switch", {
-      name: "Allow bounded ATS autosave during preparation",
+      name: "Let the job site save answers as Job Finder fills them",
     });
     expect((autosave as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(autosave);
 
-    fireEvent.change(screen.getByLabelText(/Allowed origins/), {
+    fireEvent.change(screen.getByLabelText(/Website Job Finder may fill on/), {
       target: { value: origin },
     });
-    fireEvent.change(screen.getByLabelText(/Allowed resume SHA-256/), {
+    fireEvent.change(screen.getByLabelText(/Resume file fingerprint/), {
       target: { value: "a".repeat(64) },
     });
     fireEvent.change(screen.getByLabelText(/Job IDs/), {
@@ -366,7 +366,7 @@ describe("SettingsApplicationAuthoritySection", () => {
     });
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Create prepare-only authority" }),
+      screen.getByRole("button", { name: "Save what Job Finder may do" }),
     );
     await waitFor(() =>
       expect(api.createApplicationAuthorityEnvelope).toHaveBeenCalledWith(

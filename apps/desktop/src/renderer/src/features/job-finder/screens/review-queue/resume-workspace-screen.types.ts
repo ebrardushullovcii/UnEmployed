@@ -12,6 +12,9 @@ import type { ResumeWorkHistoryDecisionRequest } from "./resume-workspace-work-h
 
 export interface ResumeWorkspaceScreenProps {
   actionMessage: string | null;
+  /** The file the action message names, when an export just wrote one. */
+  actionSavedFilePath?: string | null;
+  onRevealSavedFile?: (path: string) => void;
   jobId: string;
   isWorkspacePending: boolean;
   /** Native PDF export is pending without invalidating a ready workspace. */
@@ -42,6 +45,8 @@ export interface ResumeWorkspaceScreenProps {
     successMessage?: string | null,
   ) => void;
   onExportPdf: (jobId: string) => void;
+  /** Records that the imported resume is this person's own document. */
+  onClaimResumeIdentity?: () => void;
   /** Creates a private application PDF and approves its exact verified bytes. */
   onApproveCurrentResume: (jobId: string) => void;
   onApproveResume: (jobId: string, exportId: string) => void;

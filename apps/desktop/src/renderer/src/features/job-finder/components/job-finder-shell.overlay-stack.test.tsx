@@ -56,9 +56,19 @@ function createWorkspace(): JobFinderWorkspaceSnapshot {
   } as unknown as JobFinderWorkspaceSnapshot;
 }
 
+function taskCenterSummary(): HTMLElement {
+  const summary = document.querySelector<HTMLElement>(
+    "summary[aria-label^='Tasks']",
+  );
+  if (!summary) throw new Error("Expected the Tasks trigger to be rendered.");
+  return summary;
+}
+
 async function openTaskCenter() {
   const before = isTaskCenterOpen();
-  fireEvent.click(screen.getByLabelText(/Tasks:/));
+  // The trigger is a <summary>; the open panel carries the same name, so the
+  // element is selected rather than the accessible name alone.
+  fireEvent.click(taskCenterSummary());
   await waitFor(() => expect(isTaskCenterOpen()).toBe(!before));
 }
 
@@ -184,7 +194,7 @@ describe("JobFinderShell stacked overlay ownership", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(isTaskCenterOpen()).toBe(false);
-    expect(document.activeElement).toBe(screen.getByLabelText(/Tasks:/));
+    expect(document.activeElement).toBe(taskCenterSummary());
   });
 
   it("closes the Task Center opened above the Planning menu one layer per Escape", async () => {
@@ -224,7 +234,7 @@ describe("JobFinderShell stacked overlay ownership", () => {
 
     fireEvent.keyDown(document, { key: "Escape" });
     expect(isTaskCenterOpen()).toBe(false);
-    expect(document.activeElement).toBe(screen.getByLabelText(/Tasks:/));
+    expect(document.activeElement).toBe(taskCenterSummary());
   });
 
   it("gives the newest layer the first Escape when Task Center stacks above search", async () => {

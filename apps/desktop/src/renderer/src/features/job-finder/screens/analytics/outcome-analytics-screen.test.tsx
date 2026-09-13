@@ -104,6 +104,11 @@ function overviewWith(
   };
 }
 
+/** The rendered bucket card for one stored key, or null when it is not shown. */
+function bucketKeyCard(key: string): Element | null {
+  return document.querySelector(`[data-outcome-bucket-key="${key}"]`);
+}
+
 function renderScreen(props: {
   events?: readonly OutcomeEvent[];
   overview?: OutcomeAnalyticsOverview | null;
@@ -352,7 +357,10 @@ describe("OutcomeAnalyticsScreen", () => {
     expect(sourceTab.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(sourceTab);
     expect(sourceTab.getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByText("linkedin")).toBeTruthy();
+    // The stored source value is never shown; the card is found by its key.
+    expect(
+      document.querySelector('[data-outcome-bucket-key="linkedin"]'),
+    ).toBeTruthy();
   });
 
   it("keeps a 10k-event dimension view deterministic and paged", () => {
@@ -370,16 +378,16 @@ describe("OutcomeAnalyticsScreen", () => {
     expect(screen.getAllByRole("article")).toHaveLength(40);
     expect(screen.getByText(/Showing 1–40 of 10000 sources/)).toBeTruthy();
     expect(screen.getByText("Page 1 of 250")).toBeTruthy();
-    expect(screen.getByText("source-00000")).toBeTruthy();
-    expect(screen.queryByText("source-00040")).toBeNull();
+    expect(bucketKeyCard("source-00000")).toBeTruthy();
+    expect(bucketKeyCard("source-00040")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Next page" }));
 
     expect(screen.getAllByRole("article")).toHaveLength(40);
     expect(screen.getByText(/Showing 41–80 of 10000 sources/)).toBeTruthy();
     expect(screen.getByText("Page 2 of 250")).toBeTruthy();
-    expect(screen.getByText("source-00040")).toBeTruthy();
-    expect(screen.queryByText("source-00000")).toBeNull();
+    expect(bucketKeyCard("source-00040")).toBeTruthy();
+    expect(bucketKeyCard("source-00000")).toBeNull();
   });
 
   it("keeps suggestion controls disabled while their action is pending", () => {

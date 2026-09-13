@@ -1,4 +1,4 @@
-import type { NormalizedCompensation } from "@unemployed/contracts";
+import type { NormalizedCompensation, SavedJob } from "@unemployed/contracts";
 
 export function formatNormalizedCompensation(
   compensation: NormalizedCompensation | null | undefined,
@@ -40,4 +40,21 @@ export function formatNormalizedCompensation(
       : annualizedValues.map((value) => `USD ${value.toLocaleString()}`).join(" – ");
 
   return annualizedRange ? `${annualizedRange} annualized` : null;
+}
+
+/**
+ * The normalized band, but only for a listing that actually stated a salary.
+ *
+ * A normalized band is a reading of the employer's own words. When a listing
+ * publishes no salary there is nothing to read, and any band still attached to
+ * the record came from somewhere else — which is how identical figures no
+ * employer had published appeared on several jobs at once. Callers render the
+ * absence label instead.
+ */
+export function formatStatedNormalizedCompensation(
+  job: Pick<SavedJob, "salaryText" | "normalizedCompensation"> | null | undefined,
+): string | null {
+  return job?.salaryText
+    ? formatNormalizedCompensation(job.normalizedCompensation)
+    : null;
 }

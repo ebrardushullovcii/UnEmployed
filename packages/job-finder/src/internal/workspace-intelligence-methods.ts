@@ -518,6 +518,10 @@ export function createWorkspaceIntelligenceMethods(input: {
           outcome: command.outcome,
           campaignId: campaign.id,
           source: job.source,
+          // The recorded source is one enum value for every job, so grouping
+          // outcomes by it gave a single bucket. The job's own discovery
+          // lineage names the saved source it actually came from.
+          sourceTargetId: job.provenance[0]?.targetId ?? null,
           company: job.company,
           jobTitle: job.title,
           resumeStrategyId: command.resumeStrategyId,

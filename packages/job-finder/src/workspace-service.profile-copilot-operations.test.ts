@@ -328,6 +328,18 @@ const operationCases = {
       ["Figma", "React", "Storybook"],
     ],
   },
+  remove_profile_list_entries: {
+    operation: "remove_profile_list_entries",
+    request: "Drop React from my skills",
+    context: { surface: "profile", section: "basics" },
+    buildOperation: () => ({
+      operation: "remove_profile_list_entries",
+      field: "skills",
+      values: ["React"],
+    }),
+    observe: (state) => state.profile.skills,
+    expectedAfterApply: ["Figma", "Design Systems"],
+  },
   replace_search_preferences_fields: {
     operation: "replace_search_preferences_fields",
     request:

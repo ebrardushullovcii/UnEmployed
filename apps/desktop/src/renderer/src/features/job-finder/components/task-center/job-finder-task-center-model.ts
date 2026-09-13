@@ -5,22 +5,36 @@ import type {
   JobFinderWorkspaceSnapshot,
   ResumeImportProgressEvent,
   ResumeImportRun,
+  SourceDebugRunRecord,
 } from "@unemployed/contracts";
 import { countActiveSafeguardBlockers } from "../../lib/safeguards-blocker-count";
 import {
   formatDiscoveryRunCountLabel,
+  formatDiscoveryRunReportLabel,
   getDiscoveryRunCountEvidence,
+  getDiscoveryRunReportCounts,
+  hasDiscoveryRunReportCounts,
 } from "../../lib/discovery-run-count-label";
 import type { TailoredDraftPreparationViewState } from "../../screens/review-queue/review-queue-status";
+import {
+  DISCOVERY_RUN_STATE_LABELS,
+  DISCOVERY_STOP_UNACKNOWLEDGED_LABEL,
+  DISCOVERY_STOPPING_LABEL,
+} from "../../lib/status-copy";
+import { getDiscoveryStopState } from "../../lib/discovery-stop-state";
+import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
+import { countApplicationLedgerEntries } from "../../lib/needs-you-count";
 
 export type JobFinderTaskKind =
   | "discovery"
+  | "source_check"
   | "resume_import"
   | "apply"
   | "safeguards"
   | "tailored_drafts";
 export type JobFinderTaskStatus =
   | "active"
+  | "stopping"
   | "paused"
   | "completed"
   | "cancelled"
@@ -40,10 +54,14 @@ export interface JobFinderTaskCenterItem {
   cancelKind: "discovery" | "apply" | "tailored_drafts" | null;
   resumeRoute: string | null;
   resumeActionLabel: string | null;
+  applyRecoveryJobIds?: readonly string[];
+  reviewRoute?: string | null;
+  reviewActionLabel?: string | null;
 }
 
 export interface JobFinderTaskCenterModel {
   activeCount: number;
+  pausedCount: number;
   items: readonly JobFinderTaskCenterItem[];
 }
 
@@ -57,6 +75,8 @@ export interface BuildJobFinderTaskCenterModelInput {
     | TailoredDraftPreparationViewState
     | null
     | undefined;
+  /** Injected by tests so the bounded Stop window is deterministic. */
+  now?: number | undefined;
 }
 
 const discoveryStageLabels: Record<DiscoveryActivityEvent["stage"], string> = {
@@ -68,6 +88,27 @@ const discoveryStageLabels: Record<DiscoveryActivityEvent["stage"], string> = {
   persistence: "Saving results",
   run: "Finishing search",
 };
+
+function discoveryProgressStageLabel(
+  event: DiscoveryActivityEvent,
+  targetIds: readonly string[],
+): string {
+  if (event.stage === "extraction" && !event.targetId) {
+    return "Reading listing details";
+  }
+  if (
+    event.targetId &&
+    (event.stage === "target" ||
+      event.stage === "navigation" ||
+      event.stage === "extraction")
+  ) {
+    const targetIndex = targetIds.indexOf(event.targetId);
+    if (targetIndex >= 0 && targetIds.length > 0) {
+      return `Reading source ${targetIndex + 1} of ${targetIds.length}`;
+    }
+  }
+  return discoveryStageLabels[event.stage];
+}
 
 const resumeStageLabels: Record<ResumeImportProgressEvent["stage"], string> = {
   saving_file: "Saving selected file",
@@ -200,20 +241,89 @@ function targetSourceLabel(
 function discoveryStatus(
   run: DiscoveryRunRecord | null,
   isPending: boolean,
+  now: number,
 ): JobFinderTaskStatus {
-  if (isPending) {
-    return "active";
+  const stopState = getDiscoveryStopState(run, now);
+  if (stopState === "stopping") {
+    return "stopping";
+  }
+
+  // A stop the search never acknowledged is reported as stopped rather than
+  // as a "Stopping" that counts upward forever, and releases its controls.
+  if (stopState === "unacknowledged") {
+    return "cancelled";
   }
 
   if (!run || run.state === "idle") {
-    return "interrupted";
+    return isPending ? "active" : "interrupted";
   }
 
   if (run.state === "running") {
-    return "interrupted";
+    return "active";
   }
 
   return run.state;
+}
+
+const sourceCheckStageLabels: Record<
+  NonNullable<SourceDebugRunRecord["activePhase"]>,
+  string
+> = {
+  access_auth_probe: "Checking access",
+  site_structure_mapping: "Reading the site layout",
+  search_filter_probe: "Checking search filters",
+  job_detail_validation: "Checking job details",
+  apply_path_validation: "Checking application links",
+  replay_verification: "Confirming the saved instructions",
+};
+
+function buildSourceCheckTask(
+  input: BuildJobFinderTaskCenterModelInput,
+): JobFinderTaskCenterItem | null {
+  const run =
+    input.workspace.activeSourceDebugRun ??
+    newestBy(
+      input.workspace.recentSourceDebugRuns ?? [],
+      (candidate) => candidate.updatedAt,
+    );
+  if (!run) return null;
+
+  const status: JobFinderTaskStatus =
+    run.state === "running"
+      ? "active"
+      : run.state === "paused_manual"
+        ? "paused"
+        : run.state === "completed"
+          ? "completed"
+          : run.state === "cancelled"
+            ? "cancelled"
+            : run.state === "failed"
+              ? "failed"
+              : "interrupted";
+  const canResume = status === "paused" || status === "failed";
+
+  return {
+    id: run.id,
+    kind: "source_check",
+    title: "Source check",
+    status,
+    stageLabel: run.activePhase
+      ? sourceCheckStageLabels[run.activePhase]
+      : status === "completed"
+        ? "Check completed"
+        : status === "cancelled"
+          ? "Check stopped"
+          : status === "failed"
+            ? "Check needs attention"
+            : "Check interrupted",
+    sourceLabel: run.targetLabel,
+    countLabel: `${run.phaseSummaries?.length ?? 0} checks finished`,
+    historyEstimateLabel: null,
+    canCancel: false,
+    cancelKind: null,
+    resumeRoute: canResume ? JOB_FINDER_ROUTE_PATHS.profileSources : null,
+    resumeActionLabel: canResume ? "Open Sources" : null,
+  };
 }
 
 function buildDiscoveryTask(
@@ -249,12 +359,24 @@ function buildDiscoveryTask(
             .map((target) => target.id)
         : [];
   const targetIdCounts = countTargetIds(targetIds);
-  const countEvidence = getDiscoveryRunCountEvidence(run, liveEvent);
+  const progressEvent = liveEvent ?? run?.activity.at(-1) ?? null;
+  const countEvidence = getDiscoveryRunCountEvidence(run, progressEvent);
+  // A finished run states its own counts; Tasks quotes them rather than
+  // describing the same search with a second set of numbers. A run still in
+  // flight has nothing frozen yet, so the live evidence label stands.
+  const runReport = getDiscoveryRunReportCounts(run);
+  const runCountLabel =
+    run?.state !== "running" && hasDiscoveryRunReportCounts(runReport)
+      ? formatDiscoveryRunReportLabel(runReport)
+      : formatDiscoveryRunCountLabel(countEvidence);
   const targetsPlanned = run?.summary.targetsPlanned || targetIds.length;
   const targetsCompleted = run?.summary.targetsCompleted ?? 0;
+  const now = input.now ?? Date.now();
+  const stopState = getDiscoveryStopState(run, now);
   const status = discoveryStatus(
     run,
     input.isDiscoveryPending || Boolean(liveEvent),
+    now,
   );
   const compatibleHistory = recentRuns.filter(
     (candidate) =>
@@ -268,7 +390,7 @@ function buildDiscoveryTask(
           targetIds.length,
         )),
   );
-  const canCancel = status === "active" && input.isDiscoveryPending;
+  const canCancel = status === "active" && run?.state === "running";
   const canRunAgain = ["cancelled", "failed", "interrupted"].includes(status);
 
   return {
@@ -278,23 +400,27 @@ function buildDiscoveryTask(
     status,
     stageLabel:
       status === "active"
-        ? liveEvent
-          ? discoveryStageLabels[liveEvent.stage]
+        ? progressEvent
+          ? discoveryProgressStageLabel(progressEvent, targetIds)
           : "Starting search"
-        : status === "completed"
-          ? "Search completed"
-          : status === "cancelled"
-            ? "Search cancelled"
-            : status === "failed"
-              ? "Search failed"
-              : "Search interrupted",
+        : status === "stopping"
+          ? DISCOVERY_STOPPING_LABEL
+          : stopState === "unacknowledged"
+            ? DISCOVERY_STOP_UNACKNOWLEDGED_LABEL
+            : status === "completed"
+              ? DISCOVERY_RUN_STATE_LABELS.completed
+              : status === "cancelled"
+                ? DISCOVERY_RUN_STATE_LABELS.cancelled
+                : status === "failed"
+                  ? DISCOVERY_RUN_STATE_LABELS.failed
+                  : "Search interrupted",
     sourceLabel: targetSourceLabel(input.workspace, targetIds),
     countLabel:
       targetsPlanned > 0
-        ? `${targetsCompleted} of ${targetsPlanned} sources finished · ${formatDiscoveryRunCountLabel(countEvidence)}`
-        : formatDiscoveryRunCountLabel(countEvidence),
+        ? `${targetsCompleted} of ${targetsPlanned} sources finished · ${runCountLabel}`
+        : runCountLabel,
     historyEstimateLabel:
-      status === "active"
+      status === "active" || status === "stopping"
         ? historyEstimate(
             compatibleHistory.map((candidate) => candidate.summary.durationMs),
             "similar completed search",
@@ -479,10 +605,63 @@ function buildApplyTask(
   }
 
   const status = applyStatus(run);
+  // `pendingJobs` is the number the service has not attempted. Jobs waiting on
+  // the person are finished for this batch and belong in Needs you, so they
+  // count here instead of leaving a completed preparation run at 0 of N.
   const finishedJobs = Math.max(0, run.totalJobs - run.pendingJobs);
   const canCancel = status === "active" || status === "paused";
+  // Two pauses that look the same on this card behave completely differently.
+  // A consent pause holds a real decision the person can settle in Needs you,
+  // and the run carries on once they do. A safety-limit pause holds nothing to
+  // settle: the run will not continue, and the remaining jobs need a fresh
+  // "Prepare remaining jobs" in Applications. Offering "Continue application"
+  // for both is why the button could be clicked three times over several
+  // minutes and change nothing.
+  const awaitingDecision = run.state === "paused_for_consent";
+  const stoppedBySafeguard = run.state === "paused_for_user_review";
   const needsReview = status === "paused";
   const canRestage = status === "cancelled" || status === "failed";
+  const resultsForRun = (input.workspace.applyJobResults ?? []).filter(
+    (result) => result.runId === run.id,
+  );
+  const applyRecoveryJobIds = run.jobIds.filter((jobId) => {
+    const result = resultsForRun.find((candidate) => candidate.jobId === jobId);
+    return (
+      !result ||
+      result.state === "planned" ||
+      result.state === "blocked" ||
+      result.state === "failed" ||
+      result.state === "skipped"
+    );
+  });
+  const recordsById = new Map(
+    input.workspace.applicationRecords.map((record) => [record.id, record]),
+  );
+  const resultRecords = resultsForRun.flatMap((result) => {
+    if (!result.applicationRecordId) return [];
+    const record = recordsById.get(result.applicationRecordId);
+    return record ? [record] : [];
+  });
+  const hasOpenApplicationHandoff = (input.workspace.userActionRequests ?? []).some(
+    (request) =>
+      request.scope.type === "application" &&
+      request.scope.runId === run.id &&
+      !["resolved", "cancelled", "skipped", "expired"].includes(
+        request.state,
+      ),
+  );
+  // Cancelling the last handoff moves its application record to manual-only.
+  // The older paused run/result remain as immutable history, so they must not
+  // keep a derived Tasks chip alive after the record no longer needs a person.
+  if (
+    stoppedBySafeguard &&
+    applyRecoveryJobIds.length === 0 &&
+    resultRecords.length > 0 &&
+    resultRecords.every((record) => record.lastAttemptState === "unsupported") &&
+    !hasOpenApplicationHandoff
+  ) {
+    return null;
+  }
   const historyDurations = runs
     .filter(
       (candidate) =>
@@ -508,7 +687,7 @@ function buildApplyTask(
           : run.state === "running"
             ? "Opening application"
             : run.state === "paused_for_user_review"
-              ? "Waiting for your review"
+              ? "Paused by a safety limit"
               : run.state === "paused_for_consent"
                 ? "Waiting for your consent"
                 : run.state === "completed"
@@ -521,10 +700,15 @@ function buildApplyTask(
       run.currentJobId ?? run.jobIds[0] ?? null,
     ),
     countLabel: [
+      `${countApplicationLedgerEntries(input.workspace.applicationRecords)} applications`,
       `${finishedJobs} of ${run.totalJobs} application tasks finished`,
       run.blockedJobs > 0 ? `${run.blockedJobs} blocked` : null,
       run.failedJobs > 0 ? `${run.failedJobs} need attention` : null,
-      needsReview ? "Waiting on you" : null,
+      awaitingDecision
+        ? "Waiting on you"
+        : stoppedBySafeguard
+          ? "It will not carry on by itself"
+          : null,
     ]
       .filter(Boolean)
       .join(" · "),
@@ -539,12 +723,27 @@ function buildApplyTask(
         : null,
     canCancel,
     cancelKind: canCancel ? "apply" : null,
-    resumeRoute: needsReview || canRestage ? "/job-finder/applications" : null,
-    resumeActionLabel: needsReview
-      ? "Continue application"
-      : canRestage
-        ? "Open Applications"
+    resumeRoute: awaitingDecision
+      ? "/job-finder/actions"
+      : needsReview || canRestage
+        ? "/job-finder/applications"
         : null,
+    resumeActionLabel: awaitingDecision
+      ? "Resolve what needs you"
+      : stoppedBySafeguard && applyRecoveryJobIds.length > 0
+        ? "Prepare remaining jobs"
+        : needsReview || canRestage
+          ? "Open Applications"
+          : null,
+    ...(stoppedBySafeguard && applyRecoveryJobIds.length > 0
+      ? { applyRecoveryJobIds }
+      : {}),
+    ...(stoppedBySafeguard
+      ? {
+          reviewRoute: "/job-finder/safeguards",
+          reviewActionLabel: "Review prepared sample",
+        }
+      : {}),
   };
 }
 
@@ -624,6 +823,7 @@ export function buildJobFinderTaskCenterModel(
 ): JobFinderTaskCenterModel {
   const items = [
     buildDiscoveryTask(input),
+    buildSourceCheckTask(input),
     buildResumeTask(input),
     buildApplyTask(input),
     buildTailoredDraftsTask(input),
@@ -631,7 +831,28 @@ export function buildJobFinderTaskCenterModel(
   ].filter((item): item is JobFinderTaskCenterItem => item !== null);
 
   return {
-    activeCount: items.filter((item) => item.status === "active").length,
+    activeCount: items.filter(
+      (item) => item.status === "active" || item.status === "stopping",
+    ).length,
+    pausedCount: items.filter((item) => item.status === "paused").length,
     items,
   };
+}
+
+/**
+ * The Tasks chip caption. One zero rule for every count in the shell: a badge
+ * never renders a zero, so a run with nothing paused reads "1 active" rather
+ * than "1 active · 0 paused". Null means nothing is happening and the chip
+ * renders no caption at all.
+ */
+export function describeTaskCenterCounts(input: {
+  activeCount: number;
+  pausedCount: number;
+}): string | null {
+  const active = input.activeCount > 0 ? `${input.activeCount} active` : null;
+  const paused = input.pausedCount > 0 ? `${input.pausedCount} paused` : null;
+  if (active && paused) {
+    return `${active} · ${paused}`;
+  }
+  return active ?? paused;
 }

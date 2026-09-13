@@ -1,7 +1,8 @@
 import { Check, ChevronDown, ChevronRight, Pencil } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   ApplicationRecord,
+  CandidateProfile,
   JobFinderApplicationStartTarget,
   BrowserSessionState,
   GlobalDailyApplicationPreparationCapacity,
@@ -37,6 +38,11 @@ import {
   summarizeSelectedQueueTitles,
 } from "./review-queue-mission-panel-helpers";
 import { APPLICATION_PREPARATION_BATCH_LIMIT } from "./review-queue-status";
+import { describeRemainingBatchPreparation } from "@unemployed/job-finder/apply-run-recovery";
+import { describeUntailorableListing } from "./resume-workspace-utils";
+import { getApplicationStagePresentation } from "../applications/applications-status";
+import { resolveResumeIdentity } from "@unemployed/job-finder/resume-identity";
+import { ResumeIdentityChoiceNotice } from "../../components/profile/resume-identity-choice-notice";
 
 const batchLimitDescriptionId = "employer-application-batch-limit";
 const dailyCapacityLimitDescriptionId =
@@ -66,7 +72,10 @@ interface ReviewQueueMissionPanelProps {
   onGenerateResume: (jobId: string) => Promise<boolean>;
   onOpenBrowserSession: () => void;
   onOpenJobDetails: (jobId: string) => void;
+  onOpenApplication?: (recordId: string) => void;
   onOpenProfile: () => void;
+  onClaimResumeIdentity?: () => void;
+  onKeepResumeIdentity?: () => void;
   onRecommendResumeStrategy: (input: {
     jobId: string;
   }) => Promise<ResumeStrategyRecommendation | null>;
@@ -80,6 +89,7 @@ interface ReviewQueueMissionPanelProps {
     resumeApplicationMode: ResumeApplicationMode,
   ) => void;
   originalResume?: ResumeSourceDocument;
+  profile?: CandidateProfile;
   queue: readonly ReviewQueueItem[];
   queueSelection: readonly string[];
   resumeStrategies: readonly ResumeStrategy[];
@@ -115,13 +125,17 @@ export function ReviewQueueMissionPanel({
   onGenerateResume,
   onOpenBrowserSession,
   onOpenJobDetails,
+  onOpenApplication = () => undefined,
   onOpenProfile,
+  onClaimResumeIdentity,
+  onKeepResumeIdentity,
   onRecommendResumeStrategy,
   onRemoveReviewJob,
   onSelectResumeStrategy,
   onSetCampaignResumeStrategyDefault,
   onSetJobResumeApplicationMode,
   originalResume,
+  profile,
   queue,
   queueSelection,
   resumeStrategies,
@@ -166,6 +180,9 @@ export function ReviewQueueMissionPanel({
     ? applicationRecords.filter((record) => record.jobId === selectedItem.jobId)
     : [];
   const requiresApplicationChoice = selectedJobApplicationRecords.length > 1;
+  const existingNeedsYouApplication = selectedJobApplicationRecords.find(
+    (record) => getApplicationStagePresentation(record).label === "Needs you",
+  );
 
   useEffect(() => {
     setSelectedApplicationChoice("");
@@ -203,8 +220,30 @@ export function ReviewQueueMissionPanel({
     primaryApplicationAction.recovery !== null ||
     (wantsResumeWorkspace && !workspaceRecoveryActive);
   const queuedApplicationJobIds = Array.from(
-    new Set(selectedQueueReadyItems.map((item) => item.jobId)),
+    new Set(
+      selectedQueueReadyItems
+        .filter(
+          (item) =>
+            !applicationRecords.some(
+              (record) =>
+                record.jobId === item.jobId &&
+                getApplicationStagePresentation(record).label === "Needs you",
+            ),
+        )
+        .map((item) => item.jobId),
+    ),
   ).slice(0, APPLICATION_PREPARATION_BATCH_LIMIT);
+  // Part of this batch has already been staged or prepared, so what is left is
+  // a REMAINDER of a decision the person already made. Recovery used to stage
+  // the leftovers one at a time, each asking for its own approval; one action
+  // covering every named job that still needs preparing is the whole point of
+  // the batch approval (ADR 0012: still per batch of named jobs, still
+  // preparation only).
+  const alreadyStagedSelectedCount = selectedQueueItems.filter((item) =>
+    applicationRecords.some((record) => record.jobId === item.jobId),
+  ).length;
+  const hasRemainingBatchPreparation =
+    alreadyStagedSelectedCount > 0 && queuedApplicationJobIds.length > 0;
   const isBatchLimitReached =
     selectedQueueReadyItems.length >= APPLICATION_PREPARATION_BATCH_LIMIT;
   const dailyCapacityExhausted =
@@ -222,55 +261,123 @@ export function ReviewQueueMissionPanel({
     globalDailyApplicationPreparationCapacity
       ? `You selected ${queuedApplicationJobIds.length} jobs for this run, but only ${globalDailyApplicationPreparationCapacity.remaining} of ${globalDailyApplicationPreparationCapacity.limit} daily application slots remain. Resets at local midnight (${new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(globalDailyApplicationPreparationCapacity.resetsAt))}).`
       : null;
+  const resumeIdentityBlocked =
+    profile !== undefined &&
+    resolveResumeIdentity(profile).mismatchReasons.length > 0;
 
+  // One radiogroup with roving focus: arrow keys move and choose, Tab enters
+  // and leaves the group once. The two hidden native inputs it replaces were
+  // reachable only by tabbing into a fieldset assistive tech never announced
+  // as a choice.
+  const resumeChoiceGroupRef = useRef<HTMLDivElement | null>(null);
+  const handleResumeChoiceKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const forward = event.key === "ArrowRight" || event.key === "ArrowDown";
+      const backward = event.key === "ArrowLeft" || event.key === "ArrowUp";
+      if (!forward && !backward) {
+        return;
+      }
+
+      const options = [
+        ...(resumeChoiceGroupRef.current?.querySelectorAll<HTMLButtonElement>(
+          "button[role='radio']:not([disabled])",
+        ) ?? []),
+      ];
+      const activeIndex = options.indexOf(
+        document.activeElement as HTMLButtonElement,
+      );
+      if (options.length < 2 || activeIndex === -1) {
+        return;
+      }
+
+      event.preventDefault();
+      const next =
+        options[(activeIndex + (forward ? 1 : -1) + options.length) %
+          options.length];
+      next?.focus();
+      next?.click();
+    },
+    [],
+  );
+  // A draft that kept the original wording because the listing body was never
+  // captured is presented as the original-resume path, whatever the job's
+  // saved choice says: the panel used to show "Tailor for this job" selected
+  // beside a notice explaining that nothing could be tailored.
+  const untailorableListing = describeUntailorableListing(selectedAsset);
+  const untailorableListingReasonId = "resume-choice-untailorable-listing";
   const resumeChoiceFieldset = selectedItem ? (
-    <fieldset className="grid gap-2 sm:grid-cols-2">
-      <legend className="sr-only">Resume choice for this job</legend>
+    <div className="grid gap-2">
+    <div
+      aria-describedby={
+        untailorableListing ? untailorableListingReasonId : undefined
+      }
+      aria-label="Resume choice for this job"
+      className="grid gap-2 sm:grid-cols-2"
+      onKeyDown={handleResumeChoiceKeyDown}
+      ref={resumeChoiceGroupRef}
+      role="radiogroup"
+    >
       {(
         [
           ["original_resume", "Use my original resume"],
           ["tailored_per_job", "Tailor for this job"],
         ] as const
       ).map(([mode, label]) => {
-        const selected = selectedItem.resumeApplicationMode === mode;
+        const selected = untailorableListing
+          ? mode === "original_resume"
+          : selectedItem.resumeApplicationMode === mode;
+        const unavailable =
+          Boolean(untailorableListing) && mode === "tailored_per_job";
 
         return (
-          <label
-            className={
+          // Two equal cards with a faint tint did not read as a choice; the
+          // selected one gets a real marker.
+          <button
+            aria-checked={selected}
+            className={cn(
+              "flex min-h-11 items-center gap-2 rounded-(--radius-small) border px-3 py-2 text-left text-(length:--text-small) font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+              selected
+                ? "border-primary bg-primary/10 text-(--text-headline) shadow-[inset_2px_0_0_var(--primary)]"
+                : "border-(--surface-panel-border) bg-background/30 text-foreground-soft hover:border-primary/35",
               isSelectedJobPending
                 ? "cursor-not-allowed opacity-60"
-                : "cursor-pointer"
-            }
+                : "cursor-pointer",
+            )}
+            disabled={isSelectedJobPending || unavailable}
             key={mode}
+            onClick={() =>
+              onSetJobResumeApplicationMode(selectedItem.jobId, mode)
+            }
+            role="radio"
+            // Both choices stay in the tab order. Roving tabindex left the
+            // safer "Use my original resume" card reachable only by arrow
+            // keys, so keyboard users tabbed from the selected card straight
+            // back out to the job list without ever meeting it.
+            tabIndex={0}
+            type="button"
           >
-            <input
-              checked={selected}
-              className="peer sr-only"
-              disabled={isSelectedJobPending}
-              name={`resume-application-mode-${selectedItem.jobId}`}
-              onChange={() =>
-                onSetJobResumeApplicationMode(selectedItem.jobId, mode)
-              }
-              type="radio"
-              value={mode}
-            />
-            {/* Two equal cards with a faint tint did not read as a
-                            choice; the selected one gets a real marker. */}
-            <span
-              className={`flex min-h-11 items-center gap-2 rounded-(--radius-small) border px-3 py-2 text-left text-(length:--text-small) font-semibold transition-colors peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background ${selected ? "border-primary bg-primary/10 text-(--text-headline) shadow-[inset_2px_0_0_var(--primary)]" : "border-(--surface-panel-border) bg-background/30 text-foreground-soft hover:border-primary/35"}`}
-            >
-              {selected ? (
-                <Check
-                  aria-hidden="true"
-                  className="size-4 shrink-0 text-primary"
-                />
-              ) : null}
-              {label}
-            </span>
-          </label>
+            {selected ? (
+              <Check aria-hidden="true" className="size-4 shrink-0 text-primary" />
+            ) : null}
+            {label}
+            {unavailable ? (
+              <span className="ml-auto text-xs font-normal text-foreground-muted">
+                Not possible for this job
+              </span>
+            ) : null}
+          </button>
         );
       })}
-    </fieldset>
+    </div>
+    {untailorableListing ? (
+      <p
+        className="text-(length:--text-small) leading-6 text-foreground-soft"
+        id={untailorableListingReasonId}
+      >
+        {untailorableListing.reason} {untailorableListing.approvalMessage}
+      </p>
+    ) : null}
+    </div>
   ) : null;
 
   return (
@@ -408,7 +515,24 @@ export function ReviewQueueMissionPanel({
             {/* Before a resume is ready, the preparation contract is reference
                 material, not the next step: it collapses behind one summary
                 so the primary action and current state lead the panel. */}
-            {isReadyToPrepare ? null : (
+            {existingNeedsYouApplication ? (
+              <div
+                className="surface-card-tint grid min-w-0 gap-2 rounded-(--radius-field) border border-(--surface-panel-border) p-4"
+                role="note"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-(--tracking-heading) text-foreground-soft">
+                    Existing application
+                  </span>
+                  <StatusBadge tone="active">Needs you</StatusBadge>
+                </div>
+                <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+                  Continue the application already in progress instead of
+                  starting another one for this job.
+                </p>
+              </div>
+            ) : null}
+            {!existingNeedsYouApplication && !isReadyToPrepare ? (
               <details
                 className="group min-w-0 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/20 p-3"
                 data-testid="shortlisted-preparation-details"
@@ -436,8 +560,8 @@ export function ReviewQueueMissionPanel({
                   />
                 </div>
               </details>
-            )}
-            {isReadyToPrepare ? (
+            ) : null}
+            {!existingNeedsYouApplication && isReadyToPrepare ? (
               <>
                 <PreparationReadinessCard
                   isReadyToPrepare
@@ -491,6 +615,41 @@ export function ReviewQueueMissionPanel({
                 <p className="text-(length:--text-small) leading-6 text-foreground-soft">
                   {summarizeSelectedQueueTitles(selectedQueueReadyItems)}
                 </p>
+                {hasRemainingBatchPreparation ? (
+                  <div className="grid min-w-0 gap-1.5">
+                    <p
+                      className="text-(length:--text-small) leading-6 text-foreground-soft"
+                      data-testid="remaining-batch-preparation-note"
+                    >
+                      {alreadyStagedSelectedCount === 1
+                        ? "1 job in this selection is already prepared."
+                        : `${alreadyStagedSelectedCount} jobs in this selection are already prepared.`}{" "}
+                      One approval covers the rest, named above.
+                    </p>
+                    <Button
+                      className="w-fit whitespace-normal text-sm font-medium normal-case tracking-normal"
+                      data-testid="remaining-batch-preparation-action"
+                      disabled={
+                        isApplyPending ||
+                        isSelectedQueuePending ||
+                        resumeIdentityBlocked ||
+                        !canStageSelectedQueue ||
+                        selectedBatchExceedsDailyCapacity
+                      }
+                      onClick={() =>
+                        onStartAutoApplyQueue(queuedApplicationJobIds)
+                      }
+                      pending={isApplyPending || isSelectedQueuePending}
+                      size="sm"
+                      type="button"
+                      variant="secondary"
+                    >
+                      {describeRemainingBatchPreparation(
+                        queuedApplicationJobIds.length,
+                      )}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             <div className="grid min-w-0 gap-2.5 scroll-mb-6">
@@ -546,6 +705,16 @@ export function ReviewQueueMissionPanel({
               {dailyCapacityBatchExceededDescription}
             </p>
           ) : null}
+          {resumeIdentityBlocked &&
+          profile &&
+          onKeepResumeIdentity &&
+          onClaimResumeIdentity ? (
+            <ResumeIdentityChoiceNotice
+              onKeepResumeName={onKeepResumeIdentity}
+              onUseProfileName={onClaimResumeIdentity}
+              profile={profile}
+            />
+          ) : null}
           {primaryApplicationAction.blocker ? (
             primaryApplicationAction.blockerTone === "info" ? (
               <p
@@ -564,7 +733,8 @@ export function ReviewQueueMissionPanel({
             )
           ) : null}
           {primaryApplicationAction.kind === "start_apply" &&
-          requiresApplicationChoice ? (
+          requiresApplicationChoice &&
+          !existingNeedsYouApplication ? (
             <fieldset className="grid gap-2 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/50 p-3">
               <legend className="px-1 text-sm font-semibold text-foreground">
                 Choose application record
@@ -603,54 +773,68 @@ export function ReviewQueueMissionPanel({
             className="flex min-w-0 flex-wrap items-center gap-2"
             data-testid="application-action-row"
           >
-            <Button
-              // A page-wide bar is not a button: the one primary keeps its
-              // natural width beside its secondary.
-              className="h-11 w-fit max-w-full justify-start px-5 text-sm font-semibold normal-case tracking-normal"
-              pending={
-                primaryApplicationAction.kind === "waiting" ||
-                (primaryApplicationAction.kind === "start_apply" &&
-                  isPrimaryApplyPending)
-              }
-              variant="primary"
-              disabled={
-                !primaryApplicationAction.enabled ||
-                (primaryApplicationAction.kind === "start_apply" &&
-                  dailyCapacityExhausted) ||
-                (requiresApplicationChoice && !selectedApplicationChoice)
-              }
-              onClick={() => {
-                if (primaryApplicationAction.kind === "generate_resume") {
-                  void onGenerateResume(selectedItem.jobId);
-                  return;
+            {existingNeedsYouApplication ? (
+              <Button
+                className="h-11 w-fit max-w-full justify-start px-5 text-sm font-semibold normal-case tracking-normal"
+                onClick={() =>
+                  onOpenApplication(existingNeedsYouApplication.id)
                 }
+                type="button"
+                variant="primary"
+              >
+                Needs you · Open application
+              </Button>
+            ) : (
+              <Button
+                // A page-wide bar is not a button: the one primary keeps its
+                // natural width beside its secondary.
+                className="h-11 w-fit max-w-full justify-start px-5 text-sm font-semibold normal-case tracking-normal"
+                pending={
+                  primaryApplicationAction.kind === "waiting" ||
+                  (primaryApplicationAction.kind === "start_apply" &&
+                    isPrimaryApplyPending)
+                }
+                variant="primary"
+                disabled={
+                  !primaryApplicationAction.enabled ||
+                  resumeIdentityBlocked ||
+                  (primaryApplicationAction.kind === "start_apply" &&
+                    dailyCapacityExhausted) ||
+                  (requiresApplicationChoice && !selectedApplicationChoice)
+                }
+                onClick={() => {
+                  if (primaryApplicationAction.kind === "generate_resume") {
+                    void onGenerateResume(selectedItem.jobId);
+                    return;
+                  }
 
-                if (primaryApplicationAction.kind === "approve_resume") {
-                  onEditResumeWorkspace(selectedItem.jobId);
-                  return;
-                }
+                  if (primaryApplicationAction.kind === "approve_resume") {
+                    onEditResumeWorkspace(selectedItem.jobId);
+                    return;
+                  }
 
-                if (primaryApplicationAction.kind === "start_apply") {
-                  onStartApplyCopilot(
-                    requiresApplicationChoice
-                      ? selectedApplicationChoice === "new"
-                        ? {
-                            jobId: selectedItem.jobId,
-                            startNewApplication: true,
-                          }
-                        : {
-                            jobId: selectedItem.jobId,
-                            applicationRecordId: selectedApplicationChoice,
-                          }
-                      : { jobId: selectedItem.jobId },
-                  );
-                }
-              }}
-              type="button"
-            >
-              {primaryApplicationAction.label}
-            </Button>
-            {selectedQueueReadyItems.length > 0 ? (
+                  if (primaryApplicationAction.kind === "start_apply") {
+                    onStartApplyCopilot(
+                      requiresApplicationChoice
+                        ? selectedApplicationChoice === "new"
+                          ? {
+                              jobId: selectedItem.jobId,
+                              startNewApplication: true,
+                            }
+                          : {
+                              jobId: selectedItem.jobId,
+                              applicationRecordId: selectedApplicationChoice,
+                            }
+                        : { jobId: selectedItem.jobId },
+                    );
+                  }
+                }}
+                type="button"
+              >
+                {primaryApplicationAction.label}
+              </Button>
+            )}
+            {queuedApplicationJobIds.length > 0 ? (
               <Button
                 aria-describedby={
                   dailyCapacityBatchExceededDescription
@@ -662,6 +846,7 @@ export function ReviewQueueMissionPanel({
                 disabled={
                   isApplyPending ||
                   isSelectedQueuePending ||
+                  resumeIdentityBlocked ||
                   !canStageSelectedQueue ||
                   selectedBatchExceedsDailyCapacity
                 }

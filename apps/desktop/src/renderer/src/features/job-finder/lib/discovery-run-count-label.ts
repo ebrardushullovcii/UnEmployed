@@ -1,7 +1,142 @@
 import type {
   DiscoveryActivityEvent,
   DiscoveryRunRecord,
+  DiscoveryRunReport,
 } from "@unemployed/contracts";
+
+/**
+ * The counts a finished run froze about itself, read verbatim.
+ *
+ * A run recorded before the report existed genuinely has no such numbers, so
+ * every field is nullable and renders as "not recorded". Nothing here is ever
+ * recomputed from current inventory: that is exactly what let one search read
+ * as 100 on Home, 50 on Find jobs and 15 in the plan card.
+ */
+export interface DiscoveryRunReportCounts {
+  found: number | null;
+  new: number | null;
+  saved: number | null;
+  retained: number | null;
+  worthOpening: number | null;
+  duplicates: number | null;
+}
+
+const MISSING_RUN_COUNT_LABEL = "not recorded";
+
+const EMPTY_RUN_REPORT_COUNTS: DiscoveryRunReportCounts = {
+  found: null,
+  new: null,
+  saved: null,
+  retained: null,
+  worthOpening: null,
+  duplicates: null,
+};
+
+function readReportCount(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.trunc(value)
+    : null;
+}
+
+/** Reads one run's frozen report. Never derives a missing count. */
+export function getDiscoveryRunReportCounts(
+  run: Pick<DiscoveryRunRecord, "summary"> | null | undefined,
+): DiscoveryRunReportCounts {
+  return readDiscoveryRunReportCounts(run?.summary?.report ?? null);
+}
+
+/**
+ * The same reading, for a report held somewhere other than a run record — a
+ * search plan's digest carries its run's frozen report so the plan card can
+ * print it without the run.
+ */
+export function readDiscoveryRunReportCounts(
+  report: DiscoveryRunReport | null | undefined,
+): DiscoveryRunReportCounts {
+  if (!report) {
+    return EMPTY_RUN_REPORT_COUNTS;
+  }
+
+  return {
+    found: readReportCount(report.found),
+    new: readReportCount(report.new),
+    saved: readReportCount(report.saved),
+    retained: readReportCount(report.retained),
+    worthOpening: readReportCount(report.worthOpening),
+    duplicates: readReportCount(report.duplicates),
+  };
+}
+
+function formatReportSegment(value: number | null, noun: string): string {
+  // A run recorded before this accounting existed has no such number. Saying
+  // so is the only honest option: printing 0 would claim the search found
+  // nothing, which is a different and false statement.
+  return value === null
+    ? `${noun} ${MISSING_RUN_COUNT_LABEL}`
+    : `${value} ${noun}`;
+}
+
+function resolveAlreadyHereCount(counts: DiscoveryRunReportCounts): number | null {
+  if (counts.duplicates === null) return null;
+  if (
+    counts.found !== null &&
+    counts.duplicates >= counts.found &&
+    ((counts.new ?? 0) > 0 || (counts.retained ?? 0) > 0)
+  ) {
+    return Math.max(0, counts.found - (counts.new ?? 0));
+  }
+  return counts.duplicates;
+}
+
+/**
+ * The one sentence every surface prints about a finished search:
+ * "N looked at · M new · K kept · D already here". Same run, same frozen
+ * population and vocabulary everywhere.
+ *
+ * "Kept" is the search plan's retained population, decided once at the plan's
+ * terminal commit. A run that never belonged to a plan keeps everything it
+ * saved, and the pipeline records that at freeze time, so this reads the same
+ * field either way.
+ */
+export function formatDiscoveryRunReportLabel(
+  counts: DiscoveryRunReportCounts,
+): string {
+  if (!hasDiscoveryRunReportCounts(counts)) {
+    return `Counts ${MISSING_RUN_COUNT_LABEL} for this run`;
+  }
+
+  const segments = [
+    formatReportSegment(counts.found, "looked at"),
+    formatReportSegment(counts.new, "new"),
+    formatReportSegment(counts.retained, "kept"),
+  ];
+
+  const alreadyHere = resolveAlreadyHereCount(counts);
+  if (alreadyHere !== null) {
+    const everythingWasAlreadyHere =
+      counts.found !== null &&
+      counts.found > 0 &&
+      alreadyHere === counts.found &&
+      (counts.new ?? 0) === 0 &&
+      (counts.retained ?? 0) === 0;
+    segments.push(
+      everythingWasAlreadyHere
+        ? "all already here"
+        : formatReportSegment(alreadyHere, "already here"),
+    );
+  }
+
+  return segments.join(" · ");
+}
+
+/** True when the run froze at least one count worth printing. */
+export function hasDiscoveryRunReportCounts(
+  counts: DiscoveryRunReportCounts,
+): boolean {
+  return (
+    counts.found !== null || counts.new !== null || counts.retained !== null
+  );
+}
 
 export interface DiscoveryRunCountEvidence {
   /**
@@ -92,6 +227,17 @@ export function getDiscoveryRunCountEvidence(
   run: DiscoveryRunRecord | null,
   liveEvent: DiscoveryActivityEvent | null,
 ): DiscoveryRunCountEvidence {
+  // The frozen report is authoritative whenever the run has one: it was
+  // measured once, at the run's own terminal moment, so it cannot drift as
+  // the workspace changes underneath it.
+  const report = getDiscoveryRunReportCounts(run);
+  if (report.new !== null || report.duplicates !== null) {
+    return {
+      distinctJobsRetained: report.new ?? 0,
+      duplicatesMerged: report.duplicates ?? 0,
+    };
+  }
+
   // Partial fixtures and legacy rows can reach here without a summary.
   const summaryRetained = readCount(run?.summary?.validJobsFound);
   const summaryDuplicates = readCount(run?.summary?.duplicatesMerged);
@@ -155,6 +301,15 @@ export function formatDiscoveryResultBandLabel(
   const alsoFound = normalizeCount(counts.alsoFound);
 
   if (titleMatches > 0) {
+    // "0 worth opening" printed above four jobs the person had just said were
+    // exactly what they were after is a verdict the app has not earned: those
+    // rows are listed, they matched the saved role, and the only thing that
+    // did not happen is the scoring. When nothing earned a score, the
+    // headline says that instead of leading with a zero that reads as "we
+    // found you nothing".
+    if (worthOpening === 0) {
+      return `${titleMatches} matched your role, not scored yet · ${alsoFound} also found`;
+    }
     return `${worthOpening} worth opening · ${titleMatches} title ${
       titleMatches === 1 ? "match" : "matches"
     } · ${alsoFound} also found`;

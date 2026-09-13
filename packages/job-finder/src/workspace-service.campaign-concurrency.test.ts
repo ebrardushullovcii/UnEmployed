@@ -1503,8 +1503,8 @@ describe("workspace source-target metadata mirror integrity", () => {
       staleReason: null,
     };
 
-    // Saving the plan derives its included-source ids from `target.enabled`
-    // and mirrors the scope into the global preferences for the active plan.
+    // The plan's explicit sourceTargetIds own inclusion. The embedded target
+    // metadata may carry an older enabled flag without changing that scope.
     const saved = await service.saveCampaign(
       toCampaignInput(active, {
         searchPreferences: {
@@ -1545,5 +1545,96 @@ describe("workspace source-target metadata mirror integrity", () => {
     expect(
       campaignRun.targetExecutions.map((execution) => execution.targetId),
     ).toEqual([TARGET_ID]);
+  });
+
+  test("a source added in Profile appears in every plan without replacing each plan's existing on/off choices", async () => {
+    const { repository, service } = createConcurrencyHarness();
+    const planA = await getActiveCampaign(service);
+    const existingTarget = planA.searchPreferences.discovery.targets[0];
+    if (!existingTarget) throw new Error("Expected the initial source.");
+
+    const created = await service.saveCampaign(
+      toCampaignInput(planA, {
+        id: null,
+        name: "Plan B",
+        searchPreferences: {
+          ...planA.searchPreferences,
+          discovery: {
+            ...planA.searchPreferences.discovery,
+            targets: [{ ...existingTarget, enabled: false }],
+          },
+        },
+      }),
+    );
+    expect(created.campaigns).toHaveLength(2);
+
+    const addedTarget: JobDiscoveryTarget = {
+      id: "target_new_profile_source",
+      label: "New public careers page",
+      startingUrl: "https://new-source.example.test/careers",
+      enabled: true,
+      adapterKind: "auto",
+      customInstructions: null,
+      instructionStatus: "missing",
+      validatedInstructionId: null,
+      draftInstructionId: null,
+      lastDebugRunId: null,
+      lastVerifiedAt: null,
+      staleReason: null,
+    };
+    await service.saveSearchPreferences({
+      ...planA.searchPreferences,
+      discovery: {
+        ...planA.searchPreferences.discovery,
+        targets: [existingTarget, addedTarget],
+      },
+    });
+
+    const state = await repository.getCampaignState();
+    expect(state?.campaigns).toHaveLength(2);
+    for (const campaign of state?.campaigns ?? []) {
+      expect(
+        campaign.searchPreferences.discovery.targets.map((target) => target.id),
+      ).toEqual([existingTarget.id, addedTarget.id]);
+      expect(
+        campaign.searchPreferences.discovery.targets.find(
+          (target) => target.id === addedTarget.id,
+        )?.enabled,
+      ).toBe(true);
+    }
+    expect(
+      state?.campaigns.find((campaign) => campaign.name === "Plan B")
+        ?.searchPreferences.discovery.targets[0]?.enabled,
+    ).toBe(false);
+  });
+
+  test("changing one plan's source selection leaves Profile and sibling plans unchanged", async () => {
+    const { repository, service } = createConcurrencyHarness();
+    const planA = await getActiveCampaign(service);
+    const created = await service.saveCampaign(
+      toCampaignInput(planA, { id: null, name: "Plan B" }),
+    );
+    const planB = created.campaigns.find((campaign) => campaign.name === "Plan B");
+    if (!planB) throw new Error("Expected Plan B.");
+    await service.selectCampaign(planA.id);
+
+    const profileSourceBefore =
+      (await repository.getSearchPreferences()).discovery.targets[0];
+    await service.saveCampaign(
+      toCampaignInput(planA, { sourceTargetIds: [] }),
+    );
+
+    const profileSourceAfter =
+      (await repository.getSearchPreferences()).discovery.targets[0];
+    const state = await repository.getCampaignState();
+    expect(profileSourceAfter?.enabled).toBe(profileSourceBefore?.enabled);
+    expect(
+      state?.campaigns.find((campaign) => campaign.id === planA.id)
+        ?.sourceTargetIds,
+    ).toEqual([]);
+    expect(
+      state?.campaigns.find((campaign) => campaign.id === planB.id)
+        ?.sourceTargetIds,
+    ).toEqual(planB.sourceTargetIds);
   });
 });

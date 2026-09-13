@@ -133,6 +133,42 @@ describe("workspace user action inbox operations", () => {
     expect(snapshot.userActionEvents.at(-1)?.operation).toBe("open_page");
   });
 
+  test("serializes different commands for one request so a released button cannot open twice", async () => {
+    const seed = createSeed();
+    seed.userActionRequests = [createRequest()];
+    const harness = createWorkspaceServiceHarness({
+      seed,
+      browserRuntime: createRuntime(vi.fn(() => Promise.resolve(blockedResult))),
+    });
+    const openSession = vi
+      .spyOn(harness.browserRuntime, "openSession")
+      .mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return harness.browserRuntime.getSessionState("target_site");
+      });
+    const command = {
+      action: "open_page" as const,
+      requestId: "action_login",
+      expectedRevision: 1,
+      credentialsPolicy: "browser_only" as const,
+      submitAuthorized: false as const,
+      accountCreationAuthorized: false as const,
+    };
+
+    await Promise.all([
+      harness.workspaceService.performUserAction({
+        ...command,
+        commandId: "command_open_first",
+      }),
+      harness.workspaceService.performUserAction({
+        ...command,
+        commandId: "command_open_retry",
+      }),
+    ]);
+
+    expect(openSession).toHaveBeenCalledTimes(1);
+  });
+
   test("opens a fresh manual page only for an application blocked during background loading", async () => {
     const seed = createSeed();
     seed.applicationRecords = [

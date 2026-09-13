@@ -30,9 +30,13 @@
       "@unemployed/job-finder/discovery-ordering": [
         "packages/job-finder/src/discovery-ordering.ts"
       ],
+      "@unemployed/job-finder/discovery-result-bands": [
+        "packages/job-finder/src/discovery-result-bands.ts"
+      ],
       "@unemployed/job-finder/resume-record-identity": [
         "packages/job-finder/src/resume-record-identity.ts"
       ],
+      "@unemployed/job-finder/plan-safeguard-pauses": ["packages/job-finder/src/plan-safeguard-pauses.ts"],
       "@unemployed/job-finder/source-health": [
         "packages/job-finder/src/source-health.ts"
       ],

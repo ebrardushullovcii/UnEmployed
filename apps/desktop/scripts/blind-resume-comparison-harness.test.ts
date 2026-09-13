@@ -82,15 +82,15 @@ async function uniqueDirectory(label: string): Promise<string> {
   const base = await approvedTempBase();
   const parent = path.join(base, "blind-resume-comparison-tests");
   await mkdir(parent, { recursive: true });
-  return mkdir(
-    path.join(
-      parent,
-      `${label}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    ),
-    {
-      recursive: true,
-    },
+  const directory = path.join(
+    parent,
+    `${label}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
+  // The path we asked for, not the one mkdir hands back: on Windows a
+  // recursive mkdir returns the extended-length "\\?\C:\..." spelling, which
+  // then never matched the plain path the CLI under test prints.
+  await mkdir(directory, { recursive: true });
+  return directory;
 }
 
 type SyntheticCaseFile = {
@@ -625,8 +625,11 @@ describe("blind-resume-comparison record", () => {
     const keys = Object.keys(JSON.parse(canonical));
     expect(keys).toEqual([...RATER_RECORD_KEYS]);
     expect(canonical.endsWith("\n")).toBe(true);
-    const mode = (await stat(recordPath)).mode & 0o777;
-    expect(mode).toBe(0o644);
+    // Windows reports 0666 for any writable file whatever chmod asked for, so
+    // the permission bits are asserted where they exist and mean something.
+    if (process.platform !== "win32") {
+      expect((await stat(recordPath)).mode & 0o777).toBe(0o644);
+    }
     const parsed = validateRaterRecordValue(JSON.parse(canonical));
     expect(parsed.ratings).toHaveLength(3);
   });

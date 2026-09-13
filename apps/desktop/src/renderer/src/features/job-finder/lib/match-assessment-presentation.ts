@@ -1,10 +1,16 @@
 import type {
   FitRecommendation,
-  MatchAssessment,
+  JobRequirementEvidenceStatus,
+  RoleSuitabilityState,
   SavedJob,
 } from "@unemployed/contracts";
 import type { BadgeTone } from "./job-finder-types";
 import { isProvisionalMatchAssessment } from "@unemployed/job-finder/discovery-ordering";
+import {
+  FIT_TITLE_ONLY_REASON,
+  getFitEvidenceDepth,
+  type FitEvidenceDepth,
+} from "@unemployed/job-finder/discovery-result-bands";
 
 export const fitRecommendationCopy: Record<
   FitRecommendation,
@@ -20,68 +26,16 @@ export const fitRecommendationCopy: Record<
 };
 
 /**
- * How much of the score was actually verified against evidence.
- *
- * A headline "54% fit" printed above "The listing text was not captured",
- * "Salary not stated" and "Location not stated" is a number the app cannot
- * stand behind. This is the single place that decides whether a percentage
- * has been earned, so the row, the inspector and the breakdown cannot
- * disagree.
+ * Evidence depth and the title-only reason now live in
+ * `@unemployed/job-finder/discovery-result-bands`, so a finished run's frozen
+ * counts and this screen apply one rule. Re-exported because the renderer
+ * already imports both from here.
  */
-export interface FitEvidenceDepth {
-  /** Nothing beyond the listing title/card was checkable. */
-  isTitleOnly: boolean;
-  /** One-line explanation for a title-only score. */
-  reason: string;
-  verifiedDimensionCount: number;
-}
-
-export const FIT_TITLE_ONLY_REASON =
-  "Fit is based on the title alone. Review the listing details before applying.";
-
-export function getFitEvidenceDepth(
-  assessment: MatchAssessment,
-): FitEvidenceDepth {
-  // Every field is read defensively: this runs for every row on the screen,
-  // including legacy and partial payloads that were cast past the schema
-  // boundary. A missing dimension counts as "not verified", never as a crash.
-  const dimensions = assessment.dimensions;
-  const roleSuitability = dimensions?.roleSuitability?.state;
-  const evidenceConfidence = dimensions?.evidenceConfidence?.level;
-  const compensationFit = assessment.compensationFit?.state;
-  // A requirement only counts once it was actually decided against captured
-  // listing evidence. The existence of a row proves nothing: the scorer emits
-  // a location requirement purely because the user saved a place, and its
-  // status stays "unknown" when the listing never stated one. Saved
-  // location/work-mode comparisons are preference checks rather than proof
-  // that the listing exposed anything, exactly as the evidence-confidence
-  // dimension already treats them.
-  const decidedRequirementCount = (assessment.requirements ?? []).filter(
-    (requirement) =>
-      (requirement?.status === "supported" ||
-        requirement?.status === "partial" ||
-        requirement?.status === "missing" ||
-        requirement?.status === "conflict") &&
-      requirement?.category !== "location" &&
-      requirement?.category !== "work_mode",
-  ).length;
-  const verifiedChecks = [
-    decidedRequirementCount > 0,
-    roleSuitability === "exact" || roleSuitability === "conflict",
-    // Preference alignment is built from the location and work-mode facets
-    // excluded above, so it is the same saved-preference check and is left
-    // out for the same reason: a footer's "Remote" link must not earn a "%".
-    compensationFit === "meets_minimum" || compensationFit === "below_minimum",
-    evidenceConfidence === "moderate" || evidenceConfidence === "high",
-  ];
-  const verifiedDimensionCount = verifiedChecks.filter(Boolean).length;
-
-  return {
-    isTitleOnly: verifiedDimensionCount === 0,
-    reason: FIT_TITLE_ONLY_REASON,
-    verifiedDimensionCount,
-  };
-}
+export {
+  FIT_TITLE_ONLY_REASON,
+  getFitEvidenceDepth,
+  type FitEvidenceDepth,
+};
 
 export interface MatchAssessmentPresentation {
   /**
@@ -118,6 +72,24 @@ export interface MatchAssessmentPresentation {
 
 export const FIT_UNASSESSED_REASON =
   "This listing has not been checked against your current profile and the current listing text yet.";
+
+/**
+ * The one label a title-only row is allowed to use, everywhere it appears.
+ *
+ * The list line used to read "title match only, not scored" while the
+ * inspector read "Title-only estimate: 64%" for the same job — one screen
+ * saying the job was not scored above a screen printing its score. Both lines
+ * are built from this label now, so they name the same estimate.
+ */
+export const FIT_TITLE_ONLY_LABEL = "Title-only estimate";
+
+/**
+ * Why several unrelated jobs can print the same number. The score stopped at
+ * a ceiling an unresolved gap imposed, so it is the most this listing can
+ * earn rather than a measurement that happens to tie.
+ */
+export const FIT_UPPER_BOUND_REASON =
+  "This is the most this job can score while the gaps below are unresolved, so other jobs can show the same number.";
 
 /**
  * Keeps the confidence qualifier next to every renderer score. A missing
@@ -162,10 +134,25 @@ export function getMatchAssessmentPresentation(
       isProvisional,
       isTitleOnly,
       isScoreWithheld,
-      headlineScoreAriaLabel: "Overall fit: title match only, not scored",
-      headlineScoreLabel: "Title match only",
+      headlineScoreAriaLabel: `Overall fit: ${FIT_TITLE_ONLY_LABEL.toLowerCase()}`,
+      headlineScoreLabel: FIT_TITLE_ONLY_LABEL,
       withheldReason: FIT_TITLE_ONLY_REASON,
-      breakdownScoreLabel: `Title-only estimate: ${job.matchAssessment.score}%`,
+      breakdownScoreLabel: `${FIT_TITLE_ONLY_LABEL}: ${job.matchAssessment.score}%`,
+    };
+  }
+
+  // A ceiling is not a measurement: the number is the most this listing can
+  // earn while its gaps stand, which is why unrelated jobs kept printing the
+  // same "71% fit".
+  if (job.matchAssessment.scoreIsUpperBound) {
+    return {
+      isProvisional,
+      isTitleOnly,
+      isScoreWithheld,
+      headlineScoreAriaLabel: `Overall fit: up to ${job.matchAssessment.score} percent`,
+      headlineScoreLabel: `Up to ${job.matchAssessment.score}% fit`,
+      withheldReason: FIT_UPPER_BOUND_REASON,
+      breakdownScoreLabel: `Up to ${job.matchAssessment.score}% fit`,
     };
   }
 
@@ -178,4 +165,49 @@ export function getMatchAssessmentPresentation(
     withheldReason: null,
     breakdownScoreLabel: `${job.matchAssessment.score}% fit`,
   };
+}
+
+export const roleSuitabilityCopy: Record<
+  RoleSuitabilityState,
+  { label: string; tone: BadgeTone }
+> = {
+  unknown: { label: "Unknown", tone: "neutral" },
+  exact: { label: "Strong match", tone: "positive" },
+  adjacent: { label: "Partial match", tone: "active" },
+  conflict: { label: "Role conflict", tone: "critical" },
+};
+
+/**
+ * The "Role and requirements" verdict, derived from the requirement evidence
+ * that is printed directly beneath it.
+ *
+ * The title verdict alone used to write this line, so a listing whose title
+ * matched exactly read "Strong match" above "1 of 3 supported" — two lines
+ * about the same thing, disagreeing. The evidence count now decides: the
+ * headline can only be as strong as the requirements that actually stand.
+ */
+export function getRoleAndRequirementsStatus(
+  roleSuitability: RoleSuitabilityState,
+  requirements: readonly { status: JobRequirementEvidenceStatus }[],
+): { label: string; tone: BadgeTone } {
+  const titleVerdict = roleSuitabilityCopy[roleSuitability];
+  // A role-family conflict is already the worst verdict, and with no
+  // requirements to read there is nothing that could contradict the title.
+  if (roleSuitability === "conflict" || requirements.length === 0) {
+    return titleVerdict;
+  }
+
+  const supportedCount = requirements.filter(
+    (requirement) => requirement.status === "supported",
+  ).length;
+  if (supportedCount === requirements.length) {
+    return titleVerdict;
+  }
+  if (supportedCount === 0) {
+    return { label: "Needs evidence", tone: "critical" };
+  }
+  // Part of the evidence stands, so the line can never say "Strong match".
+  return roleSuitability === "exact"
+    ? roleSuitabilityCopy.adjacent
+    : titleVerdict;
 }

@@ -19,10 +19,10 @@ Call this when the phase goal has been proven, safely blocked, or you have exhau
     },
     required: ["reason"],
   },
-  execute: async (args) => {
+  execute: (args) => {
     const parseResult = FinishSchema.safeParse(args);
-    if (!parseResult.success) return { success: false, error: `Invalid finish arguments: ${parseResult.error.issues.map((i) => i.message).join(", ")}` };
+    if (!parseResult.success) return Promise.resolve({ success: false, error: `Invalid finish arguments: ${parseResult.error.issues.map((i) => i.message).join(", ")}` });
     const { reason, summary, reliableControls, trickyFilters, navigationTips, applyTips, warnings } = parseResult.data;
-    return { success: true, data: { finished: true, reason, debugFindings: { summary: summary ?? null, reliableControls, trickyFilters, navigationTips, applyTips, warnings } } };
+    return Promise.resolve({ success: true, data: { finished: true, reason, debugFindings: { summary: summary ?? null, reliableControls, trickyFilters, navigationTips, applyTips, warnings } } });
   },
 };

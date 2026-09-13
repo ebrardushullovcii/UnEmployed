@@ -40,7 +40,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { basename } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 
 import { createFileRepositoryResumeMethods } from "./file-repository-resume-methods";
 import { createFileRepositoryUserActionMethods } from "./file-repository-user-action-methods";
@@ -66,6 +66,7 @@ import {
   latestApplicationAnswerRecord,
 } from "./grouped-manual-answer-support";
 import {
+  openDatabaseFile,
   repairLegacyCommaSplitAchievements,
   secureDatabaseFile,
   runMigrations,
@@ -188,7 +189,7 @@ export async function createFileJobFinderRepository(
 
     let database: DatabaseSync;
     try {
-      database = new DatabaseSync(options.filePath);
+      database = openDatabaseFile(options.filePath);
     } catch (error) {
       return { status: "failed", error: ensureThrownError(error) };
     }
@@ -212,7 +213,7 @@ export async function createFileJobFinderRepository(
   }) => {
     let candidate: DatabaseSync;
     try {
-      candidate = new DatabaseSync(restoredTempPath);
+      candidate = openDatabaseFile(restoredTempPath);
     } catch {
       return false;
     }

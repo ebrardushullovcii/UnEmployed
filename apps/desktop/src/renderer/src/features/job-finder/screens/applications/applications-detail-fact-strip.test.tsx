@@ -252,6 +252,29 @@ describe("ApplicationsDetailFactStrip", () => {
     expect(container.querySelectorAll('[data-slot="badge"]')).toHaveLength(0);
   });
 
+  it("names the safety-limit review instead of saying nothing is blocking", () => {
+    const emptyRecord: ApplicationRecord = {
+      ...baseRecord,
+      lastActionLabel: "",
+      lastAttemptState: null,
+      latestBlocker: null,
+    };
+    render(
+      <ApplicationsDetailFactStrip
+        selectedAttempt={null}
+        selectedRecord={emptyRecord}
+        visibleApplyResult={null}
+        visibleApplyRunId={null}
+        waitingOnSafetyLimitReview
+      />,
+    );
+
+    expect(
+      screen.getByText("Waiting for the batch safety-limit review"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Nothing blocking")).toBeNull();
+  });
+
   it("never repeats company, stage, or the full run id inside the fact region", () => {
     const { container } = renderStrip();
 
@@ -742,6 +765,12 @@ describe("ApplicationsDetailPanel container contract", () => {
     if (!detailRegion) {
       throw new Error("Expected the selected-record detail scroll region");
     }
+
+    // A scroller that names only one axis resolves the other to `auto`, which
+    // at 1920 drew a horizontal track beside the vertical one and clipped
+    // run-history content into two-direction scrolling.
+    expect(detailRegion.className).toContain("overflow-y-auto");
+    expect(detailRegion.className).toContain("overflow-x-hidden");
 
     const nextStep = within(detailRegion).getByRole("heading", {
       name: "Next step",

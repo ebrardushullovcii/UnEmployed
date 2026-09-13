@@ -55,6 +55,15 @@ function openSnapshot(snapshotPath: string) {
   return restored;
 }
 
+// Windows pays for every one of these tests twice: VACUUM INTO snapshots and
+// rotation renames are slower there, and removing a temporary directory has to
+// retry until the OS releases the last handle. Under a parallel run that
+// outgrows vitest's 5s default and the suite fails on the clock rather than on
+// behaviour. POSIX keeps the default, so a real hang still fails fast there.
+if (process.platform === "win32") {
+  vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+}
+
 describe("automatic workspace database backup", () => {
   let workspace: Awaited<ReturnType<typeof createTempWorkspace>>;
 
@@ -545,6 +554,10 @@ describe("workspace backup rotation reconciliation", () => {
       upserts: [createBackupFixtureJob("job_reconcile_reset_promote")],
     });
     await repository.reset(createSeed());
+    // Closed before the reconciliation so the workspace file carries no open
+    // handle: Windows refuses to remove a locked file, which stranded the
+    // temporary directory in cleanup.
+    await repository.close();
     // Interrupted between VACUUM INTO and the final reset-snapshot rename.
     await rename(workspace.resetBackupPath, workspace.resetTemporaryPath);
 

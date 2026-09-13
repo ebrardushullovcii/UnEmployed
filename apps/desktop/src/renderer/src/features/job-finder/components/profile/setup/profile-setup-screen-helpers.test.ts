@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import {
   type CandidateProfile,
+  type ResumeImportFieldCandidateSummary,
   CandidateProfileSchema,
   JobSearchPreferencesSchema,
   createFreshStartCandidateProfile,
@@ -107,6 +108,74 @@ function buildLocationPayload(
   return result.payload;
 }
 
+describe("guided setup name and email edits", () => {
+  // p01: "After I changed the name and email and used Save and continue to
+  // Work history, returning to Basics showed Taylor Quinn ... again."
+  const importedProfile = () =>
+    createLocationProfile({
+      id: "candidate_fresh_start",
+      firstName: "Taylor",
+      lastName: "Quinn",
+      fullName: "Taylor Quinn",
+      email: "taylor.quinn@example.test",
+    });
+
+  it("carries an edited name and email into the first save", () => {
+    const profile = importedProfile();
+    const values = createProfileEditorValues(profile);
+    values.identity.firstName = "Jamal";
+    values.identity.lastName = "Reyes";
+    values.identity.email = "jamal.reyes@example.test";
+
+    const result = buildProfileSetupPayload(profile, values);
+
+    expect(result.validationMessage).toBeUndefined();
+    expect(result.payload?.firstName).toBe("Jamal");
+    expect(result.payload?.lastName).toBe("Reyes");
+    expect(result.payload?.fullName).toBe("Jamal Reyes");
+    expect(result.payload?.email).toBe("jamal.reyes@example.test");
+  });
+
+  it("keeps the saved name when import suggestions still propose the old one", () => {
+    // Returning to Basics reseeds the form from the saved profile; a pending
+    // import suggestion must not put the resume's name back over the edit.
+    const saved = importedProfile();
+    const values = createProfileEditorValues(
+      CandidateProfileSchema.parse({
+        ...saved,
+        firstName: "Jamal",
+        lastName: "Reyes",
+        fullName: "Jamal Reyes",
+        email: "jamal.reyes@example.test",
+      }),
+      [
+        {
+          id: "candidate_first_name",
+          target: { section: "identity", key: "firstName", recordId: null },
+          value: "Taylor",
+          resolution: "needs_review",
+        },
+        {
+          id: "candidate_last_name",
+          target: { section: "identity", key: "lastName", recordId: null },
+          value: "Quinn",
+          resolution: "needs_review",
+        },
+        {
+          id: "candidate_email",
+          target: { section: "contact", key: "email", recordId: null },
+          value: "taylor.quinn@example.test",
+          resolution: "needs_review",
+        },
+      ] as unknown as Parameters<typeof createProfileEditorValues>[1],
+    );
+
+    expect(values.identity.firstName).toBe("Jamal");
+    expect(values.identity.lastName).toBe("Reyes");
+    expect(values.identity.email).toBe("jamal.reyes@example.test");
+  });
+});
+
 describe("guided setup location normalization", () => {
   it("clears a prior country when a two-part London, UK value is edited", () => {
     const payload = buildLocationPayload(createLocationProfile(), "London, UK");
@@ -148,6 +217,27 @@ describe("guided setup location normalization", () => {
     expect(payload.currentCity).toBe("City");
     expect(payload.currentRegion).toBe("Region");
     expect(payload.currentCountry).toBe("Country");
+  });
+
+  it("saves a city and region typed into the structured fields", () => {
+    // The guided-setup essentials step edits city, region and country. A
+    // "Save and continue" used to report a save and put the stored line back.
+    const profile = createLocationProfile({
+      currentLocation: "Seattle, Washington",
+      currentCity: "Seattle",
+      currentRegion: "Washington",
+      currentCountry: "United States",
+    });
+    const values = createProfileEditorValues(profile);
+    values.identity.currentCity = "Austin";
+    values.identity.currentRegion = "TX";
+    values.identity.currentCountry = "United States";
+
+    const result = buildProfileSetupPayload(profile, values);
+
+    expect(result.payload?.currentCity).toBe("Austin");
+    expect(result.payload?.currentRegion).toBe("TX");
+    expect(result.payload?.currentLocation).toBe("Austin, TX, United States");
   });
 
   it("preserves structured location data when the compact value is unedited", () => {
@@ -794,6 +884,123 @@ describe("aborted save-and-move validation alert", () => {
 });
 
 describe("guided setup profile continuity", () => {
+  it("keeps edited imported Basics through Save and continue and a Profile reseed", () => {
+    const importedProfile = createLocationProfile({
+      id: "candidate_fresh_start",
+      firstName: "Dana",
+      lastName: "Kim",
+      fullName: "Dana Kim",
+      email: "dana.kim@example.test",
+      currentLocation: "Remote - United States",
+      currentCity: "Remote - United States",
+      currentRegion: null,
+      currentCountry: null,
+    });
+    const editedValues = createProfileEditorValues(importedProfile);
+    Object.assign(editedValues.identity, {
+      firstName: "Alex",
+      lastName: "Rivera",
+      email: "alex.rivera@example.test",
+      currentCity: "Chicago",
+      currentRegion: "IL",
+      currentCountry: "United States",
+    });
+    const searchPreferences = createTestSearchPreferences();
+    const onSaveSetupStep = vi.fn();
+    const { result } = renderHook(() =>
+      useProfileSetupScreenActions({
+        draftAwareReviewItems: [],
+        hasUnsavedChanges: true,
+        onContinueToProfile: vi.fn(),
+        onResumeSetup: vi.fn(),
+        onSaveSetupStep,
+        profile: importedProfile,
+        profileFormValues: () => editedValues,
+        profileSetupCurrentStep: "essentials",
+        searchPreferences,
+        preferencesFormValues: () =>
+          createSearchPreferencesEditorValues(searchPreferences),
+        setValidationMessage: vi.fn(),
+      }),
+    );
+
+    act(() => result.current.handleSaveStep("background"));
+
+    expect(onSaveSetupStep).toHaveBeenCalledTimes(1);
+    expect(onSaveSetupStep.mock.calls[0]?.[2]).toBe("background");
+    const savedProfile = onSaveSetupStep.mock.calls[0]?.[0] as
+      | CandidateProfile
+      | undefined;
+    expect(savedProfile).toMatchObject({
+      firstName: "Alex",
+      lastName: "Rivera",
+      fullName: "Alex Rivera",
+      email: "alex.rivera@example.test",
+      currentCity: "Chicago",
+      currentRegion: "IL",
+      currentCountry: "United States",
+      currentLocation: "Chicago, IL, United States",
+    });
+    if (!savedProfile) {
+      throw new Error("Expected Save and continue to emit the edited profile.");
+    }
+
+    // Work history saves the whole shared form again before moving to Job
+    // targets. Prove that second save cannot restore the imported location
+    // line from the earlier baseline.
+    const workHistorySave = buildProfileSetupPayload(
+      savedProfile,
+      createProfileEditorValues(savedProfile),
+    ).payload;
+    expect(workHistorySave).toMatchObject({
+      firstName: "Alex",
+      lastName: "Rivera",
+      email: "alex.rivera@example.test",
+      currentCity: "Chicago",
+      currentRegion: "IL",
+      currentCountry: "United States",
+      currentLocation: "Chicago, IL, United States",
+    });
+    if (!workHistorySave) {
+      throw new Error("Expected Work history to preserve the saved profile.");
+    }
+
+    // Opening Profile > Basics then rebuilds the editor while the old import
+    // suggestions can still be present, so prove that exact reseed as well.
+    const staleImportCandidates = [
+      {
+        id: "candidate_first_name",
+        target: { section: "identity", key: "firstName", recordId: null },
+        value: "Dana",
+        resolution: "needs_review",
+      },
+      {
+        id: "candidate_last_name",
+        target: { section: "identity", key: "lastName", recordId: null },
+        value: "Kim",
+        resolution: "needs_review",
+      },
+      {
+        id: "candidate_email",
+        target: { section: "contact", key: "email", recordId: null },
+        value: "dana.kim@example.test",
+        resolution: "needs_review",
+      },
+    ] as unknown as ResumeImportFieldCandidateSummary[];
+    const profileBasicsValues = createProfileEditorValues(
+      workHistorySave,
+      staleImportCandidates,
+    );
+    expect(profileBasicsValues.identity).toMatchObject({
+      firstName: "Alex",
+      lastName: "Rivera",
+      email: "alex.rivera@example.test",
+      currentCity: "Chicago",
+      currentRegion: "IL",
+      currentCountry: "United States",
+    });
+  });
+
   it("keeps compact essentials visible in Profile Basics after save and reload", () => {
     const profile = createFreshStartCandidateProfile();
     const searchPreferences = createTestSearchPreferences();

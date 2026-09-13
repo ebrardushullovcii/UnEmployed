@@ -36,7 +36,7 @@ import {
   getReviewItemEditActionLabel,
   getReviewItemEditHint,
   getProfileSetupReviewItemCopy,
-  isProfileSetupMissingFieldReviewItem,
+  isFinishBlockingReviewItem,
   isProfileSetupPathStepComplete,
   type ProfileSetupPathStepReadiness,
   type ProfileSetupReviewItemDisplay,
@@ -197,20 +197,24 @@ export function ProfileSetupSummaryCards(props: {
               {props.importDisabledReason}
             </p>
           ) : null}
+          {/* The first thing a new person reads. It was set at the small
+              scale in the softest text colour, which made the one list that
+              explains the whole flow the least legible block on the screen.
+              It reads at the body scale in the body colour now. */}
           <div className="rounded-(--radius-field) border border-border/25 bg-background/60 p-4">
-            <p className="text-sm font-semibold text-foreground">
+            <p className="text-(length:--text-body) font-semibold text-(--text-headline)">
               What guided setup will ask for
             </p>
-            <ul className="mt-2 grid list-none gap-1 p-0 text-sm leading-6 text-foreground-soft">
+            <ul className="mt-2 grid list-none gap-1.5 p-0 text-(length:--text-body) leading-7 text-foreground">
               <li>Your resume, or the same details entered by hand.</li>
               <li>At least one contact method, such as an email address.</li>
-              <li>A work-mode preference, like remote, hybrid, or onsite.</li>
+              <li>A work-mode preference, like remote, hybrid, onsite, or flexible.</li>
               <li>
                 One public job page for Job Finder to search — for example, a
                 job board you already browse.
               </li>
             </ul>
-            <p className="mt-3 border-t border-border/25 pt-3 text-sm leading-6 text-foreground-soft">
+            <p className="mt-3 border-t border-border/25 pt-3 text-(length:--text-body) leading-7 text-foreground">
               Five short steps, saved as you go. Stop after any step and pick up
               later.
             </p>
@@ -278,10 +282,11 @@ export function ProfileSetupPathCard(props: {
           const pendingReviewCount = stepReviewItems.filter(
             isBlockingPendingReviewItem,
           ).length;
+          // The chip counts exactly what the footer refuses to finish on.
+          // Counting a different set is what left "1 required setup item"
+          // standing on a step whose fields were all filled in.
           const requiredSetupItemCount = stepReviewItems.filter(
-            (item) =>
-              isBlockingPendingReviewItem(item) &&
-              isProfileSetupMissingFieldReviewItem(item),
+            isFinishBlockingReviewItem,
           ).length;
           const importedReviewCount =
             pendingReviewCount - requiredSetupItemCount;

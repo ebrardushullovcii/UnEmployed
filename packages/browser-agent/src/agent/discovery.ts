@@ -2,6 +2,7 @@ import { setTimeout as waitForPageContent } from "node:timers/promises";
 import type { Page } from "playwright";
 import type {
   DiscoveryCompactObservation,
+  DiscoveryCompactObservationUnsupportedReason,
   JobPosting,
 } from "@unemployed/contracts";
 import {
@@ -91,6 +92,7 @@ const DISCOVERY_NAVIGATION_RESET_LIMIT = 2;
 const DISCOVERY_YIELD_EXHAUSTION_ZERO_YIELD_PASSES = 2;
 const DISCOVERY_YIELD_EXHAUSTION_STALE_STEP_WINDOW = 4;
 const DISCOVERY_YIELD_EXHAUSTION_MIN_CANDIDATES = 2;
+const DISCOVERY_PROGRESS_HEARTBEAT_MS = 25_000;
 
 // ---------------------------------------------------------------------------
 // Deterministic compact-first observation (ADR 0013 tier two)
@@ -158,9 +160,36 @@ function describeCompactObservationPageIdentity(pageUrl: string): string {
  * wall and that yielded no jobs. Read by users on Home, Find jobs and the
  * source's health line, so it names what the site did and what to do next.
  */
+/**
+ * The stop sentence for a run that hit a wall AFTER it had already kept some
+ * jobs.
+ *
+ * "Stopped early with 0 jobs saved" was printed over a source that had
+ * returned fifteen listings minutes earlier, because the only wall wording
+ * available assumed nothing had been read. A run that kept results says so,
+ * and then names what stopped it.
+ */
+function describeAccessWallStopAfterResults(
+  reason: string,
+  keptCount: number,
+): string {
+  const kept = `${keptCount} ${keptCount === 1 ? "job was" : "jobs were"} kept before this site stopped the search.`;
+  if (reason === "auth_required") {
+    return `${kept} It then asked you to sign in before showing any more listings. Open it in the Job Finder browser, sign in there, then search again.`;
+  }
+  if (reason === "paid_plan_required") {
+    return `${kept} It then covered the rest of its listings with a full-page message asking for a paid plan. Open it in the Job Finder browser and close that message yourself, then search again.`;
+  }
+  return `${kept} It then showed a human-verification check instead of more listings. Verification checks cannot be passed automatically; try another job site or a company careers page.`;
+}
+
 function describeAccessWallStop(reason: string): string {
   if (reason === "auth_required") {
     return "This site asks you to sign in before it shows job listings, so nothing could be read automatically. Open it in the Job Finder browser, sign in there, then search again.";
+  }
+
+  if (reason === "paid_plan_required") {
+    return "This site covered its job listings with a full-page message asking for a paid plan, so nothing could be read. Open it in the Job Finder browser and close that message yourself, then search again — or use another job site.";
   }
 
   return "This site showed a human-verification check instead of its job listings, so nothing could be read. Verification checks cannot be passed automatically; try another job site or a company careers page.";
@@ -245,15 +274,70 @@ function buildContextBudgetFailureResult(
   });
 }
 
+/**
+ * Why a quick page scan gave up, in words a person can act on. The stored
+ * reason names ("unsupported_layout") were printed straight into the search
+ * activity feed.
+ */
+const UNSUPPORTED_OBSERVATION_REASONS: Record<
+  DiscoveryCompactObservationUnsupportedReason,
+  string
+> = {
+  unsupported_layout:
+    "this site lists its jobs in a layout Job Finder does not recognise yet.",
+  auth_required: "the page wants you to sign in first.",
+  site_protection: "the site blocked the read.",
+  manual_step_required: "the page needs a step only you can take.",
+  paid_plan_required:
+    "a full-page overlay asking for a paid plan covers the listings.",
+  navigation_failed: "the page did not open.",
+};
+
+function describeUnsupportedObservationReason(
+  reason: DiscoveryCompactObservationUnsupportedReason,
+): string {
+  return UNSUPPORTED_OBSERVATION_REASONS[reason];
+}
+
 export async function runAgentDiscovery(
   page: Page,
   config: AgentConfig,
   llmClient: LLMClient,
   jobExtractor: JobExtractor,
   onProgress?: (progress: AgentProgress) => void,
-  signal?: AbortSignal,
+  externalSignal?: AbortSignal,
 ): Promise<AgentResult> {
   const runStartedAtMs = Date.now();
+  const timeBudgetMs = Math.max(
+    1,
+    Math.min(4 * 60_000, config.runControl?.timeBudgetMs ?? 10 * 60_000),
+  );
+  const timeBudgetController = new AbortController();
+  const timeBudget = setTimeout(() => {
+    timeBudgetController.abort(
+      new DOMException("Source time budget reached", "TimeoutError"),
+    );
+  }, timeBudgetMs);
+  const signal = externalSignal
+    ? typeof AbortSignal.any === "function"
+      ? AbortSignal.any([externalSignal, timeBudgetController.signal])
+      : (() => {
+          const controller = new AbortController();
+          const abort = (source: AbortSignal) =>
+            controller.abort(source.reason);
+          externalSignal.addEventListener(
+            "abort",
+            () => abort(externalSignal),
+            { once: true },
+          );
+          timeBudgetController.signal.addEventListener(
+            "abort",
+            () => abort(timeBudgetController.signal),
+            { once: true },
+          );
+          return controller.signal;
+        })()
+    : timeBudgetController.signal;
   console.log(
     `[Agent] Starting discovery: ${config.targetJobCount} jobs target`,
   );
@@ -266,6 +350,18 @@ export async function runAgentDiscovery(
     ...new Set(config.startingUrls.map((url) => url.trim()).filter(Boolean)),
   ];
   const pageRef: { current: Page } = { current: page };
+  const closePageOnAbort = () => {
+    try {
+      void pageRef.current.close().catch(() => undefined);
+    } catch {
+      // Lightweight test doubles may omit close; a real Playwright Page does
+      // not. The abort itself still stops every signal-aware wait.
+    }
+  };
+  signal.addEventListener("abort", closePageOnAbort, { once: true });
+  if (signal.aborted) {
+    closePageOnAbort();
+  }
 
   const state: AgentState = {
     conversation: [
@@ -297,6 +393,16 @@ export async function runAgentDiscovery(
     compactionState: null,
     compactionStatus: createAgentCompactionStatus(),
   };
+  let accessWall: {
+    /**
+     * The blocker the Needs-you item is raised under. A paid-plan overlay
+     * reuses "manual_step_required": dismissing it is a step only the person
+     * can take, and reusing it keeps one wall-recovery path instead of two.
+     */
+    reason: "auth_required" | "site_protection" | "manual_step_required";
+    /** What was actually observed, for the sentence the user reads. */
+    observed: DiscoveryCompactObservationUnsupportedReason;
+  } | null = null;
   let consecutiveZeroYieldExtractionPasses = 0;
   // Stagnation and evidence windows start at the resume point so an
   // interrupted attempt's lifetime step count cannot instantly satisfy a
@@ -325,6 +431,18 @@ export async function runAgentDiscovery(
 
   const tools = getToolDefinitions();
   const emitProgress = createProgressEmitter(state, config, onProgress);
+  const progressHeartbeat = setInterval(() => {
+    if (state.isRunning && !signal.aborted) {
+      emitProgress({
+        currentAction: "source_read_heartbeat",
+        currentUrl: state.currentUrl,
+        jobsFound: state.collectedJobs.length,
+        stepCount: state.stepCount,
+        waitReason: "waiting_on_page",
+        message: "Still reading this source; the search is continuing.",
+      });
+    }
+  }, DISCOVERY_PROGRESS_HEARTBEAT_MS);
   let checkpointRevision = config.resumeCheckpoint?.revision ?? 0;
   const saveRunCheckpoint = async () => {
     if (!config.onCheckpoint) return;
@@ -485,7 +603,20 @@ export async function runAgentDiscovery(
         }
       : resolvedPartial;
 
-    return buildAgentResult(state, warnedPartial);
+    // A wall the runtime saw is reported whether or not the run had already
+    // kept something. The Needs-you item is raised from this observation, so
+    // gating it on "collected nothing" is what left a person looking at
+    // "Verify you are human" while the app said nothing needed them.
+    const stoppedAccessWall = accessWall;
+    return buildAgentResult(state, {
+      ...warnedPartial,
+      ...(stoppedAccessWall
+        ? {
+            accessBlockerReason: stoppedAccessWall.reason,
+            parkedPageUrl: state.currentUrl,
+          }
+        : {}),
+    });
   };
   const maybeStopForStagnation = async (): Promise<AgentResult | null> => {
     if (
@@ -784,7 +915,6 @@ export async function runAgentDiscovery(
     // An access wall seen on the start page (verification challenge, sign-in
     // wall). When the run then ends with nothing, the stop reason names the
     // wall instead of a generic no-progress sentence.
-    let accessWall: { reason: string } | null = null;
     if (!requiresExplicitFinish) {
       if (signal?.aborted) {
         return buildInterruptedBeforeModelWorkResult();
@@ -849,7 +979,36 @@ export async function runAgentDiscovery(
           observation.reason === "manual_step_required" ||
           observation.reason === "auth_required")
       ) {
-        accessWall = { reason: observation.reason };
+        accessWall = {
+          reason: observation.reason,
+          observed: observation.reason,
+        };
+      }
+
+      if (
+        observation.kind === "unsupported" &&
+        observation.reason === "paid_plan_required"
+      ) {
+        accessWall = {
+          reason: "manual_step_required",
+          observed: observation.reason,
+        };
+        // Nothing on this page is readable and no automatic action may
+        // dismiss the overlay, so the run stops here instead of spending its
+        // whole budget browsing a covered page. Anything already collected
+        // this run is kept by the result builder.
+        if (getThisRunCollectedJobCount() === 0) {
+          return await buildDiscoveryResult({
+            incomplete: true,
+            error: describeAccessWallStop(observation.reason),
+            phaseCompletionMode: requiresExplicitFinish ? "interrupted" : null,
+            phaseCompletionReason: requiresExplicitFinish
+              ? "A full-page overlay asking for a paid plan covered the listings."
+              : null,
+            phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
+            debugFindings: pendingDebugFindings,
+          });
+        }
       }
 
       // Search before scrolling. A board's front page is a feed of every new
@@ -1075,7 +1234,7 @@ export async function runAgentDiscovery(
           jobsFound: state.collectedJobs.length,
           stepCount: state.stepCount,
           waitReason: "extracting_jobs",
-          message: `Quick page scan could not read this page (${observation.reason}${observation.detail ? `: ${observation.detail}` : ""}). Trying the full-page reader.`,
+          message: `Quick page scan could not read this page: ${describeUnsupportedObservationReason(observation.reason)}${observation.detail ? ` ${observation.detail}` : ""} Trying the full-page reader.`,
         });
       }
 
@@ -1149,6 +1308,60 @@ export async function runAgentDiscovery(
             `[Agent] Target reached during batch collection: ${state.collectedJobs.length} jobs`,
           );
           return await buildDiscoveryResult({
+            phaseCompletionMode: null,
+            phaseCompletionReason: null,
+            phaseEvidence: null,
+            debugFindings: pendingDebugFindings,
+          });
+        }
+        if (
+          consecutiveZeroYieldExtractionPasses >=
+          DISCOVERY_STAGNATION_ZERO_YIELD_LIMIT
+        ) {
+          // Search-result reads are deliberately deferred. Before declaring
+          // three empty passes stagnant, resolve that bounded snapshot once:
+          // it may contain real jobs the quick card parser could not shape.
+          const deferredCheck =
+            state.deferredSearchExtractions.size > 0
+              ? await flushDeferredSearchExtractions({
+                  state,
+                  config,
+                  jobExtractor,
+                  emitProgress,
+                  mode: "batch",
+                  ...(signal ? { signal } : {}),
+                })
+              : null;
+          if (deferredCheck) {
+            recordExtractionPassSummary(deferredCheck);
+            if (deferredCheck.newJobsAdded > 0) {
+              await saveRunCheckpoint();
+            }
+          }
+          if (getThisRunCollectedJobCount() >= config.targetJobCount) {
+            return await buildDiscoveryResult({
+              phaseCompletionMode: null,
+              phaseCompletionReason: null,
+              phaseEvidence: null,
+              debugFindings: pendingDebugFindings,
+            });
+          }
+          if (deferredCheck && deferredCheck.newJobsAdded > 0) {
+            continue;
+          }
+          emitProgress({
+            currentAction: "stop_stagnant_source",
+            currentUrl: state.currentUrl,
+            jobsFound: state.collectedJobs.length,
+            stepCount: state.stepCount,
+            waitReason: "finalizing",
+            message:
+              "This source showed nothing new after several tries, so the search is moving on.",
+          });
+          return await buildDiscoveryResult({
+            incomplete: true,
+            error:
+              "This source showed nothing new after several tries, so the search moved on.",
             phaseCompletionMode: null,
             phaseCompletionReason: null,
             phaseEvidence: null,
@@ -1286,10 +1499,6 @@ export async function runAgentDiscovery(
     const emergencyCeiling = config.runControl
       ? Math.max(config.maxSteps, 64)
       : config.maxSteps;
-    const timeBudgetMs = Math.max(
-      30_000,
-      config.runControl?.timeBudgetMs ?? 10 * 60_000,
-    );
     const noProgressStepLimit = Math.max(
       3,
       config.runControl?.noProgressStepLimit ?? 8,
@@ -1318,10 +1527,14 @@ export async function runAgentDiscovery(
       ) {
         return await buildDiscoveryResult({
           incomplete: true,
-          error:
-            accessWall && state.collectedJobs.length === 0
-              ? describeAccessWallStop(accessWall.reason)
-              : "The site showed nothing new after several tries, so the search moved on.",
+          error: accessWall
+            ? state.collectedJobs.length === 0
+              ? describeAccessWallStop(accessWall.observed)
+              : describeAccessWallStopAfterResults(
+                  accessWall.observed,
+                  state.collectedJobs.length,
+                )
+            : "The site showed nothing new after several tries, so the search moved on.",
           phaseCompletionMode: requiresExplicitFinish ? "interrupted" : null,
           phaseCompletionReason: requiresExplicitFinish
             ? "No measurable progress remained after repeated actions."
@@ -1958,9 +2171,31 @@ export async function runAgentDiscovery(
       debugFindings: fallbackDebugFindings,
     });
   } catch (error) {
+    if (timeBudgetController.signal.aborted && !externalSignal?.aborted) {
+      emitProgress({
+        currentAction: "stop_source_time_budget",
+        currentUrl: state.currentUrl,
+        jobsFound: state.collectedJobs.length,
+        stepCount: state.stepCount,
+        waitReason: "finalizing",
+        message:
+          "This source reached its time limit. Saved jobs are kept and the search is moving on.",
+      });
+      return buildAgentResult(state, {
+        incomplete: true,
+        error:
+          "This source reached its time limit. Saved jobs were kept and the search moved on.",
+        phaseCompletionMode: requiresExplicitFinish ? "interrupted" : null,
+        phaseCompletionReason: requiresExplicitFinish
+          ? "The source reached its elapsed-time budget."
+          : null,
+        phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
+        debugFindings: pendingDebugFindings,
+      });
+    }
     if (
       (error instanceof DOMException && error.name === "AbortError") ||
-      signal?.aborted
+      externalSignal?.aborted
     ) {
       throw error;
     }
@@ -1981,5 +2216,8 @@ export async function runAgentDiscovery(
     });
   } finally {
     state.isRunning = false;
+    clearTimeout(timeBudget);
+    clearInterval(progressHeartbeat);
+    signal.removeEventListener("abort", closePageOnAbort);
   }
 }

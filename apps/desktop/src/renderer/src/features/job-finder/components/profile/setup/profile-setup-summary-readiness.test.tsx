@@ -90,7 +90,7 @@ describe("guided setup readiness, stated once", () => {
       "discovery_source",
     ]);
     expect(text).toBe(
-      "Still needed to finish: Add your name and an email or phone · Add work history · Answer one work or location detail · Pick a work mode (remote, hybrid, or onsite) · Enable a job source (on the Job targets step).",
+      "Still needed to finish: Add your name and an email or phone · Add work history · Answer one work or location detail · Pick where you want to work (remote, hybrid, onsite, or flexible) · Enable a job source (on the Job targets step).",
     );
   });
 
@@ -155,7 +155,7 @@ describe("guided setup readiness, stated once", () => {
       draftSearchPreferences: searchPreferencesWithoutWorkMode,
     });
     expect(blocked.text).toBe(
-      "Still needed to finish: Pick a work mode (remote, hybrid, or onsite).",
+      "Still needed to finish: Pick where you want to work (remote, hybrid, onsite, or flexible).",
     );
 
     const ready = buildReadinessLine({
@@ -215,7 +215,7 @@ describe("guided setup readiness, stated once", () => {
       "discovery_source",
     ]);
     expect(text).toBe(
-      "Still needed to finish: Pick a work mode (remote, hybrid, or onsite) · Enable a job source (on the Job targets step).",
+      "Still needed to finish: Pick where you want to work (remote, hybrid, onsite, or flexible) · Enable a job source (on the Job targets step).",
     );
     // One readiness system: the footer primary is gated by the same
     // presentation the line above is written from.

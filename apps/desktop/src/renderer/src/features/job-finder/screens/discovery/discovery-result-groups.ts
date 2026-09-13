@@ -1,99 +1,35 @@
 import type { SavedJob } from "@unemployed/contracts";
-import { getMatchAssessmentPresentation } from "@renderer/features/job-finder/lib/match-assessment-presentation";
-import { assessmentTitleMissesTargetRoles } from "@unemployed/job-finder/discovery-ordering";
+import {
+  DISCOVERY_CLEAR_MISMATCH_SCORE_FLOOR,
+  DISCOVERY_WEAKER_MATCH_SCORE_FLOOR,
+  countDiscoveryStrongMatches,
+  getDiscoveryResultGroup,
+  isDiscoveryClearMismatch,
+  isDiscoveryWorthOpeningResult,
+  type DiscoveryResultGroupId,
+} from "@unemployed/job-finder/discovery-result-bands";
 
 /**
- * Renderer-level floor for the default Results view. A job whose current
- * assessment scores below this is a clear mismatch for the saved targets
- * even when the scorer stopped short of a hard `skip`; it stays reachable
- * through "Show mismatches" and is never removed from the workspace.
- * Withheld scores are not judged by this floor: an offline catalog row, an
- * unbound score, and a title-only listing all fail to earn a percentage, and
- * hiding a row for a number the app has just refused to print would hide it
- * for a reason the app says it cannot assess.
+ * Banding rules moved to `@unemployed/job-finder/discovery-result-bands` so a
+ * finished run can freeze its own "worth opening" count with the same rule
+ * this screen applies. Re-exported here because every Find jobs surface
+ * already imports them from this module.
  */
-export const DISCOVERY_CLEAR_MISMATCH_SCORE_FLOOR = 35;
-
-/**
- * Above the mismatch floor but still clearly behind the leading results.
- * Rows in this band are honest results, not filler to hide, but presenting
- * them in one flat list next to a 64% engineering match reads as though the
- * app considers a 36% role from another profession comparable. They keep
- * their place in the ranked list under an explicit divider instead.
- */
-export const DISCOVERY_WEAKER_MATCH_SCORE_FLOOR = 50;
-
-export type DiscoveryResultGroupId =
-  | "matches"
-  | "unchecked"
-  | "weaker"
-  | "mismatches";
+export {
+  DISCOVERY_CLEAR_MISMATCH_SCORE_FLOOR,
+  DISCOVERY_WEAKER_MATCH_SCORE_FLOOR,
+  countDiscoveryStrongMatches,
+  getDiscoveryResultGroup,
+  isDiscoveryClearMismatch,
+  isDiscoveryWorthOpeningResult,
+  type DiscoveryResultGroupId,
+};
 
 export interface DiscoveryResultGroupHeading {
   count: number;
   description: string;
   id: DiscoveryResultGroupId;
   label: string;
-}
-
-export function isDiscoveryClearMismatch(job: SavedJob): boolean {
-  // A row with no assessment at all is not a judgement against it.
-  if (!job.matchAssessment) {
-    return false;
-  }
-  if (job.matchAssessment.recommendation === "skip") {
-    return true;
-  }
-
-  return (
-    !getMatchAssessmentPresentation(job).isScoreWithheld &&
-    job.matchAssessment.score < DISCOVERY_CLEAR_MISMATCH_SCORE_FLOOR
-  );
-}
-
-/**
- * Bands a single row into one of three honest populations.
- *
- * A row whose score is withheld is neither recommended nor demoted by that
- * score. Promoting it to the leading band claims the app checked something it
- * never opened; demoting it to "also found" hides it for a number the app has
- * just refused to print. It therefore gets its own band, which says exactly
- * what is true: the title matched and nothing else was checked yet.
- *
- * A hard `skip` still bands as a mismatch even with a withheld score, because
- * that verdict rests on an observed conflict rather than on the number.
- */
-export function getDiscoveryResultGroup(job: SavedJob): DiscoveryResultGroupId {
-  if (isDiscoveryClearMismatch(job)) {
-    return "mismatches";
-  }
-
-  if (!job.matchAssessment) {
-    return "unchecked";
-  }
-
-  if (getMatchAssessmentPresentation(job).isScoreWithheld) {
-    // "Title matches · not yet checked" has to mean the title matched. A
-    // card-only listing whose title never matched a target role ("Full-Stack
-    // Designer" for a software-engineer search) has been checked as far as it
-    // can be, and what was checked did not fit: it belongs with the weaker
-    // matches, still one click away, not in the leading unchecked band.
-    return assessmentTitleMissesTargetRoles(job.matchAssessment)
-      ? "weaker"
-      : "unchecked";
-  }
-
-  return job.matchAssessment.score < DISCOVERY_WEAKER_MATCH_SCORE_FLOOR
-    ? "weaker"
-    : "matches";
-}
-
-/**
- * The rows the app is willing to recommend opening: checked evidence *and* a
- * score it is prepared to print. Nothing else earns this band.
- */
-export function isDiscoveryWorthOpeningResult(job: SavedJob): boolean {
-  return getDiscoveryResultGroup(job) === "matches";
 }
 
 /**
@@ -114,17 +50,6 @@ export function isDiscoveryUncheckedResult(job: SavedJob): boolean {
 export function isDiscoveryAlsoFoundResult(job: SavedJob): boolean {
   const group = getDiscoveryResultGroup(job);
   return group === "weaker" || group === "mismatches";
-}
-
-/** How many results are in the leading band — the honest headline number. */
-export function countDiscoveryStrongMatches(jobs: readonly SavedJob[]): number {
-  let count = 0;
-  for (const job of jobs) {
-    if (isDiscoveryWorthOpeningResult(job)) {
-      count += 1;
-    }
-  }
-  return count;
 }
 
 /**
@@ -160,6 +85,32 @@ export function countDiscoveryUncheckedResults(
   return count;
 }
 
+const DISCOVERY_RESULT_GROUP_ORDER: Record<DiscoveryResultGroupId, number> = {
+  matches: 0,
+  unchecked: 1,
+  weaker: 2,
+  mismatches: 3,
+};
+
+/**
+ * Keeps each caption in one contiguous band in the canonical ranking. Scores
+ * still decide order inside a band; they must not split the same caption into
+ * two runs with a differently-captioned band between them.
+ */
+export function orderDiscoveryResultsByGroup(
+  jobs: readonly SavedJob[],
+): SavedJob[] {
+  return jobs
+    .map((job, sourceIndex) => ({ job, sourceIndex }))
+    .sort((left, right) => {
+      const groupOrder =
+        DISCOVERY_RESULT_GROUP_ORDER[getDiscoveryResultGroup(left.job)] -
+        DISCOVERY_RESULT_GROUP_ORDER[getDiscoveryResultGroup(right.job)];
+      return groupOrder || left.sourceIndex - right.sourceIndex;
+    })
+    .map(({ job }) => job);
+}
+
 const groupCopy: Record<
   DiscoveryResultGroupId,
   { description: string; label: string }
@@ -177,7 +128,10 @@ const groupCopy: Record<
     // run-level warning that names the source on the same screen.
     description:
       "Matched on the title alone; the full requirements have not been assessed.",
-    label: "Title matches · not yet checked",
+    // Leads with what is true and wanted — this role is what you asked for —
+    // and keeps the caveat second. "Title matches · not yet checked" read as
+    // a demotion of the very jobs the search was run to find.
+    label: "Matches your role, not yet scored",
   },
   // Both of the bands below are the two halves of the one pool the summary
   // line and the reveal control call "also found". They stay separate bands —

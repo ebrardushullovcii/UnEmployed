@@ -6,13 +6,10 @@ import {
   createPage,
   createToolCall,
 } from "./agent.test-fixtures";
-import {
-  createEmptyExtractionPassSummary,
-  summarizeExtractionPassResult,
-} from "./agent/discovery-helpers";
+import { summarizeExtractionPassResult } from "./agent/discovery-helpers";
 
 describe("runAgentDiscovery deferred extraction behavior", () => {
-  test("treats zero-job deferred extraction as an empty pass summary", () => {
+  test("counts a deferred page that added no candidates as a zero-yield pass", () => {
     expect(
       summarizeExtractionPassResult({
         success: true,
@@ -21,7 +18,12 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
           jobsExtracted: 0,
         },
       }),
-    ).toEqual(createEmptyExtractionPassSummary());
+    ).toEqual({
+      extractionPasses: 1,
+      zeroYieldExtractionPasses: 1,
+      trailingZeroYieldExtractionPasses: 1,
+      newJobsAdded: 0,
+    });
   });
 
   test("discovery defers repeated search-result extraction until the end of the run", async () => {
@@ -51,24 +53,26 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => [
-        {
-          sourceJobId: "job_deferred_1",
-          canonicalUrl: "https://www.linkedin.com/jobs/view/job_deferred_1",
-          title: "Workflow Engineer",
-          company: "Signal Systems",
-          location: "Remote",
-          workMode: ["remote" as const],
-          applyPath: "unknown" as const,
-          postedAt: "2026-03-20T09:00:00.000Z",
-          salaryText: null,
-          summary: "Deferred extraction sample.",
-          description: "Deferred extraction sample.",
-          easyApplyEligible: false,
-          keySkills: ["React"],
-          responsibilities: [],
-        },
-      ]),
+      extractJobsFromPage: vi.fn(() =>
+        Promise.resolve([
+          {
+            sourceJobId: "job_deferred_1",
+            canonicalUrl: "https://www.linkedin.com/jobs/view/job_deferred_1",
+            title: "Workflow Engineer",
+            company: "Signal Systems",
+            location: "Remote",
+            workMode: ["remote" as const],
+            applyPath: "unknown" as const,
+            postedAt: "2026-03-20T09:00:00.000Z",
+            salaryText: null,
+            summary: "Deferred extraction sample.",
+            description: "Deferred extraction sample.",
+            easyApplyEligible: false,
+            keySkills: ["React"],
+            responsibilities: [],
+          },
+        ]),
+      ),
     };
 
     const config = createConfig();
@@ -141,24 +145,26 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => [
-        {
-          sourceJobId: "job_batch_1",
-          canonicalUrl: "https://www.linkedin.com/jobs/view/job_batch_1",
-          title: "Workflow Engineer",
-          company: "Signal Systems",
-          location: "Remote",
-          workMode: ["remote" as const],
-          applyPath: "unknown" as const,
-          postedAt: "2026-03-20T09:00:00.000Z",
-          salaryText: null,
-          summary: "Deferred batch extraction sample.",
-          description: "Deferred batch extraction sample.",
-          easyApplyEligible: false,
-          keySkills: ["React"],
-          responsibilities: [],
-        },
-      ]),
+      extractJobsFromPage: vi.fn(() =>
+        Promise.resolve([
+          {
+            sourceJobId: "job_batch_1",
+            canonicalUrl: "https://www.linkedin.com/jobs/view/job_batch_1",
+            title: "Workflow Engineer",
+            company: "Signal Systems",
+            location: "Remote",
+            workMode: ["remote" as const],
+            applyPath: "unknown" as const,
+            postedAt: "2026-03-20T09:00:00.000Z",
+            salaryText: null,
+            summary: "Deferred batch extraction sample.",
+            description: "Deferred batch extraction sample.",
+            easyApplyEligible: false,
+            keySkills: ["React"],
+            responsibilities: [],
+          },
+        ]),
+      ),
     };
 
     const config = createConfig();
@@ -204,24 +210,26 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => [
-        {
-          sourceJobId: "job_idle_flush_1",
-          canonicalUrl: "https://www.linkedin.com/jobs/view/job_idle_flush_1",
-          title: "Workflow Engineer",
-          company: "Signal Systems",
-          location: "Remote",
-          workMode: ["remote" as const],
-          applyPath: "unknown" as const,
-          postedAt: "2026-03-20T09:00:00.000Z",
-          salaryText: null,
-          summary: "Deferred extraction after an idle planning turn.",
-          description: "Deferred extraction after an idle planning turn.",
-          easyApplyEligible: false,
-          keySkills: ["React"],
-          responsibilities: [],
-        },
-      ]),
+      extractJobsFromPage: vi.fn(() =>
+        Promise.resolve([
+          {
+            sourceJobId: "job_idle_flush_1",
+            canonicalUrl: "https://www.linkedin.com/jobs/view/job_idle_flush_1",
+            title: "Workflow Engineer",
+            company: "Signal Systems",
+            location: "Remote",
+            workMode: ["remote" as const],
+            applyPath: "unknown" as const,
+            postedAt: "2026-03-20T09:00:00.000Z",
+            salaryText: null,
+            summary: "Deferred extraction after an idle planning turn.",
+            description: "Deferred extraction after an idle planning turn.",
+            easyApplyEligible: false,
+            keySkills: ["React"],
+            responsibilities: [],
+          },
+        ]),
+      ),
     };
 
     const config = createConfig();
@@ -267,23 +275,25 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () =>
-        Array.from({ length: 3 }, (_, index) => ({
-          sourceJobId: `job_late_stop_${index}`,
-          canonicalUrl: `https://www.linkedin.com/jobs/view/job_late_stop_${index}`,
-          title: `Workflow Engineer ${index}`,
-          company: "Signal Systems",
-          location: "Remote",
-          workMode: ["remote" as const],
-          applyPath: "unknown" as const,
-          postedAt: "2026-03-20T09:00:00.000Z",
-          salaryText: null,
-          summary: "Useful deferred candidate set near the step limit.",
-          description: "Useful deferred candidate set near the step limit.",
-          easyApplyEligible: false,
-          keySkills: ["React"],
-          responsibilities: [],
-        })),
+      extractJobsFromPage: vi.fn(() =>
+        Promise.resolve(
+          Array.from({ length: 3 }, (_, index) => ({
+            sourceJobId: `job_late_stop_${index}`,
+            canonicalUrl: `https://www.linkedin.com/jobs/view/job_late_stop_${index}`,
+            title: `Workflow Engineer ${index}`,
+            company: "Signal Systems",
+            location: "Remote",
+            workMode: ["remote" as const],
+            applyPath: "unknown" as const,
+            postedAt: "2026-03-20T09:00:00.000Z",
+            salaryText: null,
+            summary: "Useful deferred candidate set near the step limit.",
+            description: "Useful deferred candidate set near the step limit.",
+            easyApplyEligible: false,
+            keySkills: ["React"],
+            responsibilities: [],
+          })),
+        ),
       ),
     };
 
@@ -329,7 +339,7 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => []),
+      extractJobsFromPage: vi.fn(() => Promise.resolve([])),
     };
 
     const config = createConfig();
@@ -362,34 +372,35 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
   test("advances bounded result pages after the active results pane reaches its end", async () => {
     let currentUrl = "about:blank";
     let pageNumber = 1;
-    const nextPageClick = vi.fn(async () => {
+    const nextPageClick = vi.fn(() => {
       pageNumber += 1;
       currentUrl = `https://jobs.example.com/search/?page=${pageNumber}`;
+      return Promise.resolve();
     });
     const matchingNextLocator = {
-      count: vi.fn(async () => 1),
+      count: vi.fn(() => Promise.resolve(1)),
       nth: vi.fn(),
-      isVisible: vi.fn(async () => true),
+      isVisible: vi.fn(() => Promise.resolve(true)),
       click: nextPageClick,
-      textContent: vi.fn(async () => "Next"),
-      scrollIntoViewIfNeeded: vi.fn(async () => undefined),
+      textContent: vi.fn(() => Promise.resolve("Next")),
+      scrollIntoViewIfNeeded: vi.fn(() => Promise.resolve(undefined)),
     };
     matchingNextLocator.nth.mockReturnValue(matchingNextLocator);
     const missingLocator = {
-      count: vi.fn(async () => 0),
+      count: vi.fn(() => Promise.resolve(0)),
       nth: vi.fn(),
-      isVisible: vi.fn(async () => false),
-      click: vi.fn(async () => undefined),
-      textContent: vi.fn(async () => null),
-      scrollIntoViewIfNeeded: vi.fn(async () => undefined),
+      isVisible: vi.fn(() => Promise.resolve(false)),
+      click: vi.fn(() => Promise.resolve(undefined)),
+      textContent: vi.fn(() => Promise.resolve(null)),
+      scrollIntoViewIfNeeded: vi.fn(() => Promise.resolve(undefined)),
     };
     missingLocator.nth.mockReturnValue(missingLocator);
     const basePage = createPage();
     const page = {
       ...basePage,
-      goto: vi.fn(async (url: string) => {
+      goto: vi.fn((url: string) => {
         currentUrl = url;
-        return null as never;
+        return Promise.resolve(null as never);
       }),
       url: vi.fn(() => currentUrl),
       getByRole: vi.fn(
@@ -406,38 +417,38 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
           return (matchesNext ? matchingNextLocator : missingLocator) as never;
         },
       ),
-      evaluate: vi.fn(async (callback: unknown, argument?: unknown) => {
+      evaluate: vi.fn((callback: unknown, argument?: unknown) => {
         const source = String(callback);
         if (
           argument &&
           typeof argument === "object" &&
           "scrollAmount" in argument
         ) {
-          return {
+          return Promise.resolve({
             previousScrollY: 400,
             newScrollY: 400,
             previousHeight: 900,
             totalHeight: 900,
             clientHeight: 500,
             scrollContainer: "div[role=list]",
-          };
+          });
         }
         if (source.includes("previousScrollY")) {
-          return {
+          return Promise.resolve({
             previousScrollY: 400,
             newScrollY: 0,
             totalHeight: 900,
             scrollContainer: "div[role=list]",
-          };
+          });
         }
-        return [];
+        return Promise.resolve([]);
       }),
     } as unknown as Page;
     let extractionIndex = 0;
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => {
+      extractJobsFromPage: vi.fn(() => {
         extractionIndex += 1;
-        return [
+        return Promise.resolve([
           {
             sourceJobId: `paged_job_${extractionIndex}`,
             canonicalUrl: `https://jobs.example.com/jobs/paged_job_${extractionIndex}`,
@@ -454,14 +465,16 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
             keySkills: ["React"],
             responsibilities: [],
           },
-        ];
+        ]);
       }),
     };
     const llmClient: LLMClient = {
-      chatWithTools: vi.fn(async () => ({
-        content: "No additional action needed.",
-        toolCalls: [],
-      })),
+      chatWithTools: vi.fn(() =>
+        Promise.resolve({
+          content: "No additional action needed.",
+          toolCalls: [],
+        }),
+      ),
     };
     const config = createConfig();
     config.maxSteps = 1;
@@ -478,8 +491,8 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
     );
 
     expect(nextPageClick).toHaveBeenCalledTimes(2);
-    expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(1);
-    expect(result.jobs).toHaveLength(1);
+    expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(2);
+    expect(result.jobs).toHaveLength(2);
   });
 
   test("stops a weak target-50 source after two zero-yield slow passes while useful candidates are held", async () => {
@@ -519,11 +532,11 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
     };
     let extractionCallCount = 0;
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => {
+      extractJobsFromPage: vi.fn(() => {
         extractionCallCount += 1;
 
         if (extractionCallCount === 1) {
-          return [
+          return Promise.resolve([
             {
               sourceJobId: "job_weak_50_kept_1",
               canonicalUrl: "https://jobs.example.com/jobs/job_weak_50_kept_1",
@@ -557,10 +570,10 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
               keySkills: ["TypeScript"],
               responsibilities: [],
             },
-          ];
+          ]);
         }
 
-        return [];
+        return Promise.resolve([]);
       }),
     };
 
@@ -629,11 +642,11 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
     };
     let extractionCallCount = 0;
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () => {
+      extractJobsFromPage: vi.fn(() => {
         extractionCallCount += 1;
 
         if (extractionCallCount === 1) {
-          return [
+          return Promise.resolve([
             {
               sourceJobId: "job_yield_block_kept_1",
               canonicalUrl:
@@ -669,11 +682,11 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
               keySkills: ["TypeScript"],
               responsibilities: [],
             },
-          ];
+          ]);
         }
 
         if (extractionCallCount === 3) {
-          return [
+          return Promise.resolve([
             {
               sourceJobId: "job_yield_block_recovery",
               canonicalUrl:
@@ -692,10 +705,10 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
               keySkills: ["React"],
               responsibilities: [],
             },
-          ];
+          ]);
         }
 
-        return [];
+        return Promise.resolve([]);
       }),
     };
 
@@ -729,29 +742,33 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
   test("reports batch scroll and pagination exhaustion instead of instructing more pagination", async () => {
     const page = createPage() as Page;
     const llmClient: LLMClient = {
-      chatWithTools: vi.fn(async () => ({
-        content: "No action taken",
-        toolCalls: [],
-      })),
+      chatWithTools: vi.fn(() =>
+        Promise.resolve({
+          content: "No action taken",
+          toolCalls: [],
+        }),
+      ),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () =>
-        Array.from({ length: 2 }, (_, index) => ({
-          sourceJobId: `job_paging_wording_${index}`,
-          canonicalUrl: `https://jobs.example.com/jobs/job_paging_wording_${index}`,
-          title: `Workflow Engineer ${index}`,
-          company: "Signal Systems",
-          location: "Remote",
-          workMode: ["remote" as const],
-          applyPath: "unknown" as const,
-          postedAt: null,
-          salaryText: null,
-          summary: "Collected before the results pane reached its end.",
-          description: "Collected before the results pane reached its end.",
-          easyApplyEligible: false,
-          keySkills: ["React"],
-          responsibilities: [],
-        })),
+      extractJobsFromPage: vi.fn(() =>
+        Promise.resolve(
+          Array.from({ length: 2 }, (_, index) => ({
+            sourceJobId: `job_paging_wording_${index}`,
+            canonicalUrl: `https://jobs.example.com/jobs/job_paging_wording_${index}`,
+            title: `Workflow Engineer ${index}`,
+            company: "Signal Systems",
+            location: "Remote",
+            workMode: ["remote" as const],
+            applyPath: "unknown" as const,
+            postedAt: null,
+            salaryText: null,
+            summary: "Collected before the results pane reached its end.",
+            description: "Collected before the results pane reached its end.",
+            easyApplyEligible: false,
+            keySkills: ["React"],
+            responsibilities: [],
+          })),
+        ),
       ),
     };
 
@@ -789,7 +806,7 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
         () =>
           "https://jobs.example.com/search/?keywords=Workflow+Engineer&location=Remote",
       ),
-      evaluate: vi.fn(async (_callback: unknown, argument?: unknown) => {
+      evaluate: vi.fn((_callback: unknown, argument?: unknown) => {
         if (
           argument &&
           typeof argument === "object" &&
@@ -799,16 +816,16 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
           scrollPosition += Number(
             (argument as { scrollAmount?: number }).scrollAmount ?? 0,
           );
-          return {
+          return Promise.resolve({
             previousScrollY,
             newScrollY: scrollPosition,
             previousHeight: 20000,
             totalHeight: 200000,
             clientHeight: 800,
             scrollContainer: "div[role=list]",
-          };
+          });
         }
-        return [];
+        return Promise.resolve([]);
       }),
     } as unknown as Page;
     const progressActions: string[] = [];
@@ -825,23 +842,25 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
       }),
     };
     const jobExtractor: JobExtractor = {
-      extractJobsFromPage: vi.fn(async () =>
-        Array.from({ length: 20 }, (_, index) => ({
-          sourceJobId: `job_rich_source_${index}`,
-          canonicalUrl: `https://jobs.example.com/jobs/job_rich_source_${index}`,
-          title: `Workflow Engineer ${index}`,
-          company: "Signal Systems",
-          location: "Remote",
-          workMode: ["remote" as const],
-          applyPath: "unknown" as const,
-          postedAt: null,
-          salaryText: null,
-          summary: "Rich source candidate collected in batch mode.",
-          description: "Rich source candidate collected in batch mode.",
-          easyApplyEligible: false,
-          keySkills: ["React"],
-          responsibilities: [],
-        })),
+      extractJobsFromPage: vi.fn(() =>
+        Promise.resolve(
+          Array.from({ length: 20 }, (_, index) => ({
+            sourceJobId: `job_rich_source_${index}`,
+            canonicalUrl: `https://jobs.example.com/jobs/job_rich_source_${index}`,
+            title: `Workflow Engineer ${index}`,
+            company: "Signal Systems",
+            location: "Remote",
+            workMode: ["remote" as const],
+            applyPath: "unknown" as const,
+            postedAt: null,
+            salaryText: null,
+            summary: "Rich source candidate collected in batch mode.",
+            description: "Rich source candidate collected in batch mode.",
+            easyApplyEligible: false,
+            keySkills: ["React"],
+            responsibilities: [],
+          })),
+        ),
       ),
     };
 
@@ -871,13 +890,8 @@ describe("runAgentDiscovery deferred extraction behavior", () => {
       maxJobs: 20,
       pageType: "search_results",
     });
-    // Scrolling kept making progress, so the handoff keeps the pagination
-    // guidance and no early-stop arm fired.
-    expect(
-      result.reviewTranscript?.some((entry) =>
-        entry.includes("Continue with pagination"),
-      ),
-    ).toBe(true);
+    // The deferred read proves the page is rich before the empty-pass arm can
+    // stop it, and reaching the target returns immediately.
     expect(progressActions).not.toContain("stop_yield_exhausted_source");
     expect(progressActions).not.toContain("stop_stagnant_source");
   });

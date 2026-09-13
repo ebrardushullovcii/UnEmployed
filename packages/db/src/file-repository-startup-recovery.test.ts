@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   createFileJobFinderRepository,
@@ -18,6 +18,15 @@ import {
   createSavedJob,
   type FileRepository,
 } from "./file-repository.test-support";
+
+// Windows pays for every one of these tests twice: VACUUM INTO snapshots and
+// rotation renames are slower there, and removing a temporary directory has to
+// retry until the OS releases the last handle. Under a parallel run that
+// outgrows vitest's 5s default and the suite fails on the clock rather than on
+// behaviour. POSIX keeps the default, so a real hang still fails fast there.
+if (process.platform === "win32") {
+  vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+}
 
 const NOT_DATABASE_CONTENT = Buffer.from(
   "deliberately not a sqlite database",
@@ -452,7 +461,7 @@ describe("file repository startup recovery integration", () => {
       restoredJobPresent: boolean;
     }> = [];
 
-    await createFileJobFinderRepository({
+    const reopened = await createFileJobFinderRepository({
       filePath: fixture.filePath,
       seed: createSeed(),
       automaticBackup: { onClose: true },
@@ -481,6 +490,11 @@ describe("file repository startup recovery integration", () => {
         },
       },
     });
+
+    // Closed before the assertions so the recovered workspace file carries no
+    // open handle when the temporary directory is removed; Windows cannot
+    // delete a locked file and the cleanup hook timed out.
+    await reopened.close();
 
     expect(restoredEvents).toHaveLength(1);
     expect(restoredEvents[0]?.restoredFrom).toBe("backup");

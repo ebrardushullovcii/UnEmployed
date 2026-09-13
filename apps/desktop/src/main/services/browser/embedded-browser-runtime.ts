@@ -5,6 +5,7 @@ import type {
 import type {
   ApplyExecutionResult,
   BrowserSessionState,
+  DiscoveryRunResult,
   JobSource,
 } from "@unemployed/contracts";
 import type { EmbeddedBrowser } from "./embedded-browser";
@@ -45,6 +46,39 @@ export function withEmbeddedBrowserActivity(
         detail: result.blocker.summary,
       });
     return result;
+  };
+  const attachParkedTab = (result: DiscoveryRunResult): DiscoveryRunResult => {
+    const parked = result.agentMetadata?.parkedTab;
+    if (!parked) return result;
+    const tab = browser
+      .getState()
+      .tabs.find((candidate) => candidate.url === parked.url);
+    browser.requestAttention({
+      kind:
+        result.agentMetadata?.accessBlockerReason === "auth_required"
+          ? "sign_in"
+          : "challenge",
+      title:
+        result.agentMetadata?.accessBlockerReason === "auth_required"
+          ? "Sign in to continue"
+          : "This page needs a human",
+      detail:
+        result.warning?.slice(0, 500) ??
+        "Finish the step in this browser tab, then search this source again.",
+    });
+    return {
+      ...result,
+      agentMetadata: result.agentMetadata
+        ? {
+            ...result.agentMetadata,
+            parkedTab: {
+              ...parked,
+              tabId: tab?.id ?? null,
+              title: tab?.title ?? null,
+            },
+          }
+        : null,
+    };
   };
   const flagAfter = async <T>(source: JobSource, work: Promise<T>) => {
     const result = await work;
@@ -94,6 +128,13 @@ export function withEmbeddedBrowserActivity(
       };
     },
     closeSession: (source) => runtime.closeSession(source),
+    async closeParkedTab(source, tab) {
+      if (tab.tabId) {
+        browser.closeParkedTab(tab.tabId);
+        return;
+      }
+      await runtime.closeParkedTab?.(source, tab);
+    },
     runDiscovery: (source, preferences) =>
       browser.runAutomation("Finding jobs", undefined, () =>
         flagAfter(source, runtime.runDiscovery(source, preferences)),
@@ -117,11 +158,35 @@ export function withEmbeddedBrowserActivity(
             browser.runAutomation(
               `Browsing ${options.siteLabel}`.slice(0, 200),
               options.signal,
-              (signal) =>
-                flagAfter(
+              (signal) => {
+                const currentTabs = browser.getState().tabs;
+                const protectedPages = (options.protectedPages ?? []).map(
+                  (protectedPage) => {
+                    const currentTab = protectedPage.tabId
+                      ? currentTabs.find(
+                          (candidate) => candidate.id === protectedPage.tabId,
+                        )
+                      : null;
+                    return currentTab
+                      ? {
+                          ...protectedPage,
+                          url: currentTab.url,
+                          title: currentTab.title,
+                        }
+                      : protectedPage;
+                  },
+                );
+                return flagAfter(
                   source,
-                  runtime.runAgentDiscovery!(source, { ...options, signal }),
-                ),
+                  runtime
+                    .runAgentDiscovery!(source, {
+                      ...options,
+                      protectedPages,
+                      signal,
+                    })
+                    .then(attachParkedTab),
+                );
+              },
             ),
         } satisfies Partial<BrowserSessionRuntime>)
       : {}),

@@ -1,5 +1,6 @@
 import {
   ApplicationAttemptBlockerSchema,
+  ApplicationRecordSchema,
   ApplyExecutionResultSchema,
   UserActionRequestSchema,
 } from "@unemployed/contracts";
@@ -887,7 +888,7 @@ describe("application login UserActionRequest adoption", () => {
     ]);
   });
 
-  test("keeps a two-job queue moving after the first job requests browser login", async () => {
+  test("prepares jobs two through five in one batch when job one needs browser login", async () => {
     const seed = createSeed();
     seed.settings.resumeApplicationMode = "original_resume";
     seed.profile.baseResume.storagePath = "C:/tmp/alex-vanguard.pdf";
@@ -910,6 +911,14 @@ describe("application login UserActionRequest adoption", () => {
         applicationUrl: "https://www.linkedin.com/jobs/view/queue_review/apply",
         title: "Principal Product Designer",
       },
+      ...[3, 4, 5].map((position) => ({
+        ...sourceJob,
+        id: `job_queue_review_${position}`,
+        sourceJobId: `queue_review_${position}`,
+        canonicalUrl: `https://www.linkedin.com/jobs/view/queue_review_${position}`,
+        applicationUrl: `https://www.linkedin.com/jobs/view/queue_review_${position}/apply`,
+        title: `Product Designer ${position}`,
+      })),
     ];
 
     const baseRuntime = createBrowserRuntime();
@@ -950,6 +959,9 @@ describe("application login UserActionRequest adoption", () => {
     const staged = await harness.workspaceService.startAutoApplyQueueRun([
       "job_queue_login",
       "job_queue_review",
+      "job_queue_review_3",
+      "job_queue_review_4",
+      "job_queue_review_5",
     ]);
     const runId = staged.applyRuns.find((run) => run.mode === "queue_auto")?.id;
     if (!runId) throw new Error("Expected a staged queue run.");
@@ -985,6 +997,12 @@ describe("application login UserActionRequest adoption", () => {
         accountCreationAuthorized: false,
         submitAuthorized: false,
       },
+      ...[3, 4, 5].map((position) => ({
+        jobId: `job_queue_review_${position}`,
+        mode: "prepare_only" as const,
+        accountCreationAuthorized: false,
+        submitAuthorized: false,
+      })),
     ]);
     expect(loginResult).toMatchObject({
       state: "awaiting_review",
@@ -995,6 +1013,16 @@ describe("application login UserActionRequest adoption", () => {
       state: "awaiting_review",
       blockerReason: null,
     });
+    expect(
+      snapshot.applyRuns.find((candidate) => candidate.id === runId),
+    ).toMatchObject({
+      totalJobs: 5,
+      pendingJobs: 0,
+      state: "completed",
+    });
+    expect(
+      snapshot.applyJobResults.filter((result) => result.runId === runId),
+    ).toHaveLength(5);
     expect(applicationRequests).toEqual([
       expect.objectContaining({
         kind: "login",
@@ -1739,5 +1767,83 @@ describe("application login UserActionRequest adoption", () => {
       state: "unsupported",
       summary: "Application retry skipped because its checkpoint changed",
     });
+  });
+});
+
+// R4: "I clicked Cancel this step on both blocked items and each time the page
+// said the step was closed, but the header badge stayed on Needs you: 2
+// unresolved and the job still showed NEEDS YOU in Applications."
+describe("cancelling a browser step releases the application waiting on it", () => {
+  test("moves the record out of the awaiting-user state so the count drops", async () => {
+    const harness = createWorkspaceServiceHarness({ seed: createSeed() });
+    const job = (await harness.repository.listSavedJobs())[0];
+    if (!job) throw new Error("Expected a saved job fixture.");
+    const applicationRecordId = `application_${job.id}`;
+    await harness.repository.upsertApplicationRecord(
+      ApplicationRecordSchema.parse({
+        id: applicationRecordId,
+        jobId: job.id,
+        title: job.title,
+        company: job.company,
+        status: "ready_for_review",
+        lastActionLabel: "Paused on a step you have to finish.",
+        nextActionLabel: "Finish the sign-in step in the Job Finder browser.",
+        lastUpdatedAt: "2026-07-30T10:00:00.000Z",
+        lastAttemptState: "paused",
+        consentSummary: { status: "requested" },
+      }),
+    );
+    await persistApplicationUserAction({
+      repository: harness.repository,
+      applicationRecordId,
+      job,
+      runId: "apply_run_cancel",
+      resultId: "apply_result_cancel",
+      replayCheckpointId: "apply_checkpoint_cancel",
+      blocker: ApplicationAttemptBlockerSchema.parse({
+        code: "site_login_required",
+        summary: "Sign in before continuing.",
+        detail: "The application page requires a browser-owned account session.",
+        questionIds: [],
+        sourceDebugEvidenceRefIds: [],
+        url: job.applicationUrl,
+      }),
+      occurredAt: "2026-07-30T10:00:00.000Z",
+    });
+
+    const staged = await harness.workspaceService.getWorkspaceSnapshot();
+    const request = (await harness.repository.listUserActionRequests())[0];
+    if (!request) throw new Error("Expected an application step.");
+    expect(
+      staged.applicationRecords.find(
+        (record) => record.id === applicationRecordId,
+      )?.lastAttemptState,
+    ).toBe("paused");
+
+    const after = await harness.workspaceService.performUserAction({
+      action: "cancel",
+      requestId: request.id,
+      commandId: "cancel_application_step",
+      expectedRevision: request.revision,
+      reason: "User cancelled the step.",
+      credentialsPolicy: "browser_only",
+      submitAuthorized: false,
+      accountCreationAuthorized: false,
+    });
+
+    const released = after.applicationRecords.find(
+      (record) => record.id === applicationRecordId,
+    );
+    expect(released?.lastAttemptState).toBe("unsupported");
+    expect(released?.nextActionLabel).toBe(
+      "Finish this application yourself on the job site.",
+    );
+    // Nothing is left claiming the person still owes this application a step.
+    expect(
+      (await harness.repository.listUserActionRequests()).filter(
+        (entry) => entry.state !== "cancelled",
+      ),
+    ).toEqual([]);
+    expect(after.applicationRecords.length).toBeGreaterThan(0);
   });
 });

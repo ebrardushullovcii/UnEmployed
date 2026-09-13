@@ -7,7 +7,10 @@ import {
   type UserActionRequest,
 } from "@unemployed/contracts";
 
-import { reduceUserActionCommand } from "../user-action-domain";
+import {
+  isUserActionTerminal,
+  reduceUserActionCommand,
+} from "../user-action-domain";
 import {
   createReusableAnswerForQuestion,
   normalizeAnswerQuestion,
@@ -15,6 +18,7 @@ import {
 import {
   isApplicationAuthenticationUserActionKind,
   isApplicationPrepareOnlyUserAction,
+  releaseApplicationRecordAfterDismissedUserAction,
 } from "./workspace-application-user-action";
 import type { JobFinderRepository } from "@unemployed/db";
 
@@ -309,8 +313,48 @@ export function createWorkspaceUserActionMethods(
     string,
     Promise<Awaited<ReturnType<JobFinderWorkspaceService["performUserAction"]>>>
   >();
+  const requestTransitionTails = new Map<string, Promise<void>>();
   const verificationFlights = new Map<string, Promise<void>>();
   const applicationResumptionFlights = new Map<string, Promise<void>>();
+  const discoveryContinuationFlights = new Map<
+    string,
+    Promise<{ status: "continued" } | { status: "blocked"; message: string }>
+  >();
+
+  async function closeTerminalParkedDiscoverySession(
+    request: UserActionRequest,
+  ): Promise<void> {
+    if (
+      request.scope.type !== "discovery_source" ||
+      !request.scope.parkedTab ||
+      !isUserActionTerminal(request.state)
+    ) {
+      return;
+    }
+
+    await ctx
+      .closeParkedBrowserTab(request.scope.source, request.scope.parkedTab)
+      .catch(() => {});
+
+    const discoveryHandoffs = await ctx.repository
+      .listUserActionRequests({
+        scopeType: "discovery_source",
+      })
+      .catch(() => null);
+    // Failure to prove that no other handoff owns the shared host fails safe:
+    // the exact tab close above is still isolated, while the host stays alive.
+    if (!discoveryHandoffs) return;
+    const pendingParkedHandoffs = discoveryHandoffs.some(
+      (candidate) =>
+        candidate.scope.type === "discovery_source" &&
+        candidate.scope.parkedTab !== null &&
+        candidate.scope.parkedTab !== undefined &&
+        !isUserActionTerminal(candidate.state),
+    );
+    if (pendingParkedHandoffs || ctx.hasActiveBrowserWorkflow()) return;
+
+    await ctx.closeRunBrowserSession(request.scope.source).catch(() => {});
+  }
 
   function resumeApplicationSingleFlight(
     request: UserActionRequest,
@@ -338,6 +382,55 @@ export function createWorkspaceUserActionMethods(
     return flight;
   }
 
+  /**
+   * Continues the search on the source whose wall the person just cleared.
+   *
+   * A run that stopped at a sign-in page, a human-verification check, or a
+   * full-page message ended there; clearing the Needs-you item is the moment
+   * that source can be read, so the search picks up on it instead of asking
+   * the person to start over. The continuation finishes before the item is
+   * resolved so a removed originating plan can remain visible and actionable.
+   */
+  function continueStoppedDiscoverySingleFlight(
+    request: UserActionRequest,
+  ): Promise<{ status: "continued" } | { status: "blocked"; message: string }> {
+    if (
+      request.scope.type !== "discovery_source" ||
+      !request.scope.discoveryRunId
+    ) {
+      return Promise.resolve({ status: "continued" });
+    }
+
+    const targetId = request.scope.targetId;
+    const discoveryRunId = request.scope.discoveryRunId;
+    const key = `discovery_continue:${discoveryRunId}:${targetId}`;
+    const existing = discoveryContinuationFlights.get(key);
+    if (existing) return existing;
+
+    const flight = (async () => {
+      // Same fail-closed gate as the other resumption paths: nothing drives
+      // the browser while global activity is paused or unreadable.
+      if (await isWorkspaceActivityPaused(ctx.repository)) {
+        return { status: "continued" } as const;
+      }
+      const continuation = await ctx.continueDiscoveryForSource(
+        targetId,
+        discoveryRunId,
+      );
+      return continuation.status === "origin_removed"
+        ? ({ status: "blocked", message: continuation.message } as const)
+        : ({ status: "continued" } as const);
+    })()
+      .catch(() => ({ status: "continued" }) as const)
+      .finally(() => {
+        if (discoveryContinuationFlights.get(key) === flight) {
+          discoveryContinuationFlights.delete(key);
+        }
+      });
+    discoveryContinuationFlights.set(key, flight);
+    return flight;
+  }
+
   function verifySingleFlight(request: UserActionRequest): Promise<void> {
     const key = getUserActionVerificationFlightKey(request);
     const existing = verificationFlights.get(key);
@@ -352,6 +445,7 @@ export function createWorkspaceUserActionMethods(
         browserRuntime: ctx.browserRuntime,
         repository: ctx.repository,
         request,
+        onVerified: continueStoppedDiscoverySingleFlight,
       });
       if (resolvedRequest) {
         await resumeApplicationSingleFlight(resolvedRequest);
@@ -535,6 +629,25 @@ export function createWorkspaceUserActionMethods(
       }
     }
 
+    // R4: cancelling a step said it was closed while the application it
+    // belonged to kept its paused attempt state, so the header badge stayed on
+    // "Needs you: 2 unresolved" and the row stayed NEEDS YOU. Closing the step
+    // closes the application waiting on it.
+    if (command.action === "cancel" || command.action === "skip") {
+      await releaseApplicationRecordAfterDismissedUserAction({
+        repository: ctx.repository,
+        request: commandCommit.request,
+        occurredAt: commandCommit.request.resolvedAt ?? new Date().toISOString(),
+        eventId: `event_user_action_${command.action}_${command.requestId}`,
+        dismissal: command.action === "skip" ? "skipped" : "cancelled",
+      });
+    }
+
+    const latestRequest =
+      (await ctx.repository.getUserActionRequest(command.requestId)) ??
+      commandCommit.request;
+    await closeTerminalParkedDiscoverySession(latestRequest);
+
     return ctx.getWorkspaceSnapshot();
   }
 
@@ -545,9 +658,28 @@ export function createWorkspaceUserActionMethods(
       const existing = commandFlights.get(command.commandId);
       if (existing) return existing;
 
-      const flight = performUserActionOnce(command).finally(() => {
+      // Different commands for the same card must not overlap. In particular,
+      // a renderer timeout may re-enable a button while the first browser
+      // hand-off is still settling. Queue the retry so it re-reads the latest
+      // revision before any external browser work and becomes a safe stale
+      // no-op instead of opening the same page twice.
+      const previous = requestTransitionTails.get(command.requestId);
+      const flight = (previous
+        ? previous.catch(() => undefined).then(() => performUserActionOnce(command))
+        : performUserActionOnce(command)
+      ).finally(() => {
         if (commandFlights.get(command.commandId) === flight) {
           commandFlights.delete(command.commandId);
+        }
+      });
+      const tail = flight.then(
+        () => undefined,
+        () => undefined,
+      );
+      requestTransitionTails.set(command.requestId, tail);
+      void tail.finally(() => {
+        if (requestTransitionTails.get(command.requestId) === tail) {
+          requestTransitionTails.delete(command.requestId);
         }
       });
       commandFlights.set(command.commandId, flight);

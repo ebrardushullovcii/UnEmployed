@@ -31,9 +31,25 @@ const jobFinderDiscoveryOrderingPath = path.resolve(
   currentDir,
   "../../packages/job-finder/src/discovery-ordering.ts",
 );
+const jobFinderDiscoveryResultBandsPath = path.resolve(
+  currentDir,
+  "../../packages/job-finder/src/discovery-result-bands.ts",
+);
+const jobFinderPlanSafeguardPausesPath = path.resolve(
+  currentDir,
+  "../../packages/job-finder/src/plan-safeguard-pauses.ts",
+);
 const jobFinderResumeRecordIdentityPath = path.resolve(
   currentDir,
   "../../packages/job-finder/src/resume-record-identity.ts",
+);
+const jobFinderResumeIdentityPath = path.resolve(
+  currentDir,
+  "../../packages/job-finder/src/internal/resume-identity.ts",
+);
+const jobFinderApplyRunRecoveryPath = path.resolve(
+  currentDir,
+  "../../packages/job-finder/src/internal/workspace-apply-run-recovery.ts",
 );
 const jobFinderSourceHealthPath = path.resolve(
   currentDir,
@@ -65,9 +81,15 @@ const workspaceAliases = {
   "@unemployed/db": dbPath,
   "@unemployed/interview-helper": interviewHelperPath,
   "@unemployed/job-finder/discovery-ordering": jobFinderDiscoveryOrderingPath,
+  "@unemployed/job-finder/discovery-result-bands":
+    jobFinderDiscoveryResultBandsPath,
   "@unemployed/job-finder/resume-record-identity":
     jobFinderResumeRecordIdentityPath,
+  "@unemployed/job-finder/resume-identity": jobFinderResumeIdentityPath,
+  "@unemployed/job-finder/apply-run-recovery": jobFinderApplyRunRecoveryPath,
   "@unemployed/job-finder/source-health": jobFinderSourceHealthPath,
+  "@unemployed/job-finder/plan-safeguard-pauses":
+    jobFinderPlanSafeguardPausesPath,
   "@unemployed/job-finder": jobFinderPath,
   "@unemployed/knowledge-base": knowledgeBasePath,
   "@unemployed/os-integration": osIntegrationPath,

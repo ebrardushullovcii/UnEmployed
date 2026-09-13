@@ -248,6 +248,7 @@ export interface JobFinderWorkspaceService {
     onActivity?: (event: DiscoveryActivityEvent) => void,
     signal?: AbortSignal,
   ): Promise<JobFinderWorkspaceSnapshot>;
+  cancelDiscoveryRun(runId: string): Promise<JobFinderWorkspaceSnapshot>;
   /**
    * Runs one discovery cycle for a campaign now (manual trigger). Works
    * regardless of the campaign schedule's `enabled` flag, but still obeys the
@@ -255,13 +256,17 @@ export interface JobFinderWorkspaceService {
    */
   runCampaignNow(
     input?: RunCampaignNowInput,
+    onActivity?: (event: DiscoveryActivityEvent) => void,
   ): Promise<JobFinderWorkspaceSnapshot>;
   /**
    * Runs every campaign whose persisted schedule is due at `now` (catch-up
    * included). Missing `nextRunAt` values are initialized truthfully without
    * triggering immediate work.
    */
-  runDueScheduledCampaigns(now?: string): Promise<JobFinderWorkspaceSnapshot>;
+  runDueScheduledCampaigns(
+    now?: string,
+    onActivity?: (event: DiscoveryActivityEvent) => void,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   /**
    * Marks a single in-app campaign notification read. Unknown ids are a
    * no-op; the timestamp comes from the caller (main supplies the ISO readAt).

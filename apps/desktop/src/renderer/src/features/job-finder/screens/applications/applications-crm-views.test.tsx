@@ -573,7 +573,11 @@ describe("ApplicationsCrmViews locked pane scroll regions", () => {
     );
 
     const region = expectSingleLeafScrollRegion(container);
-    expect(region.className).toContain("min-h-0 flex-1 overflow-y-auto");
+    // The pane also clips sideways now: Windows draws both scrollbar tracks,
+    // so a wide row put a horizontal bar inside an already vertical scroller.
+    expect(region.className).toContain(
+      "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto",
+    );
     expect(screen.getByText(/Nothing scheduled/)).toBeTruthy();
   });
 

@@ -16,7 +16,9 @@ import {
   countDiscoveryUncheckedResults,
   getDiscoveryResultGroup,
   isDiscoveryAlsoFoundResult,
+  orderDiscoveryResultsByGroup,
 } from "./discovery-result-groups";
+import { createDiscoveryRunSucceededFeedback } from "./discovery-run-feedback";
 
 const browserSession = {
   source: "target_site" as const,
@@ -87,6 +89,52 @@ afterEach(() => {
 });
 
 describe("discovery result bands", () => {
+  it("quotes the same frozen report label in the run banner and results header", () => {
+    const runReportLabel =
+      "57 found · 35 new · 15 kept · 47 duplicates merged";
+    render(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        jobs={[job({ id: "report", score: 72 })]}
+        latestRunReportLabel={runReportLabel}
+        onSelectJob={vi.fn()}
+        selectedJob={null}
+      />,
+    );
+    const banner = createDiscoveryRunSucceededFeedback(null, runReportLabel);
+
+    expect(screen.getByTestId("discovery-result-count").textContent).toBe(
+      runReportLabel,
+    );
+    expect(banner.headline).toContain(runReportLabel);
+  });
+
+  it("keeps one whole-set location count while the visible scope changes", () => {
+    const inArea = {
+      ...job({ id: "chicago", score: 72 }),
+      location: "Chicago, IL",
+      matchAssessment: {
+        ...job({ id: "chicago", score: 72 }).matchAssessment,
+        locationReach: "in_area" as const,
+      },
+    };
+    render(
+      <DiscoveryResultsPanel
+        browserSession={browserSession}
+        focusedHiddenCount={14}
+        inAreaJobCount={2}
+        jobs={[inArea]}
+        onSelectJob={vi.fn()}
+        preferredLocations={["Chicago, IL"]}
+        selectedJob={inArea}
+        totalLocationJobCount={15}
+      />,
+    );
+
+    expect(screen.getByText(/2 of 15 in or near Chicago, IL/u)).toBeTruthy();
+    expect(screen.getByText(/Focused search hid 14 results/u)).toBeTruthy();
+  });
+
   it("bands rows by verified score and never demotes a withheld one", () => {
     expect(getDiscoveryResultGroup(job({ id: "strong", score: 64 }))).toBe(
       "matches",
@@ -106,8 +154,19 @@ describe("discovery result bands", () => {
     ).toBe("unchecked");
   });
 
+  it("never puts a closed listing in the worth-opening band", () => {
+    const closed = {
+      ...job({ id: "closed_high_score", score: 92 }),
+      description:
+        "This role is closed to new applicants. The archived description remains available.",
+    };
+
+    expect(getDiscoveryResultGroup(closed)).toBe("mismatches");
+    expect(countDiscoveryStrongMatches([closed])).toBe(0);
+  });
+
   it("never promotes or demotes a title-only row by a score it refuses to print", () => {
-    // The row itself says "Title match only — no pay, location, or
+    // The row itself says "Title-only estimate — no pay, location, or
     // requirements were captured". Filing it under "Clear mismatches — they
     // conflict with your saved requirements" hides it for a reason the app
     // has just said it cannot assess; filing it under "Matches" claims the
@@ -133,16 +192,32 @@ describe("discovery result bands", () => {
   });
 
   it("files a title-only row under weaker matches when the scorer recorded that the title missed every target role", () => {
-    // "Title matches · not yet checked" must mean the title matched. A card-
+    // "Matches your role, not yet scored" must mean the title matched. A card-
     // only "Full-Stack Designer" for a software-engineer search was checked as
     // far as it could be, and the one thing checked did not fit.
-    for (const gap of TITLE_MISSES_TARGET_ROLES_GAPS) {
+    //
+    // Only a title the scorer placed OUTSIDE the saved role families demotes.
+    // The third sentence is the scorer's "adjacent" verdict — "Executive
+    // Assistant I" against a saved "Executive Assistant" — and burying that
+    // row for the sole reason that its listing text was never captured hid
+    // exactly the jobs the search was run to find.
+    for (const gap of TITLE_MISSES_TARGET_ROLES_GAPS.slice(0, 2)) {
       expect(
         getDiscoveryResultGroup(
           job({ id: "title_miss", score: 64, titleOnly: true, gaps: [gap] }),
         ),
       ).toBe("weaker");
     }
+    expect(
+      getDiscoveryResultGroup(
+        job({
+          id: "title_adjacent",
+          score: 64,
+          titleOnly: true,
+          gaps: [TITLE_MISSES_TARGET_ROLES_GAPS[2]!],
+        }),
+      ),
+    ).toBe("unchecked");
     // Only an explicit miss demotes; a row with no title verdict stays put.
     expect(
       getDiscoveryResultGroup(
@@ -267,7 +342,7 @@ describe("discovery result bands", () => {
       ["verified_mismatch", "mismatches", 1],
     ]);
     expect(headings.get("title_only")?.label).toBe(
-      "Title matches · not yet checked",
+      "Matches your role, not yet scored",
     );
     // The one line under the label states what was and was not read. It must
     // not promise a capability the app does not have — there is no
@@ -303,8 +378,8 @@ describe("discovery result bands", () => {
         .getAllByTestId(/^discovery-results-group-/u)
         .map((heading) => heading.textContent?.split(")")[0] ?? ""),
     ).toEqual([
+      "Matches your role, not yet scored (1",
       "Also found · Weaker matches (1",
-      "Title matches · not yet checked (1",
       "Also found · Clear mismatches (1",
     ]);
     // Each divider sits inside the row it heads, so the resumed band is no
@@ -317,6 +392,28 @@ describe("discovery result bands", () => {
         ?.querySelector("[data-job-result-id]")
         ?.getAttribute("data-job-result-id"),
     ).toBe("title_only");
+  });
+
+  it("keeps one contiguous band per caption in the canonical ranking", () => {
+    const ordered = orderDiscoveryResultsByGroup([
+      job({ id: "unchecked_high", score: 62, titleOnly: true }),
+      job({ id: "weaker", score: 40 }),
+      job({ id: "unchecked_low", score: 30, titleOnly: true }),
+    ]);
+
+    expect(ordered.map((entry) => entry.id)).toEqual([
+      "unchecked_high",
+      "unchecked_low",
+      "weaker",
+    ]);
+    expect(
+      [...buildDiscoveryResultGroupHeadings(ordered, true).values()].map(
+        (heading) => [heading.label, heading.count],
+      ),
+    ).toEqual([
+      ["Matches your role, not yet scored", 2],
+      ["Also found · Weaker matches", 1],
+    ]);
   });
 
   it("divides weaker results in the list instead of presenting one flat ranking", () => {
@@ -479,7 +576,9 @@ describe("discovery result bands", () => {
     ).toContain("Also found · Clear mismatches (1)");
     // The unchecked band is deliberately NOT in that pool, so it must never
     // borrow its name.
-    expect(screen.queryAllByText(/^Also found · Title matches/u)).toEqual([]);
+    expect(screen.queryAllByText(/^Also found · Matches your role/u)).toEqual(
+      [],
+    );
   });
 });
 
@@ -507,7 +606,7 @@ describe("discovery three-band result counts", () => {
     );
 
     expect(screen.getByTestId("discovery-result-count").textContent).toContain(
-      "0 worth opening · 13 title matches · 2 also found",
+      "13 matched your role, not scored yet · 2 also found",
     );
     // The three numbers must add up to the population the list belongs to.
     expect(screen.getByTestId("discovery-result-count").textContent).toContain(
@@ -569,20 +668,20 @@ describe("discovery three-band result counts", () => {
     // Exactly one, at the top, covering every row.
     expect(headings).toHaveLength(1);
     expect(headings[0]!.textContent).toContain(
-      "Title matches · not yet checked (14)",
+      "Matches your role, not yet scored (14)",
     );
     expect(headings[0]!.textContent).toContain(
       "Matched on the title alone; the full requirements have not been assessed.",
     );
     expect(screen.getByTestId("discovery-result-count").textContent).toContain(
-      "0 worth opening · 14 title matches · 0 also found",
+      "14 matched your role, not scored yet · 0 also found",
     );
     // The divider makes the claim once for the run it heads, so the rows
     // beneath it no longer repeat it fourteen times over. Only the visible
     // restatement goes: each row still carries the verdict for assistive
     // technology, because a row button is reachable without reading the
     // divider.
-    expect(screen.queryAllByText("Title match only")).toHaveLength(0);
+    expect(screen.queryAllByText("Title-only estimate")).toHaveLength(0);
     expect(
       screen.queryAllByTestId(/^discovery-result-fit-reason-/u),
     ).toHaveLength(0);
@@ -596,7 +695,7 @@ describe("discovery three-band result counts", () => {
         srOnly: true,
         // The divider is a plain div outside the arrow-key traversal, so the
         // reason the visible rows gave up survives on the row itself.
-        text: "Overall fit: title match only, not scored. Fit is based on the title alone. Review the listing details before applying.",
+        text: "Overall fit: title-only estimate. Fit is based on the title alone. Review the listing details before applying.",
       })),
     );
   });
@@ -668,7 +767,7 @@ describe("discovery three-band result counts", () => {
 
     expect(
       screen.getByTestId("discovery-result-fit-conflicted").textContent,
-    ).toBe("Title match only");
+    ).toBe("Title-only estimate");
     expect(
       screen.getByTestId("discovery-result-fit-reason-conflicted").textContent,
     ).toContain("Fit is based on the title alone");
@@ -698,7 +797,7 @@ describe("discovery three-band result counts", () => {
     expect(screen.queryAllByTestId(/^discovery-results-group-/u)).toEqual([]);
     expect(
       screen.getByTestId("discovery-result-fit-title_only").textContent,
-    ).toBe("Title match only");
+    ).toBe("Title-only estimate");
     expect(
       screen.getByTestId("discovery-result-fit-reason-title_only").textContent,
     ).toContain("Fit is based on the title alone");
@@ -720,7 +819,7 @@ describe("discovery three-band result counts", () => {
 
     const heading = screen.getByTestId("discovery-results-group-unchecked");
     expect(heading.textContent).toContain(
-      "Title matches · not yet checked (1)",
+      "Matches your role, not yet scored (1)",
     );
     expect(heading.textContent).toContain(
       "Matched on the title alone; the full requirements have not been assessed.",

@@ -2,7 +2,11 @@ import { describe, expect, test } from "vitest";
 import { vi } from "vitest";
 import type { Page } from "playwright";
 import { runAgentDiscovery, type JobExtractor, type LLMClient } from "./agent";
-import { createConfig, createPage, createToolCall } from "./agent.test-fixtures";
+import {
+  createConfig,
+  createPage,
+  createToolCall,
+} from "./agent.test-fixtures";
 
 describe("runAgentDiscovery recovery behavior", () => {
   test("retries transient llm failures before giving up", async () => {
@@ -30,11 +34,11 @@ describe("runAgentDiscovery recovery behavior", () => {
               "tool_retry_finish",
             ),
           ],
-        })
+        }),
     };
     const jobExtractor: JobExtractor = {
-      async extractJobsFromPage() {
-        return [];
+      extractJobsFromPage() {
+        return Promise.resolve([]);
       },
     };
 
@@ -55,28 +59,30 @@ describe("runAgentDiscovery recovery behavior", () => {
   test("records and recovers from 404-like routes during source-debug phases", async () => {
     let currentUrl = "about:blank";
     const page404 = {
-      async goto(url: string) {
+      goto(url: string) {
         currentUrl = url;
-        return null as never;
+        return Promise.resolve(null as never);
       },
-      async waitForTimeout() {
-        return undefined;
+      waitForTimeout() {
+        return Promise.resolve(undefined);
       },
       url() {
         return currentUrl;
       },
-      async title() {
-        return currentUrl.includes("/404") ? "404 Not Found" : "Primary target";
+      title() {
+        return Promise.resolve(
+          currentUrl.includes("/404") ? "404 Not Found" : "Primary target",
+        );
       },
       locator() {
         return {
-          async innerText() {
-            return "Primary target";
+          innerText() {
+            return Promise.resolve("Primary target");
           },
         } as never;
       },
-      async evaluate() {
-        return [];
+      evaluate() {
+        return Promise.resolve([]);
       },
     } satisfies Pick<
       Page,
@@ -115,11 +121,11 @@ describe("runAgentDiscovery recovery behavior", () => {
               "tool_finish_404",
             ),
           ],
-        })
+        }),
     };
     const jobExtractor: JobExtractor = {
-      async extractJobsFromPage() {
-        return [];
+      extractJobsFromPage() {
+        return Promise.resolve([]);
       },
     };
 
@@ -146,42 +152,44 @@ describe("runAgentDiscovery recovery behavior", () => {
     let currentUrl = "about:blank";
     let initialNavigationCompleted = false;
     const page404 = {
-      async goto(url: string) {
+      goto(url: string) {
         if (url === "https://www.linkedin.com/jobs/search/") {
           if (initialNavigationCompleted) {
-            throw new Error("Recovery navigation failed");
+            return Promise.reject(new Error("Recovery navigation failed"));
           }
 
           initialNavigationCompleted = true;
           currentUrl = url;
-          return null as never;
+          return Promise.resolve(null as never);
         }
 
         if (url === "https://www.linkedin.com/jobs/404") {
           currentUrl = url;
-          return null as never;
+          return Promise.resolve(null as never);
         }
 
-        throw new Error("Recovery navigation failed");
+        return Promise.reject(new Error("Recovery navigation failed"));
       },
-      async waitForTimeout() {
-        return undefined;
+      waitForTimeout() {
+        return Promise.resolve(undefined);
       },
       url() {
         return currentUrl;
       },
-      async title() {
-        return currentUrl.includes("/404") ? "404 Not Found" : "Primary target";
+      title() {
+        return Promise.resolve(
+          currentUrl.includes("/404") ? "404 Not Found" : "Primary target",
+        );
       },
       locator() {
         return {
-          async innerText() {
-            return "Primary target";
+          innerText() {
+            return Promise.resolve("Primary target");
           },
         } as never;
       },
-      async evaluate() {
-        return [];
+      evaluate() {
+        return Promise.resolve([]);
       },
     } satisfies Pick<
       Page,
@@ -207,7 +215,8 @@ describe("runAgentDiscovery recovery behavior", () => {
               "finish",
               {
                 reason: "Enough evidence collected.",
-                summary: "Broken route remained unresolved after the 404-like navigation.",
+                summary:
+                  "Broken route remained unresolved after the 404-like navigation.",
                 reliableControls: [],
                 trickyFilters: [],
                 navigationTips: [
@@ -222,8 +231,8 @@ describe("runAgentDiscovery recovery behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      async extractJobsFromPage() {
-        return [];
+      extractJobsFromPage() {
+        return Promise.resolve([]);
       },
     };
 
@@ -245,38 +254,40 @@ describe("runAgentDiscovery recovery behavior", () => {
         entry.includes("Navigation reached https://www.linkedin.com/jobs/404"),
       ),
     ).toBe(true);
-    expect(result.debugFindings?.summary).not.toContain("Recovered from a broken route");
+    expect(result.debugFindings?.summary).not.toContain(
+      "Recovered from a broken route",
+    );
   });
 
   test("falls back to the next starting URL when the first candidate fails", async () => {
     let currentUrl = "about:blank";
     const pageWithFallback = {
-      async goto(url: string) {
+      goto(url: string) {
         if (url === "https://www.linkedin.com/jobs/search/") {
-          throw new Error("navigation timeout");
+          return Promise.reject(new Error("navigation timeout"));
         }
 
         currentUrl = url;
-        return null as never;
+        return Promise.resolve(null as never);
       },
-      async waitForTimeout() {
-        return undefined;
+      waitForTimeout() {
+        return Promise.resolve(undefined);
       },
       url() {
         return currentUrl;
       },
-      async title() {
-        return "Primary target";
+      title() {
+        return Promise.resolve("Primary target");
       },
       locator() {
         return {
-          async innerText() {
-            return "Primary target";
+          innerText() {
+            return Promise.resolve("Primary target");
           },
         } as never;
       },
-      async evaluate() {
-        return [];
+      evaluate() {
+        return Promise.resolve([]);
       },
     } satisfies Pick<
       Page,
@@ -290,10 +301,13 @@ describe("runAgentDiscovery recovery behavior", () => {
             "finish",
             {
               reason: "Enough evidence collected.",
-              summary: "The fallback jobs route loaded and exposed reusable discovery evidence.",
+              summary:
+                "The fallback jobs route loaded and exposed reusable discovery evidence.",
               reliableControls: ["Fallback jobs route remained usable"],
               trickyFilters: [],
-              navigationTips: ["Use the fallback jobs route when the primary search entrypoint fails"],
+              navigationTips: [
+                "Use the fallback jobs route when the primary search entrypoint fails",
+              ],
               applyTips: [],
               warnings: [],
             },
@@ -303,8 +317,8 @@ describe("runAgentDiscovery recovery behavior", () => {
       }),
     };
     const jobExtractor: JobExtractor = {
-      async extractJobsFromPage() {
-        return [];
+      extractJobsFromPage() {
+        return Promise.resolve([]);
       },
     };
     const config = createConfig();
@@ -321,9 +335,13 @@ describe("runAgentDiscovery recovery behavior", () => {
     );
 
     expect(result.error).toBeUndefined();
-    expect(result.phaseEvidence?.routeSignals.some((entry) =>
-      entry.includes("Started on https://www.linkedin.com/jobs/collections/recommended/"),
-    )).toBe(true);
+    expect(
+      result.phaseEvidence?.routeSignals.some((entry) =>
+        entry.includes(
+          "Started on https://www.linkedin.com/jobs/collections/recommended/",
+        ),
+      ),
+    ).toBe(true);
     expect(result.phaseEvidence?.routeSignals).toContain(
       "Starting URL fallback skipped 1 earlier candidate.",
     );
@@ -333,19 +351,25 @@ describe("runAgentDiscovery recovery behavior", () => {
   test("recovers to a replacement live page after the active page closes mid-run", async () => {
     const firstPage = createPage() as Page;
     const replacementPage = createPage() as Page;
-    await replacementPage.goto("https://www.linkedin.com/jobs/collections/recommended/");
+    await replacementPage.goto(
+      "https://www.linkedin.com/jobs/collections/recommended/",
+    );
     const originalFirstPageGoto = firstPage.goto.bind(firstPage);
 
     let recoveryCalls = 0;
     let firstPageGotoCount = 0;
 
-    vi.spyOn(firstPage, "goto").mockImplementation(async (url: string) => {
+    vi.spyOn(firstPage, "goto").mockImplementation((url: string) => {
       firstPageGotoCount += 1;
       if (firstPageGotoCount >= 2) {
-        throw new Error("page.goto: Target page, context or browser has been closed");
+        return Promise.reject(
+          new Error(
+            "page.goto: Target page, context or browser has been closed",
+          ),
+        );
       }
 
-      return originalFirstPageGoto(url);
+      return Promise.resolve(originalFirstPageGoto(url));
     });
 
     const replacementGotoSpy = vi.spyOn(replacementPage, "goto");
@@ -380,10 +404,13 @@ describe("runAgentDiscovery recovery behavior", () => {
               "finish",
               {
                 reason: "Enough evidence collected.",
-                summary: "Recovered to a replacement jobs page after the original tab closed.",
+                summary:
+                  "Recovered to a replacement jobs page after the original tab closed.",
                 reliableControls: ["Recovered jobs page remained interactive"],
                 trickyFilters: [],
-                navigationTips: ["If the active tab closes, continue from another in-scope jobs page."],
+                navigationTips: [
+                  "If the active tab closes, continue from another in-scope jobs page.",
+                ],
                 applyTips: [],
                 warnings: [],
               },
@@ -393,15 +420,16 @@ describe("runAgentDiscovery recovery behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      async extractJobsFromPage(input) {
-        return [
+      extractJobsFromPage(input) {
+        return Promise.resolve([
           {
             sourceJobId: "recovered-job-1",
             canonicalUrl: `${input.pageUrl.replace(/\/$/, "")}/recovered-job-1`,
             title: "Recovered Workflow Engineer",
             company: "Signal Systems",
             location: "Remote",
-            description: "Recovered page stayed usable after the original tab closed.",
+            description:
+              "Recovered page stayed usable after the original tab closed.",
             summary: "Recovered result",
             postedAt: null,
             postedAtText: null,
@@ -421,17 +449,20 @@ describe("runAgentDiscovery recovery behavior", () => {
             employerDomain: null,
             benefits: [],
           },
-        ];
+        ]);
       },
     };
 
     const config = createConfig();
-    config.resolveLivePage = vi.fn(async () => {
+    config.resolveLivePage = vi.fn(() => {
       recoveryCalls += 1;
-      return replacementPage;
+      return Promise.resolve(replacementPage);
     });
 
-    const progressEvents: Array<{ currentAction?: string; message?: string | null }> = [];
+    const progressEvents: Array<{
+      currentAction?: string;
+      message?: string | null;
+    }> = [];
 
     const result = await runAgentDiscovery(
       firstPage,
@@ -472,25 +503,30 @@ describe("runAgentDiscovery recovery behavior", () => {
     const replacementPage = createPage() as Page;
     const originalReplacementGoto = replacementPage.goto.bind(replacementPage);
     const recoveredPrimaryUrl = "https://www.linkedin.com/jobs/search/";
-    const recoveredFallbackUrl = "https://www.linkedin.com/jobs/collections/recommended/";
+    const recoveredFallbackUrl =
+      "https://www.linkedin.com/jobs/collections/recommended/";
 
     const firstPageGoto = vi
       .spyOn(firstPage, "goto")
-      .mockRejectedValue(new Error("page.goto: Target page, context or browser has been closed"));
-    const replacementPageGoto = vi.spyOn(replacementPage, "goto").mockImplementation(async (url: string) => {
-      if (url === recoveredPrimaryUrl) {
-        throw new Error("navigation timeout after recovery");
-      }
+      .mockRejectedValue(
+        new Error("page.goto: Target page, context or browser has been closed"),
+      );
+    const replacementPageGoto = vi
+      .spyOn(replacementPage, "goto")
+      .mockImplementation((url: string) => {
+        if (url === recoveredPrimaryUrl) {
+          return Promise.reject(new Error("navigation timeout after recovery"));
+        }
 
-      return originalReplacementGoto(url);
-    });
+        return Promise.resolve(originalReplacementGoto(url));
+      });
 
     const config = createConfig();
     config.startingUrls = [
       "https://www.linkedin.com/jobs/search/",
       "https://www.linkedin.com/jobs/collections/recommended/",
     ];
-    config.resolveLivePage = vi.fn(async () => replacementPage);
+    config.resolveLivePage = vi.fn(() => Promise.resolve(replacementPage));
 
     const llmClient: LLMClient = {
       chatWithTools: vi.fn().mockResolvedValue({
@@ -500,10 +536,15 @@ describe("runAgentDiscovery recovery behavior", () => {
             "finish",
             {
               reason: "Enough evidence collected.",
-              summary: "Recovered to a replacement page before the fallback starting route loaded.",
-              reliableControls: ["Fallback jobs route remained usable after page recovery"],
+              summary:
+                "Recovered to a replacement page before the fallback starting route loaded.",
+              reliableControls: [
+                "Fallback jobs route remained usable after page recovery",
+              ],
               trickyFilters: [],
-              navigationTips: ["Recover to another live in-scope page before retrying fallback starting URLs."],
+              navigationTips: [
+                "Recover to another live in-scope page before retrying fallback starting URLs.",
+              ],
               applyTips: [],
               warnings: [],
             },
@@ -513,12 +554,15 @@ describe("runAgentDiscovery recovery behavior", () => {
       }),
     };
     const jobExtractor: JobExtractor = {
-      async extractJobsFromPage() {
-        return [];
+      extractJobsFromPage() {
+        return Promise.resolve([]);
       },
     };
 
-    const progressEvents: Array<{ currentAction?: string; message?: string | null }> = [];
+    const progressEvents: Array<{
+      currentAction?: string;
+      message?: string | null;
+    }> = [];
 
     const result = await runAgentDiscovery(
       firstPage,
@@ -544,9 +588,13 @@ describe("runAgentDiscovery recovery behavior", () => {
       recoveredFallbackUrl,
       expect.objectContaining({ waitUntil: "domcontentloaded" }),
     );
-    expect(result.phaseEvidence?.routeSignals.some((entry) =>
-      entry.includes("Started on https://www.linkedin.com/jobs/collections/recommended/"),
-    )).toBe(true);
+    expect(
+      result.phaseEvidence?.routeSignals.some((entry) =>
+        entry.includes(
+          "Started on https://www.linkedin.com/jobs/collections/recommended/",
+        ),
+      ),
+    ).toBe(true);
     expect(result.phaseEvidence?.routeSignals).toContain(
       "Starting URL fallback skipped 1 earlier candidate.",
     );
@@ -568,38 +616,38 @@ describe("runAgentDiscovery recovery behavior", () => {
     let seededRestoreAttempts = 0;
 
     const page = {
-      async goto(url: string) {
+      goto(url: string) {
         if (url === seededUrl) {
           seededRestoreAttempts += 1;
           if (seededRestoreAttempts === 2) {
-            throw new Error("temporary restore failure");
+            return Promise.reject(new Error("temporary restore failure"));
           }
 
           currentUrl = url;
-          return null as never;
+          return Promise.resolve(null as never);
         }
 
         currentUrl = url;
-        return null as never;
+        return Promise.resolve(null as never);
       },
-      async waitForTimeout() {
-        return undefined;
+      waitForTimeout() {
+        return Promise.resolve(undefined);
       },
       url() {
         return currentUrl;
       },
-      async title() {
-        return "Primary target";
+      title() {
+        return Promise.resolve("Primary target");
       },
       locator() {
         return {
-          async innerText() {
-            return "Primary target";
+          innerText() {
+            return Promise.resolve("Primary target");
           },
         } as never;
       },
-      async evaluate() {
-        return [];
+      evaluate() {
+        return Promise.resolve([]);
       },
     } satisfies Pick<
       Page,
@@ -633,10 +681,15 @@ describe("runAgentDiscovery recovery behavior", () => {
               "finish",
               {
                 reason: "Enough evidence collected.",
-                summary: "The seeded LinkedIn search route was restored before planning continued.",
-                reliableControls: ["Seeded LinkedIn search route remained usable after restore"],
+                summary:
+                  "The seeded LinkedIn search route was restored before planning continued.",
+                reliableControls: [
+                  "Seeded LinkedIn search route remained usable after restore",
+                ],
                 trickyFilters: [],
-                navigationTips: ["Restore placeholder LinkedIn query routes back to the seeded search surface before continuing."],
+                navigationTips: [
+                  "Restore placeholder LinkedIn query routes back to the seeded search surface before continuing.",
+                ],
                 applyTips: [],
                 warnings: [],
               },
@@ -646,8 +699,8 @@ describe("runAgentDiscovery recovery behavior", () => {
         }),
     };
     const jobExtractor: JobExtractor = {
-      async extractJobsFromPage() {
-        return [];
+      extractJobsFromPage() {
+        return Promise.resolve([]);
       },
     };
 
@@ -661,12 +714,16 @@ describe("runAgentDiscovery recovery behavior", () => {
     expect(result.error).toBeUndefined();
     expect(currentUrl).toBe(seededUrl);
     expect(seededRestoreAttempts).toBe(3);
-    expect(result.phaseEvidence?.routeSignals.some((entry) =>
-      entry.includes("Restored the seeded search surface"),
-    )).toBe(true);
-    expect(result.reviewTranscript?.some((entry) =>
-      entry.includes("automatically restored to the seeded search surface"),
-    )).toBe(true);
+    expect(
+      result.phaseEvidence?.routeSignals.some((entry) =>
+        entry.includes("Restored the seeded search surface"),
+      ),
+    ).toBe(true);
+    expect(
+      result.reviewTranscript?.some((entry) =>
+        entry.includes("automatically restored to the seeded search surface"),
+      ),
+    ).toBe(true);
   });
 
   test("does not treat a restore as successful when LinkedIn immediately rewrites it back to a placeholder query", async () => {
@@ -678,34 +735,34 @@ describe("runAgentDiscovery recovery behavior", () => {
     let seededGotoCount = 0;
 
     const page = {
-      async goto(url: string) {
+      goto(url: string) {
         if (url === seededUrl) {
           seededGotoCount += 1;
           currentUrl = seededGotoCount >= 2 ? placeholderUrl : seededUrl;
-          return null as never;
+          return Promise.resolve(null as never);
         }
 
         currentUrl = url;
-        return null as never;
+        return Promise.resolve(null as never);
       },
-      async waitForTimeout() {
-        return undefined;
+      waitForTimeout() {
+        return Promise.resolve(undefined);
       },
       url() {
         return currentUrl;
       },
-      async title() {
-        return "Primary target";
+      title() {
+        return Promise.resolve("Primary target");
       },
       locator() {
         return {
-          async innerText() {
-            return "Primary target";
+          innerText() {
+            return Promise.resolve("Primary target");
           },
         } as never;
       },
-      async evaluate() {
-        return [];
+      evaluate() {
+        return Promise.resolve([]);
       },
     } satisfies Pick<
       Page,
@@ -739,21 +796,24 @@ describe("runAgentDiscovery recovery behavior", () => {
               "finish",
               {
                 reason: "Enough evidence collected.",
-                summary: "Placeholder query restoration still needs another corrective action.",
+                summary:
+                  "Placeholder query restoration still needs another corrective action.",
                 reliableControls: [],
                 trickyFilters: [],
-                navigationTips: ["If LinkedIn rewrites the seeded restore back to placeholders, keep trying a real seeded route before continuing."],
+                navigationTips: [
+                  "If LinkedIn rewrites the seeded restore back to placeholders, keep trying a real seeded route before continuing.",
+                ],
                 applyTips: [],
                 warnings: [],
               },
               "tool_finish_seeded_restore_rewrite",
             ),
           ],
-        })
+        }),
     };
     const jobExtractor: JobExtractor = {
-      async extractJobsFromPage() {
-        return [];
+      extractJobsFromPage() {
+        return Promise.resolve([]);
       },
     };
 
@@ -766,11 +826,15 @@ describe("runAgentDiscovery recovery behavior", () => {
 
     expect(result.error).toBeUndefined();
     expect(currentUrl).toBe(placeholderUrl);
-    expect(result.phaseEvidence?.routeSignals.some((entry) =>
-      entry.includes("automatic restore failed"),
-    )).toBe(true);
-    expect(result.reviewTranscript?.some((entry) =>
-      entry.includes("Automatic restore did not succeed yet"),
-    )).toBe(true);
+    expect(
+      result.phaseEvidence?.routeSignals.some((entry) =>
+        entry.includes("automatic restore failed"),
+      ),
+    ).toBe(true);
+    expect(
+      result.reviewTranscript?.some((entry) =>
+        entry.includes("Automatic restore did not succeed yet"),
+      ),
+    ).toBe(true);
   });
 });

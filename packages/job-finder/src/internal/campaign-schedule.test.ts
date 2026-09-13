@@ -15,6 +15,7 @@ import {
   classifyCampaignRunOutcome,
   computeNextScheduledRunAt,
   isCampaignPauseWindowActive,
+  resolveSavedScheduleRunFacts,
   updateCampaignRunFacts,
 } from "./campaign-schedule";
 
@@ -690,6 +691,31 @@ describe("updateCampaignRunFacts", () => {
     expect(facts.nextRunAt).toBe("2026-03-05T14:00:00.000Z");
   });
 
+  test("a finished run always leaves the next run after it", () => {
+    // The plan card prints both facts side by side, so a stale next run that
+    // sits before the run that just finished reads as two different clocks.
+    const facts = updateCampaignRunFacts({
+      schedule: createSchedule({
+        mode: "daily",
+        enabled: true,
+        localStartTime: "08:00",
+        timeZone: "America/Chicago",
+        runFacts: createRunFacts({
+          nextRunAt: "2026-09-11T13:00:00.000Z",
+        }),
+      }),
+      outcome: "success",
+      completedAt: "2026-09-12T13:01:00.000Z",
+    });
+
+    expect(facts.lastRunAt).toBe("2026-09-12T13:01:00.000Z");
+    expect(Date.parse(facts.nextRunAt ?? "")).toBeGreaterThan(
+      Date.parse(facts.lastRunAt ?? ""),
+    );
+    // 08:00 Chicago the next morning, not the stale instant.
+    expect(facts.nextRunAt).toBe("2026-09-13T13:00:00.000Z");
+  });
+
   test("does not fabricate a next run for disabled or manual schedules", () => {
     const disabled = updateCampaignRunFacts({
       schedule: createSchedule({
@@ -752,5 +778,91 @@ describe("updateCampaignRunFacts", () => {
 
     expect(schedule).toEqual(snapshot);
     expect(schedule.runFacts.consecutiveFailures).toBe(2);
+  });
+});
+
+describe("resolveSavedScheduleRunFacts", () => {
+  const daily = createSchedule({
+    mode: "daily",
+    enabled: true,
+    localStartTime: "05:03",
+    timeZone: "America/Los_Angeles",
+  });
+
+  test("states the concrete next run the moment a schedule is saved", () => {
+    const facts = resolveSavedScheduleRunFacts({
+      schedule: daily,
+      previousSchedule: null,
+      isScheduledPlan: true,
+      now: "2026-09-12T18:00:00.000Z",
+    });
+
+    expect(facts.nextRunAt).toBe(
+      computeNextScheduledRunAt({
+        schedule: daily,
+        now: "2026-09-12T18:00:00.000Z",
+      }),
+    );
+    expect(facts.nextRunAt).not.toBeNull();
+  });
+
+  test("keeps a claimed slot when the plan still fires at the same times", () => {
+    const claimed = "2026-09-13T12:03:00.000Z";
+    const claimedSchedule = createSchedule({
+      ...daily,
+      runFacts: CampaignRunFactsSchema.parse({ nextRunAt: claimed }),
+    });
+    const facts = resolveSavedScheduleRunFacts({
+      schedule: claimedSchedule,
+      previousSchedule: claimedSchedule,
+      isScheduledPlan: true,
+      now: "2026-09-12T18:00:00.000Z",
+    });
+
+    expect(facts.nextRunAt).toBe(claimed);
+  });
+
+  test("recomputes a stored instant once the plan fires at a new time", () => {
+    const claimed = "2026-09-13T12:03:00.000Z";
+    const facts = resolveSavedScheduleRunFacts({
+      schedule: createSchedule({
+        ...daily,
+        localStartTime: "09:00",
+        runFacts: CampaignRunFactsSchema.parse({ nextRunAt: claimed }),
+      }),
+      previousSchedule: createSchedule({
+        ...daily,
+        runFacts: CampaignRunFactsSchema.parse({ nextRunAt: claimed }),
+      }),
+      isScheduledPlan: true,
+      now: "2026-09-12T18:00:00.000Z",
+    });
+
+    expect(facts.nextRunAt).not.toBe(claimed);
+    expect(facts.nextRunAt).not.toBeNull();
+  });
+
+  test("promises no run for a manual, disabled, or paused plan", () => {
+    const withClaim = createSchedule({
+      ...daily,
+      runFacts: CampaignRunFactsSchema.parse({
+        nextRunAt: "2026-09-13T12:03:00.000Z",
+      }),
+    });
+
+    for (const input of [
+      { schedule: createSchedule({ ...daily, enabled: false }) },
+      { schedule: createSchedule({ ...daily, mode: "manual" as const }) },
+      { schedule: withClaim, isScheduledPlan: false },
+    ]) {
+      expect(
+        resolveSavedScheduleRunFacts({
+          previousSchedule: withClaim,
+          isScheduledPlan: true,
+          now: "2026-09-12T18:00:00.000Z",
+          ...input,
+        }).nextRunAt,
+      ).toBeNull();
+    }
   });
 });

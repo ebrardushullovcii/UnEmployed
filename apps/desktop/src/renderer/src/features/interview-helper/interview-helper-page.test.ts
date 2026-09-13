@@ -216,10 +216,38 @@ describe("Interview Helper brand lockup token classes", () => {
     "utf8",
   );
 
-  it("styles the wordmark and subtitle with defined design tokens", () => {
+  it("styles the wordmark with defined design tokens", () => {
     expect(source).toContain("text-(--headline-primary)");
-    expect(source).toContain("tracking-(--tracking-caps)");
-    expect(source).toContain("sm:text-(length:--text-tiny)");
+  });
+
+  it("names the module through the shared module switch, not a caption", () => {
+    // The uppercase caption under the wordmark was replaced by the shared
+    // two-option switch, which owns its own tokens; the header must not grow
+    // a second, hand-styled copy of the module name.
+    expect(source).toContain(
+      'import { ModuleSwitch } from "@renderer/components/module-switch"',
+    );
+    expect(source).toContain('activeModule="interview-helper"');
+    expect(source).not.toContain("formatModuleLabel");
+  });
+
+  it("names this module in full and leaves the other one to the menu", () => {
+    // The header hosts the same control as the Job Finder rail, so it follows
+    // the same rule: the caption prints the active module's whole name and the
+    // other module waits in the switch's menu, with no truncation utility
+    // anywhere near "Interview Helper". It takes the default caption variant —
+    // `rail` is the 4rem collapsed rail's shape and would drop the name to an
+    // icon, which this 2.5rem caption row has the width to avoid.
+    const start = source.indexOf("<ModuleSwitch");
+    expect(start).toBeGreaterThan(-1);
+    const call = source.slice(start, source.indexOf("/>", start) + 2);
+
+    expect(call).toContain('activeModule="interview-helper"');
+    expect(call).not.toContain('variant="rail"');
+    expect(call).not.toContain("truncate");
+    expect(call).not.toContain("line-clamp");
+    expect(call).not.toContain("text-ellipsis");
+    expect(call).toContain("sm:inline-flex");
   });
 
   it("wraps no custom property in var() inside a Tailwind class", () => {

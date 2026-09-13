@@ -164,6 +164,18 @@ const operationCases: Record<
       value: { targetRoles: ["Staff Frontend Engineer"] },
     },
   },
+  remove_profile_list_entries: {
+    input: {
+      operation: "remove_profile_list_entries",
+      field: "skills",
+      values: ["React"],
+    },
+    expected: {
+      operation: "remove_profile_list_entries",
+      field: "skills",
+      values: ["React"],
+    },
+  },
   replace_search_preferences_fields: {
     input: {
       operation: "replace_search_preferences_fields",

@@ -21,6 +21,7 @@ import {
   matchesCollectionSearch,
 } from "../../components/collection-search-toolbar";
 import { FormSelect } from "../../components/form-select";
+import { getJobFinderErrorDetail } from "../../lib/describe-failure";
 import { useModalFocusTrap } from "../../components/profile/use-modal-focus-trap";
 import { usePersistedCollectionView } from "../../hooks/use-persisted-collection-view";
 
@@ -170,10 +171,11 @@ export function SettingsCandidateAssets() {
         );
       }
     } catch (error) {
+      // Electron wraps a main-process rejection in "Error invoking remote
+      // method '…'", which is what the person used to read here.
       setStatus(
-        error instanceof Error
-          ? error.message
-          : "The selected asset could not be imported.",
+        getJobFinderErrorDetail(error) ??
+          "The selected asset could not be imported.",
       );
     } finally {
       setPendingAction(null);
@@ -202,9 +204,16 @@ export function SettingsCandidateAssets() {
     }
   }
 
-  async function restoreAsset(assetId: string) {
+  async function restoreAsset(
+    assetId: string,
+    currentRetention: CandidateAssetRetention,
+  ) {
     if (pendingAction) return;
-    const selectedRetention = restoreRetention[assetId] ?? "until_deleted";
+    // Restoring a file is not a decision to keep it forever. The picker
+    // defaulted to "until removed", so a 90-day file came back with its
+    // retention silently dropped; the file's own setting is the default and
+    // only a deliberate change to the picker replaces it.
+    const selectedRetention = restoreRetention[assetId] ?? currentRetention;
     setPendingAction(`restore:${assetId}`);
     try {
       const result = await window.unemployed.jobFinder.restoreCandidateAsset({
@@ -212,7 +221,7 @@ export function SettingsCandidateAssets() {
         retention: selectedRetention,
       });
       await refreshAssets(
-        `${result.asset.originalName} was restored with a fresh retention clock.`,
+        `${result.asset.originalName} was restored with ${formatRetention(result.asset.retention)}, counted from today.`,
       );
     } catch {
       setStatus("The asset could not be restored. It may have been purged.");
@@ -370,11 +379,15 @@ export function SettingsCandidateAssets() {
               key={asset.id}
             >
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-(--text-headline)">
+                {/* The file name is the only thing that tells two documents
+                    of the same category apart, so it is never truncated away,
+                    and the day it was added says which upload this was. */}
+                <p className="min-w-0 break-words text-sm font-semibold text-(--text-headline)">
                   {asset.originalName}
                 </p>
                 <p className="text-(length:--text-description) text-foreground-soft">
-                  {asset.kind.replaceAll("_", " ")} ·{" "}
+                  {asset.kind.replaceAll("_", " ")} · Added{" "}
+                  {formatDate(asset.createdAt)} ·{" "}
                   {formatByteSize(asset.byteSize)} ·{" "}
                   {asset.consentScope.replaceAll("_", " ")} ·{" "}
                   {formatRetention(asset.retention)}
@@ -417,7 +430,7 @@ export function SettingsCandidateAssets() {
           <ul className="grid min-w-0 gap-2" aria-label="Candidate asset Trash">
             {trashedAssets.map((asset) => {
               const selectedRetention =
-                restoreRetention[asset.id] ?? "until_deleted";
+                restoreRetention[asset.id] ?? asset.retention;
               return (
                 <li
                   className="grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) bg-background/45 px-3 py-3 md:grid-cols-[minmax(0,1fr)_minmax(12rem,auto)_auto] md:items-end"
@@ -428,6 +441,7 @@ export function SettingsCandidateAssets() {
                       {asset.originalName}
                     </p>
                     <p className="text-(length:--text-description) text-foreground-soft">
+                      Added {formatDate(asset.createdAt)} ·{" "}
                       {asset.lifecycle?.deletionReason === "expired"
                         ? "Expired"
                         : "Removed"}
@@ -456,7 +470,9 @@ export function SettingsCandidateAssets() {
                   <Button
                     aria-label={`Restore ${asset.originalName}`}
                     disabled={controlsDisabled}
-                    onClick={() => void restoreAsset(asset.id)}
+                    onClick={() =>
+                      void restoreAsset(asset.id, asset.retention)
+                    }
                     pending={pendingAction === `restore:${asset.id}`}
                     size="compact"
                     type="button"

@@ -125,7 +125,9 @@ function humanizeFieldKey(key: string): string {
     case "availableStartDate":
       return "available start date";
     case "jobFamilies":
-      return "job families";
+      // The Preferences control this field belongs to is called "Related role
+      // areas"; the trade name never reaches a screen.
+      return "related role areas";
     default:
       return key
         .replace(/([A-Z])/g, " $1")
@@ -276,6 +278,18 @@ export function describePatchOperation(
                 `up to ${formatNumber(maximum as number)}`
               : "range";
       return `Set compensation to ${range} / ${intervalLabel} (${currencyLabel})`;
+    }
+    case "remove_profile_list_entries": {
+      // The confirmation card quotes what would go, so nothing disappears
+      // without the person reading it first.
+      const listLabel =
+        operation.field === "targetRoles"
+          ? "target role"
+          : operation.field === "locations"
+            ? "location"
+            : "skill";
+      const plural = operation.values.length === 1 ? "" : "s";
+      return `Remove ${listLabel}${plural}: ${operation.values.join(", ")}`;
     }
     case "upsert_experience_record":
       return `Add or update experience: ${operation.record.title ?? operation.record.companyName ?? "record"}`;

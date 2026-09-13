@@ -2,6 +2,7 @@ import {
   JobPostingSchema,
   SavedJobSchema,
   assessJobPostingDetailQuality,
+  deriveListingDetailCapture,
   type JobPosting,
   type ListingDetailFetch,
   type ListingDetailFetchOutcome,
@@ -10,9 +11,17 @@ import {
 } from "@unemployed/contracts";
 import {
   extractListingDetailFromHtml,
+  normalizeListingText,
+  stripPictographGlyphs,
   type ExtractedListingDetail,
 } from "./listing-detail-extraction";
+import {
+  collapseRepeatedLocationTokens,
+  isTruncatedLocationFragment,
+  looksLikePlaceValue,
+} from "./listing-field-shapes";
 import { enrichDiscoveredPosting } from "./matching";
+import { reconcileSalaryTextWithListingBody } from "./matching-compensation";
 
 /**
  * Reads listing bodies for jobs a compact scan captured as cards only.
@@ -25,8 +34,8 @@ import { enrichDiscoveredPosting } from "./matching";
  * with the same scorer the search used. It is source-generic (ADR 0007): it
  * knows HTML, not boards.
  *
- * Bounded on every axis: per-request timeout, run-wide time budget, capped
- * concurrency, capped count, one attempt per job per day. A failed read is
+ * Bounded on every axis: per-request timeout, capped concurrency, capped
+ * count, one attempt per job per day. A failed read is
  * recorded on the job so the product can say "tried, no text" instead of
  * pretending the listing was never opened.
  */
@@ -61,7 +70,7 @@ export interface EnrichSavedJobListingDetailsInput {
   now?: () => string;
   signal?: AbortSignal;
   concurrency?: number;
-  /** Stop starting new reads once this much wall-clock time has passed. */
+  /** @deprecated Retained for callers; each listing now owns its timeout. */
   timeBudgetMs?: number;
   perRequestTimeoutMs?: number;
   /** Never read more than this many pages in one call. */
@@ -76,7 +85,6 @@ export interface EnrichSavedJobListingDetailsResult {
 }
 
 const DEFAULT_CONCURRENCY = 4;
-const DEFAULT_TIME_BUDGET_MS = 25_000;
 const DEFAULT_PER_REQUEST_TIMEOUT_MS = 8_000;
 /** Exported so the run log can say how many of the candidates this pass reads. */
 export const LISTING_DETAIL_READS_PER_RUN = 60;
@@ -133,7 +141,15 @@ export function jobNeedsListingDetail(
   job: Pick<SavedJob, "detailQuality" | "canonicalUrl" | "listingDetailFetch">,
   nowIso: string = new Date().toISOString(),
 ): boolean {
-  if (job.detailQuality === "detail_enriched") {
+  // Browser-agent collection intentionally keeps its structured result small.
+  // A long-enough excerpt can therefore qualify as detail_enriched while still
+  // ending before the requirements section. Only a successful page-detail read
+  // proves this enrichment stage already ran; otherwise read the job's own page
+  // once so scoring and tailoring receive the complete body.
+  if (
+    job.detailQuality === "detail_enriched" &&
+    job.listingDetailFetch?.outcome === "enriched"
+  ) {
     return false;
   }
   if (!isHttpUrl(job.canonicalUrl)) {
@@ -165,7 +181,12 @@ function looksLikeDomainOrPlaceholderCompany(company: string): boolean {
   return (
     trimmed.length === 0 ||
     /[./]/u.test(trimmed) ||
-    /^(?:unknown|employer not listed|not stated)$/iu.test(trimmed)
+    // "Employer not stated" is the placeholder discovery writes when a card
+    // named no hirer — the exact case this read exists to answer. It was
+    // missing from this list, so a job saved without a company kept the
+    // placeholder even after its own page named the employer.
+    /^(?:unknown|employer not (?:listed|stated)|not stated)$/iu.test(trimmed) ||
+    looksLikePlaceValue(trimmed)
   );
 }
 
@@ -219,30 +240,61 @@ export function applyListingDetailToJob(input: {
     detail.description.length > job.description.length
       ? detail.description
       : job.description;
-  const company =
-    detail.company && looksLikeDomainOrPlaceholderCompany(job.company)
+  // The detail page's own cells go through the same shape rules as a card's:
+  // a place is never an employer, and a fragment that trails off mid-phrase is
+  // never a location. Without this, a page whose two cells were read in the
+  // wrong order replaced a usable card value with "United States" as the
+  // company and "Security Remote in" as the place.
+  const detailCompany =
+    detail.company && !looksLikePlaceValue(detail.company)
       ? detail.company
+      : null;
+  const detailLocation =
+    detail.location && !isTruncatedLocationFragment(detail.location)
+      ? detail.location
+      : null;
+  const company =
+    detailCompany && looksLikeDomainOrPlaceholderCompany(job.company)
+      ? detailCompany
       : job.company;
   const location =
-    detail.location &&
+    detailLocation &&
     (PLACEHOLDER_LOCATION.test(job.location) ||
       job.location.trim().length === 0)
-      ? detail.location
+      ? detailLocation
       : job.location;
 
   const candidate: JobPosting = JobPostingSchema.parse({
     ...job,
-    company,
-    location,
-    description,
+    // Entities and board decoration are settled once, here, on every value
+    // this stage can write. A detail page storing "Transportation Partners
+    // &amp;amp; Logistics" or a colour pin beside the city is what put both on
+    // screen; the stored value is the readable one.
+    company: stripPictographGlyphs(normalizeListingText(company)),
+    location: collapseRepeatedLocationTokens(
+      stripPictographGlyphs(normalizeListingText(location)),
+    ),
+    description: normalizeListingText(description),
     summary: job.summary ?? buildSummary(description),
-    salaryText: job.salaryText ?? detail.salaryText,
+    salaryText: stripPictographGlyphs(
+      normalizeListingText(
+        reconcileSalaryTextWithListingBody(
+          job.salaryText ?? detail.salaryText,
+          description,
+        ),
+      ),
+    ),
     postedAt: job.postedAt ?? detail.postedAt,
     employmentType: job.employmentType ?? detail.employmentType,
     workMode: [...job.workMode, ...detail.workModeHints],
     applicationUrl: job.applicationUrl ?? detail.directApplyUrl,
   });
-  const quality = assessJobPostingDetailQuality(candidate);
+  const assessedQuality = assessJobPostingDetailQuality(candidate);
+  const quality = detail.descriptionLikelyTruncated
+    ? assessedQuality === "card_only"
+      ? "card_only"
+      : "partial_detail"
+    : assessedQuality;
   // A page can publish a record whose body is a sentence; that is not a
   // listing to score against, and the job says so instead of claiming detail.
   const outcome =
@@ -258,6 +310,8 @@ export function applyListingDetailToJob(input: {
     detail:
       outcome === "no_detail"
         ? "The page's record carried only a sentence or two, not a listing body."
+        : detail.descriptionLikelyTruncated
+          ? "Read partial listing text; the page response ended before the description was complete."
         : detail.method === "json_ld"
           ? "Read the listing's structured JobPosting record from its page."
           : "Read the visible text of the listing page; no structured record was published.",
@@ -271,6 +325,11 @@ export function applyListingDetailToJob(input: {
     ...enrichedPosting,
     detailQuality: quality,
     listingDetailFetch: fetchRecord,
+    listingDetailCapture: deriveListingDetailCapture({
+      description: enrichedPosting.description,
+      detailQuality: quality,
+      listingDetailFetch: fetchRecord,
+    }),
   });
   return {
     job: SavedJobSchema.parse({
@@ -287,14 +346,20 @@ function recordFailedAttempt(
   outcome: Exclude<ListingDetailFetchOutcome, "enriched" | "partial">,
   detail: string,
 ): SavedJob {
+  const listingDetailFetch = {
+    attemptedAt,
+    outcome,
+    method: null,
+    detail,
+  } as const;
   return SavedJobSchema.parse({
     ...job,
-    listingDetailFetch: {
-      attemptedAt,
-      outcome,
-      method: null,
-      detail,
-    },
+    listingDetailFetch,
+    listingDetailCapture: deriveListingDetailCapture({
+      description: job.description,
+      detailQuality: job.detailQuality,
+      listingDetailFetch,
+    }),
   });
 }
 
@@ -335,7 +400,6 @@ export async function enrichSavedJobListingDetails(
   const now = input.now ?? (() => new Date().toISOString());
   const startedAtMs = Date.now();
   const concurrency = Math.max(1, input.concurrency ?? DEFAULT_CONCURRENCY);
-  const timeBudgetMs = input.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS;
   const perRequestTimeoutMs =
     input.perRequestTimeoutMs ?? DEFAULT_PER_REQUEST_TIMEOUT_MS;
   const maxJobs = input.maxJobs ?? DEFAULT_MAX_JOBS;
@@ -365,11 +429,6 @@ export async function enrichSavedJobListingDetails(
   const worker = async (): Promise<void> => {
     while (cursor < capped.length) {
       if (input.signal?.aborted) {
-        return;
-      }
-      if (Date.now() - startedAtMs >= timeBudgetMs) {
-        summary.skipped += capped.length - cursor;
-        cursor = capped.length;
         return;
       }
       const job = capped[cursor];
@@ -413,11 +472,30 @@ export async function enrichSavedJobListingDetails(
           );
           continue;
         }
-        const detail = extractListingDetailFromHtml({
+        let detail = extractListingDetailFromHtml({
           html: response.html,
           url: response.finalUrl,
           expectedTitle: job.title,
         });
+        if (detail?.descriptionLikelyTruncated) {
+          const retryResponse = await input.fetchHtml(job.canonicalUrl, {
+            signal: combineSignals(input.signal, perRequestTimeoutMs),
+          });
+          if (retryResponse.status < 400) {
+            const retryDetail = extractListingDetailFromHtml({
+              html: retryResponse.html,
+              url: retryResponse.finalUrl,
+              expectedTitle: job.title,
+            });
+            if (
+              retryDetail &&
+              (!retryDetail.descriptionLikelyTruncated ||
+                retryDetail.description.length > detail.description.length)
+            ) {
+              detail = retryDetail;
+            }
+          }
+        }
         if (!detail) {
           summary.noDetail += 1;
           updated.set(

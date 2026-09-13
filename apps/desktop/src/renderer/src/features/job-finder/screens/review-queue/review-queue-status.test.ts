@@ -5,16 +5,32 @@ import type {
 } from "@unemployed/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
+  collectPreparedApplicationJobIds,
+  countQueueStageReady,
   getApplyReadinessStatus,
   getReviewQueueResumePolicyCaption,
   getReviewQueueWorkflowStatus,
   getTailoredDraftPreparationCandidates,
   getTailoredDraftPreparationResultMessage,
   hasResumeGenerationFailure,
+  isQueueStageReady,
   isTailoredDraftPreparationEligible,
   prepareTailoredDraftsSequentially,
   type TailoredDraftPreparationViewState,
 } from "./review-queue-status";
+
+it("lets a ready tailored draft join an application preparation batch", () => {
+  const draft = createItem("draft-ready", {
+    assetStatus: "ready",
+    resumeAssetId: "resume_draft_ready",
+    resumeReview: { status: "needs_review" },
+  });
+
+  expect(isQueueStageReady(draft)).toBe(true);
+  expect(getReviewQueueResumePolicyCaption(draft)).toBe(
+    "Tailored draft ready for your review",
+  );
+});
 
 function createItem(
   jobId: string,
@@ -368,6 +384,42 @@ describe("safe application presentation labels", () => {
     ).toBe("Needs a tailored resume");
   });
 
+  it("never captions a draft as tailored when the listing text was not captured", () => {
+    const item = createItem("no-listing-text", {
+      resumeApplicationMode: "tailored_per_job",
+      assetStatus: "ready",
+      resumeAssetId: "resume_no_listing_text",
+      resumeReview: { status: "needs_review" },
+    });
+    const asset: TailoredAsset = {
+      id: "resume_no_listing_text",
+      jobId: "no-listing-text",
+      kind: "resume",
+      status: "ready",
+      label: "Tailored Resume",
+      version: "v1",
+      templateName: "Chronology Classic",
+      compatibilityScore: 80,
+      progressPercent: 100,
+      updatedAt: "2026-08-20T00:00:00.000Z",
+      storagePath: null,
+      contentText: "Original wording",
+      previewSections: [],
+      generationMethod: "deterministic",
+      generationReason: "listing_text_missing",
+      notes: [],
+      failureMessage: null,
+      failedAt: null,
+    };
+
+    expect(getReviewQueueResumePolicyCaption(item, asset)).toBe(
+      "Original wording — the listing text was not captured",
+    );
+    expect(getReviewQueueResumePolicyCaption(item)).toBe(
+      "Tailored draft ready for your review",
+    );
+  });
+
   it("presents an unchanged original resume job without submission claims", () => {
     const status = getReviewQueueWorkflowStatus(
       createItem("original", {
@@ -587,5 +639,61 @@ describe("getTailoredDraftPreparationResultMessage", () => {
     ).toBe(
       "Stopped after 3 completed drafts. Nothing was approved, queued, submitted, or sent.",
     );
+  });
+});
+
+describe("already prepared applications", () => {
+  const readyItem = (jobId: string): ReviewQueueItem =>
+    createItem(jobId, {
+      assetStatus: "ready",
+      resumeAssetId: `asset_${jobId}`,
+      resumeReview: {
+        status: "approved",
+        approvedAt: "2026-08-20T00:00:00.000Z",
+        approvedExportId: `export_${jobId}`,
+        approvedFormat: "pdf",
+        approvedFilePath: `C:/exports/${jobId}.pdf`,
+      },
+    });
+
+  it("stops counting a job as ready once its application is prepared", () => {
+    const queue = [readyItem("a"), readyItem("b"), readyItem("c")];
+    const prepared = collectPreparedApplicationJobIds([
+      { jobId: "a", status: "ready_for_review" },
+      { jobId: "b", status: "submitted" },
+    ]);
+
+    expect(countQueueStageReady(queue)).toBe(3);
+    expect(countQueueStageReady(queue, prepared)).toBe(1);
+    expect(getReviewQueueWorkflowStatus(queue[0]!, null, false, prepared).label)
+      .toBe("Application prepared");
+    expect(getReviewQueueWorkflowStatus(queue[2]!, null, false, prepared).label)
+      .toBe("Ready to prepare");
+  });
+
+  it("keeps a job preparable when its record never reached preparation", () => {
+    const queue = [readyItem("a"), readyItem("b"), readyItem("c")];
+    // A run stopped before the draft existed leaves a staged record behind.
+    const prepared = collectPreparedApplicationJobIds([
+      { jobId: "a", status: "shortlisted" },
+      { jobId: "b", status: "drafting" },
+      { jobId: "c", status: "discovered" },
+    ]);
+
+    expect(prepared.size).toBe(0);
+    expect(countQueueStageReady(queue, prepared)).toBe(3);
+    expect(getReviewQueueWorkflowStatus(queue[0]!, null, false, prepared).label)
+      .toBe("Ready to prepare");
+  });
+
+  it("does not treat failed, paused, or merely staged approved records as prepared", () => {
+    const prepared = collectPreparedApplicationJobIds([
+      { jobId: "failed", status: "approved", lastAttemptState: "failed" },
+      { jobId: "paused", status: "approved", lastAttemptState: "paused" },
+      { jobId: "staged", status: "approved", lastAttemptState: null },
+      { jobId: "ready", status: "ready_for_review", lastAttemptState: null },
+    ]);
+
+    expect([...prepared]).toEqual(["ready"]);
   });
 });

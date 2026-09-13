@@ -294,6 +294,10 @@ describe("starter source adoption during service bootstrap", () => {
 
     const service = await createJobFinderWorkspaceServiceAsync();
     const snapshot = await service.getWorkspaceSnapshot();
+    // Shut down before the temporary directory is removed: Windows refuses to
+    // unlink the workspace database while its handle is still open, and the
+    // cleanup then failed the test.
+    await service.shutdown();
 
     expect(
       snapshot.searchPreferences.discovery.targets.map((t) => t.id),

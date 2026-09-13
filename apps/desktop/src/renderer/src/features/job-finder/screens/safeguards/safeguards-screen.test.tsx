@@ -157,7 +157,7 @@ describe("SafeguardsScreen", () => {
     expect(
       screen.getByText(/only when one of its limits is actually reached/i),
     ).toBeTruthy();
-    expect(screen.getByText(/No active safeguard blockers/i)).toBeTruthy();
+    expect(screen.getByText(/Nothing is being held back right now/i)).toBeTruthy();
   });
 
   it("hides the search and category filters when there is nothing to filter", () => {
@@ -225,7 +225,7 @@ describe("SafeguardsScreen", () => {
     renderScreen({ onMutateSafeguards, workspace: workspaceWith(safeguards) });
 
     expect(screen.getByText("Listing suspicious")).toBeTruthy();
-    expect(screen.getByText(/1 active blocker/)).toBeTruthy();
+    expect(screen.getByText(/1 thing is being held back/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss signal" }));
 
@@ -248,7 +248,7 @@ describe("SafeguardsScreen", () => {
     );
     expect(advisory?.getAttribute("data-safeguard-blocked")).toBe("false");
     expect(screen.getByText("Advisory")).toBeTruthy();
-    expect(screen.getByText(/No active safeguard blockers/i)).toBeTruthy();
+    expect(screen.getByText(/Nothing is being held back right now/i)).toBeTruthy();
   });
 
   it("shows a conflict row and resolves it through the typed mutation", async () => {
@@ -515,10 +515,10 @@ describe("SafeguardsScreen", () => {
     const status = screen.getByTestId("safeguards-daily-capacity-status");
     expect(status.textContent).toMatch(/20 of 20 used today/i);
     expect(status.textContent).toMatch(/reset at local midnight \(/i);
-    expect(status.textContent).not.toMatch(/preparation are clear/i);
+    expect(status.textContent).not.toMatch(/applications can both run/i);
     // The positive clear banner is replaced, never shown beside the limit.
     expect(
-      screen.queryByText(/Discovery and preparation are clear\./i),
+      screen.queryByText(/Searching and preparing applications can both run/i),
     ).toBeNull();
   });
 
@@ -545,7 +545,7 @@ describe("SafeguardsScreen", () => {
 
     expect(
       screen.getByText(
-        /No active safeguard blockers\. Discovery and preparation are clear\./i,
+        /Nothing is being held back right now\. Searching and preparing applications can both run\./i,
       ),
     ).toBeTruthy();
     expect(screen.queryByTestId("safeguards-daily-capacity-status")).toBeNull();

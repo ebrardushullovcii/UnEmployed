@@ -163,6 +163,12 @@ export function DiscoverySearchBar(props: {
   /** Live "n new jobs saved" style progress for the run in progress. */
   searchProgressLabel?: string | null;
   isStopPending?: boolean;
+  /**
+   * What to say when a stop request went unanswered long enough that the app
+   * released the search's controls. Shown where the live counter was, so the
+   * place that was counting upward is the place that stops.
+   */
+  stoppedNotice?: string | null;
   onOpenBrowserSession: () => void;
   onRunAgentDiscovery: (() => void) | undefined;
   onStopSearch?: (() => void) | undefined;
@@ -170,6 +176,9 @@ export function DiscoverySearchBar(props: {
   searchActionDescribedBy?: string | undefined;
   searchPreferences: JobSearchPreferences;
   isSearchRunning: boolean;
+  resultScope?: "focused" | "wide";
+  hiddenResultCount?: number;
+  onToggleResultScope?: () => void;
 }) {
   const {
     campaigns = [],
@@ -181,11 +190,15 @@ export function DiscoverySearchBar(props: {
     isSearchDisabled,
     isSearchPending,
     isSearchRunning,
+    resultScope = "focused",
+    hiddenResultCount = 0,
+    onToggleResultScope,
     isSetupOpen,
     openSetupChipId = null,
     searchStartedAt = null,
     searchProgressLabel = null,
     isStopPending = false,
+    stoppedNotice = null,
     onOpenBrowserSession,
     onRunAgentDiscovery,
     onStopSearch,
@@ -239,6 +252,24 @@ export function DiscoverySearchBar(props: {
           </select>
         </label>
       ) : null}
+      {onToggleResultScope ? (
+        <button
+          aria-label={
+            resultScope === "focused"
+              ? `Focused search. Show wider results${hiddenResultCount > 0 ? ` (${hiddenResultCount} hidden)` : ""}`
+              : "Wide search. Show focused results"
+          }
+          aria-pressed={resultScope === "wide"}
+          className="inline-flex min-h-7 shrink-0 items-center rounded-(--radius-small) border border-(--control-border) px-2.5 text-(length:--text-small) font-medium text-foreground-soft outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/30"
+          data-testid="discovery-result-scope-toggle"
+          onClick={onToggleResultScope}
+          type="button"
+        >
+          {resultScope === "focused"
+            ? "Focused search · Show wider results"
+            : "Wide search · Show focused results"}
+        </button>
+      ) : null}
       <SlidersHorizontal
         aria-hidden="true"
         className="size-3.5 shrink-0 text-foreground-muted"
@@ -285,8 +316,17 @@ export function DiscoverySearchBar(props: {
             type="button"
             variant="outline"
           >
-            Stop search
+            {isStopPending ? "Stopping" : "Stop search"}
           </Button>
+        ) : null}
+        {!isSearchRunning && stoppedNotice ? (
+          <span
+            aria-live="polite"
+            className="shrink-0 text-(length:--text-small) text-foreground-soft"
+            data-testid="discovery-search-stopped-notice"
+          >
+            {stoppedNotice}
+          </span>
         ) : null}
         {isSearchRunning && (elapsedSeconds !== null || searchProgressLabel) ? (
           <span

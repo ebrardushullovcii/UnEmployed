@@ -268,7 +268,10 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
         id: targetId,
         label: "",
         startingUrl: "",
-        enabled: false,
+        // Adding a site is already the act of choosing it. Saving it switched
+        // off produced workspaces whose only saved site was turned off, with
+        // nothing to search; the row keeps its own control for turning it off.
+        enabled: true,
         adapterKind: "auto",
         customInstructions: "",
         instructionStatus: "missing",
@@ -316,10 +319,10 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
             type="button"
             variant="secondary"
           >
-            Add source
+            Add and turn on
           </Button>
         }
-        description="Manage every public careers page or job board Job Finder can check. Sources stay off until you enable them, and only enabled sources run during a search."
+        description="Manage every public careers page or job board Job Finder can check. A site you add is turned on for search straight away; turn one off in its row to leave it out."
         eyebrow="Discovery library"
         headingId="profile-job-sources-heading"
         title="Job sources"
@@ -550,7 +553,7 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
                         >
                           {getSourceHost(target.startingUrl)}
                         </p>
-                        {needsAttention ? (
+                        {target.enabled ? (
                           <p className="mt-1 text-xs text-foreground-soft">
                             {health.reason}
                           </p>

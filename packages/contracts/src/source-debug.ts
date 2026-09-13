@@ -548,6 +548,16 @@ export const SourceDebugProgressEventSchema = z.object({
   elapsedMs: z.number().int().nonnegative(),
   lastActivityAt: IsoDateTimeSchema,
   message: NonEmptyStringSchema,
+  /**
+   * The raw note the browser workflow recorded for this step, when it differs
+   * from the plain sentence above.
+   *
+   * `message` is the only line a person reads; internal phase names, tool
+   * calls and request logs belong here, behind the renderer's "Technical
+   * details" disclosure. Optional so every producer written before this field
+   * existed keeps validating.
+   */
+  technicalDetail: NonEmptyStringSchema.nullable().default(null),
   currentUrl: UrlStringSchema.nullable().default(null),
   stepCount: z.number().int().nonnegative().default(0),
   jobsFound: z.number().int().nonnegative().default(0),

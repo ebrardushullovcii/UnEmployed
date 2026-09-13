@@ -664,6 +664,69 @@ describe("useJobFinderWorkspace entity mutations", () => {
     }
   });
 
+  it("keeps an update-triggered sync from invalidating an in-flight cancellation", async () => {
+    const beforeCancellation = createWorkspace("job-running");
+    const cancelled = createWorkspace(
+      "job-cancelled",
+      "2026-08-09T10:05:00.000Z",
+    );
+    const cancellation = deferred<JobFinderWorkspaceSnapshot>();
+    const updateSync = deferred<JobFinderWorkspaceSyncResult>();
+    const updateListeners: Array<() => void> = [];
+    const cancelAgentDiscovery = vi.fn(() => cancellation.promise);
+    const onWorkspaceUpdate = vi.fn((listener: () => void) => {
+      updateListeners.push(listener);
+      return () => undefined;
+    });
+
+    syncWorkspace
+      .mockResolvedValueOnce({
+        kind: "snapshot",
+        currentRevision: 1,
+        reason: "initial",
+        snapshot: beforeCancellation,
+      })
+      .mockReturnValueOnce(updateSync.promise);
+    Object.assign(window.unemployed.jobFinder as object, {
+      cancelAgentDiscovery,
+      onWorkspaceUpdate,
+    });
+
+    const { result } = renderHook(() => useJobFinderWorkspace());
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+
+    let cancellationPromise!: Promise<JobFinderWorkspaceSnapshot>;
+    act(() => {
+      cancellationPromise = requireReadyWorkspace(
+        result.current,
+      ).actions.cancelAgentDiscovery({ runId: "discovery_run_1" });
+    });
+    expect(cancelAgentDiscovery).toHaveBeenCalledOnce();
+
+    act(() => updateListeners[0]?.());
+    await waitFor(() => expect(syncWorkspace).toHaveBeenCalledTimes(2));
+
+    let cancellationResult: JobFinderWorkspaceSnapshot | undefined;
+    await act(async () => {
+      cancellation.resolve(cancelled);
+      cancellationResult = await cancellationPromise;
+    });
+    expect(cancellationResult).toBe(cancelled);
+    expect(requireReadyWorkspace(result.current).workspace).toBe(cancelled);
+
+    act(() => {
+      updateSync.resolve({
+        kind: "snapshot",
+        currentRevision: 1,
+        reason: "initial",
+        snapshot: beforeCancellation,
+      });
+    });
+    await act(() => Promise.resolve());
+
+    expect(requireReadyWorkspace(result.current).workspace).toBe(cancelled);
+  });
+
   it("shows the bootstrap before deferred collections arrive and then hydrates them", async () => {
     enableBootstrapApi();
     const bootstrap: JobFinderWorkspaceSnapshot = {

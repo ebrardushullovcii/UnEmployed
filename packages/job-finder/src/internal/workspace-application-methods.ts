@@ -1,5 +1,6 @@
 import type { ExecuteApplicationFlowInput } from "@unemployed/browser-runtime";
 import {
+  ACTIVITY_PAUSED_MESSAGE,
   ApplyJobResultSchema,
   ApplyRecoveryContextSchema,
   ApplyRunSchema,
@@ -82,7 +83,9 @@ import {
 import { evaluateCampaignApplyStopRules } from "./campaign-apply-stop-rules";
 import {
   deriveRecoveredApplyRunCounters,
+  describeUnstartedBatchReason,
   isInterruptedApplyJobState,
+  selectReusableBatchApproval,
 } from "./workspace-apply-run-recovery";
 import {
   applyPatchToResumeDraft,
@@ -107,6 +110,7 @@ import {
   listUnresolvedWorkHistoryOmissionSuggestions,
   matchWorkHistoryReviewAcknowledgment,
   resolveResumeTemplateLabel,
+  resolveTailoredAssetLabel,
   sanitizeResumeDraft,
   validateResumeDraft,
 } from "./resume-workspace-helpers";
@@ -212,7 +216,14 @@ function buildFailedTailoredAsset(input: {
     jobId: input.jobId,
     kind: "resume",
     status: "failed",
-    label: input.existingAsset?.label ?? "Tailored Resume",
+    // A document nothing could be tailored for keeps the person's own name for
+    // it. Naming a failed retry "Tailored Resume" contradicted the very panel
+    // that had just explained why no tailoring happened.
+    label: resolveTailoredAssetLabel({
+      existingLabel: input.existingAsset?.label ?? null,
+      generationMethod: input.existingAsset?.generationMethod ?? "deterministic",
+      generationReason: input.existingAsset?.generationReason ?? null,
+    }),
     version: input.existingAsset?.version ?? "v1",
     templateName: input.existingAsset?.templateName ?? "Chronology Classic",
     compatibilityScore: input.existingAsset?.compatibilityScore ?? null,
@@ -276,7 +287,21 @@ type WorkspaceApplicationMethods = Omit<
   | "approveApplyRun"
   | "resolveApplyConsentRequest"
   | "approveApply"
+  | "startAutoApplyQueueRun"
 > & {
+  /**
+   * The batch start needs the caller's capacity reservation the same way
+   * `approveApplyRun` does. Without it every job the batch begins is charged
+   * against the reservation the batch itself already made, so the daily
+   * safeguard refuses partway through and the batch stalls with no
+   * explanation.
+   */
+  startAutoApplyQueueRun(
+    jobIds: readonly string[],
+    capacityToken?: ApplicationPreparationCapacityToken,
+  ): Promise<
+    Awaited<ReturnType<JobFinderWorkspaceService["startAutoApplyQueueRun"]>>
+  >;
   startApplyCopilotRun(
     jobId: string,
     options?: { visualCheckpointsEnabled?: boolean },
@@ -411,9 +436,6 @@ export function createWorkspaceApplicationMethods(
       // job records nothing, so the next look can try again.
     }
   }
-
-  const ACTIVITY_PAUSED_MESSAGE =
-    "Browser and application activity is paused. Resume it from the Job Finder command center before starting new work.";
 
   async function requireApplicationSafeguardClearance(
     jobIds: readonly string[],
@@ -553,9 +575,9 @@ export function createWorkspaceApplicationMethods(
       createdAt: input.startedAt,
       updatedAt: input.startedAt,
       completedAt: null,
-      summary: "Apply copilot preparation is running in safe review mode.",
+      summary: "Job Finder is preparing this application for you to review.",
       detail:
-        "The application flow is active and can be interrupted by pause or shutdown. It still stops before any final submit action.",
+        "You can pause or close the app while this runs. Job Finder never presses the final submit button on a job site — you do that yourself.",
       totalJobs: 1,
       pendingJobs: 1,
       submittedJobs: 0,
@@ -1207,10 +1229,16 @@ export function createWorkspaceApplicationMethods(
       asset,
     });
     const approvedExport = approvedExportResolution.approvedExport;
+    const draftFilePath = asset?.storagePath?.trim() || null;
+    const canUseReviewedDraft =
+      draft !== null &&
+      (draft.status === "draft" || draft.status === "needs_review") &&
+      asset?.status === "ready" &&
+      draftFilePath !== null;
 
-    if (!draft || draft.status !== "approved" || !approvedExport) {
+    if (!draft || (!approvedExport && !canUseReviewedDraft)) {
       throw new Error(
-        `An approved tailored PDF is required before staging automatic apply for '${job.title}'.`,
+        `A tailored resume draft is required before preparing the application for '${job.title}'.`,
       );
     }
 
@@ -1228,31 +1256,39 @@ export function createWorkspaceApplicationMethods(
       jobTitle: job.title,
     });
 
-    if (ctx.exportFileVerifier) {
-      const approvedFileExists = await ctx.exportFileVerifier.exists(
-        approvedExport.filePath,
+    const selectedFilePath = approvedExport?.filePath ?? draftFilePath;
+    if (!selectedFilePath) {
+      throw new Error(
+        `The tailored resume file is unavailable for '${job.title}'. Create the draft again before preparing this application.`,
       );
+    }
+
+    if (ctx.exportFileVerifier) {
+      const approvedFileExists =
+        await ctx.exportFileVerifier.exists(selectedFilePath);
 
       if (!approvedFileExists) {
         throw new Error(
-          `The approved tailored PDF is missing on disk for '${job.title}'. Re-export and approve the resume again before staging automatic apply.`,
+          `The tailored resume file is missing on disk for '${job.title}'. Create or export it again before preparing this application.`,
         );
       }
     }
 
-    if (!approvedExportResolution.ready) {
+    if (approvedExport && !approvedExportResolution.ready) {
       throw new Error(
         `A ready approved tailored resume is required before staging automatic apply for '${job.title}'.`,
       );
     }
 
-    const verifiedSha256 = await verifyResumeFileIntegrity({
-      expectedSha256: approvedExport.sha256,
-      filePath: approvedExport.filePath,
-      label: "The approved tailored CV",
-    });
+    const verifiedSha256 = approvedExport
+      ? await verifyResumeFileIntegrity({
+          expectedSha256: approvedExport.sha256,
+          filePath: selectedFilePath,
+          label: "The approved tailored CV",
+        })
+      : (await ctx.exportFileVerifier?.sha256?.(selectedFilePath)) ?? null;
     const verifiedApprovedExportPath = await resolveVerifiedResumeFilePath(
-      approvedExport.filePath,
+      selectedFilePath,
     );
 
     return {
@@ -1262,13 +1298,13 @@ export function createWorkspaceApplicationMethods(
       profileRevision: profileState.revision,
       resumeApplicationMode,
       resumeArtifact: ApplicationResumeArtifactSchema.parse({
-        id: `application_resume_${job.id}_${approvedExport.id}`,
+        id: `application_resume_${job.id}_${approvedExport?.id ?? draft.id}`,
         jobId: job.id,
         source: "tailored_export",
-        sourceDocumentId: null,
-        exportArtifactId: approvedExport.id,
+        sourceDocumentId: approvedExport ? null : draft.id,
+        exportArtifactId: approvedExport?.id ?? null,
         fileName:
-          approvedExport.filePath.split(/[\\/]/).at(-1) ??
+          selectedFilePath.split(/[\\/]/).at(-1) ??
           `${job.title}-resume.pdf`,
         filePath: verifiedApprovedExportPath,
         sha256: verifiedSha256,
@@ -1664,7 +1700,7 @@ export function createWorkspaceApplicationMethods(
             ? "Automatic apply queue is running in safe review mode."
             : "Automatic apply run is running in safe review mode.",
         detail:
-          "This safe development execution can fill and classify applications, but it still stops before any final submit action.",
+          "Job Finder fills in and checks each application, then stops. It never presses the final submit button on a job site — you do that yourself.",
       });
     const executionSignal = executionController.signal;
     const campaignStopRules = run.campaignId
@@ -1725,6 +1761,12 @@ export function createWorkspaceApplicationMethods(
     ).length;
     let activeSource: JobSource | null = null;
     let shouldCloseActiveSessionOnExit = false;
+    let queuedCampaignPauseReason: string | null = null;
+    const deferredQueueSafeguards: Array<{
+      result: ReturnType<typeof ApplyJobResultSchema.parse>;
+      job: ReturnType<typeof SavedJobSchema.parse>;
+      now: string;
+    }> = [];
     const keepSessionAlive = settings.keepSessionAlive;
     try {
       for (let index = 0; index < run.jobIds.length; index += 1) {
@@ -2183,12 +2225,16 @@ export function createWorkspaceApplicationMethods(
             });
 
             const remainingJobs = run.jobIds.length - (index + 1);
-            const pendingJobs = remainingJobs + awaitingReviewJobs;
+            // A job that reached review, consent, a blocker, failure, or skip
+            // has finished this batch's attempt. Only jobs the loop has not
+            // reached are pending; otherwise a fully processed prepare-only
+            // batch remains stuck at "0 of N finished" forever.
+            const pendingJobs = remainingJobs;
             const nextRunState = mapExecutionResultToApplyRunState({
               consentRequests: runArtifacts.consentRequests,
               executionResult: normalizedExecutionResult,
             });
-            campaignPauseReason = campaignStopRules
+            const currentCampaignPauseReason = campaignStopRules
               ? evaluateCampaignApplyStopRules({
                   blockerReason: updatedResult.blockerReason,
                   blockedCount: blockedJobs,
@@ -2202,6 +2248,13 @@ export function createWorkspaceApplicationMethods(
                   stopRules: campaignStopRules,
                 })
               : null;
+            queuedCampaignPauseReason ??= currentCampaignPauseReason;
+            campaignPauseReason =
+              input.mode === "queue_auto"
+                ? remainingJobs === 0
+                  ? queuedCampaignPauseReason
+                  : null
+                : currentCampaignPauseReason;
             currentRunState = ApplyRunSchema.parse({
               ...currentRunState,
               currentJobId: jobId,
@@ -2232,7 +2285,7 @@ export function createWorkspaceApplicationMethods(
                   ? "Consent-blocked jobs remain explicit user actions, while every unrelated ready job was allowed to reach its safe review checkpoint."
                   : runArtifacts.consentRequests.length > 0
                     ? "The run stopped because a consent-gated step needs an explicit user decision."
-                    : "The current safe development execution filled and classified the application but still stopped before any final submit action."),
+                    : "Job Finder filled in and checked the application, then stopped. It never presses the final submit button on a job site — you do that yourself."),
               completedAt: campaignPauseReason
                 ? null
                 : input.mode === "queue_auto"
@@ -2262,23 +2315,48 @@ export function createWorkspaceApplicationMethods(
           updatedResult.completedAt !== null ||
           updatedResult.state === "awaiting_review"
         ) {
-          await persistAutomaticApplicationSafeguards({
-            ctx,
-            run: currentRunState,
-            result: updatedResult,
-            job,
-            now: detectedAt,
-          }).catch((safeguardError: unknown) => {
-            console.error(
-              "Failed to persist automatic application safeguards.",
-              safeguardError,
-            );
-          });
+          if (input.mode === "queue_auto") {
+            // Safeguards produced by this approved batch must describe its
+            // waiting jobs, not prevent later named jobs in the same batch
+            // from being prepared. External/job-specific safeguards are still
+            // rechecked before every browser launch above.
+            deferredQueueSafeguards.push({
+              result: updatedResult,
+              job,
+              now: detectedAt,
+            });
+          } else {
+            await persistAutomaticApplicationSafeguards({
+              ctx,
+              run: currentRunState,
+              result: updatedResult,
+              job,
+              now: detectedAt,
+            }).catch((safeguardError: unknown) => {
+              console.error(
+                "Failed to persist automatic application safeguards.",
+                safeguardError,
+              );
+            });
+          }
         }
 
-        if (input.mode === "single_job_auto" || campaignPauseReason) {
+        if (input.mode === "single_job_auto") {
           break;
         }
+      }
+
+      for (const deferred of deferredQueueSafeguards) {
+        await persistAutomaticApplicationSafeguards({
+          ctx,
+          run: currentRunState,
+          ...deferred,
+        }).catch((safeguardError: unknown) => {
+          console.error(
+            "Failed to persist automatic application safeguards.",
+            safeguardError,
+          );
+        });
       }
     } catch (error) {
       if (await stopIfRunWasCancelled()) {
@@ -2333,6 +2411,66 @@ export function createWorkspaceApplicationMethods(
         }
       }
     }
+  }
+
+  /**
+   * Closes a staged batch that never began. The run row is written before
+   * execution starts, so a refusal in between would otherwise leave a paused
+   * run nobody owns; the paused card would keep offering the same button and
+   * every press would leave another one behind. The run and its untouched
+   * planned rows end with one plain sentence saying why nothing was opened.
+   */
+  async function closeUnstartedBatchRun(
+    runId: string,
+    error: unknown,
+  ): Promise<void> {
+    const reason = describeUnstartedBatchReason(
+      error instanceof Error ? error.message : null,
+    );
+    const now = new Date().toISOString();
+    const [runs, results] = await Promise.all([
+      ctx.repository.listApplyRuns({ id: runId }),
+      ctx.repository.listApplyJobResults({ runId }),
+    ]);
+    const run = runs[0] ?? null;
+    if (!run || run.state !== "paused_for_user_review") {
+      return;
+    }
+    const untouched = results.filter(
+      (result) =>
+        result.state === "planned" && !result.applicationPreparationStartedAt,
+    );
+    await Promise.all(
+      untouched.map((result) =>
+        ctx.repository.upsertApplyJobResult(
+          ApplyJobResultSchema.parse({
+            ...result,
+            state: "skipped",
+            updatedAt: now,
+            completedAt: now,
+            summary: "Not started.",
+            detail: reason,
+          }),
+        ),
+      ),
+    );
+    const nextResults = results.map((result) =>
+      untouched.some((candidate) => candidate.id === result.id)
+        ? { ...result, state: "skipped" as const }
+        : result,
+    );
+    await ctx.repository.upsertApplyRun(
+      ApplyRunSchema.parse({
+        ...run,
+        state: "failed",
+        updatedAt: now,
+        completedAt: now,
+        summary: reason,
+        detail:
+          "Nothing was opened, filled or submitted for these jobs. Your approval for this batch is still on record, so you can try again without approving again.",
+        ...deriveRecoveredApplyRunCounters(nextResults, now),
+      }),
+    );
   }
 
   async function executeSafeApplyRun(
@@ -2663,7 +2801,11 @@ export function createWorkspaceApplicationMethods(
         jobId,
         kind: "resume",
         status: "ready",
-        label: draft.label ?? "Tailored Resume",
+        label: resolveTailoredAssetLabel({
+          existingLabel: draft.label ?? existingAsset?.label ?? null,
+          generationMethod,
+          generationReason,
+        }),
         version: nextAssetVersion(existingAsset),
         templateName: resolveResumeTemplateLabel({
           templateId: sanitizedResumeDraft.templateId,
@@ -5086,13 +5228,19 @@ export function createWorkspaceApplicationMethods(
           asset,
         });
         const approvedExport = approvedExportResolution.approvedExport;
+        const reviewedDraftPath = asset?.storagePath?.trim() ?? "";
+        const canUseReviewedDraft =
+          !approvedExport &&
+          asset?.status === "ready" &&
+          (draft?.status === "draft" || draft?.status === "needs_review") &&
+          reviewedDraftPath.length > 0;
         const originalResumePath = profile.baseResume.storagePath?.trim() ?? "";
         const usesOriginalResume =
           resolveJobResumeApplicationMode(job, settings) === "original_resume";
 
         const shouldBlockForMissingResume = usesOriginalResume
           ? !originalResumePath
-          : !approvedExportResolution.ready;
+          : !approvedExportResolution.ready && !canUseReviewedDraft;
 
         // The missing-resume handoff must never orphan terminal artifacts on a
         // run nobody can cancel: register a durable cancellable running row
@@ -5206,7 +5354,9 @@ export function createWorkspaceApplicationMethods(
 
         if (!shouldBlockForMissingResume && ctx.exportFileVerifier) {
           const approvedFileExists = await ctx.exportFileVerifier.exists(
-            usesOriginalResume ? originalResumePath : approvedExport!.filePath,
+            usesOriginalResume
+              ? originalResumePath
+              : (approvedExport?.filePath ?? reviewedDraftPath),
           );
 
           if (!approvedFileExists) {
@@ -5580,7 +5730,7 @@ export function createWorkspaceApplicationMethods(
 
       return ctx.getWorkspaceSnapshot();
     },
-    async startAutoApplyQueueRun(jobIds) {
+    async startAutoApplyQueueRun(jobIds, capacityToken) {
       const uniqueJobIds = uniqueStrings(jobIds);
 
       if (uniqueJobIds.length === 0) {
@@ -5637,20 +5787,47 @@ export function createWorkspaceApplicationMethods(
       const capturedCampaignId = await ctx.getActiveCampaignId();
       const runId = createUniqueId("apply_run");
       const approvalId = createUniqueId("apply_submit_approval");
+      // Approval is per batch of named jobs (ADR 0012). Retrying the jobs
+      // that failed out of a batch the person already approved is the same
+      // decision, not a new one; asking again for each recovery is what made
+      // a twelve-job batch demand twelve more approvals. Reuse can never
+      // widen scope: every job here was named in the original approval, the
+      // plan is unchanged, and nothing is submitted either way.
+      const [existingApprovals, existingApplyRuns] = await Promise.all([
+        ctx.repository.listApplySubmitApprovals(),
+        ctx.repository.listApplyRuns(),
+      ]);
+      const reuse = selectReusableBatchApproval({
+        approvals: existingApprovals,
+        jobIds: uniqueJobIds,
+        campaignId: capturedCampaignId,
+        unfinishedApprovalRunIds: new Set(
+          existingApplyRuns
+            .filter((candidate) => candidate.state !== "completed")
+            .map((candidate) => candidate.id),
+        ),
+        now: createdAt,
+      });
+      const inheritedApproval = reuse.approval;
+      const authorityApproval = reuse.authorityApproval;
       const run = ApplyRunSchema.parse({
         id: runId,
         campaignId: capturedCampaignId,
         mode: "queue_auto",
-        state: "awaiting_submit_approval",
+        state: inheritedApproval
+          ? "paused_for_user_review"
+          : "awaiting_submit_approval",
         jobIds: uniqueJobIds,
         currentJobId: uniqueJobIds[0] ?? null,
         submitApprovalId: approvalId,
         createdAt,
         updatedAt: createdAt,
         completedAt: null,
-        summary: `Automatic apply queue is staged for ${uniqueJobIds.length} jobs.`,
+        summary: inheritedApproval
+          ? `Preparing the remaining ${uniqueJobIds.length} ${uniqueJobIds.length === 1 ? "job" : "jobs"} you already approved.`
+          : `Automatic apply queue is staged for ${uniqueJobIds.length} jobs.`,
         detail:
-          "This safe development queue records run-scoped submit approval and can later fill applications sequentially, but it still stops before any final submit action.",
+          "Your approval covers this batch of jobs, so Job Finder can fill them in one after another. It stops before the final submit button on every one — you press that yourself.",
         totalJobs: uniqueJobIds.length,
         pendingJobs: uniqueJobIds.length,
         submittedJobs: 0,
@@ -5663,13 +5840,17 @@ export function createWorkspaceApplicationMethods(
         runId,
         mode: "queue_auto",
         jobIds: uniqueJobIds,
-        status: "pending",
+        status: inheritedApproval ? "approved" : "pending",
         createdAt,
-        approvedAt: null,
+        approvedAt: authorityApproval?.approvedAt ?? null,
         revokedAt: null,
-        expiresAt: null,
-        detail:
-          "Queue-wide submit approval is recorded for this exact run scope only. Final submit remains disabled in the current safe development slice.",
+        expiresAt: authorityApproval?.expiresAt ?? null,
+        batchId: inheritedApproval?.batchId ?? createUniqueId("apply_batch"),
+        batchCampaignId: capturedCampaignId,
+        reusedFromApprovalId: inheritedApproval?.id ?? null,
+        detail: inheritedApproval
+          ? "These jobs are part of the batch you already approved, so Job Finder is not asking again. It never presses the final submit button on a job site; you finish each application yourself."
+          : "Your approval covers only the jobs in this batch. Job Finder never presses the final submit button on a job site; you finish each application yourself.",
       });
       const results = jobs.map((job, index) =>
         ApplyJobResultSchema.parse({
@@ -5679,9 +5860,12 @@ export function createWorkspaceApplicationMethods(
           applicationRecordId: getApplicationRecordId(job.id),
           queuePosition: index,
           state: "planned",
-          summary: "Waiting for explicit queue approval.",
-          detail:
-            "This queued job will not execute until the run-scoped approval is recorded.",
+          summary: inheritedApproval
+            ? "Waiting its turn in the batch you approved."
+            : "Waiting for you to approve this batch.",
+          detail: inheritedApproval
+            ? "This job was named in the batch you already approved, so Job Finder prepares it without asking again. It still stops before the final submit button."
+            : "Job Finder prepares nothing for this job until you approve this batch.",
           startedAt: createdAt,
           updatedAt: createdAt,
           completedAt: null,
@@ -5702,6 +5886,11 @@ export function createWorkspaceApplicationMethods(
         scopedProfileState.revision,
         "staging this automatic application queue",
       );
+      if (inheritedApproval) {
+        // The same clearance the explicit approval path performs. Reuse skips
+        // the second question, never the safety checks.
+        await requireApplicationSafeguardClearance(uniqueJobIds);
+      }
       await Promise.all([
         ctx.repository.upsertApplyRun(run),
         ctx.repository.upsertApplySubmitApproval(approval),
@@ -5709,19 +5898,42 @@ export function createWorkspaceApplicationMethods(
         ...jobs.map((job) =>
           syncRunApplicationRecord({
             applicationRecordId: getApplicationRecordId(job.id),
-            eventDetail:
-              "A batch automatic apply run was staged for this job. The current safe build still stops before final submit.",
+            eventDetail: inheritedApproval
+              ? `This job is covered by the batch approval you already gave (${approval.batchId ?? "this batch"}). Job Finder prepares it and stops before the final submit button.`
+              : "A batch of applications was staged for this job. Job Finder prepares each one and stops before the final submit button on the job site.",
             eventEmphasis: "warning",
             eventId: `event_${runId}_${job.id}_queue_staged`,
-            eventTitle: "Automatic apply preparation staged",
+            eventTitle: inheritedApproval
+              ? "Covered by your batch approval"
+              : "Automatic apply preparation staged",
             jobId: job.id,
             lastActionLabel: run.summary,
-            nextActionLabel:
-              "Review the prepared run approval in Applications.",
+            nextActionLabel: inheritedApproval
+              ? "Job Finder is preparing this job now."
+              : "Review the prepared run approval in Applications.",
             updatedAt: createdAt,
           }),
         ),
       ]);
+
+      if (inheritedApproval) {
+        // The reused-approval batch is persisted in a paused state before it
+        // starts. If anything refuses it after that point the run must not be
+        // left parked there: the Tasks card would go on offering "Prepare
+        // remaining jobs", every further click would park another paused run,
+        // and nothing on screen would ever say why nothing moved. Close the
+        // run with the plain reason instead, and hand the same sentence back.
+        try {
+          await requireApplyActivityEnabled();
+          await executeSafeApplyRun(
+            { mode: "queue_auto", runId },
+            capacityToken,
+          );
+        } catch (error) {
+          await closeUnstartedBatchRun(runId, error);
+          throw error;
+        }
+      }
 
       return ctx.getWorkspaceSnapshot();
     },
@@ -5789,15 +6001,15 @@ export function createWorkspaceApplicationMethods(
           approvedAt: now,
           revokedAt: null,
           detail:
-            "Submit approval was recorded for this run. Final submit remains disabled in the current safe development slice.",
+            "Your approval is recorded for this batch. Job Finder never presses the final submit button on a job site; you finish each application yourself.",
         });
         const updatedRun = ApplyRunSchema.parse({
           ...run,
           state: "paused_for_user_review",
           updatedAt: now,
-          summary: "Submit approval captured for this automatic apply run.",
+          summary: "Your approval is recorded for this batch.",
           detail:
-            "This run is approved for later submit-enabled execution, but the current safe implementation still stops before the final submit action.",
+            "Job Finder can now prepare the jobs in this batch. It never presses the final submit button on a job site — you finish each application yourself.",
         });
 
         await Promise.all([
@@ -6514,7 +6726,7 @@ export function createWorkspaceApplicationMethods(
           updatedAt: now,
           summary: "Submit approval revoked for this automatic apply run.",
           detail:
-            "This run is back in a pending-approval state. Final submit remains disabled in the current safe development slice.",
+            "This batch is waiting for your approval again. Job Finder never presses the final submit button on a job site; you finish each application yourself.",
         });
 
         await Promise.all([

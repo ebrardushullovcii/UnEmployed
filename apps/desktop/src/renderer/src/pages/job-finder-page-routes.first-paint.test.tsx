@@ -302,6 +302,38 @@ function createContext(): JobFinderPageContext {
   }) as unknown as JobFinderPageContext;
 }
 
+/**
+ * Timer callbacks this assertion excuses, by exact function name.
+ *
+ * jsdom implements `localStorage.setItem` by dispatching its storage event
+ * through `setTimeout`, so any screen that reads a stored preference on mount
+ * shows up on a raw `setTimeout` spy. That dispatch is the storage API, not a
+ * deferred surface.
+ *
+ * The list is exact and closed on purpose. A substring test would excuse any
+ * application callback whose name happened to contain one of these words, and
+ * an anonymous callback — which is what a deferred surface usually schedules —
+ * has an empty name and is never on the list.
+ */
+const JSDOM_INTERNAL_TIMER_CALLBACK_NAMES: ReadonlySet<string> = new Set([
+  "_dispatchStorageEvent",
+  // jsdom schedules the dispatcher through Function.prototype.bind, which
+  // renames it; both spellings are the same jsdom internal.
+  "bound _dispatchStorageEvent",
+]);
+
+/** The timers the screen itself scheduled. */
+function surfaceTimerCalls(
+  calls: readonly (readonly unknown[])[],
+): readonly (readonly unknown[])[] {
+  return calls.filter(([handler]) => {
+    if (typeof handler !== "function") {
+      return true;
+    }
+    return !JSDOM_INTERNAL_TIMER_CALLBACK_NAMES.has(handler.name);
+  });
+}
+
 function renderCanonicalRoute(
   path: string,
   element: ReactElement,
@@ -354,7 +386,7 @@ describe("canonical route first paint", () => {
       screen.getByRole("heading", { level: 1, name: "Find jobs" }),
     ).toBeTruthy();
     expect(screen.queryByText("Loading screen")).toBeNull();
-    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    expect(surfaceTimerCalls(setTimeoutSpy.mock.calls)).toEqual([]);
   });
 
   it("renders the offline catalog state without a browser CTA", () => {
@@ -416,7 +448,7 @@ describe("canonical route first paint", () => {
       screen.getByRole("heading", { level: 1, name: "Your profile" }),
     ).toBeTruthy();
     expect(screen.queryByText("Loading screen")).toBeNull();
-    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    expect(surfaceTimerCalls(setTimeoutSpy.mock.calls)).toEqual([]);
   });
 
   it("mounts the real Applications heading immediately without a suspense fallback or deferred surface timer", () => {
@@ -429,7 +461,7 @@ describe("canonical route first paint", () => {
       screen.getByRole("heading", { level: 1, name: "Applications" }),
     ).toBeTruthy();
     expect(screen.queryByText("Loading screen")).toBeNull();
-    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    expect(surfaceTimerCalls(setTimeoutSpy.mock.calls)).toEqual([]);
   });
 
   it("mounts the real Shortlisted heading immediately with no placeholder, suspense fallback, or deferred surface timer", () => {
@@ -443,6 +475,6 @@ describe("canonical route first paint", () => {
     ).toBeTruthy();
     expect(screen.queryByText("Loading screen")).toBeNull();
     expect(screen.queryByText("Opening your saved shortlist.")).toBeNull();
-    expect(setTimeoutSpy).not.toHaveBeenCalled();
+    expect(surfaceTimerCalls(setTimeoutSpy.mock.calls)).toEqual([]);
   });
 });

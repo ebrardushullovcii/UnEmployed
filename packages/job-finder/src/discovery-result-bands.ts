@@ -1,0 +1,229 @@
+import type {
+  DiscoveryJobView,
+  MatchAssessment,
+  SavedJob,
+} from "@unemployed/contracts";
+
+import {
+  assessmentTitleMissesTargetRoles,
+  isProvisionalMatchAssessment,
+} from "./discovery-ordering";
+import { isTargetTitleFamily } from "./internal/discovery-title-family";
+import { findClosedListingPhrase } from "./internal/listing-activity";
+
+type DiscoveryBandJob = SavedJob | DiscoveryJobView;
+
+function isClosedDiscoveryJob(job: DiscoveryBandJob): boolean {
+  return (
+    ("listingActivity" in job && job.listingActivity.status === "closed") ||
+    findClosedListingPhrase(job) !== null
+  );
+}
+
+/**
+ * How results are banded for counting and for display.
+ *
+ * This used to live only in the renderer, which meant the run's own frozen
+ * accounting could not say how many of the kept jobs were worth opening
+ * without a second implementation. One implementation lives here and the
+ * renderer reads it, so the number a finished run recorded and the number
+ * Find jobs shows are the same rule applied to the same rows.
+ */
+
+/**
+ * Floor for the default Results view. A job whose current assessment scores
+ * below this is a clear mismatch for the saved targets even when the scorer
+ * stopped short of a hard `skip`; it stays reachable through
+ * "Show mismatches" and is never removed from the workspace. Withheld scores
+ * are not judged by this floor: an offline catalog row, an unbound score, and
+ * a title-only listing all fail to earn a percentage, and hiding a row for a
+ * number the app has just refused to print would hide it for a reason the app
+ * says it cannot assess.
+ */
+export const DISCOVERY_CLEAR_MISMATCH_SCORE_FLOOR = 35;
+
+/**
+ * Above the mismatch floor but still clearly behind the leading results.
+ * Rows in this band are honest results, not filler to hide, but presenting
+ * them in one flat list next to a 64% engineering match reads as though the
+ * app considers a 36% role from another profession comparable. They keep
+ * their place in the ranked list under an explicit divider instead.
+ */
+export const DISCOVERY_WEAKER_MATCH_SCORE_FLOOR = 50;
+
+export const FIT_TITLE_ONLY_REASON =
+  "Fit is based on the title alone. Review the listing details before applying.";
+
+export interface FitEvidenceDepth {
+  /** Nothing beyond the listing title/card was checkable. */
+  isTitleOnly: boolean;
+  /** One-line explanation for a title-only score. */
+  reason: string;
+  verifiedDimensionCount: number;
+}
+
+/**
+ * How much of the score was actually verified against evidence.
+ *
+ * A headline "54% fit" printed above "The listing text was not captured",
+ * "Salary not stated" and "Location not stated" is a number the app cannot
+ * stand behind. This is the single place that decides whether a percentage
+ * has been earned, so the row, the inspector, the breakdown and the run's own
+ * frozen counts cannot disagree.
+ */
+export function getFitEvidenceDepth(
+  assessment: MatchAssessment,
+): FitEvidenceDepth {
+  // Every field is read defensively: this runs for every row on the screen,
+  // including legacy and partial payloads that were cast past the schema
+  // boundary. A missing dimension counts as "not verified", never as a crash.
+  const dimensions = assessment.dimensions;
+  const roleSuitability = dimensions?.roleSuitability?.state;
+  const evidenceConfidence = dimensions?.evidenceConfidence?.level;
+  const compensationFit = assessment.compensationFit?.state;
+  // A requirement only counts once it was actually decided against captured
+  // listing evidence. The existence of a row proves nothing: the scorer emits
+  // a location requirement purely because the user saved a place, and its
+  // status stays "unknown" when the listing never stated one. Saved
+  // location/work-mode comparisons are preference checks rather than proof
+  // that the listing exposed anything, exactly as the evidence-confidence
+  // dimension already treats them.
+  const decidedRequirementCount = (assessment.requirements ?? []).filter(
+    (requirement) =>
+      (requirement?.status === "supported" ||
+        requirement?.status === "partial" ||
+        requirement?.status === "missing" ||
+        requirement?.status === "conflict") &&
+      requirement?.category !== "location" &&
+      requirement?.category !== "work_mode",
+  ).length;
+  const verifiedChecks = [
+    decidedRequirementCount > 0,
+    roleSuitability === "exact" || roleSuitability === "conflict",
+    // Preference alignment is built from the location and work-mode facets
+    // excluded above, so it is the same saved-preference check and is left
+    // out for the same reason: a footer's "Remote" link must not earn a "%".
+    compensationFit === "meets_minimum" || compensationFit === "below_minimum",
+    evidenceConfidence === "moderate" || evidenceConfidence === "high",
+  ];
+  const verifiedDimensionCount = verifiedChecks.filter(Boolean).length;
+
+  return {
+    isTitleOnly: verifiedDimensionCount === 0,
+    reason: FIT_TITLE_ONLY_REASON,
+    verifiedDimensionCount,
+  };
+}
+
+/**
+ * No percentage may be printed as a headline for this row, and no band may
+ * be earned or lost because of one.
+ */
+export function isMatchScoreWithheld(
+  job: Pick<SavedJob, "discoveryMethod" | "matchAssessment">,
+): boolean {
+  // Fails closed for legacy or malformed payloads that may have been cast
+  // past the schema boundary: a score without both binding fingerprints is
+  // never presented as an authoritative current assessment.
+  const hasAssessmentBinding = [
+    job.matchAssessment.contextFingerprint,
+    job.matchAssessment.postingFingerprint,
+  ].every(
+    (fingerprint) =>
+      typeof fingerprint === "string" && fingerprint.trim().length > 0,
+  );
+  const isProvisional =
+    isProvisionalMatchAssessment(job) || !hasAssessmentBinding;
+  return isProvisional || getFitEvidenceDepth(job.matchAssessment).isTitleOnly;
+}
+
+export type DiscoveryResultGroupId =
+  | "matches"
+  | "unchecked"
+  | "weaker"
+  | "mismatches";
+
+export function isDiscoveryClearMismatch(job: DiscoveryBandJob): boolean {
+  if (isClosedDiscoveryJob(job)) {
+    return true;
+  }
+  // A row with no assessment at all is not a judgement against it.
+  if (!job.matchAssessment) {
+    return false;
+  }
+  if (job.matchAssessment.recommendation === "skip") {
+    return true;
+  }
+
+  return (
+    !isMatchScoreWithheld(job) &&
+    job.matchAssessment.score < DISCOVERY_CLEAR_MISMATCH_SCORE_FLOOR
+  );
+}
+
+/**
+ * Bands a single row into one of four honest populations.
+ *
+ * A row whose score is withheld is neither recommended nor demoted by that
+ * score. Promoting it to the leading band claims the app checked something it
+ * never opened; demoting it to "also found" hides it for a number the app has
+ * just refused to print. It therefore gets its own band, which says exactly
+ * what is true: the title matched and nothing else was checked yet.
+ *
+ * A hard `skip` still bands as a mismatch even with a withheld score, because
+ * that verdict rests on an observed conflict rather than on the number.
+ */
+export function getDiscoveryResultGroup(
+  job: DiscoveryBandJob,
+): DiscoveryResultGroupId {
+  if (isDiscoveryClearMismatch(job)) {
+    return "mismatches";
+  }
+
+  if (!job.matchAssessment) {
+    return "unchecked";
+  }
+
+  if (isMatchScoreWithheld(job)) {
+    // "Title matches · not yet checked" has to mean the title matched. A
+    // card-only listing whose title never matched a target role ("Full-Stack
+    // Designer" for a software-engineer search) has been checked as far as it
+    // can be, and what was checked did not fit: it belongs with the weaker
+    // matches, still one click away, not in the leading unchecked band.
+    //
+    // The test is the title FAMILY, not the absence of an exact hit. A role
+    // in the same occupational family as a saved target — "Executive
+    // Assistant I" against a saved "Executive Assistant" — is a result the
+    // person asked for, and burying it under "Also found · Weaker matches"
+    // for the single reason that its listing text was never captured hid
+    // exactly the jobs the search was run to find. Only a title the scorer
+    // positively placed outside the saved families is demoted here.
+    return isTargetTitleFamily(job.matchAssessment) ||
+      !assessmentTitleMissesTargetRoles(job.matchAssessment)
+      ? "unchecked"
+      : "weaker";
+  }
+
+  return job.matchAssessment.score < DISCOVERY_WEAKER_MATCH_SCORE_FLOOR
+    ? "weaker"
+    : "matches";
+}
+
+/**
+ * The rows the app is willing to recommend opening: checked evidence *and* a
+ * score it is prepared to print. Nothing else earns this band.
+ */
+export function isDiscoveryWorthOpeningResult(job: DiscoveryBandJob): boolean {
+  return getDiscoveryResultGroup(job) === "matches";
+}
+
+/** How many results are in the leading band — the honest headline number. */
+export function countDiscoveryStrongMatches(jobs: readonly SavedJob[]): number {
+  let count = 0;
+  for (const job of jobs) {
+    if (isDiscoveryWorthOpeningResult(job)) {
+      count += 1;
+    }
+  }
+  return count;
+}

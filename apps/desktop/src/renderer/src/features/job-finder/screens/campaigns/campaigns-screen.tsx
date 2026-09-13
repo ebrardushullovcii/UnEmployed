@@ -1,8 +1,13 @@
 import {
+  DISCOVERY_RUN_ALREADY_ACTIVE_MESSAGE,
   getDefaultCampaignConfiguration,
+  type CampaignDigest,
   type CampaignPauseWindow,
   type CampaignRuleFunnelProjection,
+  type CandidateProfile,
+  type DiscoveryRunRecord,
   type JobSearchCampaign,
+  type PlanSafeguardPause,
   type JobSearchCampaignMode,
   type JobSearchCampaignSchedule,
   type JobSearchPreferences,
@@ -24,6 +29,20 @@ import { usePersistedCollectionView } from "../../hooks/use-persisted-collection
 import { CampaignConfirmDialog } from "./campaign-confirm-dialog";
 import { CampaignRuleBuilder } from "./campaign-rule-builder";
 import { getJobFinderDateInputLocale } from "../../lib/job-finder-date-input-locale";
+import {
+  deviceTimeZone,
+  formatPlanTimestamp,
+  inferProfileTimeZone,
+  isSupportedTimeZone,
+} from "../../lib/job-finder-timestamp-format";
+import { jobSourceLabel } from "../../lib/job-source-display-name";
+import {
+  formatDiscoveryRunReportLabel,
+  getDiscoveryRunReportCounts,
+  hasDiscoveryRunReportCounts,
+  readDiscoveryRunReportCounts,
+  type DiscoveryRunReportCounts,
+} from "../../lib/discovery-run-count-label";
 
 const jobFinderDateInputLocale = getJobFinderDateInputLocale();
 
@@ -43,13 +62,8 @@ const runOutcomeLabels: Record<
   skipped: "skipped",
 };
 
-/**
- * Minute precision, no seconds: a plan card repeated the same
- * "9/2/2026, 9:14:02 PM" string twice, which read as machine output rather
- * than a fact about the run.
- */
 function localTimeZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  return deviceTimeZone();
 }
 
 function supportedTimeZones(): readonly string[] {
@@ -60,12 +74,7 @@ function supportedTimeZones(): readonly string[] {
 }
 
 function isValidTimeZone(timeZone: string): boolean {
-  try {
-    new Intl.DateTimeFormat(undefined, { timeZone });
-    return true;
-  } catch {
-    return false;
-  }
+  return isSupportedTimeZone(timeZone);
 }
 
 /** Why an automatic schedule cannot run yet, in the user's words. */
@@ -78,16 +87,44 @@ function describeTimeZoneProblem(timeZone: string | null): string | null {
     : "That is not a time zone Job Finder recognises. Pick one from the list, like Europe/Belgrade.";
 }
 
-function formatDateTime(iso: string | null): string | null {
-  if (!iso) return null;
-  const parsed = Date.parse(iso);
-  if (Number.isNaN(parsed)) return null;
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    month: "short",
-  }).format(new Date(parsed));
+/**
+ * Schedule times are printed on the plan's own clock, never the device's, and
+ * the zone is always named.
+ *
+ * A plan whose start time was typed as 08:00 in America/Chicago rendered as
+ * "3:00 PM" on a device in Europe, beside a last run of "8:01 AM" — two
+ * clocks side by side on one card. Naming the zone only when it differed from
+ * the device then produced the opposite complaint: "Sep 12, 5:41 AM CDT" on
+ * one card and "Sep 12, 12:42 PM" on the next, one kind of fact in two
+ * shapes. Every plan timestamp now goes through the one shared formatter.
+ */
+function formatDateTime(
+  iso: string | null,
+  timeZone?: string | null,
+): string | null {
+  return formatPlanTimestamp(iso, timeZone);
+}
+
+function formatPlanCardDateTime(
+  iso: string | null,
+): string | null {
+  return formatPlanTimestamp(iso, deviceTimeZone(), { includeZoneName: false });
+}
+
+function describeScheduleStart(schedule: JobSearchCampaignSchedule): string | null {
+  if (!schedule.enabled || schedule.mode === "manual" || !schedule.localStartTime) {
+    return null;
+  }
+  const [hourText, minuteText] = schedule.localStartTime.split(":");
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const hour12 = hour % 12 || 12;
+  const suffix = hour < 12 ? "AM" : "PM";
+  const time = `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
+  const zone = schedule.timeZone?.trim();
+  return zone && zone !== deviceTimeZone()
+    ? `Runs at ${time} ${zone}`
+    : `Runs at ${time}`;
 }
 
 function describeNextRun(schedule: JobSearchCampaignSchedule): string {
@@ -98,17 +135,175 @@ function describeNextRun(schedule: JobSearchCampaignSchedule): string {
     }
     return "Next run not scheduled yet";
   }
-  return formatDateTime(nextRunAt) ?? "Next run not scheduled yet";
+  return (
+    formatPlanCardDateTime(nextRunAt) ??
+    "Next run not scheduled yet"
+  );
 }
 
-function describeLastRun(schedule: JobSearchCampaignSchedule): string {
+/**
+ * Why Run now cannot start, in the service's own words.
+ *
+ * Only one search runs at a time, and the service refuses the second one. The
+ * button used to stay enabled and swallow the click, so the person clicked it
+ * again and again with nothing on screen to explain it.
+ */
+function describeActiveRunBlock(
+  campaignId: string,
+  activeRun: { campaignId: string | null } | null,
+): string | null {
+  if (!activeRun) {
+    return null;
+  }
+  return activeRun.campaignId === campaignId
+    ? DISCOVERY_RUN_ALREADY_ACTIVE_MESSAGE
+    : "A search is already running for another plan. Wait for it to finish, then run this one.";
+}
+
+/**
+ * The one record this card describes a finished run from: the digest's own
+ * frozen report, with the run record only as a fallback for digests written
+ * before the report existed.
+ *
+ * This screen lists every plan but is only given the ACTIVE plan's run
+ * records, so looking the run up by id found nothing for every other card and
+ * a search that had just finished reported no counts at all.
+ */
+function readPlanRunReport(
+  runs: readonly DiscoveryRunRecord[] | undefined,
+  digest: CampaignDigest | null,
+): DiscoveryRunReportCounts {
+  const fromDigest = readDiscoveryRunReportCounts(digest?.report ?? null);
+  if (hasDiscoveryRunReportCounts(fromDigest)) {
+    return fromDigest;
+  }
+  const run = (runs ?? []).find(
+    (candidate) => candidate.id === digest?.discoveryRunId,
+  );
+  return getDiscoveryRunReportCounts(run ?? null);
+}
+
+/**
+ * The opening words of the run-level notice written by the discovery run when
+ * every job its sources returned was a remote listing while the plan asked for
+ * a place. Matching on the opening words, not the whole sentence, keeps the
+ * card readable when the plan's places have been edited since that run.
+ */
+const REMOTE_ONLY_SOURCE_WARNING_OPENING = "Your sources only list remote jobs";
+
+/**
+ * "Your sources only list remote jobs" for this plan's own last finished run.
+ *
+ * A plan that asks for a place with Remote unticked can be fed nothing but
+ * remote listings by its sources, and every one of them then scores as out of
+ * area. The run records that as a warning; without it on the card, the plan
+ * looked correctly set up and the results looked inexplicable. The card names
+ * the plan's current places, so the fix it asks for is the one that helps.
+ */
+function describeRemoteOnlySourceWarning(
+  runs: readonly DiscoveryRunRecord[] | undefined,
+  campaign: JobSearchCampaign,
+): string | null {
+  const { locations, workModes } = campaign.searchPreferences;
+
+  if (locations.length === 0 || workModes.includes("remote")) {
+    return null;
+  }
+
+  const lastFinishedRun = (runs ?? [])
+    .filter((run) => run.campaignId === campaign.id && run.completedAt !== null)
+    .reduce<DiscoveryRunRecord | null>(
+      (latest, run) =>
+        latest === null || (run.completedAt ?? "") > (latest.completedAt ?? "")
+          ? run
+          : latest,
+      null,
+    );
+
+  const recorded = lastFinishedRun?.summary.warnings.some((warning) =>
+    warning.startsWith(REMOTE_ONLY_SOURCE_WARNING_OPENING),
+  );
+
+  return recorded === true
+    ? `${REMOTE_ONLY_SOURCE_WARNING_OPENING}; add a site that lists jobs in ${locations.join(" or ")}.`
+    : null;
+}
+
+/**
+ * The frozen "N looked at · M new · K kept · D already here" line for the run this digest
+ * describes. A run recorded before the report existed says so rather than
+ * printing a number this card recomputed from the plan's current membership.
+ */
+export function describePlanRunCounts(report: DiscoveryRunReportCounts): string {
+  return hasDiscoveryRunReportCounts(report)
+    ? formatDiscoveryRunReportLabel(report)
+    : "Counts were not recorded for this run.";
+}
+
+function describePlanRunPopulations(
+  report: DiscoveryRunReportCounts,
+  digest: CampaignDigest,
+): string {
+  if (!hasDiscoveryRunReportCounts(report)) {
+    return describePlanRunCounts(report);
+  }
+  const kept = report.retained ?? 0;
+  const cap = digest.report?.retentionLimitApplied;
+  const capSentence =
+    cap !== null && cap !== undefined && kept >= cap
+      ? ` · ${cap}-job plan limit reached`
+      : "";
+  return `${describePlanRunCounts(report)}${capSentence}`;
+}
+
+/**
+ * "Last run" never denies a run this same card is counting.
+ *
+ * The schedule's run facts are written when a plan's run reaches its terminal
+ * commit. A plan whose results were counted some other way — recovered on
+ * startup, or written before those facts existed — kept "No run yet" on a card
+ * that said "Jobs in this plan 50" two lines above. When the plan's own
+ * progress or its latest digest witnesses a run, that timestamp is printed
+ * with the outcome left unstated rather than contradicted.
+ */
+function describeLastRun(
+  schedule: JobSearchCampaignSchedule,
+  witnessedRunAt?: string | null,
+  /**
+   * The frozen report for the run this card is describing, when the card has
+   * one. R8: "Last run skipped" sat directly above that same run's own
+   * "97 found · 97 new · 15 kept", and "(outcome not recorded)" was printed
+   * for a run whose counts were on screen. A run with a report ran.
+   */
+  report?: DiscoveryRunReportCounts | null,
+): string {
   const facts = schedule.runFacts;
-  if (facts.lastRunAt === null || facts.lastRunOutcome === null) {
+  const runIsWitnessedByItsReport = report
+    ? hasDiscoveryRunReportCounts(report)
+    : false;
+  if (facts.lastRunAt !== null && facts.lastRunOutcome !== null) {
+    const at =
+      formatPlanCardDateTime(facts.lastRunAt) ??
+      "unknown time";
+    // "Skipped" belongs to a scheduled run that never started. A run that
+    // reported what it found is not one of those, whatever the stored
+    // outcome says.
+    if (facts.lastRunOutcome === "skipped" && runIsWitnessedByItsReport) {
+      return `Ran · ${at}`;
+    }
+    const outcome =
+      runOutcomeLabels[facts.lastRunOutcome] ?? facts.lastRunOutcome;
+    return `${outcome} · ${at}`;
+  }
+  const witnessed = formatPlanCardDateTime(
+    facts.lastRunAt ?? witnessedRunAt ?? null,
+  );
+  if (witnessed === null) {
     return "No run yet";
   }
-  const outcome =
-    runOutcomeLabels[facts.lastRunOutcome] ?? facts.lastRunOutcome;
-  return `${outcome} · ${formatDateTime(facts.lastRunAt) ?? "unknown time"}`;
+  return runIsWitnessedByItsReport
+    ? `Ran · ${witnessed}`
+    : `Ran · ${witnessed} (outcome not recorded)`;
 }
 
 /** Converts a `datetime-local` input value to an ISO-8601 UTC instant. */
@@ -209,6 +404,7 @@ function newCampaignFrom(
 
 function CampaignEditor(props: {
   campaign: SaveJobSearchCampaignInput;
+  defaultScheduleTimeZone: { timeZone: string; source: "profile" | "device" };
   isCurrentPlan: boolean;
   onCancel: () => void;
   onDirtyChange?: (dirty: boolean) => void;
@@ -217,11 +413,21 @@ function CampaignEditor(props: {
   /** Starts a search with this saved plan right away. */
   onRunNow?: () => void;
   onSave: (campaign: SaveJobSearchCampaignInput) => Promise<boolean>;
+  /**
+   * Called once a save actually lands, so the screen can close this form and
+   * own the confirmation. R6: the form used to stay open holding its pre-save
+   * draft, so its own "Run status" block read "Next run not scheduled yet"
+   * while the card directly below already read the saved next run time — and
+   * Cancel then claimed unsaved edits for a plan that had just been saved.
+   */
+  onSaved?: (campaign: SaveJobSearchCampaignInput) => void;
   pending: boolean;
   runPending?: boolean;
 }) {
-  const [initialCampaign] = useState(props.campaign);
   const [draft, setDraft] = useState(props.campaign);
+  // The baseline a dirty check compares against moves forward on every
+  // successful save, so a saved plan is never treated as an unsaved draft.
+  const [baselineCampaign, setBaselineCampaign] = useState(props.campaign);
   const [pauseWindowStartsAt, setPauseWindowStartsAt] = useState("");
   const [pauseWindowEndsAt, setPauseWindowEndsAt] = useState("");
   const [pauseWindowReason, setPauseWindowReason] = useState("");
@@ -230,7 +436,7 @@ function CampaignEditor(props: {
   >(null);
   const [saveOutcome, setSaveOutcome] = useState<"saved" | null>(null);
   const [discardConfirmationOpen, setDiscardConfirmationOpen] = useState(false);
-  const dirty = draft !== initialCampaign;
+  const dirty = draft !== baselineCampaign;
   useEffect(() => {
     props.onDirtyChange?.(dirty);
   }, [dirty, props.onDirtyChange]);
@@ -248,13 +454,13 @@ function CampaignEditor(props: {
   const pauseWindowEnd = toIsoDateTime(pauseWindowEndsAt);
   const pauseWindowValidationMessage =
     pauseWindowStartsAt.trim() && pauseWindowStart === null
-      ? "Enter a valid pause start date and time."
+      ? "Enter a valid start date and time."
       : pauseWindowEndsAt.trim() && pauseWindowEnd === null
-        ? "Enter a valid pause end date and time."
+        ? "Enter a valid end date and time."
         : pauseWindowStart !== null &&
             pauseWindowEnd !== null &&
             Date.parse(pauseWindowEnd) <= Date.parse(pauseWindowStart)
-          ? "Pause window end must be later than its start."
+          ? "The end has to be later than the start."
           : null;
   const updateMode = (mode: JobSearchCampaignMode) => {
     const defaults = getDefaultCampaignConfiguration(mode);
@@ -325,9 +531,12 @@ function CampaignEditor(props: {
     setSaveOutcome(null);
     if (!(props.isCurrentPlan && draft.status === "archived")) {
       void props.onSave(draft).then((saved) => {
-        if (saved && initialCampaign.id !== null) {
+        if (!saved) return;
+        setBaselineCampaign(draft);
+        if (props.campaign.id !== null) {
           setSaveOutcome("saved");
         }
+        props.onSaved?.(draft);
       });
       return;
     }
@@ -593,13 +802,20 @@ function CampaignEditor(props: {
           </div>
         </details>
 
-        <details className="rounded-(--radius-field) border border-border-subtle p-4">
+        <details
+          className="rounded-(--radius-field) border border-border-subtle p-4"
+          open
+        >
           <summary className="cursor-pointer font-semibold text-(--text-headline)">
             Sources and compensation
           </summary>
           <div className="mt-4 grid gap-4">
             <fieldset className="grid gap-2">
               <legend className="text-sm">Included sources</legend>
+              <p className="text-xs leading-5 text-foreground-muted">
+                This is the live source list from Profile. New sources follow
+                Profile&apos;s Include in search setting until you change this plan.
+              </p>
               <div className="grid max-h-44 gap-2 overflow-y-auto rounded-(--radius-field) border border-border-subtle p-3 sm:grid-cols-2">
                 {draft.searchPreferences.discovery.targets.map((target) => (
                   <label
@@ -607,33 +823,18 @@ function CampaignEditor(props: {
                     key={target.id}
                   >
                     <input
-                      checked={target.enabled}
+                      checked={draft.sourceTargetIds.includes(target.id)}
                       onChange={(event) => {
-                        const nextTargets =
-                          draft.searchPreferences.discovery.targets.map(
-                            (candidate) =>
-                              candidate.id === target.id
-                                ? {
-                                    ...candidate,
-                                    enabled: event.target.checked,
-                                  }
-                                : candidate,
-                          );
                         setDraft({
                           ...draft,
-                          searchPreferences: {
-                            ...draft.searchPreferences,
-                            discovery: {
-                              ...draft.searchPreferences.discovery,
-                              targets: nextTargets,
-                            },
-                          },
-                          // Keep the saved projection aligned with the plan's
-                          // own targets; the service derives the same ids from
-                          // `target.enabled`.
-                          sourceTargetIds: nextTargets
-                            .filter((candidate) => candidate.enabled)
-                            .map((candidate) => candidate.id),
+                          // A plan owns only its selected ids. The source's
+                          // Profile-level Include flag is a separate choice
+                          // and must not be rewritten by this checkbox.
+                          sourceTargetIds: event.target.checked
+                            ? [...new Set([...draft.sourceTargetIds, target.id])]
+                            : draft.sourceTargetIds.filter(
+                                (candidateId) => candidateId !== target.id,
+                              ),
                         });
                       }}
                       type="checkbox"
@@ -745,16 +946,18 @@ function CampaignEditor(props: {
         <section className="grid gap-3 rounded-(--radius-field) border border-border-subtle p-4">
           <div>
             <h3 className="font-semibold text-(--text-headline)">
-              Discovery volume and review threshold
+              Which jobs this plan keeps
             </h3>
             <p className="text-xs text-foreground-muted">
-              Minimum fit and retention shape which discovered jobs stay in this
-              plan.
+              These two settings decide how many of each search&apos;s results
+              stay in this plan and how good a match they have to be.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
+            {/* "86% of what?" — the number was shown with nothing saying
+                what it measures or what it does. */}
             <label className="grid gap-1 text-sm">
-              <span>Minimum fit score</span>
+              <span>Only show jobs scored at least this % fit</span>
               <Input
                 max={100}
                 min={0}
@@ -767,6 +970,11 @@ function CampaignEditor(props: {
                 type="number"
                 value={draft.minimumFitScore ?? 0}
               />
+              <span className="text-xs text-foreground-muted">
+                The fit score is how closely a job matches what you saved about
+                yourself — your roles, experience, location and the rest.
+                Anything scored lower is kept on this device but not shown.
+              </span>
             </label>
             <label className="grid gap-1 text-sm">
               <span>Jobs to retain</span>
@@ -794,9 +1002,305 @@ function CampaignEditor(props: {
           </div>
         </section>
 
+        {/* A daily run time is not a safety setting. "I would never click
+            'Saved safety and automation policy' looking for a daily run
+            time" — so when this plan runs is its own section, named for
+            what it does, and the safety limits keep theirs. */}
+        <section
+          className="rounded-(--radius-field) border border-border-subtle p-4"
+        >
+          <h3 className="font-semibold text-(--text-headline)">
+            Run automatically
+          </h3>
+          <div className="mt-4 grid gap-3">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  checked={draft.schedule.enabled}
+                  onChange={(event) =>
+                    updateSchedule({
+                      enabled: event.target.checked,
+                      // A blank zone silently produced no next run; start
+                      // from the machine's own zone so "8:00 AM" means
+                      // something the moment the schedule is switched on.
+                      ...(event.target.checked && !draft.schedule.timeZone
+                        ? { timeZone: props.defaultScheduleTimeZone.timeZone }
+                        : {}),
+                    })
+                  }
+                  type="checkbox"
+                />
+                Run this search on a schedule
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span>How often</span>
+                <select
+                  className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
+                  disabled={!draft.schedule.enabled}
+                  onChange={(event) =>
+                    updateSchedule({
+                      mode: event.target
+                        .value as JobSearchCampaignSchedule["mode"],
+                    })
+                  }
+                  value={draft.schedule.mode}
+                >
+                  <option value="manual">Only when I press Run now</option>
+                  <option value="daily">Every day</option>
+                  <option value="selected_days">On days I choose</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span>Start time</span>
+                <Input
+                  disabled={!draft.schedule.enabled}
+                  onChange={(event) =>
+                    updateSchedule({
+                      localStartTime: event.target.value || null,
+                    })
+                  }
+                  type="time"
+                  value={draft.schedule.localStartTime ?? ""}
+                />
+              </label>
+              <label className="grid gap-1 text-sm">
+                <span>Time zone</span>
+                <Input
+                  aria-label="Time zone"
+                  aria-invalid={timeZoneProblem ? true : undefined}
+                  disabled={!draft.schedule.enabled}
+                  list="campaign-schedule-time-zones"
+                  onChange={(event) =>
+                    updateSchedule({ timeZone: event.target.value || null })
+                  }
+                  placeholder={localTimeZone()}
+                  value={draft.schedule.timeZone ?? ""}
+                />
+                {!timeZoneProblem ? (
+                  <span className="text-xs text-foreground-muted">
+                    {props.defaultScheduleTimeZone.source === "profile"
+                      ? "Defaulted from your profile location."
+                      : "Defaulted from this device because your profile location did not identify a time zone."}
+                  </span>
+                ) : null}
+                {timeZoneProblem ? (
+                  <span className="text-xs text-destructive" role="alert">
+                    {timeZoneProblem}
+                  </span>
+                ) : null}
+              </label>
+              <datalist id="campaign-schedule-time-zones">
+                {supportedTimeZones().map((zone) => (
+                  <option key={zone} value={zone} />
+                ))}
+              </datalist>
+            </div>
+            {draft.schedule.enabled &&
+            draft.schedule.mode === "selected_days" ? (
+              <fieldset className="grid gap-2">
+                <legend className="text-sm">Days to run</legend>
+                <div className="flex flex-wrap gap-3">
+                  {[
+                    [1, "Mon"],
+                    [2, "Tue"],
+                    [3, "Wed"],
+                    [4, "Thu"],
+                    [5, "Fri"],
+                    [6, "Sat"],
+                    [0, "Sun"],
+                  ].map(([day, label]) => (
+                    <label
+                      className="flex items-center gap-1.5 text-sm"
+                      key={day}
+                    >
+                      <input
+                        checked={draft.schedule.daysOfWeek.includes(
+                          day as number,
+                        )}
+                        onChange={(event) =>
+                          updateSchedule({
+                            daysOfWeek: event.target.checked
+                              ? [...draft.schedule.daysOfWeek, day as number]
+                              : draft.schedule.daysOfWeek.filter(
+                                  (savedDay) => savedDay !== day,
+                                ),
+                          })
+                        }
+                        type="checkbox"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ) : null}
+            {draft.schedule.enabled && draft.schedule.mode !== "manual" ? (
+              <p className="text-xs text-foreground-muted">
+                Job Finder starts this search for you at that time, and works
+                out the next one. A time you told it not to run, or background
+                work being paused, holds the search until that ends.
+              </p>
+            ) : null}
+            <fieldset className="grid gap-2">
+              <legend className="text-sm">Times not to run</legend>
+              <p className="text-xs text-foreground-muted">
+                During one of these times, a search that was due waits and
+                starts once the time is over. Run now always works.
+              </p>
+              {draft.schedule.pauseWindows.length === 0 ? (
+                <p className="text-xs text-foreground-muted">
+                  No times added yet.
+                </p>
+              ) : (
+                <ul className="grid gap-2">
+                  {draft.schedule.pauseWindows.map((window) => (
+                    <li
+                      className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
+                      key={window.id}
+                    >
+                      <label className="flex items-center gap-1.5 text-sm">
+                        <input
+                          checked={window.enabled}
+                          onChange={(event) =>
+                            updatePauseWindow(window.id, {
+                              enabled: event.target.checked,
+                            })
+                          }
+                          type="checkbox"
+                        />
+                        {window.enabled ? "Active" : "Disabled"}
+                      </label>
+                      <div className="text-sm text-foreground-soft">
+                        {formatDateTime(window.startsAt) ?? window.startsAt} →{" "}
+                        {formatDateTime(window.endsAt) ?? window.endsAt}
+                        {window.reason ? ` · ${window.reason}` : ""}
+                      </div>
+                      <Button
+                        onClick={() => removePauseWindow(window.id)}
+                        size="xs"
+                        type="button"
+                        variant="ghost"
+                      >
+                        Remove
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="grid gap-3 sm:grid-cols-4">
+                <label className="grid gap-1 text-sm">
+                  <span>Starts</span>
+                  <Input
+                    aria-label="Do not run from"
+                    aria-describedby={
+                      pauseWindowValidationMessage
+                        ? "pause-window-validation"
+                        : undefined
+                    }
+                    aria-invalid={
+                      pauseWindowValidationMessage !== null &&
+                      (pauseWindowStart === null || pauseWindowEnd !== null)
+                    }
+                    onChange={(event) =>
+                      setPauseWindowStartsAt(event.target.value)
+                    }
+                    lang={jobFinderDateInputLocale}
+                    type="datetime-local"
+                    value={pauseWindowStartsAt}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span>Ends</span>
+                  <Input
+                    aria-label="Do not run until"
+                    aria-describedby={
+                      pauseWindowValidationMessage
+                        ? "pause-window-validation"
+                        : undefined
+                    }
+                    aria-invalid={
+                      pauseWindowValidationMessage !== null &&
+                      (pauseWindowEnd === null || pauseWindowStart !== null)
+                    }
+                    onChange={(event) =>
+                      setPauseWindowEndsAt(event.target.value)
+                    }
+                    lang={jobFinderDateInputLocale}
+                    type="datetime-local"
+                    value={pauseWindowEndsAt}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm">
+                  <span>Reason</span>
+                  <Input
+                    aria-label="Why not to run then"
+                    onChange={(event) =>
+                      setPauseWindowReason(event.target.value)
+                    }
+                    placeholder="Vacation, meetings…"
+                    value={pauseWindowReason}
+                  />
+                </label>
+                <Button
+                  className="self-end"
+                  disabled={
+                    pauseWindowStartsAt.trim().length === 0 ||
+                    pauseWindowEndsAt.trim().length === 0 ||
+                    pauseWindowValidationMessage !== null
+                  }
+                  onClick={addPauseWindow}
+                  type="button"
+                  variant="outline"
+                >
+                  Add a time not to run
+                </Button>
+              </div>
+              {pauseWindowValidationMessage ? (
+                <p
+                  className="text-sm text-destructive"
+                  id="pause-window-validation"
+                  role="alert"
+                >
+                  {pauseWindowValidationMessage}
+                </p>
+              ) : null}
+            </fieldset>
+            <div className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-3">
+              <h4 className="text-sm font-semibold text-(--text-headline)">
+                Run status
+              </h4>
+              <dl className="grid gap-1 text-sm text-foreground-soft sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-foreground-muted">Next run</dt>
+                  <dd>{describeNextRun(draft.schedule)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-foreground-muted">Last run</dt>
+                  <dd>{describeLastRun(draft.schedule)}</dd>
+                </div>
+              </dl>
+              {draft.schedule.runFacts.lastRunSummary ? (
+                <p className="text-xs text-foreground-muted">
+                  {draft.schedule.runFacts.lastRunSummary}
+                </p>
+              ) : null}
+              {draft.schedule.runFacts.consecutiveFailures > 0 ? (
+                <p className="text-xs text-foreground-muted">
+                  {draft.schedule.runFacts.consecutiveFailures} consecutive
+                  failed run
+                  {draft.schedule.runFacts.consecutiveFailures === 1
+                    ? ""
+                    : "s"}{" "}
+                  recorded.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </section>
+
         <details className="rounded-(--radius-field) border border-border-subtle p-4">
           <summary className="cursor-pointer font-semibold text-(--text-headline)">
-            Saved safety and automation policy
+            Safety limits
           </summary>
           <div className="mt-4 grid gap-3">
             <div className="grid gap-3 sm:grid-cols-2">
@@ -870,294 +1374,24 @@ function CampaignEditor(props: {
                 {label}
               </label>
             ))}
-            <div className="grid gap-3 sm:grid-cols-3">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  checked={draft.schedule.enabled}
-                  onChange={(event) =>
-                    updateSchedule({
-                      enabled: event.target.checked,
-                      // A blank zone silently produced no next run; start
-                      // from the machine's own zone so "8:00 AM" means
-                      // something the moment the schedule is switched on.
-                      ...(event.target.checked && !draft.schedule.timeZone
-                        ? { timeZone: localTimeZone() }
-                        : {}),
-                    })
-                  }
-                  type="checkbox"
-                />
-                Enable schedule
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span>Schedule mode</span>
-                <select
-                  className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
-                  disabled={!draft.schedule.enabled}
-                  onChange={(event) =>
-                    updateSchedule({
-                      mode: event.target
-                        .value as JobSearchCampaignSchedule["mode"],
-                    })
-                  }
-                  value={draft.schedule.mode}
-                >
-                  <option value="manual">Manual only</option>
-                  <option value="daily">Daily</option>
-                  <option value="selected_days">Selected days</option>
-                </select>
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span>Local start time</span>
-                <Input
-                  disabled={!draft.schedule.enabled}
-                  onChange={(event) =>
-                    updateSchedule({
-                      localStartTime: event.target.value || null,
-                    })
-                  }
-                  type="time"
-                  value={draft.schedule.localStartTime ?? ""}
-                />
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span>Run in this time zone</span>
-                <Input
-                  aria-invalid={timeZoneProblem ? true : undefined}
-                  disabled={!draft.schedule.enabled}
-                  list="campaign-schedule-time-zones"
-                  onChange={(event) =>
-                    updateSchedule({ timeZone: event.target.value || null })
-                  }
-                  placeholder={localTimeZone()}
-                  value={draft.schedule.timeZone ?? ""}
-                />
-                <datalist id="campaign-schedule-time-zones">
-                  {supportedTimeZones().map((zone) => (
-                    <option key={zone} value={zone} />
-                  ))}
-                </datalist>
-                {timeZoneProblem ? (
-                  <span className="text-xs text-destructive" role="alert">
-                    {timeZoneProblem}
-                  </span>
-                ) : null}
-              </label>
-            </div>
-            {draft.schedule.enabled &&
-            draft.schedule.mode === "selected_days" ? (
-              <fieldset className="grid gap-2">
-                <legend className="text-sm">Schedule days</legend>
-                <div className="flex flex-wrap gap-3">
-                  {[
-                    [1, "Mon"],
-                    [2, "Tue"],
-                    [3, "Wed"],
-                    [4, "Thu"],
-                    [5, "Fri"],
-                    [6, "Sat"],
-                    [0, "Sun"],
-                  ].map(([day, label]) => (
-                    <label
-                      className="flex items-center gap-1.5 text-sm"
-                      key={day}
-                    >
-                      <input
-                        checked={draft.schedule.daysOfWeek.includes(
-                          day as number,
-                        )}
-                        onChange={(event) =>
-                          updateSchedule({
-                            daysOfWeek: event.target.checked
-                              ? [...draft.schedule.daysOfWeek, day as number]
-                              : draft.schedule.daysOfWeek.filter(
-                                  (savedDay) => savedDay !== day,
-                                ),
-                          })
-                        }
-                        type="checkbox"
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-            ) : null}
-            {draft.schedule.enabled && draft.schedule.mode !== "manual" ? (
-              <p className="text-xs text-foreground-muted">
-                The local scheduler runs this search plan automatically when its
-                next run time is due, then persists the new next run. Pause
-                windows and the global activity pause hold the run until they
-                end.
-              </p>
-            ) : null}
-            <fieldset className="grid gap-2">
-              <legend className="text-sm">Pause windows</legend>
-              <p className="text-xs text-foreground-muted">
-                While any enabled pause window is active, a due scheduled run is
-                held and executes once when the window ends. Manual Run now is
-                not blocked by pause windows.
-              </p>
-              {draft.schedule.pauseWindows.length === 0 ? (
-                <p className="text-xs text-foreground-muted">
-                  No pause windows yet.
-                </p>
-              ) : (
-                <ul className="grid gap-2">
-                  {draft.schedule.pauseWindows.map((window) => (
-                    <li
-                      className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
-                      key={window.id}
-                    >
-                      <label className="flex items-center gap-1.5 text-sm">
-                        <input
-                          checked={window.enabled}
-                          onChange={(event) =>
-                            updatePauseWindow(window.id, {
-                              enabled: event.target.checked,
-                            })
-                          }
-                          type="checkbox"
-                        />
-                        {window.enabled ? "Active" : "Disabled"}
-                      </label>
-                      <div className="text-sm text-foreground-soft">
-                        {formatDateTime(window.startsAt) ?? window.startsAt} →{" "}
-                        {formatDateTime(window.endsAt) ?? window.endsAt}
-                        {window.reason ? ` · ${window.reason}` : ""}
-                      </div>
-                      <Button
-                        onClick={() => removePauseWindow(window.id)}
-                        size="xs"
-                        type="button"
-                        variant="ghost"
-                      >
-                        Remove
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <div className="grid gap-3 sm:grid-cols-4">
-                <label className="grid gap-1 text-sm">
-                  <span>Starts</span>
-                  <Input
-                    aria-label="Pause window starts"
-                    aria-describedby={
-                      pauseWindowValidationMessage
-                        ? "pause-window-validation"
-                        : undefined
-                    }
-                    aria-invalid={
-                      pauseWindowValidationMessage !== null &&
-                      (pauseWindowStart === null || pauseWindowEnd !== null)
-                    }
-                    onChange={(event) =>
-                      setPauseWindowStartsAt(event.target.value)
-                    }
-                    lang={jobFinderDateInputLocale}
-                    type="datetime-local"
-                    value={pauseWindowStartsAt}
-                  />
-                </label>
-                <label className="grid gap-1 text-sm">
-                  <span>Ends</span>
-                  <Input
-                    aria-label="Pause window ends"
-                    aria-describedby={
-                      pauseWindowValidationMessage
-                        ? "pause-window-validation"
-                        : undefined
-                    }
-                    aria-invalid={
-                      pauseWindowValidationMessage !== null &&
-                      (pauseWindowEnd === null || pauseWindowStart !== null)
-                    }
-                    onChange={(event) =>
-                      setPauseWindowEndsAt(event.target.value)
-                    }
-                    lang={jobFinderDateInputLocale}
-                    type="datetime-local"
-                    value={pauseWindowEndsAt}
-                  />
-                </label>
-                <label className="grid gap-1 text-sm">
-                  <span>Reason</span>
-                  <Input
-                    aria-label="Pause window reason"
-                    onChange={(event) =>
-                      setPauseWindowReason(event.target.value)
-                    }
-                    placeholder="Vacation, meetings…"
-                    value={pauseWindowReason}
-                  />
-                </label>
-                <Button
-                  className="self-end"
-                  disabled={
-                    pauseWindowStartsAt.trim().length === 0 ||
-                    pauseWindowEndsAt.trim().length === 0 ||
-                    pauseWindowValidationMessage !== null
-                  }
-                  onClick={addPauseWindow}
-                  type="button"
-                  variant="outline"
-                >
-                  Add pause window
-                </Button>
-              </div>
-              {pauseWindowValidationMessage ? (
-                <p
-                  className="text-sm text-destructive"
-                  id="pause-window-validation"
-                  role="alert"
-                >
-                  {pauseWindowValidationMessage}
-                </p>
-              ) : null}
-            </fieldset>
-            <div className="grid gap-2 rounded-(--radius-field) border border-border-subtle p-3">
-              <h4 className="text-sm font-semibold text-(--text-headline)">
-                Run status
-              </h4>
-              <dl className="grid gap-1 text-sm text-foreground-soft sm:grid-cols-2">
-                <div>
-                  <dt className="text-xs text-foreground-muted">Next run</dt>
-                  <dd>{describeNextRun(draft.schedule)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-foreground-muted">Last run</dt>
-                  <dd>{describeLastRun(draft.schedule)}</dd>
-                </div>
-              </dl>
-              {draft.schedule.runFacts.lastRunSummary ? (
-                <p className="text-xs text-foreground-muted">
-                  {draft.schedule.runFacts.lastRunSummary}
-                </p>
-              ) : null}
-              {draft.schedule.runFacts.consecutiveFailures > 0 ? (
-                <p className="text-xs text-foreground-muted">
-                  {draft.schedule.runFacts.consecutiveFailures} consecutive
-                  failed run
-                  {draft.schedule.runFacts.consecutiveFailures === 1
-                    ? ""
-                    : "s"}{" "}
-                  recorded.
-                </p>
-              ) : null}
-            </div>
           </div>
         </details>
 
         <p className="text-xs text-foreground-muted">
-          Uses{" "}
+          Searches{" "}
           {
             draft.searchPreferences.discovery.targets.filter(
               (target) => target.enabled,
             ).length
           }{" "}
-          sources and {draft.searchPreferences.targetRoles.length} target roles
-          from its saved search scope.
+          job {draft.searchPreferences.discovery.targets.filter(
+            (target) => target.enabled,
+          ).length === 1
+            ? "site"
+            : "sites"}{" "}
+          for {draft.searchPreferences.targetRoles.length}{" "}
+          {draft.searchPreferences.targetRoles.length === 1 ? "role" : "roles"}{" "}
+          you saved in this plan.
         </p>
         <div className="flex flex-wrap justify-end gap-2">
           <Button onClick={requestCancel} type="button" variant="ghost">
@@ -1192,8 +1426,20 @@ function CampaignEditor(props: {
 }
 
 export function CampaignsScreen(props: {
+  safeguardPauses?: readonly PlanSafeguardPause[];
+  /**
+   * Finished runs, so the plan card can quote the run's own frozen counts
+   * instead of describing the same search with plan-side totals.
+   */
+  discoveryRuns?: readonly DiscoveryRunRecord[];
+  /**
+   * The search that is running right now, if any. One runs at a time, so this
+   * is what tells every plan card whether Run now can start.
+   */
+  activeDiscoveryRun?: Pick<DiscoveryRunRecord, "campaignId"> | null;
   activeCampaignId: string;
   campaigns: readonly JobSearchCampaign[];
+  profile?: CandidateProfile;
   onSaveCampaign: (campaign: SaveJobSearchCampaignInput) => Promise<boolean>;
   onDeleteCampaign?: (campaignId: string) => Promise<boolean>;
   onSelectCampaign: (campaignId: string) => void;
@@ -1224,6 +1470,14 @@ export function CampaignsScreen(props: {
     (dirty: boolean) => setEditorDirty(dirty),
     [],
   );
+  const [savedPlanName, setSavedPlanName] = useState<string | null>(null);
+  /** The plan whose Run now was pressed while another search was running. */
+  const [blockedRunPlanId, setBlockedRunPlanId] = useState<string | null>(null);
+  const runningCampaignId = props.activeDiscoveryRun?.campaignId ?? null;
+  const hasActiveRun = Boolean(props.activeDiscoveryRun);
+  useEffect(() => {
+    if (!hasActiveRun) setBlockedRunPlanId(null);
+  }, [hasActiveRun, runningCampaignId]);
   const [createdPlanNotice, setCreatedPlanNotice] = useState<{
     name: string;
     knownIds: readonly string[];
@@ -1269,6 +1523,7 @@ export function CampaignsScreen(props: {
     setEditorSession((session) => session + 1);
     setEditorDirty(false);
     setCreatedPlanNotice(null);
+    setSavedPlanName(null);
   }, []);
 
   const [pendingEditorSwitch, setPendingEditorSwitch] =
@@ -1331,6 +1586,35 @@ export function CampaignsScreen(props: {
       ),
     [props.campaigns, view.query],
   );
+  // Search plans do not own separate job pools: nothing on a saved job or in
+  // the discovery ledger records which plan found it, so the same job can be
+  // retained by two plans at once. The cards say so rather than letting each
+  // card's "Jobs in this plan" read as a pool of its own; no plan's number is
+  // ever inflated with another plan's jobs, because each still counts only
+  // the ids it retained.
+  const sharedJobCountByCampaignId = useMemo(() => {
+    const campaignIdsByJobId = new Map<string, Set<string>>();
+    for (const campaign of props.campaigns) {
+      if (campaign.status === "archived") continue;
+      for (const jobId of campaign.jobIds) {
+        const owners = campaignIdsByJobId.get(jobId);
+        if (owners) {
+          owners.add(campaign.id);
+        } else {
+          campaignIdsByJobId.set(jobId, new Set([campaign.id]));
+        }
+      }
+    }
+
+    const sharedCounts = new Map<string, number>();
+    for (const owners of campaignIdsByJobId.values()) {
+      if (owners.size < 2) continue;
+      for (const campaignId of owners) {
+        sharedCounts.set(campaignId, (sharedCounts.get(campaignId) ?? 0) + 1);
+      }
+    }
+    return sharedCounts;
+  }, [props.campaigns]);
   const activeCampaign =
     props.campaigns.find(
       (campaign) => campaign.id === props.activeCampaignId,
@@ -1407,6 +1691,7 @@ export function CampaignsScreen(props: {
       {editing ? (
         <CampaignEditor
           campaign={editing}
+          defaultScheduleTimeZone={inferProfileTimeZone(props.profile ?? {})}
           isCurrentPlan={
             editing.id !== null && editing.id === props.activeCampaignId
           }
@@ -1426,8 +1711,27 @@ export function CampaignsScreen(props: {
               }
             : {})}
           onSave={handleEditorSave}
+          onSaved={(campaign) => {
+            // A saved plan is a saved plan: the form closes, so its pre-save
+            // run status can never contradict the card below it and Cancel
+            // can never claim unsaved edits a moment after a save.
+            setEditing(null);
+            setEditorDirty(false);
+            if (campaign.id !== null) {
+              setSavedPlanName(campaign.name);
+            }
+          }}
           pending={props.pending}
         />
+      ) : null}
+
+      {savedPlanName ? (
+        <p
+          className="rounded-(--radius-field) border border-border-subtle px-4 py-3 text-sm text-foreground"
+          role="status"
+        >
+          {`Search plan "${savedPlanName}" saved.`}
+        </p>
       ) : null}
 
       {createdPlanNotice ? (
@@ -1435,21 +1739,16 @@ export function CampaignsScreen(props: {
           className="flex flex-wrap items-center gap-3 rounded-(--radius-field) border border-border-subtle px-4 py-3 text-sm text-foreground"
           role="status"
         >
-          {`Search plan "${createdPlanNotice.name}" created. Find jobs keeps searching with your current plan until you switch.`}
+          {`Search plan "${createdPlanNotice.name}" created.`}
           {createdPlanNotice.resolvedId !== null ? (
             <Button
-              onClick={() => {
-                const resolvedId = createdPlanNotice.resolvedId;
-                if (resolvedId !== null) {
-                  props.onSelectCampaign(resolvedId);
-                }
-                setCreatedPlanNotice(null);
-              }}
-              size="xs"
+              onClick={() => props.onSelectCampaign(createdPlanNotice.resolvedId!)}
+              pending={props.pending}
+              size="sm"
               type="button"
               variant="outline"
             >
-              Use it in Find jobs
+              Make current
             </Button>
           ) : null}
         </p>
@@ -1514,16 +1813,36 @@ export function CampaignsScreen(props: {
           query={view.query}
         />
       ) : (
-        <div
+        <div className="grid gap-3">
+          <p className="text-xs text-foreground-muted">
+            Times shown in {deviceTimeZone()}.
+          </p>
+          <div
           className={
             filteredCampaigns.length === 1
               ? "grid gap-3"
               : "grid gap-3 xl:grid-cols-2"
           }
-        >
+          >
           {filteredCampaigns.map((campaign) => {
             const active = campaign.id === props.activeCampaignId;
             const archived = campaign.status === "archived";
+            const sharedJobCount =
+              sharedJobCountByCampaignId.get(campaign.id) ?? 0;
+            const remoteOnlySourceWarning = describeRemoteOnlySourceWarning(
+              props.discoveryRuns,
+              campaign,
+            );
+            // R7: one plan running greyed out every plan's Run now. Only the
+            // plan that is actually running says "Search running"; the others
+            // keep an enabled Run now and explain themselves if pressed.
+            const activeRun = props.activeDiscoveryRun ?? null;
+            const thisPlanIsRunning = activeRun?.campaignId === campaign.id;
+            const activeRunBlockMessage = thisPlanIsRunning
+              ? DISCOVERY_RUN_ALREADY_ACTIVE_MESSAGE
+              : blockedRunPlanId === campaign.id
+                ? describeActiveRunBlock(campaign.id, activeRun)
+                : null;
             return (
               <article
                 className={`surface-panel-shell grid min-w-0 gap-4 rounded-(--radius-panel) border p-5 ${active ? "border-accent/60" : "border-(--surface-panel-border)"} ${archived ? "opacity-60" : ""}`}
@@ -1572,6 +1891,43 @@ export function CampaignsScreen(props: {
                 <p className="text-sm text-foreground-soft">
                   {campaign.description || "No description yet."}
                 </p>
+                <p className="text-sm text-foreground-soft">
+                  Uses {campaign.sourceTargetIds.length} of your{" "}
+                  {new Set(props.campaigns.flatMap((entry) => entry.sourceTargetIds)).size} job sites.
+                </p>
+                {describeScheduleStart(campaign.schedule) ? (
+                  <p className="text-sm text-foreground-soft">
+                    {describeScheduleStart(campaign.schedule)}
+                  </p>
+                ) : null}
+                {remoteOnlySourceWarning ? (
+                  <p
+                    className="rounded-(--radius-small) border border-(--warning-border) bg-(--warning-surface) px-3 py-2 text-sm leading-6 text-(--warning-text)"
+                    data-testid="campaign-remote-only-sources-note"
+                  >
+                    {remoteOnlySourceWarning}
+                  </p>
+                ) : null}
+                {sharedJobCount > 0 ? (
+                  <p
+                    className="text-sm leading-6 text-foreground-soft"
+                    data-testid="campaign-shared-jobs-note"
+                  >
+                    {sharedJobCount === 1
+                      ? "1 of these jobs is also kept by another search plan."
+                      : `${sharedJobCount} of these jobs are also kept by another search plan.`}{" "}
+                    Job Finder saves jobs once for the whole app, so a job that
+                    fits two plans appears in both.
+                  </p>
+                ) : null}
+                {thisPlanIsRunning ? (
+                  <p
+                    className="rounded-(--radius-small) border border-primary/25 bg-primary/5 px-3 py-2 text-sm text-foreground"
+                    role="status"
+                  >
+                    Search running for this plan.
+                  </p>
+                ) : (
                 <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                   {/* Each number says what it counts; bare "Blocked 1" beside
                       "Remaining 1" explained neither. */}
@@ -1583,7 +1939,7 @@ export function CampaignsScreen(props: {
                   </div>
                   <div>
                     <dt className="text-xs text-foreground-muted">
-                      Applications prepared
+                      Applications
                     </dt>
                     <dd>{campaign.progress.applicationsPrepared}</dd>
                   </div>
@@ -1606,13 +1962,26 @@ export function CampaignsScreen(props: {
                   ) : null}
                   <div className="col-span-2">
                     <dt className="text-xs text-foreground-muted">Next run</dt>
-                    <dd>{describeNextRun(campaign.schedule)}</dd>
+                    <dd>{props.safeguardPauses?.some((pause) => pause.campaignId === campaign.id)
+                      ? "Paused by a safeguard" : describeNextRun(campaign.schedule)}</dd>
                   </div>
                   <div className="col-span-2">
                     <dt className="text-xs text-foreground-muted">Last run</dt>
-                    <dd>{describeLastRun(campaign.schedule)}</dd>
+                    <dd>
+                      {describeLastRun(
+                        campaign.schedule,
+                        campaign.progress.lastRunAt ??
+                          campaign.latestDigest?.generatedAt ??
+                          null,
+                        readPlanRunReport(
+                          props.discoveryRuns,
+                          campaign.latestDigest,
+                        ),
+                      )}
+                    </dd>
                   </div>
                 </dl>
+                )}
                 {campaign.schedule.runFacts.consecutiveFailures > 0 ? (
                   <p className="text-xs text-foreground-muted">
                     {campaign.schedule.runFacts.consecutiveFailures} consecutive
@@ -1623,15 +1992,44 @@ export function CampaignsScreen(props: {
                     recorded.
                   </p>
                 ) : null}
-                {campaign.latestDigest ? (
+                {!thisPlanIsRunning && campaign.latestDigest ? (
                   <details className="rounded-(--radius-field) border border-(--surface-panel-border) px-3 py-2">
                     <summary className="cursor-pointer text-sm font-medium text-foreground">
                       What the last run found
                     </summary>
+                    {/* The run's own frozen line, identical to the one Home,
+                        Find jobs, Search history and Tasks print for it. */}
+                    <p className="mt-2 text-sm text-foreground-soft">
+                      {describePlanRunPopulations(
+                        readPlanRunReport(
+                          props.discoveryRuns,
+                          campaign.latestDigest,
+                        ),
+                        campaign.latestDigest,
+                      )}
+                    </p>
+                    {campaign.latestDigest.sourceOutcome ? (
+                      <p className="mt-2 text-sm text-foreground-soft">
+                        {campaign.latestDigest.sourceOutcome.completed} of{" "}
+                        {campaign.latestDigest.sourceOutcome.planned} sources completed
+                        {campaign.latestDigest.failedSources.map((source) =>
+                          ` · ${jobSourceLabel(source.sourceTargetId, campaign.searchPreferences.discovery.targets)} failed (${source.reason})`,
+                        )}
+                      </p>
+                    ) : null}
                     <dl className="mt-3 grid grid-cols-3 gap-2 text-sm text-foreground-soft sm:grid-cols-6">
                       <div>
                         <dt className="text-xs text-foreground-muted">New</dt>
-                        <dd>{campaign.latestDigest.counts.new}</dd>
+                        {/* The same record the sentence above prints, so the
+                            tile can never give a second number for the same
+                            run. The change-digest count is a sighting tally,
+                            not a result count. */}
+                        <dd>
+                          {readPlanRunReport(
+                            props.discoveryRuns,
+                            campaign.latestDigest,
+                          ).new ?? campaign.latestDigest.counts.new}
+                        </dd>
                       </div>
                       <div>
                         <dt className="text-xs text-foreground-muted">
@@ -1641,18 +2039,20 @@ export function CampaignsScreen(props: {
                       </div>
                       <div>
                         <dt className="text-xs text-foreground-muted">
-                          Reactivated
+                          Open again
                         </dt>
                         <dd>{campaign.latestDigest.counts.reactivated}</dd>
                       </div>
                       <div>
                         <dt className="text-xs text-foreground-muted">
-                          Inactive
+                          Closed
                         </dt>
                         <dd>{campaign.latestDigest.counts.inactive}</dd>
                       </div>
                       <div>
-                        <dt className="text-xs text-foreground-muted">Known</dt>
+                        <dt className="text-xs text-foreground-muted">
+                          Seen before
+                        </dt>
                         <dd>{campaign.latestDigest.counts.known}</dd>
                       </div>
                       <div>
@@ -1667,7 +2067,10 @@ export function CampaignsScreen(props: {
                         {campaign.latestDigest.failedSources.map((source) => (
                           <li key={source.sourceTargetId}>
                             <span className="font-medium text-foreground">
-                              {source.sourceTargetId}
+                              {jobSourceLabel(
+                                source.sourceTargetId,
+                                campaign.searchPreferences.discovery.targets,
+                              )}
                             </span>{" "}
                             — {source.reason}
                           </li>
@@ -1675,7 +2078,7 @@ export function CampaignsScreen(props: {
                       </ul>
                     ) : (
                       <p className="mt-3 text-xs text-foreground-muted">
-                        No failed sources in this digest.
+                        No source problems in this run.
                       </p>
                     )}
                   </details>
@@ -1689,7 +2092,10 @@ export function CampaignsScreen(props: {
                       {campaign.history.slice(0, 5).map((entry) => (
                         <li key={entry.id}>
                           <span className="font-medium text-foreground">
-                            {new Date(entry.occurredAt).toLocaleString()}
+                            {formatPlanCardDateTime(
+                              entry.occurredAt,
+                            ) ??
+                              "Unknown time"}
                           </span>{" "}
                           — {entry.summary}
                         </li>
@@ -1748,15 +2154,31 @@ export function CampaignsScreen(props: {
                     </div>
                   </div>
                 ) : null}
-                <div className="flex flex-wrap justify-end gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {/* One search runs at a time. The service refuses a second
+                      one with this exact sentence, so the button says it here
+                      instead of looking like a click that did nothing. */}
+                  {props.onRunCampaignNow && activeRunBlockMessage ? (
+                    <p className="mr-auto text-sm text-foreground-soft">
+                      {activeRunBlockMessage}
+                    </p>
+                  ) : null}
                   {props.onRunCampaignNow ? (
                     <Button
-                      onClick={() => props.onRunCampaignNow?.(campaign.id)}
+                      disabled={thisPlanIsRunning}
+                      onClick={() => {
+                        if (props.activeDiscoveryRun) {
+                          setBlockedRunPlanId(campaign.id);
+                          return;
+                        }
+                        setBlockedRunPlanId(null);
+                        props.onRunCampaignNow?.(campaign.id);
+                      }}
                       pending={props.runCampaignPending?.(campaign.id) ?? false}
                       type="button"
                       variant="outline"
                     >
-                      Run now
+                      {thisPlanIsRunning ? "Search running" : "Run now"}
                     </Button>
                   ) : null}
                   <Button
@@ -1810,6 +2232,7 @@ export function CampaignsScreen(props: {
               </article>
             );
           })}
+          </div>
         </div>
       )}
 

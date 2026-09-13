@@ -120,7 +120,6 @@ export function selectCardOnlyEvidenceNotices(
  */
 export type HomeSourceProblemCategory =
   | "unreadable"
-  | "stopped"
   | "no_results"
   | "partial"
   | "skipped";
@@ -129,14 +128,12 @@ const CATEGORY_LABELS: Record<HomeSourceProblemCategory, string> = {
   no_results: "found nothing",
   partial: "finished with a problem",
   skipped: "skipped",
-  stopped: "stopped early",
   unreadable: "couldn't be read",
 };
 
 /** Most severe first, so the worst news is not buried mid-line. */
 const CATEGORY_ORDER: readonly HomeSourceProblemCategory[] = [
   "unreadable",
-  "stopped",
   "no_results",
   "partial",
   "skipped",
@@ -153,6 +150,14 @@ export type HomeSourceProblemSummary = {
   total: number;
   /** Only non-zero categories; a zero category is omitted, never printed. */
   groups: readonly HomeSourceProblemGroup[];
+  /**
+   * Sources that stopped because the person stopped the search. R11: a
+   * tester read "1 source had a problem in the last search · 1 stopped
+   * early" under a HEALTHY badge and said "I pressed pause myself, so
+   * nothing had a 'problem'". A stop you asked for is its own outcome and is
+   * never counted as a problem.
+   */
+  userStopped: number;
 };
 
 type SourceHealthEntry = {
@@ -211,7 +216,8 @@ function categorizeSource(
     case "failed":
       return "unreadable";
     case "cancelled":
-      return "stopped";
+      // Counted as a user-owned stop, not a problem. See `userStopped`.
+      return null;
     case "skipped":
       return "skipped";
     case "warning":
@@ -248,10 +254,15 @@ export function summarizeDiscoveryRunSourceProblems(
 
   const counts = new Map<HomeSourceProblemCategory, number>();
   let total = 0;
+  let userStopped = 0;
 
   for (const entry of run.summary?.sourceHealth ?? []) {
     const warnings = entry.warnings ?? [];
     if (warnings.length > 0 && warnings.every(isOnlyCardOnlyEvidenceWarning)) {
+      continue;
+    }
+    if (entry.health === "cancelled") {
+      userStopped += 1;
       continue;
     }
     const category = categorizeSource(
@@ -265,7 +276,7 @@ export function summarizeDiscoveryRunSourceProblems(
     counts.set(category, (counts.get(category) ?? 0) + 1);
   }
 
-  if (total === 0) {
+  if (total === 0 && userStopped === 0) {
     return null;
   }
 
@@ -277,6 +288,7 @@ export function summarizeDiscoveryRunSourceProblems(
         : [];
     }),
     total,
+    userStopped,
   };
 }
 
@@ -289,13 +301,29 @@ export function formatDiscoveryRunSourceProblemSummary(
     return null;
   }
 
-  const lead =
-    summary.total === 1
-      ? "1 source had a problem in the last search"
-      : `${summary.total} sources had a problem in the last search`;
+  const sentences: string[] = [];
 
-  return [
-    lead,
-    ...summary.groups.map((group) => `${group.count} ${group.label}`),
-  ].join(" · ");
+  if (summary.userStopped > 0) {
+    // The person's own stop, named as theirs.
+    sentences.push(
+      summary.userStopped === 1
+        ? "You stopped the last search, so 1 source did not finish."
+        : `You stopped the last search, so ${summary.userStopped} sources did not finish.`,
+    );
+  }
+
+  if (summary.total > 0) {
+    const lead =
+      summary.total === 1
+        ? "1 source had a problem in the last search"
+        : `${summary.total} sources had a problem in the last search`;
+    sentences.push(
+      [
+        lead,
+        ...summary.groups.map((group) => `${group.count} ${group.label}`),
+      ].join(" · "),
+    );
+  }
+
+  return sentences.length > 0 ? sentences.join(" ") : null;
 }

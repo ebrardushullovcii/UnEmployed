@@ -2,6 +2,7 @@ import {
   chmod,
   mkdir,
   mkdtemp,
+  open,
   readdir,
   readFile,
   rename,
@@ -678,11 +679,9 @@ describe("beginJobFinderWorkspaceResetFileMoves compensation", () => {
         userDataDirectory: workspace.userDataDirectory,
         movedSourceCount: resetSourceOrder.length,
       });
-      const documentsDirectory = path.join(
+      const unblockDocumentRestores = await blockDocumentRestores(
         workspace.userDataDirectory,
-        "documents",
       );
-      await chmod(documentsDirectory, 0o555);
       const failingRepository = {
         getProfile: () => repository.getProfile(),
         reset: vi
@@ -713,7 +712,7 @@ describe("beginJobFinderWorkspaceResetFileMoves compensation", () => {
 
       await expect(stat(markerPath)).resolves.toBeTruthy();
 
-      await chmod(documentsDirectory, 0o755);
+      await unblockDocumentRestores();
       await expect(
         recoverPendingJobFinderWorkspaceReset(repository),
       ).resolves.toEqual({ status: "completed", token: crashToken });
@@ -790,6 +789,60 @@ describe("beginJobFinderWorkspaceResetFileMoves compensation", () => {
     );
   });
 });
+
+/**
+ * Stops compensation from putting the document directories back.
+ *
+ * POSIX takes the write bit off their parent. Windows has no POSIX mode bits,
+ * so a read-only parent stops nothing there; occupying each restore
+ * destination does, and proves the same thing — the rollback rename fails and
+ * the marker has to stay for the next startup.
+ */
+async function blockDocumentRestores(
+  userDataDirectory: string,
+): Promise<() => Promise<void>> {
+  const documentsDirectory = path.join(userDataDirectory, "documents");
+
+  if (process.platform !== "win32") {
+    await chmod(documentsDirectory, 0o555);
+    return async () => {
+      await chmod(documentsDirectory, 0o755);
+    };
+  }
+
+  const heldFiles = [
+    path.join(
+      userDataDirectory,
+      "trash",
+      `job-finder-reset-${crashToken}`,
+      "documents",
+      "resumes",
+      "generated",
+      "resume.pdf",
+    ),
+    path.join(
+      userDataDirectory,
+      "trash",
+      `job-finder-reset-${crashToken}`,
+      "documents",
+      "candidate-assets",
+      "headshot.png",
+    ),
+    path.join(
+      userDataDirectory,
+      "trash",
+      `job-finder-reset-${crashToken}`,
+      "documents",
+      "application-documents",
+      "cover-letter.pdf",
+    ),
+  ];
+  const handles = await Promise.all(heldFiles.map((file) => open(file, "r")));
+
+  return async () => {
+    await Promise.all(handles.map((handle) => handle.close()));
+  };
+}
 
 function epochStaleTime() {
   return new Date(Date.now() - 2 * 60 * 60 * 1000);

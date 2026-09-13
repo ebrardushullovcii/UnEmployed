@@ -4,7 +4,7 @@ import {
   resumeCoveragePolicyLabels,
   resumeHeadlinePolicyLabels,
   resumeSkillsPolicyLabels,
-  resumeTailoringStrengthLabels,
+  resumeApproachLabels,
   resumeTemplateLabels,
 } from "../resume-strategies/resume-strategy-presentation";
 
@@ -139,7 +139,7 @@ export function ResumeStrategyContextPanel(props: {
                     Tailoring strength
                   </dt>
                   <dd className="text-foreground-soft">
-                    {resumeTailoringStrengthLabels[context.tailoringStrength]}
+                    {resumeApproachLabels[context.tailoringStrength]}
                   </dd>
                 </div>
               ) : null}

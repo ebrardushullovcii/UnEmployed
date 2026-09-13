@@ -23,16 +23,21 @@ export function getLaneLabel(lane: "apply_safe" | "share_ready") {
   return lane === "apply_safe" ? "Apply-safe" : "Share-ready";
 }
 
+/**
+ * What this layout's machine-readability rating means, said without the trade
+ * acronym. "ATS" is the industry's word for the software an employer screens
+ * with; a job seeker reading their own resume has no reason to know it.
+ */
 export function getAtsConfidenceLabel(confidence: "high" | "medium" | "low") {
   switch (confidence) {
     case "high":
-      return "ATS high confidence";
+      return "Reads reliably on job sites";
     case "medium":
-      return "ATS medium confidence";
+      return "Usually reads well on job sites";
     case "low":
-      return "ATS lower confidence";
+      return "May not read cleanly on job sites";
     default:
-      return "ATS confidence unknown";
+      return "Not checked against job sites";
   }
 }
 
@@ -232,7 +237,7 @@ export function buildResumeThemePickerRecommendations(input: {
           {
             templateId: fallbackTheme.id,
             reason:
-              "No stronger layout-specific signal stands out, so this remains the safest general ATS choice.",
+              "No layout stands out for this job, so this stays the safest general choice for job sites that read your resume by machine.",
           },
         ]
       : [];

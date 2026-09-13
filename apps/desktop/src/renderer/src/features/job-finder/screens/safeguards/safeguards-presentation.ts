@@ -596,6 +596,53 @@ export function buildSafeguardsPresentationModel(
     });
   }
 
+  // R3: Tasks said "Paused by a safety limit" while this page said "No active
+  // safeguard blockers. Discovery and preparation are clear." and counted
+  // zero. The pause the Tasks card names lives on the application run, not in
+  // the safeguard records, so this page never knew about it. Read it from the
+  // same runs the Tasks card reads, so both surfaces name the same pause and
+  // the counters agree.
+  for (const run of workspace.applyRuns ?? []) {
+    if (run.state !== "paused_for_user_review") {
+      continue;
+    }
+    const finishedJobs = Math.max(0, run.totalJobs - run.pendingJobs);
+    const remainingJobs = Math.max(0, run.pendingJobs);
+    const explanation =
+      run.detail?.trim() ||
+      run.summary?.trim() ||
+      "Job Finder stopped preparing this batch because one of your safety limits was reached.";
+    const recoveryGuidance =
+      remainingJobs > 0
+        ? "It will not carry on by itself. Open Applications, review the prepared sample, then press Prepare remaining jobs to finish the ones it did not get to. Nothing is sent or submitted."
+        : "It will not carry on by itself. Open Applications to review what it prepared. Nothing is sent or submitted.";
+    pushRow({
+      key: `apply-run-pause-${run.id}`,
+      kind: "pauses",
+      title: "Applications paused by a safety limit",
+      subtitle: `${finishedJobs} of ${run.totalJobs} application task${
+        run.totalJobs === 1 ? "" : "s"
+      } finished · paused ${formatSafeguardTimestamp(run.updatedAt)}`,
+      explanation,
+      recoveryGuidance,
+      statusLabel: "Paused",
+      statusTone: "critical",
+      active: true,
+      blocked: true,
+      dismissed: false,
+      lineage: baseLineage(run.jobIds, []),
+      tags: ["paused:safety limit"],
+      controls: [],
+      recoveryLink: {
+        href: "/job-finder/applications",
+        label: "Open Applications",
+      },
+      searchText: [explanation, recoveryGuidance, "paused safety limit"]
+        .join(" ")
+        .toLowerCase(),
+    });
+  }
+
   for (const review of safeguards.preparedBatchSampleReviews) {
     const dismissal = findDismissal(
       safeguards,

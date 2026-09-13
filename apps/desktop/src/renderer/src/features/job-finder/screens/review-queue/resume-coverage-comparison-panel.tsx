@@ -6,6 +6,11 @@ import type {
 } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
+import {
+  buildResumeCoverageComparisonRows,
+  collectResumeCoveragePageLines,
+  countResumeCoverageRemovedLines,
+} from "./resume-coverage-comparison-rows";
 
 const roleStatusLabel: Record<ResumeCoverageRoleComparison["status"], string> =
   {
@@ -66,10 +71,18 @@ export function ResumeCoverageComparisonPanel(props: {
     return null;
   }
 
+  // The scorer's removedClaimCount counts every original line the tailored
+  // text did not reproduce verbatim, so a reworded line was counted as
+  // removed and listed as "not on the page" while its rewrite sat in the
+  // preview beside it. Only lines with no wording left on the page count.
+  const removedLineCount = countResumeCoverageRemovedLines(comparison.roles);
+  // Every line the tailored resume put on the page, so a line moved under
+  // another role is never listed here as missing from it.
+  const pageLines = collectResumeCoveragePageLines(comparison.roles);
   const hasReviewItems =
     comparison.hiddenRoleCount > 0 ||
     comparison.missingRoleCount > 0 ||
-    comparison.removedClaimCount > 0 ||
+    removedLineCount > 0 ||
     comparison.duplicateIssueCount > 0 ||
     comparison.pageImpact === "over_target";
 
@@ -97,10 +110,10 @@ export function ResumeCoverageComparisonPanel(props: {
                 visibleRoleCount: comparison.visibleRoleCount,
               })}
             </Badge>
-            {comparison.removedClaimCount > 0 ? (
+            {removedLineCount > 0 ? (
               <Badge variant="default">
-                {comparison.removedClaimCount} line
-                {comparison.removedClaimCount === 1 ? "" : "s"} removed
+                {removedLineCount} line{removedLineCount === 1 ? "" : "s"}{" "}
+                removed
               </Badge>
             ) : null}
             {describePageFit({
@@ -186,58 +199,115 @@ export function ResumeCoverageComparisonPanel(props: {
                 </p>
               ) : null}
 
-              {role.addedClaims.length > 0 ? (
-                <div className="grid gap-1">
-                  <span className="font-display text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                    Reworded or added
-                  </span>
-                  {role.addedClaims.map((claim, index) => (
-                    <p
-                      className="text-(length:--text-small) leading-5 text-foreground-soft"
-                      key={`${role.profileRecordId}_added_${index}`}
-                    >
-                      + {claim.text}
-                    </p>
-                  ))}
-                </div>
-              ) : null}
+              {(() => {
+                // One row per change, with the original line and the line
+                // that replaced it side by side. A merge shows both originals
+                // above the one sentence that now carries them, so nothing is
+                // printed three times.
+                const { rows } = buildResumeCoverageComparisonRows(role, {
+                  pageLines,
+                });
+                const rewordedRows = rows.filter(
+                  (row) => row.kind === "reworded",
+                );
+                const addedRows = rows.filter((row) => row.kind === "added");
+                const removedRows = rows.filter(
+                  (row) => row.kind === "removed",
+                );
 
-              {role.removedClaims.length > 0 ? (
-                <div className="grid gap-1.5">
-                  <span className="font-display text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
-                    Lines from your original resume that are not on the page
-                  </span>
-                  {/* Restore used to sit inline at the end of the sentence, so
-                      it read as the last word of the line instead of an
-                      action. Each line now owns a labelled control on its own
-                      row, right-aligned against the paragraph it restores. */}
-                  {role.removedClaims.map((claim, index) => (
-                    <div
-                      className="grid min-w-0 gap-1"
-                      key={`${role.profileRecordId}_removed_${index}`}
-                    >
-                      <p className="min-w-0 text-(length:--text-small) leading-5 text-foreground-soft">
-                        − {claim.text}
-                      </p>
-                      {claim.restorable && role.entryId && role.sectionId ? (
-                        <div className="flex justify-end">
-                          <Button
-                            aria-label={`Restore this line: ${claim.text}`}
-                            disabled={props.disabled}
-                            onClick={() => props.onRestoreClaim(role, claim)}
-                            size="compact"
-                            type="button"
-                            variant="secondary"
+                return (
+                  <>
+                    {rewordedRows.length > 0 ? (
+                      <div className="grid gap-1.5">
+                        <span className="font-display text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+                          Reworded — still on the page
+                        </span>
+                        {rewordedRows.map((row, index) => (
+                          <div
+                            className="grid min-w-0 gap-0.5"
+                            key={`${role.profileRecordId}_reworded_${index}`}
                           >
-                            <RotateCcw className="size-3.5" />
-                            Restore
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
+                            {row.originalLines.map((original, lineIndex) => (
+                              <p
+                                className="min-w-0 text-(length:--text-small) leading-5 text-foreground-muted"
+                                key={`${role.profileRecordId}_reworded_${index}_${lineIndex}`}
+                              >
+                                Before: {original.text}
+                              </p>
+                            ))}
+                            <p className="min-w-0 text-(length:--text-small) leading-5 text-foreground-soft">
+                              Now: {row.tailoredLine?.text}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {addedRows.length > 0 ? (
+                      <div className="grid gap-1">
+                        <span className="font-display text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+                          Added
+                        </span>
+                        {addedRows.map((row, index) => (
+                          <p
+                            className="text-(length:--text-small) leading-5 text-foreground-soft"
+                            key={`${role.profileRecordId}_added_${index}`}
+                          >
+                            + {row.tailoredLine?.text}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {removedRows.length > 0 ? (
+                      <div className="grid gap-1.5">
+                        <span className="font-display text-(length:--text-tiny) uppercase tracking-(--tracking-caps) text-muted-foreground">
+                          Lines from your original resume that are not on the
+                          page
+                        </span>
+                        {/* Restore used to sit inline at the end of the
+                            sentence, so it read as the last word of the line
+                            instead of an action. Each line now owns a
+                            labelled control on its own row. */}
+                        {removedRows.map((row, index) => {
+                          const claim = row.originalLines[0];
+                          if (!claim) return null;
+                          return (
+                            <div
+                              className="grid min-w-0 gap-1"
+                              key={`${role.profileRecordId}_removed_${index}`}
+                            >
+                              <p className="min-w-0 text-(length:--text-small) leading-5 text-foreground-soft">
+                                − {claim.text}
+                              </p>
+                              {claim.restorable &&
+                              role.entryId &&
+                              role.sectionId ? (
+                                <div className="flex justify-end">
+                                  <Button
+                                    aria-label={`Restore this line: ${claim.text}`}
+                                    disabled={props.disabled}
+                                    onClick={() =>
+                                      props.onRestoreClaim(role, claim)
+                                    }
+                                    size="compact"
+                                    type="button"
+                                    variant="secondary"
+                                  >
+                                    <RotateCcw className="size-3.5" />
+                                    Restore
+                                  </Button>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </>
+                );
+              })()}
+
             </article>
           ))}
         </div>

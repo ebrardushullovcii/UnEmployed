@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { SourceDebugRunDetails } from "@unemployed/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProfileSourceDebugReviewModal } from "./profile-source-debug-review-modal";
 
@@ -28,6 +29,66 @@ afterEach(() => {
 });
 
 describe("ProfileSourceDebugReviewModal", () => {
+  it("shows a plain page-open failure and keeps navigation text behind Technical details", () => {
+    const run = {
+      id: "debug_1",
+      targetId: "source_1",
+      targetLabel: "Example careers",
+      state: "failed",
+      startedAt: "2026-09-12T10:00:00.000Z",
+      updatedAt: "2026-09-12T10:00:08.000Z",
+      completedAt: "2026-09-12T10:00:08.000Z",
+      finalSummary:
+        "Job Finder could not open Example careers (the page did not load in time).",
+    };
+    const details = {
+      run,
+      attempts: [],
+      instructionArtifact: null,
+      evidenceRefs: [
+        {
+          id: "evidence_1",
+          runId: run.id,
+          attemptId: "attempt_1",
+          targetId: run.targetId,
+          phase: "access_auth_probe",
+          kind: "note",
+          label: "Technical details",
+          capturedAt: run.completedAt,
+          url: "https://jobs.example.test",
+          storagePath: null,
+          excerpt: "page.goto: Timeout 8000ms exceeded",
+        },
+      ],
+    } as unknown as SourceDebugRunDetails;
+
+    render(
+      <ProfileSourceDebugReviewModal
+        details={details}
+        errorMessage={null}
+        isSourceDebugPending={false}
+        isVerifyPending={() => false}
+        loading={false}
+        onClose={vi.fn()}
+        onLoadRun={vi.fn()}
+        onRerun={vi.fn()}
+        onVerify={vi.fn()}
+        open
+        recentRuns={[details.run]}
+        selectedRunId={run.id}
+        targetLabel="Example careers"
+      />,
+    );
+
+    expect(
+      screen.getAllByText(
+        "Job Finder could not open Example careers (the page did not load in time).",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("Technical details")).toBeTruthy();
+    expect(screen.getByText("page.goto: Timeout 8000ms exceeded")).toBeTruthy();
+  });
+
   it("associates the visible review description with the dialog", () => {
     render(
       <ProfileSourceDebugReviewModal

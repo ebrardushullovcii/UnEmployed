@@ -181,6 +181,27 @@ export type ProfileCoreListPatchFields = z.infer<
   typeof ProfileCoreListPatchFieldsSchema
 >;
 
+/**
+ * The lists a removal may touch: one skill, one saved place, one target role.
+ *
+ * Deleting was the one thing the assistant could not do, because the only
+ * list operation replaces a whole field — which means resending every entry
+ * the person still wants. A removal names the entries it takes out and
+ * nothing else, so it can be quoted back on the confirmation card and
+ * replayed if the person undoes it.
+ */
+export const profileCopilotRemovableListFieldValues = [
+  "locations",
+  "skills",
+  "targetRoles",
+] as const;
+export const ProfileCopilotRemovableListFieldSchema = z.enum(
+  profileCopilotRemovableListFieldValues,
+);
+export type ProfileCopilotRemovableListField = z.infer<
+  typeof ProfileCopilotRemovableListFieldSchema
+>;
+
 export const ProfileSearchPreferencesPatchFieldsSchema = requireAtLeastOneField(
   JobSearchPreferencesObjectSchema.pick({
     approvalMode: true,
@@ -287,6 +308,16 @@ export const ProfileCopilotPatchOperationSchema = z.discriminatedUnion(
     z.object({
       operation: z.literal("replace_profile_list_fields"),
       value: ProfileCoreListPatchFieldsSchema,
+    }),
+    z.object({
+      operation: z.literal("remove_profile_list_entries"),
+      field: ProfileCopilotRemovableListFieldSchema,
+      /**
+       * The exact entries being taken out, carried so the confirmation card
+       * can quote them and so the removal can be replayed. A removal never
+       * clears a whole list: the entries have to be named.
+       */
+      values: z.array(NonEmptyStringSchema).min(1).max(50),
     }),
     z.object({
       operation: z.literal("replace_search_preferences_fields"),
@@ -406,6 +437,12 @@ export type ProfileRevisionTrigger = z.infer<
 
 export const ProfileRevisionSchema = z.object({
   id: NonEmptyStringSchema,
+  /**
+   * Monotonic position in the log, so "undo back to here" has an order to
+   * work with and two revisions written in the same millisecond still sort.
+   * Zero means a revision recorded before sequences existed.
+   */
+  sequence: z.number().int().nonnegative().default(0),
   createdAt: IsoDateTimeSchema,
   reason: NonEmptyStringSchema.nullable().default(null),
   trigger: ProfileRevisionTriggerSchema,
@@ -415,11 +452,24 @@ export const ProfileRevisionSchema = z.object({
   snapshotProfile: CandidateProfileSchema,
   snapshotSearchPreferences: JobSearchPreferencesSchema,
   snapshotProfileSetupState: ProfileSetupStateSchema,
+  /**
+   * What the assistant left behind, beside the state it found.
+   *
+   * Without it the log cannot tell an assistant change from a person's own
+   * later edit — the next revision's "before" snapshot contains both — so an
+   * undo reaching back past a manual edit would quietly discard it. Null on
+   * revisions recorded before this field existed; the undo guard then says
+   * it cannot check rather than pretending it did.
+   */
+  snapshotProfileAfter: CandidateProfileSchema.nullable().default(null),
+  snapshotSearchPreferencesAfter:
+    JobSearchPreferencesSchema.nullable().default(null),
 });
 export type ProfileRevision = z.infer<typeof ProfileRevisionSchema>;
 
 export const ProfileRevisionSummarySchema = ProfileRevisionSchema.pick({
   id: true,
+  sequence: true,
   createdAt: true,
   reason: true,
   trigger: true,

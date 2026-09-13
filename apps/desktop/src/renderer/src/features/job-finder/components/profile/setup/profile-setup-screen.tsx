@@ -13,6 +13,7 @@ import {
   type ResumeImportFieldCandidateSummary,
   type ResumeImportRun,
   type ResumeImportProgressEvent,
+  type SourceDebugRunRecord,
 } from "@unemployed/contracts";
 import { Button } from "@renderer/components/ui/button";
 import { LockedScreenLayout } from "../../locked-screen-layout";
@@ -64,6 +65,15 @@ const unsavedSetupCopilotActionsMessage =
   "Save this step before applying, rejecting, or undoing copilot changes so your current setup draft stays intact.";
 const unsavedSetupReviewActionsMessage =
   "Save this step before confirming, dismissing, or clearing review items so your current setup draft stays intact.";
+/**
+ * The same situation while Save itself cannot be pressed.
+ *
+ * A person met four greyed buttons under an instruction to press a fifth
+ * greyed button. Naming the thing that is actually happening — and that it
+ * ends by itself — is the difference between a dead end and a wait.
+ */
+const savingSetupReviewActionsMessage =
+  "This step is saving. Its review items open again as soon as that finishes.";
 const defaultResumeApplicationMode: ResumeApplicationMode = "tailored_per_job";
 
 export function getProfileSetupLayoutClassNames(input: {
@@ -125,6 +135,10 @@ export function ProfileSetupScreen(props: {
   profileCopilotPendingContextKey: string | null;
   onRejectProfileCopilotPatchGroup: (patchGroupId: string) => void;
   onResumeSetup: (step: ProfileSetupStep) => void;
+  onRunSourceDebug?: (
+    targetId: string,
+    options?: { readabilityTimeoutMs?: number },
+  ) => void;
   onSaveSetupStep: (
     profile: CandidateProfile,
     searchPreferences: JobSearchPreferences,
@@ -146,6 +160,7 @@ export function ProfileSetupScreen(props: {
   profileCopilotMessages: readonly JobFinderWorkspaceSnapshot["profileCopilotMessages"][number][];
   profileRevisions: readonly JobFinderWorkspaceSnapshot["profileRevisions"][number][];
   profileSetupState: ProfileSetupState;
+  recentSourceDebugRuns?: readonly SourceDebugRunRecord[];
   resumeApplicationMode?: ResumeApplicationMode;
   searchPreferences: JobSearchPreferences;
 }) {
@@ -170,6 +185,7 @@ export function ProfileSetupScreen(props: {
     profileCopilotPendingContextKey,
     onRejectProfileCopilotPatchGroup,
     onResumeSetup,
+    onRunSourceDebug,
     onSaveSetupStep,
     onSendProfileCopilotMessage,
     onUndoProfileRevision,
@@ -177,6 +193,7 @@ export function ProfileSetupScreen(props: {
     profileCopilotMessages,
     profileRevisions,
     profileSetupState,
+    recentSourceDebugRuns = [],
     resumeApplicationMode,
     searchPreferences,
   } = props;
@@ -337,7 +354,11 @@ export function ProfileSetupScreen(props: {
       compact={profileSetupState.currentStep === "targeting"}
       actionsDisabledReason={
         setupActionsDisabledReason ??
-        (hasUserDraftChanges ? unsavedSetupReviewActionsMessage : null)
+        (hasUserDraftChanges
+          ? setupMutationPending
+            ? savingSetupReviewActionsMessage
+            : unsavedSetupReviewActionsMessage
+          : null)
       }
       isReviewItemPending={isReviewItemPending}
       items={currentStepReviewItems}
@@ -512,12 +533,14 @@ export function ProfileSetupScreen(props: {
                 onSaveCurrentStep={handleSaveCurrentStep}
                 onSaveAndGoToStep={(step) => handleSaveStep(step)}
                 onResumeApplicationModeChange={setSelectedResumeApplicationMode}
+                {...(onRunSourceDebug ? { onRunSourceDebug } : {})}
                 profile={profile}
                 profileForm={profileForm}
                 profileSetupReviewItems={draftAwareReviewItems}
                 preferencesForm={preferencesForm}
                 resumeApplicationMode={selectedResumeApplicationMode}
                 searchPreferences={searchPreferences}
+                recentSourceDebugRuns={recentSourceDebugRuns}
                 validationMessage={validationMessage}
               />
             </fieldset>

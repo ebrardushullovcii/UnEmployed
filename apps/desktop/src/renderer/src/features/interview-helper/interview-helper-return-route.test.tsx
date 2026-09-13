@@ -100,6 +100,26 @@ function renderInterviewShell() {
   );
 }
 
+type RenderedShell = ReturnType<typeof renderInterviewShell>;
+
+/**
+ * The switcher is a caption trigger plus a menu, so the other module only
+ * exists in the tree once the menu is open. Every test that wants to leave for
+ * Job Finder goes through the same two steps a person does.
+ */
+async function openModuleMenu(rendered: RenderedShell) {
+  const trigger = await rendered.findByRole("button", {
+    name: "Interview Helper, switch module",
+  });
+  fireEvent.click(trigger);
+  return {
+    jobFinderItem: rendered.getByRole("menuitemradio", {
+      name: "Open Job Finder",
+    }),
+    trigger,
+  };
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -111,15 +131,13 @@ describe("Interview Helper product-switcher return target", () => {
     installDesktopApi(createWorkspace());
     const rendered = renderInterviewShell();
 
-    const jobFinderButton = await rendered.findByRole("button", {
-      name: "Job Finder",
-    });
+    const { jobFinderItem } = await openModuleMenu(rendered);
 
     expect(rendered.getByText("UNEMPLOYED").getAttribute("href")).toBe(
       "#/job-finder",
     );
 
-    fireEvent.click(jobFinderButton);
+    fireEvent.click(jobFinderItem);
 
     const probe = await rendered.findByTestId("route-probe");
     expect(probe.textContent).toBe("/job-finder");
@@ -148,9 +166,7 @@ describe("Interview Helper product-switcher return target", () => {
     cleanup();
     const returnVisit = renderInterviewShell();
 
-    fireEvent.click(
-      await returnVisit.findByRole("button", { name: "Job Finder" }),
-    );
+    fireEvent.click((await openModuleMenu(returnVisit)).jobFinderItem);
     const returnProbe = await returnVisit.findByTestId("route-probe");
     expect(returnProbe.textContent).toBe("/job-finder/applications");
   });
@@ -159,8 +175,8 @@ describe("Interview Helper product-switcher return target", () => {
     installDesktopApi(createWorkspace());
     const rendered = renderInterviewShell();
 
-    await rendered.findByRole("button", { name: "Job Finder" });
-    fireEvent.click(rendered.getByRole("button", { name: "Job Finder" }));
+    const { jobFinderItem } = await openModuleMenu(rendered);
+    fireEvent.click(jobFinderItem);
     await rendered.findByTestId("route-probe");
 
     expect(
@@ -168,16 +184,14 @@ describe("Interview Helper product-switcher return target", () => {
     ).toBe("/job-finder");
   });
 
-  test("module switcher marks Interview Helper current and keeps Job Finder interactive", async () => {
+  test("shares the Job Finder module switch and marks Interview Helper selected", async () => {
     installDesktopApi(createWorkspace());
     const rendered = renderInterviewShell();
 
-    // Mirrors the Job Finder shell contract: the current module is a
-    // non-interactive aria-current marker; only the other module stays a
-    // focusable button.
-    const jobFinderButton = await rendered.findByRole("button", {
-      name: "Job Finder",
-    });
+    // Mirrors the Job Finder shell contract, because it is the same control:
+    // one caption trigger under the wordmark naming the module a person is in,
+    // and a menu that names both, the current one checked.
+    const { jobFinderItem, trigger } = await openModuleMenu(rendered);
     const moduleNav = rendered.container.querySelector(
       "[data-desktop-module-navigation]",
     );
@@ -185,13 +199,19 @@ describe("Interview Helper product-switcher return target", () => {
       throw new Error("Desktop module navigation is missing");
     }
 
-    const currentModules = Array.from(
-      moduleNav.querySelectorAll('[aria-current="page"]'),
-    );
-    expect(currentModules).toHaveLength(1);
-    expect(currentModules[0]?.tagName).toBe("SPAN");
-    expect(currentModules[0]?.textContent).toBe("Interview Helper");
-    expect(moduleNav.querySelector("button[aria-current]")).toBeNull();
-    expect(jobFinderButton.getAttribute("aria-current")).toBeNull();
+    // It sits in the brand block, under the wordmark — never floating in the
+    // caption row between the brand and the window controls.
+    expect(moduleNav.closest("[data-desktop-brand]")).not.toBeNull();
+    expect(moduleNav.contains(trigger)).toBe(true);
+    expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    const menu = rendered.getByRole("menu", { name: "Switch module" });
+    const checked = Array.from(menu.querySelectorAll('[aria-checked="true"]'));
+    expect(checked).toHaveLength(1);
+    expect(checked[0]?.getAttribute("aria-label")).toBe("Interview Helper");
+    expect(checked[0]?.textContent).toContain("Interview Helper");
+    expect(menu.querySelector("[aria-current]")).toBeNull();
+    expect(jobFinderItem.getAttribute("aria-checked")).toBe("false");
   });
 });

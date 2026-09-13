@@ -157,6 +157,12 @@ export interface JobFinderPageContext {
     input: JobFinderSetResumeClaimConfirmationInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
   onExportResumePdf: (jobId: string) => void;
+  /** Records that the imported resume is this person's own document. */
+  onClaimResumeIdentity: () => void;
+  /** Replaces the editable profile name with the imported resume's name. */
+  onKeepResumeIdentity: () => void;
+  /** Shows a file the app wrote in the OS file manager. Nothing is opened. */
+  onRevealSavedFile: (path: string) => void;
   onPreviewResumeDraft: (
     draft: ResumeDraft,
     requestId?: string,
@@ -253,7 +259,7 @@ export interface JobFinderPageContext {
    * Cancels the active discovery run through the same fenced preload request
    * the shell Task Center uses; when absent, no surface offers a stop action.
    */
-  onCancelDiscovery?: () => void;
+  onCancelDiscovery?: (runId: string) => Promise<boolean>;
   onRunDiscoveryForTarget?: (targetId: string) => void;
   onRefreshResumeWorkspace: (jobId: string) => void;
   onResumeWorkspaceDirtyChange: (dirty: boolean) => void;
@@ -298,7 +304,10 @@ export interface JobFinderPageContext {
     patchIds: readonly string[],
   ) => void;
   onUndoProfileRevision: (revisionId: string) => void;
-  onRunSourceDebug: (targetId: string) => void;
+  onRunSourceDebug: (
+    targetId: string,
+    options?: { readabilityTimeoutMs?: number },
+  ) => void;
   onRecordOutcome: (input: RecordOutcomeInput) => Promise<boolean>;
   onSetOutcomeSuggestionEnabled: (
     input: SetOutcomeSuggestionEnabledInput,

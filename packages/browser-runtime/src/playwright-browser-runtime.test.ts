@@ -19,6 +19,7 @@ import {
   type BrowserVisualAnalysisInput,
   type BrowserVisualObservationSet,
 } from "@unemployed/contracts";
+import type { Page } from "playwright";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 function createTestJob() {
@@ -399,6 +400,26 @@ describe("playwright browser runtime", () => {
     if (originalPlatformDescriptor) {
       Object.defineProperty(process, "platform", originalPlatformDescriptor);
     }
+  });
+
+  test("Stop closes a page wait immediately instead of waiting for its navigation timeout", async () => {
+    vi.useFakeTimers();
+    const { createDiscoveryPageAbortBinding } =
+      await import("./playwright-browser-runtime");
+    const controller = new AbortController();
+    const close = vi.fn().mockResolvedValue(undefined);
+    const binding = createDiscoveryPageAbortBinding(controller.signal);
+    binding.onPageResolved({
+      close,
+      isClosed: () => false,
+    } as unknown as Page);
+
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(close).toHaveBeenCalledOnce();
+    binding.dispose();
+    vi.useRealTimers();
   });
 
   test("normalizes stale crash state and lets owned Chrome exit gracefully after browser disconnect reset", async () => {

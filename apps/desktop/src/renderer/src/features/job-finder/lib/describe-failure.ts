@@ -32,6 +32,7 @@ export type FailureKind =
   | "not_found"
   | "site_blocked"
   | "assistant_unavailable"
+  | "invalid_details"
   | "unknown";
 
 /**
@@ -53,6 +54,8 @@ export const FAILURE_SENTENCES = {
     "The job site would not let Job Finder continue. Finish this step yourself in the browser.",
   assistant_unavailable:
     "The writing assistant did not answer. Try again in a few minutes.",
+  invalid_details:
+    "Some details were missing or did not fit, so nothing was saved. Check the fields you just changed and try again.",
   unknown: "Something went wrong and this did not finish. Try again.",
 } as const satisfies Record<FailureKind, string>;
 
@@ -189,6 +192,18 @@ const ASSISTANT_UNAVAILABLE_PATTERNS = [
   /\b(?:401|403|429|5\d\d)\b.*\bstatus\b/i,
 ];
 
+/**
+ * A schema rejection. The thrown text is the validator's own JSON report of
+ * issue codes and field paths — never copy, and what reached a person as
+ * `A compensation currency awaiting clarification must remain unset.`
+ */
+const INVALID_DETAILS_PATTERNS = [
+  /"code"\s*:\s*"[a-z_]+"/i,
+  /"path"\s*:\s*\[/i,
+  /\bvalidation (?:error|failed)\b/i,
+  /\binvalid (?:input|type|enum value|literal value|union)\b/i,
+];
+
 const KIND_PATTERNS: readonly (readonly [
   Exclude<FailureKind, "unknown">,
   readonly RegExp[],
@@ -202,6 +217,7 @@ const KIND_PATTERNS: readonly (readonly [
   ["offline", OFFLINE_PATTERNS],
   ["not_found", NOT_FOUND_PATTERNS],
   ["assistant_unavailable", ASSISTANT_UNAVAILABLE_PATTERNS],
+  ["invalid_details", INVALID_DETAILS_PATTERNS],
 ];
 
 /**
@@ -252,4 +268,48 @@ export function describeFailure(
     userMessage: headline ? `${headline} ${sentence}` : sentence,
     technicalDetails: getJobFinderErrorDetail(error),
   };
+}
+
+/**
+ * The runtime deliberately records exactly what a page tried to do when it was
+ * blocked ("Blocked: xhr POST https://example.test/cdn-cgi/rum?..."), and that
+ * fact is worth keeping. Appending it to the sentence a person is meant to act
+ * on is not: it turned a human instruction on Needs you into a request log.
+ *
+ * Splits that recorded line off the end so the plain sentence leads and the
+ * technical line goes behind a {@link TECHNICAL_DETAILS_LABEL} disclosure.
+ * Text without such a line comes back unchanged with no details.
+ */
+const BLOCKED_ATTEMPT_NOTE_PATTERN = /\s*(Blocked:\s\S.*)$/i;
+
+const INTERNAL_NO_PROGRESS_MESSAGE =
+  /the page did not expose a new form state after the previous safe advance\. the runtime stopped instead of repeating a control or guessing at page behavior\.?/i;
+export const NO_PROGRESS_MESSAGE =
+  "This page did not change after Job Finder moved forward, so it stopped to avoid repeating the same action.";
+
+/** Rewrites known recorded runtime language before it reaches any screen. */
+export function plainRecordedJobFinderText(value: string): string {
+  return value.replace(INTERNAL_NO_PROGRESS_MESSAGE, NO_PROGRESS_MESSAGE);
+}
+
+export function splitBlockedAttemptNote(value: string | null | undefined): {
+  message: string;
+  technicalDetails: string | null;
+} {
+  const text = plainRecordedJobFinderText(value?.trim() ?? "");
+  const match = BLOCKED_ATTEMPT_NOTE_PATTERN.exec(text);
+
+  if (!match?.[1]) {
+    return { message: text, technicalDetails: null };
+  }
+
+  const message = text.slice(0, match.index).trim();
+
+  // A note with no sentence in front of it stays visible: hiding the only
+  // thing that was recorded would leave an empty card.
+  if (!message) {
+    return { message: text, technicalDetails: null };
+  }
+
+  return { message, technicalDetails: match[1].trim() };
 }

@@ -40,12 +40,16 @@ import type { WorkspaceServiceContext } from "./workspace-service-context";
 export const AUTOMATIC_FAILURE_WINDOW_DAYS = 7;
 
 /** Stable pause id prefixes; campaign ids are appended to keep policies scoped. */
-export const AUTOMATIC_DISCOVERY_FAILURE_PAUSE_ID =
-  "automatic_discovery_failures";
-export const AUTOMATIC_SOURCE_DEBUG_FAILURE_PAUSE_ID =
-  "automatic_source_debug_failures";
-export const AUTOMATIC_APPLICATION_FAILURE_PAUSE_ID =
-  "automatic_application_failures";
+import {
+  AUTOMATIC_DISCOVERY_FAILURE_PAUSE_ID,
+  AUTOMATIC_SOURCE_DEBUG_FAILURE_PAUSE_ID,
+  AUTOMATIC_APPLICATION_FAILURE_PAUSE_ID,
+} from "../plan-safeguard-pauses";
+export {
+  AUTOMATIC_DISCOVERY_FAILURE_PAUSE_ID,
+  AUTOMATIC_SOURCE_DEBUG_FAILURE_PAUSE_ID,
+  AUTOMATIC_APPLICATION_FAILURE_PAUSE_ID,
+} from "../plan-safeguard-pauses";
 /** Default quality sample ratio for legacy campaigns without the new policy. */
 const AUTOMATIC_QUALITY_REVIEW_MIN_BATCH = 3;
 export const AUTOMATIC_QUALITY_REVIEW_SAMPLE_RATIO = 0.2;

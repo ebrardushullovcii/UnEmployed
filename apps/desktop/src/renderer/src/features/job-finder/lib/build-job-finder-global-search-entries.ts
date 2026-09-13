@@ -64,7 +64,7 @@ export function buildJobFinderGlobalSearchEntries(
     (campaign) => campaign.id === workspace.activeCampaignId,
   );
   const campaignLabelFor = (campaignId: string | null) =>
-    campaignId ? (campaignNameById.get(campaignId) ?? "Campaign") : null;
+    campaignId ? (campaignNameById.get(campaignId) ?? "Search plan") : null;
   const isInActivePlan = (jobId: string) =>
     campaignIdsByJobId.get(jobId)?.has(workspace.activeCampaignId) ?? false;
   // Nothing the app says it saved may be unfindable: Home advertises every

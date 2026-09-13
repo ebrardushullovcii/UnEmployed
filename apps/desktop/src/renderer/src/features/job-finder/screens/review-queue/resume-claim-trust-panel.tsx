@@ -26,7 +26,22 @@ function isBlockingClaim(claim: ResumeClaimAssessment) {
   );
 }
 
-function formatOriginLabel(origin: ResumeDraftOrigin) {
+/**
+ * What a line is, as the person reads it.
+ *
+ * A claim marked "Exact evidence" is their own sentence, kept word for word;
+ * the origin field only records which pass last touched it, so printing
+ * "AI generated" beside "EXACT EVIDENCE" told them their own wording had been
+ * written for them. A verbatim line is credited to them.
+ */
+function formatOriginLabel(claim: ResumeClaimAssessment) {
+  if (claim.status === "exact") {
+    return "Your wording, kept word for word";
+  }
+  return formatDraftOriginLabel(claim.claimOrigin);
+}
+
+function formatDraftOriginLabel(origin: ResumeDraftOrigin) {
   switch (origin) {
     case "ai_generated":
       return "AI generated";
@@ -212,7 +227,7 @@ export function ResumeClaimTrustPanel(props: {
                     {claim.claimText}
                   </span>
                   <span className="mt-1 block text-(length:--text-small) text-foreground-muted">
-                    {formatOriginLabel(claim.claimOrigin)}
+                    {formatOriginLabel(claim)}
                   </span>
                 </span>
                 <StatusBadge tone={presentation.tone}>

@@ -100,7 +100,7 @@ describe("DiscoveryResultsPanel narrow search access", () => {
     const resultsPanel = screen.getByRole("region", { name: "Job results" });
     expect(
       within(resultsPanel).getByText(
-        "0 worth opening · 1 title match · 6 also found",
+        "1 matched your role, not scored yet · 6 also found",
       ),
     ).toBeTruthy();
     fireEvent.click(

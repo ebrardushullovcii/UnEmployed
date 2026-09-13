@@ -5,7 +5,8 @@ import type {
   JobFinderWorkspaceSnapshot,
   JobSearchCampaign,
 } from "@unemployed/contracts";
-import { buildDiscoveryCardOnlyEvidenceWarning } from "@unemployed/contracts";
+import { AbnormalFailurePauseSchema, buildDiscoveryCardOnlyEvidenceWarning } from "@unemployed/contracts";
+import { countWorkspaceNeedsYouItems } from "../../lib/needs-you-count";
 import {
   cleanup,
   fireEvent,
@@ -37,6 +38,26 @@ function notification(id: string, unread = true): CampaignNotification {
 }
 
 afterEach(cleanup);
+
+it("surfaces a safeguard above the recommendation and counts it until dismissal", () => {
+  const data = unblockedWorkspace();
+  const pause = AbnormalFailurePauseSchema.parse({ id: "automatic_discovery_failures:campaign-1",
+    windowStartedAt: "2026-09-12T00:00:00.000Z", failuresInWindow: 3, sampleSize: 8,
+    failureRatePercent: 37.5, failureRateThresholdPercent: 30, paused: true,
+    explanation: "Review failed searches.", recoveryGuidance: "Open Safeguards" });
+  data.intelligence.safeguards.abnormalFailurePauses = [pause];
+  const props = { activityPending: false, onSelectCampaign: vi.fn(), onNavigate: vi.fn(),
+    onNavigateGlobalEntry: vi.fn(), onPauseActivity: vi.fn(), onResumeActivity: vi.fn(), workspace: data };
+  const { rerender } = render(<JobSearchHomeScreen {...props} />);
+  const callout = screen.getByRole("heading", { name: "Paused after repeated failures (37.5% failed)" });
+  expect(callout.compareDocumentPosition(screen.getByText("Recommended next")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(countWorkspaceNeedsYouItems(data)).toBe(1);
+  data.intelligence.safeguards.safeguardDismissals.push({ id: "dismiss", kind: "abnormal_failure_pause",
+    referenceId: pause.id, reason: "user_resolved", note: null, dismissedAt: pause.windowStartedAt });
+  rerender(<JobSearchHomeScreen {...props} />);
+  expect(screen.queryByText(pause.explanation)).toBeNull();
+  expect(countWorkspaceNeedsYouItems(data)).toBe(0);
+});
 
 /**
  * The search-loop recommendation only owns the slot when nothing is blocked
@@ -493,7 +514,7 @@ describe("JobSearchHomeScreen", () => {
     expect(
       screen.getByTestId("source-health-problem-summary").textContent,
     ).toBe(
-      "25 sources had a problem in the last search · 18 couldn't be read · 3 stopped early · 4 found nothing",
+      "You stopped the last search, so 3 sources did not finish. 22 sources had a problem in the last search · 18 couldn't be read · 4 found nothing",
     );
     // The card-only evidence caveat keeps its own single line.
     const notices = screen.getAllByTestId("source-health-run-notice");
@@ -869,7 +890,7 @@ describe("JobSearchHomeScreen", () => {
     expect(screen.queryByText("Found today")).toBeNull();
   });
 
-  it("hides the idle pause control only for idle first runs and keeps operationally relevant surfaces", () => {
+  it("always offers the background-work switch and keeps operationally relevant surfaces", () => {
     const onPauseActivity = vi.fn();
     const firstRunBase = zeroMetricsWorkspace({
       profileSetupStatus: "not_started",
@@ -891,15 +912,15 @@ describe("JobSearchHomeScreen", () => {
       />,
     );
 
+    // The switch is findable before anything has run: people looking for a way
+    // to stop background work could not find one when it only appeared while
+    // work was in flight.
     expect(
-      screen.queryByRole("button", { name: "Pause background work" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "Pause background work" }),
+    ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Resume background work" }),
-    ).toBeNull();
-    expect(
-      screen.queryByText(/No browser or application work is running/),
-    ).toBeNull();
+      screen.getByText(/No browser or application work is running/),
+    ).toBeTruthy();
 
     const busyFirstRun = {
       ...firstRunBase,
@@ -974,14 +995,14 @@ describe("JobSearchHomeScreen", () => {
         workspace={workspace()}
       />,
     );
-    // An idle returning dashboard no longer spends Home's strongest slot on a
-    // rare maintenance control while nothing is running.
+    // An idle returning dashboard still states what is true and still offers
+    // the switch.
     expect(
-      screen.queryByRole("button", { name: "Pause background work" }),
-    ).toBeNull();
+      screen.getByRole("button", { name: "Pause background work" }),
+    ).toBeTruthy();
     expect(
-      screen.queryByText(/No browser or application work is running/),
-    ).toBeNull();
+      screen.getByText(/No browser or application work is running/),
+    ).toBeTruthy();
   });
 
   it("guides a campaign without sources to Profile's job sources", () => {
@@ -1272,13 +1293,9 @@ describe("JobSearchHomeScreen", () => {
       />,
     );
 
-    // One sentence, one vocabulary, and no duplicated verb: the shared count
-    // label already reads "15 new jobs saved · 35 duplicates merged".
-    expect(
-      screen.getByText(
-        /Your last search: 15 new jobs saved · 35 duplicates merged\./,
-      ),
-    ).toBeTruthy();
+    expect(screen.getByTestId("home-status-line").textContent).toContain(
+      "15 new jobs saved · 35 duplicates merged",
+    );
     expect(screen.queryByText(/saved 15 new jobs saved/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open Find jobs" }));
     expect(onNavigate).toHaveBeenCalledWith("/job-finder/discovery");
@@ -1305,11 +1322,9 @@ describe("JobSearchHomeScreen", () => {
       />,
     );
 
-    expect(
-      screen.getByText(
-        /Your last search: 50 new jobs saved on this device · 15 kept in your current search plan/,
-      ),
-    ).toBeTruthy();
+    expect(screen.getByTestId("home-status-line").textContent).toContain(
+      "50 new jobs saved on this device · 15 kept in your current search plan",
+    );
     // The two numbers are two populations, so they never share one verb: the
     // run's own number is never "kept" and the plan's is never "saved".
     expect(screen.queryByText(/50 new jobs kept/)).toBeNull();
@@ -1343,11 +1358,9 @@ describe("JobSearchHomeScreen", () => {
       />,
     );
 
-    expect(
-      screen.getByText(
-        /Your last search: 50 new jobs saved on this device · 15 kept in your current search plan/,
-      ),
-    ).toBeTruthy();
+    expect(screen.getByTestId("home-status-line").textContent).toContain(
+      "50 new jobs saved on this device · 15 kept in your current search plan",
+    );
     expect(screen.queryByText(/16 kept/)).toBeNull();
   });
 

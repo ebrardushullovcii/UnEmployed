@@ -6,6 +6,7 @@ import {
   createDiscoveryRunInterruptedFeedback,
   createDiscoveryRunRefreshIncompleteFeedback,
   createDiscoveryRunRepeatedFeedback,
+  createDiscoveryRunSafeguardPausedFeedback,
   createDiscoveryRunStartedFeedback,
   createDiscoveryRunSucceededFeedback,
   getDiscoveryCancelledSavedJobCount,
@@ -188,6 +189,19 @@ describe("discovery run feedback factories", () => {
     expect(singleSource.headline).toBe(
       "Search finished for Circle and results were saved on this device.",
     );
+  });
+
+  it("reports a safeguard pause as paused with the Safeguards route", () => {
+    const feedback = createDiscoveryRunSafeguardPausedFeedback(
+      "/job-finder/safeguards",
+    );
+
+    expect(feedback.status).toBe("paused");
+    expect(feedback.headline).toBe("Search paused by a safety limit");
+    expect(feedback.safeguardAction).toEqual({
+      label: "Open Safeguards",
+      route: "/job-finder/safeguards",
+    });
   });
 
   it("explains when every reviewed listing was already saved", () => {

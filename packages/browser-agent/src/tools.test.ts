@@ -545,7 +545,7 @@ describe("LinkedIn extraction helpers", () => {
             "https://www.linkedin.com/jobs/view/full-circle-broad-root/",
           lines: expect.arrayContaining([
             "Full Circle Agency • Pristina (Remote) Dismiss Full Stack Developer (AI-First) job Viewed · Posted 1 month ago",
-          ]),
+          ]) as unknown,
         }),
       ]),
     );

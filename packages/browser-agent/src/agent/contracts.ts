@@ -4,15 +4,19 @@ import type { getToolDefinitions } from '../tools'
 
 export type AgentExtractorPageType = 'search_results' | 'job_detail'
 
+// Both collaborators are injected plain functions that never read `this`, so
+// they are declared as function-typed properties rather than methods. The
+// shapes are identical; the difference is that a caller may hold the function
+// on its own — which every test double and every assertion about one does.
 export interface LLMClient {
-  chatWithTools(
+  chatWithTools: (
     messages: AgentMessage[],
     tools: ReturnType<typeof getToolDefinitions>,
     options?: {
       signal?: AbortSignal
       maxOutputTokens?: number
     }
-  ): Promise<{
+  ) => Promise<{
     content?: string
     toolCalls?: ToolCall[]
     reasoning?: string
@@ -20,13 +24,13 @@ export interface LLMClient {
 }
 
 export interface JobExtractor {
-  extractJobsFromPage(input: {
+  extractJobsFromPage: (input: {
     pageText: string
     pageUrl: string
     pageType: AgentExtractorPageType
     maxJobs: number
     signal?: AbortSignal
-  }): Promise<Array<
+  }) => Promise<Array<
     Pick<
       JobPosting,
       | 'sourceJobId'

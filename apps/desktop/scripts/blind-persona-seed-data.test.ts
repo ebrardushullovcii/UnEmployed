@@ -959,11 +959,16 @@ describe("blind persona deterministic seed data", () => {
     expect(stableBlindPersonaSerialization(first.P14).length).toBeLessThan(
       100_000,
     );
+    // Pinned against the persisted-state schema of the day. A deliberate
+    // contract change (a new persisted field, a new default) moves these; an
+    // accidental change to the seed data moves them too, which is the point.
+    // Regenerate both together, never one, and only alongside the schema
+    // change that explains it.
     expect(calculateBlindPersonaStateDigest(first.P13)).toBe(
-      "3a919ac27ff314d69b50da9a72bbbf18644b0f0ba4a8f55e53f258a8bc6ea587",
+      "513f0ea817345e9c3ba717f2d3877df57a26d549181666dc2873607c49400d3d",
     );
     expect(calculateBlindPersonaStateDigest(first.P14)).toBe(
-      "56627feba69bee1b57a477df4efab525edafe167657d8528b1447e678dbb9026",
+      "f9f3bf1d8394f200af0ce2ae7a6fac9bd4a50c84281a59fa65386326ba573b1c",
     );
     expect(calculateBlindPersonaStateDigest(first.P13)).toBe(
       calculateBlindPersonaStateDigest(second.P13),

@@ -38,7 +38,7 @@ Other entry points: `pnpm test:correctness`, `pnpm test:performance` (serial, no
 
 ## Fit calibration gate
 
-- `pnpm job-finder:fit-calibration` (also in `pnpm verify`) compares against the single baseline `packages/job-finder/test-fixtures/fit-calibration-baseline-v9.json`. It fails on the quality gates and on any `schemaVersion`, `corpusVersion`, or `scorerVersion` drift between run and baseline.
+- `pnpm job-finder:fit-calibration` (also in `pnpm verify`) compares against the single baseline `packages/job-finder/test-fixtures/fit-calibration-baseline-v10.json`. It fails on the quality gates and on any `schemaVersion`, `corpusVersion`, or `scorerVersion` drift between run and baseline.
 - Bumping `MATCH_ASSESSMENT_SCORER_VERSION` is expected to fail the gate until the baseline is regenerated. Read the case diff first, then run `node scripts/run-fit-calibration-benchmark.cjs --output <new-baseline>` and rename the baseline file plus both `package.json` references together so exactly one baseline exists. `--report-only` never fails and is not a gate.
 
 ## Benchmarks

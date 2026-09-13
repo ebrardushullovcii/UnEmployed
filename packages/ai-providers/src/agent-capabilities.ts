@@ -392,7 +392,7 @@ export async function runProfileCopilotAgentTask(input: {
               minItems: 1,
               items: { type: "object", additionalProperties: true },
               description:
-                "Each entry carries an operation discriminator (for example replace_identity_fields, upsert_experience_record, remove_link_record, resolve_review_items) plus its payload: value, record, recordId, or reviewItemIds with resolutionStatus.",
+                "Each entry carries an operation discriminator (for example replace_identity_fields, upsert_experience_record, remove_link_record, remove_profile_list_entries, resolve_review_items) plus its payload: value, record, recordId, field with values, or reviewItemIds with resolutionStatus. To take one skill, saved location, or target role out of a list, use remove_profile_list_entries with the field and the exact entries to remove; never resend the whole list to drop one item, and never remove an entry the person did not name.",
             },
           },
           ["summary", "operations"],

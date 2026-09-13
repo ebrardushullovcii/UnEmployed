@@ -10,6 +10,66 @@ import { createJobIdentityIndex } from "./job-identity";
 
 type ActivityCandidate = Exclude<ListingActivity, { status: "unknown" }>;
 
+/**
+ * Phrases a listing uses to say it is over.
+ *
+ * One list, shared with discovery title triage, so a phrase added for either
+ * surface closes the listing everywhere. Matching stays on whole phrases
+ * rather than on a board name or a URL shape: nothing here is specific to any
+ * one job site.
+ */
+export const CLOSED_LISTING_BODY_PATTERN =
+  /\b(?:no longer accepting applications|no longer accepting candidates|not accepting (?:new )?applications|closed to new applicants|no longer available|no longer active|this (?:job|position|role|listing|vacancy|opening) (?:(?:has been|was) (?:filled|closed|removed|archived|expired)|is now (?:filled|closed|removed|archived|expired)|is (?:closed|removed|archived|expired|no longer open))|(?:this )?(?:position|role|vacancy|opening) (?:has been|was|is now) filled|(?:job|position|listing|vacancy|opening) has (?:closed|expired|ended)|applications? (?:are|is|have) (?:now )?closed|this posting (?:has expired|is closed|is no longer active)|hiring for this (?:job|role|position) has (?:closed|ended)|we are no longer hiring for this|we have filled this)\b/iu;
+
+const CONDITIONAL_CLOSURE_PREFIX_PATTERN =
+  /\b(?:after|before|if|once|until|when)\b[^.!?]*$/iu;
+
+/**
+ * The captured listing text, in the order a closure sentence usually appears.
+ * Only text the app actually stored is read; nothing is fetched here.
+ */
+function listingText(job: SavedJob): string {
+  return [job.summary, job.description, job.title]
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+}
+
+/** The closure phrase the listing itself used, or null. */
+export function findClosedListingPhrase(job: SavedJob): string | null {
+  for (const sentence of listingText(job).split(/(?<=[.!?])\s+|\r?\n+/u)) {
+    const match = CLOSED_LISTING_BODY_PATTERN.exec(sentence);
+    if (
+      match &&
+      !CONDITIONAL_CLOSURE_PREFIX_PATTERN.test(sentence.slice(0, match.index))
+    ) {
+      return match[0];
+    }
+  }
+  return null;
+}
+
+function closedByOwnTextCandidate(
+  job: SavedJob,
+): ActivityCandidate | undefined {
+  const phrase = findClosedListingPhrase(job);
+  if (!phrase) {
+    return undefined;
+  }
+
+  // Same instant as the "last seen" observation it overrides, so the closure
+  // wins the tie instead of losing to the sighting that captured it.
+  const observedAt = job.lastSeenAt ?? job.firstSeenAt ?? job.discoveredAt;
+  return {
+    status: "closed",
+    observedAt,
+    signalId: `listing-text:${job.id}`,
+    provenance: "system",
+    explanation: "The listing's own text says it is no longer open.",
+    detail: `The page says "${phrase}".`,
+    confidence: 1,
+  };
+}
+
 const activityTiePriority: Record<ActivityCandidate["status"], number> = {
   active: 0,
   inactive: 1,
@@ -73,6 +133,16 @@ export function projectDiscoveryJobViews(input: {
   for (const job of input.jobs) {
     const active = activeCandidate(job);
     if (active) candidateByJob.set(job, active);
+    // A listing that says it is closed is closed, whatever the last sighting
+    // claimed. This used to leave such a posting labelled Active and free to
+    // rank first.
+    const closedByOwnText = closedByOwnTextCandidate(job);
+    if (closedByOwnText) {
+      candidateByJob.set(
+        job,
+        newerActivity(candidateByJob.get(job), closedByOwnText),
+      );
+    }
     uniqueJobById.set(job.id, uniqueJobById.has(job.id) ? null : job);
   }
 
