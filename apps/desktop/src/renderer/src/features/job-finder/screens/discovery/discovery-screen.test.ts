@@ -16,7 +16,9 @@ import {
 } from "./discovery-screen";
 import {
   DISCOVERY_BROWSER_BLOCKED_REASON,
+  DISCOVERY_OFFLINE_RUNTIME_LABEL,
   DISCOVERY_OFFLINE_SEARCH_REASON,
+  getDiscoveryRuntimeProjection,
   getDiscoverySearchReadiness,
 } from "./discovery-search-readiness";
 
@@ -250,6 +252,44 @@ describe("getDiscoverySearchReadiness", () => {
     expect(noRole.reason).toContain("target role or job family");
     expect(noSource.ready).toBe(false);
     expect(noSource.reason).toContain("job-source URL");
+  });
+
+  it("treats a fresh workspace whose browser session was never started as agent-backed", () => {
+    // A workspace that has never run discovery has no adapter session at all.
+    // The only true blocker is its empty setup, so nothing here may claim the
+    // search runtime is offline: the run opens the browser itself.
+    const session = { driver: "uninitialized", status: "unknown" } as const;
+    const runtime = getDiscoveryRuntimeProjection(session);
+    const readiness = getDiscoverySearchReadiness(
+      createSearchPreferences(),
+      session,
+    );
+
+    expect(runtime.isOffline).toBe(false);
+    expect(runtime.capability).toBe("agent_backed");
+    expect(readiness.blocker).toBe("no_enabled_sources");
+    expect(readiness.reason).toBe(
+      "Add or enable at least one valid public job-source URL before searching.",
+    );
+    expect(readiness.reason).not.toContain(DISCOVERY_OFFLINE_SEARCH_REASON);
+    expect(readiness.reason).not.toContain(DISCOVERY_OFFLINE_RUNTIME_LABEL);
+  });
+
+  it("keeps an uninitialized session searchable once roles and a source exist", () => {
+    const readiness = getDiscoverySearchReadiness(
+      createSearchPreferences({
+        targetRoles: ["Engineer"],
+        discovery: {
+          historyLimit: 5,
+          targets: [createDiscoveryTarget()],
+        },
+      }),
+      { driver: "uninitialized", status: "unknown" },
+    );
+
+    expect(readiness.ready).toBe(true);
+    expect(readiness.blocker).toBeNull();
+    expect(readiness.reason).toBeNull();
   });
 
   it("separates complete filters from an unavailable offline catalog runtime", () => {

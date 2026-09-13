@@ -29,7 +29,10 @@ import {
   buildRequirementEvidenceAssessment,
   collectTechnologySignals,
 } from "./matching-requirements";
-import { canonicalizeLocationAliases } from "./location-normalization";
+import {
+  canonicalizeLocationAliases,
+  resolveStatedLocationPlace,
+} from "./location-normalization";
 import {
   createJobIdentityDigest,
   createJobIdentityIndex,
@@ -1421,7 +1424,13 @@ export function assessLocationCompatibility(
     return "unknown";
   }
 
-  const candidateSignal = readLocationGeographySignal(candidate);
+  // A board writes how the work is done and where it is in one cell
+  // ("Hiring Remotely in Chicago, IL, USA", "Remote in Chicago"). Only the
+  // place part can answer the geographic question, so the work-mode lead-in
+  // and the trailing country come off before the comparison.
+  const candidateSignal = readLocationGeographySignal(
+    resolveStatedLocationPlace(candidate),
+  );
   const desiredSignals = desiredPlaces.map(readLocationGeographySignal);
 
   if (candidateSignal.genericTokens.length === 0) {
@@ -1782,6 +1791,137 @@ function inferCareerStage(value: string): CareerStage {
   return "unknown";
 }
 
+/**
+ * Words that say what level a role sits at, or name the head noun every
+ * office role shares. They are never what makes a saved role that role.
+ */
+const ROLE_HEAD_NOUN_TOKENS = new Set([
+  "junior",
+  "senior",
+  "staff",
+  "lead",
+  "principal",
+  "associate",
+  "assistant",
+  "manager",
+  "managing",
+  "management",
+  "director",
+  "head",
+  "chief",
+  "officer",
+  "specialist",
+  "coordinator",
+  "consultant",
+  "analyst",
+  "engineer",
+  "developer",
+  "owner",
+  "supervisor",
+  "advisor",
+  "executive",
+  "representative",
+  "administrator",
+  "i",
+  "ii",
+  "iii",
+  "iv",
+]);
+
+/**
+ * Words that stand for the same kind of work. A saved "Marketing Manager" is
+ * still asked for by a "Demand Generation Manager"; it is not asked for by a
+ * "Manager, Financial Reporting". Vocabulary only — no board, no employer.
+ */
+const ROLE_VOCABULARY_FAMILIES: readonly (readonly string[])[] = [
+  [
+    "marketing",
+    "brand",
+    "growth",
+    "demand",
+    "generation",
+    "lifecycle",
+    "campaign",
+    "communications",
+    "seo",
+    "content",
+  ],
+  ["sales", "revenue", "partnerships", "affiliate", "affiliates", "account"],
+  ["finance", "financial", "accounting", "treasury", "audit"],
+  ["people", "talent", "recruiting", "recruitment", "hr"],
+  ["support", "success", "service", "customer"],
+  ["data", "analytics", "ml", "ai"],
+  ["product", "ux", "design"],
+  ["software", "platform", "backend", "frontend", "infrastructure"],
+];
+
+function sharesRoleVocabulary(
+  token: string,
+  candidateTokens: ReadonlySet<string>,
+): boolean {
+  return ROLE_VOCABULARY_FAMILIES.some(
+    (family) =>
+      family.includes(token) &&
+      family.some((relative) => candidateTokens.has(relative)),
+  );
+}
+
+/**
+ * True when the listing title has nothing in common with any saved target
+ * role but the head noun or a level word.
+ *
+ * A "Marketing Manager" search returned "Manager Credit Risk", "Manager,
+ * Financial Reporting" and "Product Owner, Workday ERP" under "Matches your
+ * role, not yet scored" while no marketing title was in that band: sharing
+ * "Manager" is not being the role the person asked for. Such a title is a
+ * weaker match, never a clear mismatch — it is not in conflict with anything,
+ * it simply is not the role.
+ */
+function sharesOnlyRoleHeadNoun(
+  title: string,
+  targetRoles: readonly string[],
+): boolean {
+  const titleTokens = new Set(tokenize(title));
+  if (titleTokens.size === 0) {
+    return false;
+  }
+
+  const titleFamilies = collectRoleFamilies(title);
+  let anyRoleIsDistinguishable = false;
+
+  for (const role of targetRoles) {
+    // The occupational taxonomy already placed both in one family ("Website
+    // Developer" for a saved "Software Engineer"). That is the adjacency the
+    // scorer records, and this rule does not second-guess it.
+    const sharedFamily = [...collectRoleFamilies(role)].some((family) =>
+      titleFamilies.has(family),
+    );
+    if (sharedFamily) {
+      return false;
+    }
+
+    const distinguishing = tokenize(role).filter(
+      (token) => !ROLE_HEAD_NOUN_TOKENS.has(token),
+    );
+    if (distinguishing.length === 0) {
+      // The saved role is a bare head noun ("Manager"); it distinguishes
+      // nothing, so this rule has no opinion about it.
+      continue;
+    }
+
+    anyRoleIsDistinguishable = true;
+    const sharesSubject = distinguishing.some(
+      (token) =>
+        titleTokens.has(token) || sharesRoleVocabulary(token, titleTokens),
+    );
+    if (sharesSubject) {
+      return false;
+    }
+  }
+
+  return anyRoleIsDistinguishable;
+}
+
 function titleSignalOverlapCount(
   postingTitle: string,
   targetRoles: readonly string[],
@@ -1819,9 +1959,11 @@ export function createMatchAssessment<
     hasRoleFamilyMismatch(posting.title, searchPreferences.targetRoles) ||
     isSalesOrientedEngineeringListing(posting);
   const roleFamilyUnclear =
-    searchPreferences.targetRoles.some(
+    (searchPreferences.targetRoles.some(
       (role) => collectRoleFamilies(role).size > 0,
-    ) && collectRoleFamilies(posting.title).size === 0;
+    ) &&
+      collectRoleFamilies(posting.title).size === 0) ||
+    sharesOnlyRoleHeadNoun(posting.title, searchPreferences.targetRoles);
   // "compatible" covers both "no saved constraint" and "verified match", so
   // every branch below that distinguishes the two counts the real saved
   // places rather than the raw list: a placeholder-only preference states no

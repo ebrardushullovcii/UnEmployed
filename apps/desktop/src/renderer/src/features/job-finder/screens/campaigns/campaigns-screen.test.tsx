@@ -2005,6 +2005,42 @@ describe("a finished run reports one set of numbers", () => {
     expect(newTile.textContent).not.toContain("100");
   });
 
+  it("agrees with its own headline about how many were already here", () => {
+    const plan = planWithDigest("two", "Chicago marketing manager");
+    plan.latestDigest = {
+      ...plan.latestDigest!,
+      // The sighting tally recorded nothing; the frozen run report says seven
+      // of the listings were already saved. The headline printed the report's
+      // number while the breakdown printed the tally's zero.
+      counts: { ...plan.latestDigest!.counts, known: 0 },
+      report: { ...runReport, found: 50, new: 43, duplicates: 7 },
+    };
+
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[plan]}
+        discoveryRuns={[]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("What the last run found"));
+    const digest = screen.getByText("What the last run found")
+      .parentElement as HTMLElement;
+
+    expect(
+      within(digest).getByText(
+        "50 looked at · 43 new · 15 kept · 7 already here · 15-job plan limit reached",
+      ),
+    ).toBeTruthy();
+    const seenBeforeTile = within(digest).getByText("Seen before")
+      .parentElement as HTMLElement;
+    expect(seenBeforeTile.textContent).toContain("7");
+  });
+
   it("does not count a failed source as completed and names its reason", () => {
     const plan = planWithDigest("one", "Chicago marketing manager");
     plan.latestDigest = {
@@ -2236,5 +2272,126 @@ describe("Run now while a search is running", () => {
 
     const button = screen.getByRole("button", { name: "Run now" });
     expect(button.hasAttribute("disabled")).toBe(false);
+  });
+});
+
+describe("arriving from a Find jobs plan link", () => {
+  it("opens that plan's editor instead of leaving the person on the plan list", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "First", "precision")]}
+        editCampaignId="one"
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(screen.getByText("Edit search plan")).toBeTruthy();
+    expect(screen.getByLabelText<HTMLInputElement>("Name").value).toBe(
+      "First",
+    );
+  });
+
+  it("leaves the plan list alone when no plan editor was requested", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[campaign("one", "First", "precision")]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    expect(screen.queryByText("Edit search plan")).toBeNull();
+  });
+});
+
+describe("a run that failed before it reached a source", () => {
+  const planWithFailedRun = () =>
+    ({
+      ...campaign("one", "Chicago marketing manager", "precision"),
+      latestDigest: {
+        id: "digest_run_failed",
+        campaignId: "one",
+        discoveryRunId: "run_failed",
+        generatedAt: "2026-09-12T12:42:00.000Z",
+        counts: {
+          new: 0,
+          changed: 0,
+          reactivated: 0,
+          inactive: 0,
+          known: 0,
+          skipped: 0,
+        },
+        report: null,
+        failedSources: [],
+        jobIds: [],
+      },
+    }) as unknown as JobSearchCampaign;
+
+  const failedRun = (warnings: readonly string[]) =>
+    ({
+      id: "run_failed",
+      campaignId: "one",
+      state: "failed",
+      runPhase: "complete",
+      scope: "run_all",
+      startedAt: "2026-09-12T12:42:00.000Z",
+      completedAt: "2026-09-12T12:42:00.000Z",
+      targetIds: [],
+      targetExecutions: [],
+      activity: [],
+      summary: { warnings: [...warnings] },
+    }) as unknown as DiscoveryRunRecord;
+
+  it("says why the run failed instead of reporting no source problems", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[planWithFailedRun()]}
+        discoveryRuns={[
+          failedRun([
+            "This plan has no job sites to search; add one in Profile.",
+          ]),
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("What the last run found"));
+
+    expect(
+      screen.getByText(
+        "This plan has no job sites to search; add one in Profile.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("No source problems in this run.")).toBeNull();
+  });
+
+  it("still reports no source problems for a run that finished", () => {
+    render(
+      <CampaignsScreen
+        activeCampaignId="one"
+        campaigns={[planWithFailedRun()]}
+        discoveryRuns={[
+          {
+            ...failedRun([]),
+            state: "completed",
+          } as unknown as DiscoveryRunRecord,
+        ]}
+        onSaveCampaign={vi.fn()}
+        onSelectCampaign={vi.fn()}
+        pending={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("What the last run found"));
+
+    expect(screen.getByText("No source problems in this run.")).toBeTruthy();
   });
 });

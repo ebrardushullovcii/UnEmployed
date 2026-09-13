@@ -410,17 +410,20 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
       await page.fill("#email", "alex@example.com");
       await page.click("#beacon");
       await page.waitForTimeout(700);
-      // The path is an analytics collector, so it remains telemetry even
-      // when a site includes a prepared value in its query string.
-      expect(requestHitsFor(app.hits, "/collect")).toHaveLength(1);
+      // A collector path is still a request that carries the value the person
+      // typed. Prepare-only refuses any read the moment it would send a
+      // prepared answer, wherever it is addressed, so this one is a leak and
+      // not telemetry.
+      expect(requestHitsFor(app.hits, "/collect")).toHaveLength(0);
       expect(requestHitsFor(app.hits, "/api/graphql")).toHaveLength(1);
       const snapshot = await ensurePrepareOnlyMutationGuard(page, false);
       const leaking = snapshot.blockedAttempts.filter(
         (attempt) =>
           attempt.kind === "fetch" &&
-          (attempt.url ?? "").includes("op=Check"),
+          ((attempt.url ?? "").includes("/collect") ||
+            (attempt.url ?? "").includes("op=Check")),
       );
-      expect(leaking).toHaveLength(1);
+      expect(leaking).toHaveLength(2);
       expect(leaking.every((attempt) => attempt.carriedPreparedValue)).toBe(
         true,
       );

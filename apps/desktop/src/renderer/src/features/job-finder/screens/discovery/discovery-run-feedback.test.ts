@@ -1,4 +1,7 @@
-import { buildDiscoveryCardOnlyEvidenceWarning } from "@unemployed/contracts";
+import {
+  DISCOVERY_NO_JOB_SITES_MESSAGE,
+  buildDiscoveryCardOnlyEvidenceWarning,
+} from "@unemployed/contracts";
 import { describe, expect, it } from "vitest";
 import {
   createDiscoveryRunCancelledFeedback,
@@ -25,6 +28,19 @@ describe("discovery run failure recovery classification", () => {
     expect(recovery.kind).toBe("source_setup");
     expect(recovery.headline).toContain("human verification check");
     expect(recovery.actionLabel).toBe("Review job sources");
+  });
+
+  it("sends a plan with no job sites to Profile instead of calling it unexpected", () => {
+    const recovery = getDiscoveryRunFailureRecovery(
+      DISCOVERY_NO_JOB_SITES_MESSAGE,
+    );
+
+    expect(recovery.kind).toBe("source_setup");
+    expect(recovery.headline).toBe("This plan has no job sites to search.");
+    expect(recovery.actionLabel).toBe("Review job sources");
+    expect(recovery.nextStep).toBe(
+      "Add a job site in Profile, then run this plan again.",
+    );
   });
 
   it("names a sign-in wall and offers the browser", () => {

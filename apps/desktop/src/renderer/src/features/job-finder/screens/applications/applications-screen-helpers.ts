@@ -3,6 +3,7 @@ import type {
   ApplicationRecord,
   GlobalDailyApplicationPreparationCapacity,
 } from "@unemployed/contracts";
+import { FAILURE_SENTENCES } from "../../lib/describe-failure";
 import {
   formatDailyPreparationCapacityReachedText,
   isDailyPreparationCapacityExhausted,
@@ -19,11 +20,27 @@ import type { ApplicationsViewFilter } from "./applications-filters";
 export function resolveVisibleRouteActionMessage(input: {
   actionMessage: string | null | undefined;
   dailyPreparationCapacity: GlobalDailyApplicationPreparationCapacity | null;
+  /**
+   * How many jobs of the newest finished automatic run are waiting on the
+   * person. Zero (or absent) means no batch outcome is on screen.
+   */
+  latestRunAttentionCount?: number;
 }): string | null {
   const { actionMessage, dailyPreparationCapacity } = input;
 
   if (!actionMessage) {
     return null;
+  }
+
+  // A batch that ended with jobs waiting on the person is an application
+  // outcome, not a form they mis-filled. The thrown text a failed run carries
+  // is developer-shaped, so the shared classifier lands it in the
+  // form-validation family and Applications printed "Check the fields you
+  // just changed and try again" over a run nobody had edited a field for.
+  // The run's own counters are the truth here, so they write the sentence.
+  const attentionCount = input.latestRunAttentionCount ?? 0;
+  if (actionMessage === FAILURE_SENTENCES.invalid_details && attentionCount > 0) {
+    return formatApplicationsNeedYouSentence(attentionCount);
   }
 
   if (
@@ -44,6 +61,16 @@ export function resolveVisibleRouteActionMessage(input: {
   }
 
   return actionMessage;
+}
+
+/**
+ * The application failure family, in the voice of the failure copy table:
+ * what happened, then the one thing to do about it.
+ */
+export function formatApplicationsNeedYouSentence(count: number): string {
+  return count === 1
+    ? "1 application needs you; open it to see what the site asked for."
+    : `${count} applications need you; open each to see what the site asked for.`;
 }
 
 const BROWSER_HANDOFF_CONFIRMATION_PATTERN =

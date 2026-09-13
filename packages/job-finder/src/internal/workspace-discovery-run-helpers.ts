@@ -282,6 +282,7 @@ export function applyDiscoveryRunRetentionCounts(
   counts: {
     measuredAt: string;
     new?: number;
+    alreadyHere?: number;
     retained: number;
     worthOpening: number;
   },
@@ -296,6 +297,7 @@ export function applyDiscoveryRunRetentionCounts(
       report: DiscoveryRunReportSchema.parse({
         ...report,
         new: counts.new ?? report.new,
+        alreadyHere: counts.alreadyHere ?? report.alreadyHere,
         retained: counts.retained,
         worthOpening: counts.worthOpening,
       }),

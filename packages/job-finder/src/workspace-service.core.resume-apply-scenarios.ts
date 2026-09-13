@@ -2389,11 +2389,16 @@ describe("createJobFinderWorkspaceService", () => {
 
     const approvedSnapshot = await workspaceService.approveApplyRun(runId!);
 
+    // A job that reached its review checkpoint has finished this batch's
+    // attempt, so only jobs the queue has not reached count as pending. A
+    // prepare-only queue that reached the end of its list is therefore
+    // complete with nothing pending; the per-job results below carry the
+    // "awaiting review" truth.
     expect(approvedSnapshot.applyRuns[0]).toMatchObject({
       id: runId,
-      state: "paused_for_user_review",
+      state: "completed",
       submittedJobs: 0,
-      pendingJobs: 2,
+      pendingJobs: 0,
     });
     expect(approvedSnapshot.applyJobResults).toEqual(
       expect.arrayContaining([

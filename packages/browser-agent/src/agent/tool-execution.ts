@@ -1003,6 +1003,7 @@ export async function executeToolCall(
         fastPathJobs,
         state,
         config.source,
+        { pageText: extractData.pageText },
       );
       const remainingJobsAfterFastPath = Math.max(
         0,
@@ -1159,6 +1160,7 @@ export async function executeToolCall(
         extractedJobs,
         state,
         config.source,
+        { pageText: extractData.pageText },
       );
       const totalAddedCount = fastPathAddedCount + addedCount;
 

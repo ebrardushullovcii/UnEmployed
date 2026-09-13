@@ -354,8 +354,11 @@ describe("progressive public API discovery", () => {
       jobsPersisted: 0,
     });
     expect(slowExecution?.warning).toMatch(/returned 503/i);
+    // A failed source is terminal but not completed: the campaign's terminal
+    // commit persists the canonical denominator so nothing reports the 503
+    // source inside "2 of 2 sources finished".
     expect(run?.summary).toMatchObject({
-      targetsCompleted: 2,
+      targetsCompleted: 1,
       jobsPersisted: 1,
       outcome: "completed",
     });

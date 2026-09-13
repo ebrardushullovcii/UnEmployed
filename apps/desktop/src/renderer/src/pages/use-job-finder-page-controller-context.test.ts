@@ -212,7 +212,7 @@ describe("buildJobFinderPageContext campaign schedule and notifications", () => 
     await context.onRunCampaignNow("campaign_b");
 
     expect(getDiscoveryRunFeedback()?.headline).toContain(
-      "5 found · 0 new · 15 kept",
+      "5 looked at · 0 new · 15 kept · 5 already here",
     );
   });
 

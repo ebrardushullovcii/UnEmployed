@@ -764,6 +764,80 @@ describe("buildJobFinderTaskCenterModel", () => {
     expect(task.reviewRoute).toBe("/job-finder/safeguards");
   });
 
+  test("offers the same recovery action after a failed batch left blocked jobs", () => {
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        applyRuns: [
+          createApplyRun({
+            state: "failed",
+            jobIds: ["job_1", "job_2"],
+            totalJobs: 2,
+            pendingJobs: 0,
+            blockedJobs: 1,
+          }),
+        ],
+        applyJobResults: [
+          {
+            id: "result_blocked",
+            runId: "apply_current",
+            jobId: "job_1",
+            applicationRecordId: "application_1",
+            state: "blocked",
+            blockerReason: "required_human_input",
+            updatedAt: "2026-07-31T10:00:06.000Z",
+          },
+          {
+            id: "result_done",
+            runId: "apply_current",
+            jobId: "job_2",
+            applicationRecordId: "application_2",
+            state: "prepared",
+            updatedAt: "2026-07-31T10:00:07.000Z",
+          },
+        ] as unknown as JobFinderWorkspaceSnapshot["applyJobResults"],
+      }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+    });
+    const task = findTask(model, "apply");
+
+    expect(task.status).toBe("failed");
+    expect(task.resumeActionLabel).toBe("Prepare remaining jobs");
+    expect(task.resumeRoute).toBe("/job-finder/applications");
+    expect(task.applyRecoveryJobIds).toEqual(["job_1"]);
+  });
+
+  test("keeps Open Applications when a finished batch left nothing to prepare", () => {
+    const model = buildJobFinderTaskCenterModel({
+      workspace: createWorkspace({
+        applyRuns: [
+          createApplyRun({
+            state: "failed",
+            jobIds: ["job_1"],
+            totalJobs: 1,
+            pendingJobs: 0,
+          }),
+        ],
+        applyJobResults: [
+          {
+            id: "result_done",
+            runId: "apply_current",
+            jobId: "job_1",
+            applicationRecordId: "application_1",
+            state: "prepared",
+            updatedAt: "2026-07-31T10:00:07.000Z",
+          },
+        ] as unknown as JobFinderWorkspaceSnapshot["applyJobResults"],
+      }),
+      isDiscoveryPending: false,
+      isResumeImportPending: false,
+    });
+    const task = findTask(model, "apply");
+
+    expect(task.resumeActionLabel).toBe("Open Applications");
+    expect(task.applyRecoveryJobIds).toBeUndefined();
+  });
+
   test("clears the paused task after the last application handoff is cancelled", () => {
     const run = createApplyRun({
       state: "paused_for_user_review",

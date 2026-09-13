@@ -515,7 +515,7 @@ describe("JobFinderShell section navigation", () => {
     // The traffic-light reserve is mirrored on the trailing edge, so
     // reserving it cannot push the centred switcher off the window centre.
     expect(brand?.style.paddingInlineEnd).toBe("5.5rem");
-    expect(brandName?.className).toContain("sm:text-[1.75rem]");
+    expect(brandName?.className).toContain("sm:text-[1.6rem]");
     expect(brandName?.className).not.toContain("xl:text-[2.7rem]");
     expect(screen.queryByRole("group", { name: "Window controls" })).toBeNull();
     // The switch sits in the brand row's leading track, which carries this

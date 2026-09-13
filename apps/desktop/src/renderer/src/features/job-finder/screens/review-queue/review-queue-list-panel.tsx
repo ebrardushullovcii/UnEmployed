@@ -43,6 +43,7 @@ import {
   getTailoredDraftPreparationResultMessage,
   isQueueStageReady,
   isResumeGenerationInProgress,
+  QUEUE_STAGE_RESUME_REQUIREMENT,
   type TailoredDraftPreparationViewState,
 } from "./review-queue-status";
 
@@ -515,7 +516,7 @@ export function ReviewQueueListPanel({
                     ? !queueReady
                       ? alreadyPrepared
                         ? "An application is already prepared for this job. Open it from Applications to continue."
-                        : "Batch preparation needs a ready resume file: an approved tailored PDF or unchanged original resume."
+                        : QUEUE_STAGE_RESUME_REQUIREMENT
                       : `Each employer-application batch can include up to ${APPLICATION_PREPARATION_BATCH_LIMIT} jobs. Deselect a job before choosing another.`
                     : null
                 }

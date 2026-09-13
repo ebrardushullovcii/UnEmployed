@@ -3887,6 +3887,576 @@ function buildJobFromStructuredData(
   };
 }
 
+/** Separators boards use between the employer and the rest of a card's meta line. */
+const CARD_META_SEGMENT_SEPARATOR = /\s*[|•·]\s*/u;
+
+function countUnclosedParentheses(value: string): number {
+  let depth = 0;
+  for (const character of value) {
+    if (character === "(") depth += 1;
+    else if (character === ")") depth = Math.max(0, depth - 1);
+  }
+  return depth;
+}
+
+/**
+ * A title never honestly ends on a connector or an opening bracket: the rest
+ * of it was painted on another line and dropped. Shape only — no board knows
+ * about this rule.
+ */
+const DANGLING_TITLE_TAIL_PATTERN =
+  /(?:[&,/:+\-–—]|\b(?:and|or|with|of|for|to|in|the)\b|[([])\s*$/iu;
+/** Words a place name carries that a title remainder does not. */
+const PLACE_NAME_TOKEN_PATTERN =
+  /\b(?:usa|u\.s\.a?\.?|united\s+states|uk|united\s+kingdom|canada|australia|india|germany|france|spain|italy|netherlands|ireland|poland|portugal|sweden|norway|denmark|switzerland|austria|belgium|brazil|mexico|japan|china|singapore|city|county|state|province|region|district|metro|greater|area|county)\b/iu;
+
+function toComparableWords(value: string): string[] {
+  return cleanLine(value)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/**
+ * The words a URL slug carries after the ones the title already has.
+ *
+ * A listing's address spells the whole title, so a slug that starts with every
+ * title word and keeps going is telling us the painted title stopped early.
+ */
+function findSlugTitleContinuationWords(
+  urls: readonly (string | null | undefined)[],
+  titleWords: readonly string[],
+): string[] | null {
+  if (titleWords.length === 0) {
+    return null;
+  }
+
+  for (const url of urls) {
+    const continuation = findSlugContinuationInUrl(url, titleWords);
+    if (continuation) {
+      return continuation;
+    }
+  }
+
+  return null;
+}
+
+function findSlugContinuationInUrl(
+  url: string | null | undefined,
+  titleWords: readonly string[],
+): string[] | null {
+  const parsed = parseHttpUrl(cleanLine(url));
+  if (!parsed) {
+    return null;
+  }
+
+  for (const segment of parsed.pathname.split("/").filter(Boolean)) {
+    // Only a trailing numeric id is dropped. A year or a number inside the
+    // title ("2027 US Chess Academy Interest Form") is part of the title, and
+    // dropping every digit stopped the address from matching the title at all.
+    const words = toComparableWords(safeDecodeUriComponent(segment));
+    while (words.length > 0 && /^\d+$/.test(words.at(-1) ?? "")) {
+      words.pop();
+    }
+    if (words.length <= titleWords.length || words.length > 24) {
+      continue;
+    }
+
+    if (titleWords.some((word, index) => words[index] !== word)) {
+      continue;
+    }
+
+    const continuation = words.slice(titleWords.length);
+    if (continuation.length === 0 || continuation.length > 6) {
+      continue;
+    }
+
+    return continuation;
+  }
+
+  return null;
+}
+
+/**
+ * The continuation as the card actually spelled it. A slug is lowercase and
+ * hyphenated, so "isv ecosystem" is read back off the card's own text to keep
+ * "ISV Ecosystem" rather than inventing "Isv Ecosystem".
+ */
+function recoverCasedContinuation(
+  words: readonly string[],
+  cardText: string | null | undefined,
+): string {
+  const tokens = cleanLine(cardText).split(/\s+/).filter(Boolean);
+
+  for (let index = 0; index + words.length <= tokens.length; index += 1) {
+    const window = tokens.slice(index, index + words.length);
+    const matches = window.every(
+      (token, offset) => toComparableWords(token).join("") === words[offset],
+    );
+    if (matches) {
+      return cleanLine(window.join(" ").replace(/[,;:.]+$/u, ""));
+    }
+  }
+
+  return titleCaseWords(words.join(" "));
+}
+
+/** The words the card printed right after a title that stopped mid-phrase. */
+function findCardTextContinuation(
+  title: string,
+  cardText: string | null | undefined,
+): string | null {
+  const text = cleanLine(cardText);
+  const normalizedTitle = cleanLine(title);
+  if (!text || !normalizedTitle) {
+    return null;
+  }
+
+  const index = text.toLowerCase().indexOf(normalizedTitle.toLowerCase());
+  if (index === -1) {
+    return null;
+  }
+
+  const remainder = text.slice(index + normalizedTitle.length);
+  const boundary = /\s(?:at|·|•|\||–|—|-)\s|,\s|\s{2,}/u.exec(remainder);
+  const continuation = cleanLine(
+    boundary ? remainder.slice(0, boundary.index) : remainder,
+  );
+  const wordCount = toComparableWords(continuation).length;
+
+  return continuation && wordCount >= 1 && wordCount <= 6 ? continuation : null;
+}
+
+/**
+ * Clears a location line the finished title already says.
+ *
+ * Whichever rule lengthened the title, the words it recovered were painted
+ * once and must not also stand as where the work is: rows read "Manager
+ * Credit Risk" in "Credit Risk" and "Product Manager Services" in "Services".
+ * A line the title ends with, or that the title carries as a run of its own
+ * words, is title text; a real place is left alone.
+ */
+function dropLocationTheTitleAlreadyCarries(
+  title: string,
+  location: string | null,
+): string | null {
+  const normalized = cleanLine(location);
+  if (!normalized) {
+    return location;
+  }
+
+  const titleWords = toComparableWords(title);
+  const locationWords = toComparableWords(normalized);
+  if (locationWords.length === 0 || locationWords.length > titleWords.length) {
+    return location;
+  }
+
+  const carriedAt = (start: number): boolean =>
+    locationWords.every((word, offset) => titleWords[start + offset] === word);
+
+  // The title ends on exactly these words: they were painted once, as title.
+  // This holds even for a line shaped like a place ("Owner, Workday ERP"),
+  // which is why the suffix test is not guarded by the place check.
+  if (carriedAt(titleWords.length - locationWords.length)) {
+    return null;
+  }
+
+  if (readsLikePlaceName(normalized)) {
+    return location;
+  }
+
+  for (
+    let index = 0;
+    index + locationWords.length <= titleWords.length;
+    index += 1
+  ) {
+    if (carriedAt(index)) {
+      return null;
+    }
+  }
+
+  return location;
+}
+
+/** True when a line reads as a place rather than as more of a title. */
+function readsLikePlaceName(value: string): boolean {
+  const normalized = cleanLine(value);
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    LOCATION_HINT_PATTERN.test(normalized) ||
+    normalized.includes(",") ||
+    PLACE_NAME_TOKEN_PATTERN.test(normalized)
+  );
+}
+
+/**
+ * Puts back a title a card broke across two painted lines.
+ *
+ * A card whose heading wraps paints the rest of the title as its own line, and
+ * the card reader took the first line as the title and left the remainder in
+ * the employer's meta line. Rows then read "Lead" at "Wells Fargo • Equipment
+ * Finance Underwriter" and "Sr. Strategic Finance Manager (Bellevue, WA" at
+ * "Logicgate • or Chicago, IL)": two facts, both wrong, from one heading.
+ *
+ * Two rules decide, and both are about the text itself rather than any board:
+ * a parenthesis the title opened is closed inside the title, and a bare
+ * seniority word ("Lead", "Senior", "Principal") followed by a role-like
+ * segment is one title. The employer is never a continuation of the title, and
+ * the last remaining segment is never taken — an employer is not emptied to
+ * lengthen a title.
+ */
+export function repairWrappedCardTitle(input: {
+  title: string;
+  company: string | null;
+  location?: string | null;
+  cardText?: string | null;
+  canonicalUrl?: string | null;
+  /**
+   * The address the card itself carried, before canonicalisation. Once a run
+   * has learned a board's detail route, every listing is rewritten to
+   * `/job/{id}` — which throws away the slug this repair reads the title
+   * from, so the card's own address is kept as a second witness.
+   */
+  sourceUrl?: string | null;
+}): { title: string; company: string | null; location?: string | null } {
+  const metaRepaired = repairTitleWrappedIntoMetaLine(input);
+  // The location rule runs first: once the title has been extended, the words
+  // it took are part of the title and the "does the address continue with
+  // these words" test can no longer recognise the same words sitting in the
+  // location line.
+  const slugUrls = [input.canonicalUrl ?? null, input.sourceUrl ?? null];
+  const withLocation = repairTitleRemainderReadAsLocation({
+    title: metaRepaired.title,
+    location: input.location ?? null,
+    slugUrls,
+  });
+  const title = repairTitleStoppedMidPhrase({
+    title: withLocation.title,
+    cardText: input.cardText ?? null,
+    slugUrls,
+  });
+  const location = dropLocationTheTitleAlreadyCarries(
+    title,
+    withLocation.location,
+  );
+
+  return "location" in input
+    ? { title, company: metaRepaired.company, location }
+    : { title, company: metaRepaired.company };
+}
+
+/**
+ * A title that stops on a connector ("… AI &", "Manager,") lost its rest to
+ * the next painted line. The address slug spells the whole title, so the words
+ * it carries past the painted ones are the missing remainder; the card's own
+ * text supplies their real casing.
+ */
+function repairTitleStoppedMidPhrase(input: {
+  title: string;
+  cardText: string | null;
+  slugUrls: readonly (string | null)[];
+}): string {
+  const completed = completeUnclosedTitleParenthesis(
+    cleanLine(input.title),
+    input.cardText,
+  );
+  const title = cleanLine(completed);
+  if (!title) {
+    return title;
+  }
+
+  const titleWords = toComparableWords(title);
+  const slugContinuation = findSlugTitleContinuationWords(
+    input.slugUrls,
+    titleWords,
+  );
+  const endsMidPhrase = DANGLING_TITLE_TAIL_PATTERN.test(title);
+
+  if (slugContinuation) {
+    // A title that reads as finished is only extended on two agreeing
+    // witnesses: the address spells more words right after it, and the card's
+    // own text prints that same longer phrase. A heading painted on one line
+    // ("Manager") and summarised on another ("Manager Credit Risk at …") is
+    // the same wrap as a dangling connector, with nothing in the text to show
+    // for it.
+    // The card's own spelling, punctuation included: the record says
+    // "Analyst - Insurance Solutions", never "Analyst Insurance Solutions".
+    const printed = readContinuedTitleFromCardText(
+      titleWords,
+      slugContinuation,
+      input.cardText,
+    );
+    if (printed) {
+      return printed;
+    }
+    return endsMidPhrase
+      ? cleanLine(
+          `${title} ${recoverCasedContinuation(slugContinuation, input.cardText)}`,
+        )
+      : title;
+  }
+
+  if (!endsMidPhrase) {
+    return title;
+  }
+
+  const continuation = findCardTextContinuation(title, input.cardText);
+  return continuation ? cleanLine(`${title} ${continuation}`) : title;
+}
+
+/**
+ * A parenthesis the painted title opened and the line break swallowed:
+ * "Software Engineer I - AI (Hybrid in" is finished from the card's own text
+ * up to the bracket that closes it, and a bracketed work-mode aside is then
+ * dropped the way the rest of extraction drops one, so the title is the role.
+ */
+function completeUnclosedTitleParenthesis(
+  title: string,
+  cardText: string | null | undefined,
+): string {
+  if (countUnclosedParentheses(title) === 0) {
+    return title;
+  }
+
+  const text = cleanLine(cardText);
+  const index = text.toLowerCase().indexOf(title.toLowerCase());
+  if (index === -1) {
+    return title;
+  }
+
+  let depth = countUnclosedParentheses(title);
+  let tail = "";
+  for (const character of text.slice(index + title.length)) {
+    tail += character;
+    if (tail.length > 80) {
+      return title;
+    }
+    if (character === "(") {
+      depth += 1;
+      continue;
+    }
+    if (character !== ")") {
+      continue;
+    }
+    depth -= 1;
+    if (depth === 0) {
+      return cleanLine(
+        `${title}${tail}`.replace(PARENTHETICAL_WORK_MODE_TAIL_PATTERN, ""),
+      );
+    }
+  }
+
+  return title;
+}
+
+/** A bracketed aside that only states the work mode and where: "(Hybrid in Oak Brook, IL)". */
+const PARENTHETICAL_WORK_MODE_TAIL_PATTERN =
+  /\s*\((?=[^)]*(?:remote|hybrid|on[- ]?site|onsite))[^)]*\)\s*$/iu;
+
+/**
+ * The title and its continuation exactly as the card printed them, or null
+ * when the card never printed them together.
+ *
+ * Reading the phrase back off the card keeps the punctuation the address
+ * cannot carry: a slug spells "analyst insurance solutions" for a card that
+ * says "Analyst - Insurance Solutions".
+ */
+function readContinuedTitleFromCardText(
+  titleWords: readonly string[],
+  continuationWords: readonly string[],
+  cardText: string | null | undefined,
+): string | null {
+  const phrase = [...titleWords, ...continuationWords];
+  const text = cleanLine(cardText);
+  if (phrase.length === 0 || !text) {
+    return null;
+  }
+
+  const words: { value: string; start: number; end: number }[] = [];
+  for (const match of text.matchAll(/[\p{L}\p{N}]+/gu)) {
+    const index = match.index ?? 0;
+    words.push({
+      value: match[0].toLowerCase(),
+      start: index,
+      end: index + match[0].length,
+    });
+  }
+
+  for (let index = 0; index + phrase.length <= words.length; index += 1) {
+    const matches = phrase.every(
+      (word, offset) => words[index + offset]?.value === word,
+    );
+    if (!matches) {
+      continue;
+    }
+
+    const first = words[index];
+    const last = words[index + phrase.length - 1];
+    if (!first || !last) {
+      continue;
+    }
+
+    return cleanLine(text.slice(first.start, last.end));
+  }
+
+  return null;
+}
+
+/**
+ * The stretch of page text around where the title was painted.
+ *
+ * A whole results page names dozens of roles, and the repair must read the
+ * words that follow this one's heading rather than a phrase from a card
+ * further down; a window keeps the evidence local to the listing.
+ */
+function readPageTextAroundTitle(
+  pageText: string | null | undefined,
+  title: string,
+): string {
+  const text = cleanLine(pageText);
+  const normalizedTitle = cleanLine(title);
+  if (!text || !normalizedTitle) {
+    return "";
+  }
+
+  const index = text.toLowerCase().indexOf(normalizedTitle.toLowerCase());
+  if (index === -1) {
+    return "";
+  }
+
+  return text.slice(index, index + normalizedTitle.length + 160);
+}
+
+/**
+ * Puts a wrapped title back together for a record however it was built.
+ *
+ * Cards are not the only way a listing reaches the app: the same painted
+ * heading also arrives as structured data, and a run's rows showed titles cut
+ * to their first painted line ("Manager", "People Operations Generalist" cut
+ * to "People Operations") while the record's own summary and address spelled
+ * the whole thing. Every extracted record passes through here, so the repair
+ * does not depend on which extractor produced it.
+ */
+export function repairExtractedJobTitle(
+  job: ExtractedJobInput,
+  options?: { pageText?: string | null },
+): ExtractedJobInput {
+  const repaired = repairWrappedCardTitle({
+    title: job.title,
+    company: job.company,
+    location: job.location,
+    cardText: [
+      job.title,
+      job.summary ?? "",
+      job.description,
+      readPageTextAroundTitle(options?.pageText, job.title),
+    ]
+      .map((value) => cleanLine(value))
+      .filter(Boolean)
+      .join(" "),
+    canonicalUrl: job.canonicalUrl,
+  });
+
+  if (
+    repaired.title === job.title &&
+    (repaired.company ?? "") === job.company &&
+    (repaired.location ?? "") === job.location
+  ) {
+    return job;
+  }
+
+  return {
+    ...job,
+    title: repaired.title,
+    company: repaired.company ?? "",
+    location: repaired.location ?? "",
+  };
+}
+
+/**
+ * A location line that names no place, and whose words the address spells
+ * immediately after the title's, is the rest of the title rather than where
+ * the work happens.
+ */
+function repairTitleRemainderReadAsLocation(input: {
+  title: string;
+  location: string | null;
+  slugUrls: readonly (string | null)[];
+}): { title: string; location: string | null } {
+  const title = cleanLine(input.title);
+  const location = cleanLine(input.location);
+  if (!title || !location || readsLikePlaceName(location)) {
+    return { title, location: input.location ?? null };
+  }
+
+  const continuation = findSlugTitleContinuationWords(
+    input.slugUrls,
+    toComparableWords(title),
+  );
+  const locationWords = toComparableWords(location);
+  const continuesWithLocation =
+    continuation !== null &&
+    continuation.length === locationWords.length &&
+    continuation.every((word, index) => locationWords[index] === word);
+
+  if (!continuesWithLocation) {
+    return { title, location: input.location ?? null };
+  }
+
+  return { title: cleanLine(`${title} ${location}`), location: null };
+}
+
+function repairTitleWrappedIntoMetaLine(input: {
+  title: string;
+  company: string | null;
+}): { title: string; company: string | null } {
+  const title = cleanLine(input.title);
+  const company = cleanLine(input.company);
+  if (!title || !company) {
+    return { title, company: input.company };
+  }
+
+  const segments = company
+    .split(CARD_META_SEGMENT_SEPARATOR)
+    .map((segment) => cleanLine(segment))
+    .filter(Boolean);
+  // One segment is the employer and nothing else; there is no continuation to
+  // recover and taking it would leave the row with no employer at all.
+  if (segments.length < 2) {
+    return { title, company: input.company };
+  }
+
+  const unclosed = countUnclosedParentheses(title);
+  const continuationIndex = unclosed
+    ? segments.findIndex((segment) => segment.includes(")"))
+    : /^(?:senior|sr\.?|junior|jr\.?|mid|staff|lead|principal|associate|head)$/iu.test(
+          title,
+        )
+      ? segments.findIndex(
+          (segment, index) =>
+            index > 0 && scoreCardTitleCandidate(segment) > 0,
+        )
+      : -1;
+  if (continuationIndex <= 0) {
+    return { title, company: input.company };
+  }
+
+  const remaining = segments.filter((_, index) => index !== continuationIndex);
+  if (remaining.length === 0) {
+    return { title, company: input.company };
+  }
+
+  return {
+    title: cleanLine(`${title} ${segments[continuationIndex]}`),
+    company: remaining.join(" • "),
+  };
+}
+
 function buildJobFromCardCandidate(
   candidate: SearchResultCardCandidate,
   pageUrl: string,
@@ -4050,17 +4620,29 @@ function buildJobFromCardCandidate(
         pollutedTitleCompanySplit.company ??
         urlCompany,
     ) ?? null;
-  const canonicalTitle = normalizeExtractedJobTitle({
-    value: title,
+  const repairedCard = repairWrappedCardTitle({
+    title: normalizeExtractedJobTitle({ value: title, company, location }),
     company,
-    location,
+    location: location ?? null,
+    cardText: [
+      cleanLine(candidate.anchorText),
+      cleanLine(candidate.headingText),
+      ...lines,
+    ]
+      .filter(Boolean)
+      .join(" "),
+    canonicalUrl,
+    sourceUrl: candidate.canonicalUrl,
   });
+  const canonicalTitle = repairedCard.title;
+  const repairedCompany = repairedCard.company;
+  const repairedLocation = repairedCard.location ?? null;
 
   const { summary, description } = buildSummaryAndDescription({
     lines,
     title: canonicalTitle || cleanLine(candidate.anchorText),
-    company: company || "",
-    location: location || "",
+    company: repairedCompany || "",
+    location: repairedLocation || "",
     excludedLines: [rawTitle],
   });
 
@@ -4075,8 +4657,8 @@ function buildJobFromCardCandidate(
         : buildGenericJobId(canonicalUrl || pageUrl)),
     canonicalUrl,
     title: canonicalTitle,
-    company: company || "",
-    location: location || "",
+    company: repairedCompany || "",
+    location: repairedLocation || "",
     description,
     salaryText: findSalaryText(lines),
     summary,
@@ -4270,9 +4852,10 @@ export function buildStructuredCandidateJobs(input: {
       continue;
     }
 
+    const repairedJob = repairExtractedJobTitle(job);
     jobsByKey.set(
-      job.canonicalUrl,
-      mergeJob(jobsByKey.get(job.canonicalUrl), job),
+      repairedJob.canonicalUrl,
+      mergeJob(jobsByKey.get(repairedJob.canonicalUrl), repairedJob),
     );
   }
 
@@ -4305,7 +4888,10 @@ export function buildStructuredCandidateJobs(input: {
       evidence: learnedEvidence,
     });
 
-    jobsByKey.set(mergeKey, mergeJob(jobsByKey.get(mergeKey), job));
+    jobsByKey.set(
+      mergeKey,
+      mergeJob(jobsByKey.get(mergeKey), repairExtractedJobTitle(job)),
+    );
     cardSurfaceScoreByMergeKey.set(
       mergeKey,
       Math.max(
@@ -4369,9 +4955,14 @@ export function buildStructuredCandidateJobs(input: {
       return left.index - right.index;
     });
 
-  return rankedJobs
-    .map((entry) => entry.job)
-    .slice(0, Math.max(0, input.maxJobs));
+  return (
+    rankedJobs
+      // A merged record carries both halves of the evidence — one extractor's
+      // painted title and another's full summary — so the repair runs once
+      // more on the merge result.
+      .map((entry) => repairExtractedJobTitle(entry.job))
+      .slice(0, Math.max(0, input.maxJobs))
+  );
 }
 
 export function shouldCanonicalizeSearchSurfaceDetailRoute(input: {

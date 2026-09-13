@@ -2109,6 +2109,15 @@ export const DiscoveryTargetExecutionSchema = z.object({
   compactionUsedFallbackTrigger: z.boolean().default(false),
   timing: DiscoveryTimingSummarySchema.nullable().default(null),
   agentCheckpoint: BrowserAgentRunCheckpointSchema.nullable().default(null),
+  /**
+   * Saved-job ids for every listing this target execution actually collected,
+   * re-seen duplicates included. Campaign membership reads this rather than
+   * the resume checkpoint: a checkpoint only carries the batch the agent had
+   * open when it was written, so a run that finished in one pass recorded no
+   * encountered listing at all and its plan retained nothing. Empty for runs
+   * recorded before the field existed.
+   */
+  encounteredJobIds: z.array(NonEmptyStringSchema).default([]),
 });
 export type DiscoveryTargetExecution = z.infer<
   typeof DiscoveryTargetExecutionSchema
@@ -2316,6 +2325,28 @@ export function getDiscoveryRunPhase(
 }
 
 /**
+ * Why a run failed, in the run's own words, or null when it did not fail.
+ *
+ * A failed run records the reason it stopped as the last warning it wrote, and
+ * every surface that reports the failure reads it from here rather than
+ * matching on any one sentence: a plan whose run failed because it had no job
+ * sites left said only "0 of 0 sources completed", which reads as a search
+ * that found nothing rather than one that never started.
+ */
+export function describeDiscoveryRunFailureReason(
+  run: Pick<DiscoveryRunRecord, "state" | "summary"> | null | undefined,
+): string | null {
+  if (!run || run.state !== "failed") {
+    return null;
+  }
+
+  const reasons = run.summary.warnings.filter(
+    (warning) => warning.trim().length > 0,
+  );
+  return reasons.at(-1) ?? null;
+}
+
+/**
  * What the app says about a run the close interrupted, and what it kept.
  *
  * The counts come from the run's own frozen report, never recomputed from
@@ -2385,6 +2416,18 @@ export const ACTIVITY_PAUSED_MESSAGE =
 
 export const DISCOVERY_RUN_ALREADY_ACTIVE_MESSAGE =
   "A search is already running for this plan.";
+
+/**
+ * What a run says when the plan has nothing left to search — every job site
+ * it named is switched off or has been removed from Profile.
+ *
+ * It is one sentence in one place because three surfaces have to agree on it:
+ * the run record's own warnings, the plan card, and the Find jobs failure
+ * banner. Pressing Run now used to do nothing at all in this case, which left
+ * an older "Last run succeeded" standing as the newest thing the app said.
+ */
+export const DISCOVERY_NO_JOB_SITES_MESSAGE =
+  "This plan has no job sites to search; add one in Profile.";
 
 /** Cancels the service-owned discovery run with this durable run identity. */
 export const JobFinderDiscoveryCancellationInputSchema = z

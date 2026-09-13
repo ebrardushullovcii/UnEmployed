@@ -111,6 +111,52 @@ describe("remote-only discovery location alignment", () => {
     ).toBe("in_area");
   });
 
+  const chicagoLocationShapes = [
+    "Hiring Remotely in Chicago, IL, USA",
+    "Hiring Remotely in Illinois, USA",
+    "Chicago, IL, USA",
+    "Remote in Chicago",
+    "Hybrid in Chicago",
+  ];
+
+  it.each(chicagoLocationShapes)(
+    "keeps %s in area because it names the requested place",
+    (location) => {
+      const job = SavedJobSchema.parse({
+        ...remoteJob(),
+        location,
+        workMode: ["remote", "hybrid"],
+        description: `Marketing lead. ${location}.`,
+        matchAssessment: {
+          ...remoteJob().matchAssessment,
+          locationReach: "outside_area",
+        },
+      });
+
+      expect(
+        correctRemoteOnlyLocationAlignment(
+          job,
+          job.matchAssessment,
+          preferences,
+        ).locationReach,
+      ).toBe("in_area");
+    },
+  );
+
+  it("still reads a remote listing in another city as outside the area", () => {
+    const job = SavedJobSchema.parse({
+      ...remoteJob(),
+      location: "Hiring Remotely in Austin, TX, USA",
+      workMode: ["remote"],
+      description: "Marketing lead. Hiring Remotely in Austin, TX, USA.",
+    });
+
+    expect(
+      correctRemoteOnlyLocationAlignment(job, job.matchAssessment, preferences)
+        .locationReach,
+    ).toBe("outside_area");
+  });
+
   it("warns when every retained result is remote and none is in area", () => {
     expect(describeRemoteOnlySourceMismatch([remoteJob()], preferences)).toBe(
       "Your sources only list remote jobs; add a site that lists jobs in Chicago, IL.",

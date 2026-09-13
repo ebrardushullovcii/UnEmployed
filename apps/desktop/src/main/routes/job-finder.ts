@@ -485,11 +485,20 @@ export function registerJobFinderRouteHandlers(
     async (event, payload: unknown) => {
       const input = RunCampaignNowInputSchema.parse(payload ?? {});
       const service = await getJobFinderWorkspaceService();
-      const snapshot = await service.runCampaignNow(input, () => {
+      // A run that refuses to start still writes a terminal run record — a
+      // plan whose sources are gone records a failed run and then throws the
+      // reason. Publishing only on success left the renderer holding the
+      // snapshot from before the attempt, so the plan card, its history and
+      // Home all kept an older run's success as the newest thing the app had
+      // said about this plan.
+      try {
+        const snapshot = await service.runCampaignNow(input, () => {
+          publishJobFinderWorkspaceUpdate(event.sender);
+        });
+        return workspaceMutationResponse(snapshot);
+      } finally {
         publishJobFinderWorkspaceUpdate(event.sender);
-      });
-      publishJobFinderWorkspaceUpdate(event.sender);
-      return workspaceMutationResponse(snapshot);
+      }
     },
   );
 

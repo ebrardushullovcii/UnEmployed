@@ -1,3 +1,5 @@
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { OpenBrowserSessionOptions } from "@unemployed/browser-runtime";
 import { createDesktopBrowserRuntime, createDesktopJobFinderAiClient, createDesktopResumeVisionProvider } from "./create-workspace-service";
@@ -117,6 +119,56 @@ describe("createDesktopBrowserRuntime", () => {
     const session = await browserRuntime.openSession("target_site");
 
     expect(session.driver).toBe("catalog_seed");
+  });
+
+  // The agent-backed runtimes resolve their profile directory from the
+  // desktop user-data path, which Electron owns; point it at a scratch
+  // directory so the lane can be constructed without an Electron app.
+  beforeEach(() => {
+    vi.stubEnv(
+      "UNEMPLOYED_USER_DATA_DIR",
+      path.join(tmpdir(), "unemployed-browser-lane-test"),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  test("never seeds a catalog_seed session under the embedded browser host", async () => {
+    // Before any search runs the session state is what the whole Find jobs
+    // screen reads. Reporting the catalog lane here makes a working
+    // agent-backed build tell the user it cannot search.
+    const env = {
+      UNEMPLOYED_ENABLE_TEST_API: "1",
+      UNEMPLOYED_BROWSER_HOST: "embedded",
+    };
+    const browserRuntime = createDesktopBrowserRuntime({
+      env,
+      aiClient: createDesktopJobFinderAiClient(env),
+      desktopTestApiEnabled: true,
+    });
+
+    const session = await browserRuntime.getSessionState("target_site");
+
+    expect(session.driver).not.toBe("catalog_seed");
+    expect(session.driver).toBe("embedded_browser_agent");
+  });
+
+  test("reports the connected Chrome lane when the browser host is external", async () => {
+    const env = {
+      UNEMPLOYED_ENABLE_TEST_API: "1",
+      UNEMPLOYED_BROWSER_HOST: "external",
+    };
+    const browserRuntime = createDesktopBrowserRuntime({
+      env,
+      aiClient: createDesktopJobFinderAiClient(env),
+      desktopTestApiEnabled: true,
+    });
+
+    const session = await browserRuntime.getSessionState("target_site");
+
+    expect(session.driver).toBe("chrome_profile_agent");
   });
 });
 

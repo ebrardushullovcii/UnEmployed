@@ -177,8 +177,18 @@ describe("guided setup name and email edits", () => {
 });
 
 describe("guided setup location normalization", () => {
+  // The compact line only carries a location the profile does not record yet:
+  // it is seeded from the stored profile and is otherwise written only by
+  // applying an imported location suggestion, which needs an unrecorded
+  // location. These cases therefore start from a profile with no stored line.
+  const importedLocationProfile = () =>
+    createLocationProfile({ currentLocation: null });
+
   it("clears a prior country when a two-part London, UK value is edited", () => {
-    const payload = buildLocationPayload(createLocationProfile(), "London, UK");
+    const payload = buildLocationPayload(
+      importedLocationProfile(),
+      "London, UK",
+    );
 
     expect(payload.currentLocation).toBe("London, UK");
     expect(payload.currentCity).toBe("London");
@@ -187,7 +197,7 @@ describe("guided setup location normalization", () => {
   });
 
   it("keeps Remote as the one-part location instead of retaining a prior country", () => {
-    const payload = buildLocationPayload(createLocationProfile(), "Remote");
+    const payload = buildLocationPayload(importedLocationProfile(), "Remote");
 
     expect(payload.currentLocation).toBe("Remote");
     expect(payload.currentCity).toBe("Remote");
@@ -197,7 +207,7 @@ describe("guided setup location normalization", () => {
 
   it("maps a two-part City/State value to city and region", () => {
     const payload = buildLocationPayload(
-      createLocationProfile(),
+      importedLocationProfile(),
       "City, State",
     );
 
@@ -209,7 +219,7 @@ describe("guided setup location normalization", () => {
 
   it("maps a three-part City/Region/Country value to all structured fields", () => {
     const payload = buildLocationPayload(
-      createLocationProfile(),
+      importedLocationProfile(),
       "City, Region, Country",
     );
 
@@ -238,6 +248,28 @@ describe("guided setup location normalization", () => {
     expect(result.payload?.currentCity).toBe("Austin");
     expect(result.payload?.currentRegion).toBe("TX");
     expect(result.payload?.currentLocation).toBe("Austin, TX, United States");
+  });
+
+  it("keeps saved city, state and country when the retired compact line is stale", () => {
+    // The compact location line is no longer an input: it is seeded from the
+    // stored profile and left behind when the person edits city, region and
+    // country instead. A later step saves the same still-mounted form, and
+    // the stale line rewrote all three parts — City became the whole imported
+    // line "Remote - United States" with State and Country emptied.
+    const saved = createLocationProfile({
+      currentLocation: "Chicago, IL, United States",
+      currentCity: "Chicago",
+      currentRegion: "IL",
+      currentCountry: "United States",
+    });
+    const staleValues = createProfileEditorValues(saved);
+    staleValues.identity.currentLocation = "Remote - United States";
+
+    const payload = buildProfileSetupPayload(saved, staleValues).payload;
+
+    expect(payload?.currentCity).toBe("Chicago");
+    expect(payload?.currentRegion).toBe("IL");
+    expect(payload?.currentCountry).toBe("United States");
   });
 
   it("preserves structured location data when the compact value is unedited", () => {

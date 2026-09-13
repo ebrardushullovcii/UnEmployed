@@ -202,12 +202,20 @@ export function isQueueStageReady(
   item: ReviewQueueItem | null,
   preparedJobIds?: ReadonlySet<string>,
 ): boolean {
-  if (item && preparedJobIds?.has(item.jobId)) {
+  if (!item || preparedJobIds?.has(item.jobId)) {
     return false;
   }
 
+  // A job set to apply with the original resume already has its resume file:
+  // the one the person uploaded. It has no tailored draft and never will, so
+  // requiring a ready generated asset left six such rows unselectable under a
+  // sentence that named the unchanged original resume as qualifying, beside a
+  // batch card explaining there was no draft to write.
+  if (item.resumeApplicationMode === "original_resume") {
+    return true;
+  }
+
   return Boolean(
-    item &&
     item.assetStatus === "ready" &&
     item.resumeAssetId &&
     (item.resumeReview.status === "approved" ||
@@ -215,6 +223,37 @@ export function isQueueStageReady(
       item.resumeReview.status === "needs_review" ||
       item.resumeReview.status === "original_resume"),
   );
+}
+
+/**
+ * The one sentence that says a shortlisted job cannot join a preparation
+ * batch. The row's disabled reason and the batch card read it from here, so
+ * the row can never name a resume state the batch does not accept.
+ */
+export const QUEUE_STAGE_RESUME_REQUIREMENT =
+  "Batch preparation needs a ready resume file: an approved tailored PDF or unchanged original resume.";
+
+/**
+ * Why no shortlisted job can be prepared right now, in the words of what
+ * would change it; null when at least one job can.
+ */
+export function describeQueueStagePreparationBlocker(
+  queue: readonly ReviewQueueItem[],
+  preparedJobIds?: ReadonlySet<string>,
+): string | null {
+  if (countQueueStageReady(queue, preparedJobIds) > 0) {
+    return null;
+  }
+
+  if (queue.length === 0) {
+    return "Shortlist a job first — preparation runs on the jobs you shortlisted.";
+  }
+
+  if (queue.every((item) => preparedJobIds?.has(item.jobId))) {
+    return "An application is already prepared for every shortlisted job. Open them from Applications to continue.";
+  }
+
+  return QUEUE_STAGE_RESUME_REQUIREMENT;
 }
 
 /**

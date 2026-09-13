@@ -15,13 +15,16 @@ import {
   UpdateWorkspaceBehaviorInputSchema,
   type AppearanceTheme,
   type ApplicationRecord,
+  type BrowserSessionState,
   type ApplyJobResult,
   type ApplyRun,
   type CandidateProfile,
   type JobFinderSettings,
+  type JobFinderDiscoveryState,
   type JobFinderWorkspaceSnapshot,
   type JobSearchCampaign,
   type JobSearchPreferences,
+  type JobSource,
   isListableCompanyName,
   type ProfileSetupState,
   type ResumeApplicationMode,
@@ -114,6 +117,25 @@ const ACTIVE_REVIEW_JOB_STATUSES = new Set<SavedJob["status"]>([
   "ready_for_review",
   "approved",
 ]);
+
+/**
+ * The browser lane a workspace with no persisted adapter session is actually
+ * on. Asking the runtime is cheap (it reports its current state and never
+ * launches anything), and it keeps a cold start from being reported as the
+ * catalog-only lane while the app is really running an agent-backed browser.
+ * Returns null whenever a session already exists or the runtime cannot answer.
+ */
+async function readUninitializedRuntimeSession(
+  ctx: Pick<WorkspaceServiceContext, "browserRuntime">,
+  sessions: ReadonlyArray<JobFinderDiscoveryState["sessions"][number]>,
+  preferredAdapter: JobSource,
+): Promise<BrowserSessionState | null> {
+  if (sessions.length > 0) {
+    return null;
+  }
+
+  return ctx.browserRuntime.getSessionState(preferredAdapter).catch(() => null);
+}
 
 function pickDefined<TValue>(
   input: Record<string, TValue>,
@@ -794,9 +816,17 @@ export function createWorkspaceSnapshotProfileMethods(
     const discoverySessions = await ctx.refreshDiscoverySessions(
       setupContext.searchPreferences,
     );
+    const preferredSessionAdapter = getPreferredSessionAdapter(
+      setupContext.searchPreferences,
+    );
     const browserSession = createBrowserSessionSnapshot(
       discoverySessions,
-      getPreferredSessionAdapter(setupContext.searchPreferences),
+      preferredSessionAdapter,
+      await readUninitializedRuntimeSession(
+        ctx,
+        discoverySessions,
+        preferredSessionAdapter,
+      ),
     );
     const generatedAt = new Date().toISOString();
     const sourceAccessPrompts = deriveSourceAccessPrompts({
@@ -1174,6 +1204,14 @@ export function createWorkspaceSnapshotProfileMethods(
         request.scope.type === "discovery_source" &&
         bootstrapTargetIds.has(request.scope.targetId),
     );
+    // A bootstrap snapshot of a workspace that has never run discovery still
+    // has to name the real browser lane, or the first paint claims the search
+    // runtime is the offline catalog before anything has been tried.
+    const bootstrapRuntimeSession = await readUninitializedRuntimeSession(
+      ctx,
+      discovery.sessions,
+      getPreferredSessionAdapter(setupContext.searchPreferences),
+    );
     // Bootstrap intentionally omits sourceAccessPrompts: login-required
     // prompts need deferred debug history, so attention here reflects stored
     // target fields until the complete snapshot hydrates.
@@ -1212,6 +1250,7 @@ export function createWorkspaceSnapshotProfileMethods(
       browserSession: createBrowserSessionSnapshot(
         discovery.sessions,
         getPreferredSessionAdapter(setupContext.searchPreferences),
+        bootstrapRuntimeSession,
       ),
       sourceAccessPrompts: [],
       discoverySessions: discovery.sessions,

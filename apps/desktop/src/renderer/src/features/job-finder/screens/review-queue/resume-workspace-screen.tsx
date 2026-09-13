@@ -949,9 +949,9 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
               }
             : {})}
           onReviewBlockingIssues={() => {
-            const confirmationPanel = document.querySelector(
+            const confirmationPanel = document.querySelector<HTMLElement>(
               "[data-resume-claim-confirmations]",
-            ) as HTMLElement | null;
+            );
             if (confirmationPanel) {
               confirmationPanel.scrollIntoView({
                 behavior: getJobFinderScrollBehavior(),

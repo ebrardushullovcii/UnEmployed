@@ -178,6 +178,7 @@ describe("dashboard summary recommendations", () => {
           compactionUsedFallbackTrigger: false,
           timing: null,
           agentCheckpoint: null,
+          encounteredJobIds: [],
         },
       ],
       activity: [],
@@ -1291,6 +1292,62 @@ describe("campaign retention reconciliation", () => {
     });
 
     expect(reconciled?.campaigns[0]?.jobIds).toEqual(["job_a"]);
+  });
+
+  test("collapses repeated reconciliations into one newest-first entry", () => {
+    const seed = createSeed();
+    const adopted = createAdoptedCampaign(seed);
+    const withHistory = {
+      ...adopted,
+      jobIds: [],
+      // Stored out of order, exactly as the card showed it.
+      history: [
+        {
+          id: "campaign_history_discovery_run_1",
+          campaignId: "campaign_default",
+          kind: "updated" as const,
+          occurredAt: "2026-08-15T09:30:00.000Z",
+          summary: "A search finished.",
+          discoveryRunId: "run_1",
+        },
+        {
+          id: "campaign_history_retention_reconciled",
+          campaignId: "campaign_default",
+          kind: "updated" as const,
+          occurredAt: "2026-08-15T10:12:00.000Z",
+          summary: "Reconciled retention with the current workspace.",
+          discoveryRunId: null,
+        },
+        ...adopted.history,
+      ],
+    };
+
+    const reconciled = reconcileCampaignState({
+      state: {
+        notifications: [],
+        activeCampaignId: "campaign_default",
+        campaigns: [withHistory],
+      },
+      savedJobs: [savedJob("job_a", 90)],
+      searchPreferences: seed.searchPreferences,
+      now: "2026-08-15T10:13:00.000Z",
+    });
+
+    const history = reconciled?.campaigns[0]?.history ?? [];
+    expect(
+      history.filter(
+        (entry) => entry.id === "campaign_history_retention_reconciled",
+      ),
+    ).toHaveLength(1);
+    expect(history[0]).toMatchObject({
+      id: "campaign_history_retention_reconciled",
+      occurredAt: "2026-08-15T10:13:00.000Z",
+    });
+    expect(history.map((entry) => entry.occurredAt)).toEqual([
+      "2026-08-15T10:13:00.000Z",
+      "2026-08-15T09:30:00.000Z",
+      "2026-08-15T09:00:00.000Z",
+    ]);
   });
 
   test("repairs drifted targeting toward workspace sources", () => {

@@ -383,7 +383,11 @@ export function deriveCampaignNotifications(
           id,
           campaignId,
           kind: "blocked_work",
-          title: "Failed: Scheduled search plan run",
+          // The run facts record no trigger, so this notification cannot know
+          // whether the schedule or the person started the run. It says
+          // "search plan run" rather than telling someone who just pressed Run
+          // now that a scheduled search failed.
+          title: "Failed: search plan run",
           body:
             runFacts.lastRunSummary !== null
               ? runFacts.lastRunSummary.slice(0, 2_000)

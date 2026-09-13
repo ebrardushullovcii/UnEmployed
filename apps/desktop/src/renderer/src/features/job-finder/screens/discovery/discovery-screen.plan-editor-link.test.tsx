@@ -1,0 +1,155 @@
+// @vitest-environment jsdom
+
+import { cleanup, render, screen } from "@testing-library/react";
+import type { JobSearchPreferences, SavedJob } from "@unemployed/contracts";
+import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { campaignPlanEditorHref } from "../../lib/job-finder-route-hrefs";
+
+vi.mock(
+  "@renderer/features/job-finder/components/locked-screen-layout",
+  () => ({
+    LockedScreenLayout: ({
+      children,
+      topContent,
+    }: {
+      children: ReactNode;
+      topContent: ReactNode;
+    }) => (
+      <main>
+        {topContent}
+        {children}
+      </main>
+    ),
+  }),
+);
+vi.mock("./discovery-activity-panel", () => ({
+  DiscoveryHistoryModal: () => null,
+}));
+vi.mock("./discovery-detail-panel", () => ({
+  DiscoveryDetailPanel: () => null,
+}));
+vi.mock("./discovery-filters-panel", () => ({
+  DiscoveryFiltersPanel: ({ planEditorHref }: { planEditorHref?: string }) => (
+    <section aria-label="Current search">
+      <a data-testid="filters-plan-editor-link" href={planEditorHref}>
+        Edit this plan&apos;s places
+      </a>
+    </section>
+  ),
+}));
+vi.mock("./discovery-results-panel", () => ({
+  DISCOVERY_OFFLINE_CATALOG_NOTICE_ID: "discovery-offline-catalog-notice",
+  DISCOVERY_SEARCH_SETUP_BLOCKER_ID: "discovery-search-setup-blocker",
+  DiscoveryResultsPanel: ({
+    editPlanHref,
+  }: {
+    editPlanHref?: string | null;
+  }) => (
+    <section aria-label="Job results">
+      <a data-testid="results-plan-editor-link" href={editPlanHref ?? ""}>
+        Edit this plan&apos;s places
+      </a>
+    </section>
+  ),
+}));
+
+import { DiscoveryScreen } from "./discovery-screen";
+
+const searchPreferences: JobSearchPreferences = {
+  targetRoles: ["Marketing Manager"],
+  jobFamilies: [],
+  locations: ["Chicago, IL"],
+  excludedLocations: [],
+  workModes: ["hybrid", "onsite"],
+  seniorityLevels: [],
+  targetIndustries: [],
+  targetCompanyStages: [],
+  employmentTypes: [],
+  minimumSalaryUsd: null,
+  targetSalaryUsd: null,
+  salaryCurrency: "USD",
+  compensation: {
+    minimum: null,
+    maximum: null,
+    interval: "year",
+    currency: "USD",
+    currencyStatus: "inherited",
+  },
+  approvalMode: "review_before_submit",
+  tailoringMode: "balanced",
+  companyBlacklist: [],
+  companyWhitelist: [],
+  discovery: { historyLimit: 5, targets: [] },
+};
+
+const job = {
+  id: "job_1",
+  title: "Marketing Manager",
+  company: "Envisionit",
+  location: "Chicago, IL",
+  status: "discovered",
+  matchAssessment: { recommendation: "strong_fit", score: 81 },
+} as unknown as SavedJob;
+
+afterEach(cleanup);
+
+describe("Find jobs links to the selected plan's editor", () => {
+  function renderScreen(jobs: readonly SavedJob[]) {
+    return render(
+      <MemoryRouter>
+        <DiscoveryScreen
+          actionState={{ message: null }}
+          activeCampaignId="plan_chicago"
+          activeRun={null}
+          browserSession={{
+            source: "target_site",
+            status: "ready",
+            driver: "chrome_profile_agent",
+            label: "Browser ready",
+            detail: "Browser session is ready.",
+            lastCheckedAt: "2026-09-13T10:00:00.000Z",
+          }}
+          discoverySessions={[]}
+          isBrowserSessionPending={false}
+          isBrowserSessionPendingForTarget={() => false}
+          isDiscoveryAllPending={false}
+          isJobPending={() => false}
+          isTargetPending={() => false}
+          jobs={jobs}
+          dismissedJobs={[]}
+          liveEvents={[]}
+          onDismissJob={vi.fn()}
+          onRestoreDismissedJob={vi.fn()}
+          onOpenBrowserSession={vi.fn()}
+          onOpenBrowserSessionForTarget={vi.fn()}
+          onQueueJob={vi.fn()}
+          onRunAgentDiscovery={vi.fn()}
+          onSelectJob={vi.fn()}
+          recentRuns={[]}
+          searchPreferences={searchPreferences}
+          selectedJob={jobs[0] ?? null}
+          sourceAccessPrompts={[]}
+        />
+      </MemoryRouter>,
+    );
+  }
+
+  it("points the search-setup panel's places link at that plan's editor", () => {
+    renderScreen([]);
+
+    expect(
+      screen.getByTestId("filters-plan-editor-link").getAttribute("href"),
+    ).toBe(campaignPlanEditorHref("plan_chicago"));
+  });
+
+  it("points the results panel's places link at that plan's editor", () => {
+    renderScreen([job]);
+
+    expect(
+      screen.getByTestId("results-plan-editor-link").getAttribute("href"),
+    ).toBe(campaignPlanEditorHref("plan_chicago"));
+  });
+});

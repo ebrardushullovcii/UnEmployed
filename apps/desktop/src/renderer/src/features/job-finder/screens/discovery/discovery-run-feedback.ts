@@ -214,6 +214,7 @@ export interface DiscoveryRunFeedback {
 
 const BROWSER_RUNTIME_FAILURE_RE =
   /\bbrowser\b|\bchrome\b|\bchromium\b|browser profile|dedicated browser|agent runtime|launch/i;
+const NO_JOB_SITES_FAILURE_RE = /no job sites to search/i;
 const SOURCE_SETUP_FAILURE_RE =
   /single_target|not found or unavailable|missing, disabled|no runnable|no enabled|enable at least one|add at least one|add or enable/i;
 const CONNECTION_FAILURE_RE =
@@ -263,6 +264,18 @@ export function getDiscoveryRunFailureRecovery(
       headline: "This source did not show any readable job listings.",
       actionLabel: null,
       nextStep: `Open the source in ${JOB_FINDER_BROWSER_NAME} to see what it shows, or try another job site, then search again.`,
+    };
+  }
+
+  // A plan with nothing left to search is a Profile job, not a retry: the
+  // sites it named are switched off or gone, so searching again changes
+  // nothing until one is added back.
+  if (NO_JOB_SITES_FAILURE_RE.test(detail)) {
+    return {
+      kind: "source_setup",
+      headline: "This plan has no job sites to search.",
+      actionLabel: "Review job sources",
+      nextStep: "Add a job site in Profile, then run this plan again.",
     };
   }
 

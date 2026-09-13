@@ -125,6 +125,105 @@ describe("recordToolEvidence", () => {
 });
 
 describe("addExtractedJobsToState", () => {
+  test("puts a wrapped title back together whichever extractor produced it", () => {
+    // Rows a live run stored from the model extraction pass: the heading was
+    // painted across two lines, and only its first line came back as the
+    // title while the summary and the address carried the whole thing.
+    const state = createState();
+    const baseJob = {
+      salaryText: null,
+      postedAt: null,
+      workMode: [],
+      applyPath: "unknown" as const,
+      easyApplyEligible: false,
+      keySkills: [],
+    };
+    const pageText =
+      "Alliant Credit Union Manager Credit Risk 2 Days Ago Hybrid Chicago, IL";
+
+    addExtractedJobsToState(
+      [
+        {
+          ...baseJob,
+          sourceJobId: "builtin_11136865",
+          canonicalUrl:
+            "https://builtinchicago.org/job/manager-credit-risk/11136865",
+          title: "Manager",
+          company: "Alliant Credit Union",
+          location: "Chicago, IL",
+          description:
+            "Alliant Credit Union - Manager Credit Risk - 2 Days Ago - Hybrid - Chicago, IL",
+          summary:
+            "Alliant Credit Union - Manager Credit Risk - 2 Days Ago - Hybrid - Chicago, IL",
+        },
+        {
+          ...baseJob,
+          sourceJobId: "builtin_11148521",
+          canonicalUrl:
+            "https://builtinchicago.org/job/analyst-insurance-solutions/11148521",
+          title: "Analyst",
+          company: "TransUnion",
+          location: "Chicago, IL",
+          description:
+            "Analyst - Insurance Solutions at TransUnion - Yesterday - Hybrid - Chicago, IL",
+          summary:
+            "Analyst - Insurance Solutions at TransUnion - Yesterday - Hybrid - Chicago, IL",
+        },
+        {
+          ...baseJob,
+          sourceJobId: "builtin_11147852",
+          canonicalUrl:
+            "https://builtinchicago.org/job/2027-us-chess-academy-interest-form/11147852",
+          title: "2027 US Chess",
+          company: "IMC Trading",
+          location: "Chicago, IL",
+          description:
+            "2027 US Chess Academy Interest Form at IMC Trading - Yesterday - Hybrid - Chicago, IL",
+          summary:
+            "2027 US Chess Academy Interest Form at IMC Trading - Yesterday - Hybrid - Chicago, IL",
+        },
+        {
+          ...baseJob,
+          sourceJobId: "builtin_11147281",
+          canonicalUrl:
+            "https://builtinchicago.org/job/principal-corporate-marketing-operations-enablement/11147281",
+          title: "Principal, Corporate Marketing Operations &",
+          company: "Morningstar",
+          location: "Chicago, IL",
+          description:
+            "Principal, Corporate Marketing Operations & Enablement at Morningstar - Yesterday - Hybrid",
+          summary:
+            "Principal, Corporate Marketing Operations & Enablement at Morningstar - Yesterday - Hybrid",
+        },
+        {
+          ...baseJob,
+          sourceJobId: "builtin_8946587",
+          canonicalUrl:
+            "https://builtinchicago.org/job/sales-support-associate-i/8946587",
+          title: "Sales Support Associate",
+          company: "Tapestry",
+          location: "Chicago, IL",
+          description: "Sales Support Associate I at Tapestry - Hybrid",
+          summary: "Sales Support Associate I at Tapestry - Hybrid",
+        },
+      ],
+      state,
+      "target_site",
+      { pageText },
+    );
+
+    expect(state.collectedJobs.map((job) => job.title)).toEqual([
+      "Manager Credit Risk",
+      "Analyst - Insurance Solutions",
+      "2027 US Chess Academy Interest Form",
+      "Principal, Corporate Marketing Operations & Enablement",
+      "Sales Support Associate I",
+    ]);
+    expect(
+      state.collectedJobs.every((job) => job.location === "Chicago, IL"),
+    ).toBe(true);
+  });
+
   test("keeps distinct LinkedIn seeded-search cards that share a search-route canonical url", () => {
     const state = createState();
 

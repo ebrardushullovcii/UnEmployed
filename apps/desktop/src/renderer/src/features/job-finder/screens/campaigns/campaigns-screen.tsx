@@ -1,5 +1,6 @@
 import {
   DISCOVERY_RUN_ALREADY_ACTIVE_MESSAGE,
+  describeDiscoveryRunFailureReason,
   getDefaultCampaignConfiguration,
   type CampaignDigest,
   type CampaignPauseWindow,
@@ -41,6 +42,7 @@ import {
   getDiscoveryRunReportCounts,
   hasDiscoveryRunReportCounts,
   readDiscoveryRunReportCounts,
+  resolveDiscoveryRunAlreadyHereCount,
   type DiscoveryRunReportCounts,
 } from "../../lib/discovery-run-count-label";
 
@@ -181,6 +183,23 @@ function readPlanRunReport(
     (candidate) => candidate.id === digest?.discoveryRunId,
   );
   return getDiscoveryRunReportCounts(run ?? null);
+}
+
+/**
+ * Why the run behind this digest failed, or null when it did not fail.
+ *
+ * The breakdown used to end on "No source problems in this run." for a run
+ * that never reached a source at all, which reads as a clean run over an
+ * empty result. A failed run names its reason here instead.
+ */
+export function describePlanRunFailure(
+  runs: readonly DiscoveryRunRecord[] | undefined,
+  digest: CampaignDigest | null,
+): string | null {
+  const run = (runs ?? []).find(
+    (candidate) => candidate.id === digest?.discoveryRunId,
+  );
+  return describeDiscoveryRunFailureReason(run ?? null);
 }
 
 /**
@@ -1439,6 +1458,12 @@ export function CampaignsScreen(props: {
   activeDiscoveryRun?: Pick<DiscoveryRunRecord, "campaignId"> | null;
   activeCampaignId: string;
   campaigns: readonly JobSearchCampaign[];
+  /**
+   * Open this plan's editor on arrival. Find jobs' "Edit this plan's places"
+   * links name the plan they are about, so the person lands on the editor
+   * rather than on the list of plan cards.
+   */
+  editCampaignId?: string | null;
   profile?: CandidateProfile;
   onSaveCampaign: (campaign: SaveJobSearchCampaignInput) => Promise<boolean>;
   onDeleteCampaign?: (campaignId: string) => Promise<boolean>;
@@ -1525,6 +1550,28 @@ export function CampaignsScreen(props: {
     setCreatedPlanNotice(null);
     setSavedPlanName(null);
   }, []);
+
+  // Opens the requested plan's editor once. Closing it must not reopen it, so
+  // the id is remembered rather than the open/closed state being derived.
+  const requestedEditCampaignId = props.editCampaignId ?? null;
+  const openedEditorForCampaignId = useRef<string | null>(null);
+  const campaignsForEditor = props.campaigns;
+  useEffect(() => {
+    if (
+      requestedEditCampaignId === null ||
+      openedEditorForCampaignId.current === requestedEditCampaignId
+    ) {
+      return;
+    }
+    const requested = campaignsForEditor.find(
+      (campaign) => campaign.id === requestedEditCampaignId,
+    );
+    if (!requested) {
+      return;
+    }
+    openedEditorForCampaignId.current = requestedEditCampaignId;
+    startEditing(campaignToInput(requested));
+  }, [campaignsForEditor, requestedEditCampaignId, startEditing]);
 
   const [pendingEditorSwitch, setPendingEditorSwitch] =
     useState<SaveJobSearchCampaignInput | null>(null);
@@ -2053,7 +2100,19 @@ export function CampaignsScreen(props: {
                         <dt className="text-xs text-foreground-muted">
                           Seen before
                         </dt>
-                        <dd>{campaign.latestDigest.counts.known}</dd>
+                        {/* Same field the headline above prints. The change
+                            digest's own tally counts sightings, not the
+                            listings this run found already saved, so reading
+                            it here printed "Seen before 0" under "7 already
+                            here" for one run. */}
+                        <dd>
+                          {resolveDiscoveryRunAlreadyHereCount(
+                            readPlanRunReport(
+                              props.discoveryRuns,
+                              campaign.latestDigest,
+                            ),
+                          ) ?? campaign.latestDigest.counts.known}
+                        </dd>
                       </div>
                       <div>
                         <dt className="text-xs text-foreground-muted">
@@ -2078,7 +2137,10 @@ export function CampaignsScreen(props: {
                       </ul>
                     ) : (
                       <p className="mt-3 text-xs text-foreground-muted">
-                        No source problems in this run.
+                        {describePlanRunFailure(
+                          props.discoveryRuns,
+                          campaign.latestDigest,
+                        ) ?? "No source problems in this run."}
                       </p>
                     )}
                   </details>

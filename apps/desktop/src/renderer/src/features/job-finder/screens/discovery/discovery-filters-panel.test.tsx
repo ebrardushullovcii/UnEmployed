@@ -135,7 +135,7 @@ describe("DiscoveryFiltersPanel", () => {
     expect(
       queryByRole("button", { name: "Open the Job Finder browser" }),
     ).toBeNull();
-    expect(queryByText("Offline catalog")).not.toBeNull();
+    expect(queryByText("Search unavailable")).not.toBeNull();
     const historyButton = getByRole("button", { name: "Search history" });
     expect(historyButton.getAttribute("data-variant")).toBe("outline");
     expect(historyButton.className).not.toContain("col-span-2");
@@ -1469,14 +1469,14 @@ describe("DiscoveryFiltersPanel", () => {
       </MemoryRouter>,
     );
 
-    expect(getByText("Live source search unavailable")).toBeTruthy();
+    expect(getByText("Job Finder cannot search right now")).toBeTruthy();
     expect(getByText(DISCOVERY_OFFLINE_SETUP_NOTICE)).toBeTruthy();
     expect(queryByText("Browser is starting")).toBeNull();
     expect(queryByText("No matches from this search")).toBeNull();
     expect(queryByText("Ready for your first search")).toBeNull();
   });
 
-  it("marks catalog jobs as review-only without inventing source, activity, or fit evidence", () => {
+  it("keeps saved-earlier rows honest without inventing source, activity, or fit evidence", () => {
     const catalogJob = {
       id: "catalog-job",
       title: "Catalog role",
@@ -1523,11 +1523,9 @@ describe("DiscoveryFiltersPanel", () => {
 
     expect(offlineCatalogStatus).toBeTruthy();
     expect(offlineCatalogStatus?.id).toBe("discovery-offline-catalog-notice");
+    expect(offlineCatalogStatus?.textContent).toContain("Search unavailable.");
     expect(offlineCatalogStatus?.textContent).toContain(
-      "Offline catalog · review-only.",
-    );
-    expect(offlineCatalogStatus?.textContent).toContain(
-      "Filters are complete, but live source search is unavailable in this build.",
+      "Job Finder cannot search right now; try again in a moment.",
     );
     expect(offlineCatalogStatus?.parentElement?.className).toContain("py-4");
     expect(getAllByText("Source unavailable").length).toBeGreaterThan(0);

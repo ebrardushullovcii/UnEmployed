@@ -6,23 +6,27 @@ import {
 import { JOB_FINDER_BROWSER_NAME_SENTENCE_START } from "../../lib/job-finder-browser-handoff-copy";
 
 /**
- * Copy shared by the route header and search controls when only the seeded
- * catalog runtime is available. "Filters are complete" deliberately names
- * setup without suggesting that a current-source search can run.
+ * Copy shared by the route header and search controls when Job Finder cannot
+ * run a search at all.
+ *
+ * The old sentence named the build and its runtime lane, which is a fact about
+ * how the app was assembled and nothing a person looking for work can act on.
+ * Written in the voice of the failure copy table: what happened, and what to
+ * do next.
  */
 export const DISCOVERY_OFFLINE_SEARCH_REASON =
-  "Filters are complete, but live source search is unavailable in this build.";
+  "Job Finder cannot search right now; try again in a moment.";
 
 /**
- * Catalog rows remain useful for local review, but their unbound source,
- * activity, and fit evidence must not read as proof of a live search.
+ * The results already on screen were saved earlier and are still worth
+ * reading, but nothing here proves a search just ran.
  */
 export const DISCOVERY_OFFLINE_CATALOG_NOTICE =
-  "Catalog jobs are review-only; they do not confirm a live source search.";
+  "These results were saved earlier, so some may no longer be open.";
 
 export const DISCOVERY_OFFLINE_SETUP_NOTICE = `${DISCOVERY_OFFLINE_SEARCH_REASON} ${DISCOVERY_OFFLINE_CATALOG_NOTICE}`;
 
-export const DISCOVERY_OFFLINE_RUNTIME_LABEL = "Offline catalog";
+export const DISCOVERY_OFFLINE_RUNTIME_LABEL = "Search unavailable";
 
 /**
  * Only a genuinely errored browser session blocks a current-source search.
@@ -46,6 +50,11 @@ export interface DiscoveryRuntimeProjection {
  * live source-search capability. An agent-backed driver keeps current-source
  * search available unless its session is genuinely blocked: a closed,
  * starting, or sign-in-pending browser is opened or handled by the run.
+ *
+ * `uninitialized` means no browser session exists yet, which is the normal
+ * state of a fresh workspace before its first search. That is agent-backed:
+ * the discovery run opens the browser itself, so it must never read as
+ * offline.
  */
 export function getDiscoveryRuntimeProjection(
   session: Pick<BrowserSessionState, "driver" | "status">,

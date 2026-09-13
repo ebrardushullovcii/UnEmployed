@@ -15,6 +15,7 @@ import {
   getDiscoveryRunReportCounts,
   hasDiscoveryRunReportCounts,
 } from "../../lib/discovery-run-count-label";
+import { applyRunJobNeedsPreparation } from "../../screens/applications/applications-detail-panel-helpers";
 import type { TailoredDraftPreparationViewState } from "../../screens/review-queue/review-queue-status";
 import {
   DISCOVERY_RUN_STATE_LABELS,
@@ -624,16 +625,13 @@ function buildApplyTask(
   const resultsForRun = (input.workspace.applyJobResults ?? []).filter(
     (result) => result.runId === run.id,
   );
-  const applyRecoveryJobIds = run.jobIds.filter((jobId) => {
-    const result = resultsForRun.find((candidate) => candidate.jobId === jobId);
-    return (
-      !result ||
-      result.state === "planned" ||
-      result.state === "blocked" ||
-      result.state === "failed" ||
-      result.state === "skipped"
-    );
-  });
+  // Same predicate Applications uses to build its "Prepare remaining jobs"
+  // target list, so the two surfaces cannot disagree about what is left.
+  const applyRecoveryJobIds = run.jobIds.filter((jobId) =>
+    applyRunJobNeedsPreparation(
+      resultsForRun.find((candidate) => candidate.jobId === jobId),
+    ),
+  );
   const recordsById = new Map(
     input.workspace.applicationRecords.map((record) => [record.id, record]),
   );
@@ -662,6 +660,18 @@ function buildApplyTask(
   ) {
     return null;
   }
+  // A finished batch that left blocked, skipped or never-attempted jobs has
+  // work remaining whatever ended it. Applications already offers to prepare
+  // those; the card offered only "Open Applications" unless a safety limit
+  // had stopped the run, so the same batch had two different next steps
+  // depending on which screen the person was looking at. A run still going,
+  // or one waiting on a decision the person has to settle first, is not
+  // ready for it.
+  const canPrepareRemaining =
+    applyRecoveryJobIds.length > 0 &&
+    !awaitingDecision &&
+    status !== "active" &&
+    status !== "stopping";
   const historyDurations = runs
     .filter(
       (candidate) =>
@@ -725,19 +735,17 @@ function buildApplyTask(
     cancelKind: canCancel ? "apply" : null,
     resumeRoute: awaitingDecision
       ? "/job-finder/actions"
-      : needsReview || canRestage
+      : canPrepareRemaining || needsReview || canRestage
         ? "/job-finder/applications"
         : null,
     resumeActionLabel: awaitingDecision
       ? "Resolve what needs you"
-      : stoppedBySafeguard && applyRecoveryJobIds.length > 0
+      : canPrepareRemaining
         ? "Prepare remaining jobs"
         : needsReview || canRestage
           ? "Open Applications"
           : null,
-    ...(stoppedBySafeguard && applyRecoveryJobIds.length > 0
-      ? { applyRecoveryJobIds }
-      : {}),
+    ...(canPrepareRemaining ? { applyRecoveryJobIds } : {}),
     ...(stoppedBySafeguard
       ? {
           reviewRoute: "/job-finder/safeguards",

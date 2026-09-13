@@ -405,12 +405,12 @@ describe("canonical route first paint", () => {
       context,
     );
 
-    // One owner for the offline runtime fact: the setup panel status badge
+    // One owner for the unavailable-search fact: the setup panel status badge
     // plus its sentence. The slim search bar drops its browser link entirely
-    // offline instead of repeating "Offline catalog" beside it.
-    expect(screen.getByText("Offline catalog")).toBeTruthy();
+    // instead of repeating the badge beside it.
+    expect(screen.getAllByText("Search unavailable").length).toBeGreaterThan(0);
     expect(
-      screen.getByText("Offline catalog; live source search unavailable."),
+      screen.getByText("Job Finder cannot search right now; try again in a moment."),
     ).toBeTruthy();
     expect(screen.queryByTestId("discovery-search-bar-browser")).toBeNull();
     expect(

@@ -30,7 +30,10 @@ import {
   hasDiscoveryRunReportCounts,
 } from "../../lib/discovery-run-count-label";
 import type { JobFinderGlobalSearchEntry } from "../../lib/job-finder-global-search";
-import { DISCOVERY_OFFLINE_SETUP_NOTICE } from "../discovery/discovery-search-readiness";
+import {
+  DISCOVERY_OFFLINE_RUNTIME_LABEL,
+  DISCOVERY_OFFLINE_SETUP_NOTICE,
+} from "../discovery/discovery-search-readiness";
 import { DiscoveryRunFeedbackCallout } from "../discovery/discovery-run-feedback-callout";
 import {
   getDiscoveryLatestRunNotices,
@@ -641,7 +644,7 @@ export function JobSearchHomeScreen(props: {
           data-testid="home-offline-catalog-notice"
           role="status"
         >
-          <strong>Offline catalog · review-only.</strong>{" "}
+          <strong>{DISCOVERY_OFFLINE_RUNTIME_LABEL}.</strong>{" "}
           {DISCOVERY_OFFLINE_SETUP_NOTICE}
         </div>
       ) : null}

@@ -34,14 +34,14 @@ export function JobFinderShellBrand(props: {
         // Keep the system face's painted ascenders/descenders away from the
         // hiddenInset edge. The 56px shell row still has room for the full
         // lockup at native 125% and when the sidebar is collapsed.
-        "relative z-20 flex w-max shrink-0 flex-col justify-center gap-0.5 whitespace-nowrap py-1.5",
+        "relative z-20 flex h-full w-max shrink-0 flex-col justify-center gap-0.5 whitespace-nowrap py-1",
         props.className,
       )}
       data-desktop-brand-lockup
       style={props.style}
     >
       <span
-        className="font-display text-[1.45rem] font-black leading-[1.05] tracking-[-0.08em] text-(--headline-primary) max-[639px]:hidden sm:text-[1.75rem]"
+        className="font-display text-[1.45rem] font-black leading-[1.05] tracking-[-0.08em] text-(--headline-primary) max-[639px]:hidden sm:text-[1.6rem]"
         data-desktop-brand-wordmark
       >
         UNEMPLOYED

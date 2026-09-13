@@ -141,3 +141,74 @@ export function inferAdministrativeAreaCountry(
 
   return null;
 }
+
+/**
+ * Wording a board puts in front of the place to say how the work is done
+ * ("Hiring Remotely in Chicago, IL, USA", "Remote in Chicago", "Hybrid in
+ * Chicago"). The phrase states a work mode, never a geography, so it must not
+ * take part in the comparison against the saved places.
+ */
+const WORK_MODE_LEAD_IN_PATTERN =
+  /^\s*(?:(?:now\s+)?hiring|working|work|jobs?|roles?|positions?)?\s*(?:fully\s+|primarily\s+)?(?:remote(?:ly)?|hybrid|onsite|on[-\s]site|in[-\s]person|in[-\s]office)\s*(?:[-–—:,]\s*)?(?:in|from|at|near|within|based\s+in)\s+/iu;
+
+/**
+ * A country written after a city or region adds no geography the comparison
+ * did not already have, and it makes a one-place value look like a two-place
+ * list ("Illinois, USA" reads as Illinois plus the whole country).
+ */
+const TRAILING_COUNTRY_PATTERN =
+  /\s*,\s*(?:usa|u\.?\s?s\.?\s?a\.?|u\.?\s?s\.?|united states(?:\s+of\s+america)?)\s*$/iu;
+
+const workModeOnlyWords = new Set([
+  "anywhere",
+  "distributed",
+  "flexible",
+  "from",
+  "global",
+  "globally",
+  "hiring",
+  "home",
+  "hybrid",
+  "in",
+  "near",
+  "off",
+  "office",
+  "on",
+  "onsite",
+  "person",
+  "remote",
+  "remotely",
+  "site",
+  "within",
+  "work",
+  "working",
+  "worldwide",
+]);
+
+/** Whether what is left of a value names no place at all. */
+function statesNoPlace(value: string): boolean {
+  const words = value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  return words.every((word) => workModeOnlyWords.has(word));
+}
+
+/**
+ * The place a location value states, with work-mode wording removed.
+ *
+ * Boards write where the work is and how it is done in one cell. Only the
+ * place part can be compared with the saved search areas, so this strips the
+ * work-mode lead-in and a trailing country and returns the remainder. A value
+ * that would be left saying nothing about geography is returned unchanged, so
+ * "Remote" keeps meaning "remote" rather than becoming an empty place.
+ */
+export function resolveStatedLocationPlace(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return value;
+  }
+
+  const withoutLeadIn = trimmed.replace(WORK_MODE_LEAD_IN_PATTERN, "").trim();
+  const candidate = statesNoPlace(withoutLeadIn) ? trimmed : withoutLeadIn;
+  const withoutCountry = candidate.replace(TRAILING_COUNTRY_PATTERN, "").trim();
+
+  return statesNoPlace(withoutCountry) ? candidate : withoutCountry;
+}

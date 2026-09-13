@@ -143,6 +143,25 @@ export type DiscoveryResultGroupId =
   | "weaker"
   | "mismatches";
 
+/**
+ * The listing is in a place the person asked for and its title sits in the
+ * same or an adjacent occupational family as a saved target role.
+ *
+ * "Clear mismatches" says the row conflicts with the saved roles, locations
+ * or requirements, and is hidden on that claim. A Chicago paid-media manager
+ * returned for a Chicago marketing-manager search conflicts with neither: it
+ * is the search's own subject, scored low. Demoting it there for a number
+ * alone told the person their own request was a mismatch, so the score floor
+ * does not apply to it. The verdict is the scorer's own — the title family it
+ * recorded and the location reach it measured — so this stays source-generic.
+ */
+function isRequestedRoleInRequestedPlace(job: DiscoveryBandJob): boolean {
+  return (
+    job.matchAssessment?.locationReach === "in_area" &&
+    isTargetTitleFamily(job.matchAssessment)
+  );
+}
+
 export function isDiscoveryClearMismatch(job: DiscoveryBandJob): boolean {
   if (isClosedDiscoveryJob(job)) {
     return true;
@@ -151,13 +170,16 @@ export function isDiscoveryClearMismatch(job: DiscoveryBandJob): boolean {
   if (!job.matchAssessment) {
     return false;
   }
+  // An explicit `skip` rests on an observed conflict rather than on the
+  // number, so it still bands as a mismatch.
   if (job.matchAssessment.recommendation === "skip") {
     return true;
   }
 
   return (
     !isMatchScoreWithheld(job) &&
-    job.matchAssessment.score < DISCOVERY_CLEAR_MISMATCH_SCORE_FLOOR
+    job.matchAssessment.score < DISCOVERY_CLEAR_MISMATCH_SCORE_FLOOR &&
+    !isRequestedRoleInRequestedPlace(job)
   );
 }
 

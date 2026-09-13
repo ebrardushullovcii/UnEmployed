@@ -15,6 +15,10 @@ import {
   resolveMatchLocationReach,
   type LocationCompatibilityState,
 } from "./matching";
+import {
+  TITLE_MATCHES_TARGET_ROLES_REASON,
+  TITLE_MISSES_TARGET_ROLES_GAPS,
+} from "../discovery-ordering";
 import { MATCH_ASSESSMENT_SCORER_VERSION } from "./match-assessment-session";
 import { createSeed } from "../workspace-service.test-fixtures";
 import { selectDiscoveryBudgetPostings } from "./workspace-discovery-methods";
@@ -251,6 +255,57 @@ describe("matching helpers", () => {
         "Senior Software Engineer",
       ]),
     ).toBe(false);
+  });
+
+  describe("a shared head noun is not the role the person asked for", () => {
+    const assessTitle = (title: string) => {
+      const seed = createSeed();
+      return createMatchAssessment(
+        seed.profile,
+        {
+          ...seed.searchPreferences,
+          targetRoles: ["Marketing Manager"],
+          locations: [],
+          workModes: [],
+          minimumSalaryUsd: null,
+          companyWhitelist: [],
+        },
+        {
+          ...seed.savedJobs[0]!,
+          title,
+          description: "",
+          keySkills: [],
+          keywordSignals: [],
+          easyApplyEligible: false,
+        },
+      );
+    };
+
+    test.each([
+      "Manager Credit Risk",
+      "Manager, Business Development, Strategic Partnerships & Affiliates",
+      "Manager, Financial Reporting",
+      "Managing Advisory Consultant - ServiceNow Integration Solution Architect",
+      "Product Owner, Workday ERP",
+      "Sales Supervisor",
+    ])("does not call %s a match for Marketing Manager", (title) => {
+      const assessment = assessTitle(title);
+
+      expect(assessment.reasons).not.toContain(
+        TITLE_MATCHES_TARGET_ROLES_REASON,
+      );
+      expect(assessment.gaps).toContain(TITLE_MISSES_TARGET_ROLES_GAPS[1]!);
+      // Weaker, never a clear mismatch: nothing here conflicts with the
+      // saved roles, the title simply is not the one asked for.
+      expect(assessment.gaps).not.toContain(TITLE_MISSES_TARGET_ROLES_GAPS[0]!);
+    });
+
+    test("still calls a lifecycle marketing title the role that was asked for", () => {
+      const assessment = assessTitle("Senior Lifecycle Marketing Manager");
+
+      expect(assessment.reasons).toContain(TITLE_MATCHES_TARGET_ROLES_REASON);
+      expect(assessment.gaps).not.toContain(TITLE_MISSES_TARGET_ROLES_GAPS[1]!);
+    });
   });
 
   test("ranks an adjacent generic developer title below an explicit target role", () => {
@@ -813,6 +868,38 @@ describe("matching helpers", () => {
     expect(
       assessLocationCompatibility("Notting Hill, London", ["London"]),
     ).toBe("compatible");
+  });
+
+  test("reads the place out of a cell that also states the work mode", () => {
+    // A board writes "how" and "where" in one cell. The work-mode lead-in and
+    // the trailing country are not geography, and leaving them in made every
+    // listing on a city board read as outside the requested city.
+    for (const stated of [
+      "Hiring Remotely in Chicago, IL, USA",
+      "Hiring Remotely in Illinois, USA",
+      "Chicago, IL, USA",
+      "Remote in Chicago",
+      "Hybrid in Chicago",
+    ]) {
+      expect(assessLocationCompatibility(stated, ["Chicago, IL"]), stated).toBe(
+        "compatible",
+      );
+    }
+
+    // A different city stays outside, whatever the remote wording says.
+    expect(
+      assessLocationCompatibility("Hiring Remotely in Austin, TX, USA", [
+        "Chicago, IL",
+      ]),
+    ).toBe("incompatible");
+
+    // Stripping must never turn a work-mode-only cell into an empty place.
+    expect(assessLocationCompatibility("Remote", ["Chicago, IL"])).toBe(
+      "unknown",
+    );
+    expect(
+      assessLocationCompatibility("Remote - United States", ["Chicago, IL"]),
+    ).toBe("incompatible");
   });
 
   test("reads an absence placeholder in the saved preference as no constraint", () => {

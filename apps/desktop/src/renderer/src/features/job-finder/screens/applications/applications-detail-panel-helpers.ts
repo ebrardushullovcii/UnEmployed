@@ -437,6 +437,29 @@ export function applicationNeedsPrimaryRecovery(input: {
   return state === "blocked" || state === "failed" || state === "skipped";
 }
 
+/**
+ * A job of an apply run that "Prepare remaining jobs" would target.
+ *
+ * Applications and the Tasks card must offer that action on the same
+ * evidence, so both read this one predicate rather than each listing the
+ * unfinished result states for themselves.
+ */
+export function applyRunJobNeedsPreparation(
+  runResult:
+    | JobFinderWorkspaceSnapshot["applyJobResults"][number]
+    | null
+    | undefined,
+): boolean {
+  return (
+    !runResult ||
+    runResult.applicationRecordId === null ||
+    runResult.state === "planned" ||
+    runResult.state === "blocked" ||
+    runResult.state === "failed" ||
+    runResult.state === "skipped"
+  );
+}
+
 export function buildQueueEntries(input: {
   applicationRecords: readonly ApplicationRecord[];
   applyJobResults: JobFinderWorkspaceSnapshot["applyJobResults"];
@@ -468,13 +491,7 @@ export function buildQueueEntries(input: {
         ) ?? null)
       : null;
     const relatedSavedJob = discoveryJobsById.get(jobId) ?? null;
-    const includeInRecovery =
-      !runResult ||
-      runResult.applicationRecordId === null ||
-      runResult.state === "planned" ||
-      runResult.state === "blocked" ||
-      runResult.state === "failed" ||
-      runResult.state === "skipped";
+    const includeInRecovery = applyRunJobNeedsPreparation(runResult);
 
     return {
       jobId,

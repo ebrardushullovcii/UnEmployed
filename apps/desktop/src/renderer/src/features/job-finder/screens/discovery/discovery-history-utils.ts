@@ -56,6 +56,7 @@ function createPlannedExecution(
     compactionUsedFallbackTrigger: false,
     timing: null,
     agentCheckpoint: null,
+    encounteredJobIds: [],
   };
 }
 
@@ -86,6 +87,7 @@ function createSyntheticExecution(
     compactionUsedFallbackTrigger: false,
     timing: null,
     agentCheckpoint: null,
+    encounteredJobIds: [],
   };
 }
 

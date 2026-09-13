@@ -58,9 +58,11 @@ describe("DiscoveryResultsPanel newest-run empty-state verdicts", () => {
       },
     });
 
-    expect(screen.getByText("Live source search unavailable")).toBeTruthy();
+    expect(
+      screen.getByText("Job Finder cannot search right now"),
+    ).toBeTruthy();
     const emptyState = screen.getByRole("heading", {
-      name: "Live source search unavailable",
+      name: "Job Finder cannot search right now",
     }).parentElement?.parentElement;
     expect(emptyState?.className).toContain("min-h-0");
     expect(emptyState?.className).not.toContain("min-h-80");
@@ -70,7 +72,9 @@ describe("DiscoveryResultsPanel newest-run empty-state verdicts", () => {
         .getAttribute("href"),
     ).toBe("/job-finder/profile?section=sources&focus=job-sources");
     expect(
-      screen.getByText(/this catalog cannot search current openings/iu),
+      screen.getByText(
+        /check your saved job sites in profile, then try searching again/iu,
+      ),
     ).toBeTruthy();
   });
 

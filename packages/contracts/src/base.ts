@@ -99,6 +99,16 @@ export const DiscoveryRunReportSchema = z.object({
   worthOpening: z.number().int().nonnegative().nullable().default(null),
   /** Valid listings that merged into already-known jobs. */
   duplicates: z.number().int().nonnegative().nullable().default(null),
+  /**
+   * Listings this run met that the search plan already held before it started.
+   *
+   * Distinct from `duplicates`, which counts every merge the run made —
+   * including a listing two sources both returned inside this one run. A first
+   * search on an empty workspace has nothing here already, so this is 0 while
+   * the duplicate tally can be large. Null until the plan's terminal commit
+   * measures it, and for runs recorded before it existed.
+   */
+  alreadyHere: z.number().int().nonnegative().nullable().optional(),
   /** Retention settings frozen when the search plan committed this run. */
   retentionLimitApplied: z.number().int().positive().nullable().optional(),
   minimumFitScoreApplied: z.number().int().min(0).max(100).nullable().optional(),
@@ -318,10 +328,17 @@ export type SourceAccessPromptState = z.infer<
   typeof SourceAccessPromptStateSchema
 >;
 
+/**
+ * `uninitialized` is the honest answer before any browser runtime session
+ * exists: the lane is not yet known, and it is specifically *not* the
+ * catalog-only lane. `catalog_seed` is a claim that the app is running
+ * without a browser at all, so it must never stand in for "not started yet".
+ */
 export const browserDriverValues = [
   "catalog_seed",
   "chrome_profile_agent",
   "embedded_browser_agent",
+  "uninitialized",
 ] as const;
 
 export const BrowserDriverSchema = z.enum(browserDriverValues);

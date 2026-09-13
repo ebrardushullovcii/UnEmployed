@@ -70,6 +70,7 @@ describe("frozen discovery run report", () => {
       retained: 15,
       worthOpening: 3,
       duplicates: 4,
+      alreadyHere: null,
     });
     const counts = getDiscoveryRunReportCounts(run);
     const label = formatDiscoveryRunReportLabel(counts);
@@ -104,6 +105,7 @@ describe("frozen discovery run report", () => {
         retained: 15,
         worthOpening: 3,
         duplicates: 94,
+        alreadyHere: null,
       }),
     ).toBe("94 looked at · 47 new · 15 kept · 47 already here");
     expect(
@@ -114,8 +116,26 @@ describe("frozen discovery run report", () => {
         retained: 0,
         worthOpening: 0,
         duplicates: 94,
+        alreadyHere: null,
       }),
     ).toBe("94 looked at · 0 new · 0 kept · all already here");
+  });
+
+  test("keeps a first search's repeats out of what the plan already had", () => {
+    // Nothing existed before this run, so nothing was already here. The
+    // listings two sources both returned are merges made inside this run and
+    // are stated as their own fact.
+    expect(
+      formatDiscoveryRunReportLabel({
+        found: 113,
+        new: 66,
+        saved: 66,
+        retained: 15,
+        worthOpening: 3,
+        duplicates: 47,
+        alreadyHere: 0,
+      }),
+    ).toBe("113 looked at · 66 new · 15 kept · 0 already here · 47 duplicates merged");
   });
 
   test("a run recorded before the report says so instead of showing zero", () => {

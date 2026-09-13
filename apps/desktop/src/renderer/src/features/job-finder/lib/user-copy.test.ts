@@ -83,7 +83,7 @@ function findMatches(source: string, pattern: RegExp): readonly string[] {
  * new term reaches a screen, never to make the regex clever.
  */
 const INTERNAL_VOCABULARY_PATTERN =
-  /SHA-256|\bATS\b|occupational role|evidence coverage|site writes|prepare-only authority|company intelligence|safeguard blockers?|discovery volume|pause windows?|saved search scope|the local scheduler|global activity pause|minimum fit score|job families|employment types/gi;
+  /SHA-256|\bATS\b|occupational role|evidence coverage|site writes|prepare-only authority|company intelligence|safeguard blockers?|discovery volume|pause windows?|saved search scope|the local scheduler|global activity pause|minimum fit score|job families|employment types|offline catalog|catalog jobs?|live source search|in this build/gi;
 
 /**
  * Removes line and block comments so the ban applies to copy, not to the

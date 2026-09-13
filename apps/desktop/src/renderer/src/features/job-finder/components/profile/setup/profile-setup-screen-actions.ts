@@ -5,6 +5,7 @@ import type {
   ProfileSetupStep,
   ResumeApplicationMode,
 } from "@unemployed/contracts";
+import { hasProfileSetupPlaceholderValue } from "@unemployed/contracts";
 import type {
   ProfileEditorValues,
   SearchPreferencesEditorValues,
@@ -43,7 +44,17 @@ function normalizeSetupProfileValues(
 ): ProfileEditorValues {
   const setupLocation = values.identity.currentLocation.trim();
   const persistedLocation = profile.currentLocation?.trim() ?? "";
-  const locationChanged = setupLocation !== persistedLocation;
+  // The compact line is no longer an input: it is seeded from the stored
+  // profile and can only be written by applying an imported location
+  // suggestion, which itself only fires while the profile records no location
+  // of its own. Once a location is stored, city, region and country are the
+  // editors, and the line left behind on a still-mounted form must not rewrite
+  // them — a later step's save turned a saved "Chicago / Illinois / United
+  // States" into City "Remote - United States" with the other two emptied.
+  const storesOwnLocation =
+    persistedLocation.length > 0 &&
+    !hasProfileSetupPlaceholderValue("currentLocation", profile.currentLocation);
+  const locationChanged = !storesOwnLocation && setupLocation !== persistedLocation;
   const locationParts = setupLocation
     .split(",")
     .map((part) => part.trim())

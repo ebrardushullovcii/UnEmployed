@@ -40,7 +40,10 @@ import {
 import { LockedScreenLayout } from "@renderer/features/job-finder/components/locked-screen-layout";
 import { PageHeaderStack } from "@renderer/features/job-finder/components/page-header";
 import { OPEN_JOB_FINDER_BROWSER_ACTION } from "@renderer/features/job-finder/lib/job-finder-browser-handoff-copy";
-import { JOB_FINDER_ROUTE_PATHS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
+import {
+  JOB_FINDER_ROUTE_PATHS,
+  campaignPlanEditorHref,
+} from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
 import { formatCountLabel } from "@renderer/features/job-finder/lib/job-finder-utils";
 import {
   formatDiscoveryRunReportLabel,
@@ -946,7 +949,7 @@ export function DiscoveryScreen(props: {
       isTargetPending={isTargetPending}
       planEditorHref={
         activeCampaignId
-          ? `${JOB_FINDER_ROUTE_PATHS.campaigns}?campaignId=${encodeURIComponent(activeCampaignId)}`
+          ? campaignPlanEditorHref(activeCampaignId)
           : JOB_FINDER_ROUTE_PATHS.campaigns
       }
       onOpenBrowserSession={onOpenBrowserSession}
@@ -1082,7 +1085,7 @@ export function DiscoveryScreen(props: {
           totalLocationJobCount={stableJobs.length}
           editPlanHref={
             activeCampaignId
-              ? `${JOB_FINDER_ROUTE_PATHS.campaigns}?campaignId=${encodeURIComponent(activeCampaignId)}`
+              ? campaignPlanEditorHref(activeCampaignId)
               : JOB_FINDER_ROUTE_PATHS.campaigns
           }
           onSearchAgain={onRunAgentDiscovery ?? null}

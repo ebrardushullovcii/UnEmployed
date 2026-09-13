@@ -338,6 +338,7 @@ export async function flushDeferredSearchExtractions(input: {
       fastPathJobs,
       input.state,
       input.config.source,
+      { pageText: deferredSearchPage.pageText },
     );
     const remainingJobsAfterFastPath = Math.max(
       0,
@@ -366,6 +367,7 @@ export async function flushDeferredSearchExtractions(input: {
       extractedJobs,
       input.state,
       input.config.source,
+      { pageText: deferredSearchPage.pageText },
     );
     const totalAddedCount = fastPathAddedCount + addedCount;
     summary.extractionPasses += 1;

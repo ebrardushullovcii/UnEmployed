@@ -17,6 +17,10 @@ function getBrowserLabel(driver: BrowserSessionState["driver"]): string {
       return "Built-in browser session";
     case "chrome_profile_agent":
       return "Connected Chrome session";
+    // Not started yet: the first search opens the browser, so this is a
+    // waiting state rather than the catalog-only build.
+    case "uninitialized":
+      return "Browser session not started";
     default:
       return "Catalog search only";
   }

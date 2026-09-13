@@ -7,6 +7,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   collectPreparedApplicationJobIds,
   countQueueStageReady,
+  describeQueueStagePreparationBlocker,
+  describeTailoredDraftPreparationBlocker,
   getApplyReadinessStatus,
   getReviewQueueResumePolicyCaption,
   getReviewQueueWorkflowStatus,
@@ -695,5 +697,43 @@ describe("already prepared applications", () => {
     ]);
 
     expect([...prepared]).toEqual(["ready"]);
+  });
+});
+
+describe("a shortlist that is all on the original resume", () => {
+  const originalResumeQueue = [1, 2, 3, 4, 5, 6].map((index) =>
+    createItem(`original-${index}`, {
+      resumeApplicationMode: "original_resume",
+    }),
+  );
+
+  it("counts every original-resume job as ready to prepare", () => {
+    for (const item of originalResumeQueue) {
+      expect(isQueueStageReady(item)).toBe(true);
+    }
+    expect(countQueueStageReady(originalResumeQueue)).toBe(6);
+  });
+
+  it("does not tell the batch there is nothing to prepare", () => {
+    expect(
+      describeQueueStagePreparationBlocker(originalResumeQueue),
+    ).toBeNull();
+  });
+
+  it("still excludes a job whose application is already prepared", () => {
+    expect(
+      isQueueStageReady(
+        originalResumeQueue[0]!,
+        new Set([originalResumeQueue[0]!.jobId]),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the tailored-draft batch honest about having no draft to write", () => {
+    expect(
+      describeTailoredDraftPreparationBlocker(originalResumeQueue),
+    ).toBe(
+      "Every shortlisted job is set to use your original resume, so there is no draft to write. Switch a job to a tailored resume to use this.",
+    );
   });
 });

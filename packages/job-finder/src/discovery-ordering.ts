@@ -209,13 +209,15 @@ export function compareDiscoveryFitTieBreaks(
   if (titleFamilyDelta !== 0) return titleFamilyDelta;
 
   const hasSeniorityConflict = (job: SavedJob) =>
-    job.matchAssessment.gaps.some((gap) => /seniority conflicts?/iu.test(gap));
+    (job.matchAssessment.gaps ?? []).some((gap) =>
+      /seniority conflicts?/iu.test(gap),
+    );
   const seniorityDelta =
     Number(hasSeniorityConflict(left)) - Number(hasSeniorityConflict(right));
   if (seniorityDelta !== 0) return seniorityDelta;
 
   const stackOverlapCount = (job: SavedJob) => {
-    const reason = job.matchAssessment.reasons.find((entry) =>
+    const reason = (job.matchAssessment.reasons ?? []).find((entry) =>
       entry.startsWith("Stack overlap includes "),
     );
     return reason

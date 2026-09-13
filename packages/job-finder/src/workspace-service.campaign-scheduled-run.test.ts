@@ -621,7 +621,7 @@ describe("workspace campaign scheduled runs", () => {
       state?.notifications.some(
         (notification) =>
           notification.kind === "blocked_work" &&
-          notification.title === "Failed: Scheduled search plan run",
+          notification.title === "Failed: search plan run",
       ),
     ).toBe(true);
   });

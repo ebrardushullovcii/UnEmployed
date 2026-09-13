@@ -9,7 +9,6 @@ import {
 import { JOB_FINDER_ROUTE_PATHS } from "../../lib/job-finder-route-hrefs";
 import {
   DISCOVERY_OFFLINE_CATALOG_NOTICE,
-  DISCOVERY_OFFLINE_RUNTIME_LABEL,
   DISCOVERY_OFFLINE_SEARCH_REASON,
   DISCOVERY_OFFLINE_SETUP_NOTICE,
   DISCOVERY_PAUSED_SEARCH_REASON,
@@ -501,7 +500,7 @@ export function DiscoveryFiltersFooter(props: {
           className="text-(length:--text-small) leading-5 text-foreground-muted"
           role="status"
         >
-          {DISCOVERY_OFFLINE_RUNTIME_LABEL}; live source search unavailable.
+          {DISCOVERY_OFFLINE_SEARCH_REASON}
         </span>
       ) : isBrowserBlocked && showSourcesSetupAction ? null : (
         <Button

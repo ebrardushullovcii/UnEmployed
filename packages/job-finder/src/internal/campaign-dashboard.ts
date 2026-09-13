@@ -167,6 +167,49 @@ function isAdoptionLineageCampaign(campaign: JobSearchCampaign): boolean {
   return campaign.history.some((entry) => entry.id === ADOPTION_HISTORY_ID);
 }
 
+const RETENTION_RECONCILED_HISTORY_ID =
+  "campaign_history_retention_reconciled";
+const RETENTION_RECONCILED_SUMMARY =
+  "Reconciled retention with the current workspace.";
+
+/**
+ * Records one reconciliation in the plan's history without repeating itself.
+ *
+ * Reconciliation is housekeeping, not something the person did: several places
+ * ask for it while one workspace publishes, and each one used to prepend its
+ * own line. The card showed six identical "Reconciled retention" entries in a
+ * row, timestamped out of order, burying the run the person was looking for.
+ * A reconciliation that follows a reconciliation moves the existing line's
+ * time instead of adding another, and history stays newest first.
+ */
+function recordRetentionReconciliation(
+  campaignId: string,
+  history: JobSearchCampaign["history"],
+  occurredAt: string,
+): JobSearchCampaign["history"] {
+  const sorted = [...history].sort((left, right) =>
+    left.occurredAt === right.occurredAt
+      ? 0
+      : left.occurredAt < right.occurredAt
+        ? 1
+        : -1,
+  );
+  const olderEntries =
+    sorted[0]?.id === RETENTION_RECONCILED_HISTORY_ID ? sorted.slice(1) : sorted;
+
+  return [
+    {
+      id: RETENTION_RECONCILED_HISTORY_ID,
+      campaignId,
+      kind: "updated" as const,
+      occurredAt,
+      summary: RETENTION_RECONCILED_SUMMARY,
+      discoveryRunId: null,
+    },
+    ...olderEntries,
+  ].slice(0, 100);
+}
+
 function sameStringValues(
   left: readonly string[],
   right: readonly string[],
@@ -238,17 +281,11 @@ export function reconcileCampaignState(input: {
       sourceTargetIds,
       searchPreferences,
       updatedAt: input.now,
-      history: [
-        {
-          id: "campaign_history_retention_reconciled",
-          campaignId: campaign.id,
-          kind: "updated" as const,
-          occurredAt: input.now,
-          summary: "Reconciled retention with the current workspace.",
-          discoveryRunId: null,
-        },
-        ...campaign.history,
-      ].slice(0, 100),
+      history: recordRetentionReconciliation(
+        campaign.id,
+        campaign.history,
+        input.now,
+      ),
     });
   });
 

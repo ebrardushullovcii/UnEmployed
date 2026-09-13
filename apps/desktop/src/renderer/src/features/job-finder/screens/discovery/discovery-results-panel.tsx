@@ -68,6 +68,7 @@ import {
   getPostedDateLabel,
 } from "@renderer/features/job-finder/lib/job-finder-utils";
 import {
+  describeMatchTieBreakReason,
   fitRecommendationCopy,
   getMatchAssessmentPresentation,
 } from "@renderer/features/job-finder/lib/match-assessment-presentation";
@@ -97,6 +98,7 @@ import { getDiscoveryListingRecencyKey } from "@unemployed/job-finder/discovery-
 import type { DiscoveryLatestRunVerdict } from "./discovery-run-feedback";
 import { getDiscoverySourceLabels } from "./discovery-source-attribution";
 import {
+  DISCOVERY_OFFLINE_RUNTIME_LABEL,
   DISCOVERY_OFFLINE_SETUP_NOTICE,
   getDiscoveryRuntimeProjection,
 } from "./discovery-search-readiness";
@@ -812,6 +814,30 @@ export function DiscoveryResultsPanel({
       )
       .map((entry) => entry.job);
   }, [filteredJobs, resultsSort.sort, sortDirection, sortField]);
+  /**
+   * Printed percentages that more than one row carries. A tie is the one case
+   * where the number alone cannot explain the order, so those rows have to
+   * say what separates them. Withheld scores are excluded: they print no
+   * percentage, so they cannot tie on one.
+   */
+  const tiedScores = useMemo(() => {
+    const countsByScore = new Map<number, number>();
+    for (const job of orderedJobs) {
+      const presentation = getMatchAssessmentPresentation(job);
+      if (presentation.isScoreWithheld) {
+        continue;
+      }
+      const score = job.matchAssessment.score;
+      countsByScore.set(score, (countsByScore.get(score) ?? 0) + 1);
+    }
+    const shared = new Set<number>();
+    for (const [score, count] of countsByScore) {
+      if (count > 1) {
+        shared.add(score);
+      }
+    }
+    return shared;
+  }, [orderedJobs]);
   const jobCount = filteredJobs.length;
   const locationPopulationCount = totalLocationJobCount ?? jobs.length;
   const inAreaJobCount =
@@ -1452,8 +1478,8 @@ export function DiscoveryResultsPanel({
             className="min-h-0 py-4"
             description={DISCOVERY_OFFLINE_SETUP_NOTICE}
             recoveryActionLabel="Review job sources"
-            recoveryActionNextStep="Review saved sources in Profile; this catalog cannot search current openings."
-            title="Live source search unavailable"
+            recoveryActionNextStep="Check your saved job sites in Profile, then try searching again."
+            title="Job Finder cannot search right now"
           />
         </div>
       ) : null}
@@ -1533,7 +1559,7 @@ export function DiscoveryResultsPanel({
             id={DISCOVERY_OFFLINE_CATALOG_NOTICE_ID}
             role="status"
           >
-            <strong>Offline catalog · review-only.</strong>{" "}
+            <strong>{DISCOVERY_OFFLINE_RUNTIME_LABEL}.</strong>{" "}
             {DISCOVERY_OFFLINE_SETUP_NOTICE}
           </div>
         </div>
@@ -1747,6 +1773,12 @@ export function DiscoveryResultsPanel({
                     ? scrubJobAbsencePlaceholders(
                         job.matchAssessment.recommendationRationale ?? "",
                       ) || null
+                    : null) ??
+                  // Rows that share a printed percentage state the one
+                  // strongest fact behind their place, so the order between
+                  // equal numbers is something the person can read.
+                  (tiedScores.has(job.matchAssessment.score)
+                    ? describeMatchTieBreakReason(job)
                     : null);
                 const listingDateBadge = getDiscoveryListingDateBadge(job);
                 const listingDateExplanation = listingDateBadge.shown

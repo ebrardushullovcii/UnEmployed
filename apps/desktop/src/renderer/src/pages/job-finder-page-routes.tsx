@@ -7,6 +7,10 @@ import { cn } from "@renderer/lib/cn";
 import { JobFinderRouteErrorBoundary } from "./job-finder-route-error-boundary";
 import { getDefaultProfileRoute } from "@renderer/features/job-finder/lib/job-finder-utils";
 import {
+  CAMPAIGN_PLAN_EDITOR_SEARCH_PARAM,
+  CAMPAIGN_PLAN_EDITOR_SEARCH_VALUE,
+} from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
+import {
   Navigate,
   useSearchParams,
   useLocation,
@@ -644,6 +648,22 @@ export function JobFinderCampaignsRoute() {
   const [funnelProjection, setFunnelProjection] =
     useState<CampaignRuleFunnelProjection | null>(null);
   const requestedCampaignId = searchParams.get("campaignId");
+  const requestedPlanEditorId =
+    searchParams.get(CAMPAIGN_PLAN_EDITOR_SEARCH_PARAM) ===
+    CAMPAIGN_PLAN_EDITOR_SEARCH_VALUE
+      ? requestedCampaignId
+      : null;
+  // Latched, not read straight from the URL: the effect below clears the
+  // request once the plan is current, and the screen is lazy-loaded, so the
+  // params can be gone before the editor ever mounts.
+  const [editCampaignId, setEditCampaignId] = useState<string | null>(
+    requestedPlanEditorId,
+  );
+  useEffect(() => {
+    if (requestedPlanEditorId !== null) {
+      setEditCampaignId(requestedPlanEditorId);
+    }
+  }, [requestedPlanEditorId]);
 
   useEffect(() => {
     if (!requestedCampaignId) return;
@@ -658,6 +678,7 @@ export function JobFinderCampaignsRoute() {
     const clearRequestedCampaign = () => {
       const nextSearchParams = new URLSearchParams(searchParams);
       nextSearchParams.delete("campaignId");
+      nextSearchParams.delete(CAMPAIGN_PLAN_EDITOR_SEARCH_PARAM);
       setSearchParams(nextSearchParams, { replace: true });
     };
     if (requestedCampaignId === context.workspace.activeCampaignId) {
@@ -760,6 +781,7 @@ export function JobFinderCampaignsRoute() {
       workspace={context.workspace}
     >
       <CampaignsScreen
+        editCampaignId={editCampaignId}
         safeguardPauses={projectPlanSafeguardPauses(context.workspace.intelligence?.safeguards, context.workspace.campaigns)}
         activeCampaignId={context.workspace.activeCampaignId}
         activeDiscoveryRun={context.workspace.activeDiscoveryRun ?? null}
@@ -1809,6 +1831,7 @@ export function JobFinderApplicationsRoute() {
       workspace={context.workspace}
     >
       <ApplicationsScreen
+        userActionRequests={context.workspace.userActionRequests}
         actionMessage={context.actionState.message}
         applicationAttempts={applicationAttempts}
         applicationRecords={applicationRecords}

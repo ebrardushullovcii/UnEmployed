@@ -9,11 +9,227 @@ import {
   isListingIndexPageRecord,
   stripCompanyMarketingBadges,
   observeLearnedSearchSurfaceRoutes,
+  repairWrappedCardTitle,
   shouldCanonicalizeSearchSurfaceDetailRoute,
   type SearchResultCardCandidate,
 } from "./job-extraction";
 
 describe("buildStructuredCandidateJobs", () => {
+  // The live fallback_search path: harvested cards in, stored rows out. Unit
+  // tests of the repair passed while these rows came back cut, so the entry
+  // point itself is exercised here with the exact stored card text.
+  describe("a wrapped card heading reaches the record whole", () => {
+    const buildCard = (input: {
+      canonicalUrl: string;
+      title: string;
+      company: string;
+      lines: readonly string[];
+      location?: string;
+    }): SearchResultCardCandidate => ({
+      canonicalUrl: input.canonicalUrl,
+      anchorText: input.title,
+      headingText: input.title,
+      lines: [input.title, ...input.lines],
+      companyText: input.company,
+      ...(input.location === undefined ? {} : { locationText: input.location }),
+    });
+
+    test("keeps the slug witness when the run has learned the board's detail route", () => {
+      // Two cards with numeric id hints teach the run a `/job/{id}` detail
+      // route, and every listing's address is rewritten to it. That is what
+      // the live run does, and it throws away the slug the repair reads.
+      const jobs = buildStructuredCandidateJobs({
+        pageUrl: "https://builtinchicago.org/jobs",
+        maxJobs: 5,
+        cardCandidates: [
+          {
+            ...buildCard({
+              canonicalUrl:
+                "https://builtinchicago.org/job/manager-credit-risk/11136865",
+              title: "Manager",
+              company: "Alliant Credit Union",
+              location: "Chicago, IL",
+              lines: [
+                "Alliant Credit Union",
+                "Manager Credit Risk",
+                "2 Days Ago",
+                "Hybrid",
+                "Chicago, IL",
+              ],
+            }),
+            sourceJobIdHint: "11136865",
+          },
+          {
+            ...buildCard({
+              canonicalUrl:
+                "https://builtinchicago.org/job/analyst-insurance-solutions/11148521",
+              title: "Analyst",
+              company: "TransUnion",
+              location: "Chicago, IL",
+              lines: [
+                "Analyst - Insurance Solutions at TransUnion - Yesterday - Hybrid - Chicago, IL",
+              ],
+            }),
+            sourceJobIdHint: "11148521",
+          },
+        ],
+      });
+
+      expect(jobs.map((job) => job.title).sort()).toEqual([
+        "Analyst - Insurance Solutions",
+        "Manager Credit Risk",
+      ]);
+      expect(jobs.every((job) => job.location === "Chicago, IL")).toBe(true);
+      // The address really was rewritten; the repair did not depend on it.
+      expect(jobs.every((job) => !job.canonicalUrl.includes("credit-risk"))).toBe(
+        true,
+      );
+    });
+
+    test.each([
+      {
+        title: "Manager",
+        company: "Alliant Credit Union",
+        location: "Chicago, IL",
+        canonicalUrl: "https://builtinchicago.org/job/manager-credit-risk/11136865",
+        lines: [
+          "Alliant Credit Union",
+          "Manager Credit Risk",
+          "2 Days Ago",
+          "Hybrid",
+          "Chicago, IL",
+        ],
+        expected: "Manager Credit Risk",
+      },
+      {
+        title: "Principal,",
+        company: "OCC",
+        location: "Chicago, IL",
+        canonicalUrl:
+          "https://builtinchicago.org/job/principal-platform-architecture/11144971",
+        lines: [
+          "OCC",
+          "Principal, Platform Architecture",
+          "2 Days Ago",
+          "Hybrid",
+          "Chicago, IL",
+        ],
+        expected: "Principal, Platform Architecture",
+      },
+      {
+        title: "Manager,",
+        company: "Metropolis Technologies",
+        canonicalUrl:
+          "https://builtinchicago.org/job/manager-people-solutions/11145855",
+        lines: [
+          "Manager, People Solutions at Metropolis Technologies - 2 Days Ago - Easy Apply - In-Office",
+        ],
+        expected: "Manager, People Solutions",
+      },
+      {
+        title: "Principal, Corporate Marketing Operations &",
+        company: "Morningstar",
+        canonicalUrl:
+          "https://builtinchicago.org/job/principal-corporate-marketing-operations-enablement/11147281",
+        lines: [
+          "Principal, Corporate Marketing Operations & Enablement at Morningstar - Yesterday - Hybrid",
+        ],
+        expected: "Principal, Corporate Marketing Operations & Enablement",
+      },
+      {
+        title: "Analyst",
+        company: "TransUnion",
+        location: "Chicago, IL",
+        canonicalUrl:
+          "https://builtinchicago.org/job/analyst-insurance-solutions/11148521",
+        lines: [
+          "Analyst - Insurance Solutions at TransUnion - Yesterday - Hybrid - Chicago, IL",
+        ],
+        expected: "Analyst - Insurance Solutions",
+      },
+      {
+        title: "2027 US Chess",
+        company: "IMC Trading",
+        location: "Chicago, IL",
+        canonicalUrl:
+          "https://builtinchicago.org/job/2027-us-chess-academy-interest-form/11147852",
+        lines: [
+          "2027 US Chess Academy Interest Form at IMC Trading - Yesterday - Hybrid - Chicago, IL",
+        ],
+        expected: "2027 US Chess Academy Interest Form",
+      },
+      {
+        title: "People Operations",
+        company: "Belvedere Trading",
+        location: "Chicago, IL",
+        canonicalUrl:
+          "https://builtinchicago.org/job/people-operations-generalist/11139860",
+        lines: [
+          "Belvedere Trading",
+          "People Operations Generalist",
+          "2 Days Ago",
+          "Hybrid",
+          "Chicago, IL",
+        ],
+        expected: "People Operations Generalist",
+      },
+      {
+        title: "Sales Support Associate",
+        company: "Tapestry",
+        location: "Chicago, IL",
+        canonicalUrl:
+          "https://builtinchicago.org/job/sales-support-associate-i/8946587",
+        lines: [
+          "Sales Support Associate I at Tapestry - Hybrid - Chicago, IL",
+        ],
+        expected: "Sales Support Associate I",
+      },
+    ])("stores $expected whole", (row) => {
+      const [job] = buildStructuredCandidateJobs({
+        pageUrl: "https://builtinchicago.org/jobs",
+        maxJobs: 5,
+        cardCandidates: [
+          buildCard({
+            canonicalUrl: row.canonicalUrl,
+            title: row.title,
+            company: row.company,
+            lines: row.lines,
+            ...(row.location === undefined ? {} : { location: row.location }),
+          }),
+        ],
+      });
+
+      expect(job?.title).toBe(row.expected);
+      if (row.location !== undefined) {
+        expect(job?.location).toBe(row.location);
+      }
+    });
+  });
+
+  test("restores a title cut to its painted first line, however the record was built", () => {
+    const [structured] = buildStructuredCandidateJobs({
+      pageUrl: "https://builtinchicago.org/jobs",
+      maxJobs: 5,
+      structuredDataCandidates: [
+        {
+          canonicalUrl:
+            "https://builtinchicago.org/job/manager-credit-risk/11136865",
+          title: "Manager",
+          company: "Alliant Credit Union",
+          location: "Chicago, IL",
+          summary:
+            "Manager Credit Risk at Alliant Credit Union - Hybrid - Chicago, IL - 2 Days Ago",
+          description:
+            "Manager Credit Risk at Alliant Credit Union - Hybrid - Chicago, IL - 2 Days Ago",
+        },
+      ],
+    });
+
+    expect(structured?.title).toBe("Manager Credit Risk");
+    expect(structured?.company).toBe("Alliant Credit Union");
+    expect(structured?.location).toBe("Chicago, IL");
+  });
+
   test("builds jobs from generic search-result card candidates without site-specific rules", () => {
     const jobs = buildStructuredCandidateJobs({
       pageUrl: "https://jobs.example.com/search",
@@ -2664,5 +2880,263 @@ describe("isListingIndexPageRecord", () => {
         description: "",
       }),
     ).toBe(false);
+  });
+});
+
+describe("repairWrappedCardTitle", () => {
+  test("puts a heading's second line back in the title instead of the employer", () => {
+    expect(
+      repairWrappedCardTitle({
+        title: "Lead",
+        company: "Wells Fargo • Equipment Finance Underwriter",
+      }),
+    ).toEqual({
+      title: "Lead Equipment Finance Underwriter",
+      company: "Wells Fargo",
+    });
+  });
+
+  test("closes in the title a parenthesis the title opened", () => {
+    expect(
+      repairWrappedCardTitle({
+        title: "Sr. Strategic Finance Manager (Bellevue, WA",
+        company: "Logicgate • or Chicago, IL)",
+      }),
+    ).toEqual({
+      title: "Sr. Strategic Finance Manager (Bellevue, WA or Chicago, IL)",
+      company: "Logicgate",
+    });
+  });
+
+  test("leaves a short title and its own employer alone", () => {
+    expect(
+      repairWrappedCardTitle({
+        title: "Manager",
+        company: "Alliant Credit Union",
+      }),
+    ).toEqual({ title: "Manager", company: "Alliant Credit Union" });
+  });
+
+  test("never empties the employer to lengthen a title", () => {
+    expect(
+      repairWrappedCardTitle({
+        title: "Lead",
+        company: "Equipment Finance Underwriter",
+      }),
+    ).toEqual({ title: "Lead", company: "Equipment Finance Underwriter" });
+  });
+
+  test("reattaches the remainder a title dropped after a dangling connector", () => {
+    expect(
+      repairWrappedCardTitle({
+        title: "Senior Partner Marketing Manager, AI &",
+        company: "Dropbox",
+        location: "Remote, United States",
+        cardText:
+          "Senior Partner Marketing Manager, AI & ISV Ecosystem at Dropbox, Remote, United States, 13 Days Ago",
+        canonicalUrl:
+          "https://builtinchicago.org/job/senior-partner-marketing-manager-ai-isv-ecosystem/1234567",
+      }),
+    ).toEqual({
+      title: "Senior Partner Marketing Manager, AI & ISV Ecosystem",
+      company: "Dropbox",
+      location: "Remote, United States",
+    });
+  });
+
+  test("moves a location line that is title remainder back into the title", () => {
+    expect(
+      repairWrappedCardTitle({
+        title: "Marketing Manager",
+        company: "Vantive",
+        location: "PD Products Portfolio",
+        cardText: "Marketing Manager role at Vantive",
+        canonicalUrl:
+          "https://builtinchicago.org/job/marketing-manager-pd-products-portfolio/7654321",
+      }),
+    ).toEqual({
+      title: "Marketing Manager PD Products Portfolio",
+      company: "Vantive",
+      location: null,
+    });
+  });
+
+  test("keeps a real place as the location even when the title is short", () => {
+    expect(
+      repairWrappedCardTitle({
+        title: "Marketing Manager",
+        company: "Vantive",
+        location: "Chicago, IL",
+        cardText: "Marketing Manager at Vantive, Chicago, IL",
+        canonicalUrl:
+          "https://builtinchicago.org/job/marketing-manager-chicago-il/7654321",
+      }),
+    ).toEqual({
+      title: "Marketing Manager",
+      company: "Vantive",
+      location: "Chicago, IL",
+    });
+  });
+
+  // Five rows a live Built In Chicago run stored with the painted first line
+  // as the whole title. Each address spells the rest, and each card summary
+  // prints the full phrase.
+  test.each([
+    {
+      title: "Manager",
+      company: "Alliant Credit Union",
+      location: "Chicago, IL",
+      canonicalUrl: "https://builtinchicago.org/job/manager-credit-risk/11136865",
+      cardText:
+        "Manager Credit Risk at Alliant Credit Union - Hybrid - Chicago, IL - 2 Days Ago",
+      expected: "Manager Credit Risk",
+    },
+    {
+      title: "People Operations",
+      company: "Belvedere Trading",
+      location: "Chicago, IL",
+      canonicalUrl:
+        "https://builtinchicago.org/job/people-operations-generalist/11139860",
+      cardText:
+        "People Operations Generalist at Belvedere Trading - Easy Apply - Hybrid - Chicago, IL - 2 Days Ago",
+      expected: "People Operations Generalist",
+    },
+    {
+      title: "Senior Lifecycle Marketing Manager,",
+      company: "Bankrate",
+      location: "United States",
+      canonicalUrl:
+        "https://builtinchicago.org/job/senior-lifecycle-marketing-manager-enterprise-partnerships/10872069",
+      cardText:
+        "Senior Lifecycle Marketing Manager, Enterprise Partnerships at Bankrate - 17 Days Ago - Easy Apply",
+      expected: "Senior Lifecycle Marketing Manager, Enterprise Partnerships",
+    },
+    {
+      title: "Principal, Corporate Marketing Operations &",
+      company: "Morningstar",
+      location: "Chicago, IL",
+      canonicalUrl:
+        "https://builtinchicago.org/job/principal-corporate-marketing-operations-enablement/11147281",
+      cardText:
+        "Principal, Corporate Marketing Operations & Enablement at Morningstar - Hybrid - Chicago, IL",
+      expected: "Principal, Corporate Marketing Operations & Enablement",
+    },
+    {
+      title: "Sales Support Associate",
+      company: "Tapestry - Coach and Kate Spade",
+      location: "Chicago, IL",
+      canonicalUrl:
+        "https://builtinchicago.org/job/sales-support-associate-i/8946587",
+      cardText:
+        "Sales Support Associate I at Tapestry - Coach and Kate Spade - Hybrid - Chicago, IL",
+      expected: "Sales Support Associate I",
+    },
+  ])("restores the whole title for $expected", (row) => {
+    expect(
+      repairWrappedCardTitle({
+        title: row.title,
+        company: row.company,
+        location: row.location,
+        cardText: row.cardText,
+        canonicalUrl: row.canonicalUrl,
+      }).title,
+    ).toBe(row.expected);
+  });
+
+  test.each([
+    {
+      name: "Manager Credit Risk",
+      title: "Manager",
+      company: "Alliant Credit Union",
+      location: "Credit Risk",
+      canonicalUrl: "https://builtinchicago.org/job/manager-credit-risk/11136865",
+      cardText:
+        "Manager Credit Risk at Alliant Credit Union - Hybrid - Chicago, IL - 2 Days Ago",
+      expected: "Manager Credit Risk",
+    },
+    {
+      name: "Product Owner, Workday ERP",
+      title: "Product Owner, Workday ERP",
+      company: "Wipfli",
+      location: "Owner, Workday ERP",
+      canonicalUrl:
+        "https://builtinchicago.org/job/product-owner-workday-erp/11140001",
+      cardText: "Product Owner, Workday ERP at Wipfli - Remote",
+      expected: "Product Owner, Workday ERP",
+    },
+    {
+      name: "Product Manager Services",
+      title: "Product Manager Services",
+      company: "Cdw",
+      location: "Services",
+      canonicalUrl:
+        "https://builtinchicago.org/job/product-manager-services/11140002",
+      cardText: "Product Manager Services at Cdw - Hybrid",
+      expected: "Product Manager Services",
+    },
+    {
+      name: "2027 US Chess Academy Interest Form",
+      title: "2027 US Chess",
+      company: "Imc Trading",
+      location: "Academy Interest Form",
+      canonicalUrl:
+        "https://builtinchicago.org/job/2027-us-chess-academy-interest-form/11140003",
+      cardText: "2027 US Chess role at Imc Trading",
+      expected: "2027 US Chess Academy Interest Form",
+    },
+  ])("keeps the title remainder out of the location line for $name", (row) => {
+    expect(
+      repairWrappedCardTitle({
+        title: row.title,
+        company: row.company,
+        location: row.location,
+        cardText: row.cardText,
+        canonicalUrl: row.canonicalUrl,
+      }),
+    ).toEqual({
+      title: row.expected,
+      company: row.company,
+      location: null,
+    });
+  });
+
+  test("finishes a title's open parenthesis and drops the work-mode aside", () => {
+    expect(
+      repairWrappedCardTitle({
+        title: "Software Engineer I - AI (Hybrid in",
+        company: "Chamberlain Group",
+        location: "Chicago, IL",
+        cardText:
+          "Software Engineer I - AI (Hybrid in Oak Brook, IL) at Chamberlain Group - Hybrid - Chicago, IL - Reposted 2 Days Ago",
+        canonicalUrl:
+          "https://builtinchicago.org/job/software-engineer-i-ai/11140004",
+      }),
+    ).toEqual({
+      title: "Software Engineer I - AI",
+      company: "Chamberlain Group",
+      location: "Chicago, IL",
+    });
+  });
+
+  test("does not lengthen a title the card text never prints longer", () => {
+    expect(
+      repairWrappedCardTitle({
+        title: "Marketing Manager",
+        company: "Vantive",
+        location: "Chicago, IL",
+        cardText: "Marketing Manager at Vantive, Chicago, IL",
+        canonicalUrl:
+          "https://boards.example.test/job/marketing-manager-emea-growth/42",
+      }).title,
+    ).toBe("Marketing Manager");
+  });
+
+  test("leaves a complete title and a plain employer untouched", () => {
+    expect(
+      repairWrappedCardTitle({
+        title: "Senior Paid Media Manager",
+        company: "Envisionit",
+      }),
+    ).toEqual({ title: "Senior Paid Media Manager", company: "Envisionit" });
   });
 });

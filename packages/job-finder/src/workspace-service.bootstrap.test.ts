@@ -10,6 +10,7 @@ import {
 import { describe, expect, test } from "vitest";
 
 import {
+  createBrowserRuntime,
   createSeed,
   createWorkspaceServiceHarness,
 } from "./workspace-service.test-support";
@@ -261,5 +262,40 @@ describe("workspace service bootstrap hydration", () => {
       sourceTargetIds: ["target_linkedin_default"],
       jobIds: fixture.seed.savedJobs.map((job) => job.id),
     });
+  });
+});
+
+describe("browser session on a workspace that has never run discovery", () => {
+  test("reports the runtime's own lane instead of the offline catalog", async () => {
+    // A fresh workspace has no persisted adapter session. Falling back to the
+    // catalog lane here told an agent-backed build that it could not search
+    // before anything had been tried.
+    const runtime = createBrowserRuntime();
+    const { workspaceService } = createWorkspaceServiceHarness({
+      seed: createSeed(),
+      browserRuntime: {
+        ...runtime,
+        getSessionState: (source) =>
+          Promise.resolve({
+            source,
+            status: "unknown" as const,
+            driver: "embedded_browser_agent" as const,
+            label: "Browser profile not started",
+            detail: "The run opens the browser when a search starts.",
+            lastCheckedAt: "2026-03-20T10:04:00.000Z",
+          }),
+      },
+    });
+
+    const bootstrap = await workspaceService.getWorkspaceBootstrap();
+    const full = await workspaceService.getWorkspaceSnapshot();
+
+    expect(bootstrap.discoverySessions).toEqual([]);
+    expect(bootstrap.browserSession).toMatchObject({
+      source: "target_site",
+      status: "unknown",
+      driver: "embedded_browser_agent",
+    });
+    expect(full.browserSession.driver).toBe("embedded_browser_agent");
   });
 });

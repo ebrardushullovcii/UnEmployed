@@ -554,12 +554,18 @@ describe("discovery result fit ordering", () => {
     );
 
     expect(reversed).toEqual(forward);
+    // Every row here is built from the catalog-seeded fixture, so every fit
+    // score is provisional and none of them may promote a row as the Best
+    // match. Ordering therefore falls through to the tie-break chain: the
+    // clear mismatch sinks last, then newest listing first (the two enriched
+    // rows carry older `postedAt` values than the seed's own), and detail
+    // quality and the lexical keys settle the rest.
     expect(forward).toEqual([
-      "enriched_85_new",
-      "enriched_85_old",
       "card_85",
       "tie_aaa",
       "tie_zzz",
+      "enriched_85_new",
+      "enriched_85_old",
       "mismatch_skip_99",
     ]);
   });

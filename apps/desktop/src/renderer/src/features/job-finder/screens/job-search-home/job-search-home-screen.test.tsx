@@ -657,7 +657,7 @@ describe("JobSearchHomeScreen", () => {
     expect(screen.queryByTestId("source-health-run-notice")).toBeNull();
   });
 
-  it("labels catalog rows as review-only when no live source is enabled", () => {
+  it("says searching is unavailable, in plain words, when no source can run", () => {
     const catalogWorkspace = {
       ...zeroMetricsWorkspace({
         profileSetupStatus: "completed",
@@ -680,10 +680,10 @@ describe("JobSearchHomeScreen", () => {
 
     expect(
       screen.getByTestId("home-offline-catalog-notice").textContent,
-    ).toContain("Offline catalog · review-only.");
+    ).toContain("Search unavailable.");
     expect(
       screen.getByTestId("home-offline-catalog-notice").textContent,
-    ).toContain("do not confirm a live source search");
+    ).toContain("These results were saved earlier, so some may no longer be open.");
   });
 
   it.each([

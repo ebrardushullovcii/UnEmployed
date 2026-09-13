@@ -114,6 +114,47 @@ export function countNeedsYouItems({
   );
 }
 
+/**
+ * How many of one apply run's jobs the Needs you population holds.
+ *
+ * The Applications run summary used to count the run's own blocked and failed
+ * results directly, so a finished batch printed "5 need attention" beside a
+ * header badge reading "Needs you: 4 unresolved" for the same five jobs: one
+ * of them was blocked without ever becoming something the person could act
+ * on. Both numbers now come from this module — the summary counts this run's
+ * share of exactly the population the badge totals — so the two can only
+ * differ by what belongs to another run.
+ */
+export function countApplyRunItemsNeedingYou({
+  applicationRecords,
+  requests,
+  runId,
+  runJobIds,
+}: NeedsYouCountInput & {
+  runId: string;
+  runJobIds: ReadonlySet<string>;
+}): number {
+  const runRequests = (requests ?? []).filter(
+    (request) =>
+      request.scope?.type === "application" &&
+      (request.scope.runId === runId || runJobIds.has(request.scope.jobId)),
+  );
+  const unresolvedRunRequests = runRequests.filter(
+    (request) => !FINAL_ACTION_REQUEST_STATES.includes(request.state),
+  );
+  const runApplications = (applicationRecords ?? []).filter((record) =>
+    runJobIds.has(record.jobId),
+  );
+
+  return (
+    unresolvedRunRequests.length +
+    listApplicationsAwaitingUser({
+      applicationRecords: runApplications,
+      requests: runRequests,
+    }).length
+  );
+}
+
 /** Convenience reader for callers that already hold the whole snapshot. */
 export function countWorkspaceNeedsYouItems(
   workspace: JobFinderWorkspaceSnapshot,

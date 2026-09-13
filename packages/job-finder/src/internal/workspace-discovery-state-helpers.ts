@@ -1,4 +1,5 @@
 import type {
+  BrowserSessionState,
   DiscoveryLedgerEntry,
   JobFinderDiscoveryState,
   JobSource,
@@ -175,9 +176,19 @@ export function overlayTouchedPendingJobs(
   );
 }
 
+/**
+ * Projects the browser session a workspace snapshot reports.
+ *
+ * Before the first discovery run a workspace has no persisted adapter session.
+ * That is "not started yet", never "this build has no browser": the runtime's
+ * own session state is the truth when the host can hand it over, and the
+ * last-resort fallback reports the `uninitialized` driver so no reader can
+ * mistake a cold start for the catalog-only lane.
+ */
 export function createBrowserSessionSnapshot(
   sessions: ReadonlyArray<JobFinderDiscoveryState["sessions"][number]>,
   preferredAdapter: JobSource,
+  runtimeSession?: BrowserSessionState | null,
 ) {
   const preferredSession =
     sessions.find((session) => session.adapterKind === preferredAdapter) ??
@@ -194,10 +205,21 @@ export function createBrowserSessionSnapshot(
     };
   }
 
+  if (runtimeSession) {
+    return {
+      source: preferredAdapter,
+      status: runtimeSession.status,
+      driver: runtimeSession.driver,
+      label: runtimeSession.label,
+      detail: runtimeSession.detail,
+      lastCheckedAt: runtimeSession.lastCheckedAt,
+    };
+  }
+
   return {
     source: preferredAdapter,
     status: "unknown" as const,
-    driver: "catalog_seed" as const,
+    driver: "uninitialized" as const,
     label: "Session status unavailable",
     detail: "No discovery adapter session has been initialized yet.",
     lastCheckedAt: new Date(0).toISOString(),

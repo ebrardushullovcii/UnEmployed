@@ -1,4 +1,5 @@
 import {
+  DISCOVERY_NO_JOB_SITES_MESSAGE,
   DISCOVERY_RUN_ALREADY_ACTIVE_MESSAGE,
   DiscoveryRunRecordSchema,
   JobPostingSchema,
@@ -1340,13 +1341,46 @@ export function createWorkspaceDiscoveryMethods(
     const selectedTargets = selectTargets(enrichedPreferences, options);
 
     if (selectedTargets.length === 0) {
-      clearActiveController();
-
       if (options.scope === "single_target") {
+        clearActiveController();
         throw new Error("single_target: target not found or unavailable");
       }
 
-      return ctx.getWorkspaceSnapshot();
+      // A whole-plan search with nothing left to search used to return the
+      // current snapshot unchanged: no run started, no run ended, and the
+      // newest thing the app had said about this plan stayed a success from
+      // an earlier day. It starts and ends as a failed run that carries its
+      // own reason, so the plan card, Find jobs and Home all read the same
+      // verdict from run history.
+      const emptyRunId = createUniqueId("discovery_run");
+      ctx.activeDiscoveryRunIdRef.current = emptyRunId;
+      let emptyRun = createInitialRunRecord({
+        id: emptyRunId,
+        campaignId:
+          options.campaign?.campaignId ?? (await ctx.getActiveCampaignId()),
+        targets: [],
+        scope: options.scope,
+        activeRun: startingDiscovery.activeRun,
+        previousRuns: startingDiscovery.recentRuns,
+      });
+      emptyRun = updateRunSummary(emptyRun, {
+        warnings: uniqueStrings([
+          ...emptyRun.summary.warnings,
+          DISCOVERY_NO_JOB_SITES_MESSAGE,
+        ]),
+      });
+      emptyRun = finalizeDiscoveryRun(
+        emptyRun,
+        "failed",
+        new Date().toISOString(),
+      );
+      await ctx
+        .persistDiscoveryState((current) =>
+          finalizeDiscoveryState(current, emptyRun, enrichedPreferences),
+        )
+        .catch(() => {});
+      clearActiveController();
+      throw new Error(DISCOVERY_NO_JOB_SITES_MESSAGE);
     }
 
     // Revalidate the local inventory before consulting the discovery ledger.
@@ -2135,6 +2169,15 @@ export function createWorkspaceDiscoveryMethods(
               })),
               visitedUrls: [...checkpoint.visitedUrls],
             },
+            // The checkpoint itself is replaced by the next one, so the
+            // listings it carried are appended to the durable encountered
+            // list before that happens.
+            encounteredJobIds: uniqueStrings([
+              ...entry.encounteredJobIds,
+              ...checkpoint.collectedJobs.map((posting) =>
+                toSavedJobId(posting),
+              ),
+            ]),
           }));
 
           // Copy the checkpoint payload: collectedJobs is the agent's live
@@ -2449,6 +2492,13 @@ export function createWorkspaceDiscoveryMethods(
           ...entry,
           collectionMethod: collected.collectionMethod,
           sourceIntelligenceProvider: collectedProviderKey,
+          // Every listing this target collected, so campaign membership can
+          // read what the run encountered even when the agent finished in a
+          // single pass and left no resume checkpoint behind.
+          encounteredJobIds: uniqueStrings([
+            ...entry.encounteredJobIds,
+            ...collectedJobs.map((posting) => toSavedJobId(posting)),
+          ]),
           compactionState:
             collected.result.agentMetadata?.compactionState ?? null,
           compactionUsedFallbackTrigger:

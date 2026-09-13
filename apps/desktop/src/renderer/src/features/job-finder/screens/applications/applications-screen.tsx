@@ -45,7 +45,10 @@ import {
 import { useApplicationsApplyRunDetails } from "./use-applications-apply-run-details";
 import { ApplicationsRecordsPanel } from "./applications-records-panel";
 import { StatusBadge } from "../../components/status-badge";
-import { countApplicationLedgerEntries } from "../../lib/needs-you-count";
+import {
+  countApplicationLedgerEntries,
+  countApplyRunItemsNeedingYou,
+} from "../../lib/needs-you-count";
 import {
   ApplicationsCrmViews,
   type ApplicationCrmView,
@@ -58,6 +61,11 @@ export function ApplicationsScreen(props: {
   applicationRecords: readonly ApplicationRecord[];
   applyRuns: JobFinderWorkspaceSnapshot["applyRuns"];
   applyJobResults: JobFinderWorkspaceSnapshot["applyJobResults"];
+  /**
+   * Live user-action requests, so the finished-run summary counts this run's
+   * share of the same Needs you population the header badge totals.
+   */
+  userActionRequests?: JobFinderWorkspaceSnapshot["userActionRequests"];
   companies?: readonly CompanyEntity[];
   dailyPreparationCapacity: GlobalDailyApplicationPreparationCapacity | null;
   discoveryJobs: JobFinderWorkspaceSnapshot["discoveryJobs"];
@@ -137,6 +145,7 @@ export function ApplicationsScreen(props: {
     applicationRecords,
     applyRuns,
     applyJobResults,
+    userActionRequests,
     dailyPreparationCapacity,
     discoveryJobs,
     isApplyPending,
@@ -245,9 +254,22 @@ export function ApplicationsScreen(props: {
         : [],
     [applyJobResults, latestFinishedAutomaticRun],
   );
-  const latestRunAttentionCount = latestFinishedAutomaticResults.filter(
-    (result) => result.state === "blocked" || result.state === "failed",
-  ).length;
+  // One owner for "needs you": the run summary counts this run's share of the
+  // population the header badge totals, rather than its own blocked/failed
+  // result states, which reported "5 need attention" beside "Needs you: 4
+  // unresolved" for the same five jobs.
+  const latestRunAttentionCount = useMemo(
+    () =>
+      latestFinishedAutomaticRun
+        ? countApplyRunItemsNeedingYou({
+            applicationRecords,
+            requests: userActionRequests ?? [],
+            runId: latestFinishedAutomaticRun.id,
+            runJobIds: new Set(latestFinishedAutomaticRun.jobIds),
+          })
+        : 0,
+    [applicationRecords, latestFinishedAutomaticRun, userActionRequests],
+  );
   const latestRunSkippedCount = latestFinishedAutomaticResults.filter(
     (result) => result.state === "skipped",
   ).length;
@@ -500,6 +522,7 @@ export function ApplicationsScreen(props: {
   const visibleActionMessage = resolveVisibleRouteActionMessage({
     actionMessage: props.actionMessage ?? null,
     dailyPreparationCapacity,
+    latestRunAttentionCount,
   });
   const crmEmptyState = !hasCrmTrackerControls
     ? {

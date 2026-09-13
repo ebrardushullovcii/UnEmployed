@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   CampaignNotificationSchema,
   CampaignRunFactsSchema,
+  DISCOVERY_NO_JOB_SITES_MESSAGE,
   DiscoveryRunRecordSchema,
   MatchAssessmentSchema,
   type CampaignNotification,
@@ -700,9 +701,27 @@ describe("deriveCampaignNotifications", () => {
     expect(notifications[0]).toMatchObject({
       kind: "blocked_work",
       id: "n_campaign-1_failed_run_2026-07-31T11:00:00.000Z",
-      title: "Failed: Scheduled search plan run",
+      title: "Failed: search plan run",
       body: "The scheduled run failed after two attempts.",
       jobId: null,
+    });
+  });
+
+  test("names the failure reason in the body of a failed run notification", () => {
+    const notifications = deriveCampaignNotifications({
+      campaignId: "campaign-1",
+      now: "2026-07-31T12:00:00.000Z",
+      runFacts: createRunFacts({
+        lastRunAt: "2026-07-31T11:00:00.000Z",
+        lastRunOutcome: "failed",
+        lastRunSummary: `Run failed: ${DISCOVERY_NO_JOB_SITES_MESSAGE}`,
+        consecutiveFailures: 1,
+      }),
+    });
+
+    expect(notifications[0]).toMatchObject({
+      title: "Failed: search plan run",
+      body: `Run failed: ${DISCOVERY_NO_JOB_SITES_MESSAGE}`,
     });
   });
 

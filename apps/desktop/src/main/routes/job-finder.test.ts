@@ -7,6 +7,7 @@ import {
   ApplicationPacketSchema,
   ApplicationCrmSettingsSchema,
   AppearanceThemeSchema,
+  DISCOVERY_NO_JOB_SITES_MESSAGE,
   getDefaultCampaignConfiguration,
   DiscoveryRunRecordSchema,
   JobFinderProfileCopilotPatchGroupActionInputSchema,
@@ -140,6 +141,7 @@ vi.mock("../services/job-finder", () => ({
   setJobFinderWorkspaceServiceTestEnv: vi.fn(),
 }));
 
+import { JOB_FINDER_WORKSPACE_UPDATED_CHANNEL } from "../services/job-finder/workspace-updates";
 import { registerJobFinderRouteHandlers } from "./job-finder";
 
 const packet = ApplicationPacketSchema.parse({
@@ -1620,6 +1622,23 @@ describe("job-finder campaign run and notification read routes", () => {
       { campaignId: null },
       expect.any(Function),
     );
+  });
+
+  it("still tells the renderer to refresh when the run refuses to start", async () => {
+    // A plan whose sources are gone records a failed run and then throws the
+    // reason. The throw skipped the workspace-updated publish, so the plan
+    // card, its history and Home all kept the previous run's success as the
+    // newest thing the app had said.
+    mockRunCampaignNow.mockRejectedValueOnce(
+      new Error(DISCOVERY_NO_JOB_SITES_MESSAGE),
+    );
+    const send = vi.fn();
+
+    await expect(
+      runCampaignNowHandler({ sender: { send } }, { campaignId: "campaign-1" }),
+    ).rejects.toThrow(DISCOVERY_NO_JOB_SITES_MESSAGE);
+
+    expect(send).toHaveBeenCalledWith(JOB_FINDER_WORKSPACE_UPDATED_CHANNEL);
   });
 
   it("rejects a malformed run-campaign-now payload", async () => {

@@ -9,7 +9,10 @@ import {
 } from "@unemployed/contracts";
 import type { AgentResult, AgentState } from "../types";
 import { uniqueStrings } from "../utils/string";
-import { findDetailRouteIdSegment } from "./job-extraction";
+import {
+  findDetailRouteIdSegment,
+  repairExtractedJobTitle,
+} from "./job-extraction";
 
 const NOISE_TOKEN_RE =
   /\bdismiss\b|\bviewed\b|\bpromoted\b|\bwith verification\b/i;
@@ -734,19 +737,32 @@ function shouldDeduplicateByCanonicalUrl(
   return !sharedSurfaceUrls.has(canonicalUrl);
 }
 
+/**
+ * Every extracted job enters the run's state here, whichever extractor found
+ * it, so this is where a title wrapped across two painted lines is put back
+ * together. The card reader repairs its own records, but the model pass
+ * returns the heading as painted — a run stored "Manager" for a listing its
+ * own summary called "Manager Credit Risk" — and those jobs reach state
+ * through this same function. The witnesses are the job's address slug, its
+ * own summary and description, and the page text around the title.
+ */
 export function addExtractedJobsToState(
   extractedJobs: readonly ExtractedJobInput[],
   state: AgentState,
   source: JobPosting["source"],
+  options?: { pageText?: string | null },
 ): number {
   let addedCount = 0;
   const discoveredAt = new Date().toISOString();
+  const repairedJobs = extractedJobs.map((job) =>
+    repairExtractedJobTitle(job, { pageText: options?.pageText ?? null }),
+  );
   const sharedSurfaceUrls = collectSharedSurfaceUrls([
     ...state.collectedJobs,
-    ...extractedJobs,
+    ...repairedJobs,
   ]);
 
-  for (const job of extractedJobs) {
+  for (const job of repairedJobs) {
     const existingIndex = state.collectedJobs.findIndex(
       (existingJob) =>
         existingJob.sourceJobId === job.sourceJobId ||

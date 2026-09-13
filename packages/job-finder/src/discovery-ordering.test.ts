@@ -346,4 +346,38 @@ describe("equal displayed fit ordering", () => {
       "adjacent",
     ]);
   });
+
+  it("sorts assessments that carry no gaps or reasons list at all", () => {
+    // Assessments recorded before these fields existed (and any caller that
+    // skipped schema parsing, which is how renderer fixtures reach the
+    // comparator) arrive without them; ordering must read each as an empty
+    // list instead of throwing while the list is being sorted.
+    const withoutGaps = tiedCandidate({
+      id: "no-gaps",
+      titleFamilyMatch: "same_family",
+      postedAt: "2026-09-12",
+    });
+    delete (
+      withoutGaps.matchAssessment as { gaps?: unknown; reasons?: unknown }
+    ).gaps;
+    delete (
+      withoutGaps.matchAssessment as { gaps?: unknown; reasons?: unknown }
+    ).reasons;
+
+    const jobs = [
+      tiedCandidate({
+        id: "seniority-conflict",
+        titleFamilyMatch: "same_family",
+        seniorityConflict: true,
+        postedAt: "2026-09-13",
+      }),
+      withoutGaps,
+    ];
+
+    expect(() => jobs.sort(compareDiscoveryJobs)).not.toThrow();
+    expect(jobs.map((job) => job.id)).toEqual([
+      "no-gaps",
+      "seniority-conflict",
+    ]);
+  });
 });

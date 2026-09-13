@@ -19,6 +19,12 @@ export interface DiscoveryRunReportCounts {
   retained: number | null;
   worthOpening: number | null;
   duplicates: number | null;
+  /**
+   * Listings the plan already held before this run started. Null for runs
+   * recorded before the split existed, which is why the duplicate tally is
+   * still read as a fallback below.
+   */
+  alreadyHere: number | null;
 }
 
 const MISSING_RUN_COUNT_LABEL = "not recorded";
@@ -30,6 +36,7 @@ const EMPTY_RUN_REPORT_COUNTS: DiscoveryRunReportCounts = {
   retained: null,
   worthOpening: null,
   duplicates: null,
+  alreadyHere: null,
 };
 
 function readReportCount(value: number | null | undefined): number | null {
@@ -64,6 +71,7 @@ export function readDiscoveryRunReportCounts(
     retained: readReportCount(report.retained),
     worthOpening: readReportCount(report.worthOpening),
     duplicates: readReportCount(report.duplicates),
+    alreadyHere: readReportCount(report.alreadyHere),
   };
 }
 
@@ -76,7 +84,27 @@ function formatReportSegment(value: number | null, noun: string): string {
     : `${value} ${noun}`;
 }
 
+/**
+ * How many of this run's listings were already saved, from the run's own
+ * frozen report.
+ *
+ * Exported because the plan card's headline and its breakdown row have to be
+ * the same number: the headline read this while the "Seen before" tile read
+ * the change digest's sighting tally, so one plan card printed "7 already
+ * here" above "Seen before 0".
+ */
+export function resolveDiscoveryRunAlreadyHereCount(
+  counts: DiscoveryRunReportCounts,
+): number | null {
+  return resolveAlreadyHereCount(counts);
+}
+
 function resolveAlreadyHereCount(counts: DiscoveryRunReportCounts): number | null {
+  // "Already here" means the plan held these listings before the run. The run
+  // measures that itself now; the duplicate tally below is only the reading
+  // for runs recorded before the two were told apart, and it is why a first
+  // search on an empty workspace once reported 47 listings as already here.
+  if (counts.alreadyHere !== null) return counts.alreadyHere;
   if (counts.duplicates === null) return null;
   if (
     counts.found !== null &&
@@ -123,6 +151,17 @@ export function formatDiscoveryRunReportLabel(
       everythingWasAlreadyHere
         ? "all already here"
         : formatReportSegment(alreadyHere, "already here"),
+    );
+  }
+
+  // A listing two sources both returned inside this one run was merged, not
+  // met before. It is its own fact and says so, beside — never instead of —
+  // what the plan already held. Runs recorded before the split read their
+  // "already here" from this same number, so stating it twice is suppressed.
+  if (counts.alreadyHere !== null && (counts.duplicates ?? 0) > 0) {
+    const duplicates = counts.duplicates ?? 0;
+    segments.push(
+      `${duplicates} ${duplicates === 1 ? "duplicate" : "duplicates"} merged`,
     );
   }
 

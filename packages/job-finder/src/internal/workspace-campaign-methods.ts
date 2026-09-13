@@ -7,6 +7,7 @@ import {
   CampaignRuleSchema,
   DeleteCampaignRuleInputSchema,
   DeleteJobSearchCampaignInputSchema,
+  describeDiscoveryRunFailureReason,
   DiscoveryRunReportSchema,
   DiscoveryRunRecordSchema,
   JobSearchCampaignCollectionSchema,
@@ -150,7 +151,7 @@ function collectInFlightProtectedJobIds(input: {
  * counts — the same three numbers every screen prints — instead of restating
  * "jobs found" with a number that actually counted what was saved.
  */
-function describeCampaignRunSummary(
+export function describeCampaignRunSummary(
   run: DiscoveryRunRecord,
   report: DiscoveryRunReport,
   sourceTargets: readonly { id: string; label: string }[],
@@ -164,6 +165,15 @@ function describeCampaignRunSummary(
   const failedLabel = failed
     ? ` · ${sourceTargets.find((target) => target.id === failed.targetId)?.label ?? "A job source"} failed${failed.warning ? ` (${failed.warning})` : ""}`
     : "";
+  // A run that failed says why. Counts for a run that planned nothing are
+  // three zeros that read as "the search found nothing", which is a different
+  // and wrong story; the reason replaces them.
+  const failureReason = describeDiscoveryRunFailureReason(run);
+  if (failureReason !== null) {
+    return sources.planned === 0
+      ? `Run failed: ${failureReason}`
+      : `${sources.completed} of ${sources.planned} sources completed${failedLabel}. Run failed: ${failureReason}`;
+  }
   return `${sources.completed} of ${sources.planned} sources completed${failedLabel}. Discovery ${run.state}: ${count(report.found)} found · ${count(
     report.new,
   )} new · ${count(report.retained)} kept.`;
@@ -305,6 +315,19 @@ export async function commitCampaignRunTerminal(input: {
         ? discovery.activeRun
         : null);
     if (!recordedRun) return;
+    // The newest run for this plan may be one that was already committed: a
+    // Run now that never opened a run of its own — the sources are gone, a
+    // safeguard blocks it, or a read fails before the pipeline starts — still
+    // arrives here. Recounting a settled run against the current workspace
+    // moves numbers no search produced, because the jobs it introduced are by
+    // then already members of the plan: the same finished search read "66
+    // new" before and "51 new" after. A frozen report is measured once.
+    if (
+      recordedRun.summary.report !== null &&
+      recordedRun.summary.report.worthOpening !== null
+    ) {
+      return;
+    }
     const campaign = state.campaigns.find(
       (candidate) => candidate.id === input.campaignId,
     );
@@ -347,6 +370,15 @@ export async function commitCampaignRunTerminal(input: {
         ),
       ),
     );
+    // The run's own record of what each target collected. The agent checkpoint
+    // only holds the batch that was open when it was written — a target that
+    // finished in one pass leaves none — so the durable per-execution list is
+    // the primary reading and the checkpoint covers runs recorded before it.
+    const encounteredRecordedJobIds = new Set(
+      latestRun.targetExecutions.flatMap(
+        (execution) => execution.encounteredJobIds,
+      ),
+    );
     const encounteredJobIds = new Set(
       availableJobs
         .filter((job) => {
@@ -355,6 +387,7 @@ export async function commitCampaignRunTerminal(input: {
           // historical rows too broadly and cannot identify which duplicates
           // a compact run actually encountered.
           return (
+            encounteredRecordedJobIds.has(job.id) ||
             encounteredSourceJobIds.has(`${job.source}:${job.sourceJobId}`) ||
             encounteredCanonicalUrls.has(job.canonicalUrl)
           );
@@ -366,6 +399,15 @@ export async function commitCampaignRunTerminal(input: {
     );
     const newToPlanJobIds = new Set(
       [...encounteredJobIds].filter((jobId) => !priorCampaignJobIds.has(jobId)),
+    );
+    // "Already here" is a statement about the plan before this run, so it is
+    // the other half of the same split that produced `new`. The run's own
+    // duplicate tally cannot answer it: that counts every merge the run made,
+    // including a listing two sources both returned inside this one run, which
+    // is why a first search on an empty workspace reported listings as already
+    // here.
+    const alreadyInPlanJobIds = new Set(
+      [...encounteredJobIds].filter((jobId) => priorCampaignJobIds.has(jobId)),
     );
     const candidateJobIds = new Set([
       ...campaign.jobIds,
@@ -428,6 +470,7 @@ export async function commitCampaignRunTerminal(input: {
     const retentionCounts = {
       measuredAt,
       new: newToPlanJobIds.size,
+      alreadyHere: alreadyInPlanJobIds.size,
       retained: retainedRunJobs.length,
       worthOpening: countDiscoveryStrongMatches(retainedRunJobs),
     };
@@ -435,6 +478,7 @@ export async function commitCampaignRunTerminal(input: {
       ...(latestRun.summary.report ??
         buildDiscoveryRunReport(latestRun, measuredAt)),
       new: retentionCounts.new,
+      alreadyHere: retentionCounts.alreadyHere,
       retained: retentionCounts.retained,
       worthOpening: retentionCounts.worthOpening,
       retentionLimitApplied: campaign.limits.retainedJobTarget,
@@ -855,9 +899,6 @@ async function restoreClaimedScheduledSlot(input: {
  * terminal state so the schedule advances instead of hot-looping; a concurrent
  * discovery (already-in-progress) is surfaced to the caller without committing.
  */
-const NO_ENABLED_SOURCES_MESSAGE =
-  "This plan has no sources turned on, so there is nothing to search. Turn on a source in Profile, then run it again.";
-
 async function executeCampaignRun(input: {
   ctx: WorkspaceServiceContext;
   campaign: JobSearchCampaign;
@@ -1223,15 +1264,12 @@ export function createWorkspaceCampaignMethods(input: {
         ctx: input.ctx,
         campaignId: request.campaignId ?? null,
       });
-      // A plan with every source switched off used to report "Search plan run
-      // started" and then do nothing; the user had no way to tell why.
-      if (
-        !campaign.searchPreferences.discovery.targets.some(
-          (target) => target.enabled,
-        )
-      ) {
-        throw new Error(NO_ENABLED_SOURCES_MESSAGE);
-      }
+      // A plan with every source switched off — or whose only source was
+      // removed from Profile — used to stop here without a run, leaving an
+      // older "Last run succeeded" as the newest thing the app had said. The
+      // discovery pipeline now starts and ends a failed run for the same
+      // condition, so the refusal is recorded where the plan card, Find jobs
+      // and Home all read it.
       await executeCampaignRun({
         ctx: input.ctx,
         campaign,

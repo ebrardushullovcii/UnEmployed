@@ -502,7 +502,9 @@ describe("ProfileJobSourcesTab", () => {
     ) as HTMLElement;
     expect(within(row).queryByText("Needs attention")).toBeNull();
     expect(within(row).queryByText("No guidance yet")).toBeNull();
-    expect(within(row).getByText("Completed, 12 jobs found.")).toBeTruthy();
+    expect(
+      within(row).getByText("Readable · 12 job cards found."),
+    ).toBeTruthy();
 
     // Nothing in the list claims attention for a source that just completed
     // a run; the filter is the only place that count lives now.

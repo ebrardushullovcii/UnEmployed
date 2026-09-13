@@ -17,6 +17,7 @@ import type {
   ApplicationAttempt,
   ApplicationRecord,
   BrowserVisualEvidenceSummary,
+  JobFinderWorkspaceSnapshot,
 } from "@unemployed/contracts";
 import {
   ApplicationAttemptSchema,
@@ -387,6 +388,23 @@ describe("ApplicationsScreen", () => {
               privacyReceipt: null,
             },
           ]}
+          // The banner counts this run's share of the Needs you population
+          // rather than its own result states, so the fixture carries the
+          // open request that makes the blocked job something to act on.
+          userActionRequests={
+            [
+              {
+                id: "request_finished",
+                state: "awaiting_user",
+                scope: {
+                  type: "application",
+                  runId: "apply_run_finished",
+                  jobId: "job_finished",
+                  applicationRecordId: null,
+                },
+              },
+            ] as unknown as JobFinderWorkspaceSnapshot["userActionRequests"]
+          }
         />
       </MemoryRouter>,
     );

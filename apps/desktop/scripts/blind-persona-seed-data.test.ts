@@ -964,11 +964,13 @@ describe("blind persona deterministic seed data", () => {
     // accidental change to the seed data moves them too, which is the point.
     // Regenerate both together, never one, and only alongside the schema
     // change that explains it.
+    // Moved together by the new persisted `encounteredJobIds` list on a
+    // discovery target execution, which both personas' seeded run carries.
     expect(calculateBlindPersonaStateDigest(first.P13)).toBe(
-      "513f0ea817345e9c3ba717f2d3877df57a26d549181666dc2873607c49400d3d",
+      "0b09ab0988563e6523ebea28a7f32ac5e8dd39ff87f724f1c526d288883800f0",
     );
     expect(calculateBlindPersonaStateDigest(first.P14)).toBe(
-      "f9f3bf1d8394f200af0ce2ae7a6fac9bd4a50c84281a59fa65386326ba573b1c",
+      "d20ad4c08f6f8b4954ab97549303021bf20fbf95ec583492bfbeb127dbb8c31c",
     );
     expect(calculateBlindPersonaStateDigest(first.P13)).toBe(
       calculateBlindPersonaStateDigest(second.P13),
