@@ -386,6 +386,7 @@ describe("ApplicationsScreen", () => {
               artifactCount: 0,
               latestCheckpointId: null,
               privacyReceipt: null,
+    reviewCard: null,
             },
           ]}
           // The banner counts this run's share of the Needs you population
@@ -517,6 +518,7 @@ describe("ApplicationsScreen", () => {
       },
       events: [],
       crm: null,
+    automationMode: "prepare_only" as const,
     };
     const applyRuns: ApplyRunSummary[] = [
       {
@@ -586,6 +588,7 @@ describe("ApplicationsScreen", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       },
       {
         id: "apply_result_older",
@@ -610,6 +613,7 @@ describe("ApplicationsScreen", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       },
     ];
     const otherRecordForSameJob: ApplicationRecord = {
@@ -644,6 +648,7 @@ describe("ApplicationsScreen", () => {
           artifactRefs: [],
           checkpoints: [],
           consentRequests: [],
+  reviewCard: null,
         }),
     );
 
@@ -768,6 +773,7 @@ describe("ApplicationsScreen", () => {
       artifactCount: 0,
       latestCheckpointId: null,
       privacyReceipt: null,
+    reviewCard: null,
     };
     const legacyAttempt = ApplicationAttemptSchema.parse({
       id: "attempt_legacy",
@@ -794,6 +800,7 @@ describe("ApplicationsScreen", () => {
           artifactRefs: [],
           checkpoints: [],
           consentRequests: [],
+  reviewCard: null,
         }),
     );
 
@@ -922,6 +929,7 @@ describe("ApplicationsScreen", () => {
       artifactCount: 0,
       latestCheckpointId: null,
       privacyReceipt: null,
+    reviewCard: null,
     };
 
     render(
@@ -1006,6 +1014,7 @@ describe("ApplicationsScreen", () => {
       },
       events: [],
       crm: null,
+    automationMode: "prepare_only" as const,
     };
     const applyRun: ApplyRunSummary = {
       id: "apply_run_visual",
@@ -1069,6 +1078,7 @@ describe("ApplicationsScreen", () => {
       artifactCount: 1,
       latestCheckpointId: "apply_checkpoint_visual",
       privacyReceipt: null,
+    reviewCard: null,
     };
     const onGetApplyRunDetails = vi.fn(
       (): Promise<ApplyRunDetails> =>
@@ -1134,6 +1144,7 @@ describe("ApplicationsScreen", () => {
             },
           ],
           consentRequests: [],
+  reviewCard: null,
         }),
     );
 

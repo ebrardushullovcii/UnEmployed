@@ -55,6 +55,7 @@ const baseRecord: ApplicationRecord = {
   },
   events: [],
   crm: null,
+    automationMode: "prepare_only" as const,
 };
 
 const baseApplyResult: ApplyJobResultSummary = {
@@ -80,6 +81,7 @@ const baseApplyResult: ApplyJobResultSummary = {
   artifactCount: 4,
   latestCheckpointId: null,
   privacyReceipt: null,
+    reviewCard: null,
 };
 
 function renderStrip(

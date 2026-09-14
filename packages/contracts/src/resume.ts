@@ -356,6 +356,97 @@ export const ResumeClaimConfirmationsFieldSchema = z
   .max(100)
   .default([]);
 
+/**
+ * The person's explicit approval of one validation blocker that is not a
+ * claim assessment (an invented-looking metric, job-description wording, a
+ * thin import, an identity mismatch). It is their resume: the product warns,
+ * the person decides. Bound to the exact flagged wording so an edit to the
+ * line drops the approval and the check runs again.
+ */
+export const ResumeIssueApprovalSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    draftId: NonEmptyStringSchema,
+    issueId: NonEmptyStringSchema,
+    approvedContentHash: ResumeClaimContentHashSchema,
+    approvedAt: IsoDateTimeSchema,
+  })
+  .strict();
+export type ResumeIssueApproval = z.infer<typeof ResumeIssueApprovalSchema>;
+export const ResumeIssueApprovalsFieldSchema = z
+  .array(ResumeIssueApprovalSchema)
+  .max(200)
+  .default([]);
+
+function fnv1a32(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `fnv1a32:${hash.toString(16).padStart(8, "0")}`;
+}
+
+type ResumeValidationIssueShape = {
+  id: string;
+  severity: "error" | "warning" | "info";
+  message: string;
+  flaggedText?: string | null | undefined;
+};
+
+/** What an issue approval is bound to: the flagged sentence, else the message. */
+export function buildResumeIssueApprovalContentHash(
+  issue: Pick<ResumeValidationIssueShape, "flaggedText" | "message">,
+): string {
+  const text = (issue.flaggedText ?? issue.message)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+  return fnv1a32(text);
+}
+
+export function matchResumeIssueApproval<
+  T extends ResumeValidationIssueShape,
+>(input: {
+  issue: T;
+  draft: Pick<ResumeDraft, "id" | "issueApprovals">;
+}): ResumeIssueApproval | null {
+  const hash = buildResumeIssueApprovalContentHash(input.issue);
+  return (
+    (input.draft.issueApprovals ?? []).find(
+      (approval) =>
+        approval.draftId === input.draft.id &&
+        approval.issueId === input.issue.id &&
+        approval.approvedContentHash === hash,
+    ) ?? null
+  );
+}
+
+export const RESUME_ISSUE_APPROVED_PREFIX = "You approved this as accurate. ";
+
+/**
+ * Blockers the person approved become notes: same wording, no longer an
+ * error, prefixed so the row says who decided. Every gate that asks "is this
+ * issue blocking" reads the result, so approval and export can never disagree.
+ */
+export function applyResumeIssueApprovals<
+  T extends ResumeValidationIssueShape,
+>(input: {
+  issues: readonly T[];
+  draft: Pick<ResumeDraft, "id" | "issueApprovals">;
+}): T[] {
+  return input.issues.map((issue) => {
+    if (issue.severity !== "error") return issue;
+    if (!matchResumeIssueApproval({ issue, draft: input.draft })) return issue;
+    return {
+      ...issue,
+      severity: "warning" as const,
+      message: `${RESUME_ISSUE_APPROVED_PREFIX}${issue.message}`,
+    };
+  });
+}
+
 export const ResumeDraftIdentitySchema = z.object({
   fullName: NonEmptyStringSchema.nullable().default(null),
   headline: NonEmptyStringSchema.nullable().default(null),
@@ -607,6 +698,7 @@ export const ResumeDraftSchema = z.object({
   staleReason: NonEmptyStringSchema.nullable().default(null),
   workHistoryReviewAcknowledgments: WorkHistoryReviewAcknowledgmentsFieldSchema,
   claimConfirmations: ResumeClaimConfirmationsFieldSchema,
+  issueApprovals: ResumeIssueApprovalsFieldSchema,
   createdAt: IsoDateTimeSchema,
   updatedAt: IsoDateTimeSchema,
 });
@@ -769,25 +861,53 @@ export function isBlockingResumeClaimAssessment(input: {
     );
   }
 
-  if (assessment.status === "unsupported") {
-    return true;
-  }
+  const hasMatchingConfirmation = input.draft.claimConfirmations.some(
+    (confirmation) =>
+      confirmation.draftId === input.draft.id &&
+      confirmation.field === assessment.field &&
+      confirmation.sectionId === assessment.sectionId &&
+      confirmation.entryId === assessment.entryId &&
+      confirmation.bulletId === assessment.bulletId &&
+      confirmation.confirmedClaimContentHash === assessment.contentHash,
+  );
 
-  if (assessment.status === "confirm_needed") {
-    return !input.draft.claimConfirmations.some(
-      (confirmation) =>
-        confirmation.draftId === input.draft.id &&
-        confirmation.field === assessment.field &&
-        confirmation.sectionId === assessment.sectionId &&
-        confirmation.entryId === assessment.entryId &&
-        confirmation.bulletId === assessment.bulletId &&
-        confirmation.confirmedClaimContentHash === assessment.contentHash,
-    );
+  // Even a claim that contradicts the saved evidence is the person's call:
+  // the product names the conflict, and their approval, bound to this exact
+  // wording, ends the block. Editing the line removes the approval.
+  if (
+    assessment.status === "unsupported" ||
+    assessment.status === "confirm_needed"
+  ) {
+    return !hasMatchingConfirmation;
   }
 
   return (
     assessment.status === "review" &&
-    isGeneratedResumeClaimOrigin(assessment.claimOrigin)
+    isGeneratedResumeClaimOrigin(assessment.claimOrigin) &&
+    !hasMatchingConfirmation
+  );
+}
+
+/**
+ * Whether a person may approve this claim as accurate instead of rewriting
+ * it: any claim the current verifier would otherwise block. Only an
+ * assessment from an older verifier is not approvable, because it must be
+ * re-checked first.
+ */
+export function isResumeClaimAssessmentApprovable(
+  assessment: Pick<
+    ResumeClaimAssessment,
+    "claimOrigin" | "status" | "verifier"
+  >,
+): boolean {
+  if (assessment.verifier !== "deterministic_candidate_evidence_v2") {
+    return false;
+  }
+  return (
+    assessment.status === "confirm_needed" ||
+    assessment.status === "unsupported" ||
+    (assessment.status === "review" &&
+      isGeneratedResumeClaimOrigin(assessment.claimOrigin))
   );
 }
 

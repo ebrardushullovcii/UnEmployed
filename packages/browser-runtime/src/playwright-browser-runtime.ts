@@ -27,6 +27,7 @@ import {
   type JobPosting,
   type JobSource,
 } from "@unemployed/contracts";
+import type { ApplyRawPageHands } from "@unemployed/contracts";
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import {
   runAgentDiscovery,
@@ -44,10 +45,15 @@ import { ApplicationNavigationError } from "./application-navigation-error";
 import {
   buildPreparationResult,
   createApplicationRunServiceWorkerSentinel,
+  ensurePrepareOnlyMutationGuard,
   installServiceWorkerRegisterGuardInPage,
-  runGenericApplicationPreparation,
   type ServiceWorkerSafetyFinding,
 } from "./playwright-application-flow";
+import {
+  createPlaywrightApplyPageMechanics,
+  createPlaywrightApplyPageSession,
+  readRawApplyPage,
+} from "./apply-page-mechanics";
 import {
   executeExactlyOneFinalAction as executeExactlyOneFinalActionOnPage,
   observeApplicationForm as observeApplicationFormOnPage,
@@ -1666,6 +1672,59 @@ export function createBrowserAgentRuntime(
     );
   }
 
+  /**
+   * The reading and writing hands for the application page this source has
+   * open. The page itself never leaves this module: the caller gets a set of
+   * bounded operations on it and nothing else.
+   */
+  function applyPageMechanicsForSource(source: JobSource): ApplyRawPageHands {
+    const onReadyPage = async <TResult,>(
+      operation: (page: Page) => Promise<TResult>,
+    ): Promise<TResult> => operation(await getReadyPage(source));
+
+    return {
+      readPage: () => onReadyPage((page) => readRawApplyPage(page)),
+      fillText: (ref, value) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).fillText(ref, value),
+        ),
+      chooseOption: (ref, optionLabel) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).chooseOption(ref, optionLabel),
+        ),
+      setToggle: (ref, checked) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).setToggle(ref, checked),
+        ),
+      uploadFile: (ref, file) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).uploadFile(ref, file),
+        ),
+      clickAction: (ref) =>
+        onReadyPage((page) =>
+          createPlaywrightApplyPageMechanics(page).clickAction(ref),
+        ),
+    };
+  }
+
+  /**
+   * Installs the guard that keeps a prepare-only run from transmitting
+   * anything on this source's application page. The page stays here.
+   */
+  async function installApplyPrepareOnlyGuardForSource(
+    source: JobSource,
+    guardInput: {
+      intermediateMutationsAuthorized: boolean;
+      allowedOrigins: readonly string[];
+    },
+  ): Promise<void> {
+    await ensurePrepareOnlyMutationGuard(
+      await getReadyPage(source),
+      guardInput.intermediateMutationsAuthorized,
+      guardInput.allowedOrigins,
+    );
+  }
+
   async function executeExactlyOneFinalActionForSource(
     source: JobSource,
     actionInput: ExecuteExactlyOneFinalActionInput,
@@ -1777,6 +1836,8 @@ export function createBrowserAgentRuntime(
         : createInconclusiveSourceAccessProbeResult(input);
     },
     observeApplicationForm: observeApplicationFormForSource,
+    applyPageMechanics: applyPageMechanicsForSource,
+    installApplyPrepareOnlyGuard: installApplyPrepareOnlyGuardForSource,
     executeExactlyOneFinalAction: executeExactlyOneFinalActionForSource,
     runDiscovery(source, searchPreferences) {
       const timestamp = new Date().toISOString();
@@ -1954,13 +2015,13 @@ export function createBrowserAgentRuntime(
                     "The dedicated browser profile is open at the current application checkpoint. Final submission remains disabled.",
                   );
                   formPreparationStartedAtMs = Date.now();
-                  executionResult = await runGenericApplicationPreparation({
-                    context,
-                    page: prepared.page,
-                    executionInput: input,
+                  executionResult = await input.prepareApplicationForm({
+                    session: createPlaywrightApplyPageSession({
+                      page: prepared.page,
+                      sentinel: runSentinel,
+                    }),
                     startedAt,
                     ...(options?.signal ? { signal: options.signal } : {}),
-                    sentinel: runSentinel,
                   });
                   options?.signal?.throwIfAborted();
                   recordExecutionTiming(

@@ -1709,6 +1709,7 @@ export function createWorkspaceSnapshotProfileMethods(
         resumeApplicationMode: parsedInput.resumeApplicationMode,
         resumeTemplateId: parsedInput.resumeTemplateId,
         fontPreset: parsedInput.fontPreset,
+        coverLetter: parsedInput.coverLetter,
       });
       const mergeApplicationDefaults = (current: JobFinderSettings) =>
         normalizeJobFinderSettings(

@@ -39,6 +39,16 @@ function denied(
   return { authorized: false, allowedOrigins: [], reason };
 }
 
+function canonicalOrigins(values: readonly string[]): string[] {
+  return values.flatMap((value) => {
+    try {
+      return [new URL(value).origin];
+    } catch {
+      return [];
+    }
+  });
+}
+
 function destinationOrigin(job: SavedJob): string | null {
   try {
     return new URL(job.applicationUrl ?? job.canonicalUrl).origin;
@@ -94,7 +104,9 @@ export async function resolvePrepareOnlyIntermediateMutationAuthority(input: {
   if (!scopeMatches) {
     return denied("authority_scope_mismatch");
   }
-  if (!envelope.allowedOrigins.includes(origin)) {
+  // Allowed origins may be saved with their trailing slash while `URL.origin`
+  // never has one, so both sides are reduced before they are compared.
+  if (!canonicalOrigins(envelope.allowedOrigins).includes(origin)) {
     return denied("destination_origin_mismatch");
   }
   const resumeSha256 = input.resumeSha256?.toLowerCase() ?? null;

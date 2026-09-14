@@ -1310,6 +1310,11 @@ const desktopApi = {
         "job-finder:revoke-apply-run-approval",
         input,
       ) as Promise<JobFinderWorkspaceSnapshot>,
+    submitPreparedApplication: (input: { jobId: string }) =>
+      ipcRenderer.invoke(
+        "job-finder:submit-prepared-application",
+        input,
+      ) as Promise<JobFinderWorkspaceSnapshot>,
     approveApply: (input: JobFinderApplicationStartTarget) =>
       ipcRenderer.invoke(
         "job-finder:approve-apply",

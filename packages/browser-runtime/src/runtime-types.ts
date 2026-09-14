@@ -1,5 +1,10 @@
 import type {
   AgentDiscoveryProgress,
+  ApplicationAttestationKind,
+  ApplicationAutomationMode,
+  ApplyPageSession,
+  ApplyRawPageHands,
+  ApplicationSalaryDisclosureRule,
   ApplyExecutionResult,
   ApplyRecoveryContext,
   BrowserVisualAnalysisContext,
@@ -122,6 +127,42 @@ export interface ExecuteApplicationFlowInput extends ExecuteEasyApplyInput {
    * final submit control.
    */
   submitAuthorized?: boolean;
+  /**
+   * What the person allowed for this exact application. The runtime's own
+   * two-value `mode` cannot tell "ask me before sending" from "fill in and
+   * stop", and the difference decides whether the form is worked all the way
+   * to its send button. Omitted means fill in and stop.
+   */
+  applyAutomationMode?: ApplicationAutomationMode;
+  /**
+   * Origins the saved permission covers for this application. Separate from
+   * the autosave allowlist: this one bounds where the form may be filled in at
+   * all, and an empty list means "only where the application started".
+   */
+  applyAllowedOrigins?: readonly string[];
+  /**
+   * Declaration kinds the person approved in advance, from the saved authority
+   * document. Anything not on this list pauses for them. Omitted means none.
+   */
+  preApprovedAttestationKinds?: readonly ApplicationAttestationKind[];
+  /**
+   * What to do when a form asks what pay they expect. Omitted leaves it to
+   * them, which is the safe answer.
+   */
+  salaryDisclosure?: ApplicationSalaryDisclosureRule;
+  /**
+   * Fills in the application form on the page the runtime has opened.
+   *
+   * The runtime owns the browser: opening the page, watching for service
+   * workers, session state. What to put in the form, and whether anything may
+   * be sent, is not its decision — the caller supplies it and receives one
+   * open page's worth of bounded operations to work through.
+   */
+  prepareApplicationForm: (input: {
+    session: ApplyPageSession;
+    startedAt: string;
+    signal?: AbortSignal;
+  }) => Promise<ApplyExecutionResult>;
   recoveryContext?: ApplyRecoveryContext;
   captureVisualSnapshot?: (
     request: BrowserVisualSnapshotRequest,
@@ -175,6 +216,23 @@ export interface BrowserSessionRuntime {
     source: JobSource,
     options?: ObserveApplicationFormOptions,
   ): Promise<ApplicationFormObservation>;
+  /**
+   * Main-process-only reading and writing hands for the application page this
+   * source has open. The runtime keeps the page; the caller gets bounded
+   * operations on it and no handle. Catalog/seed runtimes omit this.
+   */
+  applyPageMechanics?(source: JobSource): ApplyRawPageHands;
+  /**
+   * Installs the prepare-only mutation guard on this source's application
+   * page before any field is touched. Catalog/seed runtimes omit this.
+   */
+  installApplyPrepareOnlyGuard?(
+    source: JobSource,
+    input: {
+      intermediateMutationsAuthorized: boolean;
+      allowedOrigins: readonly string[];
+    },
+  ): Promise<void>;
   /**
    * Main-process-only one-shot final-action hand. It never returns a
    * submission claim; external verification is a separate boundary.

@@ -1,5 +1,8 @@
 import { CreateApplicationAuthorityEnvelopeInputSchema } from "@unemployed/contracts";
 import type {
+  ApplicationAttestationKind,
+  ApplicationAutomationMode,
+  ApplicationSalaryDisclosureRule,
   ApplicationAuthorityReadiness,
   ApplicationAuthorityEnvelope,
   ApplicationAuthorityEnvelopeMutationResult,
@@ -19,6 +22,9 @@ const jobFinderDateInputLocale = getJobFinderDateInputLocale();
 type AuthorityApi = Window["unemployed"]["jobFinder"];
 
 type AuthorityDraft = {
+  mode: ApplicationAutomationMode;
+  preApprovedAttestationKinds: ApplicationAttestationKind[];
+  salaryDisclosure: ApplicationSalaryDisclosureRule;
   allowedOrigins: string;
   allowedResumeSha256: string;
   campaignId: string;
@@ -30,6 +36,9 @@ type AuthorityDraft = {
 };
 
 const emptyDraft: AuthorityDraft = {
+  mode: "prepare_only",
+  preApprovedAttestationKinds: [],
+  salaryDisclosure: "pause_for_user",
   allowedOrigins: "",
   allowedResumeSha256: "",
   campaignId: "",
@@ -55,6 +64,14 @@ function splitLines(value: string): string[] {
 
 function toDraft(envelope: ApplicationAuthorityEnvelope): AuthorityDraft {
   return {
+    mode: envelope.mode,
+    preApprovedAttestationKinds: [
+      ...(envelope.decisionPolicy?.answerPolicy.preApprovedAttestationKinds ??
+        []),
+    ],
+    salaryDisclosure:
+      envelope.decisionPolicy?.answerPolicy.salaryDisclosure ??
+      "pause_for_user",
     allowedOrigins: envelope.allowedOrigins.join("\n"),
     allowedResumeSha256: envelope.allowedResumeSha256.join("\n"),
     campaignId: envelope.scope.campaignId ?? "",
@@ -96,7 +113,9 @@ function buildPolicyInput(
     intermediateMutationsAuthorized: draft.intermediateMutationsAuthorized,
     maxApplicationsPerLocalDay: Number(draft.maxApplicationsPerLocalDay),
     maxApplicationsPerRun: Number(draft.maxApplicationsPerRun),
-    mode: "prepare_only",
+    mode: draft.mode,
+    preApprovedAttestationKinds: draft.preApprovedAttestationKinds,
+    salaryDisclosure: draft.salaryDisclosure,
     scope: {
       campaignId: draft.campaignId.trim() || null,
       jobIds: splitLines(draft.jobIds),
@@ -126,6 +145,81 @@ function isPrepareOnlyEnvelope(
 ): envelope is ApplicationAuthorityEnvelope {
   return envelope?.mode === "prepare_only";
 }
+
+/**
+ * The three things Job Finder can do with an application, said as what
+ * happens rather than as the name of a setting.
+ */
+const applicationModeChoices: ReadonlyArray<{
+  value: ApplicationAutomationMode;
+  title: string;
+  description: string;
+}> = [
+  {
+    value: "prepare_only",
+    title: "Fill applications in and stop",
+    description:
+      "Job Finder opens the application, fills what it can, and leaves it. You read it and send it yourself.",
+  },
+  {
+    value: "confirm_before_submit",
+    title: "Fill them in and ask me before sending",
+    description:
+      "Job Finder fills everything in and shows you what it wrote. One tap from you sends it.",
+  },
+  {
+    value: "autonomous_submit",
+    title: "Fill them in and send them",
+    description:
+      "Job Finder sends applications that fall inside everything you set below. It still stops for anything it cannot answer honestly.",
+  },
+];
+
+/**
+ * The declarations a form can ask a person to make. Each is described as the
+ * thing being signed, because that is what the person is agreeing to.
+ */
+const attestationChoices: ReadonlyArray<{
+  value: ApplicationAttestationKind;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "truthfulness_certification",
+    label: "That everything you have said is true",
+    description:
+      "Forms often end with a line certifying your answers are accurate. Job Finder only ever fills in facts from your profile and resume.",
+  },
+  {
+    value: "terms_acceptance",
+    label: "The employer's application terms",
+    description: "Accepting the terms and conditions attached to applying.",
+  },
+  {
+    value: "privacy_notice_acknowledgement",
+    label: "How they will use your data",
+    description:
+      "Acknowledging a privacy notice about handling your application.",
+  },
+  {
+    value: "background_check_consent",
+    label: "Consent to a background check",
+    description:
+      "Agreeing they may run a background or reference check on you.",
+  },
+  {
+    value: "equal_opportunity_self_identification",
+    label: "Equal-opportunity questions about you",
+    description:
+      "Voluntary questions about race, gender, veteran status, or disability. These are always yours to answer; leave this off unless you want your profile's answers used.",
+  },
+  {
+    value: "marketing_contact_consent",
+    label: "Hearing from them about other roles",
+    description:
+      "Opting in to future openings and talent-community mail. Usually optional.",
+  },
+];
 
 /**
  * Human labels for the stored answer identifiers. A job seeker reading
@@ -384,9 +478,17 @@ export function SettingsApplicationAuthoritySection({
     isPrepareOnlyEnvelope(selectedEnvelope) &&
     selectedEnvelope.status === "active";
   const activeSelected = selectedEnvelope?.status === "active";
-  const selectedNonPrepare =
-    selectedEnvelope !== null && !isPrepareOnlyEnvelope(selectedEnvelope);
+  // A saved permission that is no longer active is read-only history.
+  const selectedNonDraftable =
+    selectedEnvelope !== null && selectedEnvelope.status !== "active";
+  const sendingModeSelected = draft.mode !== "prepare_only";
   const canSave =
+    (!sendingModeSelected ||
+      (readiness?.answerApprovalStatus === "current" &&
+        draft.expiresAt.trim().length > 0 &&
+        splitLines(draft.allowedResumeSha256).length > 0 &&
+        (draft.campaignId.trim().length > 0 ||
+          splitLines(draft.jobIds).length > 0))) &&
     draft.allowedOrigins.trim().length > 0 &&
     draft.maxApplicationsPerRun.trim().length > 0 &&
     draft.maxApplicationsPerLocalDay.trim().length > 0 &&
@@ -427,30 +529,87 @@ export function SettingsApplicationAuthoritySection({
         </Button>
       </div>
 
-      {/* One mode is available, so it is stated rather than offered as a
-          choice; two permanently disabled cards took two thirds of the row to
-          advertise things nobody can pick. */}
+      {/* Three choices, in the order of how much they do for you. The words
+          are what happens, not the name of a mode. */}
       <div
         className="grid min-w-0 gap-2"
-        aria-label="Application automation modes"
+        role="radiogroup"
+        aria-label="How much Job Finder does for you"
       >
-        <article
-          aria-label="Prepare only mode"
-          className="grid gap-2 rounded-(--radius-field) border border-primary/70 bg-primary/8 p-3.5"
-        >
-          <span className="font-semibold text-foreground">
-            Job Finder fills applications for your review
-          </span>
-          <span className="text-sm leading-5 text-foreground-soft">
-            It opens the application, fills what it can, and stops. You read it
-            and send it yourself.
-          </span>
-        </article>
-        <p className="text-sm leading-5 text-foreground-muted">
-          Sending applications for you — with or without a confirmation step —
-          is not available in this version.
-        </p>
+        {applicationModeChoices.map((choice) => (
+          <button
+            aria-checked={draft.mode === choice.value}
+            className={`grid min-w-0 gap-1.5 rounded-(--radius-field) border p-3.5 text-left transition-colors ${draft.mode === choice.value ? "border-primary/70 bg-primary/8" : "border-(--surface-panel-border) bg-background/45 hover:border-primary/35"}`}
+            disabled={selectedNonDraftable}
+            key={choice.value}
+            onClick={() => setDraftValue("mode", choice.value)}
+            role="radio"
+            type="button"
+          >
+            <span className="font-semibold text-foreground">
+              {choice.title}
+            </span>
+            <span className="text-sm leading-5 text-foreground-soft">
+              {choice.description}
+            </span>
+          </button>
+        ))}
+        {sendingModeSelected && readiness?.answerApprovalStatus !== "current" ? (
+          <p className="text-sm leading-5 text-foreground-muted">
+            Approve your saved answers above before Job Finder can send
+            applications for you.
+          </p>
+        ) : null}
       </div>
+
+      {sendingModeSelected ? (
+        <article className="grid min-w-0 gap-3 rounded-(--radius-field) border border-(--surface-panel-border) p-3.5">
+          <div className="grid gap-1">
+            <h4 className="font-semibold text-foreground">
+              Things forms ask you to declare
+            </h4>
+            <p className="text-sm leading-5 text-foreground-soft">
+              Tick only what you are happy for Job Finder to answer on your
+              behalf. Anything you leave unticked stops and waits for you.
+            </p>
+          </div>
+          <div className="grid gap-2">
+            {attestationChoices.map((choice) => (
+              <ToggleField
+                checked={draft.preApprovedAttestationKinds.includes(
+                  choice.value,
+                )}
+                description={choice.description}
+                disabled={selectedNonDraftable}
+                key={choice.value}
+                label={choice.label}
+                onCheckedChange={(checked) =>
+                  setDraftValue(
+                    "preApprovedAttestationKinds",
+                    checked
+                      ? [...draft.preApprovedAttestationKinds, choice.value]
+                      : draft.preApprovedAttestationKinds.filter(
+                          (kind) => kind !== choice.value,
+                        ),
+                  )
+                }
+              />
+            ))}
+          </div>
+          <ToggleField
+            checked={draft.salaryDisclosure === "answer_from_profile"}
+            description="Forms often ask what pay you expect. Left off, Job Finder stops and asks you each time, which is usually the safer choice."
+            disabled={selectedNonDraftable}
+            label="Let Job Finder answer pay questions from your profile"
+            onCheckedChange={(checked) =>
+              setDraftValue(
+                "salaryDisclosure",
+                checked ? "answer_from_profile" : "pause_for_user",
+              )
+            }
+          />
+        </article>
+      ) : null}
 
       <article
         aria-label="Answers Job Finder can reuse"
@@ -612,13 +771,13 @@ export function SettingsApplicationAuthoritySection({
         </p>
       )}
 
-      {selectedNonPrepare ? (
+      {selectedNonDraftable ? (
         <p
           className="rounded-(--radius-field) border border-warning/40 bg-warning/8 px-3.5 py-3 text-sm leading-5 text-foreground-soft"
           role="status"
         >
-          This saved permission asks for something this version cannot do. You
-          can read it here, but it cannot be edited or switched on.
+          This permission is no longer in force. You can read what it allowed,
+          but it cannot be edited or switched back on.
         </p>
       ) : null}
 
@@ -763,14 +922,14 @@ export function SettingsApplicationAuthoritySection({
               !canSave ||
               loadState.status === "loading" ||
               actionState.status === "loading" ||
-              selectedNonPrepare
+              selectedNonDraftable
             }
             onClick={() => void saveEnvelope()}
             pending={actionState.status === "loading"}
             type="button"
             variant="primary"
           >
-            {selectedNonPrepare
+            {selectedNonDraftable
               ? "Editing unavailable"
               : activePrepareOnly
                 ? "Save authority revision"

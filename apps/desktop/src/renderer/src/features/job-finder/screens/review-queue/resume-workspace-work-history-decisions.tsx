@@ -148,6 +148,13 @@ interface ResumeWorkHistoryDecisionsProps {
   draftId: string;
   suggestions: readonly WorkHistoryReviewSuggestion[];
   onAcknowledge: (suggestion: WorkHistoryReviewSuggestion) => void;
+  /**
+   * Puts the role back on the resume. Undoing a leave-off used to return the
+   * role to "needs a choice", which blocked approval again: the person had
+   * decided, and the only way to act on it was to find the entry in the
+   * editor. Both choices now sit on the row.
+   */
+  onIncludeRole?: (suggestion: WorkHistoryReviewSuggestion) => void;
   onRemoveAcknowledgment: (acknowledgmentId: string) => void;
 }
 
@@ -194,14 +201,12 @@ export function ResumeWorkHistoryDecisions(
           Work-history decisions
         </h3>
         <StatusBadge tone={unresolvedCount > 0 ? "critical" : "positive"}>
-          {unresolvedCount > 0
-            ? `${unresolvedCount} need${unresolvedCount === 1 ? "s" : ""} a choice`
-            : "All left off"}
+          {unresolvedCount > 0 ? `${unresolvedCount} hidden` : "All left off"}
         </StatusBadge>
       </div>
       <p aria-live="polite" role="status">
         {unresolvedCount > 0
-          ? `${unresolvedCount} of ${decisions.length} hidden roles still need a choice before you can approve. You can still export a PDF.`
+          ? `${unresolvedCount} of ${decisions.length} hidden roles ${unresolvedCount === 1 ? "is" : "are"} off this resume. Add any back if you want it included; nothing here blocks approval.`
           : "You chose to leave every listed hidden role off this resume."}
       </p>
       <ul className="grid min-w-0 grid-cols-1 gap-2">
@@ -224,14 +229,29 @@ export function ResumeWorkHistoryDecisions(
                   </p>
                 ) : null}
               </div>
-              <StatusBadge tone={acknowledgment ? "positive" : "critical"}>
-                  {acknowledgment ? "Left off" : "Needs a choice"}
+              <StatusBadge tone={acknowledgment ? "positive" : "neutral"}>
+                {acknowledgment ? "Left off" : "Hidden"}
               </StatusBadge>
             </div>
             <p className="min-w-0 [overflow-wrap:anywhere]">
               {suggestion.message}
             </p>
-            <div>
+            <div className="flex flex-wrap gap-2">
+              {props.onIncludeRole ? (
+                <Button
+                  aria-label={`Add this role back · ${omissionKindLabels[suggestion.kind]}: ${suggestion.message}`}
+                  aria-describedby={`review-role-${suggestion.id}`}
+                  data-resume-work-history-include
+                  disabled={props.disabled}
+                  onClick={() => props.onIncludeRole?.(suggestion)}
+                  pending={props.disabled}
+                  size="compact"
+                  type="button"
+                  variant={acknowledgment ? "secondary" : "primary"}
+                >
+                  Add this role back
+                </Button>
+              ) : null}
               <Button
                 aria-label={`${acknowledgment ? "Undo leave-off" : "Leave this role off"} · ${omissionKindLabels[suggestion.kind]}: ${suggestion.message}`}
                 aria-describedby={`review-role-${suggestion.id}`}
@@ -245,7 +265,11 @@ export function ResumeWorkHistoryDecisions(
                 pending={props.disabled}
                 size="compact"
                 type="button"
-                variant={acknowledgment ? "secondary" : "primary"}
+                variant={
+                  acknowledgment || props.onIncludeRole
+                    ? "secondary"
+                    : "primary"
+                }
               >
                 {acknowledgment ? "Undo leave-off" : "Leave this role off"}
               </Button>

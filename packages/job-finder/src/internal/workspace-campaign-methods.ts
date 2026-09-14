@@ -1,7 +1,7 @@
+import { resumePausedActivityForUserAction } from "./workspace-user-action-methods";
 import { randomUUID } from "node:crypto";
 
 import {
-  ACTIVITY_PAUSED_MESSAGE,
   CampaignNotificationSchema,
   CampaignRuleFunnelProjectionSchema,
   CampaignRuleSchema,
@@ -409,10 +409,7 @@ export async function commitCampaignRunTerminal(input: {
     const alreadyInPlanJobIds = new Set(
       [...encounteredJobIds].filter((jobId) => priorCampaignJobIds.has(jobId)),
     );
-    const candidateJobIds = new Set([
-      ...campaign.jobIds,
-      ...encounteredJobIds,
-    ]);
+    const candidateJobIds = new Set([...campaign.jobIds, ...encounteredJobIds]);
     const candidateJobs = availableJobs.filter((job) =>
       candidateJobIds.has(job.id),
     );
@@ -457,8 +454,7 @@ export async function commitCampaignRunTerminal(input: {
       .map((job) => job.id);
     const retainedMembership = new Set(retainedJobIds);
     const retainedRunJobs = candidateJobs.filter(
-      (job) =>
-        retainedJobIdSet.has(job.id) && encounteredJobIds.has(job.id),
+      (job) => retainedJobIdSet.has(job.id) && encounteredJobIds.has(job.id),
     );
 
     // Retention is decided here and nowhere else, so this is the one moment
@@ -510,9 +506,7 @@ export async function commitCampaignRunTerminal(input: {
 
     const strongMatches = candidateJobs
       .filter(
-        (job) =>
-          retainedJobIds.includes(job.id) &&
-          newToPlanJobIds.has(job.id),
+        (job) => retainedJobIds.includes(job.id) && newToPlanJobIds.has(job.id),
       )
       .map((job) => ({
         jobId: job.id,
@@ -574,10 +568,7 @@ export async function commitCampaignRunTerminal(input: {
         : [];
     const notifications = mergeCampaignNotifications({
       existing: state.notifications,
-      incoming: [
-        ...derivedNotifications,
-        ...scheduledCompletionNotifications,
-      ],
+      incoming: [...derivedNotifications, ...scheduledCompletionNotifications],
     });
 
     const alreadyRecorded = campaign.history.some(
@@ -1257,9 +1248,10 @@ export function createWorkspaceCampaignMethods(input: {
       onActivity?: (event: DiscoveryActivityEvent) => void,
     ): Promise<JobFinderWorkspaceSnapshot> {
       const request = RunCampaignNowInputSchema.parse(rawInput ?? {});
-      if ((await input.ctx.repository.getActivityControl()).paused) {
-        throw new Error(ACTIVITY_PAUSED_MESSAGE);
-      }
+      // "Run now" is an explicit click: it resumes paused background work
+      // instead of failing. Scheduled runs go through runDueScheduledCampaigns,
+      // which still obeys the pause.
+      await resumePausedActivityForUserAction(input.ctx.repository);
       const campaign = await resolveCampaignForRun({
         ctx: input.ctx,
         campaignId: request.campaignId ?? null,

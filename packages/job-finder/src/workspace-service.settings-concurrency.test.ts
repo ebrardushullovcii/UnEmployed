@@ -78,6 +78,7 @@ function seedWithApprovedDraft(): ReturnType<typeof createSeed> {
       generationMethod: "manual",
       workHistoryReviewAcknowledgments: [],
       claimConfirmations: [],
+      issueApprovals: [],
       approvedAt: "2026-04-18T12:00:00.000Z",
       approvedExportId: "resume_export_legacy",
       staleReason: null,

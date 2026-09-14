@@ -251,14 +251,14 @@ describe("ResumeWorkHistoryDecisions", () => {
       />,
     );
 
-    expect(screen.getAllByText("Needs a choice").length).toBe(2);
+    expect(screen.getAllByText("Hidden").length).toBe(2);
     expect(
       screen.getByText(
         "Hidden for review: this role has a weaker career-family fit.",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("status").textContent).toContain(
-      "2 of 2 hidden roles still need a choice before you can approve",
+      "2 of 2 hidden roles are off this resume",
     );
 
     const keepButton = screen.getByRole("button", {

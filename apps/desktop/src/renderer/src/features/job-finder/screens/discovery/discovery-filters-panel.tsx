@@ -7,7 +7,6 @@ import type {
   JobSearchPreferences,
 } from "@unemployed/contracts";
 import { AppWindow, Ban, CircleCheck, KeyRound } from "lucide-react";
-import { StatusBadge } from "../../components/status-badge";
 import {
   DISCOVERY_OFFLINE_RUNTIME_LABEL,
   DISCOVERY_PAUSED_SEARCH_REASON,
@@ -466,22 +465,33 @@ export function DiscoveryFiltersPanel({
             <p className="text-(length:--text-tiny) font-medium uppercase tracking-(--tracking-label) text-foreground-muted">
               {JOB_FINDER_BROWSER_LABEL}
             </p>
-            <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-              <StatusBadge
-                tone={
-                  isOfflineRuntime
-                    ? "muted"
-                    : getSessionTone(displaySessionSnapshot)
-                }
-              >
-                <SessionStatusIcon aria-hidden="true" />
-                {getBrowserStatusLabel(
-                  displaySessionSnapshot.status,
-                  isBrowserSessionPending,
-                  isOfflineRuntime,
-                )}
-              </StatusBadge>
-            </div>
+            {/* A plain status line, not a chip: the chip wrapped its icon
+                above its uppercase text and looked like a broken button. */}
+            <p
+              className={`inline-flex min-w-0 items-center gap-1.5 text-sm ${
+                isOfflineRuntime
+                  ? "text-foreground-muted"
+                  : {
+                      active: "text-primary",
+                      critical: "text-critical",
+                      muted: "text-foreground-muted",
+                      neutral: "text-foreground-soft",
+                      positive: "text-positive",
+                      warning: "text-(--warning-text)",
+                    }[getSessionTone(displaySessionSnapshot)]
+              }`}
+              data-testid="discovery-browser-status"
+            >
+              <SessionStatusIcon
+                aria-hidden="true"
+                className="size-4 shrink-0"
+              />
+              {getBrowserStatusLabel(
+                displaySessionSnapshot.status,
+                isBrowserSessionPending,
+                isOfflineRuntime,
+              )}
+            </p>
             <DiscoverySessionSummary
               hasRecommendedSourceAccessPrompt={
                 hasRecommendedSourceAccessPrompt

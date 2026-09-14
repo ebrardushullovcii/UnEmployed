@@ -859,7 +859,7 @@ describe("application login UserActionRequest adoption", () => {
 
     await expect(
       harness.workspaceService.startApplyCopilotRun("job_ready"),
-    ).rejects.toThrow(/without final-submit authorization/iu);
+    ).rejects.toThrow(/Preparation never sends anything/iu);
     expect(executeApplicationFlow).toHaveBeenCalledOnce();
     const executionCall = executeApplicationFlow.mock.calls[0] as unknown as
       | Parameters<BrowserSessionRuntime["executeApplicationFlow"]>

@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@unemployed/ai-providers": "workspace:*",
+    "@unemployed/browser-agent": "workspace:*",
     "@unemployed/browser-runtime": "workspace:*",
     "@unemployed/contracts": "workspace:*",
     "@unemployed/core": "workspace:*",

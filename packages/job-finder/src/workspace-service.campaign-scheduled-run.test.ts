@@ -460,14 +460,19 @@ describe("workspace campaign scheduled runs", () => {
       "Set it to active",
     );
 
-    // A globally paused workspace rejects manual runs.
+    // A globally paused workspace no longer rejects a manual run: Run now
+    // is an explicit click, so it resumes background work first. The paused
+    // plan itself still refuses.
     await workspaceService.setActivityControl({
       paused: true,
       reason: "Global pause.",
     });
     await expect(workspaceService.runCampaignNow()).rejects.toThrow(
-      "activity is paused",
+      "Set it to active",
     );
+    expect(
+      (await workspaceService.getWorkspaceSnapshot()).activityControl.paused,
+    ).toBe(false);
     state = await repository.getCampaignState();
     current = state?.campaigns.find((campaign) => campaign.id === active.id);
     expect(current?.status).toBe("paused");

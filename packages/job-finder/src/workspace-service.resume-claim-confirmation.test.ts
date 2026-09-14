@@ -2,7 +2,10 @@ import type {
   JobFinderSetResumeClaimConfirmationInput,
   ResumeClaimAssessment,
 } from "@unemployed/contracts";
-import { resumeClaimOwnershipStatement } from "@unemployed/contracts";
+import {
+  buildResumeIssueApprovalContentHash,
+  resumeClaimOwnershipStatement,
+} from "@unemployed/contracts";
 import { describe, expect, test } from "vitest";
 import { createAiClient } from "./workspace-service.test-runtimes";
 import {
@@ -17,7 +20,7 @@ import type { JobFinderWorkspaceService } from "./internal/workspace-service-con
 const WEAK_CLAIM_TEXT =
   "Championed resilient delivery improvements across organizations.";
 // A quantified metric that appears nowhere in the candidate evidence: a hard
-// integrity gap that must stay unconfirmable.
+// integrity gap the product names, which only the person can approve.
 const UNSUPPORTED_CLAIM_TEXT =
   "Increased revenue by 340% within one quarter through delivery improvements.";
 
@@ -222,35 +225,31 @@ describe("resume claim confirmation commands", () => {
       assessment,
     });
 
-    const mismatches: Array<[AddClaimConfirmationInput, RegExp]> =
+    const mismatches: Array<[AddClaimConfirmationInput, RegExp]> = [
       [
-        [
-          { ...validInput, expectedDraftUpdatedAt: "2026-03-20T09:00:00.000Z" },
-          /changed before this claim confirmation/i,
-        ],
-        [
-          { ...validInput, draftId: "resume_draft_other" },
-          /Unable to find resume draft/i,
-        ],
-        [
-          { ...validInput, jobId: "job_generating" },
-          /Unable to find resume draft/i,
-        ],
-        [
-          {
-            ...validInput,
-            confirmedClaimContentHash: assessment.contentHash.replace(
-              /.$/,
-              "0",
-            ),
-          },
-          /no longer projected|wording changed/i,
-        ],
-        [
-          { ...validInput, bulletId: "experience_1_bullet_99" },
-          /no longer projected|wording changed/i,
-        ],
-      ];
+        { ...validInput, expectedDraftUpdatedAt: "2026-03-20T09:00:00.000Z" },
+        /changed before this claim confirmation/i,
+      ],
+      [
+        { ...validInput, draftId: "resume_draft_other" },
+        /Unable to find resume draft/i,
+      ],
+      [
+        { ...validInput, jobId: "job_generating" },
+        /Unable to find resume draft/i,
+      ],
+      [
+        {
+          ...validInput,
+          confirmedClaimContentHash: assessment.contentHash.replace(/.$/, "0"),
+        },
+        /no longer projected|wording changed/i,
+      ],
+      [
+        { ...validInput, bulletId: "experience_1_bullet_99" },
+        /no longer projected|wording changed/i,
+      ],
+    ];
 
     for (const [input, pattern] of mismatches) {
       await expect(
@@ -286,9 +285,8 @@ describe("resume claim confirmation commands", () => {
 
     await workspaceService.setResumeClaimConfirmation(
       buildAddInput({
-        draftUpdatedAt: (
-          await repository.getResumeDraftByJobId("job_ready")
-        )!.updatedAt,
+        draftUpdatedAt: (await repository.getResumeDraftByJobId("job_ready"))!
+          .updatedAt,
         assessment,
       }),
     );
@@ -311,7 +309,7 @@ describe("resume claim confirmation commands", () => {
     expect(afterSecond!.updatedAt).toBe(afterFirst!.updatedAt);
   });
 
-  test("hard unsupported claims cannot be confirmed", async () => {
+  test("unsupported claims can be approved by the person, bound to the exact wording", async () => {
     const harness = createClaimHarness({ bullets: [UNSUPPORTED_CLAIM_TEXT] });
     const { workspaceService, repository } = harness;
 
@@ -326,19 +324,59 @@ describe("resume claim confirmation commands", () => {
       throw new Error("Expected an unsupported generated claim assessment.");
     }
 
-    await expect(
-      workspaceService.setResumeClaimConfirmation(
-        buildAddInput({
-          draftUpdatedAt: workspace.draft.updatedAt,
-          assessment: unsupported,
-        }),
-      ),
-    ).rejects.toThrow(/cannot be confirmed/i);
+    // It is the person's resume: the product names the conflict, and their
+    // approval ends the block instead of forcing a rewrite.
+    await workspaceService.setResumeClaimConfirmation(
+      buildAddInput({
+        draftUpdatedAt: workspace.draft.updatedAt,
+        assessment: unsupported,
+      }),
+    );
 
+    const draft = (await repository.getResumeDraftByJobId("job_ready"))!;
+    expect(draft.claimConfirmations).toHaveLength(1);
+    expect(draft.claimConfirmations[0]?.confirmedClaimContentHash).toBe(
+      unsupported.contentHash,
+    );
+    const after = await workspaceService.getResumeWorkspace("job_ready");
     expect(
-      (await repository.getResumeDraftByJobId("job_ready"))!
-        .claimConfirmations,
-    ).toEqual([]);
+      after.validation?.issues.some(
+        (issue) =>
+          issue.severity === "error" &&
+          issue.category === "unsupported_claim" &&
+          issue.bulletId === unsupported.bulletId,
+      ),
+    ).toBe(false);
+
+    // The invented-metric note on the same line is a separate blocker with
+    // its own approval, bound to the flagged wording.
+    const metricIssue = after.validation?.issues.find(
+      (issue) =>
+        issue.severity === "error" && issue.bulletId === unsupported.bulletId,
+    );
+    if (metricIssue) {
+      await workspaceService.setResumeClaimConfirmation({
+        intent: "approve_issue",
+        jobId: "job_ready",
+        draftId: after.draft.id,
+        expectedDraftUpdatedAt: after.draft.updatedAt,
+        issueId: metricIssue.id,
+        approvedContentHash: buildResumeIssueApprovalContentHash(metricIssue),
+      });
+      const approved = await workspaceService.getResumeWorkspace("job_ready");
+      expect(approved.draft.issueApprovals).toHaveLength(1);
+      expect(
+        approved.validation?.issues.some(
+          (issue) =>
+            issue.severity === "error" &&
+            issue.bulletId === unsupported.bulletId,
+        ),
+      ).toBe(false);
+      expect(
+        approved.validation?.issues.find((issue) => issue.id === metricIssue.id)
+          ?.message,
+      ).toMatch(/^You approved this as accurate\. /);
+    }
   });
 
   test("normalization-only edits cannot escape gating while substantive edits re-block", async () => {
@@ -394,9 +432,9 @@ describe("resume claim confirmation commands", () => {
     // A substantive assistant rewrite stays generated-class but produces a
     // new normalized content hash, so the historical confirmation no longer
     // matches and export blocks again.
-    const confirmationsBeforeEdit = (
-      await repository.getResumeDraftByJobId("job_ready")
-    )!.claimConfirmations.length;
+    const confirmationsBeforeEdit = (await repository.getResumeDraftByJobId(
+      "job_ready",
+    ))!.claimConfirmations.length;
 
     await workspaceService.applyResumePatch({
       id: "patch_substantive_rewrite",

@@ -250,6 +250,7 @@ function createResumeWorkspace(
     staleReason: null,
     workHistoryReviewAcknowledgments: [],
     claimConfirmations: [],
+    issueApprovals: [],
     createdAt: "2026-08-20T00:00:00.000Z",
     updatedAt: "2026-08-20T00:00:00.000Z",
   });

@@ -223,7 +223,7 @@ describe("SettingsApplicationAuthoritySection", () => {
     expect(document.body.textContent).not.toContain("self_intro");
   });
 
-  it("loads the current revision and states the one available mode", async () => {
+  it("loads the current revision and offers all three choices", async () => {
     const api = installApi();
     render(<SettingsApplicationAuthoritySection />);
 
@@ -232,19 +232,21 @@ describe("SettingsApplicationAuthoritySection", () => {
         id: "authority-1",
       }),
     );
+    // Each choice is described by what happens, not by the name of a mode.
     expect(
-      screen.getByRole("article", { name: "Prepare only mode" }),
+      screen.getByRole("radio", { name: /Fill applications in and stop/i }),
     ).toBeTruthy();
-    // Two permanently disabled cards advertised choices nobody can make; the
-    // limit is now one plain line.
     expect(
-      screen.queryByRole("article", { name: "Confirm before submit mode" }),
-    ).toBeNull();
+      screen.getByRole("radio", { name: /ask me before sending/i }),
+    ).toBeTruthy();
     expect(
-      screen.queryByRole("article", { name: "Autonomous submit mode" }),
-    ).toBeNull();
+      screen.getByRole("radio", { name: /Fill them in and send them/i }),
+    ).toBeTruthy();
     expect(screen.queryAllByText(/Not available yet/i)).toHaveLength(0);
-    expect(screen.getByText(/is not available in this version/i)).toBeTruthy();
+    // Declarations only appear once a sending choice is made.
+    expect(
+      screen.queryByText(/Things forms ask you to declare/i),
+    ).toBeNull();
     expect(screen.getByDisplayValue(origin)).toBeTruthy();
   });
 
@@ -303,6 +305,8 @@ describe("SettingsApplicationAuthoritySection", () => {
       maxApplicationsPerLocalDay: 5,
       maxApplicationsPerRun: 3,
       mode: "prepare_only",
+      preApprovedAttestationKinds: [],
+      salaryDisclosure: "pause_for_user",
       scope: { campaignId: null, jobIds: [] },
     });
   });
@@ -439,12 +443,16 @@ describe("SettingsApplicationAuthoritySection", () => {
     expect(screen.queryByRole("button", { name: /submit/i })).toBeNull();
   });
 
-  it("keeps an existing elevated envelope non-editable but always revocable", async () => {
+  it("keeps a permission that is no longer in force readable but not editable", async () => {
+    // A permission the person already took back: still readable as history,
+    // never editable, and never switched back on from here.
     const elevated = envelope({
       allowedResumeSha256: ["a".repeat(64)],
       expiresAt: "2026-08-28T09:00:00.000Z",
       mode: "autonomous_submit",
+      revokedAt: "2026-08-27T12:00:00.000Z",
       scope: { campaignId: null, jobIds: ["job-1"] },
+      status: "revoked",
     });
     const api = installApi({
       getApplicationAuthorityEnvelope: vi.fn(() => Promise.resolve(elevated)),
@@ -454,16 +462,39 @@ describe("SettingsApplicationAuthoritySection", () => {
     });
     render(<SettingsApplicationAuthoritySection />);
 
-    expect(
-      await screen.findByText(/asks for something this version cannot do/i),
-    ).toBeTruthy();
+    // Nothing is active, so nothing is selected until the person opens it.
+    fireEvent.click(
+      await screen.findByRole("button", { name: /autonomous submit/i }),
+    );
+
+    expect(await screen.findByText(/no longer in force/i)).toBeTruthy();
     expect(
       screen.getByRole<HTMLButtonElement>("button", {
         name: "Editing unavailable",
       }).disabled,
     ).toBe(true);
 
-    fireEvent.click(screen.getByRole("button", { name: "Revoke authority" }));
+    // Nothing here can switch it back on, and it cannot be taken back twice.
+    expect(screen.queryByRole("button", { name: "Revoke authority" })).toBeNull();
+    expect(api.revokeApplicationAuthorityEnvelope).not.toHaveBeenCalled();
+  });
+
+  it("takes back an active permission to send, which is the kill switch", async () => {
+    const sending = envelope({
+      allowedResumeSha256: ["a".repeat(64)],
+      expiresAt: "2026-08-28T09:00:00.000Z",
+      mode: "autonomous_submit",
+      scope: { campaignId: null, jobIds: ["job-1"] },
+    });
+    const api = installApi({
+      getApplicationAuthorityEnvelope: vi.fn(() => Promise.resolve(sending)),
+      listApplicationAuthorityEnvelopes: vi.fn(() => Promise.resolve([sending])),
+    });
+    render(<SettingsApplicationAuthoritySection />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Revoke authority" }),
+    );
     expect(
       screen.getByText(/Revoke autonomous submit revision 1\?/i),
     ).toBeTruthy();
@@ -476,5 +507,35 @@ describe("SettingsApplicationAuthoritySection", () => {
         id: "authority-1",
       }),
     );
+  });
+
+  it("offers the declaration and pay choices only once sending is chosen", async () => {
+    installApi({
+      getApplicationAuthorityEnvelope: vi.fn(() => Promise.resolve(null)),
+      listApplicationAuthorityEnvelopes: vi.fn(() => Promise.resolve([])),
+    });
+    render(<SettingsApplicationAuthoritySection />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("radio", { name: /Fill applications in and stop/i }),
+      ).toBeTruthy(),
+    );
+    expect(screen.queryByText(/Things forms ask you to declare/i)).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("radio", { name: /Fill them in and send them/i }),
+    );
+
+    expect(screen.getByText(/Things forms ask you to declare/i)).toBeTruthy();
+    // Equal-opportunity questions are offered, and off unless chosen.
+    const selfIdentification = screen.getByRole<HTMLButtonElement>("switch", {
+      name: /Equal-opportunity questions about you/i,
+    });
+    expect(selfIdentification.getAttribute("aria-checked")).toBe("false");
+    const payChoice = screen.getByRole<HTMLButtonElement>("switch", {
+      name: /answer pay questions from your profile/i,
+    });
+    expect(payChoice.getAttribute("aria-checked")).toBe("false");
   });
 });

@@ -864,9 +864,9 @@ describe("createJobFinderWorkspaceService", () => {
     );
 
     expect(capturedBudgets).toEqual([
-      { targetJobCount: 34, maxSteps: 60 },
-      { targetJobCount: 33, maxSteps: 60 },
-      { targetJobCount: 33, maxSteps: 36 },
+      { targetJobCount: 34, maxSteps: 120 },
+      { targetJobCount: 33, maxSteps: 120 },
+      { targetJobCount: 33, maxSteps: 120 },
     ]);
     expect(snapshot.recentDiscoveryRuns[0]?.summary.validJobsFound).toBe(100);
   });
@@ -1084,7 +1084,7 @@ describe("createJobFinderWorkspaceService", () => {
       "target_linkedin_default",
     );
 
-    expect(capturedBudgets).toEqual([{ targetJobCount: 50, maxSteps: 36 }]);
+    expect(capturedBudgets).toEqual([{ targetJobCount: 50, maxSteps: 120 }]);
   });
 
   test("single-target agent discovery passes the configured starting url without synthesizing a query route", async () => {

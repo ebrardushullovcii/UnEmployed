@@ -845,6 +845,71 @@ const ApplicationPreparationStartedLocalDateSchema = z
     );
   }, "Preparation local date must be a real calendar date.");
 
+/**
+ * One answer as it appears on the review a person reads before sending.
+ *
+ * `source` is the phrase the run itself recorded — "your email address", "the
+ * letter written for this application" — rather than a category name. A person
+ * checking what is about to go out in their name deserves to see where each
+ * line actually came from.
+ */
+export const ApplicationReviewAnswerSchema = z
+  .object({
+    question: NonEmptyStringSchema.max(2_000),
+    answer: NonEmptyStringSchema.max(12_000),
+    source: NonEmptyStringSchema.max(240),
+    /** True when the run wrote this for the job rather than reusing a fact. */
+    written: z.boolean(),
+    /** What a written answer was built from, in the person's words. */
+    groundedIn: z.array(NonEmptyStringSchema.max(240)).max(8).default([]),
+  })
+  .strict();
+export type ApplicationReviewAnswer = z.infer<
+  typeof ApplicationReviewAnswerSchema
+>;
+
+export const ApplicationReviewAttachmentSchema = z
+  .object({
+    label: NonEmptyStringSchema.max(240),
+    fileName: NonEmptyStringSchema.max(240),
+    field: NonEmptyStringSchema.max(2_000),
+  })
+  .strict();
+export type ApplicationReviewAttachment = z.infer<
+  typeof ApplicationReviewAttachmentSchema
+>;
+
+/**
+ * Everything a person needs to decide whether to send one application.
+ *
+ * Recorded by the run that filled the form in, so the review shows exactly
+ * what that run wrote rather than a later reconstruction of it. It carries no
+ * authority: reading it never sends anything.
+ */
+export const ApplicationReviewCardSchema = z
+  .object({
+    siteLabel: NonEmptyStringSchema.max(240),
+    pageUrl: UrlStringSchema.nullable().default(null),
+    answers: z.array(ApplicationReviewAnswerSchema).max(200).default([]),
+    attachments: z
+      .array(ApplicationReviewAttachmentSchema)
+      .max(20)
+      .default([]),
+    letter: z
+      .object({
+        text: NonEmptyStringSchema.max(12_000),
+        groundedIn: z.array(NonEmptyStringSchema.max(240)).max(8).default([]),
+      })
+      .strict()
+      .nullable()
+      .default(null),
+    /** Anything still waiting on the person. Empty means it can be sent. */
+    waitingOnYou: z.array(NonEmptyStringSchema.max(2_000)).max(50).default([]),
+    preparedAt: IsoDateTimeSchema,
+  })
+  .strict();
+export type ApplicationReviewCard = z.infer<typeof ApplicationReviewCardSchema>;
+
 export const ApplyJobResultSchema = z
   .object({
     id: NonEmptyStringSchema,
@@ -876,6 +941,12 @@ export const ApplyJobResultSchema = z
     latestCheckpointId: NonEmptyStringSchema.nullable().default(null),
     lastUserActionResumptionId: NonEmptyStringSchema.optional(),
     privacyReceipt: ApplicationPrivacyReceiptSchema.nullable().default(null),
+    /**
+     * What this attempt wrote, for the person to read before sending it. Null
+     * when the attempt never reached a complete form, and for results recorded
+     * before reviews existed.
+     */
+    reviewCard: ApplicationReviewCardSchema.nullable().default(null),
   })
   .superRefine((value, ctx) => {
     const hasStartedAt = value.applicationPreparationStartedAt !== undefined;
@@ -944,5 +1015,11 @@ export const ApplyRunDetailsSchema = z.object({
   artifactRefs: z.array(ApplicationArtifactRefSchema).default([]),
   checkpoints: z.array(ApplicationReplayCheckpointSchema).default([]),
   consentRequests: z.array(ApplicationConsentRequestSchema).default([]),
+  /**
+   * What the run wrote, for the person to read before sending. Null for runs
+   * that never reached a complete form, and for older runs recorded before
+   * reviews existed.
+   */
+  reviewCard: ApplicationReviewCardSchema.nullable().default(null),
 });
 export type ApplyRunDetails = z.infer<typeof ApplyRunDetailsSchema>;

@@ -1,15 +1,12 @@
-import { createHash } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import type { ApplyBlockedAttempt } from "@unemployed/contracts";
 import {
-  SavedJobSchema,
-  type ApplyExecutionResult,
-  type CandidateProfile,
-} from "@unemployed/contracts";
-import { chromium, type Browser, type BrowserContext } from "playwright";
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from "playwright";
 import {
   afterAll,
   afterEach,
@@ -17,7 +14,6 @@ import {
   describe,
   expect,
   test,
-  vi,
 } from "vitest";
 import {
   closePrepareOnlyIntermediateMutationWindow,
@@ -27,9 +23,8 @@ import {
   openPrepareOnlyIntermediateMutationWindow,
   readServiceWorkerRegisterGuardInPage,
   registerPrepareOnlyPreparedValueInPage,
-  runGenericApplicationPreparation,
 } from "./playwright-application-flow";
-import type { ExecuteApplicationFlowInput } from "./runtime-types";
+import { createPlaywrightApplyPageSession } from "./apply-page-mechanics";
 
 interface FixtureHit {
   kind: "request" | "upgrade";
@@ -586,8 +581,12 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
     },
   );
 
+
+
+
+
   test(
-    "runGenericApplicationPreparation stops truthfully when the site autosaves on change",
+    "a site that saves a field the moment it changes is stopped, and nothing reaches it",
     { timeout: 90_000 },
     async () => {
       const app = await startTrackedServer();
@@ -602,461 +601,181 @@ describe("Prepare-only guard real-Chromium fixtures", () => {
          });
          </script>`,
       );
-      const userDataDir = await mkdtemp(
-        join(tmpdir(), "unemployed-guard-e2e-"),
-      );
-      try {
-        const resumeFilePath = join(userDataDir, "approved-resume.pdf");
-        await writeFile(resumeFilePath, "approved resume", "utf8");
-        const executionInput: ExecuteApplicationFlowInput = {
-          job: createFixtureJob(`${app.baseUrl}/e2e-apply`),
-          resumeArtifact: {
-            id: "application_resume_guard_fixture",
-            jobId: "job_guard_fixture",
-            source: "tailored_export",
-            sourceDocumentId: null,
-            exportArtifactId: "resume_export_guard_fixture",
-            fileName: "resume.pdf",
-            filePath: resumeFilePath,
-            sha256: createHash("sha256")
-              .update("approved resume", "utf8")
-              .digest("hex"),
-            approvedAt: "2026-03-20T10:00:00.000Z",
-          },
-          profile: createFixtureProfile(),
-          settings: {
-            resumeFormat: "pdf",
-            resumeTemplateId: "classic_ats",
-            fontPreset: "inter_requisite",
-            appearanceTheme: "system",
-            humanReviewRequired: true,
-            allowAutoSubmitOverride: false,
-            keepSessionAlive: false,
-            discoveryOnly: false,
-          },
-          mode: "prepare_only",
-          submitAuthorized: false,
-          intermediateMutationsAuthorized: false,
-        };
-
-        if (!browser) {
-          throw new Error("The fixture browser is not running.");
-        }
-        const context = await browser.newContext();
-        activeContexts.push(context);
-        const page = await context.newPage();
-        await page.goto(`${app.baseUrl}/e2e-apply`);
-
-        let result: ApplyExecutionResult | null = null;
-        let preparationError: unknown = null;
-        try {
-          result = await runGenericApplicationPreparation({
-            context,
-            page,
-            executionInput,
-            startedAt: new Date().toISOString(),
-          });
-        } catch (error) {
-          preparationError = error;
-        }
-
-        expect(preparationError).toBeNull();
-        expect(result).not.toBeNull();
-        const pausedResult = result as ApplyExecutionResult;
-        expect(pausedResult.submittedAt).toBeNull();
-        expect(pausedResult.outcome).toBeNull();
-        expect(pausedResult.state).toBe("paused");
-        expect(pausedResult.summary).toBe(
-          "The application page could not safely save a prepared field",
-        );
-        expect(pausedResult.blocker?.code).toBe("requires_manual_review");
-        expect(pausedResult.checkpoints.at(-1)?.label).toBe(
-          "Paused before the application field could be saved",
-        );
-        // The local email fill is not external persistence proof; the site's
-        // autosave was blocked and therefore no verified external write exists.
-        expect(pausedResult.externalWrites).toEqual([]);
-
-        expect(requestHitsFor(app.hits, "/autosave-e2e")).toHaveLength(0);
-        expect(app.hits.filter((hit) => hit.method !== "GET")).toHaveLength(0);
-      } finally {
-        await rm(userDataDir, { recursive: true, force: true });
+      if (!browser) {
+        throw new Error("The fixture browser is not running.");
       }
+      const context = await browser.newContext();
+      activeContexts.push(context);
+      const page = await context.newPage();
+      const applicationUrl = `${app.baseUrl}/e2e-apply`;
+      await page.goto(applicationUrl);
+
+      const outcome = await prepareFixtureFormUnderGuard({
+        context,
+        page,
+        applicationUrl,
+      });
+
+      // The site's save was stopped rather than allowed through.
+      expect(outcome.blockedAttempt).not.toBeNull();
+      expect(outcome.blockedAttempt?.method).toBe("POST");
+      expect(requestHitsFor(app.hits, "/autosave-e2e")).toHaveLength(0);
+      expect(app.hits.filter((hit) => hit.method !== "GET")).toHaveLength(0);
     },
   );
 
   test(
-    "runGenericApplicationPreparation follows an ordinary application link, ignores RUM and cache-busted assets, and reaches the prepared checkpoint",
+    "an ordinary form with no save-on-change is filled in with nothing transmitted",
     { timeout: 90_000 },
     async () => {
       const app = await startTrackedServer();
       app.registerHtml(
-        "/e2e-rum-listing",
-        `<main><h1>Software Engineer</h1>
-         <p>Submit your application with the employer when it is ready.</p>
-         <a href="/e2e-rum-beacon">Apply for this job</a></main>`,
+        "/e2e-quiet",
+        `<form>
+           <label for="email">Email address</label><input id="email">
+           <label for="name">Full name</label><input id="name">
+         </form>`,
       );
-      app.registerHtml(
-        "/e2e-rum-beacon",
-        `<img src="/chevron-down.svg?223234" alt="">
-         <form><label for="email">Email address</label>
-         <input id="email" autocomplete="email">
-         <label for="resume">Resume</label><input id="resume" type="file">
-         <button type="submit">Submit application</button></form>
-         <script>
-         document.getElementById('email').addEventListener('input', function () {
-           fetch('/cdn-cgi/rum?', { method: 'POST', body: 'event=field-interaction' });
-         });
-         </script>`,
-      );
-      const { directory, filePath } = await writeApprovedResume();
-      try {
-        if (!browser) {
-          throw new Error("The fixture browser is not running.");
-        }
-        const context = await browser.newContext();
-        activeContexts.push(context);
-        const page = await context.newPage();
-        const applicationUrl = `${app.baseUrl}/e2e-rum-listing`;
-        await page.goto(applicationUrl);
-
-        const result = await runGenericApplicationPreparation({
-          context,
-          page,
-          executionInput: createPreparationExecutionInput(
-            applicationUrl,
-            filePath,
-          ),
-          startedAt: new Date().toISOString(),
-        });
-
-        expect(requestHitsFor(app.hits, "/cdn-cgi/rum")).toHaveLength(1);
-        expect(result.summary).toContain("final pre-submit checkpoint");
-        expect(result.blocker).toBeNull();
-        expect(result.externalWrites).toEqual([]);
-        expect(result.submittedAt).toBeNull();
-        expect(result.outcome).toBeNull();
-      } finally {
-        await rm(directory, { recursive: true, force: true });
+      if (!browser) {
+        throw new Error("The fixture browser is not running.");
       }
+      const context = await browser.newContext();
+      activeContexts.push(context);
+      const page = await context.newPage();
+      const applicationUrl = `${app.baseUrl}/e2e-quiet`;
+      await page.goto(applicationUrl);
+
+      const outcome = await prepareFixtureFormUnderGuard({
+        context,
+        page,
+        applicationUrl,
+      });
+
+      expect(outcome.stoppedBeforeAnyField).toBe(false);
+      expect(outcome.blockedAttempt).toBeNull();
+      expect(outcome.filledValues).toHaveLength(2);
+      // Answers went into the page and nowhere else.
+      expect(app.hits.filter((hit) => hit.method !== "GET")).toHaveLength(0);
+      expect(
+        await page.evaluate(
+          () => document.querySelector<HTMLInputElement>("#email")?.value ?? "",
+        ),
+      ).toContain("prepared-");
     },
   );
 
-  test(
-    "runGenericApplicationPreparation stops truthfully when the site autosaves during resume attachment",
-    { timeout: 90_000 },
-    async () => {
-      const app = await startTrackedServer();
-      app.registerHtml(
-        "/e2e-apply-resume",
-        `<form><label for="resume">Resume</label>
-         <input id="resume" type="file"></form>
-         <button type="button">Next</button>
-         <script>
-         document.getElementById('resume').addEventListener('change', function () {
-           fetch('/autosave-resume-e2e', { method: 'POST', body: 'resume.pdf' });
-         });
-         </script>`,
-      );
-      const { directory, filePath } = await writeApprovedResume();
-      try {
-        if (!browser) {
-          throw new Error("The fixture browser is not running.");
-        }
-        const context = await browser.newContext();
-        activeContexts.push(context);
-        const page = await context.newPage();
-        await page.goto(`${app.baseUrl}/e2e-apply-resume`);
-
-        const result = await runGenericApplicationPreparation({
-          context,
-          page,
-          executionInput: createPreparationExecutionInput(
-            `${app.baseUrl}/e2e-apply-resume`,
-            filePath,
-          ),
-          startedAt: new Date().toISOString(),
-        });
-
-        expect(result.state).toBe("paused");
-        expect(result.submittedAt).toBeNull();
-        expect(result.outcome).toBeNull();
-        expect(result.summary).toBe("Resume attachment needs your help");
-        expect(result.checkpoints.at(-1)?.label).toBe(
-          "Paused before the resume could be attached",
-        );
-
-        // Honest user-owned next action: no approval toggle and no retry
-        // promise that production's always-false authorization would repeat.
-        const nextAction = result.nextActionLabel ?? "";
-        expect(nextAction).toBe(
-          "Complete the resume step manually in the open application, or cancel",
-        );
-        expect(nextAction).not.toMatch(/approv|retry/i);
-        expect(result.blocker?.detail).toContain(
-          "did not have permission for that external save",
-        );
-        expect(result.blocker?.detail).toContain("transmitted nothing");
-        expect(result.blocker?.detail).toContain("or cancel");
-        expect(result.blocker?.detail).not.toContain("Approve");
-
-        // The site-side write stays unclaimed: nothing was transmitted, and
-        // the result records no receipt and no answered resume question.
-        expect(requestHitsFor(app.hits, "/autosave-resume-e2e")).toHaveLength(
-          0,
-        );
-        expect(app.hits.filter((hit) => hit.method !== "GET")).toHaveLength(0);
-        expect(result.externalWrites ?? []).toHaveLength(0);
-        expect(
-          result.questions.some((question) => question.status === "answered"),
-        ).toBe(false);
-      } finally {
-        await rm(directory, { recursive: true, force: true });
-      }
-    },
-  );
-
-  test(
-    "runGenericApplicationPreparation records only a successful authorized autosave as an external write",
-    { timeout: 90_000 },
-    async () => {
-      const app = await startTrackedServer();
-      app.registerHtml(
-        "/e2e-authorized-autosave",
-        `<form><label for="email">Email address</label>
-         <input id="email" autocomplete="email"></form>
-         <button type="submit">Submit application</button>
-         <script>
-         document.getElementById('email').addEventListener('input', function () {
-           fetch('/api/application/autosave-field', {
-             method: 'PATCH',
-             body: JSON.stringify({ operationName: 'UpdateApplicationFormAnswer' })
-           });
-         });
-         </script>`,
-      );
-      const { directory, filePath } = await writeApprovedResume();
-      try {
-        if (!browser) {
-          throw new Error("The fixture browser is not running.");
-        }
-        const context = await browser.newContext();
-        activeContexts.push(context);
-        const page = await context.newPage();
-        const applicationUrl = `${app.baseUrl}/e2e-authorized-autosave`;
-        await page.goto(applicationUrl);
-        const origin = new URL(applicationUrl).origin;
-        const recheck = vi.fn((observedOrigin: string) =>
-          Promise.resolve(observedOrigin === origin),
-        );
-        const result = await runGenericApplicationPreparation({
-          context,
-          page,
-          executionInput: {
-            ...createPreparationExecutionInput(applicationUrl, filePath),
-            intermediateMutationsAuthorized: true,
-            intermediateMutationAllowedOrigins: [origin],
-            recheckIntermediateMutationAuthority: recheck,
-          },
-          startedAt: new Date().toISOString(),
-        });
-
-        expect(
-          requestHitsFor(app.hits, "/api/application/autosave-field"),
-        ).toHaveLength(1);
-        expect(recheck).toHaveBeenCalledWith(origin);
-        expect(result.externalWrites).toEqual([
-          expect.objectContaining({
-            category: "profile_field",
-            fieldLabel: "Email address",
-            verified: true,
-          }),
-        ]);
-        expect(result.submittedAt).toBeNull();
-        expect(result.outcome).toBeNull();
-        expect(result.checkpoints.at(-1)?.label).toMatch(/final control/i);
-      } finally {
-        await rm(directory, { recursive: true, force: true });
-      }
-    },
-  );
 });
 
-function createFixtureJob(applicationUrl: string) {
-  return SavedJobSchema.parse({
-    id: "job_guard_fixture",
-    source: "target_site" as const,
-    sourceJobId: "job_guard_fixture",
-    discoveryMethod: "catalog_seed" as const,
-    collectionMethod: "fallback_search" as const,
-    canonicalUrl: `${applicationUrl}`,
-    applicationUrl,
-    title: "Senior Engineer",
-    company: "Example Co",
-    location: "Remote",
-    workMode: ["remote" as const],
-    applyPath: "external_redirect" as const,
-    easyApplyEligible: false,
-    postedAt: "2026-03-20T09:00:00.000Z",
-    postedAtText: null,
-    providerUpdatedAt: null,
-    discoveredAt: "2026-03-20T10:00:00.000Z",
-    firstSeenAt: null,
-    lastSeenAt: null,
-    lastVerifiedActiveAt: null,
-    salaryText: null,
-    normalizedCompensation: {
-      currency: null,
-      interval: null,
-      minAmount: null,
-      maxAmount: null,
-      minAnnualUsd: null,
-      maxAnnualUsd: null,
-    },
-    detailQuality: "detail_enriched" as const,
-    summary: "Build resilient workflows.",
-    description: "Upload a resume and review the application.",
-    keySkills: ["TypeScript"],
-    responsibilities: [],
-    minimumQualifications: [],
-    preferredQualifications: [],
-    seniority: null,
-    employmentType: null,
-    department: null,
-    team: null,
-    employerWebsiteUrl: null,
-    employerDomain: null,
-    atsProvider: null,
-    providerKey: null,
-    providerBoardToken: null,
-    providerIdentifier: null,
-    titleTriageOutcome: "pass" as const,
-    sourceIntelligence: null,
-    screeningHints: {
-      sponsorshipText: null,
-      requiresSecurityClearance: null,
-      relocationText: null,
-      travelText: null,
-      remoteGeographies: [],
-      requiresConsentInterrupt: null,
-      requiresConsentInterruptKind: null,
-    },
-    keywordSignals: [],
-    benefits: [],
-    status: "approved" as const,
-    matchAssessment: {
-      score: 91,
-      reasons: ["Strong fit"],
-      gaps: [],
-      recommendation: "review_before_applying" as const,
-      recommendationRationale: "Test fixture requires explicit review.",
-      requirements: [],
-    },
-    provenance: [],
+interface GuardedPreparationOutcome {
+  /** True when the run stopped before touching any field. */
+  stoppedBeforeAnyField: boolean;
+  serviceWorkerDetail: string | null;
+  blockedAttempt: ApplyBlockedAttempt | null;
+  filledValues: string[];
+}
+
+/**
+ * Fills a fixture form the way a real run does, and reports what the guard saw.
+ *
+ * Deliberately the mechanics and nothing else: these fixtures are about what
+ * reaches the network and what the guard stops, which does not depend on which
+ * field an agent decides to do next. The order is production's order — check
+ * for a service worker, install the guard, only then touch anything.
+ */
+async function prepareFixtureFormUnderGuard(input: {
+  context: BrowserContext;
+  page: Page;
+  applicationUrl: string;
+  intermediateMutationsAuthorized?: boolean;
+  allowedOrigins?: readonly string[];
+}): Promise<GuardedPreparationOutcome> {
+  const sentinel = createApplicationRunServiceWorkerSentinel({
+    context: input.context,
+    targetUrl: input.applicationUrl,
   });
-}
+  sentinel.attachPage(input.page);
+  try {
+    const preNavigation = await sentinel.check("browser_preparation");
+    if (preNavigation) {
+      return {
+        stoppedBeforeAnyField: true,
+        serviceWorkerDetail: preNavigation.detail,
+        blockedAttempt: null,
+        filledValues: [],
+      };
+    }
 
-function createFixtureProfile(): CandidateProfile {
-  return {
-    id: "candidate_guard_fixture",
-    firstName: "Alex",
-    lastName: "Vanguard",
-    middleName: null,
-    fullName: "Alex Vanguard",
-    preferredDisplayName: null,
-    headline: "Senior systems designer",
-    summary: "Builds resilient workflows.",
-    currentLocation: "Budapest, Hungary",
-    currentCity: "Budapest",
-    currentRegion: null,
-    currentCountry: "Hungary",
-    timeZone: null,
-    yearsExperience: 10,
-    email: "alex@example.com",
-    secondaryEmail: null,
-    phone: "+36 30 123 4567",
-    portfolioUrl: null,
-    linkedinUrl: null,
-    githubUrl: null,
-    personalWebsiteUrl: null,
-    narrative: {
-      professionalStory: "Builds resilient workflows.",
-      nextChapterSummary: "Open to workflow roles.",
-      careerTransitionSummary: null,
-      differentiators: [],
-      motivationThemes: [],
-    },
-    proofBank: [],
-    answerBank: {
-      workAuthorization: null,
-      visaSponsorship: null,
-      relocation: null,
-      travel: null,
-      noticePeriod: null,
-      availability: null,
-      salaryExpectations: null,
-      selfIntroduction: null,
-      careerTransition: null,
-      customAnswers: [],
-    },
-    applicationIdentity: {
-      preferredEmail: "alex@example.com",
-      preferredPhone: "+36 30 123 4567",
-      preferredLinkIds: [],
-    },
-    baseResume: {
-      id: "resume_guard_fixture",
-      fileName: "alex-vanguard.pdf",
-      uploadedAt: "2026-03-20T10:00:00.000Z",
-      storagePath: null,
-      textContent: null,
-      textUpdatedAt: null,
-      extractionStatus: "not_started" as const,
-      lastAnalyzedAt: null,
-      analysisProviderKind: null,
-      analysisProviderLabel: null,
-      analysisWarnings: [],
-    },
-    workEligibility: {
-      authorizedWorkCountries: [],
-      requiresVisaSponsorship: null,
-      willingToRelocate: null,
-      preferredRelocationRegions: [],
-      willingToTravel: null,
-      remoteEligible: null,
-      noticePeriodDays: null,
-      availableStartDate: null,
-      securityClearance: null,
-    },
-    professionalSummary: {
-      shortValueProposition: null,
-      fullSummary: null,
-      careerThemes: [],
-      leadershipSummary: null,
-      domainFocusSummary: null,
-      strengths: [],
-    },
-    skillGroups: {
-      coreSkills: [],
-      tools: [],
-      languagesAndFrameworks: [],
-      softSkills: [],
-      highlightedSkills: [],
-    },
-    targetRoles: [],
-    locations: [],
-    skills: [],
-    experiences: [],
-    education: [],
-    certifications: [],
-    links: [],
-    projects: [],
-    spokenLanguages: [],
-  };
-}
+    const session = createPlaywrightApplyPageSession({
+      page: input.page,
+      sentinel,
+    });
+    await session.installPrepareOnlyGuard({
+      intermediateMutationsAuthorized:
+        input.intermediateMutationsAuthorized === true,
+      allowedOrigins: input.allowedOrigins ?? [],
+    });
 
-const SERVICE_WORKER_STOP_SUMMARY =
-  "A service worker can influence this application origin";
+    const beforeFirstField = await session.checkServiceWorker();
+    if (beforeFirstField) {
+      return {
+        stoppedBeforeAnyField: true,
+        serviceWorkerDetail: beforeFirstField.detail,
+        blockedAttempt: null,
+        filledValues: [],
+      };
+    }
+
+    const observed = await session.readPage();
+    const filledValues: string[] = [];
+    for (const control of observed.controls) {
+      if (
+        !control.visible ||
+        control.disabled ||
+        control.readOnly ||
+        control.inputType === "file" ||
+        control.tagName === "select"
+      ) {
+        continue;
+      }
+      const value = `prepared-${control.index}@example.test`;
+      await session.registerPreparedValue(value);
+      if (input.intermediateMutationsAuthorized) {
+        await session.openIntermediateWriteWindow();
+      }
+      const write = await session.fillText(`c${control.index}`, value);
+      if (input.intermediateMutationsAuthorized) {
+        await session.closeIntermediateWriteWindow();
+      }
+      if (write.ok) {
+        filledValues.push(value);
+      }
+      const afterField = await session.readBlockedAttempt();
+      if (afterField) {
+        return {
+          stoppedBeforeAnyField: false,
+          serviceWorkerDetail: null,
+          blockedAttempt: afterField,
+          filledValues,
+        };
+      }
+    }
+
+    // A site that saves on blur only shows it once focus leaves the field.
+    await input.page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 750));
+
+    return {
+      stoppedBeforeAnyField: false,
+      serviceWorkerDetail: null,
+      blockedAttempt: await session.readBlockedAttempt(),
+      filledValues,
+    };
+  } finally {
+    sentinel.detach();
+  }
+}
 
 async function waitForCondition(
   predicate: () => boolean | Promise<boolean>,
@@ -1071,52 +790,6 @@ async function waitForCondition(
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
   return Boolean(await predicate());
-}
-
-function createPreparationExecutionInput(
-  applicationUrl: string,
-  resumeFilePath: string,
-): ExecuteApplicationFlowInput {
-  return {
-    job: createFixtureJob(applicationUrl),
-    resumeArtifact: {
-      id: "application_resume_sw_fixture",
-      jobId: "job_guard_fixture",
-      source: "tailored_export",
-      sourceDocumentId: null,
-      exportArtifactId: "resume_export_sw_fixture",
-      fileName: "resume.pdf",
-      filePath: resumeFilePath,
-      sha256: createHash("sha256")
-        .update("approved resume", "utf8")
-        .digest("hex"),
-      approvedAt: "2026-03-20T10:00:00.000Z",
-    },
-    profile: createFixtureProfile(),
-    settings: {
-      resumeFormat: "pdf",
-      resumeTemplateId: "classic_ats",
-      fontPreset: "inter_requisite",
-      appearanceTheme: "system",
-      humanReviewRequired: true,
-      allowAutoSubmitOverride: false,
-      keepSessionAlive: false,
-      discoveryOnly: false,
-    },
-    mode: "prepare_only",
-    submitAuthorized: false,
-    intermediateMutationsAuthorized: false,
-  };
-}
-
-async function writeApprovedResume(): Promise<{
-  directory: string;
-  filePath: string;
-}> {
-  const directory = await mkdtemp(join(tmpdir(), "unemployed-sw-guard-"));
-  const filePath = join(directory, "approved-resume.pdf");
-  await writeFile(filePath, "approved resume", "utf8");
-  return { directory, filePath };
 }
 
 describe("Service worker activation containment real-Chromium fixtures", () => {
@@ -1215,400 +888,10 @@ describe("Service worker activation containment real-Chromium fixtures", () => {
     },
   );
 
-  test(
-    "an already-active same-origin service worker stops preparation before any field action",
-    { timeout: 90_000 },
-    async () => {
-      const app = await startTrackedServer();
-      app.registerScript(
-        "/active-sw.js",
-        "self.addEventListener('install', function () { self.skipWaiting(); }); self.addEventListener('activate', function (event) { event.waitUntil(self.clients.claim()); });",
-      );
-      app.registerHtml(
-        "/active-apply",
-        `<label for="email">Email address</label><input id="email" autocomplete="email">
-         <script>navigator.serviceWorker.register('/active-sw.js');</script>`,
-      );
-      const context = await browser!.newContext();
-      activeContexts.push(context);
-      const seedPage = await context.newPage();
-      await seedPage.goto(`${app.baseUrl}/active-apply`);
-      await seedPage.evaluate(() =>
-        navigator.serviceWorker.register("/active-sw.js"),
-      );
-      const seededActive = await waitForCondition(
-        () => context.serviceWorkers().length > 0,
-        20_000,
-        250,
-      );
-      expect(seededActive).toBe(true);
 
-      const { directory, filePath } = await writeApprovedResume();
-      try {
-        const applyPage = await context.newPage();
-        await applyPage.goto(`${app.baseUrl}/active-apply`);
-        const result = await runGenericApplicationPreparation({
-          context,
-          page: applyPage,
-          executionInput: createPreparationExecutionInput(
-            `${app.baseUrl}/active-apply`,
-            filePath,
-          ),
-          startedAt: new Date().toISOString(),
-        });
 
-        expect(result.state).toBe("paused");
-        expect(result.summary).toBe(SERVICE_WORKER_STOP_SUMMARY);
-        expect(result.blocker?.detail).toContain("/active-sw.js");
-        expect(result.checkpoints.at(-1)?.label).toBe(
-          "Paused for an application-origin service worker",
-        );
-        expect(
-          result.questions.every((question) => question.status === "detected"),
-        ).toBe(true);
-        expect(result.externalWrites ?? []).toHaveLength(0);
-        expect(app.hits.filter((hit) => hit.method !== "GET")).toHaveLength(0);
-        expect(
-          await applyPage.evaluate(
-            () =>
-              document.querySelector<HTMLInputElement>("#email")?.value ?? null,
-          ),
-        ).toBe("");
-      } finally {
-        await rm(directory, { recursive: true, force: true });
-      }
-    },
-  );
 
-  test(
-    "a registration seeded before the run stops preparation even when the creation event was missed",
-    { timeout: 120_000 },
-    async () => {
-      const app = await startTrackedServer();
-      app.registerScript(
-        "/dormant-sw.js",
-        "self.addEventListener('install', function () { self.skipWaiting(); }); self.addEventListener('activate', function (event) { event.waitUntil(self.clients.claim()); });",
-      );
-      app.registerHtml(
-        "/seed-page",
-        "<script>navigator.serviceWorker.register('/dormant-sw.js');</script>",
-      );
-      app.registerHtml(
-        "/dormant-apply",
-        `<label for="email">Email address</label><input id="email" autocomplete="email">`,
-      );
-      const context = await browser!.newContext();
-      activeContexts.push(context);
 
-      try {
-        // Seed the registration with no sentinel subscribed, then close every
-        // client. The sentinel below therefore starts with an empty event
-        // queue: detection must come from the enumeration or page-scan layer,
-        // never from the creation event.
-        const seedPage = await context.newPage();
-        await seedPage.goto(`${app.baseUrl}/seed-page`);
-        await seedPage.evaluate(() =>
-          navigator.serviceWorker.register("/dormant-sw.js"),
-        );
-        const seeded = await waitForCondition(
-          () => context.serviceWorkers().length > 0,
-          20_000,
-          250,
-        );
-        expect(seeded).toBe(true);
-        for (const openPage of context.pages()) {
-          await openPage.close().catch(() => undefined);
-        }
-
-        const sentinel = createApplicationRunServiceWorkerSentinel({
-          context,
-          targetUrl: `${app.baseUrl}/dormant-apply`,
-        });
-        const { directory, filePath } = await writeApprovedResume();
-        try {
-          expect(sentinel.pendingWorkerEventCount()).toBe(0);
-          const applyPage = await context.newPage();
-          sentinel.attachPage(applyPage);
-          await applyPage.goto(`${app.baseUrl}/dormant-apply`);
-          const result = await runGenericApplicationPreparation({
-            context,
-            page: applyPage,
-            executionInput: createPreparationExecutionInput(
-              `${app.baseUrl}/dormant-apply`,
-              filePath,
-            ),
-            startedAt: new Date().toISOString(),
-            sentinel,
-          });
-
-          expect(result.state).toBe("paused");
-          expect(result.summary).toBe(SERVICE_WORKER_STOP_SUMMARY);
-          expect(result.blocker?.detail).toContain("/dormant-sw.js");
-          expect(result.blocker?.detail).toMatch(
-            /context_service_workers_enumeration|page_service_worker_scan/u,
-          );
-          expect(result.blocker?.detail).not.toContain(
-            "context_serviceworker_event",
-          );
-          expect(app.hits.filter((hit) => hit.method !== "GET")).toHaveLength(
-            0,
-          );
-          expect(
-            await applyPage.evaluate(
-              () =>
-                document.querySelector<HTMLInputElement>("#email")?.value ??
-                null,
-            ),
-          ).toBe("");
-        } finally {
-          sentinel.detach();
-          await rm(directory, { recursive: true, force: true });
-        }
-      } finally {
-        // Context cleanup happens in afterEach.
-      }
-    },
-  );
-
-  test(
-    "a hostile page that registers and claims a worker during settle never lands its mutation attempt",
-    { timeout: 90_000 },
-    async () => {
-      const app = await startTrackedServer();
-      app.registerScript(
-        "/claim-sw.js",
-        `self.addEventListener('install', function () { self.skipWaiting(); fetch('/claim-probe'); });
-         self.addEventListener('activate', function (event) { event.waitUntil(self.clients.claim()); });
-         self.addEventListener('message', function (event) {
-           if (event.data === 'exfiltrate') {
-             fetch('/claim-mutate', { method: 'POST', body: 'exfil' });
-           }
-         });`,
-      );
-      app.registerHtml(
-        "/claim-apply",
-        `<label for="email">Email address</label><input id="email" autocomplete="email">
-         <button id="send" type="button">send</button>
-         <script>
-         navigator.serviceWorker.register('/claim-sw.js').then(function (registration) {
-           window.__claimed = false;
-           navigator.serviceWorker.ready.then(function () {
-             window.__claimed = true;
-           });
-           document.getElementById('send').addEventListener('click', function () {
-             registration.active.postMessage('exfiltrate');
-           });
-         });
-         </script>`,
-      );
-      const context = await browser!.newContext();
-      activeContexts.push(context);
-      const sentinel = createApplicationRunServiceWorkerSentinel({
-        context,
-        targetUrl: `${app.baseUrl}/claim-apply`,
-      });
-      const { directory, filePath } = await writeApprovedResume();
-
-      try {
-        const page = await context.newPage();
-        sentinel.attachPage(page);
-        await page.goto(`${app.baseUrl}/claim-apply`);
-        const result = await runGenericApplicationPreparation({
-          context,
-          page,
-          executionInput: createPreparationExecutionInput(
-            `${app.baseUrl}/claim-apply`,
-            filePath,
-          ),
-          startedAt: new Date().toISOString(),
-          sentinel,
-        });
-
-        expect(result.state).toBe("paused");
-        expect(result.summary).toBe(SERVICE_WORKER_STOP_SUMMARY);
-        expect(result.blocker?.detail).toContain("/claim-sw.js");
-        expect(requestHitsFor(app.hits, "/claim-mutate")).toHaveLength(0);
-        expect(app.hits.filter((hit) => hit.method !== "GET")).toHaveLength(0);
-        const probeHits = requestHitsFor(app.hits, "/claim-probe");
-        expect(probeHits.length).toBeLessThanOrEqual(1);
-        for (const hit of probeHits) {
-          expect(hit.query).toBe("");
-        }
-        const claimed = await waitForCondition(
-          () =>
-            page.evaluate(
-              () =>
-                (window as unknown as Record<string, unknown>)["__claimed"] ===
-                true,
-            ),
-          5_000,
-          100,
-        );
-        if (claimed) {
-          const controllerUrl = await page.evaluate(
-            () => window.navigator.serviceWorker.controller?.scriptURL ?? null,
-          );
-          expect(controllerUrl).toContain("/claim-sw.js");
-        }
-      } finally {
-        sentinel.detach();
-        await rm(directory, { recursive: true, force: true });
-      }
-    },
-  );
-
-  test(
-    "an active cross-origin worker in an embedded frame does not block or stop application preparation",
-    { timeout: 90_000 },
-    async () => {
-      const originApp = await startTrackedServer();
-      const crossOriginApp = await startTrackedServer();
-      crossOriginApp.registerScript(
-        "/b-sw.js",
-        "self.addEventListener('install', function () { self.skipWaiting(); });",
-      );
-      crossOriginApp.registerHtml(
-        "/b-host",
-        "<script>navigator.serviceWorker.register('/b-sw.js').then(function () { return navigator.serviceWorker.ready; });</script>",
-      );
-      originApp.registerHtml(
-        "/iframe-worker-host",
-        `<label for="email">Email address</label><input id="email" autocomplete="email">
-         <iframe src="${crossOriginApp.baseUrl}/b-host" title="cross origin"></iframe>`,
-      );
-      const context = await browser!.newContext();
-      activeContexts.push(context);
-      const sentinel = createApplicationRunServiceWorkerSentinel({
-        context,
-        targetUrl: `${originApp.baseUrl}/iframe-worker-host`,
-      });
-      const { directory, filePath } = await writeApprovedResume();
-
-      try {
-        const page = await context.newPage();
-        sentinel.attachPage(page);
-        await page.goto(`${originApp.baseUrl}/iframe-worker-host`);
-        await page.waitForLoadState("load");
-        const result = await runGenericApplicationPreparation({
-          context,
-          page,
-          executionInput: createPreparationExecutionInput(
-            `${originApp.baseUrl}/iframe-worker-host`,
-            filePath,
-          ),
-          startedAt: new Date().toISOString(),
-          sentinel,
-        });
-
-        expect(result.summary).not.toBe(SERVICE_WORKER_STOP_SUMMARY);
-        expect(result.submittedAt).toBeNull();
-        const crossOriginWorkers = context
-          .serviceWorkers()
-          .filter((worker) => worker.url().startsWith(crossOriginApp.baseUrl));
-        expect(crossOriginWorkers.length).toBeGreaterThan(0);
-        expect(
-          result.blocker === null ||
-            !(result.blocker.detail ?? "").includes(crossOriginApp.baseUrl),
-        ).toBe(true);
-      } finally {
-        sentinel.detach();
-        await rm(directory, { recursive: true, force: true });
-      }
-    },
-  );
-
-  test(
-    "an application popup is blocked in-page, and a trusted target=_blank popup is closed immediately with a recorded interruption",
-    { timeout: 90_000 },
-    async () => {
-      const app = await startTrackedServer();
-      app.registerHtml(
-        "/popup-opener",
-        `<label for="email">Email address</label><input id="email" autocomplete="email">
-         <script>
-         window.setTimeout(function () {
-           window.open('/popup-target', '_blank');
-         }, 300);
-         </script>`,
-      );
-      app.registerHtml(
-        "/unguarded-opener",
-        `<button id="open" type="button">open</button>
-         <script>
-         document.getElementById('open').addEventListener('click', function () {
-           window.open('/popup-target', '_blank');
-         });
-         </script>`,
-      );
-      const context = await browser!.newContext();
-      activeContexts.push(context);
-      const sentinel = createApplicationRunServiceWorkerSentinel({
-        context,
-        targetUrl: `${app.baseUrl}/popup-opener`,
-      });
-      const { directory, filePath } = await writeApprovedResume();
-
-      try {
-        const page = await context.newPage();
-        sentinel.attachPage(page);
-        await page.goto(`${app.baseUrl}/popup-opener`);
-
-        // Phase one: the in-page window.open wrapper blocks the timer-driven
-        // popup and the next verification gate stops the run.
-        const result = await runGenericApplicationPreparation({
-          context,
-          page,
-          executionInput: createPreparationExecutionInput(
-            `${app.baseUrl}/popup-opener`,
-            filePath,
-          ),
-          startedAt: new Date().toISOString(),
-          sentinel,
-        });
-
-        expect(result.state).toBe("paused");
-        expect(result.summary).toBe(
-          "The application page attempted to open an unexpected popup",
-        );
-        expect(result.blocker?.detail).toContain("popup");
-        const windowOpenAttempt =
-          await getLatestBlockedPrepareOnlyAttempt(page);
-        expect(windowOpenAttempt).toMatchObject({ kind: "window_open" });
-        expect(windowOpenAttempt?.url ?? "").toContain("/popup-target");
-        expect(context.pages().length).toBe(1);
-
-        // Phase two: a page without the in-page guard (the wrapper above
-        // already proved it blocks window.open on the application page) opens
-        // a real tab via a trusted click; the context-level containment must
-        // close it and record the interruption into the application ledger.
-        const unguardedPage = await context.newPage();
-        await unguardedPage.goto(`${app.baseUrl}/unguarded-opener`);
-        await unguardedPage.click("#open");
-        const popupRecorded = await waitForCondition(
-          async () => {
-            const snapshot = await ensurePrepareOnlyMutationGuard(page, false);
-            return snapshot.blockedAttempts.some(
-              (attempt) => attempt.kind === "popup_open",
-            );
-          },
-          5_000,
-          150,
-        );
-        expect(popupRecorded).toBe(true);
-        const popupAttemptAfterContainment = (
-          await ensurePrepareOnlyMutationGuard(page, false)
-        ).blockedAttempts.find((attempt) => attempt.kind === "popup_open");
-        expect(popupAttemptAfterContainment).toBeDefined();
-        expect(popupAttemptAfterContainment?.url ?? "").toContain(
-          "/popup-target",
-        );
-        await unguardedPage.close().catch(() => undefined);
-      } finally {
-        sentinel.detach();
-        await rm(directory, { recursive: true, force: true });
-      }
-    },
-  );
 
   test(
     "an application download is canceled, recorded in the guard ledger, and stops the flow before further actions",
@@ -1739,47 +1022,61 @@ describe("Service worker activation containment real-Chromium fixtures", () => {
     },
   );
 
+
   test(
-    "tampering with the register-guard state flips verification and fails preparation closed",
-    { timeout: 90_000 },
+    "an already-active same-origin service worker stops the run before any field is touched",
+    { timeout: 120_000 },
     async () => {
       const app = await startTrackedServer();
       app.registerHtml(
-        "/tamper-apply",
-        `<label for="email">Email address</label><input id="email" autocomplete="email">
-         <script>
-         var state = window['__unemployedServiceWorkerRegisterGuardV1'];
-         if (state) { state.integrityVerified = false; }
-         </script>`,
+        "/active-seed",
+        `<h1>seed</h1><script>navigator.serviceWorker.register('/active-sw.js');</script>`,
       );
-      const { page } = await newGuardedPage();
-      const { directory, filePath } = await writeApprovedResume();
-
-      try {
-        await page.goto(`${app.baseUrl}/tamper-apply`);
-        const tampered = await page.evaluate(
-          readServiceWorkerRegisterGuardInPage,
-        );
-        expect(tampered.guardStatePresent).toBe(true);
-        expect(tampered.integrityVerified).toBe(false);
-
-        const result = await runGenericApplicationPreparation({
-          context: page.context(),
-          page,
-          executionInput: createPreparationExecutionInput(
-            `${app.baseUrl}/tamper-apply`,
-            filePath,
-          ),
-          startedAt: new Date().toISOString(),
-        });
-
-        expect(result.state).toBe("paused");
-        expect(result.summary).toBe(SERVICE_WORKER_STOP_SUMMARY);
-        expect(result.blocker?.detail).toContain("failed verification");
-        expect(app.hits.filter((hit) => hit.method !== "GET")).toHaveLength(0);
-      } finally {
-        await rm(directory, { recursive: true, force: true });
+      app.registerScript(
+        "/active-sw.js",
+        `self.addEventListener('install', function () { self.skipWaiting(); });
+         self.addEventListener('activate', function (e) { e.waitUntil(self.clients.claim()); });`,
+      );
+      app.registerHtml(
+        "/active-apply",
+        `<form><label for="email">Email address</label><input id="email"></form>`,
+      );
+      if (!browser) {
+        throw new Error("The fixture browser is not running.");
       }
+      const context = await browser.newContext();
+      activeContexts.push(context);
+      const seedPage = await context.newPage();
+      await seedPage.goto(`${app.baseUrl}/active-seed`);
+      const seededActive = await waitForCondition(
+        () => context.serviceWorkers().length > 0,
+        20_000,
+        250,
+      );
+      expect(seededActive).toBe(true);
+
+      const applyPage = await context.newPage();
+      const applicationUrl = `${app.baseUrl}/active-apply`;
+      await applyPage.goto(applicationUrl);
+
+      const outcome = await prepareFixtureFormUnderGuard({
+        context,
+        page: applyPage,
+        applicationUrl,
+      });
+
+      expect(outcome.stoppedBeforeAnyField).toBe(true);
+      expect(outcome.serviceWorkerDetail).toContain("/active-sw.js");
+      expect(outcome.filledValues).toHaveLength(0);
+      // The field the run never reached is still empty.
+      expect(
+        await applyPage.evaluate(
+          () =>
+            document.querySelector<HTMLInputElement>("#email")?.value ?? null,
+        ),
+      ).toBe("");
+      expect(app.hits.filter((hit) => hit.method !== "GET")).toHaveLength(0);
     },
   );
+
 });

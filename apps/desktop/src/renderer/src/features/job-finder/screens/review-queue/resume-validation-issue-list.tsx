@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, Sparkles, Undo2 } from "lucide-react";
+import { CheckCircle2, ChevronDown, Sparkles, Undo2 } from "lucide-react";
 import type { ResumeValidationIssue } from "@unemployed/contracts";
 import {
   getResumeEntryBulletTargetId,
@@ -335,7 +335,15 @@ function getIssueSeverityTone(severity: ResumeValidationIssue["severity"]) {
 
 interface ResumeValidationIssueListProps {
   issues: readonly ResumeValidationIssue[];
+  /**
+   * Whether this blocker can be cleared by the person approving the claim as
+   * accurate in their own name, instead of rewriting it. Only claims the
+   * evidence cannot prove qualify; a claim that contradicts the evidence
+   * never does.
+   */
+  canApproveClaim?: (issue: ResumeValidationIssue) => boolean;
   canRestorePreviousText?: (issue: ResumeValidationIssue) => boolean;
+  onApproveClaim?: (issue: ResumeValidationIssue) => void;
   onAskAiFix?: (issue: ResumeValidationIssue) => void;
   /**
    * Resolves an identity mismatch the other way: the document really is this
@@ -350,7 +358,9 @@ interface ResumeValidationIssueListProps {
 
 function ResumeValidationIssueRow(props: {
   issue: ResumeValidationIssue;
+  canApproveClaim?: (issue: ResumeValidationIssue) => boolean;
   canRestorePreviousText?: (issue: ResumeValidationIssue) => boolean;
+  onApproveClaim?: (issue: ResumeValidationIssue) => void;
   onAskAiFix?: (issue: ResumeValidationIssue) => void;
   onClaimResumeIdentity?: () => void;
   onFixIssue: (issue: ResumeValidationIssue) => void;
@@ -361,6 +371,9 @@ function ResumeValidationIssueRow(props: {
     props.issue,
   );
   const canAskAi = isResumeValidationIssueAiPatchSupported(props.issue);
+  const canApprove = Boolean(
+    props.onApproveClaim && props.canApproveClaim?.(props.issue),
+  );
   const actionLabel = getResumeValidationIssueActionLabel(props.issue);
   const canRestore = Boolean(
     props.onRestorePreviousText &&
@@ -400,6 +413,20 @@ function ResumeValidationIssueRow(props: {
         ) : null}
       </span>
       <span className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
+        {canApprove ? (
+          <Button
+            aria-label={`Approve as accurate: ${props.issue.message}`}
+            data-resume-validation-approve
+            onClick={() => props.onApproveClaim?.(props.issue)}
+            size="compact"
+            title="Records that you can stand behind this exact wording. Editing the line removes the approval."
+            type="button"
+            variant="primary"
+          >
+            <CheckCircle2 className="size-4" />
+            Approve as accurate
+          </Button>
+        ) : null}
         <Button
           aria-label={`${actionLabel}: ${props.issue.message}`}
           onClick={() => props.onFixIssue(props.issue)}
@@ -523,6 +550,12 @@ export function ResumeValidationIssueList(
       >
         {blockingIssues.map((issue) => (
           <ResumeValidationIssueRow
+            {...(props.canApproveClaim
+              ? { canApproveClaim: props.canApproveClaim }
+              : {})}
+            {...(props.onApproveClaim
+              ? { onApproveClaim: props.onApproveClaim }
+              : {})}
             issue={issue}
             key={issue.id}
             {...(props.canRestorePreviousText
@@ -556,6 +589,12 @@ export function ResumeValidationIssueList(
           <ul className="mt-1.5 grid min-w-0 gap-1.5 pr-1">
             {reviewIssues.map((issue) => (
               <ResumeValidationIssueRow
+                {...(props.canApproveClaim
+                  ? { canApproveClaim: props.canApproveClaim }
+                  : {})}
+                {...(props.onApproveClaim
+                  ? { onApproveClaim: props.onApproveClaim }
+                  : {})}
                 issue={issue}
                 key={issue.id}
                 {...(props.canRestorePreviousText

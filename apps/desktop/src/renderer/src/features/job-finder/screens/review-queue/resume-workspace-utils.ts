@@ -108,8 +108,7 @@ export function describeUntailorableListing(
       badgeLabel: "Your original wording",
       reason:
         "This job's listing text was not captured, so nothing could be written for it and the resume keeps your original wording.",
-      approvalMessage:
-        APPROVAL_FILLS_NOTHING_SENT_MESSAGE,
+      approvalMessage: APPROVAL_FILLS_NOTHING_SENT_MESSAGE,
     };
   }
 
@@ -121,8 +120,7 @@ export function describeUntailorableListing(
       badgeLabel: "Your original wording",
       reason:
         "This listing says almost nothing about the job itself, so there was nothing to tailor toward and the resume keeps your original wording.",
-      approvalMessage:
-        APPROVAL_FILLS_NOTHING_SENT_MESSAGE,
+      approvalMessage: APPROVAL_FILLS_NOTHING_SENT_MESSAGE,
     };
   }
 
@@ -383,8 +381,8 @@ export function describeResumeExportClaimBlock(input: {
       : `${confirmCount} lines still need your confirmation`;
   const rewriteLabel =
     rewriteCount === 1
-      ? "1 claim must be removed or rewritten"
-      : `${rewriteCount} claims must be removed or rewritten`;
+      ? "1 claim must be rewritten or approved"
+      : `${rewriteCount} claims must be rewritten or approved`;
 
   if (rewriteCount === 0) {
     return `${confirmLabel} before this resume can be exported.`;

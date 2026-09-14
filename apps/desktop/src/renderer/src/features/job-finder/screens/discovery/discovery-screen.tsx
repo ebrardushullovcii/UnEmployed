@@ -24,7 +24,7 @@ import type {
   SavedJob,
 } from "@unemployed/contracts";
 import { isListableCompanyName } from "@unemployed/contracts";
-import { PauseCircle, Play } from "lucide-react";
+import { PauseCircle, Play, X } from "lucide-react";
 import { Button } from "@renderer/components/ui/button";
 import {
   DISCOVERY_PAUSED_SEARCH_REASON,
@@ -532,7 +532,7 @@ export function DiscoveryScreen(props: {
     selectedPlanRunReportLabel,
     selectedPlanSafeguardRoute,
   ]);
-  const visibleDiscoveryRunFeedback =
+  const currentDiscoveryRunFeedback =
     discoveryRunFeedback &&
     (discoveryRunFeedback.status === "failed" ||
       selectedPlanLatestRun === null ||
@@ -540,6 +540,21 @@ export function DiscoveryScreen(props: {
         (activeRun == null || activeRun.campaignId === activeCampaignId)))
       ? discoveryRunFeedback
       : selectedPlanRunFeedback;
+  // A dismissed banner stays gone for that exact verdict; the next run, or
+  // the same run changing state, brings a fresh one.
+  const [dismissedFeedbackKey, setDismissedFeedbackKey] = useState<
+    string | null
+  >(null);
+  const currentFeedbackKey = currentDiscoveryRunFeedback
+    ? `${currentDiscoveryRunFeedback.status}|${currentDiscoveryRunFeedback.headline}|${activeRun?.id ?? selectedPlanLatestRun?.id ?? ""}`
+    : null;
+  const visibleDiscoveryRunFeedback =
+    currentFeedbackKey !== null && currentFeedbackKey === dismissedFeedbackKey
+      ? null
+      : currentDiscoveryRunFeedback;
+  const [dismissedActionMessage, setDismissedActionMessage] = useState<
+    string | null
+  >(null);
   // A search that starts while setup is open would finish behind the setup
   // panel: the completion banner and results were invisible until the user
   // happened to close it. Starting a run closes setup.
@@ -1073,9 +1088,11 @@ export function DiscoveryScreen(props: {
           }
           hiddenAlsoFoundCount={hiddenJobCount}
           focusedHiddenCount={showAlsoFound ? 0 : hiddenJobCount}
-          inAreaJobCount={stableJobs.filter(
-            (job) => job.matchAssessment.locationReach === "in_area",
-          ).length}
+          inAreaJobCount={
+            stableJobs.filter(
+              (job) => job.matchAssessment.locationReach === "in_area",
+            ).length
+          }
           jobs={resultVisibility.jobs}
           latestRun={selectedPlanLatestRun}
           latestRunReportLabel={selectedPlanRunReportLabel}
@@ -1221,7 +1238,8 @@ export function DiscoveryScreen(props: {
                 only feedback that still needs the user — a failure, a
                 cancellation, a run in flight — stays visible. */}
             {visibleDiscoveryRunFeedback &&
-            (!isSetupOpen || visibleDiscoveryRunFeedback.status !== "succeeded") ? (
+            (!isSetupOpen ||
+              visibleDiscoveryRunFeedback.status !== "succeeded") ? (
               <DiscoveryRunFeedbackCallout
                 feedback={visibleDiscoveryRunFeedback}
                 isRecoveryPending={isBrowserSessionPending}
@@ -1233,6 +1251,7 @@ export function DiscoveryScreen(props: {
                     ? []
                     : latestRunNotices
                 }
+                onDismiss={() => setDismissedFeedbackKey(currentFeedbackKey)}
                 onOpenBrowserSession={onOpenBrowserSession}
                 suppressBrowserRecovery={runtimeProjection.isOffline}
               />
@@ -1242,15 +1261,27 @@ export function DiscoveryScreen(props: {
                 refusal stays visible in every mode. It renders below the
                 paused banner and run feedback so a stale message can never
                 mask the pause truth or the newest run verdict. */}
-            {actionState.message && !visibleDiscoveryRunFeedback ? (
+            {actionState.message &&
+            !visibleDiscoveryRunFeedback &&
+            actionState.message !== dismissedActionMessage ? (
               <p
                 aria-atomic="true"
                 aria-live="polite"
-                className="min-w-0 break-words rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) px-3 py-2 text-(length:--text-description) leading-5 text-foreground"
+                className="relative min-w-0 break-words rounded-(--radius-field) border border-(--surface-panel-border) bg-(--surface-panel-tint) py-2 pl-3 pr-10 text-(length:--text-description) leading-5 text-foreground"
                 data-testid="discovery-route-action-status"
                 role="status"
               >
                 {actionState.message}
+                <Button
+                  aria-label="Dismiss this notice"
+                  className="absolute right-1.5 top-1 h-7 w-7 rounded-full p-0 opacity-70 hover:opacity-100"
+                  onClick={() => setDismissedActionMessage(actionState.message)}
+                  size="icon-xs"
+                  type="button"
+                  variant="ghost"
+                >
+                  <X className="size-4" />
+                </Button>
               </p>
             ) : null}
           </>

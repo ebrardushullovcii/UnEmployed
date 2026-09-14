@@ -20,6 +20,8 @@ import {
   SubmissionOutcomeRecordSchema,
   serializeApprovedApplicationAnswerSnapshotForDigest,
   serializeApplicationAuthorityDecisionPolicyForDigest,
+  type ApplicationAttestationKind,
+  type ApplicationSalaryDisclosureRule,
   type ApplicationAuthorityReadiness,
   type ApproveCurrentApplicationAnswersInput,
   type ApproveCurrentApplicationAnswersResult,
@@ -94,10 +96,8 @@ export interface CreateJobFinderApplicationAuthorityServiceOptions {
   idFactory?: () => string;
 }
 
-const UNSUPPORTED_ELEVATED_MODE_MESSAGE =
-  "Elevated application authority is unavailable until answer policy and stop conditions are explicitly supported.";
 const APPROVED_ANSWERS_REQUIRED_MESSAGE =
-  "Bounded ATS autosave requires a current approved reusable-answer snapshot with the required answer kinds.";
+  "Approve your saved application answers before Job Finder can send applications for you.";
 const ACTIVE_AUTHORITY_MESSAGE =
   "An active application authority already exists; revoke it before creating another.";
 
@@ -149,23 +149,31 @@ function summarizeApprovedSnapshot(
     : null;
 }
 
-function assertSupportedPolicy(
-  input: Pick<CreateApplicationAuthorityEnvelopeInput, "mode">,
-): void {
-  if (input.mode !== "prepare_only") {
-    throw new JobFinderApplicationAuthorityError(
-      "unsupported_mode",
-      UNSUPPORTED_ELEVATED_MODE_MESSAGE,
-    );
-  }
-}
-
-async function buildIntermediateMutationDecisionPolicy(input: {
+/**
+ * Builds the immutable decision document an authority carries.
+ *
+ * Every fail-closed rule in it is fixed: unknown questions, missing
+ * credentials, sign-in walls, security checks, account creation, a stale page,
+ * an ambiguous send button, and origin drift all stop for the person, and an
+ * uncertain outcome is never retried. The only parts the person chooses are
+ * which declarations they approve in advance and what to do about pay.
+ *
+ * Sending applications, and letting a site save fields as they are filled,
+ * both require the person's saved answers to be approved and current: the
+ * authority is bound to that exact snapshot, so answers cannot drift out from
+ * under a running authority.
+ */
+async function buildDecisionPolicy(input: {
   repository: JobFinderRepository;
+  mode: CreateApplicationAuthorityEnvelopeInput["mode"];
   intermediateMutationsAuthorized: boolean;
+  preApprovedAttestationKinds: readonly ApplicationAttestationKind[];
+  salaryDisclosure: ApplicationSalaryDisclosureRule;
   revision: number;
 }) {
-  if (!input.intermediateMutationsAuthorized) {
+  const elevated =
+    input.mode === "confirm_before_submit" || input.mode === "autonomous_submit";
+  if (!elevated && !input.intermediateMutationsAuthorized) {
     return null;
   }
 
@@ -200,6 +208,8 @@ async function buildIntermediateMutationDecisionPolicy(input: {
       unknownRequiredQuestion: "pause_for_user" as const,
       unknownEligibility: "pause_for_user" as const,
       unknownLegalRequirement: "pause_for_user" as const,
+      preApprovedAttestationKinds: [...input.preApprovedAttestationKinds],
+      salaryDisclosure: input.salaryDisclosure,
     },
     stopConditions: {
       unavailableCredentials: "pause_for_user" as const,
@@ -464,7 +474,6 @@ export function createJobFinderApplicationAuthorityService(
       return withMutationLock(async () => {
         const parsedInput =
           CreateApplicationAuthorityEnvelopeInputSchema.parse(input);
-        assertSupportedPolicy(parsedInput);
         const createdAt = parseClockValue(now());
         assertExpiryIsFuture(parsedInput.expiresAt, createdAt);
 
@@ -479,15 +488,25 @@ export function createJobFinderApplicationAuthorityService(
           );
         }
 
-        const decisionPolicy = await buildIntermediateMutationDecisionPolicy({
+        const decisionPolicy = await buildDecisionPolicy({
           repository,
+          mode: parsedInput.mode,
           intermediateMutationsAuthorized:
             parsedInput.intermediateMutationsAuthorized,
+          preApprovedAttestationKinds: parsedInput.preApprovedAttestationKinds,
+          salaryDisclosure: parsedInput.salaryDisclosure,
           revision: 1,
         });
 
+        // The answer decisions live inside the immutable policy document, not
+        // on the envelope itself.
+        const envelopeFields = { ...parsedInput } as Partial<
+          typeof parsedInput
+        >;
+        delete envelopeFields.preApprovedAttestationKinds;
+        delete envelopeFields.salaryDisclosure;
         const envelope = ApplicationAuthorityEnvelopeSchema.parse({
-          ...parsedInput,
+          ...envelopeFields,
           id: `authority_${idFactory()}`,
           status: "active",
           revision: 1,
@@ -511,7 +530,6 @@ export function createJobFinderApplicationAuthorityService(
       return withMutationLock(async () => {
         const parsedInput =
           UpdateApplicationAuthorityEnvelopeInputSchema.parse(input);
-        assertSupportedPolicy(parsedInput);
         const nowValue = parseClockValue(now());
         assertExpiryIsFuture(parsedInput.expiresAt, nowValue);
 
@@ -529,10 +547,13 @@ export function createJobFinderApplicationAuthorityService(
           return parseMutationResult({ status: "stale", current });
         }
 
-        const decisionPolicy = await buildIntermediateMutationDecisionPolicy({
+        const decisionPolicy = await buildDecisionPolicy({
           repository,
+          mode: parsedInput.mode,
           intermediateMutationsAuthorized:
             parsedInput.intermediateMutationsAuthorized,
+          preApprovedAttestationKinds: parsedInput.preApprovedAttestationKinds,
+          salaryDisclosure: parsedInput.salaryDisclosure,
           revision: (current.decisionPolicy?.revision ?? 0) + 1,
         });
 

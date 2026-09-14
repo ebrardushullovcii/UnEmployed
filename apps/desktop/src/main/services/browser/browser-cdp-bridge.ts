@@ -506,8 +506,8 @@ export class BrowserCdpBridge {
       this.host.closePage(binding.target.page.id);
       return {};
     }
-    // Native geometry stays host-owned. Virtual focus keeps animation frames
-    // available in hidden automation tabs without focusing the desktop window.
+    // Native geometry stays host-owned. Focus emulation is decided by the
+    // host (see syncFocusEmulation), never by the automation client.
     if (request.method === "Emulation.setFocusEmulationEnabled") {
       return this.forward(binding, request.method, {
         enabled: this.host.emulateFocus?.() ?? false,
@@ -537,15 +537,20 @@ export class BrowserCdpBridge {
     return record(result) ? result : {};
   }
 
-  async setAutomationActive(active: boolean): Promise<void> {
+  /**
+   * Re-apply the host's focus-emulation decision to every attached page.
+   * Emulated focus lets pages fire focus events and report document.hasFocus()
+   * while automation drives a tab the user is not looking at.
+   */
+  async syncFocusEmulation(): Promise<void> {
+    const enabled = this.host.emulateFocus?.() ?? false;
     await Promise.all(
       [...this.targets.values()]
         .filter((target) => !target.page.contents.isDestroyed())
         .map((target) =>
-          target.page.contents.debugger.sendCommand(
-            "Emulation.setFocusEmulationEnabled",
-            { enabled: active },
-          ),
+          target.page.contents.debugger
+            .sendCommand("Emulation.setFocusEmulationEnabled", { enabled })
+            .catch(() => undefined),
         ),
     );
   }

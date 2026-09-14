@@ -45,6 +45,7 @@ function buildDraft(summaryText: string): ResumeDraft {
     staleReason: null,
     workHistoryReviewAcknowledgments: [],
     claimConfirmations: [],
+    issueApprovals: [],
     createdAt: updatedAt,
     updatedAt,
   };
@@ -81,7 +82,7 @@ const blockedIssue: ResumeValidationIssue = {
   entryId: null,
   bulletId: null,
   message:
-    "This generated claim lacks strong candidate-only evidence and must be rewritten or explicitly user-edited before export.",
+    "Your saved evidence does not back this generated claim. Rewrite it, or approve it as accurate if you can stand behind it.",
   flaggedText: liveUngroundedSummary,
 };
 

@@ -137,7 +137,7 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
     campaignDefaultResumeStrategyId === fallbackCandidate.id;
 
   const handleSelect = (strategyId: string) => {
-    if (!strategyId) {
+    if (!strategyId || strategyId === selection?.strategyId) {
       return;
     }
     const strategy = strategyById.get(strategyId);
@@ -274,15 +274,17 @@ export function ResumeStrategyJobPanel(props: ResumeStrategyJobPanelProps) {
                 className="h-11 rounded-(--radius-field) border border-(--field-border) bg-(--field) px-3.5 text-(length:--text-field) outline-none focus-visible:border-(--field-focus-border) focus-visible:bg-(--field-strong) focus-visible:shadow-[var(--field-focus-shadow)]"
                 disabled={props.isPending}
                 onChange={(event) => handleSelect(event.target.value)}
-                value=""
+                // The control shows the approach in force for this job; the
+                // placeholder only exists while nothing has been chosen yet.
+                value={selection?.strategyId ?? ""}
               >
-                <option disabled value="">
-                  {selection
-                    ? "Change approach…"
-                    : recommendedId
+                {selection ? null : (
+                  <option disabled value="">
+                    {recommendedId
                       ? "Apply the recommendation…"
                       : "Choose a resume approach…"}
-                </option>
+                  </option>
+                )}
                 {enabledStrategies.map((strategy) => (
                   <option key={strategy.id} value={strategy.id}>
                     {strategy.name}

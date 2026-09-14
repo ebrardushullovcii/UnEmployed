@@ -67,7 +67,7 @@ function createService() {
 }
 
 describe("workspace campaign and activity controls", () => {
-  test("persists pause state and rejects new browser-backed work until resumed", async () => {
+  test("persists pause state, and an explicit user action resumes it instead of failing", async () => {
     const { service } = createService();
     const paused = await service.setActivityControl({
       paused: true,
@@ -78,13 +78,16 @@ describe("workspace campaign and activity controls", () => {
       paused: true,
       reason: "Pause all browser work.",
     });
-    await expect(service.runDiscovery()).rejects.toThrow(
-      "Browser and application activity is paused",
-    );
-    await expect(
-      service.runSourceDebug("target_linkedin_default"),
-    ).rejects.toThrow("Browser and application activity is paused");
+    // A deliberate Check source click clears the pause; it must never fail
+    // with "press Resume on Home first" (whatever the check itself returns).
+    await service.runSourceDebug("target_linkedin_default").catch((error) => {
+      expect(String(error)).not.toContain("activity is paused");
+    });
+    expect(
+      (await service.getWorkspaceSnapshot()).activityControl.paused,
+    ).toBe(false);
 
+    await service.setActivityControl({ paused: true, reason: "Again." });
     const resumed = await service.setActivityControl({ paused: false });
     expect(resumed.activityControl).toEqual({
       paused: false,

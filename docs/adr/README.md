@@ -26,6 +26,7 @@ ADRs capture durable decisions and rejected alternatives. Use them to avoid reop
 | [0018](0018-aggressive-tailoring-user-owned-claim-relaxations.md)    | accepted   | Aggressive tailoring user-owned claim relaxations        |
 | [0019](0019-muse-spark-default-routing.md)                           | accepted   | Muse Spark default routing, DeepSeek V4.1 for aggressive |
 | [0020](0020-streamed-model-requests-with-idle-and-total-budgets.md)  | accepted   | Streamed model requests, idle and total budgets, retries |
+| [0021](0021-apply-agent-runtime.md)                                  | accepted   | Apply agent loop replaces the fixed prepare-only script  |
 
 ## Policy
 

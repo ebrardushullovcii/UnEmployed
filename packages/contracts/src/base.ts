@@ -539,6 +539,12 @@ export const sourceDebugPhaseCompletionModeValues = [
   "blocked_site_protection",
   "runtime_failed",
   "interrupted",
+  /**
+   * The phase stopped because nothing was moving: the agent itself said it
+   * was stuck, or the host saw no measurable progress even after asking it
+   * to change approach.
+   */
+  "stalled",
 ] as const;
 
 export const SourceDebugPhaseCompletionModeSchema = z.enum(

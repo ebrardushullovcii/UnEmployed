@@ -45,3 +45,16 @@ export {
   type JobPageExtractor,
   type JobPageExtractionInput,
 } from "./playwright-browser-runtime";
+
+export {
+  buildPreparationResult,
+  ensurePrepareOnlyMutationGuard,
+  loadVerifiedResumeBytes,
+} from "./playwright-application-flow";
+
+export {
+  createPlaywrightApplyPageMechanics,
+  readRawApplyPage,
+  APPLY_ACTION_SELECTOR,
+  APPLY_CONTROL_SELECTOR,
+} from "./apply-page-mechanics";

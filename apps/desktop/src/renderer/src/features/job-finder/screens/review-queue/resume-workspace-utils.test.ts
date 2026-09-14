@@ -369,7 +369,7 @@ describe("describeResumeExportClaimBlock", () => {
       describeResumeExportClaimBlock({
         blockingAssessments: [{ status: "unsupported" }],
       }),
-    ).toBe("1 claim must be removed or rewritten before this resume can be exported.");
+    ).toBe("1 claim must be rewritten or approved before this resume can be exported.");
     expect(
       describeResumeExportClaimBlock({
         blockingAssessments: [
@@ -378,7 +378,7 @@ describe("describeResumeExportClaimBlock", () => {
         ],
       }),
     ).toBe(
-      "1 line still needs your confirmation, and 1 claim must be removed or rewritten, before this resume can be exported.",
+      "1 line still needs your confirmation, and 1 claim must be rewritten or approved, before this resume can be exported.",
     );
     expect(
       resumeExportClaimBlockActionLabel({

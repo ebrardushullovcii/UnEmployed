@@ -86,6 +86,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
+    automationMode: "prepare_only" as const,
     };
 
     render(
@@ -143,6 +144,7 @@ describe("ApplicationsRecordsPanel", () => {
           },
           events: [],
           crm: null,
+    automationMode: "prepare_only" as const,
         }) as ApplicationRecord,
     );
 
@@ -232,6 +234,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
+    automationMode: "prepare_only" as const,
     };
 
     render(
@@ -330,6 +333,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
+    automationMode: "prepare_only" as const,
     };
 
     const { container } = render(
@@ -408,6 +412,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
+    automationMode: "prepare_only" as const,
     } as const;
     const pausedOnBrowserStep = {
       ...baseRecord,
@@ -510,6 +515,7 @@ describe("ApplicationsRecordsPanel", () => {
           },
           events: [],
           crm: null,
+    automationMode: "prepare_only" as const,
         }) as ApplicationRecord,
     );
 
@@ -569,6 +575,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
+    automationMode: "prepare_only" as const,
     };
 
     const { container } = render(
@@ -629,6 +636,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
+    automationMode: "prepare_only" as const,
     };
 
     render(
@@ -699,6 +707,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
+    automationMode: "prepare_only" as const,
     };
 
     const { rerender } = render(
@@ -801,6 +810,7 @@ describe("ApplicationsRecordsPanel", () => {
       },
       events: [],
       crm: null,
+    automationMode: "prepare_only" as const,
     };
 
     render(

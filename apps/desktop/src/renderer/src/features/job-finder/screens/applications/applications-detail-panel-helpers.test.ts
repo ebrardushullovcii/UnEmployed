@@ -346,6 +346,7 @@ describe("service-worker site block helpers", () => {
       artifactCount: 0,
       latestCheckpointId: null,
       privacyReceipt: null,
+    reviewCard: null,
     };
 
     expect(applyResultIsServiceWorkerBlocked(result)).toBe(true);
@@ -414,6 +415,7 @@ describe("manual field-finish helpers", () => {
       artifactCount: 0,
       latestCheckpointId: null,
       privacyReceipt: null,
+    reviewCard: null,
     };
   }
 

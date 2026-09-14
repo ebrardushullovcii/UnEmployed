@@ -4,7 +4,6 @@ import type {
 } from "@unemployed/browser-runtime";
 import { randomUUID } from "node:crypto";
 import {
-  ACTIVITY_PAUSED_MESSAGE,
   ApplicationRecordSchema,
   JobFinderDiscoveryCancellationInputSchema,
   JobFinderActivityControlSchema,
@@ -172,6 +171,7 @@ export function createJobFinderWorkspaceService(
     repository,
     researchAdapter,
     fetchListingHtml,
+    onActivityControlChanged,
   } = options;
   const activeDiscoveryAbortControllerRef = {
     current: null as AbortController | null,
@@ -686,7 +686,9 @@ export function createJobFinderWorkspaceService(
   });
 
   async function runCampaignScopedDiscovery(
-    executor: (campaign: CampaignRunContext) => Promise<JobFinderWorkspaceSnapshot>,
+    executor: (
+      campaign: CampaignRunContext,
+    ) => Promise<JobFinderWorkspaceSnapshot>,
     requestedCampaignId?: string,
   ) {
     await requireDiscoverySafeguardClearance();
@@ -790,9 +792,17 @@ export function createJobFinderWorkspaceService(
     }
   };
 
+  /**
+   * Explicit user actions (Search now, Check source, Prepare, opening the
+   * browser) resume paused background work instead of failing. The pause is
+   * raised when the person takes the browser over or presses Pause; their next
+   * deliberate click is the clearest signal they are ready to continue, and
+   * "press Resume on Home first" was a dead end in the Profile footer.
+   * Scheduled runs never come through here; they keep obeying the pause.
+   */
   async function requireActivityEnabled(): Promise<void> {
     if ((await repository.getActivityControl()).paused) {
-      throw new Error(ACTIVITY_PAUSED_MESSAGE);
+      await setActivityControl({ paused: false });
     }
   }
 
@@ -1104,13 +1114,13 @@ export function createJobFinderWorkspaceService(
   ) {
     const input = SetJobFinderActivityControlInputSchema.parse(rawInput);
     const now = new Date().toISOString();
-    await repository.saveActivityControl(
-      JobFinderActivityControlSchema.parse({
-        paused: input.paused,
-        pausedAt: input.paused ? now : null,
-        reason: input.paused ? (input.reason ?? null) : null,
-      }),
-    );
+    const control = JobFinderActivityControlSchema.parse({
+      paused: input.paused,
+      pausedAt: input.paused ? now : null,
+      reason: input.paused ? (input.reason ?? null) : null,
+    });
+    await repository.saveActivityControl(control);
+    await onActivityControlChanged?.(control);
     if (input.paused) {
       const activeRunIds = [...activeApplyRunAbortControllers.keys()];
       activeDiscoveryAbortControllerRef.current?.abort();
@@ -1337,7 +1347,9 @@ export function createJobFinderWorkspaceService(
       }),
     cancelDiscoveryRun: (runId) =>
       trackWorkspaceOperation("discovery cancellation", async () => {
-        const input = JobFinderDiscoveryCancellationInputSchema.parse({ runId });
+        const input = JobFinderDiscoveryCancellationInputSchema.parse({
+          runId,
+        });
         const requestedAt = new Date().toISOString();
         let accepted = false;
         await context.persistDiscoveryState((current) => {

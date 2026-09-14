@@ -212,14 +212,32 @@ describe("resume claim confirmation helpers", () => {
         },
       }),
     ).toBeNull();
+    // A generated claim the evidence cannot prove is approvable; the same
+    // wording written by the person is only a note and has nothing to approve.
     expect(
       buildResumeClaimConfirmationCommandInput({
-        claimAssessments: [{ ...confirmNeededBullet, status: "review" }],
+        claimAssessments: [
+          { ...confirmNeededBullet, status: "review", claimOrigin: "imported" },
+        ],
         draft,
         jobId: "job_ready",
         request: { intent: "add", target: confirmNeededBullet },
       }),
     ).toBeNull();
+    expect(
+      buildResumeClaimConfirmationCommandInput({
+        claimAssessments: [
+          {
+            ...confirmNeededBullet,
+            status: "review",
+            claimOrigin: "ai_generated",
+          },
+        ],
+        draft,
+        jobId: "job_ready",
+        request: { intent: "add", target: confirmNeededBullet },
+      })?.intent,
+    ).toBe("add");
     expect(
       buildResumeClaimConfirmationCommandInput({
         claimAssessments: [
@@ -644,13 +662,15 @@ describe("ResumeClaimConfirmationPanel", () => {
     );
 
     expect(screen.getByText("Skills the job asked for · 2")).toBeTruthy();
-    expect(screen.getByText("Wording that stretches saved evidence")).toBeTruthy();
+    expect(
+      screen.getByText("Wording that stretches saved evidence"),
+    ).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: /Confirm all 2 skills/ }),
     ).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /Confirm this skill/ })).toHaveLength(
-      2,
-    );
+    expect(
+      screen.getAllByRole("button", { name: /Confirm this skill/ }),
+    ).toHaveLength(2);
     expect(
       screen.getByRole("button", { name: /Confirm this wording · / }),
     ).toBeTruthy();
@@ -731,6 +751,8 @@ describe("ResumeClaimConfirmationPanel", () => {
     );
 
     expect(screen.queryByRole("button", { name: /Confirm all / })).toBeNull();
-    expect(screen.getByRole("button", { name: /Confirm this skill/ })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Confirm this skill/ }),
+    ).toBeTruthy();
   });
 });

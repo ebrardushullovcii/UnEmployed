@@ -14,7 +14,9 @@ import type {
 } from "@unemployed/contracts";
 import {
   getResumePreviewTargetContext,
+  buildResumeIssueApprovalContentHash,
   isBlockingResumeClaimAssessment,
+  isResumeClaimAssessmentApprovable,
   isBlockingResumeValidationIssue,
 } from "@unemployed/contracts";
 import {
@@ -24,7 +26,10 @@ import {
 import { Button } from "@renderer/components/ui/button";
 import { EmptyState } from "../../components/empty-state";
 import { LockedScreenLayout } from "../../components/locked-screen-layout";
-import { ResumeClaimConfirmationPanel } from "./resume-claim-confirmation-panel";
+import {
+  ResumeClaimConfirmationPanel,
+  buildResumeClaimConfirmationCommandInput,
+} from "./resume-claim-confirmation-panel";
 import { ResumeWorkspaceEditorPanel } from "./resume-workspace-editor-panel";
 import { ResumeWorkspaceHeader } from "./resume-workspace-header";
 import { ResumeWorkspaceContextDisclosure } from "./resume-workspace-context-disclosure";
@@ -274,10 +279,10 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       })
     : [];
   const unresolvedWorkHistoryCount = unresolvedWorkHistorySuggestions.length;
-  const approvalBlockedReason =
-    unresolvedWorkHistoryCount > 0
-      ? `${unresolvedWorkHistoryCount} hidden role${unresolvedWorkHistoryCount === 1 ? " is" : "s are"} off this resume. Leave ${unresolvedWorkHistoryCount === 1 ? "it" : "them"} off, or add ${unresolvedWorkHistoryCount === 1 ? "it" : "them"} back under Experience, before you can approve. You can still export a PDF.`
-      : null;
+  // Hidden roles never block approval: a role left hidden is off this
+  // resume, and the decisions panel offers to add any of them back.
+  void unresolvedWorkHistoryCount;
+  const approvalBlockedReason: string | null = null;
 
   const runWithSavedDraft = useCallback(
     (next: () => void | Promise<void>, successMessage?: string | null) => {
@@ -449,6 +454,75 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
     [handlePreviewTargetSelect],
   );
 
+  // A blocker row's "Approve as accurate": the same confirmation record the
+  // stretch-claim panel writes, bound to the saved draft's exact wording. It
+  // needs the saved draft, so it is offered only while nothing is unsaved.
+  const findApprovableAssessment = useCallback(
+    (issue: ResumeValidationIssue) => {
+      const prefix = "issue_claim_grounding_";
+      if (!issue.id.startsWith(prefix)) return null;
+      const assessmentId = issue.id.slice(prefix.length);
+      const assessment =
+        props.workspace?.validation?.claimAssessments.find(
+          (candidate) => candidate.id === assessmentId,
+        ) ?? null;
+      return assessment && isResumeClaimAssessmentApprovable(assessment)
+        ? assessment
+        : null;
+    },
+    [props.workspace],
+  );
+  // Every blocker can be approved by the person. A claim blocker is approved
+  // through the claim confirmation bound to its assessment; any other
+  // blocker through an issue approval bound to its flagged wording.
+  const canApproveClaim = useCallback(
+    (issue: ResumeValidationIssue) =>
+      Boolean(props.onSetResumeClaimConfirmation) &&
+      !hasUnsavedChanges &&
+      isBlockingResumeValidationIssue(issue) &&
+      (issue.id.startsWith("issue_claim_grounding_")
+        ? findApprovableAssessment(issue) !== null
+        : true),
+    [
+      findApprovableAssessment,
+      hasUnsavedChanges,
+      props.onSetResumeClaimConfirmation,
+    ],
+  );
+  const handleApproveClaim = useCallback(
+    (issue: ResumeValidationIssue) => {
+      const setConfirmation = props.onSetResumeClaimConfirmation;
+      const workspace = props.workspace;
+      if (!setConfirmation || !workspace) return;
+      if (issue.id.startsWith("issue_claim_grounding_")) {
+        const assessment = findApprovableAssessment(issue);
+        if (!assessment) return;
+        const commandInput = buildResumeClaimConfirmationCommandInput({
+          claimAssessments: workspace.validation?.claimAssessments ?? [],
+          draft: workspace.draft,
+          jobId: props.jobId,
+          request: { intent: "add", target: assessment },
+        });
+        if (!commandInput) return;
+        void setConfirmation(commandInput);
+        return;
+      }
+      void setConfirmation({
+        intent: "approve_issue",
+        jobId: props.jobId,
+        draftId: workspace.draft.id,
+        expectedDraftUpdatedAt: workspace.draft.updatedAt,
+        issueId: issue.id,
+        approvedContentHash: buildResumeIssueApprovalContentHash(issue),
+      });
+    },
+    [
+      findApprovableAssessment,
+      props.jobId,
+      props.onSetResumeClaimConfirmation,
+      props.workspace,
+    ],
+  );
   const handleAskAiFix = useCallback(
     (issue: Parameters<typeof buildResumeValidationAiPrompt>[0]) => {
       // The Assistant is a floating panel, not a tab: opening it leaves the
@@ -557,6 +631,54 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
       props.jobId,
       props.onSetWorkHistoryReviewAcknowledgment,
       runWithSavedDraftAsync,
+    ],
+  );
+
+  // "Add this role back": show the hidden entry again, which retires the
+  // suggestion, and drop a leave-off decision if one was recorded for it.
+  const includeWorkHistoryRole = useCallback(
+    (suggestion: WorkHistoryReviewSuggestion) => {
+      const currentDraft = props.workspace?.draft;
+      if (!currentDraft) return;
+      const located = currentDraft.sections
+        .flatMap((section) =>
+          section.entries.map((entry) => ({ section, entry })),
+        )
+        .find(({ section, entry }) =>
+          suggestion.entryId
+            ? entry.id === suggestion.entryId &&
+              (suggestion.sectionId === null ||
+                section.id === suggestion.sectionId)
+            : entry.profileRecordId === suggestion.profileRecordId,
+        );
+      if (!located) return;
+      const acknowledgment = currentDraft.workHistoryReviewAcknowledgments.find(
+        (candidate) =>
+          candidate.draftId === currentDraft.id &&
+          candidate.profileRecordId === suggestion.profileRecordId &&
+          candidate.kind === suggestion.kind &&
+          candidate.action === suggestion.action,
+      );
+      if (acknowledgment) {
+        removeWorkHistoryOmissionAcknowledgment(acknowledgment.id);
+      }
+      if (!located.entry.included) {
+        handleApplyPatch(
+          createResumeDraftPatch({
+            entryId: located.entry.id,
+            idPrefix: `resume_patch_entry_include_${located.entry.id}`,
+            newIncluded: true,
+            operation: "toggle_include",
+            sectionId: located.section.id,
+          }),
+          "Added a hidden role back to the resume",
+        );
+      }
+    },
+    [
+      handleApplyPatch,
+      props.workspace,
+      removeWorkHistoryOmissionAcknowledgment,
     ],
   );
 
@@ -740,6 +862,7 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
         props.workspace.workHistoryReviewSuggestions
       }
       onAcknowledgeWorkHistoryOmission={acknowledgeWorkHistoryOmission}
+      onIncludeWorkHistoryRole={includeWorkHistoryRole}
       onRemoveWorkHistoryOmissionAcknowledgment={
         removeWorkHistoryOmissionAcknowledgment
       }
@@ -923,6 +1046,8 @@ export function ResumeWorkspaceScreen(props: ResumeWorkspaceScreenProps) {
             );
           }}
           onAskAiFix={handleAskAiFix}
+          canApproveClaim={canApproveClaim}
+          onApproveClaim={handleApproveClaim}
           onContinueToShortlisted={props.onBack}
           onClearApproval={() =>
             runWithSavedDraftAsync(

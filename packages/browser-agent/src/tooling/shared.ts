@@ -168,6 +168,7 @@ const FinishFindingListSchema = z
 export const FinishSchema = z
   .object({
     reason: z.string().trim().min(1),
+    stuck: z.boolean().optional(),
     summary: z.string().trim().min(1).optional(),
     reliableControls: FinishFindingListSchema,
     trickyFilters: FinishFindingListSchema,

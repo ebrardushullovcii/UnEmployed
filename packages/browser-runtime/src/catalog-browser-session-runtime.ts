@@ -283,7 +283,7 @@ function buildScreeningQuestions(input: {
 }
 
 function buildCatalogApplyVisualDiagnostics(input: {
-  input: ExecuteApplicationFlowInput;
+  input: Omit<ExecuteApplicationFlowInput, "prepareApplicationForm">;
   now: string;
 }): Pick<
   ApplyExecutionResult,
@@ -384,8 +384,12 @@ function buildCatalogApplyVisualDiagnostics(input: {
   };
 }
 
+/**
+ * The catalog runtime answers from a fixture rather than a page, so it never
+ * fills a form in and never needs the preparer a live run supplies.
+ */
 function executeCatalogApplicationFlow(
-  input: ExecuteApplicationFlowInput,
+  input: Omit<ExecuteApplicationFlowInput, "prepareApplicationForm">,
 ): ApplyExecutionResult {
   const now = new Date().toISOString();
   const { job, resumeArtifact } = input;

@@ -11,6 +11,53 @@ import {
   sanitizeSegment,
 } from "../../shared/job-finder-resume-renderer";
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;");
+}
+
+/**
+ * A letter on a page: the text, in paragraphs, with ordinary margins.
+ *
+ * Deliberately plain. A letter that looks like a letter is what an employer
+ * expects; anything more decorative reads as generated.
+ */
+function renderLetterHtml(text: string, authorName: string): string {
+  const paragraphs = text
+    .split(/\n{2,}/u)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map(
+      (paragraph) =>
+        `<p>${escapeHtml(paragraph).replace(/\n/gu, "<br />")}</p>`,
+    )
+    .join("\n");
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(authorName)} — cover letter</title>
+    <style>
+      @page { size: Letter; margin: 22mm 20mm; }
+      body {
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 11.5pt;
+        line-height: 1.55;
+        color: #111;
+        margin: 0;
+      }
+      p { margin: 0 0 12pt; }
+    </style>
+  </head>
+  <body>
+${paragraphs}
+  </body>
+</html>`;
+}
+
 interface CreateLocalJobFinderDocumentManagerOptions {
   outputDirectory: string;
   previewTestMode?: "ok" | "fail_once";
@@ -89,6 +136,46 @@ export function createLocalJobFinderDocumentManager(
         html,
         warnings: [],
       });
+    },
+    /**
+     * Renders the letter through the same window-and-print path the resume
+     * export uses, so a letter and the resume beside it are produced the same
+     * way and land in the same place.
+     *
+     * A form that insists on .docx gets nothing: there is no Word writer here,
+     * and sending a PDF under a .docx name would be a lie the person would
+     * only discover after applying.
+     */
+    async renderLetterArtifact(input) {
+      if (input.fileType === "docx") {
+        return {
+          ok: false,
+          reason:
+            "This form asks for a Word file, and Job Finder can only produce a PDF.",
+        };
+      }
+
+      await mkdir(options.outputDirectory, { recursive: true });
+      const baseName = `${Date.now()}_${sanitizeSegment(input.profile.fullName ?? "")}_${sanitizeSegment(input.job.company)}_letter`;
+      const htmlPath = path.join(options.outputDirectory, `${baseName}.html`);
+      const pdfPath = path.join(options.outputDirectory, `${baseName}.pdf`);
+
+      await renderPdfFromHtml(
+        renderLetterHtml(input.text, input.profile.fullName ?? ""),
+        htmlPath,
+        pdfPath,
+      );
+      const sha256 = createHash("sha256")
+        .update(await readFile(pdfPath))
+        .digest("hex");
+
+      return {
+        ok: true,
+        fileName: path.basename(pdfPath),
+        mimeType: "application/pdf",
+        storagePath: pdfPath,
+        sha256,
+      };
     },
     async renderResumeArtifact(input) {
       await mkdir(options.outputDirectory, { recursive: true });

@@ -257,7 +257,7 @@ function buildWorkspaceWithBlockedSummaryClaim(): JobFinderResumeWorkspace {
           entryId: null,
           bulletId: null,
           message:
-            "This generated claim lacks strong candidate-only evidence and must be rewritten or explicitly user-edited before export.",
+            "Your saved evidence does not back this generated claim. Rewrite it, or approve it as accurate if you can stand behind it.",
           flaggedText: summarySection.text,
         },
       ],
@@ -1665,7 +1665,7 @@ describe("ResumeWorkspaceScreen", () => {
       "Sales Operations Associate",
     );
     expect(decisionContext?.textContent).toMatch(/Bright Market.*2019.*2020/);
-    expect(screen.getAllByText("Needs a choice").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Hidden").length).toBeGreaterThan(0);
 
     const decisionsSection = document.querySelector(
       "[data-resume-work-history-decisions]",
@@ -1807,10 +1807,9 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
-    expect(screen.getAllByText("Needs a choice").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Hidden").length).toBeGreaterThan(0);
     expect(
-      screen.getAllByText(/You can still export a PDF/)
-        .length,
+      screen.getAllByText(/nothing here blocks approval/).length,
     ).toBeGreaterThan(0);
   });
 
@@ -1870,17 +1869,7 @@ describe("ResumeWorkspaceScreen", () => {
     expect(onSetWorkHistoryReviewAcknowledgment).not.toHaveBeenCalled();
   });
 
-  it("blocks approval with explanatory copy until every omission has a decision and focuses the list", async () => {
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView,
-    });
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      callback(0);
-      return 1;
-    });
-
+  it("never blocks approval on hidden roles and offers to add each back", async () => {
     const workspace = buildWorkspace();
     const unapprovedWorkspace = JobFinderResumeWorkspaceSchema.parse({
       ...workspace,
@@ -1897,39 +1886,14 @@ describe("ResumeWorkspaceScreen", () => {
       await vi.advanceTimersByTimeAsync(100);
     });
 
+    // A hidden role is the person's choice, not a blocker.
+    expect(screen.queryByText(/before you can approve/)).toBeNull();
     expect(
-      screen.getAllByText(/You can still export a PDF/)
-        .length,
+      screen.queryByRole("button", { name: "Review hidden roles" }),
+    ).toBeNull();
+    expect(
+      screen.getAllByRole("button", { name: /^Add this role back/ }).length,
     ).toBeGreaterThan(0);
-    expect(
-      screen.queryByRole("button", { name: /Approve current PDF/i }),
-    ).toBeNull();
-    expect(
-      screen.queryByRole("button", {
-        name: "Approve resume",
-      }),
-    ).toBeNull();
-
-    const reviewDecisionButtons = screen.getAllByRole("button", {
-      name: "Review hidden roles",
-    });
-    expect(reviewDecisionButtons.length).toBeGreaterThanOrEqual(2);
-
-    fireEvent.click(reviewDecisionButtons[0]!);
-
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    expect(scrollIntoView).toHaveBeenCalledWith({
-      behavior: "smooth",
-      block: "start",
-    });
-    expect(
-      document.activeElement?.hasAttribute(
-        "data-resume-work-history-decisions",
-      ),
-    ).toBe(true);
   });
 
   it("does not block approval or show the decisions list for compact-only suggestions", async () => {
@@ -1959,9 +1923,7 @@ describe("ResumeWorkspaceScreen", () => {
     });
 
     expect(screen.queryByText("Work-history decisions")).toBeNull();
-    expect(
-      screen.queryByText(/You can still export a PDF/),
-    ).toBeNull();
+    expect(screen.queryByText(/You can still export a PDF/)).toBeNull();
   });
 
   it("saves unsaved edits before recording a leave-off decision", () => {

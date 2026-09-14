@@ -12,6 +12,7 @@ import type {
 import { ApplicationsDetailPanelAttemptSection } from "./applications-detail-panel-attempt-section";
 import { ApplicationsDetailPanelPrivacyReceiptSection } from "./applications-detail-panel-privacy-receipt-section";
 import { ApplicationsDetailPanelReviewDataSection } from "./applications-detail-panel-review-data-section";
+import { ApplicationsReviewCard } from "./applications-review-card";
 import { ApplicationsDetailPanelRunHistorySection } from "./applications-detail-panel-run-history-section";
 import { ApplicationsDetailPanelTimelineSection } from "./applications-detail-panel-timeline-section";
 
@@ -40,6 +41,17 @@ export function ApplicationsDetailPanelActivitySections(props: {
     input: JobFinderApplyConsentActionInput,
   ) => void;
   onSelectApplyRun: (runId: string) => void;
+  /**
+   * Sends this application. Present only when the person chose to look it over
+   * before it goes, which is the only way this button ever appears.
+   */
+  onSubmitPreparedApplication?: (jobId: string) => Promise<void>;
+  /** Prepares the application again when its page is no longer open. */
+  onPrepareApplicationAgain?: (jobId: string) => Promise<void>;
+  /** True when this application is filled in and waiting on their decision. */
+  awaitsYourReview?: boolean;
+  /** True when the browser no longer holds the page this was filled in on. */
+  applicationPageClosed?: boolean;
   selectedApplyRunDetails: ApplyRunDetails | null;
   selectedApplyRunId: string | null;
   selectedAttempt: ApplicationAttempt | null;
@@ -59,6 +71,10 @@ export function ApplicationsDetailPanelActivitySections(props: {
     onClearApplicationAnswer,
     onResolveApplyConsentRequest,
     onSelectApplyRun,
+    onSubmitPreparedApplication,
+    onPrepareApplicationAgain,
+    awaitsYourReview,
+    applicationPageClosed,
     selectedApplyRunDetails,
     selectedApplyRunId,
     selectedAttempt,
@@ -74,8 +90,28 @@ export function ApplicationsDetailPanelActivitySections(props: {
     ) ??
       false);
 
+  // What the run that filled this in actually recorded, rather than a later
+  // reconstruction from the individual records.
+  const reviewCard = selectedApplyRunDetails?.reviewCard ?? null;
+
   return (
     <>
+      {awaitsYourReview &&
+      reviewCard &&
+      onSubmitPreparedApplication &&
+      visibleApplyResult ? (
+        <ApplicationsReviewCard
+          card={reviewCard}
+          onSubmit={() => onSubmitPreparedApplication(visibleApplyResult.jobId)}
+          {...(onPrepareApplicationAgain
+            ? {
+                onPrepareAgain: () =>
+                  onPrepareApplicationAgain(visibleApplyResult.jobId),
+              }
+            : {})}
+          pageClosed={applicationPageClosed}
+        />
+      ) : null}
       <details
         className="group min-w-0"
         data-testid="applications-technical-details"

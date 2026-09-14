@@ -204,19 +204,10 @@ describe("work-history review acknowledgment commands", () => {
     expect(workspace.draft.updatedAt).toBeTruthy();
   });
 
-  test("blocks approval until an exact acknowledgment lands, then stores server-owned metadata", async () => {
+  test("approval never waits on a hidden-role decision; an exact acknowledgment still stores server-owned metadata", async () => {
     const { workspaceService, repository } = createHiddenRoleHarness();
     const { workspace, salesSuggestion } =
       await generateWithSuggestions(workspaceService);
-    const exported = await workspaceService.exportResumePdf("job_ready");
-    const exportArtifact = exported.resumeExportArtifacts.find(
-      (artifact) => artifact.jobId === "job_ready",
-    )!;
-
-    await expect(
-      workspaceService.approveResume("job_ready", exportArtifact.id),
-    ).rejects.toThrow(/unresolved work-history omission review/i);
-
     await workspaceService.setWorkHistoryReviewAcknowledgment(
       buildAcknowledgeInput({
         jobId: "job_ready",
@@ -523,7 +514,7 @@ describe("work-history review acknowledgment commands", () => {
 
     await expect(
       workspaceService.approveResume("job_ready", exportArtifact.id),
-    ).rejects.toThrow(/unresolved work-history omission review/i);
+    ).resolves.toBeTruthy();
   });
 
   test("removing an acknowledgment clears approval and export bindings truthfully", async () => {
@@ -583,11 +574,11 @@ describe("work-history review acknowledgment commands", () => {
       (artifact) => artifact.jobId === "job_ready",
     )!;
 
-    // One omission is unresolved again, so even a fresh export cannot be
-    // approved until the user acknowledges it once more.
+    // The omission is unresolved again, but a hidden role is the person's
+    // choice, never a blocker: a fresh export approves without it.
     await expect(
       workspaceService.approveResume("job_ready", reExportedArtifact.id),
-    ).rejects.toThrow(/unresolved work-history omission review/i);
+    ).resolves.toBeTruthy();
   });
 
   test("automatic apply prerequisites stay blocked while an omission is unresolved", async () => {

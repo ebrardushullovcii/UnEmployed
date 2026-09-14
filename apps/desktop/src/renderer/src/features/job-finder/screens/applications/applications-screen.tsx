@@ -77,6 +77,13 @@ export function ApplicationsScreen(props: {
   onGetApplyRunDetails: (
     input: JobFinderApplyRunDetailsQuery,
   ) => Promise<ApplyRunDetails>;
+  /**
+   * Sends an application the person chose to look over first. Absent unless
+   * they allowed Job Finder to send at all.
+   */
+  onSubmitPreparedApplication?: (jobId: string) => Promise<void>;
+  /** Prepares the application again when its page is no longer open. */
+  onPrepareApplicationAgain?: (jobId: string) => Promise<void>;
   onSaveApplicationAnswer: (
     command: SaveApplicationAnswerCommandInput,
   ) => Promise<ApplyRunDetails>;
@@ -155,6 +162,8 @@ export function ApplicationsScreen(props: {
     onCancelApplyRun,
     onGetApplyRunDetails,
     onSaveApplicationAnswer,
+    onSubmitPreparedApplication,
+    onPrepareApplicationAgain,
     onClearApplicationAnswer,
     onExportApplicationPacket,
     onResolveSubmissionOutcome,
@@ -835,6 +844,12 @@ export function ApplicationsScreen(props: {
               replaceApplyRunDetails(await onClearApplicationAnswer(command));
             }}
             onResolveApplyConsentRequest={onResolveApplyConsentRequest}
+            {...(onSubmitPreparedApplication
+              ? { onSubmitPreparedApplication }
+              : {})}
+            {...(onPrepareApplicationAgain
+              ? { onPrepareApplicationAgain }
+              : {})}
             onRevokeApplyRunApproval={onRevokeApplyRunApproval}
             onStartAutoApplyQueue={onStartAutoApplyQueue}
             onSelectApplyRun={handleSelectApplyRun}

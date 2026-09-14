@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JobFinderAiClient } from "@unemployed/ai-providers";
 import {
+  ApplyExecutionResultSchema,
   BrowserVisualObservationSetSchema,
   SavedJobSchema,
   type BrowserVisualAnalysisInput,
@@ -193,6 +194,53 @@ function createTestProfile() {
     links: [],
     projects: [],
     spokenLanguages: [],
+  };
+}
+
+/**
+ * Stands in for the caller that fills the form.
+ *
+ * These tests are about the browser lifecycle the runtime owns — opening the
+ * page, watching for workers, cleaning up — not about what goes into a form.
+ * The stub records that the runtime handed over one open page and returns a
+ * prepared result.
+ */
+const preparedFormSessions: unknown[] = [];
+function createStubFormPreparer() {
+  return ({ session, startedAt }: { session: unknown; startedAt: string }) => {
+    preparedFormSessions.push(session);
+    return Promise.resolve(
+      ApplyExecutionResultSchema.parse({
+        state: "paused",
+        summary: "Filled in and waiting",
+        detail: "Job Finder filled the form in and stopped; nothing was sent.",
+        submittedAt: null,
+        outcome: null,
+        questions: [],
+        blocker: null,
+        consentDecisions: [],
+        replay: {
+          sourceInstructionArtifactId: null,
+          sourceDebugEvidenceRefIds: [],
+          lastUrl: null,
+          checkpointUrls: [],
+        },
+        visualEvidence: [],
+        visualObservationSets: [],
+        visualCheckpoints: [],
+        nextActionLabel: "Open the application and finish it",
+        checkpoints: [
+          {
+            id: "checkpoint_stub_prepared",
+            at: startedAt,
+            label: "Filled in and waiting",
+            detail: "The form was filled in and nothing was sent.",
+            state: "paused",
+            visualEvidence: [],
+          },
+        ],
+      }),
+    );
   };
 }
 
@@ -988,6 +1036,7 @@ describe("playwright browser runtime", () => {
         profile: createTestProfile(),
         settings: createTestSettings(),
         mode: "prepare_only" as const,
+        prepareApplicationForm: createStubFormPreparer(),
         submitAuthorized: false,
       };
       const defaultResult = await runtime.executeApplicationFlow(
@@ -2231,6 +2280,7 @@ describe("managed context service worker blocking", () => {
         profile: createTestProfile(),
         settings: createTestSettings(),
         mode: "prepare_only",
+        prepareApplicationForm: createStubFormPreparer(),
         submitAuthorized: false,
       });
 
@@ -2305,6 +2355,7 @@ describe("managed context service worker blocking", () => {
         profile: createTestProfile(),
         settings: createTestSettings(),
         mode: "prepare_only",
+        prepareApplicationForm: createStubFormPreparer(),
         submitAuthorized: false,
       });
 
@@ -2646,6 +2697,7 @@ describe("managed context active service worker gate", () => {
         profile: createTestProfile(),
         settings: createTestSettings(),
         mode: "prepare_only" as const,
+        prepareApplicationForm: createStubFormPreparer(),
         submitAuthorized: false,
       },
     };

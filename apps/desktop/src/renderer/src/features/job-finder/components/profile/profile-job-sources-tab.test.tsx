@@ -30,6 +30,8 @@ import {
   JOB_SOURCES_PAGE_SIZE,
   ProfileJobSourcesTab,
 } from "./profile-job-sources-tab";
+import { resetSourceCheckQueueForTests } from "../../lib/source-check-queue";
+import { SourceCheckQueueRunner } from "../../lib/source-check-queue-runner";
 
 type DiscoveryTarget =
   SearchPreferencesEditorValues["discoveryTargets"][number];
@@ -72,6 +74,8 @@ function JobSourcesHarness(props: {
   accessPrompts?: readonly SourceAccessPrompt[];
   activeDiscoveryRun?: DiscoveryRunRecord | null;
   discoveryRuns?: readonly DiscoveryRunRecord[];
+  isSourceDebugPending?: (targetId: string) => boolean;
+  onRunSourceDebug?: (targetId: string) => void;
   targets?: DiscoveryTarget[];
 }) {
   const preferences = JobSearchPreferencesSchema.parse({
@@ -89,29 +93,36 @@ function JobSourcesHarness(props: {
   });
 
   return (
-    <ProfileJobSourcesTab
-      activeDiscoveryRun={props.activeDiscoveryRun ?? null}
-      discoveryRuns={props.discoveryRuns ?? []}
-      isBrowserSessionPending={() => false}
-      isSourceDebugPending={() => false}
-      isSourceInstructionPending={() => false}
-      isSourceInstructionVerifyPending={() => false}
-      isTargetDiscoveryPending={() => false}
-      onGetSourceDebugRunDetails={() =>
-        Promise.reject<SourceDebugRunDetails>(
-          new Error("No debug run in this fixture."),
-        )
-      }
-      onOpenBrowserSessionForTarget={() => undefined}
-      onRunDiscoveryForTarget={() => undefined}
-      onRunSourceDebug={() => undefined}
-      onSaveSourceInstructionArtifact={() => undefined}
-      onVerifySourceInstructions={() => undefined}
-      preferencesForm={preferencesForm}
-      recentSourceDebugRuns={[]}
-      sourceAccessPrompts={props.accessPrompts ?? []}
-      sourceInstructionArtifacts={[]}
-    />
+    <>
+      <SourceCheckQueueRunner
+        isSourceDebugPending={props.isSourceDebugPending ?? (() => false)}
+        onRunSourceDebug={props.onRunSourceDebug ?? (() => undefined)}
+        recentSourceDebugRuns={[]}
+      />
+      <ProfileJobSourcesTab
+        activeDiscoveryRun={props.activeDiscoveryRun ?? null}
+        discoveryRuns={props.discoveryRuns ?? []}
+        isBrowserSessionPending={() => false}
+        isSourceDebugPending={props.isSourceDebugPending ?? (() => false)}
+        isSourceInstructionPending={() => false}
+        isSourceInstructionVerifyPending={() => false}
+        isTargetDiscoveryPending={() => false}
+        onGetSourceDebugRunDetails={() =>
+          Promise.reject<SourceDebugRunDetails>(
+            new Error("No debug run in this fixture."),
+          )
+        }
+        onOpenBrowserSessionForTarget={() => undefined}
+        onRunDiscoveryForTarget={() => undefined}
+        onRunSourceDebug={props.onRunSourceDebug ?? (() => undefined)}
+        onSaveSourceInstructionArtifact={() => undefined}
+        onVerifySourceInstructions={() => undefined}
+        preferencesForm={preferencesForm}
+        recentSourceDebugRuns={[]}
+        sourceAccessPrompts={props.accessPrompts ?? []}
+        sourceInstructionArtifacts={[]}
+      />
+    </>
   );
 }
 
@@ -132,6 +143,7 @@ describe("ProfileJobSourcesTab", () => {
 
   afterEach(() => {
     cleanup();
+    resetSourceCheckQueueForTests();
     vi.clearAllMocks();
     scrollIntoViewTargets = [];
   });
@@ -437,7 +449,9 @@ describe("ProfileJobSourcesTab", () => {
         container.querySelector(
           '[data-compact-source-id="target_never_run"]',
         ) as HTMLElement,
-      ).getByText("Earlier search usage is unknown. This source has not been verified yet."),
+      ).getByText(
+        "Earlier search usage is unknown. This source has not been verified yet.",
+      ),
     ).toBeTruthy();
 
     // Back on the full library view, disabled problem sources stay explicitly
@@ -638,6 +652,66 @@ describe("ProfileJobSourcesTab", () => {
         .getByRole("checkbox", { name: "Include this source in searches" })
         .getAttribute("aria-checked"),
     ).toBe("false");
+  });
+
+  it("checks every listed source one at a time and stops on request", () => {
+    const onRunSourceDebug = vi.fn<(targetId: string) => void>();
+    const pending = new Set<string>();
+    const targets = [
+      createTarget(1),
+      createTarget(2),
+      createTarget(3),
+      createTarget(4, { enabled: false }),
+    ];
+    const view = render(
+      <JobSourcesHarness
+        isSourceDebugPending={(targetId) => pending.has(targetId)}
+        onRunSourceDebug={onRunSourceDebug}
+        targets={targets}
+      />,
+    );
+    const rerender = () =>
+      view.rerender(
+        <JobSourcesHarness
+          isSourceDebugPending={(targetId) => pending.has(targetId)}
+          onRunSourceDebug={onRunSourceDebug}
+          targets={targets}
+        />,
+      );
+
+    // Only sources that are on can be checked, so the off one is not counted.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Check these 3 sources" }),
+    );
+    expect(onRunSourceDebug).toHaveBeenCalledTimes(1);
+    expect(onRunSourceDebug).toHaveBeenLastCalledWith("target_001");
+
+    // While the first check is in flight nothing else starts.
+    pending.add("target_001");
+    rerender();
+    expect(
+      screen.getByRole("button", { name: /Checking 1 of 3 · Company 001/ }),
+    ).toBeTruthy();
+    expect(onRunSourceDebug).toHaveBeenCalledTimes(1);
+
+    // When it finishes, the next one starts on its own.
+    pending.delete("target_001");
+    rerender();
+    expect(onRunSourceDebug).toHaveBeenCalledTimes(2);
+    expect(onRunSourceDebug).toHaveBeenLastCalledWith("target_002");
+
+    // Stop clears what is still waiting; the running check is left alone.
+    pending.add("target_002");
+    rerender();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Checking 2 of 3 · Company 002/ }),
+    );
+    pending.delete("target_002");
+    rerender();
+    expect(onRunSourceDebug).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByRole("button", { name: "Check these 3 sources" }),
+    ).toBeTruthy();
   });
 
   it("truncates long source names in rows while exposing the complete name", () => {

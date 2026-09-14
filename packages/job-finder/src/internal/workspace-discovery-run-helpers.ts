@@ -23,7 +23,6 @@ import {
   serializeOrderedDurationEntries,
 } from "./performance-timing";
 import {
-  DEFAULT_MAX_STEPS,
   DEFAULT_TARGET_JOB_COUNT,
   SCALED_DISCOVERY_MAX_STEPS,
 } from "./workspace-defaults";
@@ -426,9 +425,15 @@ export function resolveDiscoveryBudgetPlan(input: {
   return plan;
 }
 
-const MIN_DISCOVERY_TARGET_MAX_STEPS = 20;
 const SINGLE_TARGET_DISCOVERY_JOB_COUNT = 50;
-const SINGLE_TARGET_DISCOVERY_MAX_STEPS = 36;
+/**
+ * Safety ceiling on agent steps for one source in an interactive search. It
+ * is not a budget: the agent decides when a site is done or says it is
+ * stuck, and a stall (nothing new after repeated tries, even after being
+ * asked to change approach) ends the source. Scaled runs keep their own
+ * ceiling because total cost across many sources must stay bounded.
+ */
+const DISCOVERY_TARGET_STEP_CEILING = 120;
 
 /**
  * Resolves the per-target discovery budget for one position in a run.
@@ -470,7 +475,7 @@ export function resolveDiscoveryTargetBudget(input: {
   const remainingJobs = Math.max(0, totalJobBudget - input.validJobsFoundSoFar);
   const maxStepsCeiling = scaled
     ? SCALED_DISCOVERY_MAX_STEPS
-    : DEFAULT_MAX_STEPS;
+    : DISCOVERY_TARGET_STEP_CEILING;
 
   if (input.targetsRemaining <= 1) {
     const targetJobCount = Math.min(
@@ -478,13 +483,7 @@ export function resolveDiscoveryTargetBudget(input: {
       remainingJobs,
     );
 
-    return {
-      targetJobCount,
-      maxSteps: Math.min(
-        scaled ? SCALED_DISCOVERY_MAX_STEPS : SINGLE_TARGET_DISCOVERY_MAX_STEPS,
-        Math.max(MIN_DISCOVERY_TARGET_MAX_STEPS, targetJobCount * 3),
-      ),
-    };
+    return { targetJobCount, maxSteps: maxStepsCeiling };
   }
 
   // Scarce-budget guard: when the remaining total cannot fund every remaining
@@ -495,13 +494,7 @@ export function resolveDiscoveryTargetBudget(input: {
   if (remainingJobs < input.targetsRemaining) {
     const targetJobCount = Math.min(1, remainingJobs);
 
-    return {
-      targetJobCount,
-      maxSteps: Math.min(
-        maxStepsCeiling,
-        Math.max(MIN_DISCOVERY_TARGET_MAX_STEPS, targetJobCount * 6),
-      ),
-    };
+    return { targetJobCount, maxSteps: maxStepsCeiling };
   }
 
   const targetJobCount = scaled
@@ -511,11 +504,5 @@ export function resolveDiscoveryTargetBudget(input: {
         Math.ceil(remainingJobs / Math.max(1, input.targetsRemaining)),
       );
 
-  return {
-    targetJobCount,
-    maxSteps: Math.min(
-      maxStepsCeiling,
-      Math.max(MIN_DISCOVERY_TARGET_MAX_STEPS, targetJobCount * 6),
-    ),
-  };
+  return { targetJobCount, maxSteps: maxStepsCeiling };
 }

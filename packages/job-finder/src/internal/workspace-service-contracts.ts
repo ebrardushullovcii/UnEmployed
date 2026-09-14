@@ -75,6 +75,7 @@ import type {
   SavedJob,
   SaveCampaignRuleRouteInput,
   SaveJobSearchCampaignInput,
+  JobFinderActivityControl,
   SetJobFinderActivityControlInput,
   SaveApplicationAnswerCommandInput,
   SourceDebugProgressEvent,
@@ -498,6 +499,17 @@ export interface JobFinderWorkspaceService {
     action: "approve" | "decline",
   ): Promise<JobFinderWorkspaceSnapshot>;
   revokeApplyRunApproval(runId: string): Promise<JobFinderWorkspaceSnapshot>;
+  /**
+   * Sends one application the person already looked over.
+   *
+   * The only way a confirm-first application is ever sent. It runs the same
+   * checks and writes the same single record as a run that was allowed to send
+   * on its own, so an application cannot be sent twice by taking a different
+   * route to it.
+   */
+  submitPreparedApplication(
+    jobId: string,
+  ): Promise<JobFinderWorkspaceSnapshot>;
   approveApply(
     jobId: string,
     applicationRecordId?: string | null,
@@ -588,7 +600,33 @@ export interface JobFinderDocumentManager {
     settings: JobFinderSettings;
     targetPath?: string | null;
   }): Promise<RenderedResumeArtifact>;
+  /**
+   * Renders a cover or motivation letter to a file, through the same path the
+   * resume export uses, and puts it beside that resume.
+   *
+   * Optional: a runtime that cannot render one leaves a form asking for a
+   * letter file to the person rather than sending something else.
+   */
+  renderLetterArtifact?(input: {
+    text: string;
+    job: SavedJob;
+    profile: CandidateProfile;
+    settings: JobFinderSettings;
+    /** A type the form insisted on. Null means the renderer may choose. */
+    fileType: "pdf" | "docx" | null;
+  }): Promise<RenderedLetterArtifact>;
 }
+
+/** A letter rendered to a file, with the exact bytes that were written. */
+export type RenderedLetterArtifact =
+  | {
+      ok: true;
+      fileName: string;
+      mimeType: string;
+      storagePath: string;
+      sha256: string;
+    }
+  | { ok: false; reason: string };
 
 export interface ResumeResearchAdapterInput {
   job: SavedJob;
@@ -623,4 +661,12 @@ export interface CreateJobFinderWorkspaceServiceOptions {
   researchAdapter?: ResumeResearchAdapter;
   /** Plain-HTTP listing page reader; tests inject a fake, production defaults. */
   fetchListingHtml?: ListingHtmlFetcher;
+  /**
+   * Called after every activity-control save (Home's Pause/Resume, or an
+   * explicit user action resuming paused work). The desktop host mirrors the
+   * flag onto the embedded browser, which keeps its own pause.
+   */
+  onActivityControlChanged?: (
+    control: JobFinderActivityControl,
+  ) => void | Promise<void>;
 }

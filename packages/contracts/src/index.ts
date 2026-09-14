@@ -1,5 +1,6 @@
 export * from "./base";
 export * from "./desktop-browser";
+export * from "./apply-form-mechanics";
 export * from "./application-authority";
 export * from "./application-authority-management";
 export * from "./application-answer-snapshot";

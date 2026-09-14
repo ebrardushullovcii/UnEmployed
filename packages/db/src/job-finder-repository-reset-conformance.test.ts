@@ -164,6 +164,7 @@ function createStateSliceFixtures(phase: ResetConformancePhase) {
       staleReason: null,
       workHistoryReviewAcknowledgments: [],
       claimConfirmations: [],
+      issueApprovals: [],
       createdAt: BASE_AT,
       updatedAt: at,
     },

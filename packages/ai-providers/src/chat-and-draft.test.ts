@@ -1598,6 +1598,7 @@ describe("openai-compatible chat and draft behavior", () => {
           targetPageCount: 2,
           workHistoryReviewAcknowledgments: [],
           claimConfirmations: [],
+          issueApprovals: [],
           generationMethod: "ai",
           approvedAt: null,
           approvedExportId: null,

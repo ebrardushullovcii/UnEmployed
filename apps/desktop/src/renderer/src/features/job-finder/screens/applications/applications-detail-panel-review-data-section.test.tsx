@@ -181,6 +181,55 @@ describe("application question answer review", () => {
     );
   });
 
+  it("offers Job Finder's suggestion as one tap, and keeps the choice with the person", async () => {
+    const baseDetails = createDetails();
+    const details = ApplyRunDetailsSchema.parse({
+      ...baseDetails,
+      questionRecords: [
+        {
+          ...baseDetails.questionRecords[0],
+          suggestedAnswers: [
+            {
+              id: "suggestion-1",
+              text: "No",
+              sourceKind: "profile",
+              sourceId: "profile.workEligibility.requiresVisaSponsorship",
+            },
+          ],
+        },
+      ],
+    });
+    const onSave = vi.fn(() => Promise.resolve());
+
+    render(
+      <MemoryRouter>
+        <ApplicationsDetailPanelReviewDataSection
+          applyRunDetailsError={null}
+          applyRunDetailsStatus="ready"
+          isApplyRequestPending={() => false}
+          onClearApplicationAnswer={vi.fn(() => Promise.resolve())}
+          onResolveApplyConsentRequest={vi.fn()}
+          onSaveApplicationAnswer={onSave}
+          selectedApplyRunDetails={details}
+          visibleApplyResult={details.result}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText(/Job Finder suggests/i)).toBeTruthy();
+    // Nothing is filled in until the person takes it.
+    fireEvent.click(screen.getByRole("button", { name: "Use this answer" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        questionId: "question-1",
+        submitAuthorized: false,
+      }),
+    );
+  });
+
   it("selects an attachment-consented asset without exposing its path", async () => {
     const baseDetails = createDetails();
     const details = ApplyRunDetailsSchema.parse({

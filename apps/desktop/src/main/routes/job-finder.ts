@@ -2327,6 +2327,18 @@ export function registerJobFinderRouteHandlers(
   );
 
   ipcMain.handle(
+    "job-finder:submit-prepared-application",
+    async (_event, payload: unknown) => {
+      const { jobId } = JobFinderJobActionInputSchema.parse(payload);
+      const jobFinderWorkspaceService = await getJobFinderWorkspaceService();
+      const snapshot =
+        await jobFinderWorkspaceService.submitPreparedApplication(jobId);
+
+      return workspaceMutationResponse(snapshot);
+    },
+  );
+
+  ipcMain.handle(
     "job-finder:approve-apply",
     async (_event, payload: unknown) => {
       const { jobId, applicationRecordId, startNewApplication } =

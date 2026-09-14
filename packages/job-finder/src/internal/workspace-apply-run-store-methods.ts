@@ -182,6 +182,9 @@ export function createWorkspaceApplyRunStoreMethods(
     return ApplyRunDetailsSchema.parse({
       run,
       result: latestResult,
+      // The review belongs to the attempt that wrote it, so it travels with
+      // the result rather than being rebuilt from the records afterwards.
+      reviewCard: latestResult?.reviewCard ?? null,
       results,
       submitApproval: latestApproval,
       questionRecords: sortByTimestamp(

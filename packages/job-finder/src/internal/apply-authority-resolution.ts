@@ -1,0 +1,186 @@
+import type { ApplyAuthority } from "@unemployed/browser-agent";
+import {
+  isActiveApplicationAuthorityEnvelope,
+  type ApplicationAuthorityEnvelope,
+} from "@unemployed/contracts";
+
+/**
+ * What one application is actually allowed to do.
+ *
+ * The saved authority document is the only thing that can widen this, and only
+ * for the exact application it names. Everything else — an expired document, a
+ * revoked one, a job it does not cover, a resume it does not list, a site it
+ * does not include — falls back to filling the form in and stopping. Falling
+ * back is silent by design: the person set a boundary and the run stayed
+ * inside it.
+ */
+
+/** Filling in and stopping. What every application does without an authority. */
+export const PREPARE_ONLY_AUTHORITY: ApplyAuthority = {
+  mode: "prepare_only",
+  submitAuthorized: false,
+  preApprovedAttestationKinds: [],
+  salaryDisclosure: "pause_for_user",
+  allowedOrigins: [],
+};
+
+export interface ApplyAuthorityResolution {
+  authority: ApplyAuthority;
+  /**
+   * Why a saved authority did not apply to this application, in plain words.
+   * Null when it did apply, or when there was no authority to begin with.
+   */
+  narrowedBecause: string | null;
+}
+
+/**
+ * The bare origin of a URL.
+ *
+ * A saved allowed origin is written with its trailing slash ("https://x/")
+ * while `URL.origin` has none, so both sides go through here before they are
+ * compared. Getting this wrong would quietly narrow every authority to
+ * nothing.
+ */
+function canonicalOriginOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+function canonicalOrigins(values: readonly string[]): string[] {
+  return values
+    .map((value) => canonicalOriginOf(value))
+    .filter((value): value is string => value !== null);
+}
+
+export function resolveApplyAuthority(input: {
+  envelope: ApplicationAuthorityEnvelope | null;
+  job: { id: string; campaignId?: string | null };
+  /** The digest of the resume going out with this application, when known. */
+  resumeSha256: string | null | undefined;
+  applicationUrl: string;
+  now: string;
+}): ApplyAuthorityResolution {
+  const { envelope } = input;
+  if (!envelope) {
+    return { authority: PREPARE_ONLY_AUTHORITY, narrowedBecause: null };
+  }
+
+  if (!isActiveApplicationAuthorityEnvelope(envelope, input.now)) {
+    return {
+      authority: PREPARE_ONLY_AUTHORITY,
+      narrowedBecause:
+        envelope.status === "revoked"
+          ? "You turned off sending applications, so this one was filled in and left for you."
+          : "Your permission to send applications has run out, so this one was filled in and left for you.",
+    };
+  }
+
+  if (envelope.mode === "prepare_only") {
+    return { authority: PREPARE_ONLY_AUTHORITY, narrowedBecause: null };
+  }
+
+  const scopedToJob =
+    envelope.scope.jobIds.includes(input.job.id) ||
+    (envelope.scope.campaignId !== null &&
+      envelope.scope.campaignId === (input.job.campaignId ?? null));
+  if (!scopedToJob) {
+    return {
+      authority: PREPARE_ONLY_AUTHORITY,
+      narrowedBecause:
+        "This job is outside what you allowed Job Finder to send, so it was filled in and left for you.",
+    };
+  }
+
+  const resumeDigest = input.resumeSha256?.trim().toLowerCase() ?? "";
+  if (
+    envelope.allowedResumeSha256.length > 0 &&
+    (!resumeDigest || !envelope.allowedResumeSha256.includes(resumeDigest))
+  ) {
+    return {
+      authority: PREPARE_ONLY_AUTHORITY,
+      narrowedBecause:
+        "The resume for this application is not one you approved for sending, so it was filled in and left for you.",
+    };
+  }
+
+  const origin = canonicalOriginOf(input.applicationUrl);
+  const allowedOrigins = canonicalOrigins(envelope.allowedOrigins);
+  if (!origin || !allowedOrigins.includes(origin)) {
+    return {
+      authority: PREPARE_ONLY_AUTHORITY,
+      narrowedBecause:
+        "This application is on a site outside what you allowed, so it was filled in and left for you.",
+    };
+  }
+
+  const policy = envelope.decisionPolicy;
+  if (!policy) {
+    return {
+      authority: PREPARE_ONLY_AUTHORITY,
+      narrowedBecause:
+        "Your saved permission is missing its answer rules, so this application was filled in and left for you.",
+    };
+  }
+
+  return {
+    authority: {
+      mode: envelope.mode,
+      // Confirm-first means the person presses send, so the run itself is
+      // never authorized to; only autonomous mode is.
+      submitAuthorized: envelope.mode === "autonomous_submit",
+      preApprovedAttestationKinds: [
+        ...policy.answerPolicy.preApprovedAttestationKinds,
+      ],
+      salaryDisclosure: policy.answerPolicy.salaryDisclosure,
+      allowedOrigins,
+    },
+    narrowedBecause: null,
+  };
+}
+
+/**
+ * Reads the saved permission that applies to this job, if there is one.
+ *
+ * More than one active permission is treated as none: an ambiguous answer to
+ * "may this be sent?" is a no.
+ */
+export async function resolveApplyAuthorityForJob(input: {
+  repository: {
+    listApplicationAuthorityEnvelopes: (filter: {
+      status: "active";
+    }) => Promise<readonly ApplicationAuthorityEnvelope[]>;
+  };
+  job: { id: string; campaignId?: string | null };
+  resumeSha256: string | null | undefined;
+  applicationUrl: string;
+  now: string;
+}): Promise<ApplyAuthorityResolution & { envelope: ApplicationAuthorityEnvelope | null }> {
+  let active: readonly ApplicationAuthorityEnvelope[] = [];
+  try {
+    active = await input.repository.listApplicationAuthorityEnvelopes({
+      status: "active",
+    });
+  } catch {
+    return {
+      authority: PREPARE_ONLY_AUTHORITY,
+      narrowedBecause: null,
+      envelope: null,
+    };
+  }
+
+  const envelope = active.length === 1 ? (active[0] ?? null) : null;
+  const resolution = resolveApplyAuthority({
+    envelope,
+    job: input.job,
+    resumeSha256: input.resumeSha256,
+    applicationUrl: input.applicationUrl,
+    now: input.now,
+  });
+  return {
+    ...resolution,
+    envelope: resolution.authority.mode === "prepare_only" ? null : envelope,
+  };
+}

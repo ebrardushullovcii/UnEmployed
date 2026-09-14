@@ -1395,6 +1395,7 @@ describe("createFileJobFinderRepository", () => {
         staleReason: null,
         workHistoryReviewAcknowledgments: [],
         claimConfirmations: [],
+        issueApprovals: [],
         createdAt: "2026-03-20T10:00:00.000Z",
         updatedAt: "2026-03-20T10:07:00.000Z",
       });
@@ -1434,6 +1435,7 @@ describe("createFileJobFinderRepository", () => {
             "Saved job details changed after approval and the resume needs a fresh review.",
           workHistoryReviewAcknowledgments: [],
           claimConfirmations: [],
+          issueApprovals: [],
           createdAt: "2026-03-20T10:00:00.000Z",
           updatedAt: "2026-03-20T10:08:00.000Z",
         },

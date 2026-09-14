@@ -57,7 +57,6 @@ import {
 import { collectResumeAffectingChangedJobIds } from "./resume-workspace-staleness";
 import {
   DEFAULT_ROLE,
-  MAX_DISCOVERY_AGENT_NO_PROGRESS_STEPS,
   MAX_DISCOVERY_TARGET_TIME_BUDGET_MS,
   discoveryAdapters,
 } from "./workspace-defaults";
@@ -199,6 +198,7 @@ const DISCOVERY_ACTIVITY_SAMPLE_LIMIT = 3;
 const LOW_YIELD_TECHNICAL_DISCOVERY_FLOOR = 6;
 const PUBLIC_API_PREFETCH_CONCURRENCY = 8;
 const MIN_DISCOVERY_TARGET_TIME_BUDGET_MS = 120_000;
+const DISCOVERY_STALL_STEP_WINDOW = 8;
 
 /**
  * Bounded heartbeat for duplicate-only agent checkpoint sequences.
@@ -946,7 +946,7 @@ async function collectTargetJobs(input: {
   ) => Promise<void>;
   signal?: AbortSignal;
   openedSessionSources: Set<JobSource>;
-    protectedPages: Map<string, ParkedBrowserTabReference>;
+  protectedPages: Map<string, ParkedBrowserTabReference>;
   useAgentRuntime: boolean;
   prefetchedPublicApiResult?: Promise<SettledPublicProviderJobsResult>;
 }): Promise<{
@@ -1116,10 +1116,9 @@ async function collectTargetJobs(input: {
             input.maxSteps * 20_000,
           ),
         ),
-        noProgressStepLimit: Math.min(
-          MAX_DISCOVERY_AGENT_NO_PROGRESS_STEPS,
-          Math.max(6, Math.ceil(input.maxSteps / 3)),
-        ),
+        // Steps without a new job before the agent is told it is stalling;
+        // the same window again with nothing new ends the source.
+        noProgressStepLimit: DISCOVERY_STALL_STEP_WINDOW,
       },
       ...(resumeCheckpoint ? { resumeCheckpoint } : {}),
       onCheckpoint: (checkpoint) =>
@@ -1466,9 +1465,13 @@ export function createWorkspaceDiscoveryMethods(
         if (
           request.scope.type !== "discovery_source" ||
           !request.scope.parkedTab ||
-          ["resolved", "skipped", "cancelled", "expired", "superseded"].includes(
-            request.state,
-          )
+          [
+            "resolved",
+            "skipped",
+            "cancelled",
+            "expired",
+            "superseded",
+          ].includes(request.state)
         ) {
           return [];
         }

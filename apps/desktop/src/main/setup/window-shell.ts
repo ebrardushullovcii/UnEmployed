@@ -539,9 +539,15 @@ export function createMainWindow(currentDir: string) {
     if (suppressRestoredDisplayMode(startupGeometry)) {
       // Tester determinism: restored maximize/fullscreen would override the
       // manifest-driven window size, so this launch stays in normal mode.
-    } else if (savedState?.displayMode === "fullscreen") {
-      mainWindow.setFullScreen(true);
-    } else if (savedState?.displayMode === "maximized") {
+    } else if (
+      savedState?.displayMode === "maximized" ||
+      savedState?.displayMode === "fullscreen"
+    ) {
+      // A saved full-screen mode comes back as a maximized window, never as
+      // native full screen. This fires on first paint, which in development
+      // can be seconds after the window is already usable, so restoring full
+      // screen here looked like a button click had taken over the screen.
+      // Full screen is only ever entered by the user's own control.
       mainWindow.maximize();
     }
 

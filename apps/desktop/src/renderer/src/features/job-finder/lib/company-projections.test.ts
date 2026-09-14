@@ -297,6 +297,7 @@ describe("projectCompanyApplicationHistory", () => {
           },
           events: [],
           crm: null,
+    automationMode: "prepare_only" as const,
         },
         {
           id: "app_new",
@@ -324,6 +325,7 @@ describe("projectCompanyApplicationHistory", () => {
           },
           events: [],
           crm: null,
+    automationMode: "prepare_only" as const,
         },
       ],
     });

@@ -45,6 +45,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
 
     const { getByText, queryByRole, queryByTestId } = render(
@@ -101,6 +102,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
 
     const { getByRole, getByText, queryByRole } = render(
@@ -334,6 +336,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 1,
         latestCheckpointId: "checkpoint_resume_wait",
         privacyReceipt: null,
+    reviewCard: null,
       };
 
     const { getByRole, getByText, queryByText } = render(
@@ -437,6 +440,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
 
     const { getByRole, getByTestId, queryByRole, queryByText } = render(
@@ -522,6 +526,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
 
     const { getByRole, getByTestId, getByText, queryByRole, queryByText } =
@@ -618,6 +623,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 1,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
 
     const { getByRole, getByText } = render(
@@ -673,6 +679,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
 
     const { getByRole, getByTestId, queryByRole, queryByText } = render(
@@ -746,6 +753,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         pendingConsentRequestCount: 0,
         artifactCount: 0,
         latestCheckpointId: null,
+        reviewCard: null,
         privacyReceipt: {
           schemaVersion: 1,
           generatedAt: "2026-08-27T10:01:00.000Z",
@@ -855,6 +863,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
     }
 
@@ -1192,6 +1201,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
 
     const { getByRole, getByTestId } = render(
@@ -1265,6 +1275,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
     const onConfirmFinishedInBrowser = vi.fn();
     const renderSection = (
@@ -1389,6 +1400,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
 
     const { getByTestId } = render(
@@ -1451,6 +1463,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
 
     const { queryByRole } = render(
@@ -1506,6 +1519,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
 
     const { getByText } = render(
@@ -1562,6 +1576,7 @@ describe("ApplicationsDetailPanelRecoveryActionsSection", () => {
         artifactCount: 0,
         latestCheckpointId: null,
         privacyReceipt: null,
+    reviewCard: null,
       };
 
     const { getByRole, getByText } = render(

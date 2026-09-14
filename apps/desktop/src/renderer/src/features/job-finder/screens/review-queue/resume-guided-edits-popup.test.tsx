@@ -535,6 +535,7 @@ describe("ResumeGuidedEditsPopup", () => {
       staleReason: null,
       workHistoryReviewAcknowledgments: [],
       claimConfirmations: [],
+      issueApprovals: [],
       createdAt: updatedAt,
       updatedAt,
     };
@@ -657,6 +658,7 @@ describe("ResumeGuidedEditsPopup", () => {
       staleReason: null,
       workHistoryReviewAcknowledgments: [],
       claimConfirmations: [],
+      issueApprovals: [],
       createdAt: updatedAt,
       updatedAt,
     };

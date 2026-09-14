@@ -64,6 +64,8 @@ interface ResumeWorkspaceStudioShellProps {
   canRestoreValidationIssuePreviousText?: (
     issue: ResumeValidationIssue,
   ) => boolean;
+  canApproveClaim?: (issue: ResumeValidationIssue) => boolean;
+  onApproveClaim?: (issue: ResumeValidationIssue) => void;
   onAskAiFix?: (issue: ResumeValidationIssue) => void;
   onRestoreValidationIssuePreviousText?: (issue: ResumeValidationIssue) => void;
   onClearApproval: () => void;
@@ -760,6 +762,12 @@ export function ResumeWorkspaceStudioShell(
                 }
               : {})}
             {...(props.onAskAiFix ? { onAskAiFix: props.onAskAiFix } : {})}
+            {...(props.canApproveClaim
+              ? { canApproveClaim: props.canApproveClaim }
+              : {})}
+            {...(props.onApproveClaim
+              ? { onApproveClaim: props.onApproveClaim }
+              : {})}
             {...(props.onClaimResumeIdentity
               ? { onClaimResumeIdentity: props.onClaimResumeIdentity }
               : {})}

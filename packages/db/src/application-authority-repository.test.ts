@@ -1,3 +1,4 @@
+import type { ApplicationAttestationKind } from "@unemployed/contracts";
 import {
   ApplyJobResultSchema,
   ApplicationAuthorityEnvelopeSchema,
@@ -35,6 +36,8 @@ const decisionPolicyRules = {
     unknownRequiredQuestion: "pause_for_user" as const,
     unknownEligibility: "pause_for_user" as const,
     unknownLegalRequirement: "pause_for_user" as const,
+    preApprovedAttestationKinds: [] as ApplicationAttestationKind[],
+    salaryDisclosure: "pause_for_user" as const,
   },
   stopConditions: {
     unavailableCredentials: "pause_for_user" as const,

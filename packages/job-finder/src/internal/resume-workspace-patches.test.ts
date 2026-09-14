@@ -65,6 +65,7 @@ function createDraft(): ResumeDraft {
     staleReason: null,
     workHistoryReviewAcknowledgments: [],
     claimConfirmations: [],
+    issueApprovals: [],
     createdAt: "2026-08-09T10:00:00.000Z",
     updatedAt: "2026-08-09T10:00:00.000Z",
   };
@@ -217,6 +218,7 @@ function createGeneratedDraft(): ResumeDraft {
     staleReason: null,
     workHistoryReviewAcknowledgments: [],
     claimConfirmations: [],
+    issueApprovals: [],
     createdAt: "2026-08-09T10:00:00.000Z",
     updatedAt: "2026-08-09T10:00:00.000Z",
   };

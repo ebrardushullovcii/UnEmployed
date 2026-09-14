@@ -387,6 +387,10 @@ export interface JobFinderShellActions {
   revokeApplyRunApproval: (
     input: JobFinderApplyRunActionInput,
   ) => Promise<JobFinderWorkspaceSnapshot>;
+  /** Sends one application the person has already looked over. */
+  submitPreparedApplication: (input: {
+    jobId: string;
+  }) => Promise<JobFinderWorkspaceSnapshot>;
   approveApply: (
     input: JobFinderApplicationStartTarget,
   ) => Promise<JobFinderWorkspaceSnapshot>;

@@ -694,6 +694,49 @@ export function isResumeTemplateBenchmarkEligible(
   return isResumeTemplateApplyEligible(template);
 }
 
+/**
+ * How a cover or motivation letter should read when Job Finder writes one.
+ *
+ * The defaults are the safe, unremarkable choice: plain professional, about a
+ * page's worth, in whatever language the posting is written in. Everything
+ * here shapes the writing; none of it adds a fact the resume and profile do
+ * not already support.
+ */
+export const coverLetterToneValues = [
+  "plain_professional",
+  "warm",
+  "direct",
+  "formal",
+] as const;
+export const CoverLetterToneSchema = z.enum(coverLetterToneValues);
+export type CoverLetterTone = z.infer<typeof CoverLetterToneSchema>;
+
+export const coverLetterLengthValues = [
+  "short",
+  "standard",
+  "detailed",
+] as const;
+export const CoverLetterLengthSchema = z.enum(coverLetterLengthValues);
+export type CoverLetterLength = z.infer<typeof CoverLetterLengthSchema>;
+
+export const CoverLetterPreferenceSchema = z
+  .object({
+    tone: CoverLetterToneSchema.default("plain_professional"),
+    length: CoverLetterLengthSchema.default("standard"),
+    /**
+     * The language to write in. Null follows the posting, which is almost
+     * always what the employer expects.
+     */
+    language: NonEmptyStringSchema.nullable().default(null),
+    /**
+     * A letter the person wrote themselves, kept only as an example of how
+     * they sound. Its facts are never reused for another job.
+     */
+    sample: NonEmptyStringSchema.max(8_000).nullable().default(null),
+  })
+  .strict();
+export type CoverLetterPreference = z.infer<typeof CoverLetterPreferenceSchema>;
+
 export const JobFinderSettingsSchema = z.object({
   resumeFormat: DocumentFormatSchema,
   resumeTemplateId: ResumeTemplateIdSchema,
@@ -705,6 +748,9 @@ export const JobFinderSettingsSchema = z.object({
   discoveryOnly: z.boolean().default(false),
   resumeApplicationMode: ResumeApplicationModeSchema.optional(),
   applicationCrm: ApplicationCrmSettingsSchema.default({}).optional(),
+  // Optional so a workspace saved before letters existed still loads; every
+  // read goes through the schema default.
+  coverLetter: CoverLetterPreferenceSchema.default({}).optional(),
 });
 export type JobFinderSettings = z.infer<typeof JobFinderSettingsSchema>;
 
@@ -1064,6 +1110,27 @@ export type JobFinderRemoveResumeClaimConfirmationInput = z.infer<
   typeof JobFinderRemoveResumeClaimConfirmationInputObjectSchema
 >;
 
+/** Approve one non-claim blocker (see ResumeIssueApprovalSchema). */
+const JobFinderApproveResumeIssueInputObjectSchema = z
+  .object({
+    intent: z.literal("approve_issue"),
+    jobId: NonEmptyStringSchema,
+    draftId: NonEmptyStringSchema,
+    expectedDraftUpdatedAt: IsoDateTimeSchema,
+    issueId: NonEmptyStringSchema,
+    approvedContentHash: z.string().regex(/^fnv1a32:[0-9a-f]{8}$/),
+  })
+  .strict();
+const JobFinderRemoveResumeIssueApprovalInputObjectSchema = z
+  .object({
+    intent: z.literal("remove_issue_approval"),
+    jobId: NonEmptyStringSchema,
+    draftId: NonEmptyStringSchema,
+    expectedDraftUpdatedAt: IsoDateTimeSchema,
+    approvalId: NonEmptyStringSchema,
+  })
+  .strict();
+
 function addClaimConfirmationLocatorIssues(
   locator: {
     field: string;
@@ -1112,6 +1179,8 @@ export const JobFinderSetResumeClaimConfirmationInputSchema = z
     JobFinderAddResumeClaimConfirmationInputObjectSchema,
     JobFinderAddManyResumeClaimConfirmationInputObjectSchema,
     JobFinderRemoveResumeClaimConfirmationInputObjectSchema,
+    JobFinderApproveResumeIssueInputObjectSchema,
+    JobFinderRemoveResumeIssueApprovalInputObjectSchema,
   ])
   .superRefine((input, ctx) => {
     if (input.intent === "add") {
@@ -1524,6 +1593,8 @@ export const UpdateApplicationDefaultsInputSchema = z.object({
   resumeApplicationMode: ResumeApplicationModeSchema.optional(),
   resumeTemplateId: ResumeTemplateIdSchema.optional(),
   fontPreset: DocumentFontPresetSchema.optional(),
+  /** How a letter Job Finder writes should read. */
+  coverLetter: CoverLetterPreferenceSchema.optional(),
 });
 export type UpdateApplicationDefaultsInput = z.infer<
   typeof UpdateApplicationDefaultsInputSchema

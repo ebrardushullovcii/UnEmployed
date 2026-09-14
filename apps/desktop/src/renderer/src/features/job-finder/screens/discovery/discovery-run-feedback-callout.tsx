@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
+import { X } from "lucide-react";
 import { Button } from "@renderer/components/ui/button";
 import { OPEN_JOB_FINDER_BROWSER_ACTION } from "@renderer/features/job-finder/lib/job-finder-browser-handoff-copy";
 import { JOB_FINDER_ROUTE_PATHS } from "@renderer/features/job-finder/lib/job-finder-route-hrefs";
@@ -31,6 +33,12 @@ export function DiscoveryRunFeedbackCallout(props: {
    * corrective action of their own.
    */
   notices?: readonly string[];
+  /**
+   * Lets the reader clear the banner once they have read it. Every notice
+   * like this is temporary, and on Find jobs it sits above the results, so
+   * without this it takes list space for as long as the run stays newest.
+   */
+  onDismiss?: () => void;
   onOpenBrowserSession?: () => void;
   suppressBrowserRecovery?: boolean;
 }) {
@@ -38,9 +46,14 @@ export function DiscoveryRunFeedbackCallout(props: {
     feedback,
     isRecoveryPending = false,
     notices = [],
+    onDismiss,
     onOpenBrowserSession,
     suppressBrowserRecovery = false,
   } = props;
+  // Several run notes fold behind one line so the banner stays short; a
+  // single note reads inline. Open by default only while there is little.
+  const [notesOpen, setNotesOpen] = useState(false);
+  const foldNotes = notices.length > 1;
   const recovery = feedback.recovery;
   const isBrowserRecoverySuppressed =
     suppressBrowserRecovery && recovery?.kind === "browser_session";
@@ -57,10 +70,22 @@ export function DiscoveryRunFeedbackCallout(props: {
     <div
       aria-atomic="true"
       aria-live="polite"
-      className={`grid gap-1 rounded-(--radius-field) border px-3 py-2.5 text-(length:--text-description) leading-6 ${TONE_CLASS_NAMES[feedback.status]}`}
+      className={`relative grid gap-1 rounded-(--radius-field) border px-3 py-2.5 text-(length:--text-description) leading-6 ${onDismiss ? "pr-10" : ""} ${TONE_CLASS_NAMES[feedback.status]}`}
       data-testid="discovery-run-feedback"
       role={feedback.status === "failed" ? "alert" : "status"}
     >
+      {onDismiss ? (
+        <Button
+          aria-label="Dismiss this notice"
+          className="absolute right-1.5 top-1.5 h-7 w-7 rounded-full p-0 text-current opacity-70 hover:opacity-100"
+          onClick={onDismiss}
+          size="icon-xs"
+          type="button"
+          variant="ghost"
+        >
+          <X className="size-4" />
+        </Button>
+      ) : null}
       <p className="font-medium">
         {feedback.headline}
         {feedback.safeguardAction ? (
@@ -78,15 +103,29 @@ export function DiscoveryRunFeedbackCallout(props: {
       {recoveryHeadline ? (
         <p className="opacity-90">{recoveryHeadline}</p>
       ) : null}
-      {notices.map((notice) => (
-        <p
-          className="opacity-90"
-          data-testid="discovery-run-notice"
-          key={notice}
+      {foldNotes ? (
+        <button
+          aria-expanded={notesOpen}
+          className="w-fit text-left underline underline-offset-2 opacity-90"
+          onClick={() => setNotesOpen((open) => !open)}
+          type="button"
         >
-          {notice}
-        </p>
-      ))}
+          {notesOpen
+            ? "Hide the notes from this search"
+            : `${notices.length} notes from this search`}
+        </button>
+      ) : null}
+      {!foldNotes || notesOpen
+        ? notices.map((notice) => (
+            <p
+              className="opacity-90"
+              data-testid="discovery-run-notice"
+              key={notice}
+            >
+              {notice}
+            </p>
+          ))
+        : null}
       {recovery && !isBrowserRecoverySuppressed ? (
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
           {recovery.kind === "browser_session" && onOpenBrowserSession ? (

@@ -163,17 +163,24 @@ describe("catalog apply safety invariant", () => {
         profile,
         settings,
       };
+      // The catalog runtime answers from a fixture and never opens a form, so
+      // the preparer it is handed is never called.
+      const prepareApplicationForm = () => {
+        throw new Error("The catalog runtime must not prepare a real form.");
+      };
 
       const results = [
         await runtime.executeEasyApply("target_site", input),
         await runtime.executeApplicationFlow("target_site", {
           ...input,
           mode: "prepare_only",
+          prepareApplicationForm,
         }),
         await runtime.executeApplicationFlow("target_site", {
           ...input,
           mode: "submit_when_ready",
           submitAuthorized: true,
+          prepareApplicationForm,
         }),
       ];
       for (const result of results) {

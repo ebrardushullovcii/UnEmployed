@@ -18,6 +18,7 @@ import { PageHeader } from "../../components/page-header";
 import { ApplicationsCrmSettingsEditor } from "../applications/applications-crm-settings";
 import { SettingsAppDeviceSection } from "./settings-app-device-section";
 import { SettingsApplicationDefaultsSection } from "./settings-application-defaults-section";
+import { SettingsCoverLetterSection } from "./settings-cover-letter-section";
 import { SettingsApplicationAuthoritySection } from "./settings-application-authority-section";
 import {
   SettingsDirtySectionsProvider,
@@ -435,6 +436,21 @@ export function SettingsScreen(props: {
           </h2>
           <SettingsApplicationDefaultsSection
             availableResumeTemplates={availableResumeTemplates}
+            onSettingsDraftEdited={onSettingsDraftEdited}
+            onUpdateApplicationDefaults={onUpdateApplicationDefaults}
+            settings={settings}
+          />
+        </section>
+
+        <section
+          aria-labelledby="settings-cover-letter-heading"
+          className="scroll-mt-(--settings-subnav-offset) min-w-0"
+          tabIndex={-1}
+        >
+          <h2 className="sr-only" id="settings-cover-letter-heading">
+            Cover letters
+          </h2>
+          <SettingsCoverLetterSection
             onSettingsDraftEdited={onSettingsDraftEdited}
             onUpdateApplicationDefaults={onUpdateApplicationDefaults}
             settings={settings}

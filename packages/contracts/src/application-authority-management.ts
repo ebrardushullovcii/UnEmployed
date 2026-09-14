@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 import {
+  ApplicationAttestationKindSchema,
   ApplicationAutomationModeSchema,
+  ApplicationSalaryDisclosureRuleSchema,
   ApplicationAuthorityEnvelopeSchema,
   ApplicationAuthorityOriginSchema,
   ApplicationAuthorityScopeSchema,
@@ -38,6 +40,18 @@ const ApplicationAuthorityEnvelopePolicyInputObjectSchema = z
       .min(1)
       .max(Number.MAX_SAFE_INTEGER),
     intermediateMutationsAuthorized: z.boolean(),
+    /**
+     * The declarations the person approved in advance, by exact kind. Empty by
+     * default, which means every declaration on a form pauses for them.
+     */
+    preApprovedAttestationKinds: z
+      .array(ApplicationAttestationKindSchema)
+      .max(6)
+      .default([]),
+    /** What to do when a form asks what pay they expect. */
+    salaryDisclosure: ApplicationSalaryDisclosureRuleSchema.default(
+      "pause_for_user",
+    ),
     allowedResumeSha256: z
       .array(Sha256HexSchema)
       .max(applicationAuthorityMaxResumeDigests),

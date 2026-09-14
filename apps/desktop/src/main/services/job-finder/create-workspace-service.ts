@@ -580,6 +580,9 @@ export async function createJobFinderWorkspaceServiceAsync(
     ? undefined
     : createDesktopResumeResearchAdapter();
 
+  const usesEmbeddedBrowser =
+    env.UNEMPLOYED_BROWSER_HOST !== "external" &&
+    (!desktopTestApiEnabled || env.UNEMPLOYED_BROWSER_HOST === "embedded");
   const workspaceService = createJobFinderWorkspaceService({
     aiClient,
     visionProvider,
@@ -592,12 +595,20 @@ export async function createJobFinderWorkspaceServiceAsync(
     // Listing bodies are read over plain HTTP from the main process; the
     // package only reads when a host hands it a reader, so tests stay offline.
     fetchListingHtml: createDefaultListingHtmlFetcher(),
+    // The embedded browser keeps its own pause flag. Every activity-control
+    // change (Home's button, or an explicit click resuming paused work) is
+    // mirrored onto it, so a resume never leaves the browser refusing work
+    // with "Browser activity is paused".
+    ...(usesEmbeddedBrowser
+      ? {
+          onActivityControlChanged: (control) => {
+            getEmbeddedBrowser().syncActivityPaused(control.paused);
+          },
+        }
+      : {}),
   });
   repositoryByWorkspaceService.set(workspaceService, jobFinderRepository);
-  if (
-    env.UNEMPLOYED_BROWSER_HOST !== "external" &&
-    (!desktopTestApiEnabled || env.UNEMPLOYED_BROWSER_HOST === "embedded")
-  ) {
+  if (usesEmbeddedBrowser) {
     const browser = getEmbeddedBrowser();
     browser.syncActivityPaused(
       (await jobFinderRepository.getActivityControl()).paused,

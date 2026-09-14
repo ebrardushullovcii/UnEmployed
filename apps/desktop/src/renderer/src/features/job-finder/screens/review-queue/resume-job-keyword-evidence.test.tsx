@@ -89,6 +89,7 @@ function createDraft(overrides: Partial<ResumeDraft> = {}): ResumeDraft {
     staleReason: null,
     workHistoryReviewAcknowledgments: [],
     claimConfirmations: [],
+    issueApprovals: [],
     createdAt: updatedAt,
     updatedAt,
     ...overrides,

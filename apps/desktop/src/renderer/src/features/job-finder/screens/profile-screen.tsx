@@ -417,11 +417,19 @@ export function ProfileScreen(props: {
           (target) => target.label === discoveryRunFeedback.targetLabel,
         )?.id ?? null)
       : null;
+  const [dismissedSourceFeedbackKey, setDismissedSourceFeedbackKey] = useState<
+    string | null
+  >(null);
+  const sourceFeedbackKey =
+    discoveryRunFeedback && sourceRowFeedbackTargetId
+      ? `${discoveryRunFeedback.status}|${discoveryRunFeedback.headline}|${sourceRowFeedbackTargetId}`
+      : null;
   const visibleSourceRowFeedback =
     activeSection === "sources" &&
     discoveryRunFeedback !== null &&
     discoveryRunFeedback.targetLabel !== null &&
-    sourceRowFeedbackTargetId !== null
+    sourceRowFeedbackTargetId !== null &&
+    sourceFeedbackKey !== dismissedSourceFeedbackKey
       ? discoveryRunFeedback
       : null;
 
@@ -452,9 +460,7 @@ export function ProfileScreen(props: {
     onSaveAll(profileResult.payload, preferencesResult.payload);
   }
 
-  function handleResumeIdentityChoice(
-    choice: "profile_name" | "resume_name",
-  ) {
+  function handleResumeIdentityChoice(choice: "profile_name" | "resume_name") {
     const profileResult = buildProfilePayload(profile, profileForm.getValues());
     const preferencesResult = buildSearchPreferencesPayload(
       searchPreferences,
@@ -473,9 +479,9 @@ export function ProfileScreen(props: {
       choice === "profile_name"
         ? {
             ...profileResult.payload,
-            resumeIdentityOwnership:
-              describeResumeIdentityOwnershipChoice(profileResult.payload)
-                .acknowledgement,
+            resumeIdentityOwnership: describeResumeIdentityOwnershipChoice(
+              profileResult.payload,
+            ).acknowledgement,
           }
         : useResumeSourceNameForProfile(profileResult.payload);
     setValidationMessage(null);
@@ -663,6 +669,9 @@ export function ProfileScreen(props: {
                       isRecoveryPending={pendingActions.browserSession(
                         sourceRowFeedbackTargetId,
                       )}
+                      onDismiss={() =>
+                        setDismissedSourceFeedbackKey(sourceFeedbackKey)
+                      }
                       onOpenBrowserSession={() => {
                         handleSignInForTarget(sourceRowFeedbackTargetId);
                       }}

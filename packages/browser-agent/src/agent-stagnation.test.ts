@@ -440,15 +440,26 @@ describe("runAgentDiscovery stagnation behavior", () => {
       jobExtractor,
     );
 
-    // Revisiting an already landed URL is not progress, so the no-progress
-    // window still expires after eight stale steps instead of being reset by
-    // every repeated navigation attempt.
+    // Revisiting an already landed URL is not progress. After eight stale
+    // steps the agent is warned once and asked to change approach or finish
+    // as stuck; the same window again with nothing new ends the source.
     expect(result.jobs).toHaveLength(1);
-    expect(result.steps).toBe(9);
+    expect(result.steps).toBe(17);
     expect(result.incomplete).toBe(true);
     expect(result.error).toContain("showed nothing new after several tries");
     expect(jobExtractor.extractJobsFromPage).toHaveBeenCalledTimes(1);
-    expect(llmClient.chatWithTools).toHaveBeenCalledTimes(9);
+    expect(llmClient.chatWithTools).toHaveBeenCalledTimes(17);
+    const stallWarnings = vi
+      .mocked(llmClient.chatWithTools)
+      .mock.calls.filter((call) =>
+        call[0].some(
+          (message) =>
+            message.role === "user" &&
+            typeof message.content === "string" &&
+            message.content.startsWith("Stall check:"),
+        ),
+      );
+    expect(stallWarnings.length).toBeGreaterThan(0);
   });
 
   test("a genuinely new landing still buys bounded progress room before stopping", async () => {

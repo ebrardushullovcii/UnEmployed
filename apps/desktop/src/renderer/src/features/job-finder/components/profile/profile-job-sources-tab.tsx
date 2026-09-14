@@ -10,6 +10,13 @@ import type {
 } from "@unemployed/contracts";
 import { Badge } from "@renderer/components/ui/badge";
 import { Button } from "@renderer/components/ui/button";
+import {
+  isSourceCheckQueueActive,
+  startSourceCheckQueue,
+  stopSourceCheckQueue,
+  useSourceCheckQueue,
+} from "../../lib/source-check-queue";
+import { isRunnableJobDiscoveryTarget } from "@unemployed/contracts";
 import { Checkbox } from "@renderer/components/ui/checkbox";
 import { FieldLabel } from "@renderer/components/ui/field";
 import type { UseFormReturn } from "react-hook-form";
@@ -220,6 +227,22 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
       ),
     [deferredQuery, discoveryTargets, filter, sourceHealthSignals],
   );
+  // "Check these N sources" runs through a queue that lives outside this
+  // screen (see source-check-queue.ts), so leaving Profile does not drop it.
+  const checkQueue = useSourceCheckQueue();
+  const checkQueueActive = isSourceCheckQueueActive(checkQueue);
+  const anySourceCheckRunning =
+    checkQueueActive ||
+    props.recentSourceDebugRuns.some((run) => run.state === "running") ||
+    discoveryTargets.some((target) => props.isSourceDebugPending(target.id));
+  const checkingTarget = checkQueue.launched
+    ? discoveryTargets.find(
+        (target) => target.id === checkQueue.launched?.targetId,
+      )
+    : undefined;
+  const checkableFilteredSources = filteredSources
+    .map((entry) => entry.target)
+    .filter((target) => target.enabled && isRunnableJobDiscoveryTarget(target));
   const pageCount = Math.max(
     1,
     Math.ceil(filteredSources.length / JOB_SOURCES_PAGE_SIZE),
@@ -362,6 +385,39 @@ export function ProfileJobSourcesTab(props: ProfileJobSourcesTabProps) {
                 {option.label}
               </Button>
             ))}
+            {anySourceCheckRunning ? (
+              <Button
+                disabled={!checkQueueActive}
+                onClick={() => stopSourceCheckQueue()}
+                size="sm"
+                title={
+                  checkQueueActive
+                    ? "Stops after the check that is running now."
+                    : undefined
+                }
+                type="button"
+                variant="outline"
+              >
+                {checkQueueActive
+                  ? `Checking ${Math.min(checkQueue.done + 1, checkQueue.total)} of ${checkQueue.total}${checkingTarget ? ` · ${checkingTarget.label}` : ""} · Stop`
+                  : "Checking one source…"}
+              </Button>
+            ) : (
+              <Button
+                disabled={checkableFilteredSources.length === 0}
+                onClick={() =>
+                  startSourceCheckQueue(
+                    checkableFilteredSources.map((target) => target.id),
+                  )
+                }
+                size="sm"
+                title="Runs Check source on every enabled source in the current filter, one after another. Each check can take several minutes."
+                type="button"
+                variant="outline"
+              >
+                {`Check these ${checkableFilteredSources.length} source${checkableFilteredSources.length === 1 ? "" : "s"}`}
+              </Button>
+            )}
           </div>
         </div>
 

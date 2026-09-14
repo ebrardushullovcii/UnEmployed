@@ -308,9 +308,10 @@ export async function runAgentDiscovery(
   externalSignal?: AbortSignal,
 ): Promise<AgentResult> {
   const runStartedAtMs = Date.now();
+  // The host sets the time budget; this is only a safety ceiling.
   const timeBudgetMs = Math.max(
     1,
-    Math.min(4 * 60_000, config.runControl?.timeBudgetMs ?? 10 * 60_000),
+    Math.min(8 * 60_000, config.runControl?.timeBudgetMs ?? 10 * 60_000),
   );
   const timeBudgetController = new AbortController();
   const timeBudget = setTimeout(() => {
@@ -1503,6 +1504,11 @@ export async function runAgentDiscovery(
       3,
       config.runControl?.noProgressStepLimit ?? 8,
     );
+    // A stall gets one warning before it ends the run: the agent is told
+    // what the host sees and asked to change approach or finish as stuck.
+    // Only if nothing moves after that does the host stop. Searches and
+    // source checks share this; there is no step quota in either.
+    let stallWarningStep: number | null = null;
     while (state.stepCount < emergencyCeiling && state.isRunning) {
       if (Date.now() - runStartedAtMs >= timeBudgetMs) {
         return await buildDiscoveryResult({
@@ -1521,9 +1527,42 @@ export async function runAgentDiscovery(
         ? lastEvidenceGrowthStep
         : lastJobGainStep;
       if (
+        stallWarningStep === null &&
         state.stepCount > 0 &&
         state.stepCount - lastUsefulProgressStep >= noProgressStepLimit &&
-        state.deferredSearchExtractions.size === 0
+        state.deferredSearchExtractions.size === 0 &&
+        !accessWall
+      ) {
+        stallWarningStep = state.stepCount;
+        appendConversationMessage(state, {
+          role: "user",
+          content: [
+            requiresExplicitFinish
+              ? `Stall check: the last ${state.stepCount - lastUsefulProgressStep} steps produced nothing new (no new page, control, or job).`
+              : `Stall check: the last ${state.stepCount - lastUsefulProgressStep} steps added no new job. ${state.collectedJobs.length} collected so far.`,
+            state.currentUrl ? `Current URL: ${state.currentUrl}` : null,
+            "Either change approach now (a different route, control, or query) or call finish with stuck: true and say exactly what is blocking you. Do not repeat the same action.",
+          ]
+            .filter((line): line is string => line !== null)
+            .join("\n"),
+        });
+        if (!maybeCompactConversation(state, config, createUserPrompt)) {
+          return buildContextBudgetFailureResult(
+            state,
+            requiresExplicitFinish,
+            pendingDebugFindings,
+          );
+        }
+      }
+      if (
+        (stallWarningStep !== null &&
+          lastUsefulProgressStep < stallWarningStep &&
+          state.stepCount - stallWarningStep >= noProgressStepLimit &&
+          state.deferredSearchExtractions.size === 0) ||
+        (accessWall &&
+          state.stepCount > 0 &&
+          state.stepCount - lastUsefulProgressStep >= noProgressStepLimit &&
+          state.deferredSearchExtractions.size === 0)
       ) {
         return await buildDiscoveryResult({
           incomplete: true,
@@ -1534,10 +1573,12 @@ export async function runAgentDiscovery(
                   accessWall.observed,
                   state.collectedJobs.length,
                 )
-            : "The site showed nothing new after several tries, so the search moved on.",
-          phaseCompletionMode: requiresExplicitFinish ? "interrupted" : null,
+            : requiresExplicitFinish
+              ? "The site showed nothing new after several tries, even after changing approach, so the check moved on."
+              : "The site showed nothing new after several tries, even after changing approach, so the search moved on.",
+          phaseCompletionMode: requiresExplicitFinish ? "stalled" : null,
           phaseCompletionReason: requiresExplicitFinish
-            ? "No measurable progress remained after repeated actions."
+            ? `Nothing new appeared after ${state.stepCount - lastUsefulProgressStep} tries, even after being asked to change approach.`
             : null,
           phaseEvidence: requiresExplicitFinish ? state.phaseEvidence : null,
           debugFindings: pendingDebugFindings,
@@ -2038,11 +2079,27 @@ export async function runAgentDiscovery(
           console.log(
             `[Agent] Finished: ${state.collectedJobs.length} jobs found`,
           );
+          const finishedStuck =
+            (result as { data?: { stuck?: boolean } }).data?.stuck === true;
+          const stuckReason =
+            (result as { data?: { reason?: string } }).data?.reason ?? null;
           return await buildDiscoveryResult({
+            // A search that the agent declared stuck is incomplete and says
+            // why on the source, in the agent's words.
+            ...(finishedStuck && !requiresExplicitFinish
+              ? {
+                  incomplete: true,
+                  error: stuckReason
+                    ? `Job Finder stopped on this site because it got stuck: ${stuckReason.replace(/\.?$/, ".")}`
+                    : "Job Finder stopped on this site because it got stuck.",
+                }
+              : {}),
             phaseCompletionMode: requiresExplicitFinish
-              ? forcedFinishPromptSent
-                ? "forced_finish"
-                : "structured_finish"
+              ? finishedStuck
+                ? "stalled"
+                : forcedFinishPromptSent
+                  ? "forced_finish"
+                  : "structured_finish"
               : null,
             phaseCompletionReason: requiresExplicitFinish
               ? ((result as { data?: { reason?: string } }).data?.reason ??

@@ -113,7 +113,8 @@ ${config.searchPreferences.locations.length === 0 ? "Do not infer or add the can
 ${
   isPhaseDrivenDebugRun
     ? `Phase Evidence Budget: sample up to ${config.targetJobCount} relevant job postings only when they help prove the phase goal. Reaching the sampling budget is not completion by itself.`
-    : `Goal: Find ${config.targetJobCount} relevant job postings.`
+    : `Goal: Find ${config.targetJobCount} relevant job postings.
+Pacing: there is no fixed number of steps. An easy site is done in a few; a hard site can take many more, so take the steps it needs. Call finish when you have the jobs, or when the site has no more relevant results. If you are genuinely stuck (the same page keeps coming back, nothing new appears, a wall you cannot pass), do not keep repeating yourself: call finish with stuck: true and say exactly what blocked you.`
 }
 
 ${
@@ -125,6 +126,7 @@ Success criteria:
 ${taskPacket.successCriteria.length > 0 ? taskPacket.successCriteria.map((criterion) => `- ${criterion}`).join("\n") : "- Find credible evidence on the site"}
 Stop conditions:
 ${taskPacket.stopConditions.length > 0 ? taskPacket.stopConditions.map((condition) => `- ${condition}`).join("\n") : "- Stop when progress stalls"}
+Pacing: there is no fixed number of steps. An easy site is done in a few; a hard site can take many more, so take the steps it needs. You decide when the goal is met: call finish then. If you are genuinely stuck (the same page keeps coming back, nothing new appears, a wall you cannot pass), do not keep repeating yourself: call finish with stuck: true and say exactly what blocked you.
 `
     : ""
 }

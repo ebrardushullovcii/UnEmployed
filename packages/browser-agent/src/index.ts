@@ -48,3 +48,5 @@ export {
   type CaptureCompactDiscoveryObservationInput,
   type CompactDiscoveryObserverOptions,
 } from './compact-discovery-observer'
+
+export * from './apply'

@@ -1,5 +1,10 @@
 import type { ExecuteApplicationFlowInput } from "@unemployed/browser-runtime";
 import {
+  buildApplyLetterDependencies,
+  createApplyFormPreparer,
+  resolveApplySiteLabel,
+} from "./agent-application-preparation";
+import {
   ApplyExecutionResultSchema,
   ApplyJobResultSchema,
   ApplyRecoveryContextSchema,
@@ -902,26 +907,49 @@ export function createApplicationUserActionResumer(
         runId: run.id,
         jobId: job.id,
       });
+      // The browser layer opens the page; Job Finder decides what goes in the
+      // form and whether anything may be sent.
+      const applyFlowFacts = {
+        job: prerequisites.job,
+        resumeArtifact: prerequisites.resumeArtifact,
+        profile: executionProfile,
+        ...(applicationAttachments.length > 0
+          ? { applicationAttachments }
+          : {}),
+        settings,
+        mode: "prepare_only" as const,
+        idempotencyKey: attemptId,
+        accountCreationAuthorized: false as const,
+        intermediateMutationsAuthorized: false as const,
+        applyAutomationMode: "prepare_only" as const,
+        submitAuthorized: false as const,
+        recoveryContext,
+        ...(instructions.length > 0 ? { instructions } : {}),
+        ...buildVisualExecutionOptions({
+          ctx,
+          enabled: run.visualCheckpointsEnabled,
+          source: scope.source,
+        }),
+      };
       const rawResult = enforcePrepareOnlyExecutionResult(
         await ctx.browserRuntime.executeApplicationFlow(scope.source, {
-          job: prerequisites.job,
-          resumeArtifact: prerequisites.resumeArtifact,
-          profile: executionProfile,
-          ...(applicationAttachments.length > 0
-            ? { applicationAttachments }
-            : {}),
-          settings,
-          mode: "prepare_only",
-          idempotencyKey: attemptId,
-          accountCreationAuthorized: false,
-          intermediateMutationsAuthorized: false,
-          submitAuthorized: false,
-          recoveryContext,
-          ...(instructions.length > 0 ? { instructions } : {}),
-          ...buildVisualExecutionOptions({
-            ctx,
-            enabled: run.visualCheckpointsEnabled,
-            source: scope.source,
+          ...applyFlowFacts,
+          prepareApplicationForm: createApplyFormPreparer({
+            executionInput: applyFlowFacts,
+            aiClient: ctx.aiClient,
+            letters: buildApplyLetterDependencies({
+              aiClient: ctx.aiClient,
+              documentManager: ctx.documentManager,
+              job: applyFlowFacts.job,
+              profile: applyFlowFacts.profile,
+              settings: applyFlowFacts.settings,
+            }),
+            siteLabel: resolveApplySiteLabel({
+              targetLabel: provenanceTarget?.label ?? null,
+              applicationUrl:
+                prerequisites.job.applicationUrl ??
+                prerequisites.job.canonicalUrl,
+            }),
           }),
         }),
       );

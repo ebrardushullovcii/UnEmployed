@@ -545,6 +545,7 @@ function ApplicationQuestionAnswerEditor(props: {
     () => Array.from(new Set(question.answerOptions)),
     [question.answerOptions],
   );
+  const suggestedAnswer = question.suggestedAnswers[0]?.text.trim() ?? null;
 
   useEffect(() => {
     setValue(initialValue);
@@ -733,6 +734,28 @@ function ApplicationQuestionAnswerEditor(props: {
           it.
         </p>
       </div>
+      {/* Job Finder stopped here because it could not answer honestly, but it
+          often has a plausible answer from your own profile. Offering it as one
+          tap is faster than retyping, and it stays your choice. */}
+      {suggestedAnswer && question.answerControlType !== "file" ? (
+        <div className="grid gap-2 rounded-(--radius-field) border border-border/30 bg-background/40 p-3">
+          <p className="text-(length:--text-small) leading-6 text-foreground-soft">
+            Job Finder suggests:{" "}
+            <strong className="text-foreground">{suggestedAnswer}</strong>
+          </p>
+          <div>
+            <Button
+              disabled={isPending || value.trim() === suggestedAnswer}
+              onClick={() => setValue(suggestedAnswer)}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Use this answer
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {question.answerControlType === "single_choice" ? (
         <select
           aria-label={`Answer for ${question.prompt}`}

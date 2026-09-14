@@ -1,6 +1,17 @@
 import type { ExecuteApplicationFlowInput } from "@unemployed/browser-runtime";
 import {
-  ACTIVITY_PAUSED_MESSAGE,
+  buildApplyLetterDependencies,
+  createApplyFormPreparer,
+  resolveApplySiteLabel,
+} from "./agent-application-preparation";
+import { resolveApplyAuthorityForJob } from "./apply-authority-resolution";
+import {
+  enforceResolvedApplyAuthorityResult,
+  type ApplySubmissionHandoff,
+} from "./apply-submission-handoff";
+import { sendPreparedApplicationIfAllowed } from "./apply-submission-run-step";
+import { resumePausedActivityForUserAction } from "./workspace-user-action-methods";
+import {
   ApplyJobResultSchema,
   ApplyRecoveryContextSchema,
   ApplyRunSchema,
@@ -17,6 +28,11 @@ import {
   JobFinderInterviewFollowUpInputSchema,
   JobFinderSetWorkHistoryReviewAcknowledgmentInputSchema,
   JobFinderSetResumeClaimConfirmationInputSchema,
+  isResumeClaimAssessmentApprovable,
+  buildResumeIssueApprovalContentHash,
+  matchResumeIssueApproval,
+  ResumeIssueApprovalSchema,
+  type ResumeIssueApproval,
   ResumeAssistantMessageSchema,
   type ResumeProposalApprovalBlocker,
   ResumeClaimConfirmationSchema,
@@ -51,7 +67,6 @@ import {
   buildApplyCopilotArtifacts,
   buildSingleJobAutoApplyArtifacts,
   buildMissingResumeCopilotArtifacts,
-  enforcePrepareOnlyExecutionResult,
   mapExecutionResultToApplyBlockerReason,
   mapExecutionResultToApplyJobState,
   mapExecutionResultToApplyRunState,
@@ -108,7 +123,6 @@ import {
   hasBlockingResumeIdentityMismatch,
   isWorkHistoryOmissionReviewSuggestion,
   hasBlockingResumeClaimAssessment,
-  listUnresolvedWorkHistoryOmissionSuggestions,
   matchWorkHistoryReviewAcknowledgment,
   resolveResumeTemplateLabel,
   resolveTailoredAssetLabel,
@@ -150,6 +164,10 @@ import {
   resolveApplicationRecordForJob,
   withApplicationRecordTransition,
 } from "./application-crm";
+import type {
+  ApplicationAutomationMode,
+  ApplicationReviewCard,
+} from "@unemployed/contracts";
 import type {
   ApplicationPreparationCapacityToken,
   WorkspaceServiceContext,
@@ -222,7 +240,8 @@ function buildFailedTailoredAsset(input: {
     // that had just explained why no tailoring happened.
     label: resolveTailoredAssetLabel({
       existingLabel: input.existingAsset?.label ?? null,
-      generationMethod: input.existingAsset?.generationMethod ?? "deterministic",
+      generationMethod:
+        input.existingAsset?.generationMethod ?? "deterministic",
       generationReason: input.existingAsset?.generationReason ?? null,
     }),
     version: input.existingAsset?.version ?? "v1",
@@ -282,6 +301,7 @@ type WorkspaceApplicationMethods = Omit<
     | "resolveApplyConsentRequest"
     | "revokeApplyRunApproval"
     | "approveApply"
+    | "submitPreparedApplication"
     | "recordInterviewHelperApplicationAction"
   >,
   | "startApplyCopilotRun"
@@ -504,9 +524,9 @@ export function createWorkspaceApplicationMethods(
   }
 
   async function requireApplyActivityEnabled(): Promise<void> {
-    if ((await ctx.repository.getActivityControl()).paused) {
-      throw new Error(ACTIVITY_PAUSED_MESSAGE);
-    }
+    // Preparing an application is an explicit click; it resumes paused
+    // background work rather than failing with "press Resume on Home first".
+    await resumePausedActivityForUserAction(ctx.repository);
   }
 
   async function assertDirectApplyExecutionCanContinue(
@@ -976,12 +996,15 @@ export function createWorkspaceApplicationMethods(
     mutatedAt: string;
     reason: string;
     nextConfirmations: readonly ResumeClaimConfirmation[];
+    nextIssueApprovals?: readonly ResumeIssueApproval[];
   }): Promise<JobFinderWorkspaceSnapshot> {
     const state = await ensureResumeDraft(ctx, input.jobId);
     const hadApprovedExport = wasResumeDraftApproved(input.currentDraft);
     const nextDraft = ResumeDraftSchema.parse({
       ...input.currentDraft,
       claimConfirmations: input.nextConfirmations,
+      issueApprovals:
+        input.nextIssueApprovals ?? input.currentDraft.issueApprovals,
       status: hadApprovedExport ? "stale" : "needs_review",
       approvedAt: null,
       approvedExportId: null,
@@ -1287,10 +1310,9 @@ export function createWorkspaceApplicationMethods(
           filePath: selectedFilePath,
           label: "The approved tailored CV",
         })
-      : (await ctx.exportFileVerifier?.sha256?.(selectedFilePath)) ?? null;
-    const verifiedApprovedExportPath = await resolveVerifiedResumeFilePath(
-      selectedFilePath,
-    );
+      : ((await ctx.exportFileVerifier?.sha256?.(selectedFilePath)) ?? null);
+    const verifiedApprovedExportPath =
+      await resolveVerifiedResumeFilePath(selectedFilePath);
 
     return {
       job,
@@ -1305,8 +1327,7 @@ export function createWorkspaceApplicationMethods(
         sourceDocumentId: approvedExport ? null : draft.id,
         exportArtifactId: approvedExport?.id ?? null,
         fileName:
-          selectedFilePath.split(/[\\/]/).at(-1) ??
-          `${job.title}-resume.pdf`,
+          selectedFilePath.split(/[\\/]/).at(-1) ?? `${job.title}-resume.pdf`,
         filePath: verifiedApprovedExportPath,
         sha256: verifiedSha256,
         approvedAt: new Date().toISOString(),
@@ -1338,6 +1359,8 @@ export function createWorkspaceApplicationMethods(
     replaySummary?: ReturnType<
       typeof ApplicationRecordSchema.shape.replaySummary.parse
     >;
+    /** What the person allowed for this application when it was prepared. */
+    automationMode?: ApplicationAutomationMode;
     updatedAt: string;
   }) {
     const savedJobs = await ctx.repository.listSavedJobs();
@@ -1378,6 +1401,8 @@ export function createWorkspaceApplicationMethods(
             input.questionSummary !== undefined
               ? input.questionSummary
               : existingRecord.questionSummary,
+          automationMode:
+            input.automationMode ?? existingRecord.automationMode,
           latestBlocker:
             input.latestBlocker !== undefined
               ? input.latestBlocker
@@ -1910,29 +1935,81 @@ export function createWorkspaceApplicationMethods(
           "executing this application preparation",
         );
 
-        const executionResult = enforcePrepareOnlyExecutionResult(
+        // What the person's saved permission allows for this exact
+        // application. Anything it does not cover fills the form in and stops.
+        const applyAuthorityRun = await resolveApplyAuthorityForJob({
+          repository: ctx.repository,
+          job: job,
+          resumeSha256: resumeArtifact.sha256,
+          applicationUrl: job.applicationUrl ?? job.canonicalUrl,
+          now: new Date().toISOString(),
+        });
+        // Set while the form is being filled in, so the loop can hand a
+        // finished application to the submission path without re-deriving it.
+        let preparedHandoffRun: ApplySubmissionHandoff | null = null;
+        let preparedReviewCardRun: ApplicationReviewCard | null = null;
+        // The browser layer opens the page; Job Finder decides what goes in
+        // the form and whether anything may be sent.
+        const applyFlowFactsRun = {
+          job,
+          resumeArtifact,
+          profile: browserProfile.profile,
+          settings: { ...settings, resumeApplicationMode },
+          mode:
+            applyAuthorityRun.authority.mode === "autonomous_submit"
+              ? ("submit_when_ready" as const)
+              : ("prepare_only" as const),
+          ...intermediateMutationAuthority,
+          accountCreationAuthorized: false as const,
+          applyAutomationMode: applyAuthorityRun.authority.mode,
+          submitAuthorized: applyAuthorityRun.authority.submitAuthorized,
+          preApprovedAttestationKinds:
+            applyAuthorityRun.authority.preApprovedAttestationKinds,
+          salaryDisclosure: applyAuthorityRun.authority.salaryDisclosure,
+          applyAllowedOrigins: [...applyAuthorityRun.authority.allowedOrigins],
+          ...(recoverySeed.recoveryContext
+            ? { recoveryContext: recoverySeed.recoveryContext }
+            : {}),
+          ...(applyInstructions.length > 0
+            ? { instructions: applyInstructions }
+            : {}),
+          ...buildApplyVisualExecutionOptions({
+            enabled: currentRunState.visualCheckpointsEnabled,
+            source: job.source,
+          }),
+        };
+        const applyFlowInputRun = {
+          ...applyFlowFactsRun,
+          prepareApplicationForm: createApplyFormPreparer({
+            executionInput: applyFlowFactsRun,
+            aiClient: ctx.aiClient,
+            ...(applyAuthorityRun.envelope
+              ? { envelope: applyAuthorityRun.envelope }
+              : {}),
+            onPrepared: ({ handoff, reviewCard }) => {
+              preparedHandoffRun = handoff;
+              // Kept with the attempt so the review shows what this run wrote,
+              // not a later reconstruction of it.
+              preparedReviewCardRun = reviewCard;
+            },
+            letters: buildApplyLetterDependencies({
+              aiClient: ctx.aiClient,
+              documentManager: ctx.documentManager,
+              job: applyFlowFactsRun.job,
+              profile: applyFlowFactsRun.profile,
+              settings: applyFlowFactsRun.settings,
+            }),
+            siteLabel: resolveApplySiteLabel({
+              targetLabel: provenanceTarget?.label ?? null,
+              applicationUrl: job.applicationUrl ?? job.canonicalUrl,
+            }),
+          }),
+        };
+        const executionResult = enforceResolvedApplyAuthorityResult(
+          applyAuthorityRun.authority,
           await ctx.browserRuntime.executeApplicationFlow(
             job.source,
-            {
-              job,
-              resumeArtifact,
-              profile: browserProfile.profile,
-              settings: { ...settings, resumeApplicationMode },
-              mode: "prepare_only",
-              ...intermediateMutationAuthority,
-              accountCreationAuthorized: false,
-              submitAuthorized: false,
-              ...(recoverySeed.recoveryContext
-                ? { recoveryContext: recoverySeed.recoveryContext }
-                : {}),
-              ...(applyInstructions.length > 0
-                ? { instructions: applyInstructions }
-                : {}),
-              ...buildApplyVisualExecutionOptions({
-                enabled: currentRunState.visualCheckpointsEnabled,
-                source: job.source,
-              }),
-            },
+            applyFlowInputRun,
             { signal: executionSignal },
           ),
         );
@@ -2020,6 +2097,7 @@ export function createWorkspaceApplicationMethods(
           id: jobResult?.id ?? runArtifacts.result.id,
           runId: run.id,
           jobId,
+          reviewCard: preparedReviewCardRun,
           queuePosition: index,
           state: mapExecutionResultToApplyJobState({
             consentRequests: runArtifacts.consentRequests,
@@ -2222,7 +2300,30 @@ export function createWorkspaceApplicationMethods(
                 attempt.replay,
                 attempt.visualEvidence,
               ),
+              automationMode: applyAuthorityRun.authority.mode,
               updatedAt: detectedAt,
+            });
+
+            // Sending happens after the preparation is on record, so the
+            // submission's own projection is the last word on this attempt.
+            await sendPreparedApplicationIfAllowed({
+              ctx,
+              handoff: preparedHandoffRun,
+              envelope: applyAuthorityRun.envelope,
+              source: job.source,
+              lineage: {
+                runId: run.id,
+                jobId,
+                resultId: updatedResult.id,
+                applicationRecordId: exactApplicationRecordId,
+                campaignId: run.campaignId ?? null,
+              },
+              resumeArtifact,
+              siteLabel: resolveApplySiteLabel({
+                targetLabel: provenanceTarget?.label ?? null,
+                applicationUrl: job.applicationUrl ?? job.canonicalUrl,
+              }),
+              signal: executionSignal,
             });
 
             const remainingJobs = run.jobIds.length - (index + 1);
@@ -4079,20 +4180,9 @@ export function createWorkspaceApplicationMethods(
           );
         }
 
-        const unresolvedOmissionSuggestions =
-          listUnresolvedWorkHistoryOmissionSuggestions({
-            draftId: draft.id,
-            suggestions: buildWorkHistoryReviewSuggestionsFromValidation({
-              draft,
-              validation: latestValidation,
-            }),
-            acknowledgments: draft.workHistoryReviewAcknowledgments,
-          });
-        if (unresolvedOmissionSuggestions.length > 0) {
-          throw new Error(
-            `Resume export '${exportId}' still has ${unresolvedOmissionSuggestions.length} unresolved work-history omission review${unresolvedOmissionSuggestions.length === 1 ? "" : "s"}. Acknowledge ${unresolvedOmissionSuggestions.length === 1 ? "it" : "them"} in Resume Studio or show the hidden role before approving.`,
-          );
-        }
+        // Hidden roles are the person's choice, not a blocker: a role left
+        // hidden is simply off this resume. The studio still lists them so
+        // any can be added back.
 
         const template =
           templates.find((entry) => entry.id === draft.templateId) ?? null;
@@ -4371,6 +4461,65 @@ export function createWorkspaceApplicationMethods(
           (
             await ctx.repository.listResumeValidationResults(currentDraft.id)
           )[0] ?? null;
+        if (parsedInput.intent === "approve_issue") {
+          const latestValidation =
+            (
+              await ctx.repository.listResumeValidationResults(currentDraft.id)
+            )[0] ?? null;
+          const issue =
+            latestValidation?.issues.find(
+              (candidate) => candidate.id === parsedInput.issueId,
+            ) ?? null;
+          if (
+            !issue ||
+            buildResumeIssueApprovalContentHash(issue) !==
+              parsedInput.approvedContentHash
+          ) {
+            throw new Error(
+              "This note no longer matches the saved draft. Reload the workspace and try again.",
+            );
+          }
+          if (matchResumeIssueApproval({ issue, draft: currentDraft })) {
+            return ctx.getWorkspaceSnapshot();
+          }
+          const mutatedAt = createMonotonicTimestamp(currentDraft.updatedAt);
+          return persistResumeClaimConfirmationMutation({
+            jobId: parsedInput.jobId,
+            currentDraft,
+            mutatedAt,
+            reason: "Approved a flagged line as accurate.",
+            nextConfirmations: currentDraft.claimConfirmations,
+            nextIssueApprovals: [
+              ...currentDraft.issueApprovals,
+              ResumeIssueApprovalSchema.parse({
+                id: createUniqueId("issue_approval"),
+                draftId: currentDraft.id,
+                issueId: issue.id,
+                approvedContentHash: parsedInput.approvedContentHash,
+                approvedAt: mutatedAt,
+              }),
+            ],
+          });
+        }
+        if (parsedInput.intent === "remove_issue_approval") {
+          const existing = currentDraft.issueApprovals.find(
+            (approval) => approval.id === parsedInput.approvalId,
+          );
+          if (!existing) {
+            return ctx.getWorkspaceSnapshot();
+          }
+          const mutatedAt = createMonotonicTimestamp(currentDraft.updatedAt);
+          return persistResumeClaimConfirmationMutation({
+            jobId: parsedInput.jobId,
+            currentDraft,
+            mutatedAt,
+            reason: "Withdrew an approval of a flagged line.",
+            nextConfirmations: currentDraft.claimConfirmations,
+            nextIssueApprovals: currentDraft.issueApprovals.filter(
+              (approval) => approval.id !== existing.id,
+            ),
+          });
+        }
         const freshValidation = preserveWorkHistoryReviewGuidance({
           validation: validateResumeDraft({
             draft: currentDraft,
@@ -4407,12 +4556,7 @@ export function createWorkspaceApplicationMethods(
               "This claim assessment predates the current verifier and must be revalidated before it can be confirmed.",
             );
           }
-          if (assessment.status === "unsupported") {
-            throw new Error(
-              "This claim conflicts with candidate evidence and cannot be confirmed as accurate; rewrite it instead.",
-            );
-          }
-          if (assessment.status !== "confirm_needed") {
+          if (!isResumeClaimAssessmentApprovable(assessment)) {
             throw new Error(
               "This claim does not currently need explicit confirmation.",
             );
@@ -5011,22 +5155,63 @@ export function createWorkspaceApplicationMethods(
           "executing this approved application preparation",
         );
 
-        const executionResult = enforcePrepareOnlyExecutionResult(
+        // What the person's saved permission allows for this exact
+        // application. Anything it does not cover fills the form in and stops.
+        const applyAuthorityApproved = await resolveApplyAuthorityForJob({
+          repository: ctx.repository,
+          job: job,
+          resumeSha256: resumeArtifact.sha256,
+          applicationUrl: job.applicationUrl ?? job.canonicalUrl,
+          now: new Date().toISOString(),
+        });
+        // The browser layer opens the page; Job Finder decides what goes in
+        // the form and whether anything may be sent.
+        const applyFlowFactsApproved = {
+          job,
+          resumeArtifact,
+          profile: browserProfile.profile,
+          settings: { ...settings, resumeApplicationMode },
+          mode:
+            applyAuthorityApproved.authority.mode === "autonomous_submit"
+              ? ("submit_when_ready" as const)
+              : ("prepare_only" as const),
+          ...intermediateMutationAuthority,
+          accountCreationAuthorized: false as const,
+          applyAutomationMode: applyAuthorityApproved.authority.mode,
+          submitAuthorized: applyAuthorityApproved.authority.submitAuthorized,
+          preApprovedAttestationKinds:
+            applyAuthorityApproved.authority.preApprovedAttestationKinds,
+          salaryDisclosure: applyAuthorityApproved.authority.salaryDisclosure,
+          applyAllowedOrigins: [
+            ...applyAuthorityApproved.authority.allowedOrigins,
+          ],
+          ...(applyInstructions.length > 0
+            ? { instructions: applyInstructions }
+            : {}),
+        };
+        const applyFlowInputApproved = {
+          ...applyFlowFactsApproved,
+          prepareApplicationForm: createApplyFormPreparer({
+            executionInput: applyFlowFactsApproved,
+            aiClient: ctx.aiClient,
+            letters: buildApplyLetterDependencies({
+              aiClient: ctx.aiClient,
+              documentManager: ctx.documentManager,
+              job: applyFlowFactsApproved.job,
+              profile: applyFlowFactsApproved.profile,
+              settings: applyFlowFactsApproved.settings,
+            }),
+            siteLabel: resolveApplySiteLabel({
+              targetLabel: provenanceTarget?.label ?? null,
+              applicationUrl: job.applicationUrl ?? job.canonicalUrl,
+            }),
+          }),
+        };
+        const executionResult = enforceResolvedApplyAuthorityResult(
+          applyAuthorityApproved.authority,
           await ctx.browserRuntime.executeApplicationFlow(
             job.source,
-            {
-              job,
-              resumeArtifact,
-              profile: browserProfile.profile,
-              settings: { ...settings, resumeApplicationMode },
-              mode: "prepare_only",
-              ...intermediateMutationAuthority,
-              accountCreationAuthorized: false,
-              submitAuthorized: false,
-              ...(applyInstructions.length > 0
-                ? { instructions: applyInstructions }
-                : {}),
-            },
+            applyFlowInputApproved,
             { signal: claim.controller.signal },
           ),
         );
@@ -5506,29 +5691,71 @@ export function createWorkspaceApplicationMethods(
           prerequisites.profileRevision,
           "executing this application preparation",
         );
-        const executionResult = enforcePrepareOnlyExecutionResult(
+        // What the person's saved permission allows for this exact
+        // application. Anything it does not cover fills the form in and stops.
+        const applyAuthorityDirect = await resolveApplyAuthorityForJob({
+          repository: ctx.repository,
+          job: currentJob,
+          resumeSha256: resumeArtifact.sha256,
+          applicationUrl: currentJob.applicationUrl ?? currentJob.canonicalUrl,
+          now: new Date().toISOString(),
+        });
+        // The browser layer opens the page; Job Finder decides what goes in
+        // the form and whether anything may be sent.
+        const applyFlowFactsDirect = {
+          job: currentJob,
+          resumeArtifact,
+          profile: browserProfile.profile,
+          settings: { ...settings, resumeApplicationMode },
+          mode:
+            applyAuthorityDirect.authority.mode === "autonomous_submit"
+              ? ("submit_when_ready" as const)
+              : ("prepare_only" as const),
+          ...intermediateMutationAuthority,
+          accountCreationAuthorized: false as const,
+          applyAutomationMode: applyAuthorityDirect.authority.mode,
+          submitAuthorized: applyAuthorityDirect.authority.submitAuthorized,
+          preApprovedAttestationKinds:
+            applyAuthorityDirect.authority.preApprovedAttestationKinds,
+          salaryDisclosure: applyAuthorityDirect.authority.salaryDisclosure,
+          applyAllowedOrigins: [
+            ...applyAuthorityDirect.authority.allowedOrigins,
+          ],
+          ...(recoverySeed.recoveryContext
+            ? { recoveryContext: recoverySeed.recoveryContext }
+            : {}),
+          ...(applyInstructions.length > 0
+            ? { instructions: applyInstructions }
+            : {}),
+          ...buildApplyVisualExecutionOptions({
+            enabled: options?.visualCheckpointsEnabled === true,
+            source: currentJob.source,
+          }),
+        };
+        const applyFlowInputDirect = {
+          ...applyFlowFactsDirect,
+          prepareApplicationForm: createApplyFormPreparer({
+            executionInput: applyFlowFactsDirect,
+            aiClient: ctx.aiClient,
+            letters: buildApplyLetterDependencies({
+              aiClient: ctx.aiClient,
+              documentManager: ctx.documentManager,
+              job: applyFlowFactsDirect.job,
+              profile: applyFlowFactsDirect.profile,
+              settings: applyFlowFactsDirect.settings,
+            }),
+            siteLabel: resolveApplySiteLabel({
+              targetLabel: provenanceTarget?.label ?? null,
+              applicationUrl:
+                currentJob.applicationUrl ?? currentJob.canonicalUrl,
+            }),
+          }),
+        };
+        const executionResult = enforceResolvedApplyAuthorityResult(
+          applyAuthorityDirect.authority,
           await ctx.browserRuntime.executeApplicationFlow(
             currentJob.source,
-            {
-              job: currentJob,
-              resumeArtifact,
-              profile: browserProfile.profile,
-              settings: { ...settings, resumeApplicationMode },
-              mode: "prepare_only",
-              ...intermediateMutationAuthority,
-              accountCreationAuthorized: false,
-              submitAuthorized: false,
-              ...(recoverySeed.recoveryContext
-                ? { recoveryContext: recoverySeed.recoveryContext }
-                : {}),
-              ...(applyInstructions.length > 0
-                ? { instructions: applyInstructions }
-                : {}),
-              ...buildApplyVisualExecutionOptions({
-                enabled: options?.visualCheckpointsEnabled === true,
-                source: currentJob.source,
-              }),
-            },
+            applyFlowInputDirect,
             { signal: claim.controller.signal },
           ),
         );
@@ -6710,6 +6937,123 @@ export function createWorkspaceApplicationMethods(
         return ctx.getWorkspaceSnapshot();
       });
     },
+    /**
+     * Sends one application the person already looked over.
+     *
+     * The confirm-first half of sending. Everything that makes a submission
+     * safe is the same as an automatic one — the saved permission is reread,
+     * the preflight is written before anything happens, and one key allows one
+     * attempt — so pressing this twice, or pressing it after the run already
+     * sent it, cannot send a second application.
+     */
+    async submitPreparedApplication(jobId) {
+      await requireApplyActivityEnabled();
+      const prerequisites = await resolveJobApplyPrerequisites(jobId);
+      const { job, resumeArtifact } = prerequisites;
+      const [runs, results, records] = await Promise.all([
+        ctx.repository.listApplyRuns(),
+        ctx.repository.listApplyJobResults({ jobId }),
+        ctx.repository.listApplicationRecords(),
+      ]);
+
+      const result = [...results]
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        .at(0);
+      const run = result
+        ? (runs.find((entry) => entry.id === result.runId) ?? null)
+        : null;
+      const applicationRecordId = result?.applicationRecordId ?? null;
+      if (!result || !run || !applicationRecordId) {
+        throw new Error(
+          "This application has not been prepared yet, so there is nothing to send.",
+        );
+      }
+
+      const applicationRecord =
+        records.find((entry) => entry.id === applicationRecordId) ?? null;
+      const authority = await resolveApplyAuthorityForJob({
+        repository: ctx.repository,
+        job: { id: job.id, campaignId: run.campaignId ?? null },
+        resumeSha256: resumeArtifact.sha256,
+        applicationUrl: job.applicationUrl ?? job.canonicalUrl,
+        now: new Date().toISOString(),
+      });
+      if (!authority.envelope) {
+        throw new Error(
+          "You have not allowed Job Finder to send this application. Open it and send it yourself.",
+        );
+      }
+
+      const siteLabel = resolveApplySiteLabel({
+        targetLabel: null,
+        applicationUrl: job.applicationUrl ?? job.canonicalUrl,
+      });
+      const sent = await sendPreparedApplicationIfAllowed({
+        ctx,
+        // The person pressing the button is the confirmation, so this is the
+        // same handoff an automatic run produces.
+        handoff: {
+          status: "send_now",
+          finalAction: { actionRef: "", actionLabel: "Submit application" },
+          envelope: authority.envelope,
+        },
+        envelope: authority.envelope,
+        source: job.source,
+        lineage: {
+          runId: run.id,
+          jobId: job.id,
+          resultId: result.id,
+          applicationRecordId,
+          campaignId: run.campaignId ?? null,
+        },
+        resumeArtifact,
+        siteLabel,
+      });
+
+      // A page the browser let go of is recorded as such, so the review can
+      // say so and offer to prepare it again.
+      if (sent?.pageClosed && applicationRecord) {
+        await syncRunApplicationRecord({
+          applicationRecordId,
+          consentSummary: applicationRecord.consentSummary,
+          eventDetail: sent.detail,
+          eventEmphasis: "warning",
+          eventId: `event_${run.id}_${job.id}_page_closed_${Date.now()}`,
+          eventTitle: sent.summary,
+          jobId: job.id,
+          lastActionLabel: sent.summary,
+          lastAttemptState: applicationRecord.lastAttemptState,
+          latestBlocker: applicationRecord.latestBlocker,
+          nextActionLabel: sent.nextActionLabel,
+          questionSummary: applicationRecord.questionSummary,
+          replaySummary: applicationRecord.replaySummary,
+          updatedAt: new Date().toISOString(),
+        });
+        return ctx.getWorkspaceSnapshot();
+      }
+
+      if (sent && applicationRecord) {
+        await syncRunApplicationRecord({
+          applicationRecordId,
+          consentSummary: applicationRecord.consentSummary,
+          eventDetail: sent.detail,
+          eventEmphasis: sent.sent ? "positive" : "warning",
+          eventId: `event_${run.id}_${job.id}_submitted_${Date.now()}`,
+          eventTitle: sent.summary,
+          jobId: job.id,
+          lastActionLabel: sent.summary,
+          lastAttemptState: applicationRecord.lastAttemptState,
+          latestBlocker: applicationRecord.latestBlocker,
+          nextActionLabel: sent.nextActionLabel,
+          questionSummary: applicationRecord.questionSummary,
+          replaySummary: applicationRecord.replaySummary,
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
+      return ctx.getWorkspaceSnapshot();
+    },
+
     async revokeApplyRunApproval(runId) {
       await withApplyRunTransition(runId, async () => {
         const [runs, approvals, results] = await Promise.all([

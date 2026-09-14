@@ -53,6 +53,7 @@ interface ResumeWorkspaceEditorPanelProps {
     revisionReason?: string | null,
   ) => void;
   onDraftChange: (draft: ResumeDraft) => void;
+  onIncludeWorkHistoryRole?: (suggestion: WorkHistoryReviewSuggestion) => void;
   onRemoveWorkHistoryOmissionAcknowledgment: (acknowledgmentId: string) => void;
   onSectionChange: (section: ResumeDraftSection) => void;
   onSelectEntry: (sectionId: string, entryId: string) => void;
@@ -315,9 +316,9 @@ export function ResumeWorkspaceEditorPanel(
               your saved evidence in small, deliberate ways — rounded years and
               technologies the job asks for that your experience makes credible
               — so the resume clears screening for the first interview. Skills
-              the job asked for are listed under Claim confirmations. Each
-              stays unapproved until you check it against what you can prove in
-              the interview.
+              the job asked for are listed under Claim confirmations. Each stays
+              unapproved until you check it against what you can prove in the
+              interview.
               <details className="mt-1.5">
                 <summary className="cursor-pointer text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring">
                   See generated lines
@@ -347,6 +348,9 @@ export function ResumeWorkspaceEditorPanel(
           roles={props.coverageComparison?.roles ?? []}
           suggestions={props.workHistoryReviewSuggestions}
           onAcknowledge={props.onAcknowledgeWorkHistoryOmission}
+          {...(props.onIncludeWorkHistoryRole
+            ? { onIncludeRole: props.onIncludeWorkHistoryRole }
+            : {})}
           onRemoveAcknowledgment={
             props.onRemoveWorkHistoryOmissionAcknowledgment
           }

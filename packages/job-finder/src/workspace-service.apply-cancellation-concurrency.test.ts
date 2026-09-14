@@ -129,6 +129,7 @@ function stageReadyTailoredJob(
       generationMethod: "deterministic",
       workHistoryReviewAcknowledgments: [],
       claimConfirmations: [],
+      issueApprovals: [],
       approvedAt: "2026-03-20T10:04:00.000Z",
       approvedExportId: `resume_export_${jobId}`,
       staleReason: null,

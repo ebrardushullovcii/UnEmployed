@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   app,
-  type BrowserWindow,
+  BrowserWindow,
   dialog,
   screen,
   session,
@@ -34,6 +34,8 @@ const MAX_TABS = 8;
 interface BrowserPage extends BrowserCdpPage {
   view: WebContentsView;
   createdAt: number;
+  /** Which window currently holds the page's view; see `backstage`. */
+  host: "main" | "backstage";
 }
 interface ActivityHooks {
   pause(reason: string): Promise<void>;
@@ -42,6 +44,7 @@ interface ActivityHooks {
 
 export class EmbeddedBrowser {
   private window: BrowserWindow | null = null;
+  private backstage: BrowserWindow | null = null;
   private browserSession: Session | null = null;
   private readonly pageMap = new Map<string, BrowserPage>();
   private readonly pageListeners = new Set<(page: BrowserCdpPage) => void>();
@@ -72,14 +75,79 @@ export class EmbeddedBrowser {
   attachWindow(window: BrowserWindow): void {
     if (this.window === window) return;
     this.window = window;
+    window.on("focus", () => this.hostPages());
+    window.on("blur", () => this.hostPages());
     window.on("resize", () => this.layout());
     window.on("show", () => this.layout());
     window.on("restore", () => this.layout());
     window.on("closed", () => {
       if (this.window !== window) return;
       this.window = null;
+      if (this.backstage && !this.backstage.isDestroyed())
+        this.backstage.destroy();
+      this.backstage = null;
       void this.close(false);
     });
+  }
+
+  /**
+   * Automation pages must not pull the app to the front. On macOS almost
+   * anything Chromium does to a page inside the app window can activate the
+   * app when that window is not focused: a navigation committing, a popup,
+   * a full-page screenshot, emulated focus. Every one of them switched the
+   * user out of whatever full-screen app they were in. A hidden
+   * non-activating panel window is immune to all of them, so while a run is
+   * going and the app window is not focused the pages live there, and they
+   * move back into the app window as soon as it is focused again. Nobody can
+   * see the pages while the window is unfocused anyway.
+   */
+  private getBackstage(): BrowserWindow | null {
+    if (process.platform !== "darwin") return null;
+    if (this.backstage && !this.backstage.isDestroyed()) return this.backstage;
+    this.backstage = new BrowserWindow({
+      show: false,
+      type: "panel",
+      focusable: false,
+      width: 1280,
+      height: 800,
+      webPreferences: { sandbox: true, contextIsolation: true },
+    });
+    return this.backstage;
+  }
+
+  private pagesBelongBackstage(): boolean {
+    if (
+      process.platform !== "darwin" ||
+      !this.window ||
+      this.window.isDestroyed() ||
+      this.window.isFocused()
+    )
+      return false;
+    // Once a run sent pages backstage they stay until the window is focused:
+    // a site keeps navigating on its own after the run ends.
+    return (
+      this.operations.size > 0 ||
+      [...this.pageMap.values()].some((page) => page.host === "backstage")
+    );
+  }
+
+  private placePage(page: BrowserPage, host: BrowserPage["host"]): void {
+    if (page.contents.isDestroyed() || page.host === host) return;
+    if (!this.window || this.window.isDestroyed()) return;
+    const to = host === "backstage" ? this.getBackstage() : this.window;
+    if (!to) return;
+    const from = page.host === "backstage" ? this.backstage : this.window;
+    if (from && !from.isDestroyed())
+      from.contentView.removeChildView(page.view);
+    to.contentView.addChildView(page.view);
+    page.host = host;
+  }
+
+  /** Move every page to the window it belongs in right now, then lay out. */
+  private hostPages(): void {
+    const host = this.pagesBelongBackstage() ? "backstage" : "main";
+    for (const page of this.pageMap.values()) this.placePage(page, host);
+    this.layout();
   }
 
   ownsRenderer(id: number): boolean {
@@ -195,7 +263,6 @@ export class EmbeddedBrowser {
           "geolocation",
           "notifications",
           "clipboard-sanitized-write",
-          "fullscreen",
         ].includes(permission);
         if (!supported) {
           callback(false);
@@ -304,18 +371,23 @@ export class EmbeddedBrowser {
         navigateOnDragDrop: false,
       },
     });
+    const host = this.pagesBelongBackstage() ? "backstage" : "main";
     const page: BrowserPage = {
       id: randomUUID(),
       contents: view.webContents,
       view,
       createdAt: Date.now(),
+      host,
       ...(openerId ? { openerId } : {}),
     };
     this.pageMap.set(page.id, page);
     this.closed = false;
     this.activeTabId = page.id;
     view.setBorderRadius(12);
-    this.window.contentView.addChildView(view);
+    (host === "backstage"
+      ? (this.getBackstage() ?? this.window)
+      : this.window
+    ).contentView.addChildView(view);
     const update = () => {
       if (!page.contents.isDestroyed()) this.emit();
     };
@@ -415,8 +487,9 @@ export class EmbeddedBrowser {
       this.pageMap.delete(page.id);
       if (this.activeTabId === page.id)
         this.activeTabId = [...this.pageMap.keys()].at(-1) ?? null;
-      if (this.window && !this.window.isDestroyed())
-        this.window.contentView.removeChildView(view);
+      const holder = page.host === "backstage" ? this.backstage : this.window;
+      if (holder && !holder.isDestroyed())
+        holder.contentView.removeChildView(view);
       this.layout();
       this.emit();
     });
@@ -506,8 +579,21 @@ export class EmbeddedBrowser {
       1,
       Math.min(windowHeight - y, Math.round(this.viewport.height * zoom)),
     );
+    const backstage =
+      this.backstage && !this.backstage.isDestroyed() ? this.backstage : null;
+    if (backstage && width > 100 && height > 100)
+      backstage.setContentSize(width, height);
     for (const page of this.pageMap.values()) {
       if (page.contents.isDestroyed()) continue;
+      if (page.host === "backstage") {
+        // Same size as the on-screen viewport so layout and screenshots match
+        // what the user would see; always visible, the window itself is not.
+        if (width > 100 && height > 100)
+          page.view.setBounds({ x: 0, y: 0, width, height });
+        page.view.setVisible(true);
+        page.contents.setBackgroundThrottling(this.operations.size === 0);
+        continue;
+      }
       // Minimize preserves the last usable viewport; never resize a live page to 0.
       if (width > 100 && height > 100)
         page.view.setBounds({ x, y, width, height });
@@ -618,9 +704,10 @@ export class EmbeddedBrowser {
       if (!page.contents.isDestroyed())
         page.contents.setBackgroundThrottling(false);
     this.focusApp();
+    this.hostPages();
     this.emit();
     try {
-      await this.bridge?.setAutomationActive(true);
+      await this.bridge?.syncFocusEmulation();
       combined.throwIfAborted();
       return await work(combined);
     } catch (error) {
@@ -634,7 +721,7 @@ export class EmbeddedBrowser {
             page.contents.setBackgroundThrottling(true);
         }
       if (this.operations.size === 0)
-        await this.bridge?.setAutomationActive(false).catch(() => undefined);
+        await this.bridge?.syncFocusEmulation().catch(() => undefined);
       this.emit();
     }
   }
@@ -732,6 +819,7 @@ export class EmbeddedBrowser {
 
   private isUserOnPage(page: BrowserPage): boolean {
     if (
+      page.host === "backstage" ||
       !this.window ||
       this.window.isDestroyed() ||
       this.presentation === "minimized" ||

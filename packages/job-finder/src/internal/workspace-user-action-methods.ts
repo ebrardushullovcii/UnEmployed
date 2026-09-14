@@ -5,6 +5,7 @@ import {
   UserActionCommandSchema,
   type UserActionCommand,
   type UserActionRequest,
+  JobFinderActivityControlSchema,
 } from "@unemployed/contracts";
 
 import {
@@ -52,6 +53,31 @@ export const USER_ACTION_RESUMPTION_CONCURRENCY = 2;
  * launched. Callers must skip the work and leave the affected user actions in
  * their current state so they stay resumable after activity resumes.
  */
+/**
+ * The opposite gate for explicit user actions: a deliberate click (Search
+ * now, Run now, Check source, Prepare, opening the browser) clears a pause
+ * instead of failing on it. Automated work must never call this; it keeps
+ * using {@link isWorkspaceActivityPaused}.
+ */
+export async function resumePausedActivityForUserAction(
+  repository: Pick<
+    JobFinderRepository,
+    "getActivityControl" | "saveActivityControl"
+  >,
+): Promise<void> {
+  const control = await repository.getActivityControl();
+  if (!control.paused) {
+    return;
+  }
+  await repository.saveActivityControl(
+    JobFinderActivityControlSchema.parse({
+      paused: false,
+      pausedAt: null,
+      reason: null,
+    }),
+  );
+}
+
 export async function isWorkspaceActivityPaused(
   repository: Pick<JobFinderRepository, "getActivityControl">,
 ): Promise<boolean> {
@@ -637,7 +663,8 @@ export function createWorkspaceUserActionMethods(
       await releaseApplicationRecordAfterDismissedUserAction({
         repository: ctx.repository,
         request: commandCommit.request,
-        occurredAt: commandCommit.request.resolvedAt ?? new Date().toISOString(),
+        occurredAt:
+          commandCommit.request.resolvedAt ?? new Date().toISOString(),
         eventId: `event_user_action_${command.action}_${command.requestId}`,
         dismissal: command.action === "skip" ? "skipped" : "cancelled",
       });
@@ -664,9 +691,12 @@ export function createWorkspaceUserActionMethods(
       // revision before any external browser work and becomes a safe stale
       // no-op instead of opening the same page twice.
       const previous = requestTransitionTails.get(command.requestId);
-      const flight = (previous
-        ? previous.catch(() => undefined).then(() => performUserActionOnce(command))
-        : performUserActionOnce(command)
+      const flight = (
+        previous
+          ? previous
+              .catch(() => undefined)
+              .then(() => performUserActionOnce(command))
+          : performUserActionOnce(command)
       ).finally(() => {
         if (commandFlights.get(command.commandId) === flight) {
           commandFlights.delete(command.commandId);

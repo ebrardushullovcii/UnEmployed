@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ApplicationRecordSchema,
   ApplyJobResultSchema,
+  type ApplicationRecord,
 } from "@unemployed/contracts";
 import {
   getApplicationLatestActivityLabel,
@@ -417,5 +418,58 @@ describe("applicationRecordAwaitsUser", () => {
         }
       }
     }
+  });
+});
+
+describe("an application waiting for the person to send it", () => {
+  function readyToSendRecord(
+    overrides: Partial<ApplicationRecord> = {},
+  ): ApplicationRecord {
+    return {
+      id: "application_ready",
+      jobId: "job_ready",
+      title: "Platform Engineer",
+      company: "Northwind Tools",
+      status: "approved",
+      lastActionLabel: "Filled in and waiting",
+      nextActionLabel: "Review it and send it",
+      lastUpdatedAt: "2026-09-14T10:00:00.000Z",
+      lastAttemptState: "awaiting_review",
+      questionSummary: {},
+      latestBlocker: null,
+      consentSummary: {},
+      replaySummary: {},
+      events: [],
+      crm: null,
+      automationMode: "confirm_before_submit",
+      ...overrides,
+    } as unknown as ApplicationRecord;
+  }
+
+  it("counts as waiting on the person, so Needs you lists it", () => {
+    expect(applicationRecordAwaitsUser(readyToSendRecord())).toBe(true);
+  });
+
+  it("says ready to send rather than borrowing the Needs you chip", () => {
+    expect(getApplicationStagePresentation(readyToSendRecord())).toEqual({
+      label: "Ready to send",
+      tone: "active",
+    });
+  });
+
+  it("stops waiting once it has been sent", () => {
+    expect(
+      applicationRecordAwaitsUser(
+        readyToSendRecord({ lastAttemptState: "submitted" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("an application set to fill in only is not waiting on anyone", () => {
+    expect(
+      applicationRecordAwaitsUser(
+        readyToSendRecord({ automationMode: "prepare_only" }),
+      ),
+    ).toBe(false);
   });
 });

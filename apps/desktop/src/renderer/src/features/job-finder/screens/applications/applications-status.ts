@@ -174,6 +174,17 @@ export function getApplicationStagePresentation(record: ApplicationRecord): {
   // browser) files it as a "requested" consent, but the user is not being
   // asked to consent to anything: the site is waiting on them. When the run
   // saved what to do next, that is the stage.
+  // "Ready to send" is not a problem to solve, so it keeps its own words
+  // rather than borrowing the Needs you chip.
+  if (
+    shouldPresentConsentState(record) &&
+    record.automationMode === "confirm_before_submit" &&
+    record.lastAttemptState !== "paused" &&
+    record.lastAttemptState !== "submitted"
+  ) {
+    return { label: "Ready to send", tone: "active" };
+  }
+
   if (
     shouldPresentConsentState(record) &&
     record.consentSummary.status === "requested" &&
@@ -242,6 +253,15 @@ export const APPLICATION_NEEDS_YOU_STAGE_LABEL = "Needs you";
  */
 export function applicationRecordAwaitsUser(record: ApplicationRecord): boolean {
   if (!shouldPresentConsentState(record)) return false;
+  // An application filled in under "ask me before sending" is waiting on the
+  // person just as much as a paused one: it will never go out until they read
+  // it and press send, so it belongs in the same queue.
+  if (
+    record.automationMode === "confirm_before_submit" &&
+    record.lastAttemptState !== "submitted"
+  ) {
+    return true;
+  }
   if (record.lastAttemptState !== "paused") return false;
   const consent = record.consentSummary.status;
   if (consent === "declined") return false;

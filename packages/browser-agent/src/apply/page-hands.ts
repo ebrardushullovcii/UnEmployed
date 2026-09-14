@@ -1,0 +1,238 @@
+import type {
+  ApplyRawPageHands,
+  RawApplyControl,
+  RawApplyPage,
+} from "@unemployed/contracts";
+
+import {
+  inferActionKind,
+  inferAttestationKind,
+  inferQuestionKind,
+  isControlAnswered,
+  normalizeSignal,
+  toAnswerControlType,
+} from "./control-classification";
+import { detectApplyBlocker } from "./blockers";
+import {
+  explicitCallingCode,
+  isPhoneCountryControl,
+  optionCallingCodes,
+} from "./phone-country";
+import type {
+  ApplyControlKind,
+  ApplyFormAction,
+  ApplyFormControl,
+  ApplyFormObservation,
+  ApplyPageHands,
+  ApplyStepPosition,
+} from "./types";
+
+/**
+ * Turning a raw page read into something the loop can reason about.
+ *
+ * The browser layer says what is on the page. This file says what it means:
+ * which control asks which question, which of them the person has to answer
+ * themselves, which button sends the application, and whether the page is
+ * showing something that needs a person.
+ */
+
+function toControlKind(raw: RawApplyControl): ApplyControlKind {
+  const type = raw.inputType.toLowerCase();
+  if (raw.tagName === "select") {
+    return "select";
+  }
+  if (raw.tagName === "textarea" || raw.tagName === "contenteditable") {
+    return "long_text";
+  }
+  if (raw.role === "combobox") {
+    return "combobox";
+  }
+  if (raw.role === "checkbox" || type === "checkbox") {
+    return "checkbox";
+  }
+  if (raw.role === "radio" || type === "radio") {
+    return "radio";
+  }
+  if (type === "file") {
+    return "file";
+  }
+  if (type === "date" || type === "month") {
+    return "date";
+  }
+  if (
+    type === "text" ||
+    type === "email" ||
+    type === "tel" ||
+    type === "url" ||
+    type === "number" ||
+    type === "search" ||
+    type === ""
+  ) {
+    return "text";
+  }
+  return "other";
+}
+
+/** Reads "Step 2 of 4" style progress out of whatever the page happens to call it. */
+export function readStepPosition(
+  stepLabel: string | null,
+  bodyText: string,
+): ApplyStepPosition {
+  const haystack = stepLabel ?? bodyText.slice(0, 4_000);
+  const numbered =
+    /\b(?:step|page|section)\s+(\d{1,2})\s*(?:of|\/|from)\s*(\d{1,2})\b/iu.exec(
+      haystack,
+    );
+  if (numbered?.[1] && numbered[2]) {
+    return {
+      label: stepLabel,
+      index: Number.parseInt(numbered[1], 10),
+      total: Number.parseInt(numbered[2], 10),
+    };
+  }
+  const bare = /\b(\d{1,2})\s*\/\s*(\d{1,2})\b/u.exec(haystack);
+  if (stepLabel && bare?.[1] && bare[2]) {
+    return {
+      label: stepLabel,
+      index: Number.parseInt(bare[1], 10),
+      total: Number.parseInt(bare[2], 10),
+    };
+  }
+  return { label: stepLabel, index: null, total: null };
+}
+
+function hashSignature(parts: readonly string[]): string {
+  let hash = 2166136261;
+  const joined = parts.join(" ");
+  for (let index = 0; index < joined.length; index += 1) {
+    hash ^= joined.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+export function buildApplyFormObservation(
+  raw: RawApplyPage,
+  observedAt: string,
+): ApplyFormObservation {
+  const controls: ApplyFormControl[] = raw.controls.map((rawControl) => {
+    const kind = toControlKind(rawControl);
+    const base = {
+      ref: `c${rawControl.index}`,
+      kind,
+      label: rawControl.label.trim(),
+      groupLabel: rawControl.groupLabel.trim(),
+      placeholder: rawControl.placeholder.trim(),
+      required: rawControl.required,
+      disabled: rawControl.disabled,
+      readOnly: rawControl.readOnly,
+      visible: rawControl.visible,
+      value: rawControl.value,
+      checked: rawControl.checked,
+      options: rawControl.options,
+      selectedOptionLabel: rawControl.selectedOptionLabel,
+      invalid: rawControl.invalid,
+      validationMessage: rawControl.validationMessage,
+    };
+    const control: ApplyFormControl = {
+      ...base,
+      questionKind: inferQuestionKind(base),
+      answerControlType: toAnswerControlType(kind, rawControl.multiple),
+      attestationKind: inferAttestationKind(base),
+      answered: false,
+    };
+    return { ...control, answered: isControlAnswered(control) };
+  });
+
+  // A phone field sitting next to a country picker must not repeat the code
+  // the picker already shows, so each phone field is told what that is.
+  const shownCallingCode = controls
+    .filter((control) => isPhoneCountryControl(control))
+    .flatMap((control) => {
+      const shown = control.selectedOptionLabel || control.value;
+      const fromOption = optionCallingCodes(shown);
+      const explicit = explicitCallingCode(shown);
+      return fromOption.length === 1 && fromOption[0]
+        ? [fromOption[0]]
+        : explicit
+          ? [explicit]
+          : [];
+    })
+    .at(0) ?? null;
+  if (shownCallingCode) {
+    for (const control of controls) {
+      if (
+        !isPhoneCountryControl(control) &&
+        control.questionKind === "personal_info" &&
+        /\b(phone|mobile|telephone|cell)\b/u.test(
+          normalizeSignal(`${control.label} ${control.groupLabel}`),
+        )
+      ) {
+        control.selectedCallingCode = shownCallingCode;
+      }
+    }
+  }
+
+  const actions: ApplyFormAction[] = raw.actions.map((rawAction) => ({
+    ref: `a${rawAction.index}`,
+    label: rawAction.label.trim(),
+    kind: inferActionKind(rawAction.label),
+    visible: rawAction.visible,
+    disabled: rawAction.disabled,
+  }));
+
+  let origin: string | null = null;
+  try {
+    origin = raw.url ? new URL(raw.url).origin : null;
+  } catch {
+    origin = null;
+  }
+
+  return {
+    observedAt,
+    signature: hashSignature([
+      raw.url ?? "",
+      raw.stepLabel ?? "",
+      ...controls.map(
+        (control) =>
+          `${control.ref}|${control.kind}|${normalizeSignal(control.label)}|${control.required}|${control.answered}`,
+      ),
+      ...actions.map(
+        (action) => `${action.ref}|${action.kind}|${normalizeSignal(action.label)}`,
+      ),
+    ]),
+    url: raw.url,
+    origin,
+    title: raw.title,
+    step: readStepPosition(raw.stepLabel, raw.bodyText),
+    bodyTextExcerpt: raw.bodyText.slice(0, 4_000),
+    controls,
+    actions,
+    validationErrors: raw.validationErrors,
+    blocker: detectApplyBlocker({
+      bodyText: raw.bodyText,
+      controls,
+      actions,
+    }),
+  };
+}
+
+/**
+ * Wraps the browser layer's mechanics into the hands the loop uses.
+ *
+ * The only thing added here is meaning: writes pass straight through.
+ */
+export function createApplyPageHands(
+  mechanics: ApplyRawPageHands,
+  now: () => Date = () => new Date(),
+): ApplyPageHands {
+  return {
+    observe: async () =>
+      buildApplyFormObservation(await mechanics.readPage(), now().toISOString()),
+    fillText: (ref, value) => mechanics.fillText(ref, value),
+    chooseOption: (ref, optionLabel) => mechanics.chooseOption(ref, optionLabel),
+    setToggle: (ref, checked) => mechanics.setToggle(ref, checked),
+    uploadFile: (ref, file) => mechanics.uploadFile(ref, file),
+    clickAction: (ref) => mechanics.clickAction(ref),
+  };
+}

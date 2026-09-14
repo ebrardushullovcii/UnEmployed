@@ -332,7 +332,14 @@ export function buildJobFinderPageContext(
     onGetApplyRunDetails: actions.getApplyRunDetails,
     onSaveApplicationAnswer: actions.saveApplicationAnswer,
     onClearApplicationAnswer: actions.clearApplicationAnswer,
-    onSetResumeClaimConfirmation: actions.setResumeClaimConfirmation,
+    // The confirmation mutates the saved draft; the studio reads the resume
+    // workspace, not the general snapshot, so refresh it or the approved row
+    // only changes after a reload.
+    onSetResumeClaimConfirmation: async (input) => {
+      const snapshot = await actions.setResumeClaimConfirmation(input);
+      await refreshResumeWorkspace(input.jobId);
+      return snapshot;
+    },
     onExportApplicationPacket: async (input) => {
       await runAction(
         () => actions.exportApplicationPacket(input),
@@ -535,11 +542,10 @@ export function buildJobFinderPageContext(
               : null;
           if (parkedTab) {
             const browserState = await window.unemployed.browser.getState();
-            const tab = browserState.tabs.find(
-              (candidate) =>
-                parkedTab.tabId !== null
-                  ? candidate.id === parkedTab.tabId
-                  : candidate.url === parkedTab.url,
+            const tab = browserState.tabs.find((candidate) =>
+              parkedTab.tabId !== null
+                ? candidate.id === parkedTab.tabId
+                : candidate.url === parkedTab.url,
             );
             if (!tab) {
               throw new Error(

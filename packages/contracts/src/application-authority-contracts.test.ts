@@ -1,5 +1,7 @@
 import { describe, expect, it, test } from "vitest";
 
+import type { ApplicationAttestationKind } from "./application-authority";
+
 import {
   ApplicationAutomationModeSchema,
   ApplicationAuthorityAnswerPolicySchema,
@@ -31,6 +33,8 @@ const validAnswerPolicy = {
   unknownRequiredQuestion: "pause_for_user" as const,
   unknownEligibility: "pause_for_user" as const,
   unknownLegalRequirement: "pause_for_user" as const,
+  preApprovedAttestationKinds: [] as ApplicationAttestationKind[],
+  salaryDisclosure: "pause_for_user" as const,
 };
 
 const validStopConditions = {

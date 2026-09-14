@@ -19,6 +19,7 @@ import {
   SHELL_SIDEBAR_ROW_INACTIVE_CLASS,
 } from "@renderer/features/job-finder/components/job-finder-shell";
 import { JobFinderShellBrand } from "@renderer/features/job-finder/components/job-finder-shell-brand";
+import { SourceCheckQueueRunner } from "@renderer/features/job-finder/lib/source-check-queue-runner";
 import { LockedScreenLayout } from "@renderer/features/job-finder/components/locked-screen-layout";
 import { JOB_FINDER_SHORTCUTS_DIALOG_LABEL } from "@renderer/features/job-finder/components/job-finder-shortcuts-dialog";
 import { PageHeader } from "@renderer/features/job-finder/components/page-header";
@@ -1222,6 +1223,13 @@ export function JobFinderPage() {
 
   return withJobFinderWindowCloseGuard(
     <ThemeProvider preference={appearanceTheme || "system"}>
+      <SourceCheckQueueRunner
+        isSourceDebugPending={(targetId) =>
+          context.isPending(jobFinderPendingActions.sourceDebug(targetId))
+        }
+        onRunSourceDebug={context.onRunSourceDebug}
+        recentSourceDebugRuns={workspace.recentSourceDebugRuns}
+      />
       <JobFinderShell
         isDiscoveryPending={context.isAnyPending([
           jobFinderPendingActions.discoveryAll(),

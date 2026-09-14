@@ -622,6 +622,10 @@ export function useJobFinderWorkspace(): JobFinderWorkspaceState {
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.revokeApplyRunApproval(input),
         ),
+      submitPreparedApplication: (input: { jobId: string }) =>
+        runWorkspaceAction(() =>
+          window.unemployed.jobFinder.submitPreparedApplication(input),
+        ),
       mutateApplicationCrm: (input: ApplicationCrmMutationInput) =>
         runWorkspaceAction(() =>
           window.unemployed.jobFinder.mutateApplicationCrm(input),

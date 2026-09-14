@@ -18,6 +18,7 @@ import { Mic } from "lucide-react";
 import { Button } from "@renderer/components/ui";
 import { StatusBadge } from "../../components/status-badge";
 import { ApplicationsDetailPanelActivitySections } from "./applications-detail-panel-activity-sections";
+import { getApplicationApplyPresentation } from "./applications-apply-state";
 import { ApplicationsApplicationDocuments } from "./applications-application-documents";
 import { ApplicationsDetailPanelEmptyState } from "./applications-detail-panel-empty-state";
 import { ApplicationsDetailFactStrip } from "./applications-detail-fact-strip";
@@ -112,6 +113,10 @@ interface ApplicationsDetailPanelProps {
     uncertainOutcomeId: string,
     resolution: "submitted" | "not_submitted",
   ) => Promise<void>;
+  /** Sends an application the person chose to look over first. */
+  onSubmitPreparedApplication?: (jobId: string) => Promise<void>;
+  /** Prepares the application again when its page is no longer open. */
+  onPrepareApplicationAgain?: (jobId: string) => Promise<void>;
   onSaveApplicationAnswer: (
     command: SaveApplicationAnswerCommandInput,
   ) => Promise<void>;
@@ -183,8 +188,17 @@ export function ApplicationsDetailPanel({
   selectedAttempt,
   selectedRecord,
   selectedRecordCompanyId,
+  onSubmitPreparedApplication,
+  onPrepareApplicationAgain,
 }: ApplicationsDetailPanelProps) {
   const visibleApplyResult = effectiveSelectedApplyResult;
+  // Where this application stands, in the one vocabulary the screen uses.
+  const applyPresentation = selectedRecord
+    ? getApplicationApplyPresentation({
+        record: selectedRecord,
+        applyResult: effectiveSelectedApplyResult,
+      })
+    : null;
   const canRestageAutoRun =
     selectedRecord?.status === "approved" ||
     selectedRecord?.status === "ready_for_review";
@@ -519,6 +533,18 @@ export function ApplicationsDetailPanel({
             onSaveApplicationAnswer={onSaveApplicationAnswer}
             onClearApplicationAnswer={onClearApplicationAnswer}
             onSelectApplyRun={onSelectApplyRun}
+            {...(onSubmitPreparedApplication
+              ? { onSubmitPreparedApplication }
+              : {})}
+            awaitsYourReview={
+              applyPresentation?.state === "awaiting_your_review"
+            }
+            {...(onPrepareApplicationAgain
+              ? { onPrepareApplicationAgain }
+              : {})}
+            applicationPageClosed={
+              selectedRecord?.nextActionLabel === "Prepare again"
+            }
             selectedApplyRunDetails={selectedApplyRunDetails}
             selectedApplyRunId={selectedApplyRunId}
             selectedAttempt={selectedAttempt}

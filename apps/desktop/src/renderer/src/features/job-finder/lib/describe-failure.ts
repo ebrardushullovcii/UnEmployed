@@ -33,6 +33,7 @@ export type FailureKind =
   | "site_blocked"
   | "assistant_unavailable"
   | "invalid_details"
+  | "paused"
   | "unknown";
 
 /**
@@ -56,6 +57,8 @@ export const FAILURE_SENTENCES = {
     "The writing assistant did not answer. Try again in a few minutes.",
   invalid_details:
     "Some details were missing or did not fit, so nothing was saved. Check the fields you just changed and try again.",
+  paused:
+    "Background work is paused, so nothing new can start. Press Resume background work on the Job Finder Home screen, then try again.",
   unknown: "Something went wrong and this did not finish. Try again.",
 } as const satisfies Record<FailureKind, string>;
 
@@ -204,12 +207,18 @@ const INVALID_DETAILS_PATTERNS = [
   /\binvalid (?:input|type|enum value|literal value|union)\b/i,
 ];
 
+const PAUSED_PATTERNS: readonly RegExp[] = [
+  /activity is paused/i,
+  /resume background work/i,
+];
+
 const KIND_PATTERNS: readonly (readonly [
   Exclude<FailureKind, "unknown">,
   readonly RegExp[],
 ])[] = [
   // Ordered most specific first: "already executing" is busy even though the
   // same string may also contain a job id that looks like a missing record.
+  ["paused", PAUSED_PATTERNS],
   ["busy", BUSY_PATTERNS],
   ["changed_elsewhere", CHANGED_ELSEWHERE_PATTERNS],
   ["site_blocked", SITE_BLOCKED_PATTERNS],

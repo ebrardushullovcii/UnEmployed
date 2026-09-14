@@ -20,6 +20,7 @@ import {
   ResumeCoverageComparisonSchema,
   ResumeValidationResultSchema,
   TailoredAssetSchema,
+  applyResumeIssueApprovals,
   isBlockingResumeClaimAssessment,
   isBlockingResumeValidationIssue,
   ResumeProposalApprovalBlockerSchema,
@@ -1242,7 +1243,9 @@ function assessResumeClaims(input: {
       claim.field === "section_bullet" &&
       isSkillsResumeSection(input.draft, claim.sectionId) &&
       !isLanguageSection(
-        input.draft.sections.find((section) => section.id === claim.sectionId) ?? {
+        input.draft.sections.find(
+          (section) => section.id === claim.sectionId,
+        ) ?? {
           kind: "skills",
           label: "",
         },
@@ -2202,9 +2205,10 @@ export function validateResumeDraft(input: {
           "This claim goes beyond the stored candidate evidence — the kind of small, deliberate stretch that clears screening for a first interview. Confirm it is accurate and the candidate's own before export; only confirm what the candidate can back in the interview.",
       });
     }
-    const blocksExport =
-      assessment.status === "unsupported" ||
-      (assessment.status === "review" && generatedClaim);
+    const blocksExport = isBlockingResumeClaimAssessment({
+      assessment,
+      draft: input.draft,
+    });
     const alreadyReported = issues.some(
       (issue) =>
         issue.sectionId === assessment.sectionId &&
@@ -2248,7 +2252,7 @@ export function validateResumeDraft(input: {
       entryId: assessment.entryId,
       bulletId: assessment.bulletId,
       message: generatedClaim
-        ? "This generated claim lacks strong candidate-only evidence and must be rewritten or explicitly user-edited before export."
+        ? "Your saved evidence does not back this generated claim. Rewrite it, or approve it as accurate if you can stand behind it."
         : "This claim conflicts with candidate evidence and must be corrected before export.",
       // Name the exact flagged sentence so the blocker surface can quote it and
       // offer a one-click restore of the text it replaced.
@@ -2259,7 +2263,8 @@ export function validateResumeDraft(input: {
   return ResumeValidationResultSchema.parse({
     id: `resume_validation_${input.draft.id}`,
     draftId: input.draft.id,
-    issues,
+    // Blockers the person approved as accurate stay listed as notes.
+    issues: applyResumeIssueApprovals({ issues, draft: input.draft }),
     draftContentHash: buildResumeDraftContentHash(input.draft),
     claimAssessments,
     coverageComparison: input.profile
@@ -2372,7 +2377,7 @@ export function collectResumeExportBlockers(input: {
       bulletId: assessment.bulletId,
       flaggedText: assessment.claimText,
       message: isGeneratedResumeClaimOrigin(assessment.claimOrigin)
-        ? "This generated claim lacks strong candidate-only evidence and must be rewritten or explicitly user-edited before export."
+        ? "Your saved evidence does not back this generated claim. Rewrite it, or approve it as accurate if you can stand behind it."
         : "This claim conflicts with candidate evidence and must be corrected before export.",
     });
   }

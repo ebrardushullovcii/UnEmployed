@@ -1,0 +1,356 @@
+import type {
+  ApplicationAttestationKind,
+  ApplicationQuestionControlType,
+  ApplicationQuestionKind,
+} from "@unemployed/contracts";
+
+import type { ApplyActionKind, ApplyControlKind, ApplyFormControl } from "./types";
+
+/**
+ * Reading a form control's meaning from what it says about itself.
+ *
+ * Everything here works from the words on the page and the control's own
+ * markup. There is nothing per-site: the same rules read an in-page modal, a
+ * multi-screen form, and a single long page.
+ */
+
+export function normalizeSignal(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[‘’“”]/gu, "'")
+    .replace(/[^a-z0-9]+/gu, " ")
+    .trim();
+}
+
+function controlSignalText(
+  control: Pick<
+    ApplyFormControl,
+    "label" | "groupLabel" | "placeholder"
+  > & { name?: string; id?: string; autocomplete?: string },
+): string {
+  return normalizeSignal(
+    [
+      control.label,
+      control.groupLabel,
+      control.placeholder,
+      control.name ?? "",
+      control.id ?? "",
+      control.autocomplete ?? "",
+    ].join(" "),
+  );
+}
+
+function containsAny(haystack: string, needles: readonly string[]): boolean {
+  return needles.some((needle) => haystack.includes(needle));
+}
+
+const QUESTION_KIND_SIGNALS: ReadonlyArray<
+  readonly [ApplicationQuestionKind, readonly string[]]
+> = [
+  ["resume", ["resume", "cv", "curriculum vitae", "upload your resume"]],
+  [
+    "cover_letter",
+    [
+      "cover letter",
+      "covering letter",
+      "motivation letter",
+      "motivational letter",
+      "letter of motivation",
+      "why do you want to work",
+      "why are you interested",
+    ],
+  ],
+  [
+    "work_authorization",
+    [
+      "work authorization",
+      "work authorisation",
+      "authorized to work",
+      "authorised to work",
+      "legally authorized",
+      "legally authorised",
+      "right to work",
+      "work permit",
+      "eligible to work",
+    ],
+  ],
+  [
+    "visa_sponsorship",
+    [
+      "sponsorship",
+      "sponsor",
+      "visa",
+      "require sponsorship",
+      "immigration status",
+    ],
+  ],
+  [
+    "salary_expectation",
+    [
+      "salary",
+      "compensation",
+      "expected pay",
+      "pay expectation",
+      "desired salary",
+      "rate expectation",
+      "remuneration",
+    ],
+  ],
+  [
+    "notice_period",
+    ["notice period", "notice", "how much notice", "resignation period"],
+  ],
+  [
+    "availability",
+    [
+      "start date",
+      "available to start",
+      "availability",
+      "earliest start",
+      "when can you start",
+    ],
+  ],
+  [
+    "relocation",
+    ["relocate", "relocation", "willing to move", "willing to relocate"],
+  ],
+  ["travel", ["travel", "willing to travel", "travel requirement"]],
+  [
+    "clearance",
+    ["security clearance", "clearance level", "government clearance"],
+  ],
+  [
+    "portfolio",
+    [
+      "portfolio",
+      "website",
+      "personal site",
+      "profile url",
+      "profile link",
+      "repository",
+      "code sample",
+    ],
+  ],
+  [
+    "experience",
+    [
+      "years of experience",
+      "how many years",
+      "experience with",
+      "level of experience",
+      "describe your experience",
+    ],
+  ],
+  [
+    "location",
+    [
+      "city",
+      "current location",
+      "where are you based",
+      "postal code",
+      "zip code",
+      "country",
+      "state",
+      "province",
+      "address",
+    ],
+  ],
+  [
+    "personal_info",
+    [
+      "first name",
+      "last name",
+      "given name",
+      "family name",
+      "surname",
+      "full name",
+      "preferred name",
+      "email",
+      "phone",
+      "mobile",
+      "telephone",
+      "pronouns",
+    ],
+  ],
+];
+
+export function inferQuestionKind(
+  control: Pick<ApplyFormControl, "label" | "groupLabel" | "placeholder" | "kind">,
+): ApplicationQuestionKind {
+  const signal = controlSignalText(control);
+  for (const [kind, needles] of QUESTION_KIND_SIGNALS) {
+    if (containsAny(signal, needles)) {
+      return kind;
+    }
+  }
+  if (control.kind === "file") {
+    return "resume";
+  }
+  return "other";
+}
+
+const ATTESTATION_SIGNALS: ReadonlyArray<
+  readonly [ApplicationAttestationKind, readonly string[]]
+> = [
+  [
+    "equal_opportunity_self_identification",
+    [
+      "equal opportunity",
+      "equal employment",
+      "self identify",
+      "self identification",
+      "voluntary self",
+      "race ethnicity",
+      "gender identity",
+      "veteran status",
+      "disability status",
+      "protected veteran",
+    ],
+  ],
+  [
+    "background_check_consent",
+    [
+      "background check",
+      "background screening",
+      "criminal record check",
+      "consent to a background",
+      "reference check consent",
+    ],
+  ],
+  [
+    "truthfulness_certification",
+    [
+      "i certify",
+      "i confirm that the information",
+      "i declare",
+      "information is true",
+      "accurate and complete",
+      "to the best of my knowledge",
+      "under penalty",
+    ],
+  ],
+  [
+    "terms_acceptance",
+    [
+      "terms and conditions",
+      "terms of service",
+      "terms of use",
+      "i agree to the terms",
+      "applicant agreement",
+    ],
+  ],
+  [
+    "privacy_notice_acknowledgement",
+    [
+      "privacy policy",
+      "privacy notice",
+      "data protection",
+      "processing of my personal data",
+      "consent to the processing",
+      "candidate privacy",
+    ],
+  ],
+  [
+    "marketing_contact_consent",
+    [
+      "marketing",
+      "newsletter",
+      "future opportunities",
+      "keep me informed",
+      "contact me about other",
+      "talent community",
+    ],
+  ],
+];
+
+export function inferAttestationKind(
+  control: Pick<ApplyFormControl, "label" | "groupLabel" | "placeholder" | "kind">,
+): ApplicationAttestationKind | null {
+  const signal = controlSignalText(control);
+  for (const [kind, needles] of ATTESTATION_SIGNALS) {
+    if (containsAny(signal, needles)) {
+      return kind;
+    }
+  }
+  return null;
+}
+
+export function toAnswerControlType(
+  kind: ApplyControlKind,
+  multiple: boolean,
+): ApplicationQuestionControlType {
+  switch (kind) {
+    case "file":
+      return "file";
+    case "date":
+      return "date";
+    case "checkbox":
+      return "boolean";
+    case "radio":
+      return "single_choice";
+    case "select":
+    case "combobox":
+      return multiple ? "multi_choice" : "single_choice";
+    default:
+      return "text";
+  }
+}
+
+const FINAL_ACTION_SIGNALS = [
+  "submit application",
+  "submit my application",
+  "send application",
+  "submit",
+  "apply now",
+  "finish and submit",
+  "send my application",
+  "complete application",
+];
+
+const ADVANCE_ACTION_SIGNALS = [
+  "next",
+  "continue",
+  "save and continue",
+  "save and next",
+  "proceed",
+  "review",
+  "go to next",
+];
+
+const BACK_ACTION_SIGNALS = ["back", "previous", "go back", "return to"];
+
+export function inferActionKind(label: string): ApplyActionKind {
+  const signal = normalizeSignal(label);
+  if (!signal) {
+    return "other";
+  }
+  if (containsAny(signal, FINAL_ACTION_SIGNALS)) {
+    return "final";
+  }
+  if (containsAny(signal, BACK_ACTION_SIGNALS)) {
+    return "back";
+  }
+  if (containsAny(signal, ADVANCE_ACTION_SIGNALS)) {
+    return "advance";
+  }
+  return "other";
+}
+
+/** True when the control already holds an answer a person would call filled in. */
+export function isControlAnswered(control: ApplyFormControl): boolean {
+  switch (control.kind) {
+    case "checkbox":
+    case "radio":
+      return control.checked;
+    case "select":
+    case "combobox":
+      return (
+        control.selectedOptionLabel.trim().length > 0 ||
+        control.value.trim().length > 0
+      );
+    case "file":
+      return control.value.trim().length > 0;
+    default:
+      return control.value.trim().length > 0;
+  }
+}

@@ -12,6 +12,10 @@ export default defineConfig({
         "packages/ai-providers/src/index.ts",
       ),
       "@renderer": path.resolve(currentDir, "apps/desktop/src/renderer/src"),
+      "@unemployed/browser-agent": path.resolve(
+        currentDir,
+        "packages/browser-agent/src/index.ts",
+      ),
       "@unemployed/browser-runtime": path.resolve(
         currentDir,
         "packages/browser-runtime/src/index.ts",

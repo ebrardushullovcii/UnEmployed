@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { ApplicationAutomationModeSchema } from "./application-authority";
+
 import {
   DiscoveryRunReportSchema,
   ApplicationAttemptStateSchema,
@@ -2454,8 +2456,22 @@ export const ApplicationRecordSchema = z.object({
   replaySummary: ApplicationAttemptReplaySummarySchema.default({}),
   events: z.array(ApplicationEventSchema).default([]),
   crm: ApplicationCrmDataSchema.nullable().default(null),
+  /**
+   * What the person allowed for this application when it was last prepared.
+   *
+   * Recorded so a screen can tell "filled in and stopped" from "filled in and
+   * waiting on you" without inferring it from which buttons happen to be
+   * wired up. Older records normalize to filling in only, which is what they
+   * did.
+   */
+  automationMode: ApplicationAutomationModeSchema.default("prepare_only"),
 });
 export type ApplicationRecord = z.infer<typeof ApplicationRecordSchema>;
+/**
+ * What a caller may hand the repository. Defaulted fields may be omitted; the
+ * repository parses before it stores, so every stored record is complete.
+ */
+export type ApplicationRecordInput = z.input<typeof ApplicationRecordSchema>;
 
 export const JobFinderInterviewFollowUpInputSchema = z.object({
   applicationRecordId: NonEmptyStringSchema,

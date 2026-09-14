@@ -55,6 +55,7 @@ function createAwaitingApprovalDetails(): ApplyRunDetails {
     artifactRefs: [],
     checkpoints: [],
     consentRequests: [],
+  reviewCard: null,
   };
 }
 

@@ -40,7 +40,6 @@ import {
   classifySourceDebugAttemptOutcome,
   composeSourceDebugInstructions,
   deriveSourceDebugStartingUrls,
-  getSourceDebugMaxSteps,
   getSourceDebugTargetJobCount,
   resolveSourceDebugCompletion,
   resolveSourceDebugPhases,
@@ -588,23 +587,15 @@ export async function runSourceDebugWorkflow(
                 ...currentRouteHintStartingUrls,
               ],
         ).filter(Boolean);
+        let lastProgressUrl: string | null = null;
         const phasePrimaryStartingUrl =
           phaseStartingUrls[0] ?? normalizedTarget.startingUrl;
-        const phaseHasLearnedRouteHints = phaseStartingUrls.some(
-          (url) => url !== normalizedTarget.startingUrl,
-        );
-        const phaseHasExistingInstructionArtifact = Boolean(
-          phaseInstructionArtifact ??
-          phaseStartingUrlArtifact ??
-          preservedRouteHintArtifact,
-        );
-        const phaseMaxSteps = getSourceDebugMaxSteps(phase, {
-          hasLearnedRouteHints: phaseHasLearnedRouteHints,
-          hasPriorPhaseSummary:
-            phasePacket.priorPhaseSummary !== null ||
-            phasePacket.knownFacts.length > 0,
-          hasExistingInstructionArtifact: phaseHasExistingInstructionArtifact,
-        });
+        // No per-phase step quota. The agent is told the goal and decides
+        // when it is done; a stall (nothing new after repeated tries, even
+        // after being asked to change approach) or the agent saying it is
+        // stuck ends the phase. The step and time figures below are safety
+        // ceilings far above what any honest phase needs, not budgets.
+        const phaseMaxSteps = SOURCE_DEBUG_PHASE_STEP_CEILING;
         const debugResult = await ctx.browserRuntime.runAgentDiscovery?.(
           adapterKind,
           {
@@ -619,8 +610,8 @@ export async function runSourceDebugWorkflow(
             targetJobCount: getSourceDebugTargetJobCount(phase),
             maxSteps: phaseMaxSteps,
             runControl: {
-              timeBudgetMs: Math.max(90_000, phaseMaxSteps * 20_000),
-              noProgressStepLimit: Math.max(5, Math.ceil(phaseMaxSteps / 2)),
+              timeBudgetMs: SOURCE_DEBUG_PHASE_TIME_CEILING_MS,
+              noProgressStepLimit: SOURCE_DEBUG_STALL_STEP_WINDOW,
             },
             startingUrls: phaseStartingUrls,
             agentHints: {
@@ -656,6 +647,7 @@ export async function runSourceDebugWorkflow(
                 progress,
                 phase,
               );
+              if (progress.currentUrl) lastProgressUrl = progress.currentUrl;
               emitProgress({
                 phase,
                 waitReason: summary.waitReason,
@@ -807,10 +799,22 @@ export async function runSourceDebugWorkflow(
           blockerSummary: isInternalSourceDebugFailure(debugResult.warning)
             ? null
             : (debugResult.warning ??
-              (completion.completionMode !== "structured_finish" &&
-              completion.completionMode !== "forced_finish"
-                ? completion.completionReason
-                : null)),
+              (completion.completionMode ===
+                "timed_out_with_partial_evidence" ||
+              completion.completionMode === "timed_out_without_evidence" ||
+              completion.completionMode === "stalled"
+                ? describeSourceCheckStop({
+                    mode: completion.completionMode,
+                    phase,
+                    startingUrl: phasePrimaryStartingUrl,
+                    lastUrl: lastProgressUrl,
+                    jobsFound: debugResult.jobs.length,
+                    agentReason: completion.completionReason,
+                  })
+                : completion.completionMode !== "structured_finish" &&
+                    completion.completionMode !== "forced_finish"
+                  ? completion.completionReason
+                  : null)),
           resultSummary: debugFindings?.summary
             ? debugFindings.summary
             : phase === "replay_verification"
@@ -1217,7 +1221,9 @@ export async function runSourceDebugWorkflow(
         verification.proofSummary ??
         (finishedEarlyAfterUsefulDraft
           ? "Source debug stopped after proving a useful draft route on an auth-limited surface."
-          : "Source debug workflow completed."),
+          : // A failed check tells the footer why, in the row's own words.
+            (verification.outcome === "failed" && verification.reason) ||
+            "Source debug workflow completed."),
       instructionArtifactId: instructionToPersist.id,
       timing: buildSourceDebugRunTimingSummary({
         events: progressEvents,
@@ -1287,4 +1293,75 @@ export async function runSourceDebugWorkflow(
   }
 
   return ctx.getWorkspaceSnapshot();
+}
+
+/** What each check phase is doing, in the words a source row can show. */
+function describeSourceCheckPhaseActivity(phase: SourceDebugPhase): string {
+  switch (phase) {
+    case "access_auth_probe":
+      return "checking whether the site opens without a sign-in";
+    case "site_structure_mapping":
+      return "looking for where the job list lives";
+    case "search_filter_probe":
+      return "trying the site's search and filters";
+    case "job_detail_validation":
+      return "opening job pages to read their details";
+    case "apply_path_validation":
+      return "looking for how an application starts";
+    case "replay_verification":
+      return "re-running the saved steps to confirm they still find jobs";
+    default:
+      return "checking the site";
+  }
+}
+
+/**
+ * Safety ceilings for one check phase. They are not budgets: a phase ends
+ * when the agent finishes, says it is stuck, or stalls (nothing new for
+ * SOURCE_DEBUG_STALL_STEP_WINDOW steps, twice: once to warn, once to stop).
+ */
+const SOURCE_DEBUG_PHASE_STEP_CEILING = 60;
+const SOURCE_DEBUG_PHASE_TIME_CEILING_MS = 6 * 60_000;
+const SOURCE_DEBUG_STALL_STEP_WINDOW = 6;
+
+/**
+ * The agent's own wording for a stop ("the phase timed out before the worker
+ * returned a structured finish call", "nothing new after N tries") is kept
+ * on the attempt for engineers; the source row gets a sentence that says
+ * where the check was, why it stopped, what it managed, and what to do next.
+ */
+export function describeSourceCheckStop(input: {
+  mode:
+    | "stalled"
+    | "timed_out_with_partial_evidence"
+    | "timed_out_without_evidence";
+  phase: SourceDebugPhase;
+  startingUrl: string;
+  lastUrl: string | null;
+  jobsFound: number;
+  agentReason: string | null;
+}): string {
+  const host = (() => {
+    try {
+      return new URL(input.startingUrl).hostname.replace(/^www\./, "");
+    } catch {
+      return "this site";
+    }
+  })();
+  const activity = describeSourceCheckPhaseActivity(input.phase);
+  const why =
+    input.mode === "stalled"
+      ? input.agentReason && !/^Nothing new appeared/.test(input.agentReason)
+        ? `Job Finder stopped on ${host} while ${activity} because it got stuck: ${input.agentReason.replace(/\.?$/, ".")}`
+        : `Job Finder stopped on ${host} while ${activity} because the site kept showing the same thing: nothing new appeared after repeated tries, even after it changed approach.`
+      : `Job Finder hit its safety limit on ${host} while ${activity}, which means it kept working without reaching a conclusion.`;
+  const progress =
+    input.jobsFound > 0
+      ? `It found ${input.jobsFound} job${input.jobsFound === 1 ? "" : "s"} before stopping`
+      : "It did not reach a job list before stopping";
+  const where =
+    input.lastUrl && input.lastUrl !== input.startingUrl
+      ? `; the last page it reached was ${input.lastUrl}.`
+      : ".";
+  return `${why} ${progress}${where} Check this source again; if it keeps stopping at the same point, open ${host} in the browser to see what the site shows.`;
 }

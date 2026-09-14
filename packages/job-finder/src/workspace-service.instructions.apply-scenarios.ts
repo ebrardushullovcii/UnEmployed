@@ -108,7 +108,7 @@ describe("createJobFinderWorkspaceService", () => {
         "https://www.linkedin.com/jobs/search/?keywords=frontend&location=kosovo",
         "https://www.linkedin.com/jobs/",
       ],
-      maxSteps: 10,
+      maxSteps: 60,
     });
   });
 
@@ -210,7 +210,7 @@ describe("createJobFinderWorkspaceService", () => {
         "https://www.linkedin.com/jobs/collections/recommended/",
         "https://www.linkedin.com/jobs/",
       ],
-      maxSteps: 10,
+      maxSteps: 60,
     });
     expect(capturedPhaseInputs.get("Search Filter Probe")).toEqual({
       startingUrls: [
@@ -218,7 +218,7 @@ describe("createJobFinderWorkspaceService", () => {
         "https://www.linkedin.com/jobs/",
         "https://www.linkedin.com/jobs/collections/recommended/",
       ],
-      maxSteps: 10,
+      maxSteps: 60,
     });
   });
 
@@ -319,7 +319,7 @@ describe("createJobFinderWorkspaceService", () => {
         "https://www.linkedin.com/jobs/",
         "https://www.linkedin.com/jobs/collections/recommended/",
       ],
-      maxSteps: 10,
+      maxSteps: 60,
     });
     expect(capturedPhaseInputs.get("Replay Verification")).toEqual({
       startingUrls: [
@@ -327,7 +327,7 @@ describe("createJobFinderWorkspaceService", () => {
         "https://www.linkedin.com/jobs/search/?keywords=React+Next.js+Developer&location=Pristina%2C+Kosovo",
         "https://www.linkedin.com/jobs/",
       ],
-      maxSteps: 10,
+      maxSteps: 60,
     });
   });
 
@@ -431,7 +431,7 @@ describe("createJobFinderWorkspaceService", () => {
         "https://example.com/careers/open-roles/",
         "https://example.com/careers/",
       ],
-      maxSteps: 10,
+      maxSteps: 60,
     });
   });
 

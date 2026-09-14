@@ -108,6 +108,7 @@ function buildDraft(): ResumeDraft {
     staleReason: null,
     workHistoryReviewAcknowledgments: [],
     claimConfirmations: [],
+    issueApprovals: [],
     createdAt: updatedAt,
     updatedAt,
   };
@@ -469,7 +470,7 @@ describe("ResumeAssistantProposalCard export-gate warnings", () => {
           bulletId: null,
           flaggedText: liveUngroundedSummary,
           message:
-            "This generated claim lacks strong candidate-only evidence and must be rewritten or explicitly user-edited before export.",
+            "Your saved evidence does not back this generated claim. Rewrite it, or approve it as accurate if you can stand behind it.",
         },
       ],
     });

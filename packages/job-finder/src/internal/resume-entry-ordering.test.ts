@@ -266,6 +266,7 @@ describe("resume entry ordering", () => {
       staleReason: null,
       workHistoryReviewAcknowledgments: [],
       claimConfirmations: [],
+      issueApprovals: [],
       createdAt: now,
       updatedAt: now,
     };
@@ -310,6 +311,7 @@ describe("resume entry ordering", () => {
         staleReason: null,
         workHistoryReviewAcknowledgments: [],
         claimConfirmations: [],
+        issueApprovals: [],
         createdAt: now,
         updatedAt: now,
       };

@@ -100,7 +100,7 @@ describe("Job Finder application authority service", () => {
     await expect(service.list({ status: "revoked" })).resolves.toHaveLength(1);
   });
 
-  it("fails closed for elevated modes, duplicate active authority, and legacy fields", async () => {
+  it("fails closed without approved answers, on duplicate active authority, and on legacy fields", async () => {
     const repository = createInMemoryJobFinderRepository(
       createEmptyJobFinderRepositoryState(),
     );
@@ -110,6 +110,8 @@ describe("Job Finder application authority service", () => {
       idFactory: () => "test",
     });
 
+    // Sending applications is reachable, but only once the person's saved
+    // answers are approved and current; the authority binds to that snapshot.
     await expect(
       service.create(
         createPolicy({
@@ -117,7 +119,7 @@ describe("Job Finder application authority service", () => {
         }),
       ),
     ).rejects.toMatchObject({
-      code: "unsupported_mode",
+      code: "approved_answers_required",
     });
     await service.create(createPolicy());
     await expect(
@@ -218,6 +220,65 @@ describe("Job Finder application authority service", () => {
         id: updated.id,
       }),
     ).rejects.toMatchObject({ code: "approved_answers_required" });
+  });
+
+  it("lets a person choose to send applications, and records exactly what they approved", async () => {
+    const repository = createInMemoryJobFinderRepository(
+      createEmptyJobFinderRepositoryState(),
+    );
+    const service = createJobFinderApplicationAuthorityService({
+      repository,
+      now: () => NOW,
+      idFactory: () => "sending",
+    });
+
+    const profile = await repository.getProfile();
+    await repository.saveProfile({
+      ...profile,
+      answerBank: {
+        ...profile.answerBank,
+        visaSponsorship: "No sponsorship required",
+        workAuthorization: "Authorized to work in the EU",
+      },
+    });
+    const readiness = await service.getReadiness();
+    const approval = await service.approveCurrentAnswers({
+      confirmedCurrentAnswers: true,
+      expectedProfileRevision: readiness.currentAnswers.sourceProfileRevision,
+    });
+    expect(approval.status).toBe("created");
+
+    const created = expectApplied(
+      await service.create(
+        createPolicy({
+          mode: "confirm_before_submit",
+          expiresAt: LATER,
+          scope: { campaignId: null, jobIds: ["job_1"] },
+          preApprovedAttestationKinds: ["truthfulness_certification"],
+          salaryDisclosure: "answer_from_profile",
+        }),
+      ),
+    );
+
+    expect(created.mode).toBe("confirm_before_submit");
+    // Only the exact declaration they ticked, and their pay choice, are in the
+    // policy. Everything else still stops for them.
+    expect(created.decisionPolicy?.answerPolicy).toMatchObject({
+      preApprovedAttestationKinds: ["truthfulness_certification"],
+      salaryDisclosure: "answer_from_profile",
+      unknownRequiredQuestion: "pause_for_user",
+      unknownEligibility: "pause_for_user",
+      unknownLegalRequirement: "pause_for_user",
+    });
+    expect(created.decisionPolicy?.stopConditions).toMatchObject({
+      captcha: "pause_for_user",
+      accountCreation: "pause_for_user",
+      loginRequired: "pause_for_user",
+      outcomeUncertain: "stop_no_retry",
+    });
+    // Creating an employer account is never part of it.
+    expect(created.accountCreationAuthorized).toBe(false);
+    expect(created.decisionPolicy?.digest).toMatch(/^[a-f0-9]{64}$/u);
   });
 
   it("keeps repository CAS results typed at the service boundary", async () => {

@@ -46,7 +46,8 @@ export function synthesizeSourceInstructionArtifact(
     (attempt) =>
       attempt.completionMode === "timed_out_without_evidence" ||
       attempt.completionMode === "runtime_failed" ||
-      attempt.completionMode === "interrupted",
+      attempt.completionMode === "interrupted" ||
+      attempt.completionMode === "stalled",
   );
   const draftWarnings = filterSourceDebugWarnings(
     attempts.flatMap((attempt) => [attempt.blockerSummary]),
@@ -124,7 +125,9 @@ export function synthesizeSourceInstructionArtifact(
   const hasPositiveReusableSearchGuidance = searchGuidance.some(
     isPositiveReusableSearchSignal,
   );
-  const hasExplicitSearchDisproof = searchGuidance.some(isExplicitSearchProbeDisproof);
+  const hasExplicitSearchDisproof = searchGuidance.some(
+    isExplicitSearchProbeDisproof,
+  );
   const hasVisibilityOnlySearchSignals = searchGuidance.some(
     isVisibilityOnlySearchSignal,
   );
@@ -140,7 +143,8 @@ export function synthesizeSourceInstructionArtifact(
     !hasConclusiveSearchDisproof &&
     searchGuidance.every(
       (line) =>
-        isVisibilityOnlySearchSignal(line) || isExplicitSearchProbeDisproof(line),
+        isVisibilityOnlySearchSignal(line) ||
+        isExplicitSearchProbeDisproof(line),
     );
   const quality = evaluateSourceInstructionQuality({
     navigationGuidance,
@@ -184,7 +188,9 @@ export function synthesizeSourceInstructionArtifact(
     quality.qualifiesForValidation &&
     !hasPromotionBlocker
       ? "validated"
-      : warnings.some((warning) => warning.toLowerCase().includes("unsupported"))
+      : warnings.some((warning) =>
+            warning.toLowerCase().includes("unsupported"),
+          )
         ? "unsupported"
         : "draft";
   const intelligence =
@@ -196,7 +202,9 @@ export function synthesizeSourceInstructionArtifact(
     });
 
   return SourceInstructionArtifactSchema.parse({
-    id: run.instructionArtifactId ?? `source_instruction_${target.id}_${Date.now()}`,
+    id:
+      run.instructionArtifactId ??
+      `source_instruction_${target.id}_${Date.now()}`,
     targetId: target.id,
     status,
     createdAt: attempts[0]?.startedAt ?? new Date().toISOString(),

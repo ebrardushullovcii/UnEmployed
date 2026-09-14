@@ -43,15 +43,15 @@ const fullYieldShares = (
 
 describe("resolveDiscoveryTargetBudget", () => {
   test("keeps the default interactive precision budgets unchanged", () => {
-    // Single-target interactive runs stay capped at 50 jobs / 36 steps.
+    // Single-target interactive runs keep 50 jobs and the safety step ceiling.
     expect(
       resolveDiscoveryTargetBudget({
         targetsRemaining: 1,
         validJobsFoundSoFar: 0,
       }),
-    ).toEqual({ targetJobCount: 50, maxSteps: 36 });
+    ).toEqual({ targetJobCount: 50, maxSteps: 120 });
 
-    // Multi-target interactive runs keep the 100-job run budget, the 60-step
+    // Multi-target interactive runs keep the 100-job run budget, the safety step
     // ceiling, and the exact legacy fair-share split.
     const shares = fullYieldShares(3);
     expect(shares).toEqual([34, 33, 33]);
@@ -62,7 +62,7 @@ describe("resolveDiscoveryTargetBudget", () => {
         targetsRemaining: 2,
         validJobsFoundSoFar: 0,
       }).maxSteps,
-    ).toBe(60);
+    ).toBe(120);
   });
 
   test("splits a configured budget exactly across targets with proportional step ceilings", () => {
@@ -122,7 +122,7 @@ describe("resolveDiscoveryTargetBudget", () => {
         validJobsFoundSoFar: 0,
         runJobBudget: 1,
       }),
-    ).toEqual({ targetJobCount: 1, maxSteps: 20 });
+    ).toEqual({ targetJobCount: 1, maxSteps: 240 });
 
     // Once the scarce units are consumed, later positions receive zero
     // instead of stealing the remainder from earlier sources.
@@ -132,7 +132,7 @@ describe("resolveDiscoveryTargetBudget", () => {
         validJobsFoundSoFar: 1,
         runJobBudget: 1,
       }),
-    ).toEqual({ targetJobCount: 0, maxSteps: 20 });
+    ).toEqual({ targetJobCount: 0, maxSteps: 240 });
 
     // A fully exhausted budget yields zero without going negative.
     expect(
@@ -141,7 +141,7 @@ describe("resolveDiscoveryTargetBudget", () => {
         validJobsFoundSoFar: 4,
         runJobBudget: 4,
       }),
-    ).toEqual({ targetJobCount: 0, maxSteps: 20 });
+    ).toEqual({ targetJobCount: 0, maxSteps: 240 });
   });
 });
 
@@ -489,7 +489,7 @@ describe("campaign discovery run budgets", () => {
     expect(agentOptions?.targetJobCount).toBe(1_000);
     expect(agentOptions?.maxSteps).toBe(240);
     expect(agentOptions?.runControl?.timeBudgetMs).toBe(30 * 60_000);
-    expect(agentOptions?.runControl?.noProgressStepLimit).toBe(24);
+    expect(agentOptions?.runControl?.noProgressStepLimit).toBe(8);
 
     const discoveryState = await repository.getDiscoveryState();
     const run = discoveryState.recentRuns.at(-1);

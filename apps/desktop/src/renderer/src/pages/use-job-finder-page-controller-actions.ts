@@ -111,6 +111,7 @@ import {
   describeResumeIdentityOwnershipChoice,
   useResumeSourceNameForProfile,
 } from "@unemployed/job-finder/resume-identity";
+import { describeFailure } from "@renderer/features/job-finder/lib/describe-failure";
 
 /**
  * How long a browser-backed command may keep its controls disabled. Defined
@@ -985,8 +986,8 @@ export function createPrimaryPageActions(
         const newestRun = discoveryRuns
           .filter((run) => run.campaignId === campaignIdForRun)
           .sort(
-          (left, right) =>
-            Date.parse(right.startedAt) - Date.parse(left.startedAt),
+            (left, right) =>
+              Date.parse(right.startedAt) - Date.parse(left.startedAt),
           )[0];
         const validJobsFound = newestRun?.summary.validJobsFound ?? 0;
         const duplicatesMerged = newestRun?.summary.duplicatesMerged ?? 0;
@@ -994,10 +995,10 @@ export function createPrimaryPageActions(
         const hasReport = hasDiscoveryRunReportCounts(reportCounts);
         setDiscoveryRunFeedback(
           !hasReport &&
-          shouldPresentRepeatedDiscoveryFeedback({
-            duplicatesMerged,
-            validJobsFound,
-          })
+            shouldPresentRepeatedDiscoveryFeedback({
+              duplicatesMerged,
+              validJobsFound,
+            })
             ? createDiscoveryRunRepeatedFeedback({
                 duplicatesMerged,
                 reviewedListingCount:
@@ -1006,9 +1007,7 @@ export function createPrimaryPageActions(
               })
             : createDiscoveryRunSucceededFeedback(
                 targetLabel,
-                hasReport
-                  ? formatDiscoveryRunReportLabel(reportCounts)
-                  : null,
+                hasReport ? formatDiscoveryRunReportLabel(reportCounts) : null,
               ),
         );
       })
@@ -1864,11 +1863,10 @@ export function createPrimaryPageActions(
         );
       } catch (error) {
         applyRouteScopedMessage({
-          message:
-            getJobFinderErrorMessage(
-              error,
-              "The search could not be stopped. Check its status, then try again.",
-            ),
+          message: getJobFinderErrorMessage(
+            error,
+            "The search could not be stopped. Check its status, then try again.",
+          ),
         });
         return false;
       }
@@ -1921,10 +1919,11 @@ export function createPrimaryPageActions(
             return;
           }
 
-          const message =
-            error instanceof Error
-              ? error.message
-              : "The requested Job Finder action failed.";
+          // A plain sentence from the closed set; the raw "Error invoking
+          // remote method" text was shown verbatim in the Profile footer.
+          const message = describeFailure(error, {
+            action: "check this source",
+          }).userMessage;
           applyRouteScopedMessage({ message }, ownerStartRoute);
         }
       });
@@ -2276,10 +2275,7 @@ export function createPrimaryPageActions(
             ...profile,
             resumeIdentityOwnership: choice.acknowledgement,
           }),
-        dedupeKey: createSaveDedupeKey(
-          "profile",
-          choice.acknowledgement,
-        ),
+        dedupeKey: createSaveDedupeKey("profile", choice.acknowledgement),
         failedFallback:
           "That choice was not saved. Retry before leaving this page.",
         label: "Resume identity",

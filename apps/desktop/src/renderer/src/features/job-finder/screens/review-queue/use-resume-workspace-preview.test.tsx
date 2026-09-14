@@ -56,6 +56,7 @@ function buildDraft(
     staleReason: null,
     workHistoryReviewAcknowledgments: [],
     claimConfirmations: [],
+    issueApprovals: [],
     createdAt: "2026-04-27T00:00:00.000Z",
     updatedAt: "2026-04-27T00:00:00.000Z",
     ...overrides,

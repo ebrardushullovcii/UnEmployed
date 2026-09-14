@@ -10,6 +10,7 @@ import type {
   ApplicationArtifactRefInput,
   ApplicationConsentRequest,
   ApplicationRecord,
+  ApplicationRecordInput,
   ApplicationQuestionRecord,
   ApplicationQuestionRecordInput,
   ApplicationReplayCheckpoint,
@@ -497,7 +498,9 @@ export interface JobFinderRepository
     tailoredAsset?: TailoredAsset | null;
   }): Promise<void>;
   listApplicationRecords(): Promise<readonly ApplicationRecord[]>;
-  upsertApplicationRecord(applicationRecord: ApplicationRecord): Promise<void>;
+  upsertApplicationRecord(
+    applicationRecord: ApplicationRecordInput,
+  ): Promise<void>;
   /**
    * Atomically validates every selected CRM revision, then merges the CRM field
    * from each proposed changed record onto its transaction-current record.

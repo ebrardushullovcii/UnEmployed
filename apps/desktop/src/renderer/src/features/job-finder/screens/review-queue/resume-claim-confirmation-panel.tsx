@@ -6,6 +6,7 @@ import type {
   ResumeDraft,
 } from "@unemployed/contracts";
 import {
+  isResumeClaimAssessmentApprovable,
   isResumeSkillClaimAssessment,
   resumeClaimOwnershipStatement,
 } from "@unemployed/contracts";
@@ -154,9 +155,7 @@ export function buildResumeClaimConfirmationCommandInput(input: {
     if (
       assessments.some(
         (assessment) =>
-          !assessment ||
-          assessment.status !== "confirm_needed" ||
-          assessment.verifier !== "deterministic_candidate_evidence_v2",
+          !assessment || !isResumeClaimAssessmentApprovable(assessment),
       )
     ) {
       return null;
@@ -183,11 +182,7 @@ export function buildResumeClaimConfirmationCommandInput(input: {
     claimAssessments: input.claimAssessments,
   });
 
-  if (
-    !assessment ||
-    assessment.status !== "confirm_needed" ||
-    assessment.verifier !== "deterministic_candidate_evidence_v2"
-  ) {
+  if (!assessment || !isResumeClaimAssessmentApprovable(assessment)) {
     return null;
   }
 

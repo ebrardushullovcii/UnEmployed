@@ -62,9 +62,10 @@ const validRemove = {
 
 describe("contracts resume claim confirmation command schema", () => {
   test("parses add and remove intents with their exact shapes", () => {
-    const added = JobFinderSetResumeClaimConfirmationInputSchema.parse(
-      buildValidAddInput(),
-    );
+    const added =
+      JobFinderSetResumeClaimConfirmationInputSchema.parse(
+        buildValidAddInput(),
+      );
     expect(added).toMatchObject({
       intent: "add",
       draftId: "resume_draft_1",
@@ -76,9 +77,8 @@ describe("contracts resume claim confirmation command schema", () => {
       ownershipStatement: resumeClaimOwnershipStatement,
     });
 
-    const removed = JobFinderSetResumeClaimConfirmationInputSchema.parse(
-      validRemove,
-    );
+    const removed =
+      JobFinderSetResumeClaimConfirmationInputSchema.parse(validRemove);
     expect(removed).toMatchObject({
       intent: "remove",
       confirmationId: "claim_confirmation_section_experience_abc",
@@ -271,12 +271,17 @@ describe("contracts resume claim confirmation command schema", () => {
         expect(command.ownershipStatement).toBe(resumeClaimOwnershipStatement);
         return;
       }
+      if (command.intent !== "remove") {
+        throw new Error(`Unexpected intent ${command.intent}`);
+      }
       expect(command.confirmationId).toContain("claim_confirmation");
     };
 
     assertCommand(validRemove);
     assertCommand(
-      JobFinderSetResumeClaimConfirmationInputSchema.parse(buildValidAddInput()),
+      JobFinderSetResumeClaimConfirmationInputSchema.parse(
+        buildValidAddInput(),
+      ),
     );
     assertCommand(
       JobFinderSetResumeClaimConfirmationInputSchema.parse(

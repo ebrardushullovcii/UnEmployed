@@ -153,12 +153,59 @@ export type SubmissionAnswerSnapshotIdentity = z.infer<
 >;
 
 /**
+ * Kinds of declaration a form can ask the applicant to make about themselves.
+ *
+ * These are the statements a person signs rather than facts a product can
+ * look up: equal-opportunity self-identification, consent to a background
+ * check, a certification that every answer is true, acceptance of the
+ * employer's terms, a privacy notice, and optional marketing contact. An
+ * automated run answers one of these only when the saved authority document
+ * names that exact kind; anything else pauses for the person.
+ */
+export const applicationAttestationKindValues = [
+  "equal_opportunity_self_identification",
+  "background_check_consent",
+  "truthfulness_certification",
+  "terms_acceptance",
+  "privacy_notice_acknowledgement",
+  "marketing_contact_consent",
+] as const;
+export const ApplicationAttestationKindSchema = z.enum(
+  applicationAttestationKindValues,
+);
+export type ApplicationAttestationKind = z.infer<
+  typeof ApplicationAttestationKindSchema
+>;
+
+/**
+ * How an automated run may answer a question about pay.
+ *
+ * `pause_for_user` is the safe default: pay is a negotiating position, and a
+ * saved number can cost the person money. `answer_from_profile` is only ever
+ * a deliberate choice.
+ */
+export const applicationSalaryDisclosureRuleValues = [
+  "pause_for_user",
+  "answer_from_profile",
+] as const;
+export const ApplicationSalaryDisclosureRuleSchema = z.enum(
+  applicationSalaryDisclosureRuleValues,
+);
+export type ApplicationSalaryDisclosureRule = z.infer<
+  typeof ApplicationSalaryDisclosureRuleSchema
+>;
+
+/**
  * Explicit answer decisions for an elevated authority envelope.
  *
  * Every stop value is a literal rather than a configurable string. This keeps
  * guessing, skipping, silent continuation, and invented answers
  * structurally unrepresentable. The snapshot binds the authority to the
  * exact user-approved answer set; raw answers never cross this contract.
+ *
+ * `preApprovedAttestationKinds` is the one list the person can widen, and it
+ * is an allowlist of exact kinds, never a blanket permission. An empty list
+ * (the default) means every declaration pauses for the person.
  */
 export const ApplicationAuthorityAnswerPolicySchema = z
   .object({
@@ -166,6 +213,17 @@ export const ApplicationAuthorityAnswerPolicySchema = z
     unknownRequiredQuestion: z.literal("pause_for_user"),
     unknownEligibility: z.literal("pause_for_user"),
     unknownLegalRequirement: z.literal("pause_for_user"),
+    preApprovedAttestationKinds: z
+      .array(ApplicationAttestationKindSchema)
+      .max(applicationAttestationKindValues.length)
+      .default([])
+      .refine(
+        (values) => new Set(values).size === values.length,
+        "Pre-approved declaration kinds must be unique.",
+      ),
+    salaryDisclosure: ApplicationSalaryDisclosureRuleSchema.default(
+      "pause_for_user",
+    ),
   })
   .strict();
 export type ApplicationAuthorityAnswerPolicy = z.infer<
@@ -238,17 +296,18 @@ export type ApplicationAuthorityDecisionPolicy = z.infer<
  * credentials, page content, or DOM data. Callers hash this exact UTF-8 string
  * with SHA-256 at the trusted persistence boundary.
  */
-export function serializeApplicationAuthorityDecisionPolicyForDigest(
-  policy: Pick<
-    ApplicationAuthorityDecisionPolicy,
-    "version" | "answerPolicy" | "stopConditions"
-  >,
-): string {
-  const parsed = ApplicationAuthorityDecisionPolicySchema.pick({
+const ApplicationAuthorityDecisionPolicyDigestPayloadSchema =
+  ApplicationAuthorityDecisionPolicySchema.pick({
     version: true,
     answerPolicy: true,
     stopConditions: true,
-  }).parse(policy);
+  });
+
+export function serializeApplicationAuthorityDecisionPolicyForDigest(
+  policy: z.input<typeof ApplicationAuthorityDecisionPolicyDigestPayloadSchema>,
+): string {
+  const parsed =
+    ApplicationAuthorityDecisionPolicyDigestPayloadSchema.parse(policy);
   return JSON.stringify(parsed);
 }
 

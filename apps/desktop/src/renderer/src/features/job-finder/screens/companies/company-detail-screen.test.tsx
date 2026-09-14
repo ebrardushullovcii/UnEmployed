@@ -145,6 +145,7 @@ function makeRecord(
     },
     events: [],
     crm: null,
+    automationMode: "prepare_only" as const,
     ...overrides,
   };
 }

@@ -165,6 +165,7 @@ function buildDraft(): ResumeDraft {
     staleReason: null,
     workHistoryReviewAcknowledgments: [],
     claimConfirmations: [],
+    issueApprovals: [],
     createdAt: updatedAt,
     updatedAt,
   };

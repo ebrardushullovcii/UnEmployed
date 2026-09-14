@@ -51,6 +51,9 @@ const GUIDED_EDITS_NO_COVER_SELECTORS = [
  * panel that told you to undo was the only way to reach the button, so the
  * panel now floats above that row the same way it floats below the header.
  */
+/** Never let the no-cover rows squash the panel below this. */
+const GUIDED_EDITS_PANEL_MIN_HEIGHT = 360;
+
 const GUIDED_EDITS_BOTTOM_NO_COVER_SELECTORS = [
   "[data-resume-draft-provenance]",
   "[data-resume-assistant-quick-actions]",
@@ -251,9 +254,24 @@ export function ResumeGuidedEditsPopup(props: {
     maxHeight: panelMaxHeight,
     maxWidth: panelMaxWidth,
   };
+  // The rows the panel is asked not to cover can sit anywhere on screen once
+  // the studio scrolls; a provenance row near the top of the window used to
+  // push the bottom offset up to nearly the full height and squash the panel
+  // to a sliver with no room for the composer. The panel keeps a usable
+  // height first and covers such a row second.
+  const effectiveBottomOffset =
+    typeof window === "undefined"
+      ? safeBottomOffset
+      : Math.min(
+          safeBottomOffset,
+          Math.max(
+            COPILOT_BOTTOM_OFFSET,
+            window.innerHeight - safeTopOffset - GUIDED_EDITS_PANEL_MIN_HEIGHT,
+          ),
+        );
   const panelDimensions = getCopilotPanelDimensions(
     safeTopOffset,
-    safeBottomOffset,
+    effectiveBottomOffset,
     panelSizeLimits,
   );
   const viewportInset =
@@ -298,10 +316,14 @@ export function ResumeGuidedEditsPopup(props: {
   }, [isDesktopStudio]);
 
   useLayoutEffect(() => {
+    // Rows inside the panel itself (its own quick actions) are never
+    // something to avoid: measuring them clamped the panel to a sliver.
     const readBottomSources = () =>
-      GUIDED_EDITS_BOTTOM_NO_COVER_SELECTORS.flatMap((selector) => [
-        ...document.querySelectorAll<HTMLElement>(selector),
-      ]);
+      GUIDED_EDITS_BOTTOM_NO_COVER_SELECTORS.flatMap((selector) =>
+        [...document.querySelectorAll<HTMLElement>(selector)].filter(
+          (element) => !panelRef.current?.contains(element),
+        ),
+      );
     const updateSafeBottomOffset = () => {
       const sources = readBottomSources();
       setSafeBottomOffset(
@@ -343,7 +365,7 @@ export function ResumeGuidedEditsPopup(props: {
         x: current.x,
         y: current.y,
         isOpen,
-        minBottomOffset: safeBottomOffset,
+        minBottomOffset: effectiveBottomOffset,
         minTopOffset: safeTopOffset,
         panelSizeLimits: {
           maxHeight: panelMaxHeight,
@@ -355,7 +377,7 @@ export function ResumeGuidedEditsPopup(props: {
     isOpen,
     panelMaxHeight,
     panelMaxWidth,
-    safeBottomOffset,
+    effectiveBottomOffset,
     safeTopOffset,
   ]);
 
@@ -371,7 +393,7 @@ export function ResumeGuidedEditsPopup(props: {
           x: current.x,
           y: current.y,
           isOpen,
-          minBottomOffset: safeBottomOffset,
+          minBottomOffset: effectiveBottomOffset,
           minTopOffset: safeTopOffset,
           panelSizeLimits: {
             maxHeight: panelMaxHeight,
@@ -388,7 +410,7 @@ export function ResumeGuidedEditsPopup(props: {
     isOpen,
     panelMaxHeight,
     panelMaxWidth,
-    safeBottomOffset,
+    effectiveBottomOffset,
     safeTopOffset,
   ]);
 
@@ -424,7 +446,7 @@ export function ResumeGuidedEditsPopup(props: {
         x: corner.right - rect.width,
         y: corner.bottom - rect.height,
         isOpen,
-        minBottomOffset: safeBottomOffset,
+        minBottomOffset: effectiveBottomOffset,
         minTopOffset: safeTopOffset,
         panelSizeLimits,
       }),
@@ -450,7 +472,7 @@ export function ResumeGuidedEditsPopup(props: {
           x: current.x,
           y: current.y,
           isOpen: true,
-          minBottomOffset: safeBottomOffset,
+          minBottomOffset: effectiveBottomOffset,
           minTopOffset: safeTopOffset,
           panelSizeLimits: {
             maxHeight: panelMaxHeight,
@@ -468,7 +490,7 @@ export function ResumeGuidedEditsPopup(props: {
     isOpen,
     panelMaxHeight,
     panelMaxWidth,
-    safeBottomOffset,
+    effectiveBottomOffset,
     safeTopOffset,
   ]);
 
@@ -588,7 +610,7 @@ export function ResumeGuidedEditsPopup(props: {
         x: right - nextWidth,
         y: bottom - nextHeight,
         isOpen: nextOpen,
-        minBottomOffset: safeBottomOffset,
+        minBottomOffset: effectiveBottomOffset,
         minTopOffset: safeTopOffset,
         panelSizeLimits,
       }),
@@ -657,7 +679,7 @@ export function ResumeGuidedEditsPopup(props: {
         x: dragState.startX + deltaX,
         y: dragState.startY + deltaY,
         isOpen,
-        minBottomOffset: safeBottomOffset,
+        minBottomOffset: effectiveBottomOffset,
         minTopOffset: safeTopOffset,
         panelSizeLimits,
       }),
@@ -802,7 +824,7 @@ export function ResumeGuidedEditsPopup(props: {
             width: `${panelDimensions.expandedWidth}px`,
             height: `${panelDimensions.expandedHeight}px`,
             maxWidth: `calc(100vw - ${viewportInset * 2}px)`,
-            maxHeight: `calc(100vh - ${safeTopOffset + safeBottomOffset}px)`,
+            maxHeight: `calc(100vh - ${safeTopOffset + effectiveBottomOffset}px)`,
           }}
         >
           <ResumeAssistantPanel

@@ -70,44 +70,43 @@ describe("DiscoveryFiltersPanel", () => {
       getByText,
       queryByRole,
       queryByText,
-    } =
-      render(
-        <MemoryRouter initialEntries={["/job-finder/discovery"]}>
-          <Routes>
-            <Route
-              path="*"
-              element={
-                <>
-                  <DiscoveryFiltersPanel
-                    activeRun={null}
-                    browserSession={{
-                      source: "target_site",
-                      status: "unknown",
-                      driver: "catalog_seed",
-                      label: "Browser optional",
-                      detail: "The browser is only needed for sign-in.",
-                      lastCheckedAt: "2026-03-20T10:00:00.000Z",
-                    }}
-                    discoverySessions={[]}
-                    isBrowserSessionPending={false}
-                    isBrowserSessionPendingForTarget={() => false}
-                    isDiscoveryAllPending={false}
-                    isTargetPending={() => false}
-                    planEditorHref="/job-finder/campaigns?campaignId=plan-a"
-                    onOpenBrowserSession={vi.fn()}
-                    onOpenBrowserSessionForTarget={vi.fn()}
-                    onRunAgentDiscovery={vi.fn()}
-                    onViewProgress={vi.fn()}
-                    searchPreferences={searchPreferences}
-                    sourceAccessPrompts={[]}
-                  />
-                  <CurrentPath />
-                </>
-              }
-            />
-          </Routes>
-        </MemoryRouter>,
-      );
+    } = render(
+      <MemoryRouter initialEntries={["/job-finder/discovery"]}>
+        <Routes>
+          <Route
+            path="*"
+            element={
+              <>
+                <DiscoveryFiltersPanel
+                  activeRun={null}
+                  browserSession={{
+                    source: "target_site",
+                    status: "unknown",
+                    driver: "catalog_seed",
+                    label: "Browser optional",
+                    detail: "The browser is only needed for sign-in.",
+                    lastCheckedAt: "2026-03-20T10:00:00.000Z",
+                  }}
+                  discoverySessions={[]}
+                  isBrowserSessionPending={false}
+                  isBrowserSessionPendingForTarget={() => false}
+                  isDiscoveryAllPending={false}
+                  isTargetPending={() => false}
+                  planEditorHref="/job-finder/campaigns?campaignId=plan-a"
+                  onOpenBrowserSession={vi.fn()}
+                  onOpenBrowserSessionForTarget={vi.fn()}
+                  onRunAgentDiscovery={vi.fn()}
+                  onViewProgress={vi.fn()}
+                  searchPreferences={searchPreferences}
+                  sourceAccessPrompts={[]}
+                />
+                <CurrentPath />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
 
     const scrollRegion = getByRole("region", {
       name: "Current search details",
@@ -144,13 +143,13 @@ describe("DiscoveryFiltersPanel", () => {
     // carries a non-color glyph instead.
     expect(queryByText("Search")).toBeNull();
     expect(
-      container.querySelector("[data-slot='badge'] svg[aria-hidden='true']"),
+      container.querySelector(
+        "[data-testid='discovery-browser-status'] svg[aria-hidden='true']",
+      ),
     ).not.toBeNull();
     expect(queryByText(/^Other active criteria/)).toBeNull();
 
-    fireEvent.click(
-      getByRole("button", { name: "Edit this plan's places" }),
-    );
+    fireEvent.click(getByRole("button", { name: "Edit this plan's places" }));
     expect(getByText("/job-finder/campaigns?campaignId=plan-a")).toBeTruthy();
   });
 
@@ -402,7 +401,9 @@ describe("DiscoveryFiltersPanel", () => {
     function LocationProbe() {
       const location = useLocation();
       return (
-        <span data-test-location>{`${location.pathname}${location.search}`}</span>
+        <span
+          data-test-location
+        >{`${location.pathname}${location.search}`}</span>
       );
     }
 
@@ -436,9 +437,9 @@ describe("DiscoveryFiltersPanel", () => {
 
     fireEvent.click(getByRole("button", { name: "Add roles" }));
 
-    expect(
-      container.querySelector("[data-test-location]")?.textContent,
-    ).toBe("/job-finder/profile?section=preferences&focus=target-roles");
+    expect(container.querySelector("[data-test-location]")?.textContent).toBe(
+      "/job-finder/profile?section=preferences&focus=target-roles",
+    );
   });
 
   it("gives hours their own labelled row instead of hiding them in the disclosure", () => {
@@ -1394,9 +1395,7 @@ describe("DiscoveryFiltersPanel", () => {
     );
 
     expect(getByText("No matches from this search")).toBeTruthy();
-    expect(
-      getByRole("link", { name: "Edit this plan's places" }),
-    ).toBeTruthy();
+    expect(getByRole("link", { name: "Edit this plan's places" })).toBeTruthy();
     expect(queryByText("Ready for your first search")).toBeNull();
   });
 
